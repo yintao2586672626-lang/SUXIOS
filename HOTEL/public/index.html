@@ -13712,172 +13712,581 @@
                 }
             };
             
-            // 本地生成AI分析报告（后端API不可用时的备选方案）
+            // 本地生成AI分析报告（后端API不可用时的备选方案）— 增强版
             const generateLocalAnalysis = (hotels) => {
                 if (!hotels || hotels.length === 0) {
                     return '<p class="text-gray-500">暂无数据可供分析</p>';
                 }
-                
-                // 计算统计数据
+
+                // ==================== 1. 基础统计 ====================
                 const totalRoomNights = hotels.reduce((sum, h) => sum + (h.roomNights || 0), 0);
                 const totalRoomRevenue = hotels.reduce((sum, h) => sum + (h.roomRevenue || 0), 0);
                 const totalSales = hotels.reduce((sum, h) => sum + (h.sales || 0), 0);
                 const totalExposure = hotels.reduce((sum, h) => sum + (h.exposure || 0), 0);
                 const totalViews = hotels.reduce((sum, h) => sum + (h.views || 0), 0);
-                
+
                 const avgRoomNights = totalRoomNights / hotels.length;
                 const avgRoomRevenue = totalRoomRevenue / hotels.length;
                 const avgPricePerNight = totalRoomNights > 0 ? totalRoomRevenue / totalRoomNights : 0;
-                
-                // 找出排名靠前的酒店
+
+                // ==================== 2. 排名榜单 ====================
                 const topByRoomNights = [...hotels].sort((a, b) => (b.roomNights || 0) - (a.roomNights || 0)).slice(0, 5);
                 const topByRevenue = [...hotels].sort((a, b) => (b.roomRevenue || 0) - (a.roomRevenue || 0)).slice(0, 5);
-                
-                // 计算转化率相关
-                const avgViewConversion = hotels.reduce((sum, h) => sum + (h.viewConversion || 0), 0) / hotels.length;
-                const avgPayConversion = hotels.reduce((sum, h) => sum + (h.payConversion || 0), 0) / hotels.length;
-                
-                // 生成HTML报告
+                const topByExposure = [...hotels].filter(h => h.exposure > 0).sort((a, b) => b.exposure - a.exposure).slice(0, 5);
+
+                // ==================== 3. 价格带分析 ====================
+                const prices = hotels.map(h => {
+                    const nights = h.roomNights || 1;
+                    return { name: h.hotelName, price: (h.roomRevenue || 0) / nights };
+                }).filter(p => p.price > 0 && p.price < 10000); // 过滤异常值
+                prices.sort((a, b) => a.price - b.price);
+                const priceMin = prices.length > 0 ? prices[0].price : 0;
+                const priceMax = prices.length > 0 ? prices[prices.length - 1].price : 0;
+                const priceMedian = prices.length > 0 ? prices[Math.floor(prices.length / 2)].price : 0;
+                const priceQ1 = prices.length > 2 ? prices[Math.floor(prices.length * 0.25)].price : priceMin;
+                const priceQ3 = prices.length > 2 ? prices[Math.floor(prices.length * 0.75)].price : priceMax;
+                const priceIQR = priceQ3 - priceQ1; // 四分位距
+                const priceStdDev = calcStdDev(prices.map(p => p.price));
+
+                // 价格分段
+                const priceBands = [
+                    { label: '经济型 (<¥150)', count: 0, color: 'bg-green-100 text-green-700', border: 'border-green-300' },
+                    { label: '舒适型 (¥150-300)', count: 0, color: 'bg-blue-100 text-blue-700', border: 'border-blue-300' },
+                    { label: '中高端 (¥300-500)', count: 0, color: 'bg-purple-100 text-purple-700', border: 'border-purple-300' },
+                    { label: '豪华型 (>¥500)', count: 0, color: 'bg-red-100 text-red-700', border: 'border-red-300' },
+                ];
+                prices.forEach(p => {
+                    if (p.price < 150) priceBands[0].count++;
+                    else if (p.price < 300) priceBands[1].count++;
+                    else if (p.price < 500) priceBands[2].count++;
+                    else priceBands[3].count++;
+                });
+
+                // ==================== 4. 市场集中度（HHI指数）====================
+                const marketShares = hotels.map(h => ({
+                    name: h.hotelName,
+                    share: totalRoomNights > 0 ? ((h.roomNights || 0) / totalRoomNights) * 100 : 0,
+                    value: h.roomNights || 0,
+                }));
+                let hhi = 0;
+                marketShares.forEach(m => { hhi += m.share * m.share; });
+                // HHI解读
+                let hhiLevel = '', hhiColor = '', hhiDesc = '';
+                if (hhi < 1000) { hhiLevel = '低集中度'; hhiColor = 'text-green-600 bg-green-50'; hhiDesc = '竞争激烈分散，市场参与者众多，适合差异化竞争策略。'; }
+                else if (hhi < 1800) { hhiLevel = '中集中度'; hhiColor = 'text-yellow-600 bg-yellow-50'; hhiDesc = '竞争适中，头部酒店有一定优势但仍有较大发展空间。'; }
+                else { hhiLevel = '高集中度'; hhiColor = 'text-red-600 bg-red-50'; hhiDesc = '寡头垄断格局明显，需重点研究头部竞对的经营策略。'; }
+
+                // TOP3 集中度
+                const top3Share = [...marketShares].sort((a, b) => b.share - a.share).slice(0, 3).reduce((s, m) => s + m.share, 0);
+
+                // ==================== 5. 转化漏斗分析 ====================
+                const exposureToViewRate = totalExposure > 0 ? (totalViews / totalExposure) * 100 : 0;
+                const avgViewConversion = hotels.filter(h => h.viewConversion > 0).length > 0
+                    ? hotels.filter(h => h.viewConversion > 0).reduce((s, h) => s + h.viewConversion, 0)
+                      / hotels.filter(h => h.viewConversion > 0).length : 0;
+                const avgPayConversion = hotels.filter(h => h.payConversion > 0).length > 0
+                    ? hotels.filter(h => h.payConversion > 0).reduce((s, h) => s + h.payConversion, 0)
+                      / hotels.filter(h => h.payConversion > 0).length : 0;
+
+                // 转化率评级
+                function rateConversion(val, type) {
+                    if (!val) return { level: '无数据', color: 'text-gray-500', icon: 'fa-minus-circle', advice: '' };
+                    const threshold = type === 'exposure' ? 10 : (type === 'view' ? 5 : 50);
+                    if (val >= threshold) return { level: '优秀', color: 'text-green-600', icon: 'fa-check-double', advice: '转化效率出色，继续保持当前运营水平。' };
+                    if (val >= threshold * 0.6) return { level: '良好', color: 'text-blue-600', icon: 'fa-check-circle', advice: '表现尚可但有提升空间。' };
+                    return { level: '待优化', color: 'text-orange-500', icon: 'fa-exclamation-triangle', advice: '低于行业平均水平，建议重点优化。' };
+                }
+                const expRateRating = rateConversion(exposureToViewRate, 'exposure');
+                const viewRateRating = rateConversion(avgViewConversion, 'view');
+                const payRateRating = rateConversion(avgPayConversion, 'pay');
+
+                // ==================== 6. 离群值检测 ====================
+                const avgRN = avgRoomNights;
+                const stdRN = calcStdDev(hotels.map(h => h.roomNights || 0));
+                const outliersHigh = hotels.filter(h => (h.roomNights || 0) > avgRN + 2 * stdRN);
+                const outliersLow = hotels.filter(h => (h.roomNights || 0) > 0 && (h.roomNights || 0) < Math.max(0, avgRN - 2 * stdRN));
+
+                // ==================== 7. 酒店分层（基于间夜量的K-means简化版）====================
+                const sortedHotels = [...hotels].sort((a, b) => (b.roomNights || 0) - (a.roomNights || 0));
+                const tierLeader = sortedHotels.slice(0, Math.max(1, Math.ceil(sortedHotels.length * 0.15)));   // 头部 15%
+                const tierMiddle = sortedHotels.slice(tierLeader.length, tierLeader.length + Math.ceil(sortedHotels.length * 0.55)); // 中部 55%
+                const tierTail = sortedHotels.slice(tierLeader.length + tierMiddle.length);               // 尾部 30%
+
+                // ==================== 8. 评分与销量相关性（Spearman近似）====================
+                const scoredHotels = hotels.filter(h => (h.commentScore || 0) > 0 && (h.roomNights || 0) > 0);
+                let scoreCorrelation = 0;
+                if (scoredHotels.length >= 3) {
+                    const rankedScore = rankData(scoredHotels.map(h => h.commentScore));
+                    const rankedVolume = rankData(scoredHotels.map(h => h.roomNights));
+                    scoreCorrelation = spearmanCorrelation(rankedScore, rankedVolume);
+                }
+
+                // ==================== 辅助函数 ====================
+                function calcStdDev(arr) {
+                    if (arr.length <= 1) return 0;
+                    const mean = arr.reduce((s, v) => s + v, 0) / arr.length;
+                    return Math.sqrt(arr.reduce((s, v) => s + (v - mean) ** 2, 0) / (arr.length - 1));
+                }
+                function rankData(arr) {
+                    const indexed = arr.map((v, i) => ({ v, i }));
+                    indexed.sort((a, b) => a.v - b.v);
+                    indexed.forEach((item, r) => { item.rank = r + 1; });
+                    const result = new Array(arr.length);
+                    indexed.forEach(item => { result[item.i] = item.rank; });
+                    return result;
+                }
+                function spearmanCorrelation(rx, ry) {
+                    const n = rx.length;
+                    let dSum = 0;
+                    for (let i = 0; i < n; i++) dSum += (rx[i] - ry[i]) ** 2;
+                    return 1 - (6 * dSum) / (n * (n * n - 1));
+                }
+
+                // ==================== 9. 生成报告HTML ====================
+                const now = new Date().toLocaleString('zh-CN');
+                const reportDate = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+
                 let report = `
-<div class="space-y-6">
-    <!-- 概览卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-blue-50 rounded-lg p-4 text-center">
-            <div class="text-2xl font-bold text-blue-600">${hotels.length}</div>
-            <div class="text-sm text-gray-600">分析酒店数</div>
+<div class="space-y-5" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+    <!-- ═══ 报告头 ═══ -->
+    <div class="bg-gradient-to-r from-slate-800 via-indigo-800 to-purple-800 text-white rounded-xl p-5 shadow-lg">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <i class="fas fa-brain text-indigo-300"></i>
+                    <span class="text-xs font-medium tracking-wider uppercase text-indigo-200">深度智能分析报告</span>
+                </div>
+                <h2 class="text-xl font-bold mt-1">携程ebooking 榜单数据洞察</h2>
+                <p class="text-sm text-gray-300 mt-1">${reportDate} · ${hotels.length} 家竞对酒店</p>
+            </div>
+            <div class="text-right hidden sm:block">
+                <div class="text-xs text-indigo-300">HHI 指数</div>
+                <div class="text-2xl font-bold ${hhiLevel.includes('高') ? 'text-red-300' : hhiLevel.includes('中') ? 'text-yellow-300' : 'text-emerald-300'}">${hhi.toFixed(0)}</div>
+                <div class="text-xs ${hhiColor.includes('green') ? 'text-emerald-300' : hhiColor.includes('yellow') ? 'text-yellow-300' : 'text-red-300'}">${hhiLevel}</div>
+            </div>
         </div>
-        <div class="bg-green-50 rounded-lg p-4 text-center">
-            <div class="text-2xl font-bold text-green-600">${totalRoomNights.toLocaleString()}</div>
-            <div class="text-sm text-gray-600">总入住间夜</div>
+    </div>
+
+    <!-- ═══ 核心指标概览（6宫格）═══ -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-center hover:shadow-md transition-shadow">
+            <i class="fas fa-hotel text-blue-500 text-lg mb-1"></i>
+            <div class="text-2xl font-bold text-gray-800">${hotels.length}</div>
+            <div class="text-xs text-gray-400 mt-0.5">竞争酒店数</div>
         </div>
-        <div class="bg-orange-50 rounded-lg p-4 text-center">
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-center hover:shadow-md transition-shadow">
+            <i class="fas fa-bed text-emerald-500 text-lg mb-1"></i>
+            <div class="text-2xl font-bold text-emerald-600">${totalRoomNights.toLocaleString()}</div>
+            <div class="text-xs text-gray-400 mt-0.5">总入住间夜</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-center hover:shadow-md transition-shadow">
+            <i class="fas fa-yen-sign text-orange-500 text-lg mb-1"></i>
             <div class="text-2xl font-bold text-orange-600">¥${totalRoomRevenue.toLocaleString()}</div>
-            <div class="text-sm text-gray-600">总房费收入</div>
+            <div class="text-xs text-gray-400 mt-0.5">总房费收入</div>
         </div>
-        <div class="bg-purple-50 rounded-lg p-4 text-center">
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-center hover:shadow-md transition-shadow">
+            <i class="fas fa-tag text-purple-500 text-lg mb-1"></i>
             <div class="text-2xl font-bold text-purple-600">¥${avgPricePerNight.toFixed(0)}</div>
-            <div class="text-sm text-gray-600">平均房价</div>
+            <div class="text-xs text-gray-400 mt-0.5">平均房价ADR</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-center hover:shadow-md transition-shadow">
+            <i class="fas fa-eye text-cyan-500 text-lg mb-1"></i>
+            <div class="text-2xl font-bold text-cyan-600">${totalExposure > 0 ? totalExposure.toLocaleString() : '-'}</div>
+            <div class="text-xs text-gray-400 mt-0.5">总曝光量</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-center hover:shadow-md transition-shadow">
+            <i class="fas fa-percentage text-pink-500 text-lg mb-1"></i>
+            <div class="text-2xl font-bold text-pink-600">${top3Share.toFixed(1)}%</div>
+            <div class="text-xs text-gray-400 mt-0.5">TOP3 市占率</div>
         </div>
     </div>
-    
-    <!-- 经营分析 -->
-    <div class="bg-white border rounded-lg p-4">
-        <h3 class="font-bold text-gray-800 mb-3 flex items-center">
-            <i class="fas fa-chart-line text-blue-500 mr-2"></i>经营数据分析
-        </h3>
-        <div class="space-y-3 text-sm">
-            <div class="flex items-start">
-                <span class="w-28 text-gray-500 flex-shrink-0">平均间夜：</span>
-                <span class="text-gray-800">${avgRoomNights.toFixed(1)} 间夜/店</span>
+
+    <!-- ═══ 市场结构分析 ═══ -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="px-5 py-3.5 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-100 flex items-center gap-2">
+            <i class="fas fa-chart-pie text-indigo-500"></i><h3 class="font-semibold text-gray-800 text-sm">🏗 市场结构与集中度</h3>
+        </div>
+        <div class="p-5 space-y-4">
+
+            <!-- HHI & TOP3 -->
+            <div class="flex flex-wrap gap-3">
+                <div class="${hhiColor} px-4 py-2.5 rounded-lg flex items-center gap-2 border" style="border-color: inherit;">
+                    <i class="fas fa-layer-group"></i>
+                    <div>
+                        <div class="text-xs opacity-70">赫芬达尔指数(HHI)</div>
+                        <div class="text-lg font-bold">${hhi.toFixed(0)} <span class="text-xs font-normal ml-1">${hhiLevel}</span></div>
+                    </div>
+                </div>
+                <div class="bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2.5 rounded-lg flex items-center gap-2 border border-amber-200">
+                    <i class="fas fa-crown text-amber-500"></i>
+                    <div>
+                        <div class="text-xs text-amber-600/70">TOP3 集中度</div>
+                        <div class="text-lg font-bold text-amber-700">${top3Share.toFixed(1)}%</div>
+                    </div>
+                </div>
+                <div class="bg-gradient-to-r from-cyan-50 to-teal-50 px-4 py-2.5 rounded-lg flex items-center gap-2 border border-cyan-200">
+                    <i class="fas fa-chart-bar text-cyan-500"></i>
+                    <div>
+                        <div class="text-xs text-cyan-600/70">价格标准差</div>
+                        <div class="text-lg font-bold text-cyan-700">±¥${priceStdDev.toFixed(0)}</div>
+                    </div>
+                </div>
             </div>
-            <div class="flex items-start">
-                <span class="w-28 text-gray-500 flex-shrink-0">平均收入：</span>
-                <span class="text-gray-800">¥${avgRoomRevenue.toFixed(0)}/店</span>
+
+            <!-- HHI 解读 -->
+            <div class="bg-${hhiLevel.includes('高') ? 'red' : hhiLevel.includes('中') ? 'yellow' : 'green'}-50/60 rounded-lg p-3 text-sm border border-${hhiLevel.includes('高') ? 'red' : hhiLevel.includes('中') ? 'yellow' : 'green'}-200">
+                <div class="flex items-start gap-2">
+                    <i class="fas fa-info-circle mt-0.5 text-${hhiLevel.includes('高') ? 'red' : hhiLevel.includes('中') ? 'yellow' : 'green'}-500"></i>
+                    <span>${hhiDesc} TOP3 酒店占据了 ${top3Share.toFixed(1)}% 的市场份额。</span>
+                </div>
             </div>
-            <div class="flex items-start">
-                <span class="w-28 text-gray-500 flex-shrink-0">总销售额：</span>
-                <span class="text-gray-800">¥${totalSales.toLocaleString()}</span>
+
+            <!-- 市场份额分布条形图 -->
+            <div>
+                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">各酒店市场份额分布</div>
+                <div class="space-y-1.5">
+                    ${marketShares.sort((a,b)=>b.share-a.share).slice(0,8).map((m,i) => {
+                        const barPct = Math.min(100, m.share / (marketShares[0]?.share||1) * 100);
+                        const isTop3 = i < 3;
+                        return `<div class="group flex items-center gap-2">
+                            <span class="w-24 truncate text-xs ${isTop3?'font-bold text-gray-800':'text-gray-600'} group-hover:text-blue-600 cursor-default">${m.name.length>8?m.name.slice(0,8)+'…':m.name}</span>
+                            <div class="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden relative">
+                                <div class="absolute inset-y-0 left-0 ${isTop3?'bg-gradient-to-r from-blue-500 to-indigo-500':'bg-gray-300'} rounded-full transition-all duration-500" style="width:${barPct}%"></div>
+                                <span class="absolute right-1.5 top-0 leading-5 text-[10px] font-medium ${isTop3?'text-white':'text-gray-500'}">${m.share.toFixed(1)}%</span>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>
             </div>
-            <div class="flex items-start">
-                <span class="w-28 text-gray-500 flex-shrink-0">曝光量：</span>
-                <span class="text-gray-800">${totalExposure.toLocaleString()} 次</span>
-            </div>
-            <div class="flex items-start">
-                <span class="w-28 text-gray-500 flex-shrink-0">浏览量：</span>
-                <span class="text-gray-800">${totalViews.toLocaleString()} 次</span>
-            </div>
+
         </div>
     </div>
-    
-    <!-- 入住间夜TOP5 -->
-    <div class="bg-white border rounded-lg p-4">
-        <h3 class="font-bold text-gray-800 mb-3 flex items-center">
-            <i class="fas fa-trophy text-yellow-500 mr-2"></i>入住间夜 TOP5
-        </h3>
-        <div class="space-y-2">
-            ${topByRoomNights.map((h, i) => `
-            <div class="flex items-center justify-between p-2 ${i === 0 ? 'bg-yellow-50 border-l-4 border-yellow-400' : 'bg-gray-50'} rounded">
-                <div class="flex items-center">
-                    <span class="w-6 h-6 rounded-full ${i < 3 ? 'bg-yellow-400 text-white' : 'bg-gray-300 text-white'} flex items-center justify-center text-xs font-bold mr-2">${i + 1}</span>
-                    <span class="text-sm font-medium">${h.hotelName}</span>
+
+    <!-- ═══ 价格带分析 ═══ -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="px-5 py-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 border-b border-emerald-100 flex items-center gap-2">
+            <i class="fas fa-coins text-emerald-500"></i><h3 class="font-semibold text-gray-800 text-sm">💰 价格带与定价分析</h3>
+        </div>
+        <div class="p-5 space-y-4">
+
+            <!-- 价格四分位 -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
+                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">最低价</div>
+                    <div class="text-lg font-bold text-gray-700">¥${priceMin.toFixed(0)}</div>
                 </div>
-                <span class="text-sm font-bold text-blue-600">${(h.roomNights || 0).toLocaleString()} 间夜</span>
+                <div class="bg-blue-50 rounded-lg p-3 text-center border border-blue-200">
+                    <div class="text-[10px] uppercase tracking-wider text-blue-400 mb-1">25%位(Q1)</div>
+                    <div class="text-lg font-bold text-blue-600">¥${priceQ1.toFixed(0)}</div>
+                </div>
+                <div class="bg-purple-50 rounded-lg p-3 text-center border border-purple-200">
+                    <div class="text-[10px] uppercase tracking-wider text-purple-400 mb-1">中位数</div>
+                    <div class="text-lg font-bold text-purple-600">¥${priceMedian.toFixed(0)}</div>
+                </div>
+                <div class="bg-orange-50 rounded-lg p-3 text-center border border-orange-200">
+                    <div class="text-[10px] uppercase tracking-wider text-orange-400 mb-1">最高价</div>
+                    <div class="text-lg font-bold text-orange-600">¥${priceMax.toFixed(0)}</div>
+                </div>
             </div>
-            `).join('')}
+
+            <!-- 价格段分布 -->
+            <div>
+                <div class="text-xs font-medium text-gray-500 mb-2">价格区间分布（共 ${prices.length} 家有价格数据）</div>
+                <div class="flex gap-2 items-end h-28">
+                    ${priceBands.map(band => {
+                        const maxCount = Math.max(...priceBands.map(b => b.count), 1);
+                        const pct = band.count / maxCount * 100;
+                        return `<div class="flex-1 flex flex-col items-center gap-1">
+                            <div class="w-full max-w-[80px] relative" style="height:${Math.max(pct, 4)}%">
+                                <div class="${band.color} absolute bottom-0 w-full rounded-t-lg border-t-2 ${band.border} transition-all duration-500 flex items-end justify-center pb-1">
+                                    <span class="text-[11px] font-bold">${band.count}</span>
+                                </div>
+                            </div>
+                            <span class="text-[9px] text-gray-500 text-center leading-tight mt-1">${band.label.split('(')[0]}</span>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>
+
+            <!-- 定价建议 -->
+            <div class="rounded-lg p-3.5 bg-gradient-to-r from-amber-50/80 to-orange-50/60 border border-amber-200/70 text-sm">
+                <div class="flex items-start gap-2.5">
+                    <i class="fas fa-lightbulb text-amber-500 mt-0.5 text-base"></i>
+                    <div>
+                        <strong class="text-amber-800">定价策略建议：</strong>
+                        <span class="text-amber-700/90 ml-1">
+                            当前市场中位数 ¥${priceMedian.toFixed(0)}，
+                            ${priceIQR > 200 ? '价格离散程度大（IQR=¥' + priceIQR.toFixed(0) + '），说明竞争圈内定位差异显著，建议明确自身定位避免直接价格战。'
+                            : '价格相对集中（IQR=¥' + priceIQR.toFixed(0) + '），同质化竞争较强，可通过增值服务、房型差异化来突围。'}
+                            平均房价 ¥${avgPricePerNight.toFixed(0)}
+                            ${avgPricePerNight > priceMedian ? '高于市场中位数，属偏高端定位，需确保服务品质支撑溢价。' : '低于市场中位数，走性价比路线，可关注提升入住率和附加收入。'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
-    
-    <!-- 房费收入TOP5 -->
-    <div class="bg-white border rounded-lg p-4">
-        <h3 class="font-bold text-gray-800 mb-3 flex items-center">
-            <i class="fas fa-coins text-green-500 mr-2"></i>房费收入 TOP5
-        </h3>
-        <div class="space-y-2">
-            ${topByRevenue.map((h, i) => `
-            <div class="flex items-center justify-between p-2 ${i === 0 ? 'bg-green-50 border-l-4 border-green-400' : 'bg-gray-50'} rounded">
-                <div class="flex items-center">
-                    <span class="w-6 h-6 rounded-full ${i < 3 ? 'bg-green-400 text-white' : 'bg-gray-300 text-white'} flex items-center justify-center text-xs font-bold mr-2">${i + 1}</span>
-                    <span class="text-sm font-medium">${h.hotelName}</span>
+
+    <!-- ═══ 转化漏斗分析 ═══ -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="px-5 py-3.5 bg-gradient-to-r from-cyan-50 to-blue-50 border-b border-cyan-100 flex items-center gap-2">
+            <i class="fas fa-filter text-cyan-500"></i><h3 class="font-semibold text-gray-800 text-sm">🔄 流量转化漏斗</h3>
+        </div>
+        <div class="p-5 space-y-4">
+
+            <!-- 漏斗可视化 -->
+            <div class="flex flex-col items-center gap-1">
+                ${totalExposure > 0 ? `
+                <!-- 曝光 → 浏览 -->
+                <div class="w-full max-w-md bg-gray-900/90 rounded-t-xl px-4 py-2.5 text-white flex justify-between items-center">
+                    <span class="text-sm font-medium"><i class="fas fa-eye mr-1.5 text-cyan-300"></i>曝光量</span>
+                    <span class="text-lg font-bold">${totalExposure.toLocaleString()}</span>
                 </div>
-                <span class="text-sm font-bold text-green-600">¥${(h.roomRevenue || 0).toLocaleString()}</span>
+                <div class="w-11/12 max-w-[28rem] h-0.5 mx-auto bg-gradient-to-b from-cyan-400 to-cyan-200"></div>
+                <div class="w-11/12 max-w-[28rem] text-[10px] text-cyan-600 text-center -mt-1 mb-0.5">${expRateToViewRate.toFixed(1)}% 转化</div>
+
+                <div class="w-10/12 max-w-[26rem] bg-blue-600/90 rounded-t-xl px-4 py-2.5 text-white flex justify-between items-center">
+                    <span class="text-sm font-medium"><i class="fas fa-mouse-pointer mr-1.5 text-blue-200"></i>浏览量</span>
+                    <span class="text-lg font-bold">${formatNum(totalViews)}</span>
+                </div>
+                <div class="w-9/12 max-w-[24rem] h-0.5 mx-auto bg-gradient-to-b from-blue-400 to-blue-200"></div>
+                <div class="w-9/12 max-w-[24rem] text-[10px] text-blue-600 text-center -mt-1 mb-0.5">${avgViewConversion.toFixed(1)}% 转化</div>
+
+                <div class="w-8/12 max-w-[22rem] bg-emerald-600/90 rounded-t-xl px-4 py-2.5 text-white flex justify-between items-center">
+                    <span class="text-sm font-medium"><i class="fas fa-shopping-cart mr-1.5 text-emerald-200"></i>下单/预订</span>
+                    <span class="text-lg font-bold">${totalRoomNights.toLocaleString()}<span class="text-xs font-normal opacity-70 ml-1">间夜</span></span>
+                </div>` : `
+                <div class="w-full bg-gray-100 rounded-xl p-6 text-center text-gray-400 text-sm">
+                    <i class="fas fa-chart-bar text-2xl mb-2 block"></i>暂无流量数据，无法绘制转化漏斗
+                </div>`}
             </div>
-            `).join('')}
+
+            <!-- 转化率评级卡片 -->
+            <div class="grid grid-cols-3 gap-3">
+                <div class="rounded-lg p-3 border text-center ${expRateRating.level === '优秀' ? 'bg-green-50 border-green-200' : expRateRating.level === '良好' ? 'bg-blue-50 border-blue-200' : expRateRating.level === '待优化' ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}">
+                    <div class="text-[10px] text-gray-400 mb-1">曝光→浏览</div>
+                    <div class="text-xl font-bold ${expRateRating.color}">${exposureToViewRate > 0 ? exposureToViewRate.toFixed(1) + '%' : '-'}</div>
+                    <div class="text-[11px] font-medium ${expRateRating.color}"><i class="fas ${expRateRating.icon} mr-1"></i>${expRateRating.level}</div>
+                </div>
+                <div class="rounded-lg p-3 border text-center ${viewRateRating.level === '优秀' ? 'bg-green-50 border-green-200' : viewRateRating.level === '良好' ? 'bg-blue-50 border-blue-200' : viewRateRating.level === '待优化' ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}">
+                    <div class="text-[10px] text-gray-400 mb-1">浏览→下单</div>
+                    <div class="text-xl font-bold ${viewRateRating.color}">${avgViewConversion > 0 ? avgViewConversion.toFixed(1) + '%' : '-'}</div>
+                    <div class="text-[11px] font-medium ${viewRateRating.color}"><i class="fas ${viewRateRating.icon} mr-1"></i>${viewRateRating.level}</div>
+                </div>
+                <div class="rounded-lg p-3 border text-center ${payRateRating.level === '优秀' ? 'bg-green-50 border-green-200' : payRateRating.level === '良好' ? 'bg-blue-50 border-blue-200' : payRateRating.level === '待优化' ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}">
+                    <div class="text-[10px] text-gray-400 mb-1">支付转化</div>
+                    <div class="text-xl font-bold ${payRateRating.color}">${avgPayConversion > 0 ? avgPayConversion.toFixed(1) + '%' : '-'}</div>
+                    <div class="text-[11px] font-medium ${payRateRating.color}"><i class="fas ${payRateRating.icon} mr-1"></i>${payRateRating.level}</div>
+                </div>
+            </div>
+
+            <!-- 转化建议 -->
+            <div class="rounded-lg p-3.5 bg-gradient-to-r from-cyan-50/80 to-blue-50/60 border border-cyan-200/70 text-sm">
+                <div class="flex items-start gap-2.5">
+                    <i class="fas fa-magic text-cyan-500 mt-0.5 text-base"></i>
+                    <div class="space-y-1.5 text-gray-700">
+                        <div><strong class="text-cyan-800">转化优化方向：</strong></div>
+                        <ul class="list-disc list-inside space-y-1 text-[13px]">
+                            ${exposureToViewRate > 0 && exposureToViewRate < 5 ? '<li class="text-orange-600">曝光→浏览偏低：优化主图吸引力、标题关键词覆盖面、首屏展示信息完整性。</li>' : ''}
+                            ${avgViewConversion > 0 && avgViewConversion < 3 ? '<li class="text-orange-600">浏览→下单偏低：检查详情页图片质量、房型描述清晰度、价格竞争力、促销标签展示。</li>' : ''}
+                            ${avgViewConversion > 0 && avgViewConversion >= 5 ? '<li class="text-green-600">浏览转化率表现良好，继续保持当前详情页优化策略。</li>' : ''}
+                            <li class="text-gray-600">关注评价维护：高分酒店通常有更高的自然流量和用户信任度。</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
-    
-    <!-- AI建议 -->
-    <div class="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg p-4">
-        <h3 class="font-bold text-indigo-800 mb-3 flex items-center">
-            <i class="fas fa-lightbulb text-indigo-500 mr-2"></i>AI经营建议
-        </h3>
-        <div class="space-y-3 text-sm text-gray-700">
-            <div class="flex items-start">
-                <i class="fas fa-check-circle text-green-500 mr-2 mt-0.5"></i>
-                <div>
-                    <strong>定价策略：</strong>
-                    当前平均房价 ¥${avgPricePerNight.toFixed(0)}，
-                    ${avgPricePerNight > 300 ? '建议关注性价比，可适当推出优惠套餐吸引更多客源' : '定价相对亲民，可通过增值服务提升客单价'}。
+
+    <!-- ═══ 竞对分层与排名 ═══ -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="px-5 py-3.5 bg-gradient-to-r from-violet-50 to-fuchsia-50 border-b border-violet-100 flex items-center gap-2">
+            <i class="fas fa-ranking-star text-violet-500"></i><h3 class="font-semibold text-gray-800 text-sm">🏆 竞对分层与排名榜</h3>
+        </div>
+        <div class="p-5 space-y-4">
+
+            <!-- 分层概览 -->
+            <div class="flex gap-2 text-xs">
+                <span class="px-2.5 py-1 rounded-full bg-red-100 text-red-700 border border-red-200 font-medium">🔥 领先者 ${tierLeader.length}家 (${(tierLeader.length/hotels.length*100).toFixed(0)}%)</span>
+                <span class="px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200 font-medium">⚡ 中坚力量 ${tierMiddle.length}家 (${(tierMiddle.length/hotels.length*100).toFixed(0)}%)</span>
+                <span class="px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-200 font-medium">📉 追赶层 ${tierTail.length}家 (${(tierTail.length/hotels.length*100).toFixed(0)}%)</span>
+            </div>
+
+            <!-- 入住间夜TOP5 -->
+            <div>
+                <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><i class="fas fa-bed text-yellow-500"></i> 入住间夜 TOP5</div>
+                <div class="space-y-1.5">
+                    ${topByRoomNights.map((h, i) => {
+                        const isLeader = tierLeader.includes(h);
+                        const share = totalRoomNights > 0 ? ((h.roomNights || 0)/totalRoomNights*100).toFixed(1) : 0;
+                        return `<div class="flex items-center justify-between p-2.5 rounded-lg ${i===0?'bg-gradient-to-r from-yellow-50 to-amber-50 border-l-3 border-yellow-400':isLeader?'bg-red-50/40 border-l-2 border-red-200':'bg-gray-50'}" style="${i===0?'border-left-width:3px':''}">
+                            <div class="flex items-center gap-2.5 min-w-0">
+                                <span class="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[11px] font-bold ${i<3?'bg-gradient-to-br from-yellow-400 to-amber-500 text-white':'bg-gray-200 text-gray-500'}">${i+1}</span>
+                                <span class="text-sm font-medium text-gray-800 truncate">${h.hotelName}</span>
+                                ${isLeader ? '<span class="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded font-medium flex-shrink-0">领先</span>' : ''}
+                            </div>
+                            <div class="flex items-center gap-3 flex-shrink-0">
+                                <span class="text-xs text-gray-400">${share}%</span>
+                                <span class="text-sm font-bold tabular-nums ${i<3?'text-yellow-700':'text-gray-700'}">${(h.roomNights||0).toLocaleString()}</span>
+                                <span class="text-[10px] text-gray-400">间夜</span>
+                            </div>
+                        </div>`;
+                    }).join('')}
                 </div>
             </div>
-            <div class="flex items-start">
-                <i class="fas fa-check-circle text-green-500 mr-2 mt-0.5"></i>
-                <div>
-                    <strong>流量转化：</strong>
-                    ${totalExposure > 0 && totalViews > 0 
-                        ? `曝光到浏览转化率 ${((totalViews / totalExposure) * 100).toFixed(1)}%，` 
-                        : ''}
-                    ${avgViewConversion > 0 
-                        ? `平均浏览转化 ${avgViewConversion.toFixed(1)}，建议优化详情页图片和描述提升转化率。` 
-                        : '建议关注流量入口优化，提升曝光量和浏览量。'}
+
+            <!-- 房费收入TOP5 -->
+            <div>
+                <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><i class="fas fa-money-bill-wave text-green-500"></i> 房费收入 TOP5</div>
+                <div class="space-y-1.5">
+                    ${topByRevenue.map((h, i) => `
+                    <div class="flex items-center justify-between p-2.5 rounded-lg ${i===0?'bg-gradient-to-r from-green-50 to-emerald-50 border-l-3 border-green-400':'bg-gray-50'}" style="${i===0?'border-left-width:3px':''}">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[11px] font-bold ${i<3?'bg-gradient-to-br from-green-400 to-emerald-500 text-white':'bg-gray-200 text-gray-500'}">${i+1}</span>
+                            <span class="text-sm font-medium text-gray-800 truncate">${h.hotelName}</span>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <span class="text-sm font-bold tabular-nums ${i<3?'text-green-700':'text-gray-700'}">¥${(h.roomRevenue||0).toLocaleString()}</span>
+                        </div>
+                    </div>`).join('')}
                 </div>
             </div>
-            <div class="flex items-start">
-                <i class="fas fa-check-circle text-green-500 mr-2 mt-0.5"></i>
-                <div>
-                    <strong>竞对分析：</strong>
-                    共分析 ${hotels.length} 家竞对酒店，
-                    ${topByRoomNights[0] ? `${topByRoomNights[0].hotelName} 表现最佳（${(topByRoomNights[0].roomNights || 0).toLocaleString()} 间夜），` : ''}
-                    建议分析其成功因素并借鉴学习。
-                </div>
-            </div>
-            <div class="flex items-start">
-                <i class="fas fa-check-circle text-green-500 mr-2 mt-0.5"></i>
-                <div>
-                    <strong>营销建议：</strong>
-                    ${totalExposure > totalViews * 10 
-                        ? '曝光量充足但浏览转化偏低，建议优化主图和标题吸引点击。' 
-                        : '建议增加平台推广投放，扩大曝光量，同时关注评价维护。'}
-                </div>
-            </div>
+
         </div>
     </div>
-    
-    <!-- 分析时间 -->
-    <div class="text-xs text-gray-400 text-right">
-        <i class="fas fa-clock mr-1"></i>分析时间：${new Date().toLocaleString('zh-CN')}
+
+    <!-- ═══ 异常值检测 ═══ -->
+    ${(outliersHigh.length > 0 || outliersLow.length > 0) ? `
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="px-5 py-3.5 bg-gradient-to-r from-rose-50 to-pink-50 border-b border-rose-100 flex items-center gap-2">
+            <i class="fas fa-exclamation-circle text-rose-500"></i><h3 class="font-semibold text-gray-800 text-sm">📌 异常值检测（偏离均值2倍标准差）</h3>
+        </div>
+        <div class="p-5 space-y-3">
+            ${outliersHigh.length > 0 ? `
+            <div class="text-xs font-medium text-gray-500 mb-1"><i class="fas fa-arrow-up text-red-400 mr-1"></i>超高表现酒店（远超均值）</div>
+            <div class="grid gap-1.5">${outliersHigh.map(h => `
+                <div class="flex items-center justify-between p-2 bg-red-50 rounded-lg border border-red-100">
+                    <span class="text-sm font-medium text-gray-800">${h.hotelName}</span>
+                    <span class="text-sm font-bold text-red-600">${(h.roomNights||0).toLocaleString()} 间夜 <span class="text-[10px] text-gray-400">(均值${avgRN.toFixed(0)}的${((h.roomNights||0)/avgRN).toFixed(1)}x)</span></span>
+                </div>`).join('')}</div>` : ''}
+            ${outliersLow.length > 0 ? `
+            <div class="text-xs font-medium text-gray-500 mb-1 mt-2"><i class="fas fa-arrow-down text-blue-400 mr-1"></i>低表现酒店（远低于均值）</div>
+            <div class="grid gap-1.5">${outliersLow.map(h => `
+                <div class="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-100">
+                    <span class="text-sm font-medium text-gray-800">${h.hotelName}</span>
+                    <span class="text-sm font-bold text-blue-600">${(h.roomNights||0).toLocaleString()} 间夜 <span class="text-[10px] text-gray-400">(均值的${((h.roomNights||0)/avgRN).toFixed(1)}x)</span></span>
+                </div>`).join('')}</div>` : ''}
+        </div>
+    </div>` : ''}
+
+    <!-- ═══ 评分与销量相关性 ═══ -->
+    ${scoredHotels.length >= 3 ? `
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="px-5 py-3.5 bg-gradient-to-r from-amber-50 to-yellow-50 border-b border-amber-100 flex items-center gap-2">
+            <i class="fas fa-link text-amber-500"></i><h3 class="font-semibold text-gray-800 text-sm">📊 评分 × 销量 相关性分析</h3>
+        </div>
+        <div class="p-5 space-y-3">
+            <div class="flex items-center gap-4">
+                <div class="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                    <div class="h-full rounded-full ${scoreCorrelation > 0.5 ? 'bg-gradient-to-r from-green-400 to-emerald-500' : scoreCorrelation > 0.2 ? 'bg-gradient-to-r from-blue-400 to-cyan-500' : scoreCorrelation > -0.2 ? 'bg-gradient-to-r from-gray-300 to-gray-400' : 'bg-gradient-to-r from-red-400 to-rose-500'}" style="width: ${Math.abs(scoreCorrelation)*100}%"></div>
+                </div>
+                <span class="text-xl font-bold tabular-nums ${scoreCorrelation > 0.5 ? 'text-green-600' : scoreCorrelation > 0.2 ? 'text-blue-600' : 'text-gray-500'}">${scoreCorrelation > 0 ? '+' : ''}${scoreCorrelation.toFixed(2)}</span>
+            </div>
+            <div class="text-sm text-gray-700 rounded-lg p-3 ${
+                scoreCorrelation > 0.5 ? 'bg-green-50 border border-green-200' :
+                scoreCorrelation > 0.2 ? 'bg-blue-50 border border-blue-200' :
+                scoreCorrelation > -0.2 ? 'bg-gray-50 border border-gray-200' : 'bg-red-50 border border-red-200'
+            }">
+                <i class="fas ${scoreCorrelation > 0.5 ? 'fa-arrow-trend-up text-green-500' : scoreCorrelation > 0.2 ? 'fa-level-up-alt text-blue-500' : scoreCorrelation > -0.2 ? 'fa-minus text-gray-400' : 'fa-arrow-trend-down text-red-500'} mr-1"></i>
+                ${scoreCorrelation > 0.5 ? '<strong>强正相关：</strong>评分越高的酒店，销量也越高。这说明用户口碑直接影响订单量，应将<strong>提升点评分</strong>作为核心运营目标之一。' :
+                  scoreCorrelation > 0.2 ? '<弱正相关：评分有一定正向影响但不显著。可能存在其他因素（如位置、价格、促销）对销量的影响更大。' :
+                  scoreCorrelation > -0.2 ? '<无明显关联：评分与销量之间未发现显著线性关系，市场竞争可能更受价格、位置等因素驱动。' :
+                  '<负相关（罕见）：评分高的酒店反而销量低，可能因高价导致。需结合价格维度综合判断。'}
+                基于 ${scoredHotels.length} 家有评分数据的酒店样本计算。
+            </div>
+        </div>
+    </div>` : ''}
+
+    <!-- ═══ AI 综合经营建议 ═══ -->
+    <div class="bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 text-white rounded-xl overflow-hidden shadow-lg">
+        <div class="px-5 py-3.5 bg-white/5 border-b border-white/10 flex items-center gap-2">
+            <i class="fas fa-robot text-indigo-300"></i><h3 class="font-semibold text-sm">🤖 AI 综合经营建议</h3>
+        </div>
+        <div class="p-5 space-y-4">
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <!-- 定价 -->
+                <div class="bg-white/5 rounded-lg p-3.5 border border-white/10 backdrop-blur-sm">
+                    <div class="flex items-center gap-2 mb-2"><i class="fas fa-tags text-amber-400"></i><strong class="text-amber-300 text-sm">定价策略</strong></div>
+                    <p class="text-xs text-gray-300 leading-relaxed">
+                        当前平均房价 ¥${avgPricePerNight.toFixed(0)}，市场中位数 ¥${priceMedian.toFixed(0)}。
+                        ${avgPricePerNight > priceMedian * 1.2 ? '明显高于市场均价，需确保高品质服务支撑溢价，或考虑推出特价房/连住优惠以扩大客源。' :
+                          avgPricePerNight > priceMedian ? '略高于市场中位数，处于合理偏高区间，可保持当前定价并关注入住率变化。' :
+                          avgPricePerNight > priceMedian * 0.8 ? '略低于市场中位数，性价比路线，可通过套餐升级、延迟退房等增值服务提升客单价。' :
+                          '明显低于市场均价，建议逐步调整价格或强化差异化卖点避免陷入低价竞争陷阱。'}
+                    </p>
+                </div>
+
+                <!-- 流量 -->
+                <div class="bg-white/5 rounded-lg p-3.5 border border-white/10 backdrop-blur-sm">
+                    <div class="flex items-center gap-2 mb-2"><i class="fas fa-bullhorn text-cyan-400"></i><strong class="text-cyan-300 text-sm">流量获客</strong></div>
+                    <p class="text-xs text-gray-300 leading-relaxed">
+                        ${totalExposure > 0 ? `当前曝光量 ${formatNum(totalExposure)}，到浏览转化 ${exposureToViewRate.toFixed(1)}%。`
+                          : '暂无流量数据，建议接入更多渠道监控。'}
+                        ${exposureToViewRate < 3 && totalExposure > 0 ? '曝光→浏览转化偏低，优先优化主图、标题和首屏信息展示。' :
+                          exposureToViewRate >= 3 && totalExposure > 0 ? '流量获取能力正常，可将重心转向提升详情页转化率。' :
+                          '持续关注平台规则变化，稳定曝光来源。'}
+                    </p>
+                </div>
+
+                <!-- 竞对对标 -->
+                <div class="bg-white/5 rounded-lg p-3.5 border border-white/10 backdrop-blur-sm">
+                    <div class="flex items-center gap-2 mb-2"><i class="fas fa-crosshairs text-rose-400"></i><strong class="text-rose-300 text-sm">竞对对标</strong></div>
+                    <p class="text-xs text-gray-300 leading-relaxed">
+                        竞争圈 ${hhiLevel}（HHI=${hhi.toFixed(0)}）。
+                        ${topByRoomNights[0] ? `头部竞对「${topByRoomNights[0].hotelName}」以 ${(topByRoomNights[0].roomNights||0).toLocaleString()} 间夜领跑，` : ''}
+                        建议从其<strong>价格策略、房型组合、评价回复速度</strong>三个维度进行对标学习。
+                        ${tierLeader.length <= 2 ? '头部玩家少，市场格局较开放，是弯道超车的机会窗口。' : ''}
+                    </p>
+                </div>
+
+                <!-- 营销行动 -->
+                <div class="bg-white/5 rounded-lg p-3.5 border border-white/10 backdrop-blur-sm">
+                    <div class="flex items-center gap-2 mb-2"><i class="fas fa-rocket text-emerald-400"></i><strong class="text-emerald-300 text-sm">营销行动项</strong></div>
+                    <ul class="text-xs text-gray-300 space-y-1.5 list-none">
+                        <li class="flex items-start gap-1.5"><i class="fas fa-chevron-right text-emerald-400 mt-1 text-[8px]"></i>${scoreCorrelation > 0.3 ? '优先推动评价管理计划，目标提升整体点评分0.2+' : '关注产品页内容质量，确保信息完整且具吸引力'}</li>
+                        <li class="flex items-start gap-1.5"><i class="fas fa-chevron-right text-emerald-400 mt-1 text-[8px]"></i>${priceStdDev > 150 ? '利用价格带空白区域推出差异化产品' : '参考TOP5竞对的定价节奏进行动态调价'}</li>
+                        <li class="flex items-start gap-1.5"><i class="fas fa-chevron-right text-emerald-400 mt-1 text-[8px]"></i>每周跟踪榜单排名变化，建立周度竞对监控机制</li>
+                        <li class="flex items-start gap-1.5"><i class="fas fa-chevron-right text-emerald-400 mt-1 text-[8px]"></i>${top3Share > 60 ? '重点关注TOP3头部酒店的促销活动，及时跟进应对' : '市场分散度高，可尝试创新营销方式突围'}</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- 关键风险提示 -->
+            <div class="bg-red-500/10 border border-red-400/30 rounded-lg p-3">
+                <div class="flex items-start gap-2">
+                    <i class="fas fa-shield-alt text-red-400 mt-0.5"></i>
+                    <div class="text-xs text-gray-300">
+                        <strong class="text-red-300">关键风险提示：</strong>
+                        ${hhi >= 1800 ? '市场高度集中，头部竞对可能发起价格战或资源垄断，需做好防御预案。' : ''}
+                        ${outliersHigh.length >= 1 && outliersHigh[0] ? `「${outliersHigh[0].hotelName}」表现远超行业均值（${((outliersHigh[0].roomNights||0)/avgRN).toFixed(1)}x），需密切关注其动向。` : ''}
+                        ${avgViewConversion > 0 && avgViewConversion < 2 ? '浏览→下单转化率过低（'+avgViewConversion.toFixed(1)+'%），可能是价格过高或详情页信息不足导致的流失，需立即排查优化。' : ''}
+                        ${!hhi >= 1800 && !(outliersHigh.length >= 1) && !(avgViewConversion > 0 && avgViewConversion < 2) ? '暂未发现重大风险，保持常态化监控即可。' : ''}
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ═══ 页脚 ═══ -->
+    <div class="text-center text-[11px] text-gray-400 pt-2 border-t border-gray-100">
+        <i class="fas fa-robot mr-1"></i>由宿析OS AI 分析引擎生成 · ${now}
     </div>
 </div>`;
-                
+
                 return report;
             };
             

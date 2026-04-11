@@ -1,0 +1,1 @@
+{"name": "hotelx-types", "version": "1.0.0", "description": "宿析OS - 酒店管理系统 TypeScript 类型定义", "private": true, "scripts": {"type-check": "tsc --noEmit", "type-check:watch": "tsc --noEmit --watch", "build": "tsc -p tsconfig.build.json"}, "devDependencies": {"typescript": "^5.5.0", "vue": "^3.4.0", "@types/node": "^22.0.0"}}

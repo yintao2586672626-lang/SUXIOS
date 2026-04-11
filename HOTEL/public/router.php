@@ -1,47 +1,23 @@
 <?php
 /**
- * PHP 内置服务器路由文件
- * 用于正确处理静态文件和 API 请求
+ * 路由入口文件 - 处理所有API请求
  */
 
-// 获取请求 URI
-$uri = $_SERVER['REQUEST_URI'];
-$path = parse_url($uri, PHP_URL_PATH);
+define('APP_PATH', dirname(__DIR__) . '/app/');
 
-// 静态文件处理
-$staticFile = __DIR__ . $path;
-if ($path !== '/' && file_exists($staticFile) && is_file($staticFile)) {
-    // 返回静态文件
-    $mimeTypes = [
-        'html' => 'text/html',
-        'css' => 'text/css',
-        'js' => 'application/javascript',
-        'json' => 'application/json',
-        'png' => 'image/png',
-        'jpg' => 'image/jpeg',
-        'jpeg' => 'image/jpeg',
-        'gif' => 'image/gif',
-        'svg' => 'image/svg+xml',
-        'ico' => 'image/x-icon',
-    ];
+// 加载应用引导文件
+if (file_exists(APP_PATH . 'start.php')) {
+    require APP_PATH . 'start.php';
+} elseif (file_exists(__DIR__ . '/../think')) {
+    // ThinkPHP 框架
+    require __DIR__ . '/../vendor/autoload.php';
     
-    $ext = strtolower(pathinfo($staticFile, PATHINFO_EXTENSION));
-    $mimeType = $mimeTypes[$ext] ?? 'application/octet-stream';
-    
-    header('Content-Type: ' . $mimeType);
-    readfile($staticFile);
-    return true;
+    // 执行HTTP应用
+    $http = (new think\App())->http;
+    $response = $http->run();
+    $response->send();
+} else {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(404);
+    echo json_encode(['status' => 'error', 'message' => '路由文件配置错误', 'code' => 404], JSON_UNESCAPED_UNICODE);
 }
-
-// 根路径直接返回 index.html
-if ($path === '/') {
-    $indexFile = __DIR__ . '/index.html';
-    if (file_exists($indexFile)) {
-        header('Content-Type: text/html; charset=utf-8');
-        readfile($indexFile);
-        return true;
-    }
-}
-
-// 其他请求交给 ThinkPHP 处理
-require __DIR__ . '/index.php';
