@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新增企业微信机器人</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="max-w-2xl mx-auto p-6">
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-4 border-b flex items-center justify-between">
+                <h1 class="text-lg font-semibold">新增企业微信机器人</h1>
+                <a href="<?php echo url('admin/CompetitorWechatRobotController/index'); ?>" class="text-gray-500">返回列表</a>
+            </div>
+            <form method="post" action="<?php echo url('admin/CompetitorWechatRobotController/save'); ?>" class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">门店</label>
+                    <select name="store_id" required class="w-full px-3 py-2 border rounded-lg">
+                        <option value="">请选择门店</option>
+                        <?php foreach ($stores as $s): ?>
+                            <option value="<?php echo $s['id']; ?>"><?php echo $s['name']; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">名称</label>
+                    <input name="name" required class="w-full px-3 py-2 border rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">Webhook</label>
+                    <input name="webhook" required class="w-full px-3 py-2 border rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">状态</label>
+                    <select name="status" class="w-full px-3 py-2 border rounded-lg">
+                        <option value="1">启用</option>
+                        <option value="0">禁用</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <a href="<?php echo url('admin/CompetitorWechatRobotController/index'); ?>" class="px-4 py-2 border rounded-lg">取消</a>
+                    <button class="px-4 py-2 bg-blue-500 text-white rounded-lg">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

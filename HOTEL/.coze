@@ -1,0 +1,11 @@
+[project]
+requires = ["php-82"]
+entrypoint = "public/index.php"
+
+[dev]
+build = []
+run = ["php", "-S", "0.0.0.0:5000", "-t", "public", "public/router.php"]
+
+[deploy]
+build = []
+run = ["php", "-S", "0.0.0.0:5000", "-t", "public", "public/router.php"]

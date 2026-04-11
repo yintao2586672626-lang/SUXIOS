@@ -1,0 +1,69 @@
+{
+    "version": "1.0",
+    "lastUpdated": "2026-04-02",
+    "issues": [
+        {
+            "id": "ISSUE-001",
+            "title": "PHP 服务器启动失败 - 找不到 router.php",
+            "category": "运行环境",
+            "count": 3,
+            "firstSeen": "2026-04-02",
+            "lastSeen": "2026-04-02",
+            "status": "resolved",
+            "autoAdded": false,
+            "notes": "已解决，见解决方案库"
+        },
+        {
+            "id": "ISSUE-002",
+            "title": "端口 8080 被占用",
+            "category": "运行环境",
+            "count": 2,
+            "firstSeen": "2026-04-02",
+            "lastSeen": "2026-04-02",
+            "status": "resolved",
+            "autoAdded": false,
+            "notes": "已解决，见解决方案库"
+        },
+        {
+            "id": "ISSUE-003",
+            "title": "ngrok 获取不到公网 URL",
+            "category": "运行环境",
+            "count": 4,
+            "firstSeen": "2026-04-02",
+            "lastSeen": "2026-04-02",
+            "status": "resolved",
+            "autoAdded": true,
+            "notes": "已达到4次阈值，已自动归档到解决方案库"
+        },
+        {
+            "id": "ISSUE-004",
+            "title": "ngrok 端点离线 (ERR_NGROK_3200)",
+            "category": "运行环境",
+            "count": 2,
+            "firstSeen": "2026-04-02",
+            "lastSeen": "2026-04-02",
+            "status": "resolved",
+            "autoAdded": false,
+            "notes": "已解决，见解决方案库"
+        },
+        {
+            "id": "ISSUE-005",
+            "title": "数据库连接超时",
+            "category": "数据库",
+            "count": 4,
+            "firstSeen": "2026-04-02",
+            "lastSeen": "2026-04-02",
+            "status": "active",
+            "autoAdded": true,
+            "errorMessage": "Connection timed out after 30s",
+            "notes": "已达到4次阈值，已自动归档到解决方案库"
+        }
+    ],
+    "pendingIssues": [],
+    "stats": {
+        "totalIssues": 5,
+        "resolvedIssues": 4,
+        "autoAddedIssues": 2,
+        "pendingThreshold": 0
+    }
+}

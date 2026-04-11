@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>门店罗盘</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        .compass-card {
+            background: linear-gradient(145deg, #111827, #0b1220);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 14px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+        }
+        .compass-grid {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        }
+        .badge-red {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+        }
+        .badge-yellow {
+            background: rgba(234, 179, 8, 0.2);
+            color: #facc15;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #f8fafc;
+        }
+        .tab-btn {
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 13px;
+            color: #94a3b8;
+            background: rgba(148, 163, 184, 0.1);
+        }
+        .tab-btn.active {
+            color: #0f172a;
+            background: #38bdf8;
+        }
+        .layout-btn {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(148, 163, 184, 0.15);
+            color: #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+<div class="max-w-7xl mx-auto p-6">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-semibold">门店罗盘</h1>
+            <p class="text-sm text-slate-400">今日经营态势与预警一览</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="toggle-layout" class="layout-btn">板块管理</button>
+            <button id="save-layout" class="layout-btn">保存布局</button>
+        </div>
+    </div>
+
+    <div id="layout-panel" class="mb-4 hidden">
+        <div class="compass-card p-4">
+            <div class="text-sm text-slate-400">管理板块显示与顺序（隐藏即删除，可随时恢复）</div>
+            <div id="layout-list" class="mt-3 grid gap-2 md:grid-cols-2"></div>
+        </div>
+    </div>
+
+    <div id="compass-grid" class="compass-grid">
+        <div class="compass-card p-5" data-block-key="weather">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">天气预报</h2>
+                <div class="space-x-2">
+                    <button class="layout-btn move-up">上移</button>
+                    <button class="layout-btn move-down">下移</button>
+                    <button class="layout-btn toggle-hide">隐藏</button>
+                </div>
+            </div>
+            <div class="space-y-3">
+                <?php foreach ($weather as $item): ?>
+                    <div class="flex items-center justify-between text-sm text-slate-300">
+                        <div class="flex items-center gap-2">
+                            <span class="text-slate-400"><?php echo $item['date']; ?></span>
+                            <span>周<?php echo $item['week']; ?></span>
+                            <span><?php echo $item['condition']; ?></span>
+                        </div>
+                        <div class="text-slate-200">
+                            <?php echo $item['temp_low']; ?>° ~ <?php echo $item['temp_high']; ?>°
+                            <span class="text-slate-400 ml-2"><?php echo $item['wind']; ?></span>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+
+        <div class="compass-card p-5" data-block-key="todo">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">今日待办事宜</h2>
+                <div class="space-x-2">
+                    <button class="layout-btn move-up">上移</button>
+                    <button class="layout-btn move-down">下移</button>
+                    <button class="layout-btn toggle-hide">隐藏</button>
+                </div>
+            </div>
+            <div class="space-y-3">
+                <?php foreach ($todos as $todo): ?>
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-2 text-sm">
+                        <div>
+                            <div class="text-slate-100"><?php echo $todo['title']; ?></div>
+                            <div class="text-slate-400 text-xs"><?php echo $todo['owner']; ?> · 截止 <?php echo $todo['deadline']; ?></div>
+                        </div>
+                        <span class="text-slate-300"><?php echo $todo['status']; ?></span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+
+        <div class="compass-card p-5" data-block-key="metrics">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">数据展示</h2>
+                <div class="space-x-2">
+                    <button class="layout-btn move-up">上移</button>
+                    <button class="layout-btn move-down">下移</button>
+                    <button class="layout-btn toggle-hide">隐藏</button>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 mb-4">
+                <button class="tab-btn active" data-tab="day">日</button>
+                <button class="tab-btn" data-tab="week">周</button>
+                <button class="tab-btn" data-tab="month">月</button>
+            </div>
+            <div id="metric-panel">
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <div class="text-xs text-slate-400">订单</div>
+                        <div class="metric-value" data-metric="orders"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400">入住</div>
+                        <div class="metric-value" data-metric="checkins"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400">营收</div>
+                        <div class="metric-value" data-metric="revenue"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="compass-card p-5" data-block-key="alerts">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">今日线上数据预警</h2>
+                <div class="space-x-2">
+                    <button class="layout-btn move-up">上移</button>
+                    <button class="layout-btn move-down">下移</button>
+                    <button class="layout-btn toggle-hide">隐藏</button>
+                </div>
+            </div>
+            <div class="space-y-3">
+                <?php foreach ($alerts as $alert): ?>
+                    <div class="flex items-center justify-between text-sm">
+                        <div>
+                            <div class="text-slate-100"><?php echo $alert['type']; ?></div>
+                            <div class="text-slate-400 text-xs"><?php echo $alert['message']; ?></div>
+                        </div>
+                        <span class="px-2 py-1 rounded text-xs <?php echo $alert['level'] === 'red' ? 'badge-red' : 'badge-yellow'; ?>">
+                            <?php echo $alert['level'] === 'red' ? '高' : '中'; ?>
+                        </span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+
+        <div class="compass-card p-5" data-block-key="holiday">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">下个收益期单量显示</h2>
+                <div class="space-x-2">
+                    <button class="layout-btn move-up">上移</button>
+                    <button class="layout-btn move-down">下移</button>
+                    <button class="layout-btn toggle-hide">隐藏</button>
+                </div>
+            </div>
+            <?php foreach ($holidays as $holiday): ?>
+                <div class="mb-4">
+                    <div class="text-slate-200 text-sm mb-2"><?php echo $holiday['name']; ?></div>
+                    <div class="space-y-2 text-sm text-slate-300">
+                        <?php foreach ($holiday['days'] as $day): ?>
+                            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                                <span><?php echo $day['date']; ?></span>
+                                <span>大床 <?php echo $day['king']; ?></span>
+                                <span>双床 <?php echo $day['twin']; ?></span>
+                                <span class="text-slate-100">总计 <?php echo $day['total']; ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</div>
+
+<script>
+    const layout = <?php echo json_encode($layout, JSON_UNESCAPED_UNICODE); ?>;
+    const metrics = <?php echo json_encode($metrics, JSON_UNESCAPED_UNICODE); ?>;
+    const grid = document.getElementById('compass-grid');
+
+    function applyLayout() {
+        const blocks = Array.from(grid.querySelectorAll('[data-block-key]'));
+        const order = layout.order || [];
+        blocks.sort((a, b) => order.indexOf(a.dataset.blockKey) - order.indexOf(b.dataset.blockKey));
+        blocks.forEach(block => {
+            block.style.display = layout.hidden && layout.hidden.includes(block.dataset.blockKey) ? 'none' : '';
+            grid.appendChild(block);
+        });
+        renderLayoutList();
+    }
+
+    function moveBlock(key, direction) {
+        const order = layout.order;
+        const idx = order.indexOf(key);
+        if (idx === -1) return;
+        const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+        if (newIdx < 0 || newIdx >= order.length) return;
+        [order[idx], order[newIdx]] = [order[newIdx], order[idx]];
+        applyLayout();
+    }
+
+    function toggleHidden(key) {
+        layout.hidden = layout.hidden || [];
+        if (layout.hidden.includes(key)) {
+            layout.hidden = layout.hidden.filter(k => k !== key);
+        } else {
+            layout.hidden.push(key);
+        }
+        applyLayout();
+    }
+
+    function initLayoutControls() {
+        grid.querySelectorAll('[data-block-key]').forEach(block => {
+            const key = block.dataset.blockKey;
+            block.querySelector('.move-up').addEventListener('click', () => moveBlock(key, 'up'));
+            block.querySelector('.move-down').addEventListener('click', () => moveBlock(key, 'down'));
+            block.querySelector('.toggle-hide').addEventListener('click', () => toggleHidden(key));
+        });
+    }
+
+    function renderLayoutList() {
+        const labels = {
+            weather: '天气预报',
+            todo: '今日待办事宜',
+            metrics: '数据展示',
+            alerts: '今日线上数据预警',
+            holiday: '下个收益期单量显示'
+        };
+        const container = document.getElementById('layout-list');
+        container.innerHTML = '';
+        layout.order.forEach(key => {
+            const item = document.createElement('div');
+            item.className = 'flex items-center justify-between bg-slate-900/40 border border-slate-800 rounded-lg px-3 py-2 text-sm';
+            item.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" ${layout.hidden.includes(key) ? '' : 'checked'} data-key="${key}" class="layout-toggle">
+                    <span>${labels[key] || key}</span>
+                </div>
+                <div class="space-x-1">
+                    <button class="layout-btn layout-up" data-key="${key}">上移</button>
+                    <button class="layout-btn layout-down" data-key="${key}">下移</button>
+                </div>
+            `;
+            container.appendChild(item);
+        });
+        container.querySelectorAll('.layout-toggle').forEach(el => {
+            el.addEventListener('change', () => toggleHidden(el.dataset.key));
+        });
+        container.querySelectorAll('.layout-up').forEach(el => {
+            el.addEventListener('click', () => moveBlock(el.dataset.key, 'up'));
+        });
+        container.querySelectorAll('.layout-down').forEach(el => {
+            el.addEventListener('click', () => moveBlock(el.dataset.key, 'down'));
+        });
+    }
+
+    function renderMetrics(tab) {
+        const data = metrics[tab] || metrics.day;
+        document.querySelectorAll('[data-metric]').forEach(el => {
+            const key = el.dataset.metric;
+            el.textContent = key === 'revenue' ? ('¥' + data[key]) : data[key];
+        });
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderMetrics(btn.dataset.tab);
+        });
+    });
+
+    document.getElementById('toggle-layout').addEventListener('click', () => {
+        document.getElementById('layout-panel').classList.toggle('hidden');
+    });
+
+    document.getElementById('save-layout').addEventListener('click', async () => {
+        const token = new URLSearchParams(location.search).get('token') || localStorage.getItem('token') || '';
+        const url = token ? `/compass/save-layout?token=${encodeURIComponent(token)}` : '/compass/save-layout';
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': token },
+            body: JSON.stringify({ order: layout.order, hidden: layout.hidden || [] })
+        });
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || '已保存');
+    });
+
+    applyLayout();
+    initLayoutControls();
+    renderLayoutList();
+    renderMetrics('day');
+</script>
+</body>
+</html>

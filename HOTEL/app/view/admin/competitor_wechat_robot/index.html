@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>企业微信机器人</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="max-w-6xl mx-auto p-6">
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-4 border-b flex items-center justify-between">
+                <h1 class="text-lg font-semibold">企业微信机器人</h1>
+                <a href="<?php echo url('admin/CompetitorWechatRobotController/add'); ?>" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">新增机器人</a>
+            </div>
+            <div class="p-4 border-b">
+                <form method="get" class="flex items-center gap-3">
+                    <label class="text-sm text-gray-600">门店</label>
+                    <select name="store_id" class="px-3 py-2 border rounded-lg">
+                        <option value="">全部</option>
+                        <?php foreach ($stores as $s): ?>
+                            <option value="<?php echo $s['id']; ?>" <?php echo ($filter_store_id !== '' && (int)$filter_store_id === (int)$s['id']) ? 'selected' : ''; ?>>
+                                <?php echo $s['name']; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button class="px-4 py-2 bg-gray-100 rounded-lg">查询</button>
+                </form>
+            </div>
+            <div class="p-4">
+                <div class="overflow-x-auto border rounded-lg">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-2 text-left">门店</th>
+                                <th class="px-3 py-2 text-left">名称</th>
+                                <th class="px-3 py-2 text-left">Webhook</th>
+                                <th class="px-3 py-2 text-left">状态</th>
+                                <th class="px-3 py-2 text-left">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            <?php foreach ($list as $item): ?>
+                                <tr>
+                                    <td class="px-3 py-2"><?php echo $item['store_id']; ?></td>
+                                    <td class="px-3 py-2"><?php echo $item['name']; ?></td>
+                                    <td class="px-3 py-2 text-gray-500 truncate" style="max-width: 320px;"><?php echo $item['webhook']; ?></td>
+                                    <td class="px-3 py-2"><?php echo (int)$item['status'] === 1 ? '启用' : '禁用'; ?></td>
+                                    <td class="px-3 py-2 space-x-2">
+                                        <a class="text-blue-600" href="<?php echo url('admin/CompetitorWechatRobotController/edit', ['id' => $item['id']]); ?>">编辑</a>
+                                        <button class="text-green-600" onclick="testSendStore(<?php echo $item['store_id']; ?>)">测试发送</button>
+                                        <button class="text-red-600" onclick="deleteRobot(<?php echo $item['id']; ?>)">删除</button>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($list)): ?>
+                                <tr>
+                                    <td colspan="5" class="px-3 py-6 text-center text-gray-400">暂无数据</td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        async function testSendStore(storeId) {
+            if (!confirm('确认发送测试消息？')) return;
+            const res = await fetch('<?php echo url('admin/CompetitorWechatRobotController/testSendStore'); ?>/' + storeId, { method: 'POST' });
+            const data = await res.json();
+            alert(data.message || '已发送');
+        }
+        async function deleteRobot(id) {
+            if (!confirm('确认删除该机器人？')) return;
+            const res = await fetch('<?php echo url('admin/CompetitorWechatRobotController/delete'); ?>/' + id, { method: 'POST' });
+            const data = await res.json();
+            if (data.code === 200) {
+                location.reload();
+            } else {
+                alert(data.message || '删除失败');
+            }
+        }
+    </script>
+</body>
+</html>

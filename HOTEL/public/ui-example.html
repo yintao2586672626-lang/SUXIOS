@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>宿析OS - UI设计系统示例</title>
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <link rel="stylesheet" href="./components.css">
+    <link rel="stylesheet" href="./style.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            min-height: 100vh;
+            color: #1f2937;
+        }
+        
+        .example-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        
+        .example-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .example-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+        }
+        
+        .example-subtitle {
+            font-size: 1.1rem;
+            color: #6b7280;
+            max-width: 600px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+        
+        .example-section {
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #f3f4f6;
+        }
+        
+        .component-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+        
+        .component-demo {
+            padding: 1.5rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+            background: #f9fafb;
+        }
+        
+        .demo-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #4b5563;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .demo-area {
+            padding: 1rem;
+            background: white;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+        }
+        
+        code {
+            background: #f3f4f6;
+            color: #dc2626;
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .code-block {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+        
+        .highlight {
+            color: #60a5fa;
+        }
+        
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .color-item {
+            text-align: center;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .color-box {
+            height: 60px;
+        }
+        
+        .color-label {
+            padding: 0.5rem;
+            background: white;
+            font-size: 0.75rem;
+            font-family: 'Fira Code', monospace;
+        }
+        
+        @media (max-width: 768px) {
+            .component-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .color-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="example-container">
+        <!-- 页面头部 -->
+        <header class="example-header">
+            <h1 class="example-title">宿析OS UI设计系统</h1>
+            <p class="example-subtitle">
+                专业、现代的酒店管理系统界面组件库 - 基于CSS设计令牌和组件化架构
+            </p>
+        </header>
+        
+        <!-- 设计令牌 -->
+        <section class="example-section">
+            <h2 class="section-title">
+                <i class="ri-palette-line"></i>
+                设计系统变量
+            </h2>
+            
+            <div class="component-grid">
+                <!-- 色彩系统 -->
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-drop-line"></i> 色彩系统</h3>
+                    <p>使用CSS自定义属性定义完整色彩系统</p>
+                    
+                    <div class="color-grid">
+                        <div class="color-item">
+                            <div class="color-box" style="background: #3b82f6;"></div>
+                            <div class="color-label">primary-500</div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-box" style="background: #10b981;"></div>
+                            <div class="color-label">success-500</div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-box" style="background: #f59e0b;"></div>
+                            <div class="color-label">warning-500</div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-box" style="background: #ef4444;"></div>
+                            <div class="color-label">error-500</div>
+                        </div>
+                    </div>
+                    
+                    <div class="code-block">
+<span class="highlight">:root</span> {<br/>
+&nbsp;&nbsp;--color-primary-500: <span style="color: #fbbf24;">#3b82f6</span>;<br/>
+&nbsp;&nbsp;--color-success-500: <span style="color: #fbbf24;">#10b981</span>;<br/>
+&nbsp;&nbsp;--color-warning-500: <span style="color: #fbbf24;">#f59e0b</span>;<br/>
+&nbsp;&nbsp;--color-error-500: <span style="color: #fbbf24;">#ef4444</span>;<br/>
+}
+                    </div>
+                </div>
+                
+                <!-- 间距系统 -->
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-ruler-line"></i> 间距系统</h3>
+                    <p>基于8px基准单位的间距设计令牌</p>
+                    
+                    <div class="demo-area">
+                        <div style="margin-bottom: 0.25rem;">--space-1: 0.25rem (4px)</div>
+                        <div style="margin-bottom: 0.5rem;">--space-2: 0.5rem (8px)</div>
+                        <div style="margin-bottom: 0.75rem;">--space-3: 0.75rem (12px)</div>
+                        <div style="margin-bottom: 1rem;">--space-4: 1rem (16px)</div>
+                        <div style="margin-bottom: 1.5rem;">--space-6: 1.5rem (24px)</div>
+                        <div>--space-8: 2rem (32px)</div>
+                    </div>
+                    
+                    <div class="code-block">
+.btn {<br/>
+&nbsp;&nbsp;padding: <span style="color: #60a5fa;">var(--space-3)</span> <span style="color: #60a5fa;">var(--space-4)</span>;<br/>
+&nbsp;&nbsp;border-radius: <span style="color: #60a5fa;">var(--radius-md)</span>;<br/>
+}
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 按钮组件 -->
+        <section class="example-section">
+            <h2 class="section-title">
+                <i class="ri-checkbox-blank-circle-line"></i>
+                按钮组件
+            </h2>
+            
+            <div class="component-grid">
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-cursor-line"></i> 按钮变体</h3>
+                    <p>多种按钮样式和状态</p>
+                    
+                    <div class="demo-area" style="display: flex; flex-wrap: wrap; gap: 1rem; padding: 1.5rem;">
+                        <button class="btn btn--primary">
+                            <i class="ri-save-line"></i> 保存
+                        </button>
+                        <button class="btn btn--secondary">取消</button>
+                        <button class="btn btn--success">
+                            <i class="ri-check-line"></i> 确认
+                        </button>
+                        <button class="btn btn--danger">
+                            <i class="ri-delete-bin-line"></i> 删除
+                        </button>
+                        <button class="btn btn--warning">警告</button>
+                        <button class="btn btn--ghost">幽灵按钮</button>
+                        <button class="btn btn--primary btn--lg">大型按钮</button>
+                        <button class="btn btn--secondary btn--sm">小型按钮</button>
+                        <button class="btn" disabled>禁用按钮</button>
+                    </div>
+                    
+                    <div class="code-block">
+&lt;button class=<span style="color: #fbbf24;">"btn btn--primary"</span>&gt;<br/>
+&nbsp;&nbsp;&lt;i class=<span style="color: #fbbf24;">"ri-save-line"</span>&gt;&lt;/i&gt; 保存<br/>
+&lt;/button&gt;<br/>
+<br/>
+&lt;button class=<span style="color: #fbbf24;">"btn btn--secondary"</span>&gt;取消&lt;/button&gt;<br/>
+<br/>
+&lt;button class=<span style="color: #fbbf24;">"btn btn--danger"</span>&gt;<br/>
+&nbsp;&nbsp;&lt;i class=<span style="color: #fbbf24;">"ri-delete-bin-line"</span>&gt;&lt;/i&gt; 删除<br/>
+&lt;/button&gt;
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 表单组件 -->
+        <section class="example-section">
+            <h2 class="section-title">
+                <i class="ri-input-method-line"></i>
+                表单组件
+            </h2>
+            
+            <div class="component-grid">
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-eye-line"></i> 输入框示例</h3>
+                    <p>完整的表单组件和验证状态</p>
+                    
+                    <div class="demo-area" style="padding: 1.5rem;">
+                        <div class="form-group">
+                            <label class="form-label">酒店名称</label>
+                            <input type="text" class="form-input" placeholder="请输入酒店名称" value="四季酒店">
+                        </div>
+                        
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label class="form-label">邮箱地址</label>
+                            <input type="email" class="form-input form-input--error" placeholder="请输入邮箱" value="user@example.com">
+                            <div class="form-hint form-hint--error">邮箱格式不正确</div>
+                        </div>
+                        
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label class="form-label">酒店类型</label>
+                            <select class="form-select">
+                                <option value="">请选择类型</option>
+                                <option value="business" selected>商务酒店</option>
+                                <option value="resort">度假酒店</option>
+                                <option value="boutique">精品酒店</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label class="form-label">服务选项</label>
+                            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                <label class="form-checkbox">
+                                    <input type="checkbox" class="checkbox-input" checked>
+                                    <span class="checkbox-label">早餐服务</span>
+                                </label>
+                                <label class="form-checkbox">
+                                    <input type="checkbox" class="checkbox-input">
+                                    <span class="checkbox-label">游泳池</span>
+                                </label>
+                                <label class="form-checkbox">
+                                    <input type="checkbox" class="checkbox-input">
+                                    <span class="checkbox-label">停车场</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-code-s-slash-line"></i> 表单代码</h3>
+                    <p>HTML结构和CSS类名</p>
+                    
+                    <div class="code-block">
+&lt;div class=<span style="color: #fbbf24;">"form-group"</span>&gt;<br/>
+&nbsp;&nbsp;&lt;label class=<span style="color: #fbbf24;">"form-label"</span>&gt;酒店名称&lt;/label&gt;<br/>
+&nbsp;&nbsp;&lt;input type=<span style="color: #fbbf24;">"text"</span> class=<span style="color: #fbbf24;">"form-input"</span> placeholder=<span style="color: #fbbf24;">"请输入酒店名称"</span>&gt;<br/>
+&lt;/div&gt;<br/>
+<br/>
+&lt;div class=<span style="color: #fbbf24;">"form-group"</span>&gt;<br/>
+&nbsp;&nbsp;&lt;label class=<span style="color: #fbbf24;">"form-label"</span>&gt;邮箱地址&lt;/label&gt;<br/>
+&nbsp;&nbsp;&lt;input type=<span style="color: #fbbf24;">"email"</span> class=<span style="color: #fbbf24;">"form-input form-input--error"</span>&gt;<br/>
+&nbsp;&nbsp;&lt;div class=<span style="color: #fbbf24;">"form-hint form-hint--error"</span>&gt;<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;邮箱格式不正确<br/>
+&nbsp;&nbsp;&lt;/div&gt;<br/>
+&lt;/div&gt;
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 卡片和表格 -->
+        <section class="example-section">
+            <h2 class="section-title">
+                <i class="ri-layout-masonry-line"></i>
+                数据展示组件
+            </h2>
+            
+            <div class="component-grid">
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-window-line"></i> 卡片组件</h3>
+                    <p>信息展示和组织</p>
+                    
+                    <div class="demo-area">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3 class="card-title">酒店概览</h3>
+                                <div class="card-actions">
+                                    <button class="action-btn">
+                                        <i class="ri-more-line"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <p>当前在营酒店: <strong>24</strong> 家</p>
+                                <p>今日入住率: <span class="badge badge--success">85%</span></p>
+                                <p>平均房价: <strong>¥1,280</strong></p>
+                            </div>
+                            <div class="card-footer">
+                                <span class="card-footer-text">最后更新: 10分钟前</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-table-line"></i> 表格组件</h3>
+                    <p>数据列表和操作</p>
+                    
+                    <div class="demo-area">
+                        <div class="table-container" style="font-size: 0.875rem;">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th class="table-cell--header">酒店名</th>
+                                        <th class="table-cell--header">入住率</th>
+                                        <th class="table-cell--header">状态</th>
+                                        <th class="table-cell--header">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="table-row">
+                                        <td class="table-cell">四季酒店</td>
+                                        <td class="table-cell">
+                                            <div class="progress-track">
+                                                <div class="progress-fill" style="width: 85%"></div>
+                                            </div>
+                                        </td>
+                                        <td class="table-cell">
+                                            <span class="badge badge--success">营业中</span>
+                                        </td>
+                                        <td class="table-cell">
+                                            <div class="action-group">
+                                                <button class="action-btn action-btn-edit">
+                                                    <i class="ri-edit-line"></i>
+                                                </button>
+                                                <button class="action-btn action-btn-view">
+                                                    <i class="ri-eye-line"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr class="table-row">
+                                        <td class="table-cell">万豪酒店</td>
+                                        <td class="table-cell">
+                                            <div class="progress-track">
+                                                <div class="progress-fill" style="width: 78%"></div>
+                                            </div>
+                                        </td>
+                                        <td class="table-cell">
+                                            <span class="badge badge--success">营业中</span>
+                                        </td>
+                                        <td class="table-cell">
+                                            <div class="action-group">
+                                                <button class="action-btn action-btn-edit">
+                                                    <i class="ri-edit-line"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 反馈和提示组件 -->
+        <section class="example-section">
+            <h2 class="section-title">
+                <i class="ri-chat-smile-line"></i>
+                反馈组件
+            </h2>
+            
+            <div class="component-grid">
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-medal-line"></i> 徽章 Badge</h3>
+                    <p>状态和标签展示</p>
+                    
+                    <div class="demo-area" style="display: flex; flex-wrap: wrap; gap: 1rem; padding: 1.5rem;">
+                        <span class="badge badge--primary">营业中</span>
+                        <span class="badge badge--success">空闲</span>
+                        <span class="badge badge--warning">维护中</span>
+                        <span class="badge badge--error">停业</span>
+                        <span class="badge badge--neutral">待审核</span>
+                        <span class="badge badge--solid-primary">VIP</span>
+                        <span class="badge badge--solid-success">推荐</span>
+                        <span class="badge badge--large">新增</span>
+                    </div>
+                    
+                    <div class="code-block">
+&lt;span class=<span style="color: #fbbf24;">"badge badge--success"</span>&gt;营业中&lt;/span&gt;<br/>
+&lt;span class=<span style="color: #fbbf24;">"badge badge--warning"</span>&gt;维护中&lt;/span&gt;<br/>
+&lt;span class=<span style="color: #fbbf24;">"badge badge--error"</span>&gt;停业&lt;/span&gt;
+                    </div>
+                </div>
+                
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-loader-line"></i> 空状态和加载</h3>
+                    <p>数据为空或加载中的用户反馈</p>
+                    
+                    <div class="demo-area" style="text-align: center; padding: 2rem;">
+                        <!-- 空状态 -->
+                        <div class="empty-state" style="padding: 1rem;">
+                            <div class="empty-state-icon" style="width: 3rem; height: 3rem; font-size: 1.5rem;">
+                                <i class="ri-hotel-line"></i>
+                            </div>
+                            <h3 class="empty-state-title" style="font-size: 1.1rem;">暂无酒店数据</h3>
+                            <p class="empty-state-description" style="font-size: 0.875rem;">
+                                当前没有酒店数据，点击下方按钮添加第一个酒店。
+                            </p>
+                            <button class="btn btn--primary btn--sm" style="margin-top: 1rem;">
+                                <i class="ri-add-line"></i> 添加酒店
+                            </button>
+                        </div>
+                        
+                        <!-- 骨架屏 -->
+                        <div style="margin-top: 2rem;">
+                            <div class="skeleton skeleton-line" style="width: 60%; margin: 0 auto; height: 1.25rem;"></div>
+                            <div class="skeleton skeleton-line" style="width: 80%; margin: 1rem auto;"></div>
+                            <div class="skeleton skeleton-line" style="width: 70%; margin: 0 auto;"></div>
+                        </div>
+                        
+                        <!-- 加载动画 -->
+                        <div class="spinner" style="display: inline-block; margin: 2rem auto;"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 模态框和通知 -->
+        <section class="example-section">
+            <h2 class="section-title">
+                <i class="ri-notification-line"></i>
+                弹出组件
+            </h2>
+            
+            <div class="component-grid">
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-window-2-line"></i> 模态框</h3>
+                    <p>弹窗、对话框和确认框</p>
+                    
+                    <div class="demo-area">
+                        <div style="border: 2px dashed #e5e7eb; border-radius: 0.75rem; padding: 2rem;">
+                            <!-- 模拟的模态框 -->
+                            <div style="max-width: 400px; margin: 0 auto; background: white; border-radius: 1rem; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);">
+                                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between;">
+                                    <h3 style="font-size: 1.125rem; font-weight: 600; color: #1f2937; margin: 0;">确认删除</h3>
+                                    <button style="background: transparent; border: none; color: #6b7280; width: 28px; height: 28px; border-radius: 0.375rem; display: flex; align-items: center; justify-content: center;">×</button>
+                                </div>
+                                <div style="padding: 1.5rem;">
+                                    <p style="color: #4b5563; margin-bottom: 1.5rem;">确定要删除"四季酒店"吗？此操作不可撤销。</p>
+                                    <div style="display: flex; justify-content: flex-end; gap: 1rem;">
+                                        <button class="btn btn--secondary btn--sm">取消</button>
+                                        <button class="btn btn--danger btn--sm">
+                                            <i class="ri-delete-bin-line"></i> 确认删除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-message-2-line"></i> 通知 Toast</h3>
+                    <p>操作反馈和提示消息</p>
+                    
+                    <div class="demo-area" style="padding: 1.5rem;">
+                        <div style="max-width: 300px;">
+                            <!-- 成功提示 -->
+                            <div class="toast toast--success" style="margin-bottom: 1rem;">
+                                <div class="toast-icon">✓</div>
+                                <div class="toast-content">
+                                    <div class="toast-title">操作成功</div>
+                                    <div class="toast-message">酒店数据已保存</div>
+                                </div>
+                            </div>
+                            
+                            <!-- 错误提示 -->
+                            <div class="toast toast--error">
+                                <div class="toast-icon">!</div>
+                                <div class="toast-content">
+                                    <div class="toast-title">操作失败</div>
+                                    <div class="toast-message">保存失败，请检查网络连接</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 实用工具 -->
+        <section class="example-section">
+            <h2 class="section-title">
+                <i class="ri-tools-line"></i>
+                实用工具类
+            </h2>
+            
+            <div class="component-grid">
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-css3-line"></i> CSS实用类</h3>
+                    <p>常用的布局和样式工具类</p>
+                    
+                    <div class="demo-area" style="padding: 1.5rem; line-height: 1.6;">
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                            <span style="color: #3b82f6;">.text-primary</span>
+                            <span style="color: #10b981;">.text-success</span>
+                            <span style="color: #ef4444;">.text-error</span>
+                        </div>
+                        
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                            <span class="btn btn--primary">.bg-primary-50</span>
+                            <span class="btn btn--secondary">.bg-neutral-100</span>
+                        </div>
+                        
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                            <span style="font-weight: 600;">.font-semibold</span>
+                            <span style="font-size: 0.875rem;">.text-sm</span>
+                            <span style="font-size: 1.125rem;">.text-lg</span>
+                        </div>
+                        
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <span style="color: #6b7280;">.gap-2</span>
+                            <span style="color: #6b7280;">.space-y-3</span>
+                            <span style="color: #6b7280;">.rounded-lg</span>
+                            <span style="color: #6b7280;">.shadow-md</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="component-demo">
+                    <h3 class="demo-title"><i class="ri-layout-bottom-line"></i> 布局组件</h3>
+                    <p>页面结构和布局组件</p>
+                    
+                    <div class="demo-area" style="padding: 1.5rem;">
+                        <div style="display: flex; gap: 2rem; margin-bottom: 1.5rem;">
+                            <!-- 侧边栏模拟 -->
+                            <div style="width: 60px; background: #1f2937; border-radius: 0.5rem; padding: 1rem;">
+                                <div style="color: #9ca3af; text-align: center;">侧边栏</div>
+                            </div>
+                            
+                            <!-- 主内容区 -->
+                            <div style="flex: 1; background: #f9fafb; border-radius: 0.5rem; padding: 1rem;">
+                                <div style="background: white; padding: 1rem; border-radius: 0.375rem; margin-bottom: 1rem;">
+                                    页面标题区域
+                                </div>
+                                <div style="background: white; padding: 1rem; border-radius: 0.375rem;">
+                                    主要内容区域
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="code-block" style="font-size: 0.75rem;">
+&lt;div class=<span style="color: #fbbf24;">"app-layout"</span>&gt;<br/>
+&nbsp;&nbsp;&lt;div class=<span style="color: #fbbf24;">"sidebar"</span>&gt;侧边栏&lt;/div&gt;<br/>
+&nbsp;&nbsp;&lt;div class=<span style="color: #fbbf24;">"main-content"</span>&gt;<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&lt;header class=<span style="color: #fbbf24;">"page-header"</span>&gt;<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&lt;h1 class=<span style="color: #fbbf24;">"page-title"</span>&gt;标题&lt;/h1&gt;<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&lt;/header&gt;<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&lt;div class=<span style="color: #fbbf24;">"page-content"</span>&gt;内容&lt;/div&gt;<br/>
+&nbsp;&nbsp;&lt;/div&gt;<br/>
+&lt;/div&gt;
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 总结 -->
+        <section class="example-section">
+            <h2 class="section-title">
+                <i class="ri-check-double-line"></i>
+                实施指导
+            </h2>
+            
+            <div style="padding: 1rem;">
+                <h3 style="color: #1f2937; margin-bottom: 1rem;">如何应用到项目中</h3>
+                
+                <div style="background: #f0f9ff; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem;">
+                    <h4 style="color: #1e40af; margin-bottom: 0.75rem;">📌 步骤一：引入CSS文件</h4>
+                    <pre style="background: #dbeafe; padding: 0.75rem; border-radius: 0.375rem; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.875rem;">
+&lt;!-- 在public/index.html中添加 --&gt;
+&lt;link rel="stylesheet" href="./components.css"&gt;
+&lt;link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet"&gt;
+                    </pre>
+                </div>
+                
+                <div style="background: #f0f9ff; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem;">
+                    <h4 style="color: #1e40af; margin-bottom: 0.75rem;">📌 步骤二：更新组件类名</h4>
+                    <pre style="background: #dbeafe; padding: 0.75rem; border-radius: 0.375rem; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.875rem;">
+&lt;!-- 旧按钮 --&gt;
+&lt;button class="btn btn-primary"&gt;保存&lt;/button&gt;
+
+&lt;!-- 新按钮系统 --&gt;
+&lt;button class="btn btn--primary"&gt;
+    &lt;i class="ri-save-line"&gt;&lt;/i&gt; 保存
+&lt;/button&gt;
+                    </pre>
+                </div>
+                
+                <div style="background: #f0f9ff; border-radius: 0.5rem; padding: 1.5rem;">
+                    <h4 style="color: #1e40af; margin-bottom: 0.75rem;">📌 步骤三：使用设计系统</h4>
+                    <ol style="color: #475569; line-height: 1.8; padding-left: 1.25rem;">
+                        <li>优先使用CSS定制属性（--color-primary-500等）</li>
+                        <li>使用组件库的预定义类名（btn、form-input、card等）</li>
+                        <li>遵循响应式设计原则</li>
+                        <li>确保可访问性（支持键盘导航、屏幕阅读器）</li>
+                        <li>保持视觉一致性</li>
+                    </ol>
+                </div>
+                
+                <div class="card" style="margin-top: 2rem; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white;">
+                    <div class="card-body">
+                        <h3 style="font-size: 1.25rem; margin-bottom: 0.75rem;">🎨 设计系统特性</h3>
+                        <ul style="list-style: none; padding: 0; line-height: 1.8;">
+                            <li><i class="ri-checkbox-circle-line"></i> 完整的CSS设计令牌系统</li>
+                            <li><i class="ri-checkbox-circle-line"></i> 30+预定义组件和变体</li>
+                            <li><i class="ri-checkbox-circle-line"></i> 响应式支持（手机到桌面）</li>
+                            <li><i class="ri-checkbox-circle-line"></i> 无障碍设计（WCAG AA标准）</li>
+                            <li><i class="ri-checkbox-circle-line"></i> 深色主题支持</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+</body>
+</html>

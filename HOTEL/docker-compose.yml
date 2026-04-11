@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  hotel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: suxi-hotel
+    ports:
+      - "8080:8080"
+    volumes:
+      # 数据持久化 - 宿析SQLite数据库
+      - ./runtime:/var/www/hotel/runtime
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
