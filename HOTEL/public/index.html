@@ -14553,13 +14553,18 @@
             // 携程配置管理方法
             const loadCtripConfigList = async () => {
                 try {
-                    // 调用认证的 Controller 接口（通过Auth中间件获取完整用户身份）
-                    const data = await request('/online-data/get-ctrip-config-list');
-                    if (data.code === 200) {
-                        ctripConfigList.value = data.data || [];
+                    const res = await request('/online-data/get-ctrip-config-list');
+                    console.log('[CTrip] 列表返回:', JSON.stringify(res).substring(0, 300));
+                    if (res && res.code === 200) {
+                        const list = res.data || [];
+                        ctripConfigList.value = Array.isArray(list) ? list : Object.values(list);
+                        console.log('[CTrip] 已加载 ' + ctripConfigList.value.length + ' 条携程配置');
+                    } else {
+                        console.error('[CTrip] 加载失败:', res);
                     }
                 } catch (e) {
-                    console.error('加载携程配置列表失败:', e);
+                    console.error('[CTrip] 异常:', e);
+                    showToast('加载携程配置失败', 'error');
                 }
             };
 
