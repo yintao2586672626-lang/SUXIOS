@@ -1940,6 +1940,8 @@ JAVASCRIPT;
      */
     public function getCtripConfigList(): Response
     {
+        $this->checkPermission();
+
         $key = 'ctrip_config_list';
         $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
         $list = $raw ? json_decode($raw, true) : [];
