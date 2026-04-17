@@ -1615,6 +1615,16 @@ class OnlineData extends Base
             $id = 'meituan_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
         }
 
+        // 非超级管理员：编辑时只能改自己的配置
+        if (!$this->currentUser->isSuperAdmin() && !empty($id) && isset($list[$id])) {
+            if (($list[$id]['user_id'] ?? '') != $this->currentUser->id) {
+                return $this->error('无权修改此配置');
+            }
+        }
+
+        // 非超级管理员删除时也只能删自己的
+        $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
+
         $list[$id] = [
             'id' => $id,
             'name' => $name,
@@ -1624,6 +1634,7 @@ class OnlineData extends Base
             'auth_data' => $authData,
             'hotel_room_count' => $hotelRoomCount,
             'competitor_room_count' => $competitorRoomCount,
+            'user_id' => $userId,
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => $list[$id]['created_at'] ?? date('Y-m-d H:i:s'),
         ];
@@ -1644,6 +1655,17 @@ class OnlineData extends Base
 
         $key = 'meituan_config_list';
         $list = $this->getConfigList($key);
+
+        // 非超级管理员只能看到自己保存的配置
+        if (!$this->currentUser->isSuperAdmin()) {
+            $myList = [];
+            foreach ($list as $item) {
+                if (($item['user_id'] ?? null) === $this->currentUser->id) {
+                    $myList[] = $item;
+                }
+            }
+            $list = $myList;
+        }
 
         // 按更新时间降序排序（最新的在前面）
         $list = array_values($list);
@@ -1673,6 +1695,13 @@ class OnlineData extends Base
 
         if (!isset($list[$id])) {
             return $this->error('配置不存在');
+        }
+
+        // 非超级管理员只能删除自己的配置
+        if (!$this->currentUser->isSuperAdmin()) {
+            if (($list[$id]['user_id'] ?? null) != $this->currentUser->id) {
+                return $this->error('无权删除此配置');
+            }
         }
 
         $name = $list[$id]['name'] ?? '';
@@ -1839,13 +1868,17 @@ JAVASCRIPT;
 
             // 生成唯一ID
             $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
-            
+
+            // 非超级管理员保存时记录 user_id
+            $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
+
             $config = [
                 'id' => $id,
                 'name' => $name,
                 'cookies' => $cookies,
                 'url' => $this->request->post('url', ''),
                 'node_id' => $this->request->post('node_id', ''),
+                'user_id' => $userId,
                 'update_time' => date('Y-m-d H:i:s'),
                 'created_at' => date('Y-m-d H:i:s'),
             ];
@@ -1895,6 +1928,17 @@ JAVASCRIPT;
             $list = [];
         }
 
+        // 非超级管理员只能看到自己保存的配置
+        if (!$this->currentUser->isSuperAdmin()) {
+            $myList = [];
+            foreach ($list as $item) {
+                if (($item['user_id'] ?? null) === $this->currentUser->id) {
+                    $myList[] = $item;
+                }
+            }
+            $list = $myList;
+        }
+
         // 按更新时间倒序
         usort($list, function($a, $b) {
             return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
@@ -1922,10 +1966,9 @@ JAVASCRIPT;
             return $this->error('配置不存在');
         }
 
-        // 非超级管理员只能删除自己酒店的配置
+        // 非超级管理员只能删除自己的配置
         if (!$this->currentUser->isSuperAdmin()) {
-            $hotelId = $this->currentUser->hotel_id;
-            if (!empty($list[$id]['hotel_id']) && $list[$id]['hotel_id'] != $hotelId) {
+            if (($list[$id]['user_id'] ?? null) != $this->currentUser->id) {
                 return $this->error('无权删除此配置');
             }
         }

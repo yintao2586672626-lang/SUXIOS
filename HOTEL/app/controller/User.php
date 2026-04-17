@@ -102,10 +102,6 @@ class User extends Base
         
         if ($this->currentUser->isSuperAdmin()) {
             $hotelId = $data['hotel_id'] ?? null;
-            // 超级管理员创建的用户必须关联酒店（超级管理员除外）
-            if ($roleId != Role::SUPER_ADMIN && empty($hotelId)) {
-                return $this->error('请选择关联酒店');
-            }
         } else {
             // 店长只能创建自己酒店的店员
             $hotelId = $this->currentUser->hotel_id;

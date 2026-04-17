@@ -1859,42 +1859,98 @@
                             </div>
                         </div>
 
-                        <DataTable 
-                            title="员工列表"
-                            :columns="userColumns"
-                            :data="filteredUsers"
-                            :can-add="user?.is_super_admin || user?.role_id === 2"
-                            add-text="添加员工"
-                            @add="openUserModal"
-                            empty-icon="fas fa-users"
-                            empty-text="暂无员工数据">
-                            <template #filters>
-                                <SearchInput v-model="searchUser" placeholder="搜索用户名或姓名..." />
-                                <select v-model="filterUserRoleId" class="input-field">
+                        <!-- 员工列表工具栏 -->
+                        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4">
+                            <div class="flex flex-wrap gap-3 items-center">
+                                <div class="flex-1 min-w-[200px]">
+                                    <input v-model="searchUser" type="text" placeholder="搜索用户名或姓名..."
+                                        class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <select v-model="filterUserRoleId" class="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                     <option value="">全部角色</option>
                                     <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.display_name }}</option>
                                 </select>
-                            </template>
-                            <template #row="{ item: u }">
-                                <td class="px-6 py-4 text-gray-500">#{{ u.id }}</td>
-                                <td class="px-6 py-4 font-semibold text-gray-800">{{ u.username }}</td>
-                                <td class="px-6 py-4 text-gray-600">{{ u.realname }}</td>
-                                <td class="px-6 py-4">
-                                    <RoleBadge :role="u.role" />
-                                </td>
-                                <td class="px-6 py-4 text-gray-600">{{ u.hotel?.name || '-' }}</td>
-                                <td class="px-6 py-4">
-                                    <StatusBadge :status="u.status" :can-toggle="false" />
-                                </td>
-                                <td class="px-6 py-4">
-                                    <ActionButtons 
-                                        :can-edit="user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id)"
-                                        :can-delete="u.id !== user?.id && (user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id))"
-                                        @edit="openUserModal(u)"
-                                        @delete="deleteUser(u)" />
-                                </td>
-                            </template>
-                        </DataTable>
+                                <button v-if="searchUser || filterUserRoleId" @click="searchUser = ''; filterUserRoleId = ''"
+                                    class="text-sm text-blue-500 hover:text-blue-700 px-3 py-2">
+                                    重置筛选
+                                </button>
+                                <button v-if="user?.is_super_admin || user?.role_id <= 2"
+                                    @click="openUserModal()"
+                                    class="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2 ml-auto">
+                                    <i class="fas fa-plus"></i> 添加用户
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 员工数据表格 -->
+                        <div v-if="filteredUsers.length > 0" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr class="bg-gradient-to-b from-gray-50 to-gray-100/80">
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ID</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">用户名</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">姓名</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">角色</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">所属酒店</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="u in filteredUsers" :key="u.id" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
+                                            <td class="px-6 py-4 text-sm text-gray-500">{{ u.id }}</td>
+                                            <td class="px-6 py-4 text-sm font-semibold text-gray-800">{{ u.username }}</td>
+                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u.realname || '-' }}</td>
+                                            <td class="px-6 py-4">
+                                                <span :class="{
+                                                    'bg-red-100 text-red-700': u.role?.level === 1,
+                                                    'bg-orange-100 text-orange-700': u.role?.level === 2,
+                                                    'bg-green-100 text-green-700': u.role?.level === 3
+                                                }" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
+                                                    {{ u.role?.display_name || '-' }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u.hotel?.name || '-' }}</td>
+                                            <td class="px-6 py-4">
+                                                <span :class="String(u.status) === '1' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
+                                                    {{ String(u.status) === '1' ? '正常' : '停用' }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <div class="flex items-center gap-2">
+                                                    <button v-if="user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id)"
+                                                        @click="openUserModal(u)"
+                                                        class="p-1.5 text-blue-500 hover:bg-blue-100 rounded transition-colors" title="编辑">
+                                                        <i class="fas fa-edit text-sm"></i>
+                                                    </button>
+                                                    <button v-if="u.id !== user?.id && (user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id))"
+                                                        @click="deleteUser(u)"
+                                                        class="p-1.5 text-red-500 hover:bg-red-100 rounded transition-colors" title="删除">
+                                                        <i class="fas fa-trash-alt text-sm"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 空状态 -->
+                        <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                            <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fas fa-users text-gray-300 text-3xl"></i>
+                            </div>
+                            <h3 class="text-lg font-medium text-gray-800 mb-2">暂无员工数据</h3>
+                            <p class="text-gray-500 text-sm mb-4">{{ searchUser || filterUserRoleId ? '没有符合筛选条件的员工' : '还没有添加任何员工，点击上方按钮添加' }}</p>
+                            <button v-if="(user?.is_super_admin || user?.role_id <= 2) && !searchUser && !filterUserRoleId"
+                                @click="openUserModal()"
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                                添加员工
+                            </button>
+                        </div>
                     </div>
 
                     <!-- 角色管理 -->
@@ -9199,12 +9255,12 @@
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">主酒店</label>
-                        <select v-model="userForm.hotel_id" class="w-full px-4 py-2 border rounded-lg"
+                        <select v-model="userForm.hotel_id" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                             :disabled="!user?.is_super_admin">
                             <option :value="null">无</option>
                             <option v-for="h in hotels" :key="h.id" :value="h.id">{{ h.name }}</option>
                         </select>
-                        <p v-if="!user?.is_super_admin" class="text-xs text-gray-500 mt-1">用户将关联到您的酒店</p>
+                        <p class="text-xs text-gray-500 mt-1">可选，不选则该用户无关联酒店</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
@@ -14497,8 +14553,8 @@
             // 携程配置管理方法
             const loadCtripConfigList = async () => {
                 try {
-                    const res = await fetch(API_BASE + '/test-ctrip-config-list');
-                    const data = await res.json();
+                    // 调用认证的 Controller 接口（通过Auth中间件获取完整用户身份）
+                    const data = await request('/online-data/get-ctrip-config-list');
                     if (data.code === 200) {
                         ctripConfigList.value = data.data || [];
                     }
@@ -14517,10 +14573,9 @@
                     return;
                 }
                 try {
-                    // 先调用无认证测试接口
-                    const testRes = await fetch(API_BASE + '/test-ctrip-save-direct', {
+                    // 调用认证的 Controller 接口
+                    const res = await request('/online-data/save-ctrip-config', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             name: ctripConfigForm.value.name,
                             cookies: ctripConfigForm.value.cookies,
@@ -14528,12 +14583,9 @@
                             node_id: ctripConfigForm.value.node_id,
                         }),
                     });
-                    const res = await testRes.json();
-                    console.log('保存结果:', res);
                     
                     if (res.code === 200) {
                         showToast('配置保存成功');
-                        // 重置表单
                         ctripConfigForm.value = {
                             id: null,
                             name: '',
@@ -14542,10 +14594,10 @@
                             node_id: '24588',
                             cookies: '',
                         };
-                        // 刷新列表
                         loadCtripConfigList();
                     } else {
-                        showToast(res.message || '保存失败', 'error');
+                        console.error('携程配置保存失败:', res);
+                        showToast(res.message || res.msg || '保存失败，请重试', 'error');
                     }
                 } catch (e) {
                     console.error('保存失败:', e);
@@ -14606,13 +14658,12 @@
             const deleteCtripConfig = async (id) => {
                 if (!confirm('确定要删除此配置吗？')) return;
                 try {
-                    const res = await fetch(API_BASE + `/test-ctrip-config-delete?id=${id}`);
-                    const data = await res.json();
+                    const data = await request(`/online-data/delete-ctrip-config?id=${id}`);
                     if (data.code === 200) {
                         showToast('删除成功');
                         loadCtripConfigList();
                     } else {
-                        showToast(data.message || '删除失败', 'error');
+                        showToast(data.message || data.msg || '删除失败', 'error');
                     }
                 } catch (e) {
                     showToast('删除失败: ' + e.message, 'error');
@@ -16076,18 +16127,38 @@
             };
 
             const saveUser = async () => {
+                // 表单验证
+                if (!userForm.value.username || userForm.value.username.trim() === '') {
+                    showToast('请输入用户名', 'error');
+                    return;
+                }
+                if (!userForm.value.id && (!userForm.value.password || userForm.value.password.length < 6)) {
+                    showToast('密码至少6位字符', 'error');
+                    return;
+                }
+                if (!userForm.value.role_id) {
+                    showToast('请选择角色', 'error');
+                    return;
+                }
+                // 非超级管理员角色建议选择酒店（非强制）
+
                 const isEdit = !!userForm.value.id;
                 const url = isEdit ? `/users/${userForm.value.id}` : '/users';
                 const method = isEdit ? 'PUT' : 'POST';
                 const data = { ...userForm.value };
                 if (!data.password) delete data.password;
-                const res = await request(url, { method, body: JSON.stringify(data) });
-                if (res.code === 200) {
-                    showToast(isEdit ? '更新成功' : '创建成功');
-                    showUserModal.value = false;
-                    loadUsers();
-                } else {
-                    showToast(res.message || '操作失败', 'error');
+                try {
+                    const res = await request(url, { method, body: JSON.stringify(data) });
+                    if (res.code === 200) {
+                        showToast(isEdit ? '更新成功' : '创建成功');
+                        showUserModal.value = false;
+                        loadUsers();
+                    } else {
+                        showToast(res.message || res.msg || '操作失败', 'error');
+                    }
+                } catch (err) {
+                    console.error('保存用户失败:', err);
+                    showToast(err.message || '网络错误，保存失败', 'error');
                 }
             };
 

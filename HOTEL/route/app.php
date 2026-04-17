@@ -367,9 +367,20 @@ Route::any('api/test-ctrip-save', function () {
     }
 });
 
-// 直接保存携程配置（带参数）
-Route::post('api/test-ctrip-save-direct', function () {
+// 直接保存携程配置（带参数，支持权限过滤）
+Route::any('api/test-ctrip-save-direct', function () {
     try {
+        // 尝试获取当前用户
+        $currentUser = null;
+        $token = request()->header('Authorization', '');
+        if ($token) {
+            $token = str_replace('Bearer ', '', $token);
+            $userModel = \app\model\User::where('token', $token)->find();
+            if ($userModel) {
+                $currentUser = $userModel;
+            }
+        }
+
         $data = json_decode(file_get_contents('php://input'), true);
         $name = $data['name'] ?? '';
         $cookies = $data['cookies'] ?? '';
@@ -379,6 +390,12 @@ Route::post('api/test-ctrip-save-direct', function () {
         }
         
         $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
+        
+        // 非超级管理员保存时记录 user_id
+        $userId = null;
+        if ($currentUser && !$currentUser->isSuperAdmin()) {
+            $userId = $currentUser->id;
+        }
         
         $key = 'ctrip_config_list';
         $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
@@ -392,6 +409,7 @@ Route::post('api/test-ctrip-save-direct', function () {
             'cookies' => $cookies,
             'url' => $data['url'] ?? '',
             'node_id' => $data['node_id'] ?? '',
+            'user_id' => $userId,
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => date('Y-m-d H:i:s'),
         ];
@@ -419,15 +437,38 @@ Route::post('api/test-ctrip-save-direct', function () {
     }
 });
 
-// 获取携程配置列表（直接接口）
+// 获取携程配置列表（直接接口，支持权限过滤）
 Route::any('api/test-ctrip-config-list', function () {
     try {
+        // 尝试获取当前用户（用于权限过滤）
+        $currentUser = null;
+        $token = request()->header('Authorization', '');
+        if ($token) {
+            $token = str_replace('Bearer ', '', $token);
+            $userModel = \app\model\User::where('token', $token)->find();
+            if ($userModel) {
+                $currentUser = $userModel;
+            }
+        }
+
         $key = 'ctrip_config_list';
         $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
         $list = $raw ? json_decode($raw, true) : [];
         if (!is_array($list)) {
             $list = [];
         }
+        
+        // 权限过滤：非超级管理员只能看自己保存的配置，超级管理员和未识别用户看到全部
+        if ($currentUser && !$currentUser->isSuperAdmin()) {
+            $myList = [];
+            foreach ($list as $item) {
+                if (($item['user_id'] ?? null) === $currentUser->id) {
+                    $myList[] = $item;
+                }
+            }
+            $list = $myList;
+        }
+        
         // 转为索引数组并按时间倒序
         $list = array_values($list);
         usort($list, function($a, $b) {
@@ -439,12 +480,23 @@ Route::any('api/test-ctrip-config-list', function () {
     }
 });
 
-// 删除携程配置（直接接口）
+// 删除携程配置（直接接口，支持权限过滤）
 Route::any('api/test-ctrip-config-delete', function () {
     try {
         $id = request()->param('id', '');
         if (empty($id)) {
             return json(['code' => 400, 'message' => '缺少ID参数']);
+        }
+
+        // 尝试获取当前用户
+        $currentUser = null;
+        $token = request()->header('Authorization', '');
+        if ($token) {
+            $token = str_replace('Bearer ', '', $token);
+            $userModel = \app\model\User::where('token', $token)->find();
+            if ($userModel) {
+                $currentUser = $userModel;
+            }
         }
         
         $key = 'ctrip_config_list';
@@ -456,6 +508,13 @@ Route::any('api/test-ctrip-config-delete', function () {
         $list = json_decode($existing['config_value'], true) ?: [];
         if (!isset($list[$id])) {
             return json(['code' => 404, 'message' => '配置项不存在']);
+        }
+        
+        // 非超级管理员只能删除自己的配置
+        if ($currentUser && !$currentUser->isSuperAdmin()) {
+            if (($list[$id]['user_id'] ?? null) != $currentUser->id) {
+                return json(['code' => 403, 'message' => '无权删除此配置']);
+            }
         }
         
         unset($list[$id]);
