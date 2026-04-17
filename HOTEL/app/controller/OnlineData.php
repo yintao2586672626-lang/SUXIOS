@@ -1951,7 +1951,8 @@ JAVASCRIPT;
         if (!$this->currentUser->isSuperAdmin()) {
             $myList = [];
             foreach ($list as $item) {
-                if (($item['user_id'] ?? null) === $this->currentUser->id) {
+                $itemId = $item['user_id'] ?? null;
+                if ($itemId !== null && $itemId == $this->currentUser->id) {
                     $myList[] = $item;
                 }
             }
