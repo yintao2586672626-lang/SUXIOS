@@ -1686,20 +1686,7 @@ class OnlineData extends Base
         return $this->success($result)->header('X-Debug-Info', base64_encode(json_encode($debugInfo)));
     }
 
-        // 按更新时间降序排序（最新的在前面）
-        $list = array_values($list);
-        usort($list, function($a, $b) {
-            $timeA = $a['update_time'] ?? $a['created_at'] ?? '1970-01-01 00:00:00';
-            $timeB = $b['update_time'] ?? $b['created_at'] ?? '1970-01-01 00:00:00';
-            return strcmp($timeB, $timeA);
-        });
-
-        return $this->success($list);
-    }
-
     /**
-     * 删除美团配置
-     */
     public function deleteMeituanConfig(): Response
     {
         $this->checkPermission();
@@ -1940,36 +1927,42 @@ JAVASCRIPT;
      */
     public function getCtripConfigList(): Response
     {
-        $this->checkPermission();
-
-        $key = 'ctrip_config_list';
-        $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
-        $list = $raw ? json_decode($raw, true) : [];
-        if (!is_array($list)) {
-            $list = [];
+        try {
+            $this->checkPermission();
+        } catch (\Throwable $e) {
+            return json(['code' => 401, 'message' => '未登录: ' . $e->getMessage()]);
         }
 
-        // 非超级管理员只能看到自己保存的配置（排除无user_id的旧数据）
-        $isAdmin = ($this->currentUser && $this->currentUser->isSuperAdmin());
-        if (!$isAdmin) {
-            $uid = $this->currentUser ? $this->currentUser->id : null;
-            $myList = [];
-            foreach ($list as $item) {
-                $itemId = $item['user_id'] ?? null;
-                // 只显示明确属于当前用户的记录
-                if ($uid !== null && $itemId !== null && $itemId == $uid) {
-                    $myList[] = $item;
-                }
+        try {
+            $key = 'ctrip_config_list';
+            $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
+            $list = $raw ? json_decode($raw, true) : [];
+            if (!is_array($list)) {
+                $list = [];
             }
-            $list = $myList;
+
+            // 非超级管理员只能看到自己保存的配置（排除无user_id的旧数据）
+            $isAdmin = ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin());
+            if (!$isAdmin) {
+                $uid = $this->currentUser ? $this->currentUser->id : null;
+                $myList = [];
+                foreach ($list as $item) {
+                    $itemId = $item['user_id'] ?? null;
+                    if ($uid !== null && $itemId !== null && strval($itemId) === strval($uid)) {
+                        $myList[] = $item;
+                    }
+                }
+                $list = $myList;
+            }
+
+            usort($list, function($a, $b) {
+                return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
+            });
+
+            return $this->success(array_values($list));
+        } catch (\Throwable $e) {
+            return json(['code' => 500, 'message' => '内部错误: ' . $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine()]);
         }
-
-        // 按更新时间倒序
-        usort($list, function($a, $b) {
-            return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
-        });
-
-        return json(['code' => 200, 'message' => 'success', 'data' => array_values($list)]);
     }
 
     /**
