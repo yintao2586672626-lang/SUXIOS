@@ -1656,16 +1656,35 @@ class OnlineData extends Base
         $key = 'meituan_config_list';
         $list = $this->getConfigList($key);
 
-        // 非超级管理员只能看到自己保存的配置
+        // 调试信息
+        $debugInfo = [
+            'user_id' => $this->currentUser->id,
+            'is_super_admin' => $this->currentUser->isSuperAdmin(),
+            'total_before_filter' => count($list),
+        ];
+
+        // 非超级管理员只能看到自己保存的配置（必须明确是自己的，排除无user_id的旧数据）
         if (!$this->currentUser->isSuperAdmin()) {
             $myList = [];
             foreach ($list as $item) {
-                if (($item['user_id'] ?? null) === $this->currentUser->id) {
+                $itemId = $item['user_id'] ?? null;
+                if ($itemId !== null && $itemId == $this->currentUser->id) {
                     $myList[] = $item;
                 }
             }
             $list = $myList;
+            $debugInfo['filtered_count'] = count($list);
         }
+
+        $result = array_values($list);
+        usort($result, function($a, $b) {
+            $timeA = $a['update_time'] ?? $a['created_at'] ?? '1970-01-01';
+            $timeB = $b['update_time'] ?? $b['created_at'] ?? '1970-01-01';
+            return strcmp($timeB, $timeA);
+        });
+
+        return $this->success($result)->header('X-Debug-Info', base64_encode(json_encode($debugInfo)));
+    }
 
         // 按更新时间降序排序（最新的在前面）
         $list = array_values($list);
