@@ -1947,12 +1947,15 @@ JAVASCRIPT;
             $list = [];
         }
 
-        // 非超级管理员只能看到自己保存的配置
-        if (!$this->currentUser->isSuperAdmin()) {
+        // 非超级管理员只能看到自己保存的配置（排除无user_id的旧数据）
+        $isAdmin = ($this->currentUser && $this->currentUser->isSuperAdmin());
+        if (!$isAdmin) {
+            $uid = $this->currentUser ? $this->currentUser->id : null;
             $myList = [];
             foreach ($list as $item) {
                 $itemId = $item['user_id'] ?? null;
-                if ($itemId !== null && $itemId == $this->currentUser->id) {
+                // 只显示明确属于当前用户的记录
+                if ($uid !== null && $itemId !== null && $itemId == $uid) {
                     $myList[] = $item;
                 }
             }
