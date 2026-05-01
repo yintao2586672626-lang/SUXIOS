@@ -1606,9 +1606,13 @@ class OnlineData extends Base
             $authData = json_decode($authDataStr, true) ?: [];
         }
 
-        // 获取配置列表
+        // 获取配置列表 - 直接查 system_config 表
         $key = 'meituan_config_list';
-        $list = $this->getConfigList($key);
+        $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+        $list = $raw ? json_decode($raw, true) : [];
+        if (!is_array($list)) {
+            $list = [];
+        }
 
         // 生成唯一ID
         if (empty($id)) {
@@ -1639,7 +1643,12 @@ class OnlineData extends Base
             'created_at' => $list[$id]['created_at'] ?? date('Y-m-d H:i:s'),
         ];
 
-        $this->setConfigList($key, $list);
+        // 写回 system_config 表
+        $encoded = json_encode($list, JSON_UNESCAPED_UNICODE);
+        \think\facade\Db::name('system_config')->where('config_key', $key)->update([
+            'config_value' => $encoded,
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
 
         OperationLog::record('online_data', 'save_meituan_config', "保存美团配置: {$name}", $this->currentUser->id);
 
@@ -1651,42 +1660,47 @@ class OnlineData extends Base
      */
     public function getMeituanConfigList(): Response
     {
-        $this->checkPermission();
-
-        $key = 'meituan_config_list';
-        $list = $this->getConfigList($key);
-
-        // 调试信息
-        $debugInfo = [
-            'user_id' => $this->currentUser->id,
-            'is_super_admin' => $this->currentUser->isSuperAdmin(),
-            'total_before_filter' => count($list),
-        ];
-
-        // 非超级管理员只能看到自己保存的配置（必须明确是自己的，排除无user_id的旧数据）
-        if (!$this->currentUser->isSuperAdmin()) {
-            $myList = [];
-            foreach ($list as $item) {
-                $itemId = $item['user_id'] ?? null;
-                if ($itemId !== null && $itemId == $this->currentUser->id) {
-                    $myList[] = $item;
-                }
-            }
-            $list = $myList;
-            $debugInfo['filtered_count'] = count($list);
+        // 仅检查登录状态，不强制要求酒店关联（配置读取不需要绑定酒店）
+        if (!$this->currentUser || !$this->currentUser->id) {
+            return json(['code' => 401, 'message' => '未登录']);
         }
 
-        $result = array_values($list);
-        usort($result, function($a, $b) {
-            $timeA = $a['update_time'] ?? $a['created_at'] ?? '1970-01-01';
-            $timeB = $b['update_time'] ?? $b['created_at'] ?? '1970-01-01';
-            return strcmp($timeB, $timeA);
-        });
+        try {
+            $key = 'meituan_config_list';
+            // 与 getCtripConfigList 保持一致：直接查 system_config 表（注意是单数表，美团数据在此表）
+            $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+            $list = $raw ? json_decode($raw, true) : [];
+            if (!is_array($list)) {
+                $list = [];
+            }
 
-        return $this->success($result)->header('X-Debug-Info', base64_encode(json_encode($debugInfo)));
+            // 权限控制：超级管理员看到全部，VIP用户只能看到自己保存的配置
+            $isAdmin = ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin());
+            if (!$isAdmin) {
+                $uid = $this->currentUser ? $this->currentUser->id : null;
+                $myList = [];
+                foreach ($list as $item) {
+                    $itemId = $item['user_id'] ?? null;
+                    if ($uid !== null && $itemId !== null && strval($itemId) === strval($uid)) {
+                        $myList[] = $item;
+                    }
+                }
+                $list = $myList;
+            }
+
+            usort($list, function($a, $b) {
+                return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
+            });
+
+            return $this->success(array_values($list));
+        } catch (\Throwable $e) {
+            return json(['code' => 500, 'message' => '内部错误: ' . $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine()]);
+        }
     }
 
     /**
+     * 删除美团配置
+     */
     public function deleteMeituanConfig(): Response
     {
         $this->checkPermission();
@@ -1697,7 +1711,12 @@ class OnlineData extends Base
         }
 
         $key = 'meituan_config_list';
-        $list = $this->getConfigList($key);
+        // 与读取保持一致：直接查 system_config 表
+        $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+        $list = $raw ? json_decode($raw, true) : [];
+        if (!is_array($list)) {
+            $list = [];
+        }
 
         if (!isset($list[$id])) {
             return $this->error('配置不存在');
@@ -1712,7 +1731,13 @@ class OnlineData extends Base
 
         $name = $list[$id]['name'] ?? '';
         unset($list[$id]);
-        $this->setConfigList($key, $list);
+        // 写回 system_config 表
+        $encoded = json_encode($list, JSON_UNESCAPED_UNICODE);
+        \think\facade\Db::name('system_config')->update([
+            'config_key' => $key,
+            'config_value' => $encoded,
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
 
         OperationLog::record('online_data', 'delete_meituan_config', "删除美团配置: {$name}", $this->currentUser->id);
 
@@ -1927,10 +1952,9 @@ JAVASCRIPT;
      */
     public function getCtripConfigList(): Response
     {
-        try {
-            $this->checkPermission();
-        } catch (\Throwable $e) {
-            return json(['code' => 401, 'message' => '未登录: ' . $e->getMessage()]);
+        // 仅检查登录状态，不强制要求酒店关联（配置读取不需要绑定酒店）
+        if (!$this->currentUser || !$this->currentUser->id) {
+            return json(['code' => 401, 'message' => '未登录']);
         }
 
         try {
