@@ -1,0 +1,1 @@
+import{_ as o}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{o as r,c as a,a as t}from"./index-Dz8uCpj8.js";const n={};function s(c,e){return r(),a("div",null,[...e[0]||(e[0]=[t("h1",{class:"text-2xl font-bold text-gray-800"},"线上数据获取中心",-1),t("p",{class:"text-gray-500 mt-2"},"携程/美团 eBooking 数据获取",-1)])])}const i=o(n,[["render",s]]);export{i as default};

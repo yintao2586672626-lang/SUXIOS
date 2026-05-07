@@ -1,0 +1,1 @@
+import{_ as t}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{o,c as r,a as s}from"./index-Dz8uCpj8.js";const a={};function n(c,e){return o(),r("div",null,[...e[0]||(e[0]=[s("h1",{class:"text-2xl font-bold text-gray-800"},"门店罗盘",-1)])])}const d=t(a,[["render",n]]);export{d as default};

@@ -1,39 +1,44 @@
-# IDE / 编辑器
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+*.log
+.env
+composer.phar
+.DS_Store
+Thumbs.db
+Desktop.ini
+/.idea
+/.vscode
+/vendor
+runtime/
+node_modules/
+/.settings
+/.buildpath
+/.project
 
-# CodeBuddy 工作文件（本地配置）
+# Local assistant/workspace files
 .codebuddy/
 .workbuddy/
 .snapshots/
-
-# 依赖目录（如需重新安装）
-# vendor/
-node_modules/
-
-# 临时/调试/备份文件
-debug.log
-*.sql
+query/
 $null
 
-# PHP 临时文件
+# Local debug / one-off tooling
 download_cdn.php
 download_fonts.php
 fix_*.php
 test_*.php
 new_hash.txt
-
-# 脚本文件（本地工具用）
 commit.bat
 push.bat
 
-# OS 文件
-Thumbs.db
-Desktop.ini
-.DS_Store
-
-# 查询结果缓存
-query/
+# Public debug / one-off tooling
+public/diag*.php
+public/fix_*.php
+public/list_*.php
+public/test*.php
+public/generate_*.php
+public/generate_*.py
+public/clean_*.py
+public/extract_*.py
+public/performance*.html
+public/PERFORMANCE*.md
+public/ui-design*.md
+public/ui-example.html

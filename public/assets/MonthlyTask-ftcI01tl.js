@@ -1,0 +1,1 @@
+import{_ as e}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{o,c as r,a as s}from"./index-C94KMuFz.js";const a={};function n(c,t){return o(),r("div",null,[...t[0]||(t[0]=[s("h1",{class:"text-2xl font-bold text-gray-800"},"月度任务",-1)])])}const _=e(a,[["render",n]]);export{_ as default};

@@ -1,0 +1,1 @@
+import{_ as t}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{l as o,v as r,x as n}from"./vendor-Bh8Oh72X.js";const s={};function a(c,e){return o(),r("div",null,[...e[0]||(e[0]=[n("h1",{class:"text-2xl font-bold text-gray-800"},"报表配置",-1)])])}const x=t(s,[["render",a]]);export{x as default};

@@ -1,0 +1,1 @@
+import{_ as o}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{o as a,c as r,a as e}from"./index-C94KMuFz.js";const s={};function n(c,t){return a(),r("div",null,[...t[0]||(t[0]=[e("h1",{class:"text-2xl font-bold text-gray-800"},"酒店管理",-1),e("p",{class:"text-gray-500 mt-2"},"管理酒店基础信息",-1)])])}const m=o(s,[["render",n]]);export{m as default};

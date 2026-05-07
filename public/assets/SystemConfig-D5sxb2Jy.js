@@ -1,0 +1,1 @@
+import{_ as t}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{o,c as r,a as s}from"./index-C94KMuFz.js";const n={};function a(c,e){return o(),r("div",null,[...e[0]||(e[0]=[s("h1",{class:"text-2xl font-bold text-gray-800"},"系统配置",-1)])])}const m=t(n,[["render",a]]);export{m as default};

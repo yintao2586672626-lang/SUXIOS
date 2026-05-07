@@ -1,0 +1,94 @@
+<IfModule mod_rewrite.c>
+  Options +FollowSymLinks -Indexes
+  RewriteEngine On
+
+  # 防止访问.ht文件
+  <FilesMatch "^(\.ht|\.env)">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+
+  # 处理预检请求
+  RewriteCond %{REQUEST_METHOD} OPTIONS
+  RewriteRule ^(.*)$ $1 [R=200,L]
+
+  # 301重定向
+  RewriteCond %{HTTPS} (on)?
+  RewriteCond %{HTTP:Host} ^(.*)$ [NC]
+  RewriteCond %{REQUEST_URI} (.*)$
+  RewriteRule .? - [E=HTTPS:%{REQUEST_SCHEME}]
+
+  # 禁止访问隐藏文件
+  RewriteCond %{SCRIPT_FILENAME} -d [OR]
+  RewriteCond %{SCRIPT_FILENAME} -f
+  RewriteRule "(^|/)\." - [F]
+
+  # URL重写
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^(.+)$ index.php/$1 [QSA,L]
+</IfModule>
+
+# ============================================
+# 性能优化：浏览器缓存策略
+# ============================================
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # 静态资源长期缓存（带版本号更新）
+    ExpiresByType image/jpg "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType image/x-icon "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
+    
+    # CSS/JS 缓存1个月
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType application/x-javascript "access plus 1 month"
+    
+    # 字体文件缓存1年
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType font/woff "access plus 1 year"
+    ExpiresByType application/font-woff "access plus 1 year"
+    ExpiresByType application/font-woff2 "access plus 1 year"
+</IfModule>
+
+# ============================================
+# 性能优化：GZIP 压缩
+# ============================================
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/x-javascript
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE application/json
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
+
+# ============================================
+# 安全：禁止访问备份和敏感文件
+# ============================================
+<FilesMatch "\.(bak|backup|old|orig|sql|log|ini|conf)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    # 安全头设置
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    
+    # 缓存控制头
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "public, max-age=2592000, immutable"
+    </FilesMatch>
+    <FilesMatch "\.(jpg|jpeg|gif|png|svg|ico|webp)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+</IfModule>

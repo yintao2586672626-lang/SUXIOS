@@ -1,0 +1,1 @@
+import{_ as t}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{o,c as r,a}from"./index-D2D-h98c.js";const s={};function n(c,e){return o(),r("div",null,[...e[0]||(e[0]=[a("h1",{class:"text-2xl font-bold text-gray-800"},"日报表",-1)])])}const _=t(s,[["render",n]]);export{_ as default};

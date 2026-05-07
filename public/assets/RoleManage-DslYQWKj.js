@@ -1,0 +1,1 @@
+import{_ as t}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{o,c as r,a}from"./index-C94KMuFz.js";const n={};function s(c,e){return o(),r("div",null,[...e[0]||(e[0]=[a("h1",{class:"text-2xl font-bold text-gray-800"},"角色权限",-1)])])}const _=t(n,[["render",s]]);export{_ as default};

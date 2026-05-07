@@ -1,0 +1,1 @@
+import{_ as t}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{o,c as r,a}from"./index-C94KMuFz.js";const s={};function n(c,e){return o(),r("div",null,[...e[0]||(e[0]=[a("h1",{class:"text-2xl font-bold text-gray-800"},"用户管理",-1)])])}const _=t(s,[["render",n]]);export{_ as default};

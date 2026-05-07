@@ -1,0 +1,1 @@
+import{_ as r}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{l as o,v as s,x as e}from"./vendor-Bh8Oh72X.js";const a={};function n(c,t){return o(),s("div",null,[...t[0]||(t[0]=[e("h1",{class:"text-2xl font-bold text-gray-800"},"欢迎使用宿析OS",-1),e("p",{class:"text-gray-500 mt-2"},"酒店运营管理平台",-1)])])}const x=r(a,[["render",n]]);export{x as default};
