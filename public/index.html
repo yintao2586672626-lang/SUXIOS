@@ -426,13 +426,9 @@
             opacity: 0.8;
         }
         
-        /* 🎯 快速登录按钮 */
-        .quick-login-btn {
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        .quick-login-btn:hover {
-            transform: translateY(-4px) scale(1.05);
+        /* VIP 登录入口 */
+        .vip-login-card {
+            cursor: default;
         }
         
         /* ❌ 错误提示样式 - 绚丽版 */
@@ -1019,11 +1015,12 @@
                     <!-- 记住选项 -->
                     <div class="flex items-center justify-between text-sm">
                         <label class="flex items-center text-slate-400 cursor-pointer hover:text-slate-200 transition">
-                            <input type="checkbox" v-model="rememberUsername" 
+                            <input type="checkbox" v-model="rememberAccount" 
                                 class="remember-checkbox mr-3">
-                            <span>记住用户名</span>
+                            <span>记住账户密码</span>
                         </label>
-                        <span class="text-slate-500 text-xs">首次登录请使用默认账号</span>
+                        <button type="button" @click.prevent="forgotPassword"
+                            class="text-slate-500 text-xs hover:text-purple-300 transition">忘记密码</button>
                     </div>
                     
                     <!-- 登录按钮 -->
@@ -1053,28 +1050,17 @@
                 <!-- 分隔线 -->
                 <div class="divider my-8"></div>
                 
-                <!-- 快速登录账号卡片 -->
+                <!-- VIP 用户登录入口 -->
                 <div class="text-center mb-4">
                     <span class="inline-flex items-center text-sm px-5 py-2 rounded-full bg-gradient-to-r from-purple-500/20 via-indigo-500/20 to-purple-500/20 border border-purple-400/40 text-purple-300 shadow-lg">
-                        <i class="fas fa-bolt mr-2"></i>快速登录
+                        <i class="fas fa-crown mr-2"></i>VIP 用户登录
                     </span>
                 </div>
                 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div @click="quickLogin('admin', 'admin123')" 
-                        class="quick-login-btn account-card text-center cursor-pointer">
-                        <div class="username text-blue-300">admin</div>
-                        <div class="role text-white/50">超管</div>
-                    </div>
-                    <div @click="quickLogin('manager1', 'manager123')" 
-                        class="quick-login-btn account-card text-center cursor-pointer">
-                        <div class="username text-emerald-300">manager1</div>
-                        <div class="role text-white/50">店长</div>
-                    </div>
-                    <div @click="quickLogin('staff1', 'staff123')" 
-                        class="quick-login-btn account-card text-center cursor-pointer">
-                        <div class="username text-purple-300">staff1</div>
-                        <div class="role text-white/50">店员</div>
+                <div class="grid grid-cols-1 gap-3">
+                    <div class="vip-login-card account-card text-center">
+                        <div class="username text-amber-200">VIP 专属账号</div>
+                        <div class="role text-white/60">已开通用户请使用专属账号密码登录</div>
                     </div>
                 </div>
                 
@@ -11123,10 +11109,11 @@
             const showPassword = ref(false);
             const sidebarCollapsed = ref(false); // 侧边栏折叠状态
 
-            // 登录表单 - 从localStorage读取记住的用户名
+            // 登录表单 - 从localStorage读取记住的账户密码
             const savedUsername = localStorage.getItem('remembered_username') || '';
-            const loginForm = ref({ username: savedUsername || 'admin', password: '' });
-            const rememberUsername = ref(!!savedUsername);
+            const savedPassword = localStorage.getItem('remembered_password') || '';
+            const loginForm = ref({ username: savedUsername, password: savedPassword });
+            const rememberAccount = ref(!!savedUsername || !!savedPassword);
 
             // 系统配置
             const systemConfig = ref({
@@ -12595,11 +12582,13 @@
                         user.value = res.data.user;
                         localStorage.setItem('token', token.value);
                         
-                        // 记住用户名
-                        if (rememberUsername.value) {
+                        // 记住账户密码
+                        if (rememberAccount.value) {
                             localStorage.setItem('remembered_username', loginForm.value.username);
+                            localStorage.setItem('remembered_password', loginForm.value.password);
                         } else {
                             localStorage.removeItem('remembered_username');
+                            localStorage.removeItem('remembered_password');
                         }
                         
                         isLoggedIn.value = true;
@@ -12614,6 +12603,11 @@
                     showToast('网络连接失败，请检查网络后重试', 'error');
                 }
                 loading.value = false;
+            };
+
+            const forgotPassword = () => {
+                alert('请联系超级管理员');
+                showToast('请联系超级管理员', 'info');
             };
 
             // 侧边栏折叠切换
@@ -17450,7 +17444,7 @@ ${d.report_date}
                 aiSimulationParams, aiSimulationResult, handleSimulation,
                 aiFeasibilityResult, handleFeasibility,
                 isLoggedIn, loading, user, token, currentTime, currentPage, showPassword,
-                loginForm, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
+                loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 expandedMenus, toggleSubmenu,
                 hotels, permittedHotels, hotelColumns, userColumns, users, roles, dailyReports, monthlyTasks, reportConfigs, dailyReportConfig, dailyReportTab, monthlyTaskConfig,
                 searchHotel, filterHotelStatus, searchUser, filterUserRoleId,
@@ -17475,7 +17469,7 @@ ${d.report_date}
                 hotelForm, userForm, dailyReportForm, monthlyTaskForm, reportConfigForm,
                 filteredHotels, filteredUsers,
                 permissionUser, userPermissions,
-                handleLogin, handleLogout, showToast,
+                handleLogin, handleLogout, forgotPassword, showToast,
                 openHotelModal, saveHotel, deleteHotel, toggleHotelStatus,
                 openUserModal, saveUser, deleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
