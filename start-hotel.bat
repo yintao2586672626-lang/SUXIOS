@@ -11,6 +11,7 @@ set "PHP_EXE="
 set "MYSQL_EXE="
 set "MYSQLADMIN_EXE="
 set "MYSQL_START="
+set "CURL_EXE="
 set "DB_HOST=127.0.0.1"
 set "DB_PORT=3306"
 set "DB_NAME=hotelx"
@@ -75,6 +76,12 @@ if not defined MYSQLADMIN_EXE (
 if exist "C:\xampp\mysql_start.bat" set "MYSQL_START=C:\xampp\mysql_start.bat"
 if not defined MYSQL_START if exist "D:\xampp\mysql_start.bat" set "MYSQL_START=D:\xampp\mysql_start.bat"
 
+if exist "%SystemRoot%\System32\curl.exe" set "CURL_EXE=%SystemRoot%\System32\curl.exe"
+if not defined CURL_EXE (
+    where curl.exe >nul 2>nul
+    if not errorlevel 1 set "CURL_EXE=curl.exe"
+)
+
 if not defined MYSQL_EXE (
     echo.
     echo 未找到 MySQL 客户端
@@ -90,7 +97,7 @@ if defined MYSQLADMIN_EXE (
         if defined MYSQL_START (
             echo [INFO] Starting XAMPP MySQL...
             start "SUXIOS MySQL" /min "%MYSQL_START%"
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 8" >nul 2>nul
+            call :WAIT_MYSQL 8
         )
     )
 )
@@ -100,8 +107,7 @@ if errorlevel 1 (
     if defined MYSQL_START (
         echo [INFO] MySQL connection failed. Trying to start XAMPP MySQL...
         start "SUXIOS MySQL" /min "%MYSQL_START%"
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 8" >nul 2>nul
-        call :MYSQL_CONNECT
+        call :WAIT_MYSQL 8
     )
 )
 if errorlevel 1 (
@@ -147,8 +153,8 @@ if not errorlevel 1 (
         set "URL=http://%HOST%:8080/"
         echo [INFO] Project is already running on port 8080.
         start "" "http://%HOST%:8080/"
-        echo [DONE] Browser opened. This window will close in 3 seconds.
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 3" >nul 2>nul
+        echo [DONE] Browser opened. This window will close in 1 second.
+        call :SLEEP 1
         endlocal
         exit /b 0
     )
@@ -181,9 +187,9 @@ call :START_THINKPHP
 
 echo [INFO] Waiting for /api/health...
 for /L %%I in (1,1,12) do (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 1" >nul 2>nul
     call :HEALTH_OK %PORT%
     if not errorlevel 1 goto SERVER_READY
+    call :SLEEP 1
 )
 
 echo.
@@ -201,7 +207,7 @@ echo.
 echo [DONE] Server started: %URL%
 echo Close the SUXIOS ThinkPHP window to stop the server.
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 3" >nul 2>nul
+call :SLEEP 1
 endlocal
 exit /b 0
 
@@ -218,8 +224,25 @@ netstat -ano | findstr /R /C:":%~1 .*LISTENING" >nul 2>nul
 exit /b %errorlevel%
 
 :HEALTH_OK
+if defined CURL_EXE (
+    "%CURL_EXE%" -fsS --max-time 1 "http://127.0.0.1:%~1/api/health" 2>nul | findstr /I /C:"status" | findstr /I /C:"ok" >nul 2>nul
+    exit /b %errorlevel%
+)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:%~1/api/health' -TimeoutSec 2; if ($r.StatusCode -eq 200 -and $r.Content -like '*status*' -and $r.Content -like '*ok*') { exit 0 } exit 1 } catch { exit 1 }" >nul 2>nul
 exit /b %errorlevel%
+
+:WAIT_MYSQL
+for /L %%I in (1,1,%~1) do (
+    call :MYSQL_CONNECT
+    if not errorlevel 1 exit /b 0
+    call :SLEEP 1
+)
+call :MYSQL_CONNECT
+exit /b %errorlevel%
+
+:SLEEP
+timeout /t %~1 /nobreak >nul 2>nul
+exit /b 0
 
 :MYSQL_PING
 if defined DB_PASS (

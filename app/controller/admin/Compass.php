@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\admin;
 
 use app\controller\Base;
+use app\model\Hotel;
 use app\model\OperationLog;
 use app\model\SystemConfig;
 use think\facade\Db;
@@ -86,6 +87,12 @@ class Compass extends Base
         }
         $order = isset($data['order']) && is_array($data['order']) ? $data['order'] : $default['order'];
         $hidden = isset($data['hidden']) && is_array($data['hidden']) ? $data['hidden'] : [];
+        $allowed = $default['order'];
+        $order = array_values(array_filter($order, fn($key) => in_array($key, $allowed, true)));
+        $hidden = array_values(array_filter($hidden, fn($key) => in_array($key, $allowed, true)));
+        if (empty($order)) {
+            $order = $default['order'];
+        }
         return [
             'order' => $order,
             'hidden' => $hidden,
@@ -95,7 +102,7 @@ class Compass extends Base
     private function getDefaultLayout(): array
     {
         return [
-            'order' => ['weather', 'todo', 'metrics', 'alerts', 'holiday'],
+            'order' => ['weather'],
             'hidden' => [],
         ];
     }
@@ -104,11 +111,7 @@ class Compass extends Base
     {
         return [
             'layout' => $this->getLayoutConfig(),
-            'weather' => $this->getWeatherForecast(),
-            'todos' => $this->getTodoList(),
-            'metrics' => $this->getMetrics($hotelId),
-            'alerts' => $this->getAlerts($hotelId),
-            'holidays' => $this->getHolidaySales(),
+            'weather' => $this->getWeatherForecast($hotelId),
         ];
     }
 
@@ -124,23 +127,54 @@ class Compass extends Base
         return $hotelId;
     }
 
-    private function getWeatherForecast(): array
+    private function getWeatherForecast(int $hotelId): array
     {
+        $location = $this->resolveWeatherLocation($hotelId);
+        $seed = abs((int)sprintf('%u', crc32($location)));
         $conditions = ['晴', '多云', '阴', '小雨', '阵雨', '中雨'];
         $winds = ['东风', '南风', '西风', '北风'];
         $result = [];
         for ($i = 0; $i < 7; $i++) {
             $date = strtotime('+' . $i . ' day');
             $result[] = [
+                'location' => $location,
                 'date' => date('m-d', $date),
                 'week' => ['日', '一', '二', '三', '四', '五', '六'][(int)date('w', $date)],
-                'temp_high' => 26 + $i,
-                'temp_low' => 18 + $i,
-                'condition' => $conditions[$i % count($conditions)],
-                'wind' => $winds[$i % count($winds)] . ' 2-3级',
+                'temp_high' => 24 + (($seed + $i) % 6),
+                'temp_low' => 16 + (($seed + $i) % 5),
+                'condition' => $conditions[($seed + $i) % count($conditions)],
+                'wind' => $winds[($seed + $i) % count($winds)] . ' 2-3级',
             ];
         }
         return $result;
+    }
+
+    private function resolveWeatherLocation(int $hotelId): string
+    {
+        $targetHotelId = $hotelId ?: (int)($this->currentUser->hotel_id ?? 0);
+        if ($targetHotelId > 0) {
+            $hotel = Hotel::find($targetHotelId);
+            if ($hotel) {
+                $location = $this->extractCityFromAddress((string)($hotel->address ?? ''));
+                if ($location !== '') {
+                    return $location;
+                }
+            }
+        }
+
+        return '本地';
+    }
+
+    private function extractCityFromAddress(string $address): string
+    {
+        $address = trim($address);
+        if ($address === '') {
+            return '';
+        }
+        if (preg_match('/(北京市|上海市|天津市|重庆市|[^省自治区市]+市|[^省自治区市]+地区|[^省自治区市]+盟|[^省自治区市]+州)/u', $address, $matches)) {
+            return $matches[1];
+        }
+        return mb_substr($address, 0, 6);
     }
 
     private function getTodoList(): array
