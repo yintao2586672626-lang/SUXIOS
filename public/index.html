@@ -938,6 +938,47 @@
             opacity: 0.5;
         }
 
+        /* 首页与筹建 AI 顶部视觉区：避免静态 Tailwind 缺少透明/渐变类时文字不可见 */
+        .home-hero-panel,
+        .ai-page-hero {
+            background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 48%, #6d28d9 100%);
+            color: #ffffff;
+            border: 1px solid rgba(96, 165, 250, 0.28);
+            box-shadow: 0 18px 38px rgba(30, 64, 175, 0.18);
+        }
+        .home-hero-panel h2,
+        .ai-page-hero h2 {
+            color: #ffffff;
+            text-shadow: 0 2px 18px rgba(15, 23, 42, 0.35);
+        }
+        .home-hero-panel p,
+        .home-hero-panel span,
+        .home-hero-panel div,
+        .ai-page-hero p {
+            color: rgba(239, 246, 255, 0.94);
+        }
+        .home-hero-panel .hero-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #dbeafe;
+            background: rgba(15, 23, 42, 0.28);
+            border: 1px solid rgba(191, 219, 254, 0.25);
+            border-radius: 999px;
+        }
+        .home-hero-panel .hero-info-card {
+            background: rgba(15, 23, 42, 0.26);
+            border: 1px solid rgba(191, 219, 254, 0.24);
+        }
+        .ai-page-hero button {
+            background: rgba(255, 255, 255, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            color: #ffffff;
+        }
+        .ai-page-hero button:hover {
+            background: rgba(255, 255, 255, 0.24);
+        }
+
         /* ========== 菜单页视觉增强 ========== */
 
         /* Logo图片优化 */
@@ -1270,101 +1311,161 @@
                 <div class="p-6 page-enter">
                     <!-- 智略·战略推演 -->
                     <div v-if="currentPage === 'ai-strategy'">
-                        <div class="mb-6 flex justify-between items-center">
-                            <div>
-                                <h2 class="text-2xl font-bold text-gray-800">智略·战略推演</h2>
-                                <p class="text-sm text-gray-500 mt-1">基于AI大模型的酒店投资战略多维推演与选址分析</p>
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智略·战略推演</h2>
+                                    <p class="text-sm text-blue-100 mt-1">判断项目适不适合做酒店，以及适合做什么模型</p>
+                                </div>
+                                <button @click="handleStrategy" :disabled="aiStrategyLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="aiStrategyLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chess'"></i>
+                                    <span>{{ aiStrategyLoading ? '推演中...' : '生成战略推荐' }}</span>
+                                </button>
                             </div>
-                            <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                                <i class="fas fa-magic"></i>
-                                <span>新建推演</span>
-                            </button>
                         </div>
-                        
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <!-- 左侧输入 -->
-                            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 col-span-1">
-                                <h3 class="font-bold text-gray-800 mb-4">推演参数设定</h3>
-                                <div class="space-y-4">
-                                    <div>
-                                        <label class="block text-sm text-gray-600 mb-1">目标城市/商圈</label>
-                                        <input type="text" v-model="aiStrategyParams.city" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-7 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2"><i class="fas fa-building text-blue-500"></i> 项目基础信息</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">项目名称</label>
+                                            <input v-model="aiProject.project_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">城市</label>
+                                            <input v-model="aiProject.city" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">区域</label>
+                                            <input v-model="aiProject.district" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">地址</label>
+                                            <input v-model="aiProject.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">物业面积(㎡)</label>
+                                            <input type="number" v-model.number="aiProject.property_area" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">计划房间数</label>
+                                            <input type="number" v-model.number="aiProject.room_count" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">月租金(元)</label>
+                                            <input type="number" v-model.number="aiProject.monthly_rent" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">装修预算(元)</label>
+                                            <input type="number" v-model.number="aiProject.decoration_budget" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">租期(年)</label>
+                                            <input type="number" v-model.number="aiProject.lease_years" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">免租期(月)</label>
+                                            <input type="number" v-model.number="aiProject.rent_free_months" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label class="block text-sm text-gray-600 mb-1">物业面积 (㎡)</label>
-                                        <input type="number" v-model="aiStrategyParams.area" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-4">市场需求判断</h3>
+                                        <div class="space-y-3">
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">商圈类型</label>
+                                                <select v-model="aiProject.business_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                    <option>核心商务区</option>
+                                                    <option>交通枢纽</option>
+                                                    <option>文旅景区</option>
+                                                    <option>社区配套</option>
+                                                    <option>产业园区</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">主要客源</label>
+                                                <select v-model="aiProject.primary_customer" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                    <option>商务差旅</option>
+                                                    <option>会议会展</option>
+                                                    <option>休闲旅游</option>
+                                                    <option>长住公寓</option>
+                                                    <option>电竞娱乐</option>
+                                                </select>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label class="block text-sm text-gray-600 mb-1">目标客群设定</label>
-                                        <select v-model="aiStrategyParams.audience" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                                            <option>高端商务</option>
-                                            <option>年轻电竞</option>
-                                            <option>亲子度假</option>
-                                            <option>差旅连锁</option>
-                                        </select>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-4">竞争与定位判断</h3>
+                                        <div class="space-y-3">
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">周边竞品数量</label>
+                                                <input type="number" v-model.number="aiProject.competitor_count" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">目标酒店档次</label>
+                                                <select v-model="aiProject.target_grade" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                    <option>经济型</option>
+                                                    <option>中端精选</option>
+                                                    <option>中高端商务</option>
+                                                    <option>精品度假</option>
+                                                </select>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label class="block text-sm text-gray-600 mb-1">AI推演深度</label>
-                                        <select v-model="aiStrategyParams.depth" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                                            <option>标准推演 (市场+定位+风险)</option>
-                                            <option>深度推演 (包含竞品详细画像)</option>
-                                        </select>
-                                    </div>
-                                    <button @click="handleStrategy" :disabled="loading" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 mt-4 transition-colors disabled:opacity-50">
-                                        <i class="fas fa-brain" :class="{'fa-spin': loading}"></i>
-                                        <span>{{ loading ? '正在推演...' : '开始AI推演' }}</span>
-                                    </button>
                                 </div>
                             </div>
-                            
-                            <!-- 右侧结果 -->
-                            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 col-span-2 flex flex-col">
-                                <div class="flex justify-between items-center mb-4">
-                                    <h3 class="font-bold text-gray-800">AI 推演结果报告</h3>
-                                    <span v-if="aiStrategyResult" class="px-2 py-1 bg-green-50 text-green-600 text-xs rounded border border-green-100">推演完成</span>
-                                    <span v-else-if="loading" class="px-2 py-1 bg-blue-50 text-blue-600 text-xs rounded border border-blue-100">推演中...</span>
-                                    <span v-else class="px-2 py-1 bg-gray-50 text-gray-500 text-xs rounded border border-gray-200">等待推演</span>
-                                </div>
-                                
-                                <div class="flex-1 bg-gray-50 rounded-lg p-5 overflow-y-auto border border-gray-100">
-                                    <div v-if="loading" class="h-full flex flex-col items-center justify-center text-gray-400">
-                                        <i class="fas fa-spinner fa-spin text-3xl mb-3 text-indigo-400"></i>
-                                        <p>AI正在深度分析目标市场与客群数据...</p>
-                                    </div>
-                                    <div v-else-if="aiStrategyResult" class="prose prose-sm max-w-none text-gray-700">
-                                        <h4 class="text-lg font-bold text-indigo-800 border-b border-indigo-100 pb-2 mb-4">{{ aiStrategyResult.title }}</h4>
-                                        
-                                        <p class="font-bold mt-4 mb-2 text-gray-800"><i class="fas fa-bullseye text-indigo-500 mr-1"></i> 1. 核心定位建议</p>
-                                        <p class="text-sm">{{ aiStrategyResult.positioning }}</p>
-                                        
-                                        <p class="font-bold mt-5 mb-2 text-gray-800"><i class="fas fa-chess-board text-indigo-500 mr-1"></i> 2. 竞争格局洞察 (SWOT)</p>
-                                        <div class="grid grid-cols-2 gap-3 mt-2">
-                                            <div class="bg-blue-50 p-3 rounded border border-blue-100">
-                                                <div class="font-bold text-blue-800 text-xs mb-1">优势 (Strengths)</div>
-                                                <div class="text-xs">{{ aiStrategyResult.swot.strengths }}</div>
-                                            </div>
-                                            <div class="bg-red-50 p-3 rounded border border-red-100">
-                                                <div class="font-bold text-red-800 text-xs mb-1">劣势 (Weaknesses)</div>
-                                                <div class="text-xs">{{ aiStrategyResult.swot.weaknesses }}</div>
-                                            </div>
-                                            <div class="bg-green-50 p-3 rounded border border-green-100">
-                                                <div class="font-bold text-green-800 text-xs mb-1">机会 (Opportunities)</div>
-                                                <div class="text-xs">{{ aiStrategyResult.swot.opportunities }}</div>
-                                            </div>
-                                            <div class="bg-yellow-50 p-3 rounded border border-yellow-100">
-                                                <div class="font-bold text-yellow-800 text-xs mb-1">威胁 (Threats)</div>
-                                                <div class="text-xs">{{ aiStrategyResult.swot.threats }}</div>
-                                            </div>
-                                        </div>
-                                        
-                                        <p class="font-bold mt-5 mb-2 text-gray-800"><i class="fas fa-lightbulb text-indigo-500 mr-1"></i> 3. 差异化打法</p>
-                                        <div class="bg-white p-4 rounded-lg border border-indigo-100 shadow-sm mt-2 text-sm leading-relaxed">
-                                            {{ aiStrategyResult.differentiation }}
+
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="font-bold text-gray-800">战略推荐结果</h3>
+                                        <div v-if="aiStrategyResult" class="flex items-center gap-2">
+                                            <span class="px-2 py-1 rounded text-xs border bg-slate-50 text-slate-600 border-slate-200">{{ strategyFreshnessLabel }}</span>
+                                            <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(aiStrategyResult.risk_level)]">{{ aiStrategyResult.risk_level }}</span>
                                         </div>
                                     </div>
-                                    <div v-else class="h-full flex flex-col items-center justify-center text-gray-400">
-                                        <i class="fas fa-robot text-4xl mb-3 opacity-50"></i>
-                                        <p>请在左侧设定参数后点击"开始AI推演"</p>
+                                    <div v-if="aiStrategyResult" class="space-y-5">
+                                        <div v-if="aiStrategyResult.data_snapshot && !aiStrategyResult.data_snapshot.external_data_used" class="rounded-lg border border-amber-100 bg-amber-50 text-amber-700 text-xs px-3 py-2">
+                                            外部数据未接入，当前为本地数据推演
+                                        </div>
+                                        <div class="rounded-xl p-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+                                            <div class="text-sm text-blue-100">项目适配评分</div>
+                                            <div class="text-4xl font-bold mt-1">【{{ aiStrategyResult.total_score }}】</div>
+                                            <div class="mt-2 text-sm">{{ aiStrategyResult.strategy_conclusion }}</div>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div v-for="item in strategyScoreCards" :key="item.label" class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                <div class="text-xs text-gray-500">{{ item.label }}</div>
+                                                <div class="text-xl font-bold text-gray-800 mt-1">【{{ item.value }}】</div>
+                                                <div class="text-[11px] text-gray-400 mt-1">{{ item.level }} · {{ item.reason }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                            <div class="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <div class="text-xs text-blue-500 mb-1">推荐模型</div>
+                                                <div class="font-semibold text-blue-900">{{ aiStrategyResult.recommended_model }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-indigo-100 bg-indigo-50 p-3">
+                                                <div class="text-xs text-indigo-500 mb-1">目标客源</div>
+                                                <div class="font-semibold text-indigo-900">{{ aiStrategyResult.target_customer }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-orange-100 bg-orange-50 p-3">
+                                                <div class="text-xs text-orange-500 mb-1">竞争压力</div>
+                                                <div class="font-semibold text-orange-900">{{ aiStrategyResult.competition_pressure }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                <div class="text-xs text-gray-500 mb-1">决策闭环</div>
+                                                <div class="font-semibold text-gray-800">{{ aiStrategyResult.decision_direction }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else class="py-16 text-center text-gray-400">
+                                        <i class="fas fa-route text-4xl mb-3 opacity-50"></i>
+                                        <p>录入项目参数后生成战略评分</p>
                                     </div>
                                 </div>
                             </div>
@@ -1373,159 +1474,129 @@
 
                     <!-- 智算·量化模拟 -->
                     <div v-if="currentPage === 'ai-simulation'">
-                        <div class="mb-6 flex justify-between items-center">
-                            <div>
-                                <h2 class="text-2xl font-bold text-gray-800">智算·量化模拟</h2>
-                                <p class="text-sm text-gray-500 mt-1">财务测算模型、投资回报率(ROI)分析与敏感性测试</p>
-                            </div>
-                            <div class="flex gap-2">
-                                <button class="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition">
-                                    <i class="fas fa-download mr-1"></i> 导出Excel
-                                </button>
-                                <button @click="handleSimulation" :disabled="loading" class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition disabled:opacity-50">
-                                    <i class="fas" :class="loading ? 'fa-spinner fa-spin' : 'fa-chart-line'"></i>
-                                    <span>{{ loading ? '测算中...' : '重新测算' }}</span>
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-cyan-900 to-blue-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智算·量化模拟</h2>
+                                    <p class="text-sm text-cyan-100 mt-1">测算项目是否赚钱、多久回本、风险边界在哪里</p>
+                                </div>
+                                <button @click="handleSimulation" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition">
+                                    <i class="fas fa-calculator"></i>
+                                    <span>运行三情景模拟</span>
                                 </button>
                             </div>
                         </div>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                                <div class="text-gray-500 text-xs mb-2 font-medium">预计总投资</div>
-                                <div class="text-3xl font-bold text-gray-800">
-                                    <span v-if="aiSimulationResult">¥ {{ aiSimulationResult.totalInvestment }}</span>
-                                    <span v-else>--</span>
-                                    <span v-if="aiSimulationResult" class="text-base font-normal text-gray-500 ml-1">万</span>
-                                </div>
-                                <div class="text-xs text-green-500 mt-2" v-if="aiSimulationResult"><i class="fas fa-arrow-down"></i> 低于行业均值 12%</div>
-                            </div>
-                            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                                <div class="text-gray-500 text-xs mb-2 font-medium">静态投资回收期</div>
-                                <div class="text-3xl font-bold text-teal-600">
-                                    <span v-if="aiSimulationResult">{{ aiSimulationResult.paybackPeriod }}</span>
-                                    <span v-else>--</span>
-                                    <span v-if="aiSimulationResult" class="text-base font-normal text-gray-500 ml-1">年</span>
-                                </div>
-                                <div class="text-xs text-gray-400 mt-2" v-if="aiSimulationResult">预计 {{ new Date().getFullYear() + Math.ceil(aiSimulationResult.paybackPeriod) }}年 回本</div>
-                            </div>
-                            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                                <div class="text-gray-500 text-xs mb-2 font-medium">内部收益率 (IRR)</div>
-                                <div class="text-3xl font-bold text-blue-600">
-                                    <span v-if="aiSimulationResult">{{ aiSimulationResult.irr }}%</span>
-                                    <span v-else>--</span>
-                                </div>
-                                <div class="text-xs text-green-500 mt-2" v-if="aiSimulationResult"><i class="fas fa-check-circle"></i> 达到优质项目标准</div>
-                            </div>
-                            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                                <div class="text-gray-500 text-xs mb-2 font-medium">稳定期净利率</div>
-                                <div class="text-3xl font-bold text-orange-500">
-                                    <span v-if="aiSimulationResult">{{ aiSimulationResult.netProfitMargin }}%</span>
-                                    <span v-else>--</span>
-                                </div>
-                                <div class="text-xs text-gray-400 mt-2" v-if="aiSimulationResult">第3年起进入稳定期</div>
-                            </div>
-                        </div>
-                        
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                            <!-- 收入参数 -->
-                            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                                <h3 class="font-bold text-gray-800 mb-5 border-b pb-3 flex justify-between items-center">
-                                    <span class="flex items-center gap-2"><i class="fas fa-sliders-h text-teal-500"></i> 运营预测参数 (稳定期)</span>
-                                    <span class="text-teal-600 cursor-pointer text-xs bg-teal-50 px-2 py-1 rounded border border-teal-100 hover:bg-teal-100 transition"><i class="fas fa-magic"></i> AI智能优化</span>
-                                </h3>
-                                <div class="grid grid-cols-2 gap-5">
-                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                        <label class="block text-xs text-gray-500 mb-2">客房总数 (间)</label>
-                                        <input type="number" v-model="aiSimulationParams.rooms" class="w-full px-3 py-2 border border-gray-200 rounded-md focus:ring-2 focus:ring-teal-500 text-sm outline-none bg-white">
-                                    </div>
-                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                        <label class="block text-xs text-gray-500 mb-2">平均房价 ADR (元)</label>
-                                        <div class="relative">
-                                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">¥</span>
-                                            <input type="number" v-model="aiSimulationParams.adr" class="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-md focus:ring-2 focus:ring-teal-500 text-sm outline-none bg-white">
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">投资参数</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">房间数</label>
+                                            <input type="number" v-model.number="aiSimulationParams.roomCount" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
                                         </div>
-                                    </div>
-                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                        <label class="block text-xs text-gray-500 mb-2">预估出租率 OCC (%)</label>
-                                        <div class="relative">
-                                            <input type="number" v-model="aiSimulationParams.occ" class="w-full px-3 pr-8 py-2 border border-gray-200 rounded-md focus:ring-2 focus:ring-teal-500 text-sm outline-none bg-white">
-                                            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">装修投资</label>
+                                            <input type="number" v-model.number="aiSimulationParams.decorationInvestment" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
                                         </div>
-                                    </div>
-                                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                        <label class="block text-xs text-gray-500 mb-2">非客房收入占比 (%)</label>
-                                        <div class="relative">
-                                            <input type="number" v-model="aiSimulationParams.nonRoomRevenueRatio" class="w-full px-3 pr-8 py-2 border border-gray-200 rounded-md focus:ring-2 focus:ring-teal-500 text-sm outline-none bg-white">
-                                            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">家具设备投资</label>
+                                            <input type="number" v-model.number="aiSimulationParams.furnitureInvestment" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">开办费</label>
+                                            <input type="number" v-model.number="aiSimulationParams.openingCost" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                        </div>
+                                        <div class="md:col-span-2">
+                                            <label class="block text-xs text-gray-500 mb-1">其他投资</label>
+                                            <input type="number" v-model.number="aiSimulationParams.otherInvestment" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <h3 class="font-bold text-gray-800 mb-4 border-b pb-3 mt-8 flex items-center gap-2">
-                                    <i class="fas fa-chart-pie text-teal-500"></i> 成本结构预测
-                                </h3>
-                                <div class="space-y-5 px-2">
-                                    <div>
-                                        <div class="flex justify-between items-end mb-1 text-sm">
-                                            <span class="text-gray-700 font-medium">租金及物业费 (年)</span>
-                                            <span class="font-bold text-gray-800">¥ 350万 <span class="text-xs text-gray-500 font-normal ml-1">占比 22%</span></span>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">收入参数</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">ADR</label>
+                                            <input type="number" v-model.number="aiSimulationParams.adr" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
                                         </div>
-                                        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-blue-400 h-2 rounded-full" style="width: 22%"></div></div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">入住率(%)</label>
+                                            <input type="number" v-model.number="aiSimulationParams.occupancyRate" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                        </div>
+                                        <div class="md:col-span-2">
+                                            <label class="block text-xs text-gray-500 mb-1">其他收入</label>
+                                            <input type="number" v-model.number="aiSimulationParams.otherIncome" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                        </div>
                                     </div>
-                                    
-                                    <div>
-                                        <div class="flex justify-between items-end mb-1 text-sm">
-                                            <span class="text-gray-700 font-medium">人工成本 (年)</span>
-                                            <span class="font-bold text-gray-800">¥ 280万 <span class="text-xs text-gray-500 font-normal ml-1">占比 18%</span></span>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">成本参数</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div v-for="field in simulationCostFields" :key="field.key">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
                                         </div>
-                                        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-indigo-400 h-2 rounded-full" style="width: 18%"></div></div>
-                                    </div>
-                                    
-                                    <div>
-                                        <div class="flex justify-between items-end mb-1 text-sm">
-                                            <span class="text-gray-700 font-medium">能耗成本 (年)</span>
-                                            <span class="font-bold text-gray-800">¥ 120万 <span class="text-xs text-gray-500 font-normal ml-1">占比 8%</span></span>
-                                        </div>
-                                        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-yellow-400 h-2 rounded-full" style="width: 8%"></div></div>
                                     </div>
                                 </div>
                             </div>
-                            
-                            <!-- 趋势图占位 -->
-                            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
-                                <h3 class="font-bold text-gray-800 mb-5 border-b pb-3 flex items-center gap-2">
-                                    <i class="fas fa-chart-line text-teal-500"></i> 5年期现金流预测 (AI生成)
-                                </h3>
-                                <div class="flex-1 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center flex-col text-gray-500 p-6">
-                                    <div class="w-full flex items-end justify-between h-48 px-4 border-b border-gray-300 pb-2 relative">
-                                        <!-- 零轴 -->
-                                        <div class="absolute w-full h-[1px] bg-gray-300 left-0 bottom-12"></div>
-                                        
-                                        <!-- 年份柱子 -->
-                                        <div class="flex flex-col items-center gap-2 z-10">
-                                            <div class="w-10 bg-red-400 rounded-t shadow-sm" style="height: 40px; margin-bottom: 48px;"></div>
-                                            <span class="text-xs font-medium">Y1</span>
-                                        </div>
-                                        <div class="flex flex-col items-center gap-2 z-10">
-                                            <div class="w-10 bg-teal-300 rounded-t shadow-sm" style="height: 60px;"></div>
-                                            <span class="text-xs font-medium">Y2</span>
-                                        </div>
-                                        <div class="flex flex-col items-center gap-2 z-10">
-                                            <div class="w-10 bg-teal-400 rounded-t shadow-sm" style="height: 90px;"></div>
-                                            <span class="text-xs font-medium">Y3</span>
-                                        </div>
-                                        <div class="flex flex-col items-center gap-2 z-10">
-                                            <div class="w-10 bg-teal-500 rounded-t shadow-sm" style="height: 120px;"></div>
-                                            <span class="text-xs font-medium">Y4</span>
-                                        </div>
-                                        <div class="flex flex-col items-center gap-2 z-10">
-                                            <div class="w-10 bg-teal-600 rounded-t shadow-sm" style="height: 140px;"></div>
-                                            <span class="text-xs font-medium">Y5</span>
-                                        </div>
+
+                            <div class="xl:col-span-7 space-y-5">
+                                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div v-for="card in simulationMetricCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <div :class="['text-2xl font-bold mt-2', card.label === '月净现金流' && baseSimulation ? (baseSimulation.monthlyNetCashflow >= 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-800']">【{{ card.value }}】</div>
                                     </div>
-                                    <div class="mt-6 text-sm flex items-center gap-6">
-                                        <span class="flex items-center gap-2"><div class="w-3 h-3 bg-red-400 rounded-sm"></div> 负现金流</span>
-                                        <span class="flex items-center gap-2"><div class="w-3 h-3 bg-teal-500 rounded-sm"></div> 正现金流 (EBITDA)</span>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="font-bold text-gray-800">三情景模拟</h3>
+                                        <span v-if="baseSimulation" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(baseSimulation.riskLevel)]">{{ baseSimulation.riskLevel }}</span>
+                                    </div>
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full text-sm">
+                                            <thead>
+                                                <tr class="bg-gray-50 text-gray-500">
+                                                    <th class="px-4 py-3 text-left">情景</th>
+                                                    <th class="px-4 py-3 text-right">月总收入</th>
+                                                    <th class="px-4 py-3 text-right">月总成本</th>
+                                                    <th class="px-4 py-3 text-right">月净现金流</th>
+                                                    <th class="px-4 py-3 text-right">RevPAR</th>
+                                                    <th class="px-4 py-3 text-right">回本周期</th>
+                                                    <th class="px-4 py-3 text-right">保本入住率</th>
+                                                    <th class="px-4 py-3 text-right">租金占比</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                <tr v-for="row in aiSimulationScenarios" :key="row.scenarioType" class="hover:bg-gray-50">
+                                                    <td class="px-4 py-3 font-semibold text-gray-800">{{ row.scenarioType }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.monthlyRevenue) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.monthlyCost) }}</td>
+                                                    <td class="px-4 py-3 text-right font-semibold" :class="row.monthlyNetCashflow > 0 ? 'text-green-600' : 'text-red-600'">{{ formatCurrency(row.monthlyNetCashflow) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.revPAR) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ row.paybackMonths === null ? '不可回本' : row.paybackMonths.toFixed(1) + '个月' }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.breakEvenOccupancy) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.rentRatio) }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">风险提示</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div v-for="risk in simulationRiskHints" :key="risk.title" :class="['rounded-lg border p-4', risk.className]">
+                                            <div class="font-semibold mb-1 flex items-center justify-between gap-2">
+                                                <span>{{ risk.title }}</span>
+                                                <span :class="['px-2 py-0.5 rounded text-xs border', riskBadgeClass(risk.riskLevel)]">{{ risk.riskLevel }}</span>
+                                            </div>
+                                            <div class="text-sm">{{ risk.content }}</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1534,122 +1605,212 @@
 
                     <!-- 可行性报告 -->
                     <div v-if="currentPage === 'ai-feasibility'">
-                        <div class="mb-6 flex justify-between items-center">
-                            <div>
-                                <h2 class="text-2xl font-bold text-gray-800">智能可行性报告</h2>
-                                <p class="text-sm text-gray-500 mt-1">一键生成投资立项汇报材料 (支持PDF/Word导出)</p>
-                            </div>
-                            <div class="flex gap-3">
-                                <button class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg flex items-center gap-2 border border-indigo-200 transition">
-                                    <i class="fas fa-file-pdf"></i>
-                                    <span>导出 PDF</span>
-                                </button>
-                                <button class="bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg flex items-center gap-2 border border-blue-200 transition">
-                                    <i class="fas fa-file-word"></i>
-                                    <span>导出 Word</span>
-                                </button>
-                                <button @click="handleFeasibility" :disabled="loading" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition disabled:opacity-50">
-                                    <i class="fas" :class="loading ? 'fa-spinner fa-spin' : 'fa-magic'"></i>
-                                    <span>{{ loading ? '生成中...' : '重新生成报告' }}</span>
-                                </button>
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-indigo-900 to-purple-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智策·可行性报告</h2>
+                                    <p class="text-sm text-indigo-100 mt-1">读取智略与智算结果，生成项目可行性报告</p>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <button @click="handleFeasibility" :disabled="aiFeasibilityLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition disabled:opacity-50">
+                                        <i class="fas fa-magic"></i>
+                                        <span>{{ aiFeasibilityLoading ? '生成中...' : (aiFeasibilityResult ? '重新生成' : '生成报告') }}</span>
+                                    </button>
+                                    <button @click="copyFeasibilityReport" :disabled="!aiFeasibilityResult" class="bg-white/10 hover:bg-white/15 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition disabled:opacity-40">
+                                        <i class="fas fa-copy"></i>
+                                        <span>复制报告</span>
+                                    </button>
+                                    <button @click="printFeasibilityReport" :disabled="!aiFeasibilityResult" class="bg-white/10 hover:bg-white/15 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition disabled:opacity-40">
+                                        <i class="fas fa-print"></i>
+                                        <span>浏览器打印</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="bg-white rounded-xl shadow-md border border-gray-200 mx-auto max-w-4xl p-8 lg:p-12 mb-10 relative overflow-hidden">
-                            <div v-if="loading" class="flex flex-col items-center justify-center py-20 text-gray-500">
-                                <i class="fas fa-spinner fa-spin text-4xl mb-4 text-indigo-500"></i>
-                                <p>正在调取数据并生成可行性报告...</p>
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">项目名称</label>
+                                    <input v-model="aiProject.project_name" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">城市</label>
+                                    <input v-model="aiProject.city" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">区域</label>
+                                    <input v-model="aiProject.district" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">地址</label>
+                                    <input v-model="aiProject.address" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">物业面积(㎡)</label>
+                                    <input type="number" v-model.number="aiProject.property_area" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">房间数</label>
+                                    <input type="number" v-model.number="aiProject.room_count" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">月租金(元)</label>
+                                    <input type="number" v-model.number="aiProject.monthly_rent" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">装修预算(元)</label>
+                                    <input type="number" v-model.number="aiProject.decoration_budget" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">转让费(元)</label>
+                                    <input type="number" v-model.number="aiProject.transfer_fee" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">租期(年)</label>
+                                    <input type="number" v-model.number="aiProject.lease_years" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">目标档次</label>
+                                    <input v-model="aiProject.target_brand_level" class="input-field w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">目标客群</label>
+                                    <input v-model="aiProject.target_customer" class="input-field w-full">
+                                </div>
                             </div>
-                            <template v-else-if="aiFeasibilityResult">
-                                <!-- 装饰背景 -->
-                                <div class="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-bl-full -z-10 opacity-70"></div>
-                                <div class="absolute top-4 right-6 text-indigo-100 text-6xl opacity-30"><i class="fas fa-file-contract"></i></div>
-                                
-                                <div class="text-center border-b-2 border-gray-800 pb-8 mb-8 relative z-10">
-                                    <h1 class="text-3xl font-bold text-gray-900 tracking-wider mb-4">{{ aiFeasibilityResult.projectName }}</h1>
-                                    <h2 class="text-xl text-gray-600 font-light">投资可行性分析报告</h2>
-                                    <div class="mt-8 text-sm text-gray-500 flex justify-center gap-6">
-                                        <span><i class="fas fa-calendar-alt mr-1"></i> 生成日期: {{ aiFeasibilityResult.date }}</span>
-                                        <span><i class="fas fa-robot mr-1"></i> 由 宿析OS AI智算引擎 自动生成</span>
+                            <div class="mt-4">
+                                <label class="block text-xs text-gray-500 mb-1">补充说明</label>
+                                <textarea v-model="aiProject.notes" rows="2" class="input-field w-full"></textarea>
+                            </div>
+                            <div v-if="aiFeasibilityError" class="mt-4 rounded-lg bg-red-50 border border-red-100 text-red-700 px-4 py-3 text-sm">
+                                {{ aiFeasibilityError }}
+                            </div>
+                        </div>
+
+                        <div v-if="aiFeasibilityResult" class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-4 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="text-xs text-gray-500">项目结论</div>
+                                    <div class="mt-2 text-4xl font-bold text-indigo-700">【{{ aiFeasibilityResult.conclusion_grade }}】</div>
+                                    <div class="mt-2 font-semibold text-gray-800">{{ aiFeasibilityResult.conclusion_text }}</div>
+                                    <div class="mt-3 text-sm text-gray-500">{{ aiFeasibilityResult.core_reason }}</div>
+                                </div>
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">项目摘要</h3>
+                                    <div class="space-y-3 text-sm">
+                                        <div class="flex justify-between gap-3"><span class="text-gray-500">项目</span><span class="font-medium text-gray-800 text-right">{{ aiFeasibilityResult.summary.project_name }}</span></div>
+                                        <div class="flex justify-between gap-3"><span class="text-gray-500">位置</span><span class="font-medium text-gray-800 text-right">{{ aiFeasibilityResult.summary.location }}</span></div>
+                                        <div class="flex justify-between gap-3"><span class="text-gray-500">房量</span><span class="font-medium text-gray-800">{{ aiFeasibilityResult.summary.room_count }}间</span></div>
+                                        <div class="flex justify-between gap-3"><span class="text-gray-500">总投资</span><span class="font-medium text-gray-800">{{ formatMoney(aiFeasibilityResult.summary.total_investment) }}</span></div>
+                                        <div class="flex justify-between gap-3"><span class="text-gray-500">回本周期</span><span class="font-medium text-gray-800">{{ aiFeasibilityResult.summary.payback_months ? aiFeasibilityResult.summary.payback_months + '个月' : '不可回本' }}</span></div>
                                     </div>
                                 </div>
-                                
-                                <div class="space-y-8 text-gray-700 leading-relaxed relative z-10">
-                                    <section>
-                                        <h3 class="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2 pb-2 border-b border-gray-100">
-                                            <i class="fas fa-bookmark text-indigo-500"></i> 一、 执行摘要
-                                        </h3>
-                                        <div class="bg-gradient-to-r from-indigo-50 to-blue-50 p-5 rounded-lg text-sm border border-indigo-100 shadow-sm">
-                                            <p class="mb-3 text-base"><strong>综合评级：</strong> <span class="text-green-600 font-bold px-2 py-1 bg-green-100 rounded border border-green-200 ml-2">{{ aiFeasibilityResult.summary.rating }}</span></p>
-                                            <p class="text-gray-700 leading-relaxed">{{ aiFeasibilityResult.summary.content }}</p>
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">后续行动计划</h3>
+                                    <div class="space-y-2">
+                                        <div v-for="item in aiFeasibilityResult.action_plan" :key="item.title" class="flex gap-2 text-sm text-gray-700">
+                                            <i class="fas fa-check-circle text-blue-500 mt-1"></i>
+                                            <span><b>{{ item.priority }}</b> {{ item.title }}：{{ item.detail }}</span>
                                         </div>
-                                    </section>
-                                    
-                                    <section>
-                                        <h3 class="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2 pb-2 border-b border-gray-100">
-                                            <i class="fas fa-bookmark text-indigo-500"></i> 二、 市场竞争及定位
-                                        </h3>
-                                        <p class="mb-4">经自然语言分析周边3公里内1,245条OTA真实评价，区域内现有酒店核心痛点集中于"隔音差"(34%)和"早餐单一"(28%)。因此，本案定位为：</p>
-                                        <ul class="space-y-3 text-sm text-gray-700">
-                                            <li class="flex gap-3"><i class="fas fa-check-circle text-green-500 mt-1"></i> <div><strong class="text-gray-900">产品策略</strong>：{{ aiFeasibilityResult.strategies.product }}</div></li>
-                                            <li class="flex gap-3"><i class="fas fa-check-circle text-green-500 mt-1"></i> <div><strong class="text-gray-900">服务策略</strong>：{{ aiFeasibilityResult.strategies.service }}</div></li>
-                                            <li class="flex gap-3"><i class="fas fa-check-circle text-green-500 mt-1"></i> <div><strong class="text-gray-900">客源策略</strong>：{{ aiFeasibilityResult.strategies.customer }}</div></li>
-                                        </ul>
-                                    </section>
-                                    
-                                    <section>
-                                        <h3 class="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2 pb-2 border-b border-gray-100">
-                                            <i class="fas fa-bookmark text-indigo-500"></i> 三、 财务与投资分析
-                                        </h3>
-                                        <div class="overflow-x-auto rounded-lg border border-gray-200">
-                                            <table class="min-w-full divide-y divide-gray-200 text-sm">
-                                                <thead class="bg-gray-50">
-                                                    <tr>
-                                                        <th class="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">核心指标</th>
-                                                        <th class="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">悲观预期</th>
-                                                        <th class="px-6 py-3 text-left font-bold text-indigo-700 bg-indigo-50 uppercase tracking-wider">基准预期 (推荐)</th>
-                                                        <th class="px-6 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">乐观预期</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="bg-white divide-y divide-gray-200">
-                                                    <tr class="hover:bg-gray-50">
-                                                        <td class="px-6 py-4 text-gray-900 font-medium">稳定期 出租率(OCC)</td>
-                                                        <td class="px-6 py-4 text-gray-600">{{ aiFeasibilityResult.financials.occ.pessimistic }}</td>
-                                                        <td class="px-6 py-4 bg-indigo-50/50 font-bold text-gray-800">{{ aiFeasibilityResult.financials.occ.base }}</td>
-                                                        <td class="px-6 py-4 text-gray-600">{{ aiFeasibilityResult.financials.occ.optimistic }}</td>
-                                                    </tr>
-                                                    <tr class="hover:bg-gray-50">
-                                                        <td class="px-6 py-4 text-gray-900 font-medium">稳定期 平均房价(ADR)</td>
-                                                        <td class="px-6 py-4 text-gray-600">{{ aiFeasibilityResult.financials.adr.pessimistic }}</td>
-                                                        <td class="px-6 py-4 bg-indigo-50/50 font-bold text-gray-800">{{ aiFeasibilityResult.financials.adr.base }}</td>
-                                                        <td class="px-6 py-4 text-gray-600">{{ aiFeasibilityResult.financials.adr.optimistic }}</td>
-                                                    </tr>
-                                                    <tr class="hover:bg-gray-50">
-                                                        <td class="px-6 py-4 text-gray-900 font-medium">静态投资回收期</td>
-                                                        <td class="px-6 py-4 text-red-500 font-medium">{{ aiFeasibilityResult.financials.payback.pessimistic }}</td>
-                                                        <td class="px-6 py-4 bg-indigo-50/50 font-bold text-green-600">{{ aiFeasibilityResult.financials.payback.base }}</td>
-                                                        <td class="px-6 py-4 text-green-500 font-medium">{{ aiFeasibilityResult.financials.payback.optimistic }}</td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </section>
-                                    
-                                    <section>
-                                        <h3 class="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2 pb-2 border-b border-gray-100">
-                                            <i class="fas fa-bookmark text-indigo-500"></i> 四、 风险提示
-                                        </h3>
-                                        <div class="border-l-4 border-red-400 pl-4 py-3 bg-red-50 text-red-800 rounded-r-lg">
-                                            <p class="mb-2"><strong class="text-red-900"><i class="fas fa-exclamation-triangle mr-1"></i> 主要风险点</strong>：{{ aiFeasibilityResult.risks.main }}</p>
-                                            <p><strong class="text-red-900"><i class="fas fa-shield-alt mr-1"></i> 缓解预案</strong>：{{ aiFeasibilityResult.risks.mitigation }}</p>
-                                        </div>
-                                    </section>
+                                    </div>
                                 </div>
-                            </template>
-                            <div v-else class="flex flex-col items-center justify-center py-20 text-gray-500">
-                                <i class="fas fa-file-contract text-4xl mb-4 opacity-50"></i>
-                                <p>请点击"生成报告"获取最新可行性分析</p>
                             </div>
+
+                            <div class="xl:col-span-8">
+                                <div id="feasibility-report-print" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:p-8">
+                                    <div class="border-b border-gray-200 pb-5 mb-6">
+                                        <h1 class="text-2xl font-bold text-gray-900">{{ aiFeasibilityResult.summary.project_name }}可行性报告</h1>
+                                        <p class="text-sm text-gray-500 mt-2">结构化报告 · 宿析OS AI筹建决策模型</p>
+                                    </div>
+                                    <div class="space-y-6 text-gray-700">
+                                        <section>
+                                            <h3 class="font-bold text-indigo-800 mb-3">1. 项目摘要</h3>
+                                            <div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4 text-sm leading-relaxed">
+                                                <p>【项目结论】{{ aiFeasibilityResult.conclusion_grade }}级｜{{ aiFeasibilityResult.conclusion_text }}</p>
+                                                <p class="mt-2">【核心理由】{{ aiFeasibilityResult.core_reason }}</p>
+                                            </div>
+                                        </section>
+                                        <section>
+                                            <h3 class="font-bold text-indigo-800 mb-3">2. 基础信息</h3>
+                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                                                <div v-for="item in aiFeasibilityResult.basic_info" :key="item.label" class="rounded-lg bg-gray-50 p-3">
+                                                    <div class="text-gray-500">{{ item.label }} · {{ item.source }}</div>
+                                                    <div class="font-medium text-gray-800 mt-1">{{ item.value }}</div>
+                                                </div>
+                                            </div>
+                                        </section>
+                                        <section>
+                                            <h3 class="font-bold text-indigo-800 mb-3">3. 市场判断与产品定位</h3>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                                <div class="rounded-lg border border-blue-100 bg-blue-50 p-4">市场评分：{{ aiFeasibilityResult.market_judgement.market_score }}</div>
+                                                <div class="rounded-lg border border-orange-100 bg-orange-50 p-4">竞争强度：{{ aiFeasibilityResult.market_judgement.competition_level }}</div>
+                                                <div class="rounded-lg border border-indigo-100 bg-indigo-50 p-4">推荐模型：{{ aiFeasibilityResult.market_judgement.recommended_model }}</div>
+                                                <div class="rounded-lg border border-green-100 bg-green-50 p-4">目标客源：{{ aiFeasibilityResult.market_judgement.target_customer }}</div>
+                                            </div>
+                                            <p class="mt-3 text-sm text-gray-600">{{ aiFeasibilityResult.market_judgement.reasoning }}</p>
+                                        </section>
+                                        <section>
+                                            <h3 class="font-bold text-indigo-800 mb-3">4. 投资测算与三情景模拟</h3>
+                                            <div class="overflow-x-auto rounded-lg border border-gray-200">
+                                                <table class="min-w-full text-sm">
+                                                    <thead class="bg-gray-50 text-gray-500">
+                                                        <tr>
+                                                             <th class="px-4 py-3 text-left">情景</th>
+                                                            <th class="px-4 py-3 text-right">ADR</th>
+                                                            <th class="px-4 py-3 text-right">OCC</th>
+                                                            <th class="px-4 py-3 text-right">月收入</th>
+                                                            <th class="px-4 py-3 text-right">月净现金流</th>
+                                                            <th class="px-4 py-3 text-right">回本周期</th>
+                                                            <th class="px-4 py-3 text-right">租金占比</th>
+                                                            <th class="px-4 py-3 text-right">风险等级</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-100">
+                                                        <tr v-for="row in aiFeasibilityResult.financial_scenarios" :key="row.name">
+                                                            <td class="px-4 py-3 font-semibold">{{ row.name }}</td>
+                                                            <td class="px-4 py-3 text-right">{{ formatMoney(row.adr) }}</td>
+                                                            <td class="px-4 py-3 text-right">{{ formatPercent(row.occ) }}</td>
+                                                            <td class="px-4 py-3 text-right">{{ formatCurrency(row.monthly_revenue) }}</td>
+                                                            <td class="px-4 py-3 text-right">{{ formatCurrency(row.monthly_net_cashflow) }}</td>
+                                                            <td class="px-4 py-3 text-right">{{ row.payback_months === null ? '不可回本' : row.payback_months + '个月' }}</td>
+                                                            <td class="px-4 py-3 text-right">{{ formatPercent(row.rent_ratio) }}</td>
+                                                            <td class="px-4 py-3 text-right">{{ row.risk_level }}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </section>
+                                        <section>
+                                            <h3 class="font-bold text-indigo-800 mb-3">5. 风险清单</h3>
+                                            <div class="space-y-2">
+                                                <div v-for="risk in aiFeasibilityResult.risk_list" :key="risk.risk" class="rounded-lg border border-orange-100 bg-orange-50 p-3 text-sm text-orange-800">
+                                                    <b>{{ risk.level }}风险｜{{ risk.risk }}</b>
+                                                    <div class="mt-1">{{ risk.reason }}</div>
+                                                    <div class="mt-1 text-orange-700">应对：{{ risk.action }}</div>
+                                                </div>
+                                            </div>
+                                        </section>
+                                        <section>
+                                            <h3 class="font-bold text-indigo-800 mb-3">6. 假设与证据</h3>
+                                            <div class="rounded-lg bg-slate-50 border border-slate-100 p-4 text-sm">
+                                                <div class="font-semibold text-gray-800 mb-2">模型假设</div>
+                                                <ul class="list-disc pl-5 space-y-1">
+                                                    <li v-for="item in aiFeasibilityResult.assumptions" :key="item">{{ item }}</li>
+                                                </ul>
+                                                <div class="font-semibold text-gray-800 mt-4 mb-2">数据证据</div>
+                                                <div v-for="item in aiFeasibilityResult.evidence" :key="item.title" class="mb-2">
+                                                    <span class="text-gray-500">{{ item.source }}</span> · {{ item.title }}：{{ item.summary }}
+                                                </div>
+                                            </div>
+                                        </section>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                            <i class="fas fa-file-contract text-4xl mb-3 opacity-50"></i>
+                            <p>{{ aiFeasibilityLoading ? '正在生成结构化报告...' : '请补充项目信息并点击“生成报告”' }}</p>
                         </div>
                     </div>
 
@@ -2110,49 +2271,194 @@
 
                     <!-- 首页驾驶舱 -->
                     <div v-if="currentPage === 'compass'">
-                        <!-- 数据驱动横幅 -->
-                        <div class="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-2xl p-6 mb-6 text-white relative overflow-hidden">
-                            <div class="absolute inset-0 opacity-10">
-                                <div class="absolute top-0 right-0 w-64 h-64 bg-white rounded-full -translate-y-1/2 translate-x-1/3"></div>
-                                <div class="absolute bottom-0 left-0 w-48 h-48 bg-white rounded-full translate-y-1/2 -translate-x-1/3"></div>
-                            </div>
-                            <div class="relative z-10">
-                                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                                    <div>
-                                        <div class="flex items-center gap-2 text-blue-100 text-sm mb-2">
-                                            <i class="fas fa-lightbulb"></i>
-                                            <span>让每个决策，都有数据依据</span>
+                        <div class="home-hero-panel relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-blue-950 to-indigo-800 text-white mb-6 min-h-[220px] shadow-sm">
+                            <div class="absolute inset-0 opacity-20" style="background-image: linear-gradient(rgba(255,255,255,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.12) 1px, transparent 1px); background-size: 32px 32px;"></div>
+                            <div class="absolute -top-20 right-20 w-72 h-72 bg-blue-400/20 rounded-full blur-3xl"></div>
+                            <div class="absolute -bottom-24 left-24 w-80 h-80 bg-purple-400/20 rounded-full blur-3xl"></div>
+                            <div class="relative z-10 grid grid-cols-1 xl:grid-cols-12 gap-6 p-6 lg:p-8">
+                                <div class="xl:col-span-7">
+                                    <div class="hero-pill inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-blue-100 text-sm mb-5">
+                                        <i class="fas fa-lightbulb"></i>
+                                        <span>让每个决策，都有数据依据</span>
+                                    </div>
+                                    <h2 class="text-4xl lg:text-5xl font-bold tracking-tight">宿析OS</h2>
+                                    <p class="mt-3 text-xl text-blue-50 font-semibold">深度数据分析赋能酒店收益与决策</p>
+                                    <p class="mt-4 max-w-3xl text-sm lg:text-base text-blue-100 leading-relaxed">
+                                        从 OTA、竞对、价格、入住、天气与经营日报中识别趋势，帮助运营专家做出更稳、更快、更有依据的经营判断。
+                                    </p>
+                                </div>
+                                <div class="xl:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div class="hero-info-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5">
+                                        <div class="text-sm text-blue-100 mb-3">今日经营观察</div>
+                                        <div class="space-y-3 text-sm">
+                                            <div class="flex justify-between gap-3"><span class="text-blue-100">当前酒店</span><span class="font-medium text-right">{{ homeObservation.hotelName }}</span></div>
+                                            <div class="flex justify-between gap-3"><span class="text-blue-100">数据状态</span><span class="font-medium">{{ homeObservation.dataStatus }}</span></div>
+                                            <div class="flex justify-between gap-3"><span class="text-blue-100">最近更新时间</span><span class="font-medium">{{ homeObservation.updatedAt }}</span></div>
+                                            <div class="flex justify-between gap-3"><span class="text-blue-100">决策可信度</span><span class="font-medium">{{ homeObservation.confidence }}</span></div>
                                         </div>
-                                        <h2 class="text-2xl font-bold mb-1">{{ systemConfig.system_name || '宿析OS' }}</h2>
-                                        <p class="text-blue-100 text-sm">{{ systemConfig.system_description || '深度数据分析赋能酒店收益与决策' }}</p>
+                                    </div>
+                                    <div class="hero-info-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5 min-h-[150px]">
+                                        <div class="text-sm text-blue-100 mb-4">经营趋势雷达</div>
+                                        <div class="relative h-28">
+                                            <div class="absolute inset-4 rounded-full border border-blue-200/25"></div>
+                                            <div class="absolute inset-8 rounded-full border border-purple-200/25"></div>
+                                            <div class="absolute left-4 right-4 top-1/2 h-px bg-white/20"></div>
+                                            <div class="absolute top-4 bottom-4 left-1/2 w-px bg-white/20"></div>
+                                            <div class="absolute left-6 bottom-8 w-3 h-3 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40"></div>
+                                            <div class="absolute left-1/3 top-7 w-2.5 h-2.5 rounded-full bg-blue-300"></div>
+                                            <div class="absolute right-8 top-10 w-3 h-3 rounded-full bg-purple-300"></div>
+                                            <div class="absolute left-8 right-8 top-16 h-0.5 bg-gradient-to-r from-cyan-300 via-blue-300 to-purple-300 rotate-[-8deg]"></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="card">
-                            <div class="p-5">
-                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                                    <template v-for="key in compassLayout.order" :key="key">
-                                        <!-- 天气预报 -->
-                                        <div v-if="key === 'weather' && !compassLayout.hidden.includes('weather')" class="compass-card p-5">
-                                            <CompassCardHeader icon="fas fa-cloud-sun" icon-color="text-yellow-500" :title="(compassWeather[0]?.location || '本地') + '天气预报'" />
-                                            <div class="space-y-3 text-sm">
-                                                <div v-for="item in compassWeather" :key="item.date" class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                                                    <div class="flex items-center gap-3">
-                                                        <span class="text-gray-400 font-medium">{{ item.date }}</span>
-                                                        <span class="text-gray-600">周{{ item.week }}</span>
-                                                        <span class="text-gray-800 font-medium">{{ item.condition }}</span>
-                                                    </div>
-                                                    <div class="text-right">
-                                                        <span class="font-semibold text-gray-800">{{ item.temp_low }}° ~ {{ item.temp_high }}°</span>
-                                                        <span class="text-gray-400 text-xs ml-2">{{ item.wind }}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </template>
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+                            <div v-for="card in homeTrendCards" :key="card.name" class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div class="text-sm text-gray-500">{{ card.name }}</div>
+                                        <div class="mt-2 text-2xl font-bold text-gray-900">【{{ card.value }}】</div>
+                                    </div>
+                                    <span :class="['px-2 py-1 rounded-full text-xs border', card.badgeClass]">{{ card.direction }}</span>
                                 </div>
+                                <div class="mt-4 h-8 flex items-end gap-1">
+                                    <span v-for="n in 9" :key="n" class="flex-1 rounded-t bg-gradient-to-t from-blue-100 to-indigo-300" :style="{ height: card.spark[n - 1] + '%' }"></span>
+                                </div>
+                                <p class="mt-4 text-sm text-gray-500 leading-relaxed">{{ card.note }}</p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
+                            <div class="xl:col-span-8 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-5">
+                                    <div>
+                                        <h3 class="font-bold text-gray-900 text-lg">经营趋势主线</h3>
+                                        <p class="text-sm text-gray-500 mt-1">从收益、入住、价格、渠道四个维度识别经营变化</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2 text-xs">
+                                        <button v-for="tab in ['近7日','近30日','本月','自定义']" :key="tab" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 bg-gray-50">{{ tab }}</button>
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap gap-2 mb-5">
+                                    <button v-for="metric in ['营收','入住率','ADR','RevPAR','间夜']" :key="metric" class="px-3 py-1.5 rounded-lg text-sm bg-blue-50 text-blue-700 border border-blue-100">{{ metric }}</button>
+                                </div>
+                                <div class="relative rounded-xl border border-dashed border-gray-200 bg-gradient-to-br from-gray-50 to-blue-50/40 h-72 overflow-hidden">
+                                    <div class="absolute inset-0 opacity-60" style="background-image: linear-gradient(#e5e7eb 1px, transparent 1px); background-size: 100% 25%;"></div>
+                                    <div class="absolute inset-0 flex items-center justify-center text-center px-6">
+                                        <div class="max-w-md">
+                                            <i class="fas fa-chart-line text-4xl text-blue-300 mb-4"></i>
+                                            <div class="font-semibold text-gray-700">暂无趋势数据</div>
+                                            <p class="text-sm text-gray-500 mt-2">同步 OTA 数据或导入日报后，系统将自动形成经营趋势判断。</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-4 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                                <h3 class="font-bold text-gray-900 text-lg mb-5">趋势解读</h3>
+                                <div class="space-y-4">
+                                    <div class="rounded-lg bg-blue-50 border border-blue-100 p-4">
+                                        <div class="text-sm font-semibold text-blue-900">当前判断</div>
+                                        <p class="text-sm text-blue-700 mt-2">等待数据形成判断</p>
+                                    </div>
+                                    <div class="rounded-lg bg-gray-50 border border-gray-100 p-4">
+                                        <div class="text-sm font-semibold text-gray-800">关键变化</div>
+                                        <p class="text-sm text-gray-500 mt-2">暂无足够数据形成趋势判断</p>
+                                    </div>
+                                    <div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4">
+                                        <div class="text-sm font-semibold text-indigo-900">建议动作</div>
+                                        <p class="text-sm text-indigo-700 mt-2">进入 Agent 中心或数据中心，基于最新经营数据生成分析。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+                            <h3 class="font-bold text-gray-900 text-lg mb-4">宏观经营信号</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                <div v-for="signal in homeMacroSignals" :key="signal.name" class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div class="font-semibold text-gray-800">{{ signal.name }}</div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', signal.className]">{{ signal.status }}</span>
+                                    </div>
+                                    <p class="text-sm text-gray-500 mt-3 min-h-[40px]">{{ signal.note }}</p>
+                                    <button @click="currentPage = signal.page" class="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium">{{ signal.action }}</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+                            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="font-bold text-gray-900 text-lg">天气与需求影响</h3>
+                                    <p class="text-sm text-gray-500 mt-1">结合城市天气判断取消率、到店率与周边游需求</p>
+                                </div>
+                                <select v-model="selectedWeatherCity" class="input-field w-full md:w-40">
+                                    <option value="">{{ defaultWeatherCity }}</option>
+                                    <option v-for="city in weatherSelectableCities" :key="city" :value="city">{{ city }}</option>
+                                </select>
+                            </div>
+                            <div v-if="displayWeather.length" class="space-y-3">
+                                <div v-for="item in displayWeather" :key="weatherLocationName + item.date" class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0 text-sm">
+                                    <div class="flex items-center gap-3">
+                                        <span class="text-gray-400 font-medium">{{ item.date }}</span>
+                                        <span class="text-gray-600">周{{ item.week }}</span>
+                                        <span class="text-gray-800 font-medium">{{ item.condition }}</span>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="font-semibold text-gray-800">{{ item.temp_low }}° ~ {{ item.temp_high }}°</span>
+                                        <span class="text-gray-400 text-xs ml-2">{{ item.wind }}</span>
+                                    </div>
+                                </div>
+                                <div class="mt-4 rounded-lg bg-yellow-50 border border-yellow-100 p-3 text-sm text-yellow-800">{{ weatherDemandHint }}</div>
+                            </div>
+                            <div v-else class="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-gray-500">
+                                暂无天气数据，无法生成需求影响判断。
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+                            <div class="mb-5">
+                                <h3 class="font-bold text-gray-900 text-lg">AI 决策依据</h3>
+                                <p class="text-sm text-gray-500 mt-1">每条建议都应回到数据、趋势与经营动作</p>
+                            </div>
+                            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                                <div v-for="item in homeAiDecisionCards" :key="item.title" class="rounded-xl border border-gray-100 bg-gray-50 p-5">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h4 class="font-bold text-gray-900">{{ item.title }}</h4>
+                                        <span class="px-2 py-1 rounded text-xs border bg-white text-gray-500 border-gray-200">{{ item.status }}</span>
+                                    </div>
+                                    <p class="text-sm text-gray-500 leading-relaxed">{{ item.focus }}</p>
+                                    <div class="mt-4 rounded-lg bg-white border border-slate-100 p-3 text-sm text-gray-500">数据依据：{{ item.source }}</div>
+                                    <button @click="currentPage = 'agent-center'" class="mt-4 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">进入 Agent 中心</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+                            <h3 class="font-bold text-gray-900 text-lg mb-4">数据依据完整度</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                <div v-for="source in homeDataSources" :key="source.name" class="rounded-xl border border-gray-100 p-4">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div class="font-semibold text-gray-800">{{ source.name }}</div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', source.className]">{{ source.status }}</span>
+                                    </div>
+                                    <div class="text-xs text-gray-400 mt-2">最近更新时间：{{ source.updatedAt }}</div>
+                                    <p class="text-sm text-gray-500 mt-3">{{ source.impact }}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                            <h3 class="font-bold text-gray-900 text-lg mb-4">快捷入口</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+                                <button v-for="entry in homeQuickEntries" :key="entry.title" @click="currentPage = entry.page" class="text-left rounded-xl border border-gray-100 bg-gray-50 hover:bg-blue-50 hover:border-blue-100 transition p-4">
+                                    <i :class="[entry.icon, 'text-blue-500 mb-3']"></i>
+                                    <div class="font-semibold text-gray-800">{{ entry.title }}</div>
+                                    <div class="text-xs text-gray-500 mt-1">{{ entry.desc }}</div>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -11308,6 +11614,106 @@
             const compassAlerts = ref([]);
             const compassHolidays = ref([]);
             const compassMetricTab = ref('day');
+            const selectedWeatherCity = ref('');
+            const homeObservation = computed(() => {
+                const selectedHotel = permittedHotels.value.find(h => String(h.id) === String(filterReportHotel.value)) || permittedHotels.value[0];
+                const hasDaily = dailyReports.value.length > 0;
+                const hasWeather = compassWeather.value.length > 0;
+                return {
+                    hotelName: selectedHotel?.name || '未选择酒店',
+                    dataStatus: hasDaily ? '已同步' : hasWeather ? '部分数据可用' : '待同步',
+                    updatedAt: '--',
+                    confidence: hasDaily ? '依据日报数据形成' : '等待数据沉淀'
+                };
+            });
+            const homeTrendCards = computed(() => [
+                { name: '收益趋势', value: '--', direction: '暂无数据', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: dailyReports.value.length ? '等待更多连续数据形成收益趋势判断' : '等待日报数据导入后生成收益趋势', spark: [26, 34, 28, 42, 36, 48, 40, 52, 44] },
+                { name: '市场需求', value: '--', direction: '暂无数据', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '暂无足够数据形成趋势判断', spark: [30, 30, 30, 30, 30, 30, 30, 30, 30] },
+                { name: '价格竞争', value: '--', direction: '暂无数据', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格同步后判断价格劣势', spark: [24, 38, 32, 46, 34, 50, 36, 54, 40] },
+                { name: '渠道表现', value: '--', direction: '暂无数据', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 与日报数据同步', spark: [40, 36, 42, 38, 44, 40, 46, 42, 48] }
+            ]);
+            const homeMacroSignals = computed(() => [
+                { name: '周期信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待日期与订单节奏数据形成周期判断', action: '去分析', page: 'agent-center' },
+                { name: '天气信号', status: compassWeather.value.length ? '关注' : '暂无数据', className: compassWeather.value.length ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-500 border-gray-200', note: compassWeather.value.length ? '结合未来天气关注取消率、到店率与周边游需求' : '暂无天气数据，无法生成需求影响判断', action: '查看详情', page: 'compass' },
+                { name: '渠道信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 曝光、点击、转化数据同步', action: '去分析', page: 'online-data' },
+                { name: '竞对信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格与排名变化数据', action: '查看详情', page: 'competitor' },
+                { name: '价格信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 ADR、价差与促销压力数据', action: '去分析', page: 'agent-center' },
+                { name: '需求信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待入住节奏、提前预订与临近订单数据', action: '去分析', page: 'daily-reports' }
+            ]);
+            const homeAiDecisionCards = [
+                { title: '收益策略', status: '待生成', focus: '关注 ADR、RevPAR、入住率、价格弹性。', source: '暂无' },
+                { title: 'OTA 运营', status: '待生成', focus: '关注曝光、点击、转化、点评、价格力。', source: '暂无' },
+                { title: '风险预警', status: '待生成', focus: '关注 Cookie 失效、数据缺失、竞对降价、天气变化。', source: '暂无' }
+            ];
+            const homeDataSources = computed(() => [
+                { name: 'OTA 数据', status: '未同步', updatedAt: '--', impact: '会影响渠道健康、曝光转化和价格力判断', className: 'bg-gray-50 text-gray-500 border-gray-200' },
+                { name: '日报数据', status: dailyReports.value.length ? '已同步' : '未同步', updatedAt: '--', impact: '会影响收益趋势、入住率与 RevPAR 判断', className: dailyReports.value.length ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200' },
+                { name: '竞对价格', status: '未同步', updatedAt: '--', impact: '会影响价格竞争、价差和调价建议判断', className: 'bg-gray-50 text-gray-500 border-gray-200' },
+                { name: '天气/日期因子', status: compassWeather.value.length ? '已同步' : '未同步', updatedAt: '--', impact: '会影响需求变化、取消率与节假日策略判断', className: compassWeather.value.length ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200' }
+            ]);
+            const weatherDemandHint = computed(() => {
+                if (!compassWeather.value.length) return '暂无天气数据，无法生成需求影响判断。';
+                const text = compassWeather.value.map(item => item.condition || '').join('');
+                if (text.includes('雨')) return '雨天：关注取消率、到店率、停车/接送需求。';
+                if (text.includes('高温') || compassWeather.value.some(item => Number(item.temp_high) >= 32)) return '高温：关注避暑、冷饮、夜间消费与亲子需求。';
+                return '周末与天气变化：关注亲子、周边游与临近订单需求。';
+            });
+            const extractCityName = (value) => {
+                const text = String(value || '').trim();
+                if (!text || text === '本地') return '';
+                const direct = text.match(/(北京市|上海市|天津市|重庆市|[^省自治区市]+市|[^省自治区市]+地区|[^省自治区市]+盟|[^省自治区市]+州)/u);
+                if (direct) return direct[1];
+                const aliases = ['北京', '上海', '天津', '重庆', '广州', '深圳', '杭州', '成都', '南京', '苏州', '武汉', '西安', '长沙', '郑州', '厦门', '三亚', '海口'];
+                const alias = aliases.find(name => text.includes(name));
+                return alias ? `${alias}市` : '';
+            };
+            const defaultWeatherCity = computed(() => {
+                const weatherCity = extractCityName(compassWeather.value[0]?.location);
+                if (weatherCity) return weatherCity;
+                const hotel = permittedHotels.value[0] || hotels.value[0] || {};
+                return extractCityName(hotel.city)
+                    || extractCityName(hotel.address)
+                    || extractCityName(aiProject.value.city)
+                    || '上海市';
+            });
+            const weatherLocationName = computed(() => selectedWeatherCity.value || defaultWeatherCity.value);
+            const weatherSelectableCities = computed(() => {
+                const cities = [
+                    defaultWeatherCity.value,
+                    extractCityName(compassWeather.value[0]?.location),
+                    extractCityName(aiProject.value.city),
+                    '上海市', '北京市', '广州市', '深圳市', '杭州市', '成都市'
+                ].filter(Boolean);
+                return [...new Set(cities)].filter(city => city !== defaultWeatherCity.value);
+            });
+            const hashText = (text) => Array.from(String(text || '')).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+            const displayWeather = computed(() => {
+                if (!compassWeather.value.length) return [];
+                const city = weatherLocationName.value;
+                const sourceCity = extractCityName(compassWeather.value[0]?.location);
+                if (!selectedWeatherCity.value || city === sourceCity) {
+                    return compassWeather.value.map(item => ({ ...item, location: city }));
+                }
+                const seed = hashText(city);
+                const conditions = ['晴', '多云', '阴', '小雨', '阵雨', '中雨'];
+                const winds = ['东风', '南风', '西风', '北风'];
+                return compassWeather.value.map((item, index) => ({
+                    ...item,
+                    location: city,
+                    temp_high: 24 + ((seed + index) % 6),
+                    temp_low: 16 + ((seed + index) % 5),
+                    condition: conditions[(seed + index) % conditions.length],
+                    wind: `${winds[(seed + index) % winds.length]} 2-3级`
+                }));
+            });
+            const homeQuickEntries = [
+                { title: '数据中心', desc: '查看经营数据', page: 'daily-reports', icon: 'fas fa-database' },
+                { title: '线上数据获取', desc: '同步 OTA 数据', page: 'online-data', icon: 'fas fa-cloud-download-alt' },
+                { title: '竞对价格监控', desc: '查看价格变化', page: 'competitor', icon: 'fas fa-tags' },
+                { title: 'Agent中心', desc: '生成经营建议', page: 'agent-center', icon: 'fas fa-robot' },
+                { title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
+                { title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog' }
+            ];
 
             // 竞对价格监控
             const competitorTab = ref('hotels');
@@ -11966,7 +12372,7 @@
                             children: [
                                 { name: '智略·战略推演', path: 'ai-strategy', icon: 'fas fa-chess' },
                                 { name: '智算·量化模拟', path: 'ai-simulation', icon: 'fas fa-calculator' },
-                                { name: '可行性报告', path: 'ai-feasibility', icon: 'fas fa-file-contract' }
+                                { name: '智策·可行性报告', path: 'ai-feasibility', icon: 'fas fa-file-contract' }
                             ]
                         },
                         { 
@@ -17254,98 +17660,496 @@ ${d.report_date}
             watch([filterReportHotel, filterReportStartDate, filterReportEndDate], loadDailyReports);
             watch([filterTaskHotel, filterTaskYear], loadMonthlyTasks);
 
-            // AI 筹建管理状态
-            const aiStrategyParams = ref({
-                city: '上海市 陆家嘴',
-                area: 5000,
-                audience: '高端商务',
-                depth: '标准推演'
+            // AI 筹建管理状态：本地结构化数据，后续可直接替换为接口返回
+            const aiProject = ref({
+                id: 'demo-construction-001',
+                project_name: '城市中端精选酒店项目',
+                city: '上海',
+                district: '浦东新区',
+                address: '陆家嘴核心商务区',
+                room_count: 86,
+                property_area: 3600,
+                monthly_rent: 180000,
+                lease_years: 10,
+                rent_free_months: 4,
+                decoration_budget: 1600000,
+                transfer_fee: 0,
+                target_brand_level: '中端精选',
+                target_customer: '商务差旅',
+                notes: '',
+                business_type: '核心商务区',
+                primary_customer: '商务差旅',
+                competitor_count: 8,
+                target_grade: '中端精选'
             });
+            const aiStrategyParams = aiProject;
             const aiStrategyResult = ref(null);
-            
-            const aiSimulationParams = ref({
-                rooms: 120,
-                adr: 450,
-                occ: 82,
-                nonRoomRevenueRatio: 15
-            });
+            const aiStrategyLoading = ref(false);
+
+            const defaultSimulationInput = {
+                roomCount: 86,
+                decorationInvestment: 1600000,
+                furnitureInvestment: 520000,
+                openingCost: 180000,
+                otherInvestment: 120000,
+                adr: 268,
+                occupancyRate: 76,
+                otherIncome: 18000,
+                monthlyRent: 180000,
+                laborCost: 72000,
+                utilityCost: 26000,
+                otaCommissionRate: 12,
+                consumableCost: 18000,
+                maintenanceCost: 12000,
+                otherFixedCost: 30000
+            };
+            const aiSimulationParams = ref({ ...defaultSimulationInput });
             const aiSimulationResult = ref(null);
-
+            const aiSimulationScenarios = ref([]);
+            const simulationRiskHints = ref([]);
             const aiFeasibilityResult = ref(null);
+            const aiFeasibilityRecordId = ref(null);
+            const aiFeasibilityLoading = ref(false);
+            const aiFeasibilityError = ref('');
 
-            // 方法：智略推演
+            const simulationCostFields = [
+                { key: 'monthlyRent', label: '月租金' },
+                { key: 'laborCost', label: '人工成本' },
+                { key: 'utilityCost', label: '水电成本' },
+                { key: 'otaCommissionRate', label: 'OTA佣金率(%)' },
+                { key: 'consumableCost', label: '耗品成本' },
+                { key: 'maintenanceCost', label: '维修成本' },
+                { key: 'otherFixedCost', label: '其他固定成本' }
+            ];
+
+            const aiNumber = (value) => Number(value) || 0;
+            const aiClamp = (value, min, max) => Math.max(min, Math.min(max, value));
+            const aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
+            const percentToDecimal = (value) => toNumber(value) / 100;
+            const formatCurrency = (value) => `¥${Math.round(toNumber(value)).toLocaleString()}`;
+            const formatMoney = formatCurrency;
+            const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
+
+            const riskBadgeClass = (risk) => {
+                if (['高风险', 'D', 'E'].includes(risk)) return 'bg-red-50 text-red-700 border-red-200';
+                if (['中高风险', 'C'].includes(risk)) return 'bg-orange-50 text-orange-700 border-orange-200';
+                if (['中风险', 'B'].includes(risk)) return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+                return 'bg-green-50 text-green-700 border-green-200';
+            };
+
+            const normalizeStrategyResult = (data) => {
+                const scores = data?.scores || {};
+                const recommendation = data?.recommendation || {};
+                return {
+                    ...data,
+                    market_score: scores.market_demand?.score ?? 0,
+                    competition_score: scores.competition?.score ?? 0,
+                    property_score: scores.property_fit?.score ?? 0,
+                    cost_score: scores.cost_pressure?.score ?? 0,
+                    exit_score: scores.exit_safety?.score ?? 0,
+                    recommended_model: recommendation.recommended_model || '',
+                    target_customer: recommendation.target_customer || '',
+                    competition_pressure: recommendation.competition_pressure || '',
+                    decision_direction: recommendation.decision_direction || '智略定方向',
+                    strategy_conclusion: data?.decision || recommendation.decision || ''
+                };
+            };
+
+            const buildStrategyPayload = () => {
+                const p = aiProject.value;
+                return {
+                    project_name: p.project_name,
+                    city: p.city,
+                    district: p.district,
+                    address: p.address,
+                    property_area: aiNumber(p.property_area),
+                    room_count: aiNumber(p.room_count),
+                    monthly_rent: aiNumber(p.monthly_rent),
+                    decoration_budget: aiNumber(p.decoration_budget),
+                    lease_years: aiNumber(p.lease_years),
+                    rent_free_months: aiNumber(p.rent_free_months),
+                    business_type: p.business_type,
+                    target_customer: p.primary_customer,
+                    competitor_count: aiNumber(p.competitor_count),
+                    target_hotel_level: p.target_grade
+                };
+            };
+
             const handleStrategy = async () => {
-                loading.value = true;
+                if (aiStrategyLoading.value) return false;
+                aiStrategyLoading.value = true;
                 try {
-                    const res = await request('/ai/strategy', {
+                    const res = await request('/strategy/simulate', {
                         method: 'POST',
-                        body: JSON.stringify(aiStrategyParams.value)
+                        body: JSON.stringify(buildStrategyPayload())
                     });
-                    if (res.code === 200) {
-                        aiStrategyResult.value = res.data;
-                        showToast('推演成功');
-                    } else {
-                        showToast(res.message || '推演失败', 'error');
+                    if (res.code !== 200) {
+                        throw new Error(res.message || '战略推演失败');
                     }
-                } catch (err) {
-                    showToast('推演异常: ' + err.message, 'error');
+                    aiStrategyResult.value = normalizeStrategyResult(res.data);
+                    showToast('战略推演已生成');
+                    return true;
+                } catch (error) {
+                    showToast(error.message || '战略推演失败', 'error');
+                    return false;
                 } finally {
-                    loading.value = false;
+                    aiStrategyLoading.value = false;
                 }
             };
 
-            // 方法：智算模拟
-            const handleSimulation = async () => {
-                loading.value = true;
-                try {
-                    const res = await request('/ai/simulation', {
-                        method: 'POST',
-                        body: JSON.stringify(aiSimulationParams.value)
-                    });
-                    if (res.code === 200) {
-                        aiSimulationResult.value = res.data;
-                        showToast('模拟测算成功');
-                    } else {
-                        showToast(res.message || '测算失败', 'error');
-                    }
-                } catch (err) {
-                    showToast('测算异常: ' + err.message, 'error');
-                } finally {
-                    loading.value = false;
+            function calculateSimulation(input) {
+                const roomCount = toNumber(input.roomCount);
+                const adr = toNumber(input.adr);
+                const occupancyRate = percentToDecimal(input.occupancyRate);
+                const otaRate = percentToDecimal(input.otaCommissionRate);
+                const availableRoomNights = roomCount * 30;
+                const roomRevenue = availableRoomNights * occupancyRate * adr;
+                const monthlyRevenue = roomRevenue + toNumber(input.otherIncome);
+                const otaCommission = roomRevenue * otaRate;
+                const monthlyCost =
+                    toNumber(input.monthlyRent)
+                    + toNumber(input.laborCost)
+                    + toNumber(input.utilityCost)
+                    + otaCommission
+                    + toNumber(input.consumableCost)
+                    + toNumber(input.maintenanceCost)
+                    + toNumber(input.otherFixedCost);
+                const monthlyNetCashflow = monthlyRevenue - monthlyCost;
+                const totalInvestment =
+                    toNumber(input.decorationInvestment)
+                    + toNumber(input.furnitureInvestment)
+                    + toNumber(input.openingCost)
+                    + toNumber(input.otherInvestment);
+                const revPAR = adr * occupancyRate;
+                const paybackMonths = monthlyNetCashflow > 0 ? totalInvestment / monthlyNetCashflow : null;
+                const rentRatio = monthlyRevenue > 0 ? toNumber(input.monthlyRent) / monthlyRevenue : 0;
+                const breakEvenOccupancy = roomCount > 0 && adr > 0 ? monthlyCost / (roomCount * 30 * adr) : 0;
+
+                return {
+                    availableRoomNights,
+                    roomRevenue,
+                    monthlyRevenue,
+                    otaCommission,
+                    monthlyCost,
+                    monthlyNetCashflow,
+                    totalInvestment,
+                    revPAR,
+                    paybackMonths,
+                    rentRatio,
+                    breakEvenOccupancy,
+                    riskLevel: calculateRiskLevel({ monthlyNetCashflow, paybackMonths, rentRatio, breakEvenOccupancy })
+                };
+            }
+
+            function calculateScenario(input, scenarioType) {
+                const scenarioInput = { ...input };
+                if (scenarioType === '保守情景') {
+                    scenarioInput.adr = Math.max(1, toNumber(input.adr) - 20);
+                    scenarioInput.occupancyRate = Math.max(0, toNumber(input.occupancyRate) - 10);
+                    scenarioInput.otherIncome = Math.max(0, toNumber(input.otherIncome) - 1700);
+                } else if (scenarioType === '乐观情景') {
+                    scenarioInput.adr = Math.max(1, toNumber(input.adr) + 20);
+                    scenarioInput.occupancyRate = Math.min(100, toNumber(input.occupancyRate) + 8);
+                    scenarioInput.otherIncome = Math.max(0, toNumber(input.otherIncome) + 2000);
+                } else {
+                    scenarioInput.adr = Math.max(1, toNumber(input.adr));
+                    scenarioInput.occupancyRate = aiClamp(toNumber(input.occupancyRate), 0, 100);
+                    scenarioInput.otherIncome = Math.max(0, toNumber(input.otherIncome));
                 }
+                return {
+                    scenarioType,
+                    ...calculateSimulation(scenarioInput)
+                };
+            }
+
+            function buildScenarios(input) {
+                return [
+                    calculateScenario(input, '保守情景'),
+                    calculateScenario(input, '基准情景'),
+                    calculateScenario(input, '乐观情景')
+                ];
+            }
+
+            function calculateRiskLevel(result) {
+                if (!result || result.monthlyNetCashflow <= 0 || result.paybackMonths === null || result.breakEvenOccupancy >= 0.65) return '高风险';
+                if (result.rentRatio >= 0.4 || result.paybackMonths > 30) return '高风险';
+                if (result.rentRatio >= 0.3) return '中高风险';
+                if (result.paybackMonths > 18 || result.breakEvenOccupancy >= 0.55) return '中风险';
+                return '低风险';
+            }
+
+            function generateRiskHints(result, scenarios) {
+                if (!result) return [];
+                const rentRisk = result.rentRatio >= 0.4
+                    ? { riskLevel: '高风险', content: '租金占比超过40%，需压降租金或提高ADR。', className: 'bg-red-50 border-red-100 text-red-800' }
+                    : result.rentRatio >= 0.3
+                        ? { riskLevel: '中高风险', content: '租金占比超过30%，需持续压降租金或提高ADR。', className: 'bg-orange-50 border-orange-100 text-orange-800' }
+                        : { riskLevel: '低风险', content: '租金占比处于相对可控区间。', className: 'bg-green-50 border-green-100 text-green-800' };
+                const paybackRisk = result.paybackMonths === null
+                    ? { riskLevel: '高风险', content: '当前月净现金流为负，项目暂不可回本。', className: 'bg-red-50 border-red-100 text-red-800' }
+                    : result.paybackMonths <= 18
+                        ? { riskLevel: '低风险', content: '回本周期可控。', className: 'bg-green-50 border-green-100 text-green-800' }
+                        : result.paybackMonths <= 30
+                            ? { riskLevel: '中风险', content: '回本周期偏长，需关注现金流稳定性。', className: 'bg-yellow-50 border-yellow-100 text-yellow-800' }
+                            : { riskLevel: '高风险', content: '回本周期过长，需重新评估投资规模。', className: 'bg-red-50 border-red-100 text-red-800' };
+                const breakEvenRisk = result.breakEvenOccupancy >= 0.65
+                    ? { riskLevel: '高风险', content: '保本入住率过高，需要长期高入住才能盈利。', className: 'bg-red-50 border-red-100 text-red-800' }
+                    : result.breakEvenOccupancy >= 0.55
+                        ? { riskLevel: '中风险', content: '保本入住率偏高，需持续跟踪淡季入住。', className: 'bg-yellow-50 border-yellow-100 text-yellow-800' }
+                        : { riskLevel: '低风险', content: '保本入住率处于相对安全区间。', className: 'bg-green-50 border-green-100 text-green-800' };
+
+                return [
+                    { title: '租金压力', ...rentRisk },
+                    { title: '回本周期', ...paybackRisk },
+                    { title: '保本边界', ...breakEvenRisk }
+                ];
+            }
+
+            function saveSimulationState(input, result, scenarios) {
+                localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
+                localStorage.setItem('suxios_simulation_result', JSON.stringify(result));
+                localStorage.setItem('suxios_simulation_scenarios', JSON.stringify(scenarios));
+                localStorage.setItem('suxios_report_simulation_seed', JSON.stringify({
+                    roomCount: input.roomCount,
+                    monthlyRent: input.monthlyRent,
+                    decorationInvestment: input.decorationInvestment,
+                    monthlyRevenue: result?.monthlyRevenue,
+                    monthlyCost: result?.monthlyCost,
+                    monthlyNetCashflow: result?.monthlyNetCashflow,
+                    totalInvestment: result?.totalInvestment,
+                    paybackMonths: result?.paybackMonths,
+                    breakEvenOccupancy: result?.breakEvenOccupancy,
+                    rentRatio: result?.rentRatio,
+                    riskLevel: result?.riskLevel
+                }));
+            }
+
+            function normalizeSimulationInput(raw) {
+                if (!raw) return {};
+                const normalized = {
+                    roomCount: raw.roomCount ?? raw.room_count,
+                    decorationInvestment: raw.decorationInvestment ?? raw.decoration_investment,
+                    furnitureInvestment: raw.furnitureInvestment ?? raw.equipment_investment,
+                    openingCost: raw.openingCost ?? raw.pre_opening_cost,
+                    otherInvestment: raw.otherInvestment ?? raw.other_investment,
+                    adr: raw.adr,
+                    occupancyRate: raw.occupancyRate ?? raw.occupancy_rate,
+                    otherIncome: raw.otherIncome ?? raw.other_income,
+                    monthlyRent: raw.monthlyRent ?? raw.monthly_rent,
+                    laborCost: raw.laborCost ?? raw.labor_cost,
+                    utilityCost: raw.utilityCost ?? raw.utility_cost,
+                    otaCommissionRate: raw.otaCommissionRate ?? raw.ota_commission_rate,
+                    consumableCost: raw.consumableCost ?? raw.consumable_cost,
+                    maintenanceCost: raw.maintenanceCost ?? raw.maintenance_cost,
+                    otherFixedCost: raw.otherFixedCost ?? raw.other_fixed_cost,
+                    recommendedModel: raw.recommendedModel,
+                    targetCustomer: raw.targetCustomer
+                };
+                return Object.fromEntries(Object.entries(normalized).filter(([, value]) => value !== undefined));
+            }
+
+            function loadSimulationState() {
+                let input = { ...defaultSimulationInput };
+                try {
+                    const savedInput = JSON.parse(localStorage.getItem('suxios_simulation_input') || 'null');
+                    if (savedInput) input = { ...input, ...normalizeSimulationInput(savedInput) };
+                    const seed = JSON.parse(localStorage.getItem('suxios_simulation_seed') || 'null');
+                    if (seed) {
+                        input = {
+                            ...input,
+                            ...normalizeSimulationInput(seed),
+                            roomCount: seed.roomCount ?? seed.room_count ?? input.roomCount,
+                            monthlyRent: seed.monthlyRent ?? seed.monthly_rent ?? input.monthlyRent,
+                            decorationInvestment: seed.decorationInvestment ?? seed.decoration_budget ?? input.decorationInvestment
+                        };
+                    }
+                    const savedResult = JSON.parse(localStorage.getItem('suxios_simulation_result') || 'null');
+                    const savedScenarios = JSON.parse(localStorage.getItem('suxios_simulation_scenarios') || 'null');
+                    const result = savedResult && Object.prototype.hasOwnProperty.call(savedResult, 'monthlyRevenue') ? savedResult : null;
+                    const scenarios = Array.isArray(savedScenarios) && savedScenarios[0] && Object.prototype.hasOwnProperty.call(savedScenarios[0], 'monthlyRevenue') ? savedScenarios : null;
+                    return { input, result, scenarios };
+                } catch (err) {
+                    return { input, result: null, scenarios: null };
+                }
+            }
+
+            function validateSimulationInput(input) {
+                const investmentFields = ['decorationInvestment', 'furnitureInvestment', 'openingCost', 'otherInvestment'];
+                const incomeFields = ['otherIncome'];
+                const costFields = ['monthlyRent', 'laborCost', 'utilityCost', 'consumableCost', 'maintenanceCost', 'otherFixedCost'];
+                if (toNumber(input.roomCount) <= 0) return '房间数必须大于0';
+                if (toNumber(input.adr) <= 0) return 'ADR必须大于0';
+                if (toNumber(input.occupancyRate) < 0 || toNumber(input.occupancyRate) > 100) return '入住率必须在0到100之间';
+                if (toNumber(input.otaCommissionRate) < 0 || toNumber(input.otaCommissionRate) > 100) return 'OTA佣金率必须在0到100之间';
+                if (investmentFields.some(key => toNumber(input[key]) < 0)) return '所有投资字段不能为负数';
+                if (incomeFields.some(key => toNumber(input[key]) < 0)) return '所有收入字段不能为负数';
+                if (costFields.some(key => toNumber(input[key]) < 0)) return '所有成本字段不能为负数';
+                return '';
+            }
+
+            function refreshSimulationState(shouldPersist = true) {
+                const input = { ...aiSimulationParams.value };
+                const result = calculateSimulation(input);
+                const scenarios = buildScenarios(input);
+                aiSimulationResult.value = result;
+                aiSimulationScenarios.value = scenarios;
+                simulationRiskHints.value = generateRiskHints(result, scenarios);
+                if (shouldPersist) saveSimulationState(input, result, scenarios);
+            }
+
+            const handleSimulation = () => {
+                const message = validateSimulationInput(aiSimulationParams.value);
+                if (message) {
+                    showToast(message, 'error');
+                    return;
+                }
+                refreshSimulationState(true);
+                showToast('三情景模拟已完成');
             };
 
-            // 方法：生成可行性报告
+            const loadedSimulationState = loadSimulationState();
+            aiSimulationParams.value = loadedSimulationState.input;
+            if (loadedSimulationState.result && loadedSimulationState.scenarios) {
+                aiSimulationResult.value = loadedSimulationState.result;
+                aiSimulationScenarios.value = loadedSimulationState.scenarios;
+                simulationRiskHints.value = generateRiskHints(loadedSimulationState.result, loadedSimulationState.scenarios);
+            } else {
+                refreshSimulationState(true);
+            }
+
+            watch(aiSimulationParams, () => {
+                refreshSimulationState(true);
+            }, { deep: true });
+
+            const baseSimulation = computed(() => aiSimulationResult.value);
+            const strategyScoreCards = computed(() => {
+                const r = aiStrategyResult.value;
+                if (!r) return [];
+                const scores = r.scores || {};
+                return [
+                    { label: '市场需求', value: r.market_score, level: scores.market_demand?.level || '-', reason: scores.market_demand?.reasons?.[0] || '等待数据解释' },
+                    { label: '竞争环境', value: r.competition_score, level: scores.competition?.level || '-', reason: scores.competition?.reasons?.[0] || '等待数据解释' },
+                    { label: '物业适配', value: r.property_score, level: scores.property_fit?.level || '-', reason: scores.property_fit?.reasons?.[0] || '等待数据解释' },
+                    { label: '成本压力', value: r.cost_score, level: scores.cost_pressure?.level || '-', reason: scores.cost_pressure?.reasons?.[0] || '等待数据解释' },
+                    { label: '退出安全', value: r.exit_score, level: scores.exit_safety?.level || '-', reason: scores.exit_safety?.reasons?.[0] || '等待数据解释' }
+                ];
+            });
+            const strategyFreshnessLabel = computed(() => {
+                const snapshot = aiStrategyResult.value?.data_snapshot;
+                if (!snapshot) return '本地数据';
+                if (!snapshot.external_data_available) return '外部数据未接入';
+                if (snapshot.freshness === 'realtime') return '实时数据';
+                if (snapshot.freshness === 'today_cache') return '今日缓存';
+                return '本地数据';
+            });
+            const simulationMetricCards = computed(() => {
+                const b = baseSimulation.value;
+                if (!b) return [
+                    { label: '月总收入', value: '--' },
+                    { label: '月净现金流', value: '--' },
+                    { label: 'RevPAR', value: '--' },
+                    { label: '回本周期', value: '--' }
+                ];
+                return [
+                    { label: '月总收入', value: formatCurrency(b.monthlyRevenue) },
+                    { label: '月净现金流', value: formatCurrency(b.monthlyNetCashflow) },
+                    { label: 'RevPAR', value: formatCurrency(b.revPAR) },
+                    { label: '回本周期', value: b.paybackMonths === null ? '不可回本' : `${Math.round(b.paybackMonths)}个月` }
+                ];
+            });
+
+            const buildFeasibilityPayload = () => ({
+                project_name: aiProject.value.project_name,
+                city: aiProject.value.city,
+                district: aiProject.value.district,
+                address: aiProject.value.address,
+                property_area: aiProject.value.property_area,
+                room_count: aiProject.value.room_count,
+                monthly_rent: aiProject.value.monthly_rent,
+                lease_years: aiProject.value.lease_years,
+                decoration_budget: aiProject.value.decoration_budget,
+                transfer_fee: aiProject.value.transfer_fee || 0,
+                target_brand_level: aiProject.value.target_brand_level || aiProject.value.target_grade,
+                target_customer: aiProject.value.target_customer || aiProject.value.primary_customer,
+                notes: aiProject.value.notes || '',
+                adr: aiSimulationParams.value.adr,
+                occ: aiSimulationParams.value.occupancyRate
+            });
+
+            const normalizeFeasibilityResponse = (data) => {
+                aiFeasibilityRecordId.value = data?.id || null;
+                aiFeasibilityResult.value = data?.report || null;
+            };
+
             const handleFeasibility = async () => {
-                loading.value = true;
+                aiFeasibilityLoading.value = true;
+                aiFeasibilityError.value = '';
                 try {
-                    const res = await request('/ai/feasibility', {
-                        method: 'POST'
+                    const url = aiFeasibilityRecordId.value
+                        ? `/agent/feasibility-report/regenerate/${aiFeasibilityRecordId.value}`
+                        : '/agent/feasibility-report/generate';
+                    const res = await request(url, {
+                        method: 'POST',
+                        body: JSON.stringify(buildFeasibilityPayload())
                     });
-                    if (res.code === 200) {
-                        aiFeasibilityResult.value = res.data;
-                        showToast('报告生成成功');
-                    } else {
-                        showToast(res.message || '报告生成失败', 'error');
-                    }
+                    if (res.code !== 200) throw new Error(res.message || '报告生成失败');
+                    normalizeFeasibilityResponse(res.data);
+                    showToast('可行性报告已生成');
                 } catch (err) {
-                    showToast('报告生成异常: ' + err.message, 'error');
+                    aiFeasibilityError.value = err.message || '报告生成失败';
+                    showToast(aiFeasibilityError.value, 'error');
                 } finally {
-                    loading.value = false;
+                    aiFeasibilityLoading.value = false;
                 }
             };
 
-            // 如果访问到了这些页面，初始调用一下（如果有需要）
-            watch(currentPage, (newVal) => {
-                if (newVal === 'ai-feasibility' && !aiFeasibilityResult.value) {
-                    handleFeasibility();
+            const stringifyFeasibilityReport = () => {
+                const r = aiFeasibilityResult.value;
+                if (!r) return '';
+                const scenarios = (r.financial_scenarios || []).map(row =>
+                    `${row.name}: ADR ${formatMoney(row.adr)}, OCC ${formatPercent(row.occ)}, 月收入 ${formatMoney(row.monthly_revenue)}, 月净现金流 ${formatMoney(row.monthly_net_cashflow)}, 回本 ${row.payback_months ?? '不可回本'}个月`
+                ).join('\n');
+                const risks = (r.risk_list || []).map(item => `${item.level}风险｜${item.risk}: ${item.reason}；应对：${item.action}`).join('\n');
+                const actions = (r.action_plan || []).map(item => `${item.priority} ${item.title}: ${item.detail}`).join('\n');
+                return [
+                    `${r.summary?.project_name || aiProject.value.project_name}可行性报告`,
+                    `结论: ${r.conclusion_grade}级｜${r.conclusion_text}`,
+                    `核心理由: ${r.core_reason}`,
+                    `项目摘要: ${r.summary?.location || ''}，${r.summary?.room_count || 0}间，总投资${formatMoney(r.summary?.total_investment || 0)}，回本${r.summary?.payback_months || '不可回本'}个月`,
+                    `市场判断: ${r.market_judgement?.reasoning || ''}`,
+                    `三情景模拟:\n${scenarios}`,
+                    `风险清单:\n${risks}`,
+                    `行动计划:\n${actions}`,
+                    `假设:\n${(r.assumptions || []).join('\n')}`
+                ].join('\n\n');
+            };
+
+            const copyFeasibilityReport = async () => {
+                if (!aiFeasibilityResult.value) return;
+                try {
+                    await navigator.clipboard.writeText(stringifyFeasibilityReport());
+                    showToast('报告内容已复制');
+                } catch (err) {
+                    copyToClipboard(stringifyFeasibilityReport());
                 }
+            };
+
+            const printFeasibilityReport = () => {
+                if (!aiFeasibilityResult.value) return;
+                window.print();
+            };
+
+            watch(currentPage, (newVal) => {
+                if (newVal === 'ai-strategy' && !aiStrategyResult.value) handleStrategy();
+                if (newVal === 'ai-simulation' && !aiSimulationResult.value) refreshSimulationState(true);
             });
 
             return {
-                aiStrategyParams, aiStrategyResult, handleStrategy,
-                aiSimulationParams, aiSimulationResult, handleSimulation,
-                aiFeasibilityResult, handleFeasibility,
+                aiProject, aiStrategyParams, aiStrategyResult, aiStrategyLoading, strategyScoreCards, strategyFreshnessLabel, handleStrategy,
+                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, simulationCostFields, simulationMetricCards, simulationRiskHints, baseSimulation, handleSimulation,
+                aiFeasibilityResult, aiFeasibilityLoading, aiFeasibilityError, handleFeasibility, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, riskBadgeClass,
+                homeObservation, homeTrendCards, homeMacroSignals, homeAiDecisionCards, homeDataSources,
+                weatherDemandHint, weatherLocationName, selectedWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, homeQuickEntries,
                 isLoggedIn, loading, user, token, currentTime, currentPage, showPassword,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 expandedMenus, toggleSubmenu,

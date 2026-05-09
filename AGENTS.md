@@ -258,6 +258,7 @@ php vendor/bin/phpunit --generate-configuration
 | 请求封装 | 使用 `async function apiRequest()` 统一处理 token 和错误 |
 | Token 存储 | `localStorage.getItem('token')` |
 | 页面切换 | 通过 `currentPage` ref 变量控制 v-if 显示 |
+| 模板闭合检查 | 修改大段页面模板后，必须确认后续页面、弹窗、toast 仍在 `#app` 内；若页面显示 `{{ xxx }}` 原文，优先检查是否有多余 `</template>` 或 `</div>` 导致 DOM 脱离 Vue 挂载范围 |
 | 不要构建 | **不要在 public/ 目录下运行 vite build** |
 
 ### 7.3 数据库规则
