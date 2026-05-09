@@ -18,11 +18,6 @@ class UserHotelPermission extends Model
         'id' => 'integer',
         'user_id' => 'integer',
         'hotel_id' => 'integer',
-        'can_view_report' => 'integer',
-        'can_fill_daily_report' => 'integer',
-        'can_fill_monthly_task' => 'integer',
-        'can_edit_report' => 'integer',
-        'can_delete_report' => 'integer',
         'can_view_online_data' => 'integer',
         'can_fetch_online_data' => 'integer',
         'can_delete_online_data' => 'integer',
@@ -51,11 +46,6 @@ class UserHotelPermission extends Model
     public static function getPermissionLabels(): array
     {
         return [
-            'can_view_report' => '查看报表',
-            'can_fill_daily_report' => '填写日报表',
-            'can_fill_monthly_task' => '填写月任务',
-            'can_edit_report' => '编辑报表',
-            'can_delete_report' => '删除报表',
             'can_view_online_data' => '查看线上数据',
             'can_fetch_online_data' => '获取线上数据',
             'can_delete_online_data' => '删除线上数据',

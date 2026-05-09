@@ -1,0 +1,30 @@
+{
+  "name": "suxi-os-toolkit",
+  "version": "0.1.0",
+  "description": "宿析OS项目本地工具包，打包酒店投资、OTA运营、AI报告、测试守卫、数据驾驶舱UI和Skill自动安装规则。",
+  "author": {
+    "name": "SUXIOS",
+    "email": "local@suxios.invalid",
+    "url": "https://local.suxios.invalid"
+  },
+  "homepage": "https://local.suxios.invalid/suxi-os-toolkit",
+  "repository": "https://local.suxios.invalid/suxi-os-toolkit.git",
+  "license": "UNLICENSED",
+  "keywords": ["suxi-os", "hotel", "ota", "dashboard", "skills"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "宿析OS Toolkit",
+    "shortDescription": "宿析OS酒店经营与开发专用本地 Skills",
+    "longDescription": "为宿析OS项目提供本地 Skills：自动判断与安装规则、投资测算、OTA运营、AI报告、测试守卫和数据驾驶舱UI。",
+    "developerName": "SUXIOS",
+    "category": "Productivity",
+    "capabilities": ["Write", "Analysis"],
+    "websiteURL": "https://local.suxios.invalid/suxi-os-toolkit",
+    "defaultPrompt": [
+      "按宿析OS规则判断本次任务需要哪些 Skill。",
+      "安全修改宿析OS酒店投资测算逻辑。",
+      "诊断宿析OS OTA数据或AI报告问题。"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

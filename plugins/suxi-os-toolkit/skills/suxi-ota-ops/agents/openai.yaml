@@ -1,0 +1,6 @@
+interface:
+  display_name: "宿析 OTA 运营"
+  short_description: "携程/美团数据、Cookie、渠道运营处理规则"
+  default_prompt: "Use $suxi-ota-ops to diagnose an OTA data, channel, or cookie issue in宿析OS."
+policy:
+  allow_implicit_invocation: true

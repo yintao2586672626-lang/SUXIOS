@@ -55,41 +55,6 @@ Route::group('api/roles', function () {
     Route::delete('/:id', 'RoleController/delete');
 })->middleware(\app\middleware\Auth::class);
 
-// ==================== 日报表路由 ====================
-Route::group('api/daily-reports', function () {
-    Route::get('/config', 'DailyReport/config');
-    Route::get('/export', 'DailyReport/export');
-    Route::post('/parse-import', 'DailyReport/parseImport');
-    Route::get('/view-mapping', 'DailyReport/getViewMapping');
-    Route::post('/view-mapping', 'DailyReport/saveViewMapping');
-    Route::get('/', 'DailyReport/index');
-    Route::get('/:id/detail', 'DailyReport/detail');
-    Route::get('/:id', 'DailyReport/read');
-    Route::post('/', 'DailyReport/create');
-    Route::put('/:id', 'DailyReport/update');
-    Route::delete('/:id', 'DailyReport/delete');
-})->middleware(\app\middleware\Auth::class);
-
-// ==================== 月任务路由 ====================
-Route::group('api/monthly-tasks', function () {
-    Route::get('/config', 'MonthlyTask/config');
-    Route::get('/', 'MonthlyTask/index');
-    Route::get('/:id', 'MonthlyTask/read');
-    Route::post('/', 'MonthlyTask/create');
-    Route::put('/:id', 'MonthlyTask/update');
-    Route::delete('/:id', 'MonthlyTask/delete');
-})->middleware(\app\middleware\Auth::class);
-
-// ==================== 报表配置路由 ====================
-Route::group('api/report-configs', function () {
-    Route::get('/', 'ReportConfig/index');
-    Route::get('/all', 'ReportConfig/all');
-    Route::get('/:id', 'ReportConfig/read');
-    Route::post('/', 'ReportConfig/create');
-    Route::put('/:id', 'ReportConfig/update');
-    Route::delete('/:id', 'ReportConfig/delete');
-})->middleware(\app\middleware\Auth::class);
-
 // ==================== 门店字段映射模板路由 ====================
 Route::group('api/hotel-field-templates', function () {
     Route::get('/', 'HotelFieldTemplate/index');

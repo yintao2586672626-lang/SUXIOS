@@ -1,0 +1,6 @@
+interface:
+  display_name: "宿析 Skill 安装器"
+  short_description: "按任务判断、创建或安装宿析OS所需 Skill"
+  default_prompt: "Use $suxi-skill-installer to decide which宿析OS project skills are required before starting."
+policy:
+  allow_implicit_invocation: true

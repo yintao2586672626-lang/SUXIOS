@@ -28,9 +28,6 @@ class SystemConfig extends Model
     // 菜单配置
     const KEY_MENU_HOTEL = 'menu_hotel_name';
     const KEY_MENU_USERS = 'menu_users_name';
-    const KEY_MENU_DAILY_REPORT = 'menu_daily_report_name';
-    const KEY_MENU_MONTHLY_TASK = 'menu_monthly_task_name';
-    const KEY_MENU_REPORT_CONFIG = 'menu_report_config_name';
     const KEY_MENU_COMPASS = 'menu_compass_name';
     const KEY_MENU_ONLINE_DATA = 'menu_online_data_name';
     
@@ -69,8 +66,6 @@ class SystemConfig extends Model
     const KEY_NOTIFY_EMAIL_PORT = 'notify_email_port';
     const KEY_NOTIFY_EMAIL_USER = 'notify_email_user';
     const KEY_NOTIFY_EMAIL_PASS = 'notify_email_pass';
-    const KEY_NOTIFY_DAILY_REPORT = 'notify_daily_report';
-    const KEY_NOTIFY_MONTHLY_TASK = 'notify_monthly_task';
 
     /**
      * 获取配置值
@@ -129,9 +124,6 @@ class SystemConfig extends Model
             // 菜单配置
             self::KEY_MENU_HOTEL => '酒店管理',
             self::KEY_MENU_USERS => '用户管理',
-            self::KEY_MENU_DAILY_REPORT => '日报表管理',
-            self::KEY_MENU_MONTHLY_TASK => '月任务管理',
-            self::KEY_MENU_REPORT_CONFIG => '报表配置',
             self::KEY_MENU_COMPASS => '罗盘',
             self::KEY_MENU_ONLINE_DATA => '竞对价格监控',
             
@@ -170,8 +162,6 @@ class SystemConfig extends Model
             self::KEY_NOTIFY_EMAIL_PORT => '587',
             self::KEY_NOTIFY_EMAIL_USER => '',
             self::KEY_NOTIFY_EMAIL_PASS => '',
-            self::KEY_NOTIFY_DAILY_REPORT => '0',
-            self::KEY_NOTIFY_MONTHLY_TASK => '0',
         ];
     }
     
@@ -198,9 +188,6 @@ class SystemConfig extends Model
                 'keys' => [
                     self::KEY_MENU_HOTEL,
                     self::KEY_MENU_USERS,
-                    self::KEY_MENU_DAILY_REPORT,
-                    self::KEY_MENU_MONTHLY_TASK,
-                    self::KEY_MENU_REPORT_CONFIG,
                     self::KEY_MENU_COMPASS,
                     self::KEY_MENU_ONLINE_DATA,
                 ],
@@ -259,8 +246,6 @@ class SystemConfig extends Model
                     self::KEY_NOTIFY_EMAIL_PORT,
                     self::KEY_NOTIFY_EMAIL_USER,
                     self::KEY_NOTIFY_EMAIL_PASS,
-                    self::KEY_NOTIFY_DAILY_REPORT,
-                    self::KEY_NOTIFY_MONTHLY_TASK,
                 ],
             ],
         ];
@@ -282,9 +267,6 @@ class SystemConfig extends Model
             // 菜单配置
             self::KEY_MENU_HOTEL => '酒店管理菜单名',
             self::KEY_MENU_USERS => '用户管理菜单名',
-            self::KEY_MENU_DAILY_REPORT => '日报表管理菜单名',
-            self::KEY_MENU_MONTHLY_TASK => '月任务管理菜单名',
-            self::KEY_MENU_REPORT_CONFIG => '报表配置菜单名',
             self::KEY_MENU_COMPASS => '罗盘菜单名',
             self::KEY_MENU_ONLINE_DATA => '竞对价格监控菜单名',
             
@@ -323,8 +305,6 @@ class SystemConfig extends Model
             self::KEY_NOTIFY_EMAIL_PORT => 'SMTP端口',
             self::KEY_NOTIFY_EMAIL_USER => 'SMTP用户名',
             self::KEY_NOTIFY_EMAIL_PASS => 'SMTP密码',
-            self::KEY_NOTIFY_DAILY_REPORT => '日报表提交通知',
-            self::KEY_NOTIFY_MONTHLY_TASK => '月任务提交通知',
         ];
     }
 }

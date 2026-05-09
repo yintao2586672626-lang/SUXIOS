@@ -1,0 +1,6 @@
+interface:
+  display_name: "宿析投资测算"
+  short_description: "酒店投资回报、现金流和收益测算守则"
+  default_prompt: "Use $suxi-investment-calculation to modify or review a hotel investment calculation safely."
+policy:
+  allow_implicit_invocation: true

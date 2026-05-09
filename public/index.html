@@ -2665,7 +2665,7 @@
                                     </div>
                                     <div class="font-semibold">门店管理员</div>
                                 </div>
-                                <div class="text-orange-100 text-sm">管理本酒店员工，填写日报月任务，获取线上数据</div>
+                                <div class="text-orange-100 text-sm">管理本酒店员工，维护门店信息，获取线上数据</div>
                             </div>
                             <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-5 text-white">
                                 <div class="flex items-center gap-3 mb-3">
@@ -2674,7 +2674,7 @@
                                     </div>
                                     <div class="font-semibold">店员</div>
                                 </div>
-                                <div class="text-green-100 text-sm">填写日报表，查看数据，无管理权限</div>
+                                <div class="text-green-100 text-sm">查看授权数据，无管理权限</div>
                             </div>
                         </div>
 
@@ -2930,322 +2930,6 @@
                         </div>
                     </div>
                     
-                    <!-- 日报表管理 -->
-                    <div v-if="currentPage === 'daily-reports'">
-                        <!-- 统计卡片 -->
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                            <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-5 text-white">
-                                <div class="flex items-center justify-between mb-2">
-                                    <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
-                                        <i class="fas fa-chart-line text-white"></i>
-                                    </div>
-                                    <span class="text-xs text-green-100"><i class="fas fa-database mr-1"></i>数据驱动</span>
-                                </div>
-                                <div class="text-2xl font-bold">¥{{ dailyReports.reduce((sum, r) => sum + (r.report_data?.day_revenue || 0), 0).toLocaleString() }}</div>
-                                <div class="text-green-100 text-sm mt-1">本月营收</div>
-                            </div>
-                            <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white">
-                                <div class="flex items-center justify-between mb-2">
-                                    <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
-                                        <i class="fas fa-bed text-white"></i>
-                                    </div>
-                                    <span class="text-xs text-blue-100"><i class="fas fa-calendar-check mr-1"></i>{{ dailyReports.length }}天</span>
-                                </div>
-                                <div class="text-2xl font-bold">{{ dailyReports.reduce((sum, r) => sum + (r.report_data?.day_total_rooms || 0), 0).toLocaleString() }}</div>
-                                <div class="text-blue-100 text-sm mt-1">本月间夜</div>
-                            </div>
-                            <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-5 text-white">
-                                <div class="flex items-center justify-between mb-2">
-                                    <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
-                                        <i class="fas fa-tag text-white"></i>
-                                    </div>
-                                    <span class="text-xs text-purple-100">ADR</span>
-                                </div>
-                                <div class="text-2xl font-bold">¥{{ dailyReports.length ? Math.round(dailyReports.reduce((sum, r) => sum + (r.report_data?.day_revenue || 0), 0) / dailyReports.reduce((sum, r) => sum + (r.report_data?.day_total_rooms || 0), 1)) : 0 }}</div>
-                                <div class="text-purple-100 text-sm mt-1">平均房价</div>
-                            </div>
-                            <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-5 text-white">
-                                <div class="flex items-center justify-between mb-2">
-                                    <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
-                                        <i class="fas fa-percentage text-white"></i>
-                                    </div>
-                                    <span class="text-xs text-orange-100">目标 85%</span>
-                                </div>
-                                <div class="text-2xl font-bold">{{ dailyReports.length ? Math.round(dailyReports.reduce((sum, r) => sum + (r.report_data?.day_occ_rate || 0), 0) / dailyReports.length) : 0 }}%</div>
-                                <div class="text-orange-100 text-sm mt-1">平均出租率</div>
-                            </div>
-                        </div>
-
-                        <div class="card">
-                            <div class="p-5 border-b border-gray-100 flex flex-wrap justify-between items-center gap-4">
-                                <div class="flex flex-wrap items-center gap-3">
-                                    <select v-model="filterReportHotel" class="input-field" v-if="user?.is_super_admin || permittedHotels.length > 1">
-                                        <option value="" v-if="user?.is_super_admin">全部酒店</option>
-                                        <option v-for="h in permittedHotels" :key="h.id" :value="h.id">{{ h.name }}</option>
-                                    </select>
-                                    <div v-else class="px-4 py-2.5 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg text-blue-700 font-medium">
-                                        <i class="fas fa-hotel mr-2"></i>{{ permittedHotels.length === 1 ? permittedHotels[0].name : '无权限酒店' }}
-                                    </div>
-                                    <div class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
-                                        <input v-model="filterReportStartDate" type="date" class="bg-transparent border-none text-sm focus:outline-none">
-                                        <span class="text-gray-400">至</span>
-                                        <input v-model="filterReportEndDate" type="date" class="bg-transparent border-none text-sm focus:outline-none">
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <button @click="exportDailyReports" :disabled="exportingReports" class="btn-secondary">
-                                        <i class="fas fa-file-excel mr-2"></i>{{ exportingReports ? '导出中...' : '导出' }}
-                                    </button>
-                                    <button v-if="canFillDailyReport" @click="triggerImportExcel" class="btn-success">
-                                        <i class="fas fa-file-import mr-2"></i>导入
-                                    </button>
-                                    <button v-if="canFillDailyReport" @click="openDailyReportModal()" class="btn-primary">
-                                        <i class="fas fa-plus mr-2"></i>填写日报
-                                    </button>
-                                    <input type="file" ref="importFileInput" @change="handleImportExcel" accept=".xlsx,.xls" class="hidden">
-                                </div>
-                            </div>
-                            <div class="table-container overflow-x-auto">
-                                <table class="w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="px-4 py-4 text-left">日期</th>
-                                            <th class="px-4 py-4 text-left">酒店</th>
-                                            <th class="px-4 py-4 text-left">携程收入</th>
-                                            <th class="px-4 py-4 text-left">美团收入</th>
-                                            <th class="px-4 py-4 text-left">散客收入</th>
-                                            <th class="px-4 py-4 text-left">总间夜</th>
-                                            <th class="px-4 py-4 text-left">操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="report in dailyReports" :key="report.id">
-                                            <td class="px-4 py-4 font-medium text-gray-700">{{ report.report_date }}</td>
-                                            <td class="px-4 py-4 text-gray-600">{{ report.hotel?.name }}</td>
-                                            <td class="px-4 py-4"><span class="text-green-600 font-semibold">¥{{ (report.report_data?.xb_revenue || 0).toLocaleString() }}</span></td>
-                                            <td class="px-4 py-4"><span class="text-green-600 font-semibold">¥{{ (report.report_data?.mt_revenue || 0).toLocaleString() }}</span></td>
-                                            <td class="px-4 py-4"><span class="text-green-600 font-semibold">¥{{ (report.report_data?.walkin_revenue || 0).toLocaleString() }}</span></td>
-                                            <td class="px-4 py-4">
-                                                <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-100 text-blue-700 font-semibold">
-                                                    {{ (report.report_data?.xb_rooms || 0) + (report.report_data?.mt_rooms || 0) }}
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-4">
-                                                <div class="flex items-center gap-2">
-                                                    <button @click="viewDailyReport(report)" class="action-btn action-btn-view" title="查看">
-                                                        <i class="fas fa-eye"></i>
-                                                    </button>
-                                                    <button @click="exportSingleReport(report)" class="action-btn" style="color: #14b8a6; background: rgba(20,184,166,0.1);" title="导出">
-                                                        <i class="fas fa-file-export"></i>
-                                                    </button>
-                                                    <button v-if="canEditReport" @click="openDailyReportModal(report)" class="action-btn action-btn-edit" title="编辑">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button v-if="canDeleteReport" @click="deleteDailyReport(report)" class="action-btn action-btn-delete" title="删除">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <div v-if="dailyReports.length === 0" class="empty-state text-center">
-                                    <i class="fas fa-file-alt block mx-auto"></i>
-                            <p>待同步经营数据</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 月任务管理 -->
-                    <div v-if="currentPage === 'monthly-tasks'">
-                        <!-- 年度目标概览 -->
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                            <div class="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl p-5 text-white relative overflow-hidden">
-                                <div class="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3"></div>
-                                <div class="relative z-10">
-                                    <div class="flex items-center gap-2 text-blue-100 text-sm mb-2">
-                                        <i class="fas fa-bullseye"></i>
-                                        <span>数据支撑决策</span>
-                                    </div>
-                                    <div class="text-3xl font-bold">¥{{ monthlyTasks.reduce((sum, t) => sum + (t.task_data?.revenue_budget || 0), 0).toLocaleString() }}</div>
-                                    <div class="text-blue-100 text-sm mt-2">年度营收目标</div>
-                                    <div class="mt-2 pt-2 border-t border-white/20 text-xs text-blue-100">
-                                        <i class="fas fa-calendar-check mr-1"></i>已设定 {{ monthlyTasks.length }} 个月目标
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="bg-gradient-to-br from-green-600 to-emerald-600 rounded-xl p-5 text-white relative overflow-hidden">
-                                <div class="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3"></div>
-                                <div class="relative z-10">
-                                    <div class="flex items-center gap-2 text-green-100 text-sm mb-2">
-                                        <i class="fas fa-chart-line"></i>
-                                        <span>量化追踪</span>
-                                    </div>
-                                    <div class="text-3xl font-bold">{{ monthlyTasks.length ? Math.round(monthlyTasks.reduce((sum, t) => sum + (t.task_data?.occupancy_rate_target || 0), 0) / monthlyTasks.length) : 0 }}%</div>
-                                    <div class="text-green-100 text-sm mt-2">平均出租率目标</div>
-                                    <div class="mt-2 pt-2 border-t border-white/20 text-xs text-green-100">
-                                        <i class="fas fa-percentage mr-1"></i>月均目标
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl p-5 text-white relative overflow-hidden">
-                                <div class="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3"></div>
-                                <div class="relative z-10">
-                                    <div class="flex items-center gap-2 text-purple-100 text-sm mb-2">
-                                        <i class="fas fa-globe"></i>
-                                        <span>渠道分析</span>
-                                    </div>
-                                    <div class="text-3xl font-bold">{{ monthlyTasks.length ? Math.round((monthlyTasks.reduce((sum, t) => sum + (t.task_data?.online_revenue_target || 0), 0) / monthlyTasks.reduce((sum, t) => sum + (t.task_data?.revenue_budget || 0), 1)) * 100) : 0 }}%</div>
-                                    <div class="text-purple-100 text-sm mt-2">线上营收占比</div>
-                                    <div class="mt-2 pt-2 border-t border-white/20 text-xs text-purple-100">
-                                        <i class="fas fa-cloud mr-1"></i>OTA渠道目标
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="card">
-                            <div class="p-5 border-b border-gray-100 flex flex-wrap justify-between items-center gap-4">
-                                <div class="flex flex-wrap items-center gap-3">
-                                    <select v-model="filterTaskHotel" class="input-field" v-if="user?.is_super_admin || permittedHotels.length > 1">
-                                        <option value="" v-if="user?.is_super_admin">全部酒店</option>
-                                        <option v-for="h in permittedHotels" :key="h.id" :value="h.id">{{ h.name }}</option>
-                                    </select>
-                                    <div v-else class="px-4 py-2.5 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg text-blue-700 font-medium">
-                                        <i class="fas fa-hotel mr-2"></i>{{ permittedHotels.length === 1 ? permittedHotels[0].name : '无权限酒店' }}
-                                    </div>
-                                    <div class="flex items-center gap-1 bg-gray-50 rounded-lg px-2 py-1">
-                                        <button v-for="y in yearOptions.slice(0,3)" :key="y" 
-                                            @click="filterTaskYear = y"
-                                            :class="filterTaskYear == y ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'"
-                                            class="px-3 py-1.5 rounded-md text-sm font-medium transition">
-                                            {{ y }}
-                                        </button>
-                                    </div>
-                                </div>
-                                <button v-if="canFillMonthlyTask" @click="openMonthlyTaskModal()" class="btn-primary">
-                                    <i class="fas fa-plus mr-2"></i>添加月任务
-                                </button>
-                            </div>
-                            <div class="table-container overflow-x-auto">
-                                <table class="w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="px-4 py-4 text-left">月份</th>
-                                            <th class="px-4 py-4 text-left">酒店</th>
-                                            <th class="px-4 py-4 text-left">营业预算</th>
-                                            <th class="px-4 py-4 text-left">出租率</th>
-                                            <th class="px-4 py-4 text-left">线上营收</th>
-                                            <th class="px-4 py-4 text-left">线下营收</th>
-                                            <th class="px-4 py-4 text-left">操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="task in monthlyTasks" :key="task.id">
-                                            <td class="px-4 py-4 font-medium text-gray-700">{{ task.year }}年{{ task.month }}月</td>
-                                            <td class="px-4 py-4 text-gray-600">{{ task.hotel?.name }}</td>
-                                            <td class="px-4 py-4"><span class="text-green-600 font-semibold">¥{{ (task.task_data?.revenue_budget || 0).toLocaleString() }}</span></td>
-                                            <td class="px-4 py-4">
-                                                <span class="inline-flex items-center px-3 py-1 rounded-full bg-purple-100 text-purple-700 font-semibold">
-                                                    {{ task.task_data?.occupancy_rate_target || 0 }}%
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-4"><span class="text-blue-600 font-semibold">¥{{ (task.task_data?.online_revenue_target || 0).toLocaleString() }}</span></td>
-                                            <td class="px-4 py-4"><span class="text-purple-600 font-semibold">¥{{ (task.task_data?.offline_revenue_target || 0).toLocaleString() }}</span></td>
-                                            <td class="px-4 py-4">
-                                                <div class="flex items-center gap-2">
-                                                    <button v-if="canEditReport" @click="openMonthlyTaskModal(task)" class="action-btn action-btn-edit">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button v-if="canDeleteReport" @click="deleteMonthlyTask(task)" class="action-btn action-btn-delete">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                    <span v-if="!canEditReport && !canDeleteReport" class="text-gray-300">-</span>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <div v-if="monthlyTasks.length === 0" class="empty-state text-center">
-                                    <i class="fas fa-calendar-check block mx-auto"></i>
-                            <p>尚未形成连续经营样本</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 报表配置管理 (仅超级管理员) -->
-                    <div v-if="currentPage === 'report-config'">
-                        <div class="card">
-                            <div class="p-5 border-b border-gray-100 flex flex-wrap justify-between items-center gap-4">
-                                <div class="flex items-center gap-3">
-                                    <select v-model="filterConfigType" class="input-field">
-                                        <option value="">全部类型</option>
-                                        <option value="daily">日报表</option>
-                                        <option value="monthly">月任务</option>
-                                    </select>
-                                </div>
-                                <button @click="openReportConfigModal()" class="btn-primary">
-                                    <i class="fas fa-plus mr-2"></i>添加配置项
-                                </button>
-                            </div>
-                            <div class="table-container overflow-x-auto">
-                                <table class="w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="px-6 py-4 text-left">ID</th>
-                                            <th class="px-6 py-4 text-left">类型</th>
-                                            <th class="px-6 py-4 text-left">字段名</th>
-                                            <th class="px-6 py-4 text-left">显示名称</th>
-                                            <th class="px-6 py-4 text-left">字段类型</th>
-                                            <th class="px-6 py-4 text-left">单位</th>
-                                            <th class="px-6 py-4 text-left">排序</th>
-                                            <th class="px-6 py-4 text-left">状态</th>
-                                            <th class="px-6 py-4 text-left">操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="config in filteredReportConfigs" :key="config.id">
-                                            <td class="px-6 py-4 text-gray-500">#{{ config.id }}</td>
-                                            <td class="px-6 py-4">
-                                                <span :class="config.report_type === 'daily' ? 'badge-info' : 'badge-purple'" class="badge">
-                                                    {{ config.report_type === 'daily' ? '日报表' : '月任务' }}
-                                                </span>
-                                            </td>
-                                            <td class="px-6 py-4 font-mono text-sm text-gray-600 bg-gray-50 rounded px-2">{{ config.field_name }}</td>
-                                            <td class="px-6 py-4 font-semibold text-gray-800">{{ config.display_name }}</td>
-                                            <td class="px-6 py-4 text-gray-600">{{ getFieldTypeLabel(config.field_type) }}</td>
-                                            <td class="px-6 py-4 text-gray-500">{{ config.unit || '-' }}</td>
-                                            <td class="px-6 py-4">
-                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold">{{ config.sort_order }}</span>
-                                            </td>
-                                            <td class="px-6 py-4">
-                                                <span :class="config.status === 1 ? 'badge-success' : 'badge-danger'" class="badge">
-                                                    {{ config.status === 1 ? '启用' : '禁用' }}
-                                                </span>
-                                            </td>
-                                            <td class="px-6 py-4">
-                                                <div class="flex items-center gap-2">
-                                                    <button @click="openReportConfigModal(config)" class="action-btn action-btn-edit">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button @click="deleteReportConfig(config)" class="action-btn action-btn-delete">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <div v-if="filteredReportConfigs.length === 0" class="empty-state text-center">
-                                    <i class="fas fa-cogs block mx-auto"></i>
-                            <p>待校验数据源</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- 携程ebooking -->
                     <div v-if="currentPage === 'ctrip-ebooking'">
                         <div class="bg-white rounded-lg shadow">
@@ -8358,8 +8042,8 @@
                             </div>
 
                             <!-- 阶段4: 扩张阶段 -->
-                            <div class="bg-white rounded-2xl border border-indigo-100 overflow-hidden hover:shadow-lg transition-all duration-300">
-                                <div class="bg-gradient-to-r from-indigo-500 to-purple-500 p-4">
+                            <div class="bg-white rounded-2xl border border-indigo-200 overflow-hidden hover:shadow-lg transition-all duration-300">
+                                <div class="bg-gradient-to-r from-indigo-500 to-violet-500 p-4 shadow-lg relative z-10" style="background: linear-gradient(90deg, #5b5ff7 0%, #8b5cf6 100%);">
                                     <div class="flex items-center gap-4">
                                         <div class="w-14 h-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl font-bold text-white">4</div>
                                         <div class="flex-1">
@@ -8372,21 +8056,21 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="p-5">
+                                <div class="p-5" style="background: #ffffff;">
                                     <div class="mb-4">
                                         <div class="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-sm font-medium">
                                             <i class="fas fa-question-circle"></i>
                                             <span>核心问题：新市场能不能进？复制哪家店的模式？</span>
                                         </div>
                                     </div>
-                                    <div class="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-4 mb-4">
+                                    <div class="bg-gradient-to-r from-indigo-50 to-violet-50 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #f1f2ff 0%, #f5f1ff 100%);">
                                         <div class="flex items-center gap-2 mb-2">
                                             <i class="fas fa-lightbulb text-indigo-600"></i>
                                             <span class="font-semibold text-gray-800">阶段定位</span>
                                         </div>
                                         <p class="text-sm text-gray-600">用"AI评估+数据选模"替代"经验判断"，让酒店从"稳→量"（稳定到规模增长）阶段，实现"进对市场、复制对模式、扩张提效率"的精准扩量，让规模增长不踩坑。</p>
                                     </div>
-                                    <div class="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-4 mb-4">
+                                    <div class="bg-gradient-to-r from-indigo-50 to-violet-50 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #f1f2ff 0%, #f5f1ff 100%);">
                                         <div class="flex items-center gap-2 mb-2">
                                             <i class="fas fa-cogs text-indigo-600"></i>
                                             <span class="font-semibold text-gray-800">宿析解法</span>
@@ -8395,7 +8079,7 @@
                                         <p class="text-sm text-gray-600">把"扩张的盲目性"转为"数据的确定性"，用"市场评估、标杆选模、协同提效"三步，让"能不能进"有依据、"复制谁"有标准、"扩张后"有效率。</p>
                                     </div>
                                     <div class="grid md:grid-cols-3 gap-4 mb-4">
-                                        <div class="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4">
+                                        <div class="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-xl p-4" style="background: linear-gradient(135deg, #eef0ff 0%, #f6f2ff 100%);">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <div class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">
                                                     <i class="fas fa-chart-line text-white text-sm"></i>
@@ -8413,7 +8097,7 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="bg-gradient-to-br from-cyan-50 to-teal-50 rounded-xl p-4">
+                                        <div class="bg-white rounded-xl p-4">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <div class="w-8 h-8 rounded-lg bg-cyan-500 flex items-center justify-center">
                                                     <i class="fas fa-eye text-white text-sm"></i>
@@ -8430,7 +8114,7 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="bg-gradient-to-br from-pink-50 to-rose-50 rounded-xl p-4">
+                                        <div class="bg-gradient-to-br from-pink-50 to-rose-50 rounded-xl p-4" style="background: linear-gradient(135deg, #fff1f8 0%, #fff7fb 100%);">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <div class="w-8 h-8 rounded-lg bg-pink-500 flex items-center justify-center">
                                                     <i class="fas fa-link text-white text-sm"></i>
@@ -8448,7 +8132,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="bg-gradient-to-r from-indigo-100 to-purple-100 rounded-xl p-4 mb-4">
+                                    <div class="bg-gradient-to-r from-indigo-100 to-violet-100 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #e9ebff 0%, #f0e8ff 100%);">
                                         <div class="flex items-center gap-2 mb-2">
                                             <i class="fas fa-chart-pie text-indigo-600"></i>
                                             <span class="font-semibold text-gray-800">4. 决策依据：扩张决策数据看板</span>
@@ -8468,7 +8152,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl p-4 text-white">
+                                    <div class="bg-gradient-to-r from-indigo-500 to-violet-500 rounded-xl p-4 text-white shadow-lg relative z-10" style="background: linear-gradient(90deg, #5b5ff7 0%, #8b5cf6 100%);">
                                         <div class="flex items-center gap-3">
                                             <i class="fas fa-heart text-xl"></i>
                                             <div>
@@ -8482,7 +8166,7 @@
 
                             <!-- 阶段5: 转让阶段 -->
                             <div class="bg-white rounded-2xl border border-purple-200 overflow-hidden hover:shadow-lg transition-all duration-300">
-                                <div class="bg-gradient-to-r from-purple-500 to-pink-500 p-4" style="background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);">
+                                <div class="bg-gradient-to-r from-violet-500 to-pink-500 p-4 shadow-lg relative z-10" style="background: linear-gradient(90deg, #8b5cf6 0%, #ec4899 100%);">
                                     <div class="flex items-center gap-4">
                                         <div class="w-14 h-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl font-bold text-white">5</div>
                                         <div class="flex-1">
@@ -8495,21 +8179,21 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="p-5">
+                                <div class="p-5" style="background: #ffffff;">
                                     <div class="mb-4">
                                         <div class="inline-flex items-center gap-2 bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium">
                                             <i class="fas fa-question-circle"></i>
                                             <span>核心问题：现在卖划算吗？能卖多少钱？</span>
                                         </div>
                                     </div>
-                                    <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-4">
+                                    <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #f7f0ff 0%, #fff1f8 100%);">
                                         <div class="flex items-center gap-2 mb-2">
                                             <i class="fas fa-lightbulb text-purple-600"></i>
                                             <span class="font-semibold text-gray-800">阶段定位</span>
                                         </div>
                                         <p class="text-sm text-gray-600">用"AI定价+时机推演"替代"经验纠结"，让酒店从"量→退"（规模增长到价值兑现）阶段，实现"算清卖价、择对时机、变现增值"的精准转让，让资产价值最大化。</p>
                                     </div>
-                                    <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-4">
+                                    <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #f7f0ff 0%, #fff1f8 100%);">
                                         <div class="flex items-center gap-2 mb-2">
                                             <i class="fas fa-cogs text-purple-600"></i>
                                             <span class="font-semibold text-gray-800">宿析解法</span>
@@ -8518,7 +8202,7 @@
                                         <p class="text-sm text-gray-600">把"转让的博弈感"转为"数据的确定性"，用"定价模型算清'卖多少'、时机推演选对'何时卖'"，让"卖不卖、卖多少、何时卖"都有数据撑腰。</p>
                                     </div>
                                     <div class="grid md:grid-cols-2 gap-4 mb-4">
-                                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4">
+                                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4" style="background: linear-gradient(135deg, #f6efff 0%, #fff2f8 100%);">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <div class="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center">
                                                     <i class="fas fa-calculator text-white text-sm"></i>
@@ -8536,7 +8220,7 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4">
+                                        <div class="bg-white rounded-xl p-4">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <div class="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center">
                                                     <i class="fas fa-chess text-white text-sm"></i>
@@ -8554,7 +8238,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl p-4 mb-4">
+                                    <div class="bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #ede7ff 0%, #ffe4f3 100%);">
                                         <div class="flex items-center gap-2 mb-2">
                                             <i class="fas fa-chart-pie text-purple-600"></i>
                                             <span class="font-semibold text-gray-800">3. 决策依据：转让决策数据看板</span>
@@ -8574,7 +8258,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl p-4 text-white shadow-lg relative z-10" style="background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);">
+                                    <div class="bg-gradient-to-r from-violet-500 to-pink-500 rounded-xl p-4 text-white shadow-lg relative z-10" style="background: linear-gradient(90deg, #8b5cf6 0%, #ec4899 100%);">
                                         <div class="flex items-center gap-3">
                                             <i class="fas fa-heart text-xl"></i>
                                             <div>
@@ -8804,14 +8488,6 @@
                                             <div class="flex items-center justify-between py-2 border-b border-gray-200">
                                                 <span class="text-gray-500">用户管理</span>
                                                 <span class="font-medium text-gray-800">{{ systemConfig.menu_users_name || '用户管理' }}</span>
-                                            </div>
-                                            <div class="flex items-center justify-between py-2 border-b border-gray-200">
-                                                <span class="text-gray-500">日报表管理</span>
-                                                <span class="font-medium text-gray-800">{{ systemConfig.menu_daily_report_name || '日报表管理' }}</span>
-                                            </div>
-                                            <div class="flex items-center justify-between py-2">
-                                                <span class="text-gray-500">月任务管理</span>
-                                                <span class="font-medium text-gray-800">{{ systemConfig.menu_monthly_task_name || '月任务管理' }}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -10209,717 +9885,6 @@
             </div>
         </div>
 
-        <!-- 日报表模态框 -->
-        <div v-if="showDailyReportModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-5xl mx-4 max-h-[90vh] flex flex-col">
-                <div class="p-4 border-b flex justify-between items-center shrink-0">
-                    <div class="flex items-center space-x-4">
-                        <h3 class="text-lg font-semibold">{{ dailyReportForm.id ? '编辑日报' : '填写日报' }}</h3>
-                        <button v-if="!dailyReportForm.id" type="button" @click="triggerImportInModal" 
-                            class="px-3 py-1.5 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600">
-                            <i class="fas fa-file-import mr-1"></i>导入JY01报表
-                        </button>
-                        <input type="file" ref="importModalFileInput" @change="handleImportInModal" accept=".xlsx,.xls" class="hidden">
-                    </div>
-                    <button @click="showDailyReportModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                
-                <!-- 导入状态提示 -->
-                <div v-if="importStatus.show" class="px-4 py-2 text-sm" :class="importStatus.type === 'success' ? 'bg-green-50 text-green-700' : importStatus.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'">
-                    <i :class="importStatus.type === 'success' ? 'fas fa-check-circle' : importStatus.type === 'error' ? 'fas fa-exclamation-circle' : 'fas fa-info-circle'" class="mr-2"></i>
-                    {{ importStatus.message }}
-                </div>
-                <form @submit.prevent="saveDailyReport" class="flex flex-col flex-1 overflow-hidden">
-                    <!-- 酒店和日期选择 -->
-                    <div class="grid grid-cols-3 gap-4 bg-blue-50 p-4 shrink-0">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">酒店 *</label>
-                            <select v-model="dailyReportForm.hotel_id" required :disabled="!!dailyReportForm.id || importedFromDate"
-                                class="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100">
-                                <option value="">请选择</option>
-                                <option v-for="h in permittedHotels" :key="h.id" :value="h.id">{{ h.name }}</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">日期 *<span v-if="importedFromDate" class="text-xs text-green-600 ml-2">(已从报表导入)</span></label>
-                            <input v-model="dailyReportForm.report_date" type="date" required 
-                                :disabled="!!dailyReportForm.id || importedFromDate"
-                                :max="yesterdayDate"
-                                :class="['w-full px-3 py-2 border rounded-lg', (dailyReportForm.id || importedFromDate) ? 'bg-gray-100' : '']">
-                        </div>
-                        <div class="flex items-end">
-                            <button type="submit" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                                <i class="fas fa-save mr-2"></i>保存
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- 导入预览 - 简化的状态提示 -->
-                    <div v-if="importPreviewData && importPreviewData.structured_data" 
-                        class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 shrink-0">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center space-x-4">
-                                <i class="fas fa-file-import text-blue-500"></i>
-                                <span class="text-sm text-blue-700">
-                                    已解析 <strong>{{ importPreviewData.structured_data.length }}</strong> 项数据，
-                                    成功映射 <strong class="text-green-600">{{ importPreviewData.matched_count }}</strong> 项
-                                </span>
-                                <span v-if="importPreviewData.structured_data.length - 1 - importPreviewData.matched_count > 0" 
-                                    class="text-sm text-orange-600">
-                                    ({{ importPreviewData.structured_data.length - 1 - importPreviewData.matched_count }} 项未映射)
-                                </span>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <button @click="applyAllMappings" type="button"
-                                    class="px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
-                                    <i class="fas fa-check mr-1"></i>应用映射数据
-                                </button>
-                            </div>
-                        </div>
-                    
-                    <!-- 标签页导航 -->
-                    <div class="border-b shrink-0 overflow-x-auto">
-                        <nav class="flex space-x-1 px-4 pt-2 whitespace-nowrap">
-                            <button type="button" @click="dailyReportTab = 'tab1'" 
-                                :class="dailyReportTab === 'tab1' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">基础数据</button>
-                            <button type="button" @click="dailyReportTab = 'tab2'" 
-                                :class="dailyReportTab === 'tab2' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">线上OTA</button>
-                            <button type="button" @click="dailyReportTab = 'tab3'" 
-                                :class="dailyReportTab === 'tab3' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">线下渠道</button>
-                            <button type="button" @click="dailyReportTab = 'tab4'" 
-                                :class="dailyReportTab === 'tab4' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">其它收入</button>
-                            <button type="button" @click="dailyReportTab = 'tab5'" 
-                                :class="dailyReportTab === 'tab5' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">OTA点评</button>
-                            <button type="button" @click="dailyReportTab = 'tab6'" 
-                                :class="dailyReportTab === 'tab6' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">OTA流量</button>
-                            <button type="button" @click="dailyReportTab = 'tab7'" 
-                                :class="dailyReportTab === 'tab7' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">私域流量</button>
-                            <button type="button" @click="dailyReportTab = 'tab8'" 
-                                :class="dailyReportTab === 'tab8' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">大美卡</button>
-                            <button type="button" @click="dailyReportTab = 'tab9'" 
-                                :class="dailyReportTab === 'tab9' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                                class="px-3 py-2 border-b-2 font-medium text-sm">明日预订</button>
-                        </nav>
-                    </div>
-                    
-                    <!-- 标签页内容 -->
-                    <div class="p-4 overflow-y-auto flex-1">
-                        <!-- 一、当天基础数据填写 -->
-                        <div v-show="dailyReportTab === 'tab1'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '一、当天基础数据填写')" :key="category.category">
-                                <div class="grid grid-cols-4 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                            <span v-if="item.is_required" class="text-red-500">*</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 二、线上OTA数据填写 -->
-                        <div v-show="dailyReportTab === 'tab2'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '二、线上OTA数据填写')" :key="category.category">
-                                <div class="grid grid-cols-4 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 三、线下渠道数据填写 -->
-                        <div v-show="dailyReportTab === 'tab3'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '三、线下渠道数据填写')" :key="category.category">
-                                <div class="grid grid-cols-4 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 四、其它收入数据填写 -->
-                        <div v-show="dailyReportTab === 'tab4'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '四、其它收入数据填写')" :key="category.category">
-                                <div class="grid grid-cols-3 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 五、OTA点评数据填写 -->
-                        <div v-show="dailyReportTab === 'tab5'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '五、OTA点评数据填写')" :key="category.category">
-                                <div class="grid grid-cols-3 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 六、OTA流量数据填写 -->
-                        <div v-show="dailyReportTab === 'tab6'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '六、OTA流量数据填写')" :key="category.category">
-                                <div class="grid grid-cols-4 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 七、私域流量数据填写 -->
-                        <div v-show="dailyReportTab === 'tab7'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '七、私域流量数据填写')" :key="category.category">
-                                <div class="grid grid-cols-3 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 八、大美卡数据填写 -->
-                        <div v-show="dailyReportTab === 'tab8'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '八、大美卡数据填写')" :key="category.category">
-                                <div class="grid grid-cols-2 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 九、明日预订数据填写 -->
-                        <div v-show="dailyReportTab === 'tab9'" class="space-y-4">
-                            <div v-for="category in dailyReportConfig.filter(c => c.category === '九、明日预订数据填写')" :key="category.category">
-                                <div class="grid grid-cols-2 gap-3">
-                                    <div v-for="item in category.items" :key="item.field_name">
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">
-                                            {{ item.display_name }}<span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                        </label>
-                                        <input v-model.number="dailyReportForm[item.field_name]" 
-                                            type="number" step="any"
-                                            class="w-full px-2 py-1.5 border rounded text-sm">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 底部按钮 -->
-                    <div class="p-4 border-t flex justify-between items-center shrink-0 bg-gray-50">
-                        <div class="text-sm text-gray-500">
-                            <i class="fas fa-info-circle mr-1"></i>
-                            提示：请按标签页顺序填写完整数据
-                        </div>
-                        <div class="space-x-3">
-                            <button type="button" @click="showDailyReportModal = false"
-                                class="px-4 py-2 border rounded-lg hover:bg-gray-100">取消</button>
-                            <button type="submit" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                                <i class="fas fa-save mr-2"></i>保存
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- 月任务模态框 -->
-        <div v-if="showMonthlyTaskModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[90vh] flex flex-col">
-                <div class="p-4 border-b flex justify-between items-center shrink-0">
-                    <h3 class="text-lg font-semibold">{{ monthlyTaskForm.id ? '编辑月任务' : '添加月任务' }}</h3>
-                    <button @click="showMonthlyTaskModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form @submit.prevent="saveMonthlyTask" class="flex flex-col flex-1 overflow-hidden">
-                    <!-- 酒店和年月选择 -->
-                    <div class="grid grid-cols-3 gap-4 bg-blue-50 p-4 shrink-0">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">酒店 *</label>
-                            <select v-model="monthlyTaskForm.hotel_id" required :disabled="!!monthlyTaskForm.id"
-                                class="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100">
-                                <option value="">请选择</option>
-                                <option v-for="h in permittedHotels" :key="h.id" :value="h.id">{{ h.name }}</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">年份 *</label>
-                            <select v-model.number="monthlyTaskForm.year" required :disabled="!!monthlyTaskForm.id"
-                                class="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100">
-                                <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}年</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">月份 *</label>
-                            <select v-model.number="monthlyTaskForm.month" required :disabled="!!monthlyTaskForm.id"
-                                class="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100">
-                                <option v-for="m in 12" :key="m" :value="m">{{ m }}月</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <!-- 动态表单配置 -->
-                    <div class="p-4 overflow-y-auto flex-1">
-                        <div class="grid grid-cols-3 gap-4">
-                            <div v-for="item in monthlyTaskConfig" :key="item.field_name">
-                                <label class="block text-xs font-medium text-gray-600 mb-1">
-                                    {{ item.display_name }}
-                                    <span v-if="item.unit" class="text-gray-400">({{ item.unit }})</span>
-                                    <span v-if="item.is_required" class="text-red-500">*</span>
-                                </label>
-                                <input v-model.number="monthlyTaskForm[item.field_name]" 
-                                    type="number" step="any"
-                                    :required="item.is_required"
-                                    class="w-full px-2 py-1.5 border rounded text-sm"
-                                    placeholder="请输入">
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="p-4 border-t flex justify-end space-x-3 shrink-0 bg-gray-50">
-                        <button type="button" @click="showMonthlyTaskModal = false"
-                            class="px-4 py-2 border rounded-lg hover:bg-gray-100">取消</button>
-                        <button type="submit" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                            <i class="fas fa-save mr-2"></i>保存
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- 日报表查看详情弹窗 -->
-        <div v-if="showViewReportModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
-                <div class="p-4 border-b flex justify-between items-center shrink-0 bg-white">
-                    <h3 class="text-lg font-semibold">查看详情</h3>
-                    <div class="flex items-center space-x-3">
-                        <button v-if="user?.is_super_admin" @click="openViewMappingModal"
-                            class="px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 text-sm shrink-0">
-                            <i class="fas fa-sliders-h mr-1"></i>设置映射
-                        </button>
-                        <button @click="exportViewedReport" class="px-3 py-1.5 bg-teal-500 text-white rounded-lg hover:bg-teal-600 text-sm shrink-0">
-                            <i class="fas fa-file-excel mr-1"></i>导出Excel
-                        </button>
-                        <button @click="copyReportContent" class="px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm shrink-0">
-                            <i class="fas fa-copy mr-1"></i>点击复制
-                        </button>
-                        <button @click="showViewReportModal = false" class="text-gray-500 hover:text-gray-700 shrink-0">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="p-4 overflow-y-auto flex-1 text-sm leading-relaxed min-h-0" ref="reportContentRef" style="max-height: calc(85vh - 60px);">
-                    <div v-if="viewReportLoading" class="text-center py-8 text-gray-500">
-                        <i class="fas fa-spinner fa-spin mr-2"></i>加载中...
-                    </div>
-                    <div v-else-if="viewReportData" class="space-y-4">
-                        <!-- 酒店信息和日期 -->
-                        <div class="text-center font-bold text-lg">
-                            {{ viewReportData.hotel_name }}
-                        </div>
-                        <div class="text-center text-gray-600">
-                            {{ viewReportData.report_date }}
-                        </div>
-                        <div class="text-center text-gray-600">
-                            总房间数: {{ viewReportData.total_rooms }}间 （可售：{{ viewReportData.salable_rooms }}维修：{{ viewReportData.maintenance_rooms }}）
-                        </div>
-                        
-                        <hr class="my-4">
-                        
-                        <!-- 一、销售业绩 -->
-                        <div class="font-bold">一、销售业绩：</div>
-                        <div>1、月营收总目标: {{ viewReportData.month_revenue_target }}元</div>
-                        <div>2、月累计完成营收:{{ viewReportData.month_revenue }}元 （房费收入: {{ viewReportData.month_room_revenue }}元+其它收入:{{ viewReportData.month_other_revenue }}元）当期差额:{{ viewReportData.month_revenue_diff }}元</div>
-                        <div>3、月当期完成率:{{ viewReportData.month_complete_rate }}%</div>
-                        <div>4、日营收当期目标:{{ viewReportData.day_revenue_target }}元</div>
-                        <div>5、日实际完成营收:{{ viewReportData.day_revenue }}元（房费收入{{ viewReportData.day_room_revenue }}元+其它收入:{{ viewReportData.day_other_revenue }}元），当日差额:{{ viewReportData.day_revenue_diff }}元</div>
-                        <div>6、月综合出租率:{{ viewReportData.month_occ_rate }}%</div>
-                        <div>7、日综合出租率:{{ viewReportData.day_occ_rate }}%</div>
-                        <div>8、日过夜出租率:{{ viewReportData.day_overnight_occ_rate }}%</div>
-                        <div>9、日出租总数:{{ viewReportData.day_total_rooms }}间 （过夜房:{{ viewReportData.day_overnight_rooms }}间,非过夜房:0间,钟点房:{{ viewReportData.day_hourly_rooms }}间）</div>
-                        <div>10、月均价:{{ viewReportData.month_adr }}元</div>
-                        <div>11、日均价:{{ viewReportData.day_adr }}元</div>
-                        <div>12、过夜均价:{{ viewReportData.overnight_adr }}元</div>
-                        <div>13、月Revpar:{{ viewReportData.month_revpar }}元</div>
-                        <div>14、日Revpar:{{ viewReportData.day_revpar }}元</div>
-                        <div>15、当日储值金额:{{ viewReportData.day_stored_value }}元</div>
-                        <div>16、当月储值金额:{{ viewReportData.month_stored_value }}元</div>
-                        
-                        <!-- 二、客源结构 -->
-                        <div class="font-bold">二、客源结构：</div>
-                        <div>17、会员:{{ viewReportData.member_count }}</div>
-                        <div>18、协议: {{ viewReportData.protocol_count }}</div>
-                        <div>19、散客:{{ viewReportData.walkin_count }}</div>
-                        <div>20、团队: {{ viewReportData.group_count }}</div>
-                        <div>21、OTA总量:{{ viewReportData.ota_total_rooms }}间,（美团{{ viewReportData.mt_rooms }}间、携程{{ viewReportData.xb_rooms }}间、同程{{ viewReportData.tc_rooms }}间、去哪儿{{ viewReportData.qn_rooms }}间、智行{{ viewReportData.zx_rooms }}间、飞猪{{ viewReportData.fliggy_rooms }}间）</div>
-                        <div>22、微信:{{ viewReportData.wechat_count }}单 ，抖音:{{ viewReportData.dy_count }}单</div>
-                        <div>23、会员体验价:{{ viewReportData.member_exp_rooms }}</div>
-                        <div>24、网络体验价:{{ viewReportData.web_exp_rooms }}</div>
-                        <div>25、本日免费房数:{{ viewReportData.free_rooms }}间</div>
-                        
-                        <!-- 三、直销指标 -->
-                        <div class="font-bold">三、直销指标:</div>
-                        <div>26、日新增会员:{{ viewReportData.day_new_member }}个</div>
-                        <div>27、月新增会员目标：{{ viewReportData.month_new_member_target }}个；现完成：{{ viewReportData.month_new_member }}个 当期差额:{{ viewReportData.month_member_diff }}个</div>
-                        <div>28、日微信加粉:完成{{ viewReportData.day_wechat_add }}个；</div>
-                        <div>29、月微信加粉目标：{{ viewReportData.month_wechat_target }}个，实际完成{{ viewReportData.month_wechat_add }}个；当期差额:{{ viewReportData.month_wechat_diff }}个</div>
-                        <div>32、日私域流量：{{ viewReportData.day_private_rooms }}单；营收:{{ viewReportData.day_private_revenue }}元；</div>
-                        <div>33、月私域流量：{{ viewReportData.month_private_rooms }}单，营收:{{ viewReportData.month_private_revenue }}元；占比总营收:{{ viewReportData.private_rate }}%</div>
-                        
-                        <!-- 四、OTA渠道评分值 -->
-                        <div class="font-bold">四、OTA渠道评分值：</div>
-                        <div>34、日点评新增：{{ viewReportData.day_good_review }}好评条；{{ viewReportData.day_bad_review }}差评条</div>
-                        <div>35、月点评新增：{{ viewReportData.month_good_review }}好评条；{{ viewReportData.month_bad_review }}差评条</div>
-                        
-                        <!-- 五、免费房数 -->
-                        <div class="font-bold">五、免费房数：</div>
-                        <div>36、本月免费房总数:{{ viewReportData.month_free_rooms }}间</div>
-                        
-                        <!-- 六、明日预订数量 -->
-                        <div class="font-bold">六、明日预订数量: {{ viewReportData.tomorrow_booking }}</div>
-                        
-                        <!-- 七、今日现金收入 -->
-                        <div class="font-bold">七、今日现金收入: {{ viewReportData.day_cash_income }}</div>
-                        
-                        <!-- 八、当月累计现金余额 -->
-                        <div class="font-bold">八、当月累计现金余额: {{ viewReportData.month_cash_income }}</div>
-
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 日报查看映射弹窗（仅超管） -->
-        <div v-if="showViewMappingModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 h-[85vh] max-h-[85vh] flex flex-col">
-                <div class="p-4 border-b flex justify-between items-center">
-                    <h3 class="text-lg font-semibold">日报查看映射配置（仅超管）</h3>
-                    <button @click="showViewMappingModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <div class="p-4 flex-1 min-h-0 overflow-y-auto">
-                        <div class="flex items-center justify-between mb-3">
-                            <div class="text-xs text-gray-500">
-                                公式支持：report.xxx / task.xxx / month.xxx / calc.xxx
-                                ，示例：report.day_revenue + task.revenue_budget
-                                ，模板示例：日出租总数:{calc.day_total_rooms}间（过夜房:{calc.day_overnight_rooms}间,非过夜房:{calc.day_non_overnight_rooms}间,钟点房:{calc.day_hourly_rooms}间）
-                            </div>
-                        <div class="flex gap-2">
-                            <button @click="addViewMappingRow" class="px-3 py-1.5 bg-gray-200 rounded hover:bg-gray-300 text-sm">
-                                <i class="fas fa-plus mr-1"></i>添加项目
-                            </button>
-                            <button @click="saveViewMappingConfig" :disabled="viewMappingSaving"
-                                class="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm disabled:opacity-50">
-                                <i class="fas fa-save mr-1"></i>{{ viewMappingSaving ? '保存中...' : '保存映射' }}
-                            </button>
-                        </div>
-                    </div>
-                    <div class="flex flex-wrap gap-2 mb-3">
-                        <button v-for="tab in viewMappingCategories" :key="tab.id"
-                            @click="viewMappingTab = tab.id"
-                            :class="['px-3 py-1.5 rounded text-sm', viewMappingTab === tab.id ? 'bg-blue-500 text-white' : 'bg-gray-200 hover:bg-gray-300']">
-                            {{ tab.label }}
-                        </button>
-                    </div>
-                    <div class="border rounded-lg">
-                        <div class="bg-gray-50 border-b">
-                            <table class="w-full text-sm">
-                                <thead>
-                                    <tr>
-                                        <th class="px-3 py-2 text-left w-40">项目</th>
-                                        <th class="px-3 py-2 text-left w-24">来源</th>
-                                        <th class="px-3 py-2 text-left w-48">字段</th>
-                                        <th class="px-3 py-2 text-left w-56">模板</th>
-                                        <th class="px-3 py-2 text-left w-56">计算公式</th>
-                                        <th class="px-3 py-2 text-left w-28">结果</th>
-                                        <th class="px-3 py-2 text-left w-16">操作</th>
-                                    </tr>
-                                </thead>
-                            </table>
-                        </div>
-                        <div class="overflow-y-auto" style="max-height: calc(85vh - 240px);">
-                            <table class="w-full text-sm">
-                                <tbody class="divide-y">
-                                    <tr v-for="idx in viewMappingFilteredIndexes" :key="idx">
-                                        <template v-if="viewMappingConfig[idx]">
-                                        <td class="px-3 py-2 w-40">
-                                        <input v-model="viewMappingConfig[idx].name" class="w-full px-2 py-1 border rounded" placeholder="项目名称">
-                                        </td>
-                                        <td class="px-3 py-2 w-24">
-                                            <select v-model="viewMappingConfig[idx].source" class="px-2 py-1 border rounded w-32">
-                                                <option value="report">日报</option>
-                                                <option value="task">月任务</option>
-                                                <option value="month">月累计</option>
-                                                <option value="calc">计算结果</option>
-                                            </select>
-                                        </td>
-                                        <td class="px-3 py-2 w-48">
-                                            <select v-model="viewMappingConfig[idx].field" class="px-2 py-1 border rounded w-full">
-                                                <option value="">选择字段</option>
-                                                <option v-for="opt in (viewMappingFieldOptions[viewMappingConfig[idx].source] || [])"
-                                                    :key="opt.key" :value="opt.key">
-                                                    {{ opt.label }}（{{ opt.key }}）
-                                                </option>
-                                            </select>
-                                        </td>
-                                        <td class="px-3 py-2 w-56">
-                                            <input v-model="viewMappingConfig[idx].template" class="w-full px-2 py-1 border rounded" placeholder="可选，填写模板">
-                                        </td>
-                                        <td class="px-3 py-2 w-56">
-                                            <input v-model="viewMappingConfig[idx].formula" class="w-full px-2 py-1 border rounded" placeholder="可选，填写公式">
-                                        </td>
-                                        <td class="px-3 py-2 w-28">
-                                            <div class="text-gray-800">{{ viewReportData.view_mapping?.values?.[idx]?.value ?? '-' }}</div>
-                                            <div v-if="viewReportData.view_mapping?.values?.[idx]?.error" class="text-xs text-red-500">
-                                                {{ viewReportData.view_mapping?.values?.[idx]?.error }}
-                                            </div>
-                                        </td>
-                                        <td class="px-3 py-2 w-16">
-                                            <button @click="removeViewMappingRow(idx)" class="text-red-500 hover:text-red-700">删除</button>
-                                        </td>
-                                        </template>
-                                    </tr>
-                                    <tr v-if="viewMappingFilteredIndexes.length === 0">
-                                        <td colspan="7" class="px-3 py-4 text-center text-gray-500">暂无映射配置</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 竞对酒店弹窗 -->
-        <div v-if="showCompetitorHotelModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-                <div class="p-4 border-b flex justify-between items-center">
-                    <h3 class="text-lg font-semibold">{{ competitorHotelForm.id ? '编辑竞对酒店' : '新增竞对酒店' }}</h3>
-                    <button @click="showCompetitorHotelModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form @submit.prevent="saveCompetitorHotel" class="p-4 space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">门店 *</label>
-                        <select v-model.number="competitorHotelForm.store_id" required class="w-full px-4 py-2 border rounded-lg">
-                            <option value="">请选择门店</option>
-                            <option v-for="s in competitorStores" :key="s.id" :value="s.id">{{ s.name }}</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">平台 *</label>
-                        <select v-model="competitorHotelForm.platform" required class="w-full px-4 py-2 border rounded-lg">
-                            <option value="mt">美团</option>
-                            <option value="xc">携程</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">城市 *</label>
-                        <input v-model="competitorHotelForm.city" required class="w-full px-4 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">酒店名称 *</label>
-                        <input v-model="competitorHotelForm.hotel_name" required class="w-full px-4 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">酒店编码</label>
-                        <input v-model="competitorHotelForm.hotel_code" class="w-full px-4 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
-                        <select v-model="competitorHotelForm.status" class="w-full px-4 py-2 border rounded-lg">
-                            <option :value="1">启用</option>
-                            <option :value="0">禁用</option>
-                        </select>
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <button type="button" @click="showCompetitorHotelModal = false" class="px-4 py-2 border rounded-lg">取消</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg">保存</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- 企业微信机器人弹窗 -->
-        <div v-if="showCompetitorRobotModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-                <div class="p-4 border-b flex justify-between items-center">
-                    <h3 class="text-lg font-semibold">{{ competitorRobotForm.id ? '编辑机器人' : '新增机器人' }}</h3>
-                    <button @click="showCompetitorRobotModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form @submit.prevent="saveCompetitorRobot" class="p-4 space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">门店 *</label>
-                        <select v-model.number="competitorRobotForm.store_id" required class="w-full px-4 py-2 border rounded-lg">
-                            <option value="">请选择门店</option>
-                            <option v-for="s in competitorStores" :key="s.id" :value="s.id">{{ s.name }}</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">名称 *</label>
-                        <input v-model="competitorRobotForm.name" required class="w-full px-4 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Webhook *</label>
-                        <input v-model="competitorRobotForm.webhook" required class="w-full px-4 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
-                        <select v-model="competitorRobotForm.status" class="w-full px-4 py-2 border rounded-lg">
-                            <option :value="1">启用</option>
-                            <option :value="0">禁用</option>
-                        </select>
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <button type="button" @click="showCompetitorRobotModal = false" class="px-4 py-2 border rounded-lg">取消</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg">保存</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- 报表配置模态框 -->
-        <div v-if="showReportConfigModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-                <div class="p-4 border-b flex justify-between items-center">
-                    <h3 class="text-lg font-semibold">{{ reportConfigForm.id ? '编辑配置项' : '添加配置项' }}</h3>
-                    <button @click="showReportConfigModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form @submit.prevent="saveReportConfig" class="p-4 space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">报表类型 *</label>
-                        <select v-model="reportConfigForm.report_type" required class="w-full px-4 py-2 border rounded-lg">
-                            <option value="daily">日报表</option>
-                            <option value="monthly">月任务</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">字段名 *</label>
-                        <input v-model="reportConfigForm.field_name" type="text" required
-                            placeholder="如: occupancy_rate"
-                            class="w-full px-4 py-2 border rounded-lg">
-                        <p class="text-xs text-gray-500 mt-1">用于数据存储，只能包含字母、数字和下划线</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">显示名称 *</label>
-                        <input v-model="reportConfigForm.display_name" type="text" required
-                            placeholder="如: 入住率"
-                            class="w-full px-4 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">字段类型 *</label>
-                        <select v-model="reportConfigForm.field_type" required class="w-full px-4 py-2 border rounded-lg">
-                            <option value="number">数字</option>
-                            <option value="text">文本</option>
-                            <option value="textarea">多行文本</option>
-                            <option value="select">下拉选择</option>
-                            <option value="date">日期</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">单位</label>
-                        <input v-model="reportConfigForm.unit" type="text"
-                            placeholder="如: %、元、人"
-                            class="w-full px-4 py-2 border rounded-lg">
-                    </div>
-                    <div v-if="reportConfigForm.field_type === 'select'">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">选项值 *</label>
-                        <textarea v-model="reportConfigForm.options" rows="3"
-                            placeholder="每行一个选项，如：&#10;选项1&#10;选项2&#10;选项3"
-                            class="w-full px-4 py-2 border rounded-lg"></textarea>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">排序</label>
-                            <input v-model.number="reportConfigForm.sort_order" type="number" min="0"
-                                class="w-full px-4 py-2 border rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">是否必填</label>
-                            <select v-model="reportConfigForm.is_required" class="w-full px-4 py-2 border rounded-lg">
-                                <option :value="1">是</option>
-                                <option :value="0">否</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
-                        <select v-model="reportConfigForm.status" class="w-full px-4 py-2 border rounded-lg">
-                            <option :value="1">启用</option>
-                            <option :value="0">禁用</option>
-                        </select>
-                    </div>
-                    <div class="flex justify-end space-x-3 pt-4">
-                        <button type="button" @click="showReportConfigModal = false"
-                            class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">保存</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
         <!-- 系统配置模态框 -->
         <div v-if="showSystemConfigModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
             <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
@@ -11163,32 +10128,6 @@
                             </div>
                         </div>
                         
-                        <div class="border-t pt-4 space-y-3">
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <div>
-                                    <div class="font-medium text-gray-800">日报表提交通知</div>
-                                    <div class="text-sm text-gray-500">日报表提交后发送通知</div>
-                                </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" v-model="systemConfigForm.notify_daily_report" 
-                                        :true-value="'1'" :false-value="'0'"
-                                        class="sr-only peer">
-                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                </label>
-                            </div>
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <div>
-                                    <div class="font-medium text-gray-800">月任务提交通知</div>
-                                    <div class="text-sm text-gray-500">月任务提交后发送通知</div>
-                                </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" v-model="systemConfigForm.notify_monthly_task" 
-                                        :true-value="'1'" :false-value="'0'"
-                                        class="sr-only peer">
-                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                </label>
-                            </div>
-                        </div>
                     </div>
                     
                     <div class="flex justify-between items-center pt-4 border-t">
@@ -11797,9 +10736,6 @@
                 logo_url: '',
                 menu_hotel_name: '酒店管理',
                 menu_users_name: '用户管理',
-                menu_daily_report_name: '日报表管理',
-                menu_monthly_task_name: '月任务管理',
-                menu_report_config_name: '报表配置',
                 wechat_mini_appid: '',
                 wechat_mini_secret: '',
                 complaint_mini_page: 'pages/complaint/index',
@@ -12084,20 +11020,19 @@
             const selectedWeatherCity = ref('');
             const homeObservation = computed(() => {
                 const selectedHotel = permittedHotels.value.find(h => String(h.id) === String(filterReportHotel.value)) || permittedHotels.value[0];
-                const hasDaily = dailyReports.value.length > 0;
                 const hasWeather = compassWeather.value.length > 0;
                 return {
                     hotelName: selectedHotel?.name || '未选择酒店',
-                    dataStatus: hasDaily ? '已同步' : hasWeather ? '部分数据可用' : '待同步',
+                    dataStatus: hasWeather ? '部分数据可用' : '待同步',
                     updatedAt: '--',
-                    confidence: hasDaily ? '依据日报数据形成' : '等待数据沉淀'
+                    confidence: '等待数据沉淀'
                 };
             });
             const homeTrendCards = computed(() => [
-            { name: '收益趋势', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: dailyReports.value.length ? '等待更多连续数据形成收益趋势判断' : '等待日报数据导入后生成收益趋势', spark: [26, 34, 28, 42, 36, 48, 40, 52, 44] },
+            { name: '收益趋势', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待线上数据同步后生成收益趋势', spark: [26, 34, 28, 42, 36, 48, 40, 52, 44] },
             { name: '市场需求', value: '--', direction: '数据不足', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '数据依据不足，暂不生成趋势判断', spark: [30, 30, 30, 30, 30, 30, 30, 30, 30] },
             { name: '价格竞争', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格同步后判断价格劣势', spark: [24, 38, 32, 46, 34, 50, 36, 54, 40] },
-            { name: '渠道表现', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 与日报数据同步', spark: [40, 36, 42, 38, 44, 40, 46, 42, 48] }
+            { name: '渠道表现', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 数据同步', spark: [40, 36, 42, 38, 44, 40, 46, 42, 48] }
             ]);
             const homeMacroSignals = computed(() => [
             { name: '周期信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待日期与订单节奏数据形成周期判断', action: '去分析', page: 'agent-center' },
@@ -12105,7 +11040,7 @@
             { name: '渠道信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 曝光、点击、转化数据同步', action: '去分析', page: 'online-data' },
             { name: '竞对信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格与排名变化数据', action: '查看详情', page: 'competitor' },
             { name: '价格信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 ADR、价差与促销压力数据', action: '去分析', page: 'agent-center' },
-            { name: '需求信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待入住节奏、提前预订与临近订单数据', action: '去分析', page: 'daily-reports' }
+            { name: '需求信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待入住节奏、提前预订与临近订单数据', action: '去分析', page: 'online-data' }
             ]);
             const homeAiDecisionCards = [
                 { title: '收益策略', status: '待生成', focus: '关注 ADR、RevPAR、入住率、价格弹性。', source: '暂无' },
@@ -12114,7 +11049,6 @@
             ];
             const homeDataSources = computed(() => [
                 { name: 'OTA 数据', status: '未同步', updatedAt: '--', impact: '会影响渠道健康、曝光转化和价格力判断', className: 'bg-gray-50 text-gray-500 border-gray-200' },
-                { name: '日报数据', status: dailyReports.value.length ? '已同步' : '未同步', updatedAt: '--', impact: '会影响收益趋势、入住率与 RevPAR 判断', className: dailyReports.value.length ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200' },
                 { name: '竞对价格', status: '未同步', updatedAt: '--', impact: '会影响价格竞争、价差和调价建议判断', className: 'bg-gray-50 text-gray-500 border-gray-200' },
                 { name: '天气/日期因子', status: compassWeather.value.length ? '已同步' : '未同步', updatedAt: '--', impact: '会影响需求变化、取消率与节假日策略判断', className: compassWeather.value.length ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200' }
             ]);
@@ -12183,7 +11117,6 @@
                 }));
             });
             const homeQuickEntries = [
-                { title: '数据中心', desc: '查看经营数据', page: 'daily-reports', icon: 'fas fa-database' },
                 { title: '线上数据获取', desc: '同步 OTA 数据', page: 'online-data', icon: 'fas fa-cloud-download-alt' },
                 { title: '竞对价格监控', desc: '查看价格变化', page: 'competitor', icon: 'fas fa-tags' },
                 { title: 'Agent中心', desc: '生成经营建议', page: 'agent-center', icon: 'fas fa-robot' },
@@ -12897,20 +11830,10 @@
                 },
                 { name: systemConfig.value.menu_hotel_name || '门店管理', path: 'hotels', icon: 'fas fa-hotel', configKey: 'menu_hotel_name', requireSuper: false, permissions: [] },
                 { 
-                    name: '数据中心', 
-                    icon: 'fas fa-chart-bar', 
-                    requireManager: true, 
-                    permissions: [],
-                    children: [
-                        { name: systemConfig.value.menu_daily_report_name || '日报表', path: 'daily-reports', icon: 'fas fa-calendar-day', configKey: 'menu_daily_report_name' },
-                        { name: systemConfig.value.menu_monthly_task_name || '月任务', path: 'monthly-tasks', icon: 'fas fa-calendar-alt', configKey: 'menu_monthly_task_name' }
-                    ]
-                },
-                { 
                     name: '线上数据获取', 
                     icon: 'fas fa-cloud-download-alt', 
                     requireSuper: false, 
-                    permissions: ['can_view_report'],
+                    permissions: ['can_view_online_data'],
                     children: [
                         { name: '携程ebooking', path: 'ctrip-ebooking', icon: 'fas fa-plane' },
                         { name: '美团ebooking', path: 'meituan-ebooking', icon: 'fas fa-store' }
@@ -12935,7 +11858,6 @@
                     requireSuper: true, 
                     permissions: [],
                     children: [
-                        { name: '报表配置', path: 'report-config', icon: 'fas fa-file-alt' },
                         { name: '系统配置', path: 'system-config', icon: 'fas fa-sliders-h' },
                         { name: '数据配置', path: 'data-config', icon: 'fas fa-database' }
                     ]
@@ -13056,20 +11978,6 @@
             const allPermissions = ref([]);
             const showRoleModal = ref(false);
             const roleForm = ref({ id: null, name: '', display_name: '', description: '', level: 1, status: 1, permissionList: [] });
-            const dailyReports = ref([]);
-            const monthlyTasks = ref([]);
-            const reportConfigs = ref([]);
-            const dailyReportConfig = ref([]); // 日报表动态配置（按分类分组）
-            const dailyReportTab = ref('tab1'); // 日报表当前标签页
-            const monthlyTaskConfig = ref([]); // 月任务动态配置
-            
-            // 导入预览数据
-            const importPreviewData = ref(null);
-            const showImportPreview = ref(false);
-            const importStep = ref(1); // 1: 选择文件, 2: 预览映射, 3: 确认导入
-            const manualMappings = ref({}); // 手动映射 { excel_item_name: system_field }
-            const rowMappings = ref({}); // 行级映射 { excel_item_name: system_field }
-            const existingMappings = ref({}); // 已存在的映射 { excel_item_name: system_field }
 
             // 搜索和过滤
             const searchHotel = ref('');
@@ -13077,59 +11985,12 @@
             const searchUser = ref('');
             const filterUserRoleId = ref('');
             const filterReportHotel = ref('');
-            const filterReportStartDate = ref('');
-            const filterReportEndDate = ref('');
-            const filterTaskHotel = ref('');
-            const filterTaskYear = ref('');
-            const filterConfigType = ref('');
-
-            // 权限计算属性
-            const canViewReport = computed(() => user.value?.is_super_admin || user.value?.permissions?.can_view_report);
-            const canFillDailyReport = computed(() => user.value?.is_super_admin || user.value?.permissions?.can_fill_daily_report);
-            const canFillMonthlyTask = computed(() => user.value?.is_super_admin || user.value?.permissions?.can_fill_monthly_task);
-            const canEditReport = computed(() => user.value?.is_super_admin || user.value?.permissions?.can_edit_report);
-            const canDeleteReport = computed(() => user.value?.is_super_admin || user.value?.permissions?.can_delete_report);
-
-            // 导出状态
-            const exportingReports = ref(false);
-            const currentViewingReportId = ref(null);
-
-            // 过滤后的报表配置
-            const filteredReportConfigs = computed(() => {
-                if (!filterConfigType.value) return reportConfigs.value;
-                return reportConfigs.value.filter(c => c.report_type === filterConfigType.value);
-            });
-
-            // 字段类型标签
-            const getFieldTypeLabel = (type) => {
-                const labels = { number: '数字', text: '文本', textarea: '多行文本', select: '下拉选择', date: '日期' };
-                return labels[type] || type;
-            };
-
-            // 年份选项
-            const yearOptions = computed(() => {
-                const years = [];
-                const currentYear = new Date().getFullYear();
-                for (let i = currentYear - 2; i <= currentYear + 1; i++) years.push(i);
-                return years;
-            });
-
-            // 昨天日期（用于日报日期限制）
-            const yesterdayDate = computed(() => {
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1);
-                return yesterday.toISOString().split('T')[0];
-            });
 
             // 模态框
             const showHotelModal = ref(false);
             const showUserModal = ref(false);
             const showPermissionModal = ref(false);
-            const showDailyReportModal = ref(false);
-            const showMonthlyTaskModal = ref(false);
-            const showReportConfigModal = ref(false);
             const showSystemConfigModal = ref(false);
-            const showViewReportModal = ref(false);
             const showDataConfigModal = ref(false);
             
             // 数据配置
@@ -13175,24 +12036,9 @@
                 time_unit: 'day',
             });
             
-            // 日报表查看
-            const viewReportData = ref(null);
-            const viewReportLoading = ref(false);
-            const reportContentRef = ref(null);
-            
-            // 导入相关
-            const importFileInput = ref(null);
-            const importModalFileInput = ref(null);
-            const importStatus = ref({ show: false, type: '', message: '' });
-            const importingExcel = ref(false);
-            const importedFromFile = ref(false); // 标记是否从文件导入（用于锁定日期和酒店）
-
             // 表单
             const hotelForm = ref({ id: null, name: '', code: '', address: '', contact_person: '', contact_phone: '', status: 1, description: '' });
             const userForm = ref({ id: null, username: '', password: '', realname: '', role_id: '', hotel_id: null, status: 1 });
-            const dailyReportForm = ref({ id: null, hotel_id: '', report_date: '' }); // 动态字段将在初始化时添加
-            const monthlyTaskForm = ref({ id: null, hotel_id: '', year: new Date().getFullYear(), month: new Date().getMonth() + 1 }); // 动态字段将在初始化时添加
-            const reportConfigForm = ref({ id: null, report_type: 'daily', field_name: '', display_name: '', field_type: 'number', unit: '', options: '', sort_order: 0, is_required: 0, status: 1 });
             const systemConfigForm = ref({ 
                 system_name: '', 
                 logo_url: '', 
@@ -13201,9 +12047,6 @@
                 system_keywords: '',
                 menu_hotel_name: '', 
                 menu_users_name: '', 
-                menu_daily_report_name: '', 
-                menu_monthly_task_name: '', 
-                menu_report_config_name: '',
                 menu_compass_name: '',
                 menu_online_data_name: '',
                 theme: 'light',
@@ -13231,9 +12074,7 @@
                 notify_email_server: '',
                 notify_email_port: '587',
                 notify_email_user: '',
-                notify_email_pass: '',
-                notify_daily_report: '0',
-                notify_monthly_task: '0'
+                notify_email_pass: ''
             });
             
             // 配置分组
@@ -13251,9 +12092,6 @@
             const menuConfigItems = ref([
                 { key: 'menu_hotel_name', label: '酒店管理' },
                 { key: 'menu_users_name', label: '用户管理' },
-                { key: 'menu_daily_report_name', label: '日报表管理' },
-                { key: 'menu_monthly_task_name', label: '月任务管理' },
-                { key: 'menu_report_config_name', label: '报表配置' },
                 { key: 'menu_compass_name', label: '罗盘' },
                 { key: 'menu_online_data_name', label: '竞对价格监控' }
             ]);
@@ -13442,51 +12280,6 @@
                 if (res.code === 200) roles.value = res.data;
             };
 
-            const loadDailyReports = async () => {
-                let url = '/daily-reports?page=1&page_size=100';
-                // 酒店ID：优先使用选择的酒店，单门店用户自动使用其唯一酒店
-                let hotelId = filterReportHotel.value;
-                if (!hotelId && !user.value.is_super_admin && permittedHotels.value.length === 1) {
-                    hotelId = permittedHotels.value[0].id;
-                }
-                if (hotelId) url += '&hotel_id=' + hotelId;
-                if (filterReportStartDate.value) url += '&start_date=' + filterReportStartDate.value;
-                if (filterReportEndDate.value) url += '&end_date=' + filterReportEndDate.value;
-                const res = await request(url);
-                if (res.code === 200) dailyReports.value = res.data.list || [];
-            };
-            
-            // 加载日报表配置
-            const loadDailyReportConfig = async () => {
-                const res = await request('/daily-reports/config');
-                if (res.code === 200) {
-                    dailyReportConfig.value = res.data || [];
-                    console.log('日报表配置加载完成:', dailyReportConfig.value.length, '个分类');
-                }
-            };
-            
-            // 加载月任务配置
-            const loadMonthlyTaskConfig = async () => {
-                const res = await request('/monthly-tasks/config');
-                if (res.code === 200) {
-                    monthlyTaskConfig.value = res.data || [];
-                    console.log('月任务配置加载完成:', monthlyTaskConfig.value.length, '个配置项');
-                }
-            };
-
-            const loadMonthlyTasks = async () => {
-                let url = '/monthly-tasks?page=1&page_size=100';
-                // 酒店ID：优先使用选择的酒店，单门店用户自动使用其唯一酒店
-                let hotelId = filterTaskHotel.value;
-                if (!hotelId && !user.value.is_super_admin && permittedHotels.value.length === 1) {
-                    hotelId = permittedHotels.value[0].id;
-                }
-                if (hotelId) url += '&hotel_id=' + hotelId;
-                if (filterTaskYear.value) url += '&year=' + filterTaskYear.value;
-                const res = await request(url);
-                if (res.code === 200) monthlyTasks.value = res.data.list || [];
-            };
-
             const loadUserInfo = async () => {
                 const res = await request('/auth/info');
                 if (res.code === 200) {
@@ -13494,15 +12287,8 @@
                     permittedHotels.value = res.data.permitted_hotels || [];
                     // 单门店用户自动选择其唯一的酒店
                     if (!user.value.is_super_admin && permittedHotels.value.length === 1) {
-                        filterReportHotel.value = permittedHotels.value[0].id;
-                        filterTaskHotel.value = permittedHotels.value[0].id;
                     }
                 }
-            };
-
-            const loadReportConfigs = async () => {
-                const res = await request('/report-configs?page=1&page_size=100');
-                if (res.code === 200) reportConfigs.value = res.data.list || [];
             };
 
             // 操作日志相关
@@ -16756,8 +15542,6 @@
             };
 
             const loadData = async () => {
-                await loadDailyReportConfig(); // 先加载日报表配置，必须等待完成
-                await loadMonthlyTaskConfig(); // 加载月任务配置
                 loadHotels();
                 loadRoles();
                 loadUserInfo();
@@ -16768,11 +15552,8 @@
                     loadUsers();
                 }
                 if (user.value?.is_super_admin) {
-                    loadReportConfigs();
                     loadRolesList(); // 加载角色列表
                 }
-                loadDailyReports();
-                loadMonthlyTasks();
                 loadCompassData();
             };
 
@@ -17055,11 +15836,6 @@
                 if (!perm) {
                     perm = {
                         hotel_id: hotelId,
-                        can_view_report: 0,
-                        can_fill_daily_report: 0,
-                        can_fill_monthly_task: 0,
-                        can_edit_report: 0,
-                        can_delete_report: 0,
                         can_view_online_data: 0,
                         can_fetch_online_data: 0,
                         can_delete_online_data: 0,
@@ -17080,11 +15856,6 @@
                 } else {
                     userPermissions.value.push({
                         hotel_id: hotelId,
-                        can_view_report: 1,
-                        can_fill_daily_report: 1,
-                        can_fill_monthly_task: 1,
-                        can_edit_report: 0,
-                        can_delete_report: 0,
                         can_view_online_data: 1,
                         can_fetch_online_data: 0,
                         can_delete_online_data: 0,
@@ -17096,766 +15867,6 @@
             const savePermissions = async () => {
                 showToast('权限已从角色继承，无需单独设置', 'info');
                 showPermissionModal.value = false;
-            };
-
-            // 日报表操作
-            const openDailyReportModal = async (report = null) => {
-                // 重置导入状态
-                importedFromFile.value = false;
-                importStatus.value = { show: false, type: '', message: '' };
-                
-                // 如果配置未加载，先加载配置
-                if (dailyReportConfig.value.length === 0) {
-                    await loadDailyReportConfig();
-                }
-                
-                if (report) {
-                    // 编辑时，合并报表数据
-                    dailyReportForm.value = { 
-                        id: report.id, 
-                        hotel_id: report.hotel_id, 
-                        report_date: report.report_date,
-                        ...(report.report_data || {})
-                    };
-                } else {
-                    // 新增时，初始化所有字段为0
-                    const yesterday = new Date();
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    const formData = { 
-                        id: null, 
-                        hotel_id: permittedHotels.value.length === 1 ? permittedHotels.value[0].id : '', 
-                        report_date: yesterday.toISOString().split('T')[0]
-                    };
-                    // 初始化所有配置字段为0
-                    dailyReportConfig.value.forEach(category => {
-                        category.items.forEach(item => {
-                            formData[item.field_name] = 0;
-                        });
-                    });
-                    dailyReportForm.value = formData;
-                }
-                console.log('打开日报表弹窗，配置项数量:', dailyReportConfig.value.length);
-                dailyReportTab.value = 'tab1'; // 重置到第一个标签页
-                showDailyReportModal.value = true;
-            };
-
-            const saveDailyReport = async () => {
-                const isEdit = !!dailyReportForm.value.id;
-                const url = isEdit ? `/daily-reports/${dailyReportForm.value.id}` : '/daily-reports';
-                const method = isEdit ? 'PUT' : 'POST';
-                const res = await request(url, { method, body: JSON.stringify(dailyReportForm.value) });
-                if (res.code === 200) {
-                    showToast(isEdit ? '更新成功' : '创建成功');
-                    showDailyReportModal.value = false;
-                    loadDailyReports();
-                } else {
-                    showToast(res.message || '操作失败', 'error');
-                }
-            };
-
-            const deleteDailyReport = async (report) => {
-                if (!confirm(`确定要删除该日报表吗？`)) return;
-                const res = await request(`/daily-reports/${report.id}`, { method: 'DELETE' });
-                if (res.code === 200) {
-                    showToast('删除成功');
-                    loadDailyReports();
-                } else {
-                    showToast(res.message || '删除失败', 'error');
-                }
-            };
-            
-            // 导入Excel相关函数
-            const triggerImportExcel = () => {
-                importFileInput.value?.click();
-            };
-            
-            const triggerImportInModal = () => {
-                importModalFileInput.value?.click();
-            };
-            
-            const handleImportExcel = async (event) => {
-                const file = event.target.files[0];
-                if (!file) return;
-                
-                // 打开日报表填写模态框
-                await openDailyReportModal();
-                
-                // 执行导入
-                await doImportExcel(file);
-                
-                // 清空文件输入
-                event.target.value = '';
-            };
-            
-            const handleImportInModal = async (event) => {
-                const file = event.target.files[0];
-                if (!file) return;
-                
-                await doImportExcel(file);
-                
-                // 清空文件输入
-                event.target.value = '';
-            };
-            
-            const doImportExcel = async (file) => {
-                importingExcel.value = true;
-                importStatus.value = { show: true, type: 'info', message: '正在解析Excel文件...' };
-                
-                try {
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    
-                    const response = await fetch(`${API_BASE}/daily-reports/parse-import`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${token.value}`
-                        },
-                        body: formData
-                    });
-                    
-                    const text = await response.text();
-                    let res = null;
-                    if (text) {
-                        try {
-                            res = JSON.parse(text);
-                        } catch (err) {
-                            throw new Error('导入失败：服务端返回非JSON内容');
-                        }
-                    }
-                    if (!res) {
-                        throw new Error(`导入失败：服务端无响应内容（HTTP ${response.status}）`);
-                    }
-                    console.log('后端返回:', res);
-                    
-                    if (res.code === 200 && res.data) {
-                        const data = res.data;
-                        
-                        // 存储预览数据
-                        importPreviewData.value = data;
-                        
-                        // 打印完整调试信息
-                        console.log('=== Excel导入调试信息 ===');
-                        console.log('酒店名:', data.hotel_name);
-                        console.log('日期:', data.report_date);
-                        console.log('已匹配字段数:', data.matched_count);
-                        console.log('未匹配项目数:', data.unmatched_count);
-                        console.log('mapped_data:', data.mapped_data);
-                        
-                        // 标记为从文件导入（锁定日期和酒店）
-                        importedFromFile.value = true;
-                        
-                        // 设置酒店ID（根据酒店名称匹配）
-                        if (data.hotel_name) {
-                            const hotel = permittedHotels.value.find(h => 
-                                h.name === data.hotel_name || 
-                                h.name.includes(data.hotel_name) || 
-                                data.hotel_name.includes(h.name)
-                            );
-                            if (hotel) {
-                                dailyReportForm.value.hotel_id = hotel.id;
-                                console.log('匹配到酒店:', hotel.name, 'ID:', hotel.id);
-                            } else {
-                                console.warn('未匹配到酒店:', data.hotel_name, '已有酒店:', permittedHotels.value.map(h => h.name));
-                            }
-                        }
-                        
-                        // 设置日期
-                        if (data.report_date) {
-                            dailyReportForm.value.report_date = data.report_date;
-                        }
-                        
-                        // 填充报表数据
-                        const reportData = data.mapped_data || {};
-                        console.log('导入数据 mapped_data:', reportData);
-                        
-                        // 初始化映射状态
-                        existingMappings.value = {};
-                        rowMappings.value = {};
-                        
-                        // 从API返回的映射配置构建已映射关系
-                        if (data.field_mappings) {
-                            data.field_mappings.forEach(m => {
-                                if (reportData[m.system_field] !== undefined) {
-                                    existingMappings.value[m.excel_item_name] = m.system_field;
-                                }
-                            });
-                        }
-                        
-                        // 直接遍历赋值
-                        Object.keys(reportData).forEach(key => {
-                            dailyReportForm.value[key] = reportData[key];
-                        });
-                        
-                        // 强制刷新视图
-                        const temp = dailyReportForm.value;
-                        dailyReportForm.value = { ...temp };
-                        
-                        console.log('导入后表单:', dailyReportForm.value);
-                        
-                        // 构建状态消息
-                        const fieldCount = data.matched_count || Object.keys(reportData).length;
-                        const unmatchedCount = data.unmatched_count || 0;
-                        
-                        let msg = `导入成功！酒店: ${data.hotel_name || '待选择'}, 日期: ${data.report_date || '待填写'}`;
-                        msg += `, 已填充 ${fieldCount} 个字段`;
-                        if (unmatchedCount > 0) {
-                            msg += ` (${unmatchedCount} 项未匹配)`;
-                        }
-                        
-                        importStatus.value = { 
-                            show: true, 
-                            type: fieldCount > 0 ? 'success' : 'warning', 
-                            message: msg
-                        };
-                        
-                        // 如果有未匹配项，加载系统字段选项供手动映射
-                        if (unmatchedCount > 0 && systemFieldOptions.value.length === 0) {
-                            await loadSystemFieldOptions();
-                        }
-                        
-                        // 8秒后隐藏提示
-                        setTimeout(() => {
-                            importStatus.value.show = false;
-                        }, 8000);
-                    } else {
-                        importStatus.value = { 
-                            show: true, 
-                            type: 'error', 
-                            message: res.message || '解析失败，请检查文件格式' 
-                        };
-                    }
-                } catch (e) {
-                    console.error('导入失败:', e);
-                    importStatus.value = { 
-                        show: true, 
-                        type: 'error', 
-                        message: '导入失败：' + (e.message || '网络错误') 
-                    };
-                } finally {
-                    importingExcel.value = false;
-                }
-            };
-            
-            // 应用手动映射
-            const applyManualMapping = () => {
-                if (!importPreviewData.value) return;
-                
-                // 将手动映射应用到表单
-                Object.keys(manualMappings.value).forEach(excelItemName => {
-                    const systemField = manualMappings.value[excelItemName];
-                    if (systemField) {
-                        // 从未匹配项中找到值
-                        const item = importPreviewData.value.unmatched_items?.find(i => i.item_name === excelItemName);
-                        if (item) {
-                            // 解析值
-                            let value = item.value_today;
-                            if (typeof value === 'string' && value.includes('%')) {
-                                value = parseFloat(value.replace('%', '')) / 100;
-                            } else {
-                                value = parseFloat(value) || 0;
-                            }
-                            dailyReportForm.value[systemField] = value;
-                        }
-                    }
-                });
-                
-                // 清空手动映射
-                manualMappings.value = {};
-                showToast('手动映射已应用');
-            };
-            
-            // 获取映射状态
-            const getMappingStatus = (item) => {
-                if (!item || item.item_name === '项目') return '';
-                
-                // 检查是否在已有映射中
-                const existingField = existingMappings.value[item.item_name];
-                if (existingField) return 'mapped';
-                
-                // 检查是否在手动映射中
-                const manualField = rowMappings.value[item.item_name];
-                if (manualField) return 'manual';
-                
-                return '';
-            };
-            
-            // 处理映射变化
-            const onMappingChange = (item, event) => {
-                const newField = event.target.value;
-                if (newField) {
-                    rowMappings.value[item.item_name] = newField;
-                } else {
-                    delete rowMappings.value[item.item_name];
-                }
-            };
-            
-            // 应用所有映射
-            const applyAllMappings = () => {
-                if (!importPreviewData.value) return;
-                
-                // 合并已有映射和手动映射
-                const allMappings = { ...existingMappings.value, ...rowMappings.value };
-                let appliedCount = 0;
-                
-                importPreviewData.value.structured_data.forEach(item => {
-                    const systemField = allMappings[item.item_name];
-                    if (systemField && item.item_name !== '项目') {
-                        let value = item.value_today;
-                        if (typeof value === 'string' && value.includes('%')) {
-                            value = parseFloat(value.replace('%', '')) / 100;
-                        } else {
-                            value = parseFloat(value) || 0;
-                        }
-                        dailyReportForm.value[systemField] = value;
-                        appliedCount++;
-                    }
-                });
-                
-                // 更新已有映射
-                Object.assign(existingMappings.value, rowMappings.value);
-                rowMappings.value = {};
-                
-                showToast(`已应用 ${appliedCount} 个字段映射`);
-            };
-            
-            // 保存为新映射配置
-            const saveAsMappingConfig = async () => {
-                const newMappings = Object.entries(rowMappings.value).filter(([_, field]) => field);
-                if (newMappings.length === 0) {
-                    showToast('请先选择要保存的映射', 'error');
-                    return;
-                }
-                
-                if (!confirm(`确定要将 ${newMappings.length} 个映射保存为配置吗？`)) return;
-                
-                try {
-                    const mappings = newMappings.map(([excelName, systemField]) => ({
-                        excel_item_name: excelName,
-                        system_field: systemField,
-                        field_type: 'number',
-                        value_column: 'E',
-                        is_active: 1
-                    }));
-                    
-                    const res = await request('/field-mappings/batchUpdate', {
-                        method: 'POST',
-                        body: JSON.stringify({ mappings })
-                    });
-                    
-                    if (res.code === 200) {
-                        showToast(`保存成功：新建 ${res.data.created} 条，更新 ${res.data.updated} 条`);
-                        // 更新已有映射
-                        Object.assign(existingMappings.value, rowMappings.value);
-                        rowMappings.value = {};
-                    } else {
-                        showToast(res.message || '保存失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('保存失败：' + e.message, 'error');
-                }
-            };
-
-            // 查看日报表详情
-            const viewDailyReport = async (report) => {
-                showViewReportModal.value = true;
-                viewReportLoading.value = true;
-                viewReportData.value = null;
-                if (report?.id) {
-                    currentViewingReportId.value = report.id;
-                }
-                
-                try {
-                    const res = await request(`/daily-reports/${report.id}/detail`);
-                    if (res.code === 200) {
-                        viewReportData.value = res.data;
-                        if (user.value?.is_super_admin) {
-                            viewMappingConfig.value = res.data.view_mapping?.config ? [...res.data.view_mapping.config] : [];
-                        }
-                    } else {
-                        showToast(res.message || '获取详情失败', 'error');
-                        showViewReportModal.value = false;
-                    }
-                } catch (e) {
-                    showToast('获取详情失败', 'error');
-                    showViewReportModal.value = false;
-                } finally {
-                    viewReportLoading.value = false;
-                }
-            };
-
-            // 复制日报表内容
-            const copyReportContent = () => {
-                if (!viewReportData.value) return;
-                
-                const d = viewReportData.value;
-                const content = `${d.hotel_name}
-${d.report_date}
-总房间数: ${d.total_rooms}间 （可售：${d.salable_rooms}维修：${d.maintenance_rooms}）
-一、销售业绩 ：
-1、月营收总目标:  ${d.month_revenue_target}元
-2、月累计完成营收:${d.month_revenue}元 （房费收入: ${d.month_room_revenue}元+其它收入:${d.month_other_revenue}元）当期差额:${d.month_revenue_diff}元
-3、月当期完成率:${d.month_complete_rate}%
-4、日营收当期目标:${d.day_revenue_target}元
-5、日实际完成营收:${d.day_revenue}元（房费收入${d.day_room_revenue}元+其它收入:${d.day_other_revenue}元），当日差额:${d.day_revenue_diff}元
-6、月综合出租率:${d.month_occ_rate}%
-7、日综合出租率:${d.day_occ_rate}%
-8、日过夜出租率:${d.day_overnight_occ_rate}%
-9、日出租总数:${d.day_total_rooms}间 （过夜房:${d.day_overnight_rooms}间,非过夜房:0间,钟点房:${d.day_hourly_rooms}间）
-10、月均价:${d.month_adr}元
-11、日均价:${d.day_adr}元
-12、过夜均价:${d.overnight_adr}元
-13、月Revpar:${d.month_revpar}元
-14、日Revpar:${d.day_revpar}元
-15、当日储值金额:${d.day_stored_value}元
-16、当月储值金额:${d.month_stored_value}元
-二、客源结构  ：   
-17、会员:${d.member_count}
-18、协议: ${d.protocol_count}
-19、散客:${d.walkin_count}
-20、团队: ${d.group_count}
-21、OTA总量:${d.ota_total_rooms}间,（美团${d.mt_rooms}间、携程${d.xb_rooms}间、同程${d.tc_rooms}间、去哪儿${d.qn_rooms}间、智行${d.zx_rooms}间、飞猪${d.fliggy_rooms}间）
-22、微信:${d.wechat_count}单 ，抖音:${d.dy_count}单
-23、会员体验价:${d.member_exp_rooms}
-24、网络体验价:${d.web_exp_rooms}
-25、本日免费房数:${d.free_rooms}间
-三、直销指标:
-26、日新增会员:${d.day_new_member}个
-27、月新增会员目标：${d.month_new_member_target}个；现完成：${d.month_new_member}个 当期差额:${d.month_member_diff}个
-28、日微信加粉:完成${d.day_wechat_add}个；
-29、月微信加粉目标：${d.month_wechat_target}个，实际完成${d.month_wechat_add}个；当期差额:${d.month_wechat_diff}个
-32、日私域流量：${d.day_private_rooms}单；营收:${d.day_private_revenue}元；
-33、月私域流量：${d.month_private_rooms}单，营收:${d.month_private_revenue}元；占比总营收:${d.private_rate}%
-四、OTA渠道评分值：
-34、日点评新增：${d.day_good_review}好评条；${d.day_bad_review}差评条
-35、月点评新增：${d.month_good_review}好评条；${d.month_bad_review}差评条
-五、免费房数：
-36、本月免费房总数:${d.month_free_rooms}间
-六、明日预订数量: ${d.tomorrow_booking}
-七、今日现金收入: ${d.day_cash_income}
-八、当月累计现金余额: ${d.month_cash_income}`;
-
-                navigator.clipboard.writeText(content).then(() => {
-                    showToast('复制成功！');
-                }).catch(() => {
-                    // 降级方案
-                    const textarea = document.createElement('textarea');
-                    textarea.value = content;
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textarea);
-                    showToast('复制成功！');
-                });
-            };
-
-            // 导出日报表（批量）
-            const exportDailyReports = async () => {
-                if (!filterReportStartDate.value || !filterReportEndDate.value) {
-                    showToast('请选择日期范围', 'error');
-                    return;
-                }
-                
-                exportingReports.value = true;
-                
-                try {
-                    const params = new URLSearchParams({
-                        start_date: filterReportStartDate.value,
-                        end_date: filterReportEndDate.value,
-                    });
-                    
-                    // 酒店ID：优先使用选择的酒店，单门店用户自动使用其唯一酒店
-                    let hotelId = filterReportHotel.value;
-                    if (!hotelId && !user.value.is_super_admin && permittedHotels.value.length === 1) {
-                        hotelId = permittedHotels.value[0].id;
-                    }
-                    if (hotelId) {
-                        params.append('hotel_id', hotelId);
-                    }
-                    
-                    // 使用fetch下载文件
-                    const response = await fetch(`${API_BASE}/daily-reports/export?${params.toString()}`, {
-                        headers: {
-                            'Authorization': `Bearer ${token.value}`
-                        }
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error('导出失败');
-                    }
-                    
-                    // 获取文件名
-                    const contentDisposition = response.headers.get('Content-Disposition');
-                    let filename = '日报表汇总.xlsx';
-                    if (contentDisposition) {
-                        const match = contentDisposition.match(/filename="?([^"]+)"?/);
-                        if (match) {
-                            filename = decodeURIComponent(match[1]);
-                        }
-                    }
-                    
-                    // 下载文件
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                    
-                    showToast('导出成功！');
-                } catch (e) {
-                    showToast('导出失败: ' + e.message, 'error');
-                } finally {
-                    exportingReports.value = false;
-                }
-            };
-
-            // 导出单个日报表
-            const exportSingleReport = async (report) => {
-                try {
-                    const response = await fetch(`${API_BASE}/daily-reports/export?id=${report.id}`, {
-                        headers: {
-                            'Authorization': `Bearer ${token.value}`
-                        }
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error('导出失败');
-                    }
-                    
-                    // 获取文件名
-                    const contentDisposition = response.headers.get('Content-Disposition');
-                    let filename = `日报表_${report.hotel?.name || ''}_${report.report_date}.xlsx`;
-                    if (contentDisposition) {
-                        const match = contentDisposition.match(/filename="?([^"]+)"?/);
-                        if (match) {
-                            filename = decodeURIComponent(match[1]);
-                        }
-                    }
-                    
-                    // 下载文件
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                    
-                    showToast('导出成功！');
-                } catch (e) {
-                    showToast('导出失败: ' + e.message, 'error');
-                }
-            };
-
-            // 从详情弹窗导出当前查看的报表
-            const exportViewedReport = async () => {
-                if (!viewReportData.value) return;
-                
-                // 从当前查看的数据中获取报表ID
-                const report = dailyReports.value.find(r => 
-                    r.report_date === viewReportData.value.report_date && 
-                    r.hotel?.name === viewReportData.value.hotel_name
-                );
-                
-                if (report) {
-                    await exportSingleReport(report);
-                } else {
-                    showToast('无法找到对应报表', 'error');
-                }
-            };
-
-            // 日报查看映射（仅超管）
-            const viewMappingConfig = ref([]);
-            const viewMappingSaving = ref(false);
-            const showViewMappingModal = ref(false);
-            const viewMappingTab = ref('sales');
-            const viewMappingProjectOptions = computed(() => {
-                const names = [];
-                const addName = (n) => {
-                    const name = (n || '').trim();
-                    if (name && !names.includes(name)) names.push(name);
-                };
-                // 已保存的查看项目
-                viewMappingConfig.value.forEach(item => addName(item.name));
-                // 当前查看返回的项目
-                const serverConfig = viewReportData.value?.view_mapping?.config || [];
-                serverConfig.forEach(item => addName(item.name));
-                return names;
-            });
-            const viewMappingFieldOptions = computed(() => {
-                return viewReportData.value?.view_mapping_sources || { report: [], task: [], month: [], calc: [] };
-            });
-
-            const viewMappingCategories = [
-                { id: 'sales', label: '销售业绩' },
-                { id: 'guest', label: '客源结构' },
-                { id: 'direct', label: '直销指标' },
-                { id: 'review', label: '点评新增' },
-                { id: 'free', label: '免费房数' },
-                { id: 'booking', label: '明日预订' },
-                { id: 'cash', label: '现金' },
-                { id: 'other', label: '其他' },
-            ];
-            const getViewMappingCategory = (name) => {
-                if (!name) return 'other';
-                if (/营收|出租率|Revpar|均价|储值|收入|营收/.test(name)) return 'sales';
-                if (/会员|协议|散客|团队|OTA总量|微信|体验价|免费房数/.test(name)) return 'guest';
-                if (/新增会员|微信加粉|私域/.test(name)) return 'direct';
-                if (/点评新增|好评|差评/.test(name)) return 'review';
-                if (/免费房总数/.test(name)) return 'free';
-                if (/明日预订/.test(name)) return 'booking';
-                if (/现金/.test(name)) return 'cash';
-                return 'other';
-            };
-            const viewMappingFilteredIndexes = computed(() => {
-                return viewMappingConfig.value
-                    .map((item, idx) => ({ item, idx }))
-                    .filter(({ item }) => getViewMappingCategory(item.name) === viewMappingTab.value)
-                    .map(({ idx }) => idx);
-            });
-
-            const addViewMappingRow = () => {
-                viewMappingConfig.value.push({ name: '', source: 'report', field: '', formula: '' });
-            };
-            const removeViewMappingRow = (index) => {
-                viewMappingConfig.value.splice(index, 1);
-            };
-            const openViewMappingModal = () => {
-                if (!user.value?.is_super_admin) return;
-                showViewMappingModal.value = true;
-            };
-            const saveViewMappingConfig = async () => {
-                if (!user.value?.is_super_admin) return;
-                viewMappingSaving.value = true;
-                try {
-                    const res = await request('/daily-reports/view-mapping', {
-                        method: 'POST',
-                        body: JSON.stringify({ mapping: viewMappingConfig.value })
-                    });
-                    if (res.code === 200) {
-                        showToast('映射配置已保存');
-                        if (currentViewingReportId.value) {
-                            await viewDailyReport({ id: currentViewingReportId.value });
-                        }
-                    } else {
-                        showToast(res.message || '保存失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('保存失败：' + e.message, 'error');
-                } finally {
-                    viewMappingSaving.value = false;
-                }
-            };
-
-            // 月任务操作
-            const openMonthlyTaskModal = async (task = null) => {
-                // 如果配置未加载，先加载配置
-                if (monthlyTaskConfig.value.length === 0) {
-                    await loadMonthlyTaskConfig();
-                }
-                
-                if (task) {
-                    // 编辑时，合并任务数据
-                    monthlyTaskForm.value = { 
-                        id: task.id, 
-                        hotel_id: task.hotel_id, 
-                        year: task.year, 
-                        month: task.month,
-                        ...(task.task_data || {})
-                    };
-                } else {
-                    // 新增时，初始化所有字段为0
-                    const now = new Date();
-                    const formData = { 
-                        id: null, 
-                        hotel_id: permittedHotels.value.length === 1 ? permittedHotels.value[0].id : '', 
-                        year: now.getFullYear(), 
-                        month: now.getMonth() + 1
-                    };
-                    // 初始化所有配置字段为0
-                    monthlyTaskConfig.value.forEach(item => {
-                        formData[item.field_name] = 0;
-                    });
-                    monthlyTaskForm.value = formData;
-                }
-                console.log('打开月任务弹窗，配置项数量:', monthlyTaskConfig.value.length);
-                showMonthlyTaskModal.value = true;
-            };
-
-            const saveMonthlyTask = async () => {
-                const isEdit = !!monthlyTaskForm.value.id;
-                const url = isEdit ? `/monthly-tasks/${monthlyTaskForm.value.id}` : '/monthly-tasks';
-                const method = isEdit ? 'PUT' : 'POST';
-                const res = await request(url, { method, body: JSON.stringify(monthlyTaskForm.value) });
-                if (res.code === 200) {
-                    showToast(isEdit ? '更新成功' : '创建成功');
-                    showMonthlyTaskModal.value = false;
-                    loadMonthlyTasks();
-                } else {
-                    showToast(res.message || '操作失败', 'error');
-                }
-            };
-
-            const deleteMonthlyTask = async (task) => {
-                if (!confirm(`确定要删除该月任务吗？`)) return;
-                const res = await request(`/monthly-tasks/${task.id}`, { method: 'DELETE' });
-                if (res.code === 200) {
-                    showToast('删除成功');
-                    loadMonthlyTasks();
-                } else {
-                    showToast(res.message || '删除失败', 'error');
-                }
-            };
-
-            // 报表配置操作
-            const openReportConfigModal = (config = null) => {
-                if (config) {
-                    reportConfigForm.value = { ...config };
-                } else {
-                    reportConfigForm.value = { 
-                        id: null, 
-                        report_type: 'daily', 
-                        field_name: '', 
-                        display_name: '', 
-                        field_type: 'number', 
-                        unit: '', 
-                        options: '', 
-                        sort_order: 0, 
-                        is_required: 0, 
-                        status: 1 
-                    };
-                }
-                showReportConfigModal.value = true;
-            };
-
-            const saveReportConfig = async () => {
-                const isEdit = !!reportConfigForm.value.id;
-                const url = isEdit ? `/report-configs/${reportConfigForm.value.id}` : '/report-configs';
-                const method = isEdit ? 'PUT' : 'POST';
-                const res = await request(url, { method, body: JSON.stringify(reportConfigForm.value) });
-                if (res.code === 200) {
-                    showToast(isEdit ? '更新成功' : '创建成功');
-                    showReportConfigModal.value = false;
-                    loadReportConfigs();
-                } else {
-                    showToast(res.message || '操作失败', 'error');
-                }
-            };
-
-            const deleteReportConfig = async (config) => {
-                if (!confirm(`确定要删除配置项"${config.display_name}"吗？`)) return;
-                const res = await request(`/report-configs/${config.id}`, { method: 'DELETE' });
-                if (res.code === 200) {
-                    showToast('删除成功');
-                    loadReportConfigs();
-                } else {
-                    showToast(res.message || '删除失败', 'error');
-                }
             };
 
             // 系统配置操作
@@ -17887,9 +15898,6 @@ ${d.report_date}
                     system_keywords: '酒店管理,收益分析,数据分析',
                     menu_hotel_name: '酒店管理',
                     menu_users_name: '用户管理',
-                    menu_daily_report_name: '日报表管理',
-                    menu_monthly_task_name: '月任务管理',
-                    menu_report_config_name: '报表配置',
                     menu_compass_name: '罗盘',
                     menu_online_data_name: '竞对价格监控',
                     theme: 'light',
@@ -17917,9 +15925,7 @@ ${d.report_date}
                     notify_email_server: '',
                     notify_email_port: '587',
                     notify_email_user: '',
-                    notify_email_pass: '',
-                    notify_daily_report: '0',
-                    notify_monthly_task: '0'
+                    notify_email_pass: ''
                 };
                 
                 systemConfigForm.value = {
@@ -18115,7 +16121,6 @@ ${d.report_date}
                             // 单门店用户自动选择其唯一的酒店
                             if (!user.value.is_super_admin && permittedHotels.value.length === 1) {
                                 filterReportHotel.value = permittedHotels.value[0].id;
-                                filterTaskHotel.value = permittedHotels.value[0].id;
                             }
                             isLoggedIn.value = true;
                             loadData();
@@ -18133,8 +16138,6 @@ ${d.report_date}
             });
 
             // 监听过滤条件变化
-            watch([filterReportHotel, filterReportStartDate, filterReportEndDate], loadDailyReports);
-            watch([filterTaskHotel, filterTaskYear], loadMonthlyTasks);
 
             // AI 筹建管理状态：本地结构化数据，后续可直接替换为接口返回
             const aiProject = ref({
@@ -18629,12 +16632,9 @@ ${d.report_date}
                 isLoggedIn, loading, user, token, currentTime, currentPage, showPassword,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 expandedMenus, toggleSubmenu,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, dailyReports, monthlyTasks, reportConfigs, dailyReportConfig, dailyReportTab, monthlyTaskConfig,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles,
                 searchHotel, filterHotelStatus, searchUser, filterUserRoleId,
-                filterReportHotel, filterReportStartDate, filterReportEndDate,
-                filterTaskHotel, filterTaskYear, filterConfigType, yearOptions, yesterdayDate,
-                canViewReport, canFillDailyReport, canFillMonthlyTask, canEditReport, canDeleteReport,
-                filteredReportConfigs, getFieldTypeLabel,
+                filterReportHotel,
                 systemConfig, systemConfigForm, showSystemConfigModal,
                 activeConfigGroup, configGroups, menuConfigItems, featureSwitches,
                 showImportConfigModal, importConfigFile, importConfigPreview,
@@ -18642,14 +16642,8 @@ ${d.report_date}
                 // 数据配置
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, testingConfig, savingConfig, dataConfigForm,
                 openDataConfigModal, saveDataConfig, testDataConfig,
-                showHotelModal, showUserModal, showPermissionModal, showDailyReportModal, showMonthlyTaskModal, showReportConfigModal,
-                showViewReportModal, viewReportData, viewReportLoading, reportContentRef,
-                viewDailyReport, copyReportContent, exportDailyReports, exportSingleReport, exportViewedReport,
-                exportingReports, currentViewingReportId,
-                viewMappingConfig, viewMappingSaving, showViewMappingModal, addViewMappingRow, removeViewMappingRow, saveViewMappingConfig, openViewMappingModal,
-                viewMappingProjectOptions, viewMappingFieldOptions,
-                viewMappingTab, viewMappingCategories, viewMappingFilteredIndexes,
-                hotelForm, userForm, dailyReportForm, monthlyTaskForm, reportConfigForm,
+                showHotelModal, showUserModal, showPermissionModal,
+                hotelForm, userForm,
                 filteredHotels, filteredUsers,
                 permissionUser, userPermissions,
                 handleLogin, handleLogout, forgotPassword, showToast,
@@ -18657,14 +16651,6 @@ ${d.report_date}
                 openUserModal, saveUser, deleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
-                openDailyReportModal, saveDailyReport, deleteDailyReport,
-                triggerImportExcel, triggerImportInModal, handleImportExcel, handleImportInModal,
-                importFileInput, importModalFileInput, importStatus, importingExcel, importedFromFile,
-                importPreviewData, manualMappings, applyManualMapping,
-                rowMappings, existingMappings, getMappingStatus, onMappingChange,
-                applyAllMappings, saveAsMappingConfig,
-                openMonthlyTaskModal, saveMonthlyTask, deleteMonthlyTask,
-                openReportConfigModal, saveReportConfig, deleteReportConfig,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
                 onlineDataTab, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, bookmarkletCode,

@@ -1,0 +1,6 @@
+interface:
+  display_name: "宿析驾驶舱 UI"
+  short_description: "高级SaaS数据驾驶舱界面修改规则"
+  default_prompt: "Use $suxi-dashboard-ui to design or adjust a宿析OS dashboard view consistently."
+policy:
+  allow_implicit_invocation: true

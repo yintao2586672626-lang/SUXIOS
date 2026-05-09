@@ -375,3 +375,14 @@ php vendor/bin/phpunit --generate-configuration
 | `app/controller/OnlineData.php` | 携程/美团数据抓取核心逻辑 |
 | `app/controller/Agent.php` | AI Agent 核心逻辑 |
 | `.env` | 当前运行时配置 |
+
+---
+
+## Codex Skill 自动使用与安装规则
+
+1. 每次任务开始前，先按用户需求判断是否需要项目 Skill，优先检查 `.agents/skills/`。
+2. 已存在的项目 Skill 直接使用；缺失时优先创建宿析OS项目内 Skill。
+3. 只有明确属于官方 curated skill 时，才允许使用 `$skill-installer` 安装。
+4. 来源不明、与当前任务无关、只是“可能有用”的 Skill 不安装。
+5. 需要联网、外部权限或账号授权的 Skill，必须先说明风险并等待用户确认。
+6. 默认允许项目 Skill 隐式调用；只有明确不希望自动触发时，才在 `agents/openai.yaml` 设置 `policy.allow_implicit_invocation: false`。
