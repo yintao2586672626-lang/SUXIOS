@@ -1055,6 +1055,450 @@
             transition: box-shadow 0.3s ease, transform 0.2s ease;
         }
 
+        /* ============================================
+           宿析OS · 深海蓝银 AI酒店经营专家中台
+           Global visual unification layer
+           ============================================ */
+        :root {
+            --sx-bg: #f4f7fb;
+            --sx-bg-soft: #eef3f8;
+            --sx-sidebar: #102a4c;
+            --sx-sidebar-deep: #0b1f3a;
+            --sx-brand: #123a63;
+            --sx-blue: #2f80ed;
+            --sx-card: #ffffff;
+            --sx-card-soft: #f8fafc;
+            --sx-border: #d8e2ee;
+            --sx-border-soft: #e2e8f0;
+            --sx-title: #102033;
+            --sx-text: #334155;
+            --sx-muted: #7a8797;
+            --sx-radius: 0.75rem;
+            --sx-shadow: 0 10px 28px rgba(15, 42, 76, 0.06);
+            --sx-shadow-sm: 0 4px 14px rgba(15, 42, 76, 0.05);
+        }
+
+        body,
+        body.bg-gray-100,
+        .main-content,
+        main.flex-1 {
+            background: var(--sx-bg) !important;
+            color: var(--sx-text);
+        }
+
+        .login-bg {
+            background: #0b1f3a !important;
+        }
+        .login-bg::before {
+            background-image:
+                linear-gradient(rgba(216, 226, 238, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(216, 226, 238, 0.05) 1px, transparent 1px) !important;
+            opacity: 0.7;
+        }
+        .login-bg::after,
+        .login-glow-bottom,
+        .login-glow-purple {
+            background: radial-gradient(circle, rgba(47, 128, 237, 0.16) 0%, transparent 68%) !important;
+            filter: blur(90px) !important;
+            opacity: 0.7;
+        }
+        .login-card,
+        .vip-login-card {
+            background: rgba(248, 250, 252, 0.96) !important;
+            border: 1px solid rgba(216, 226, 238, 0.95) !important;
+            box-shadow: 0 24px 60px rgba(4, 18, 38, 0.28) !important;
+            color: var(--sx-title) !important;
+            backdrop-filter: blur(18px) saturate(140%) !important;
+        }
+        .login-card::before {
+            display: none !important;
+        }
+        .login-logo {
+            background: #123a63 !important;
+            border: 1px solid rgba(216, 226, 238, 0.8) !important;
+            box-shadow: 0 10px 24px rgba(15, 42, 76, 0.18) !important;
+            animation: none !important;
+        }
+        .login-title {
+            background: none !important;
+            -webkit-text-fill-color: var(--sx-title) !important;
+            color: var(--sx-title) !important;
+            text-shadow: none !important;
+            filter: none !important;
+            animation: none !important;
+        }
+        .login-slogan {
+            background: none !important;
+            -webkit-text-fill-color: var(--sx-muted) !important;
+            color: var(--sx-muted) !important;
+            animation: none !important;
+        }
+        .input-group .input-field {
+            background: #ffffff !important;
+            border-color: var(--sx-border) !important;
+            color: var(--sx-title) !important;
+            box-shadow: none !important;
+        }
+        .input-group .input-field:focus {
+            border-color: var(--sx-blue) !important;
+            box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.12) !important;
+            transform: none !important;
+        }
+        .btn-login,
+        .btn-primary,
+        .btn--primary,
+        .tab-btn-active {
+            background: var(--sx-brand) !important;
+            border: 1px solid var(--sx-brand) !important;
+            color: #ffffff !important;
+            box-shadow: 0 8px 18px rgba(18, 58, 99, 0.16) !important;
+        }
+        .btn-login:hover,
+        .btn-primary:hover,
+        .btn--primary:hover,
+        .tab-btn-active:hover {
+            background: #0f3156 !important;
+            box-shadow: 0 10px 22px rgba(18, 58, 99, 0.2) !important;
+            transform: none !important;
+        }
+
+        .sidebar {
+            background: linear-gradient(180deg, var(--sx-sidebar) 0%, var(--sx-sidebar-deep) 100%) !important;
+            box-shadow: inset -1px 0 0 rgba(216, 226, 238, 0.08);
+        }
+        .sidebar::before {
+            opacity: 0.15 !important;
+        }
+        .sidebar-item {
+            border-radius: 0.625rem !important;
+            color: rgba(248, 250, 252, 0.82);
+        }
+        .sidebar-item:hover {
+            background: rgba(47, 128, 237, 0.12) !important;
+            color: #ffffff !important;
+            transform: none !important;
+        }
+        .sidebar-item:hover i {
+            transform: none !important;
+            text-shadow: none !important;
+        }
+        .sidebar-item.active {
+            background: rgba(47, 128, 237, 0.18) !important;
+            color: #ffffff !important;
+            box-shadow: inset 3px 0 0 #2f80ed !important;
+        }
+        .sidebar-item.active::before {
+            display: none !important;
+        }
+        .sidebar-item i,
+        .text-blue-300 {
+            color: #8fb7e8 !important;
+        }
+        .user-avatar {
+            background: rgba(47, 128, 237, 0.22) !important;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.94) !important;
+            border-bottom: 1px solid var(--sx-border-soft) !important;
+            box-shadow: 0 1px 0 rgba(216, 226, 238, 0.72) !important;
+            backdrop-filter: blur(10px);
+        }
+        .header h1,
+        h1, h2, h3, h4 {
+            color: var(--sx-title);
+            letter-spacing: 0;
+        }
+
+        .page-enter {
+            background: var(--sx-bg) !important;
+        }
+        .card,
+        .bg-white.rounded-xl,
+        .bg-white.rounded-2xl,
+        .track-card,
+        .table-container {
+            background: var(--sx-card) !important;
+            border: 1px solid var(--sx-border-soft) !important;
+            border-radius: var(--sx-radius) !important;
+            box-shadow: var(--sx-shadow-sm) !important;
+        }
+        .card:hover,
+        .bg-white.rounded-xl:hover,
+        .bg-white.rounded-2xl:hover {
+            box-shadow: var(--sx-shadow) !important;
+            transform: none !important;
+        }
+        .bg-gray-50,
+        .bg-slate-50 {
+            background-color: var(--sx-card-soft) !important;
+        }
+        .border-gray-100,
+        .border-gray-200,
+        .border-slate-100,
+        .border-blue-100,
+        .border-indigo-100,
+        .border-purple-100 {
+            border-color: var(--sx-border-soft) !important;
+        }
+        .text-gray-900,
+        .text-gray-800 {
+            color: var(--sx-title) !important;
+        }
+        .text-gray-700,
+        .text-gray-600,
+        .text-slate-600 {
+            color: var(--sx-text) !important;
+        }
+        .text-gray-500,
+        .text-gray-400,
+        .text-slate-500 {
+            color: var(--sx-muted) !important;
+        }
+
+        .home-hero-panel,
+        .ai-page-hero,
+        .track-header {
+            background: linear-gradient(135deg, #102a4c 0%, #123a63 100%) !important;
+            border: 1px solid rgba(216, 226, 238, 0.18) !important;
+            box-shadow: 0 16px 36px rgba(16, 42, 76, 0.16) !important;
+        }
+        .home-hero-panel [class*="bg-purple"],
+        .home-hero-panel [class*="from-purple"],
+        .home-hero-panel [class*="to-purple"],
+        .ai-page-hero [class*="purple"],
+        .login-card [class*="purple"] {
+            background: rgba(47, 128, 237, 0.12) !important;
+            color: #dbeafe !important;
+        }
+        .home-hero-panel .hero-pill,
+        .home-hero-panel .hero-info-card {
+            background: rgba(248, 250, 252, 0.1) !important;
+            border-color: rgba(226, 232, 240, 0.2) !important;
+            box-shadow: none !important;
+        }
+
+        .kpi-card,
+        .metric-card,
+        .page-enter [class*="bg-gradient-to-br"][class*="rounded-xl"][class*="p-5"][class*="text-white"] {
+            background: #ffffff !important;
+            color: var(--sx-title) !important;
+            border: 1px solid var(--sx-border-soft) !important;
+            box-shadow: var(--sx-shadow-sm) !important;
+        }
+        .page-enter [class*="bg-gradient-to-br"][class*="rounded-xl"][class*="p-5"][class*="text-white"] * {
+            color: inherit !important;
+        }
+        .page-enter [class*="bg-gradient-to-br"][class*="rounded-xl"][class*="p-5"][class*="text-white"] .text-2xl,
+        .page-enter [class*="bg-gradient-to-br"][class*="rounded-xl"][class*="p-5"][class*="text-white"] .text-3xl {
+            color: var(--sx-title) !important;
+        }
+        .page-enter [class*="bg-gradient-to-br"][class*="rounded-xl"][class*="p-5"][class*="text-white"] .text-sm,
+        .page-enter [class*="bg-gradient-to-br"][class*="rounded-xl"][class*="p-5"][class*="text-white"] .text-xs {
+            color: var(--sx-muted) !important;
+        }
+
+        table thead,
+        thead.bg-gray-50,
+        tr.bg-gradient-to-b {
+            background: #eef3f8 !important;
+        }
+        th {
+            color: var(--sx-title) !important;
+            font-weight: 600 !important;
+            border-color: var(--sx-border-soft) !important;
+        }
+        td {
+            border-color: var(--sx-border-soft) !important;
+        }
+        tbody tr:hover {
+            background: #f0f7ff !important;
+        }
+
+        .badge,
+        [class*="badge-"] {
+            border-radius: 999px !important;
+            box-shadow: none !important;
+        }
+        .badge-info,
+        .bg-blue-100,
+        .bg-blue-50 {
+            background: #eaf4ff !important;
+            color: #1d4ed8 !important;
+            border-color: #cfe5ff !important;
+        }
+        .badge-success,
+        .bg-green-100,
+        .bg-green-50 {
+            background: #ecfdf3 !important;
+            color: #15803d !important;
+            border-color: #bbf7d0 !important;
+        }
+        .badge-danger,
+        .bg-red-100,
+        .bg-red-50 {
+            background: #fff1f2 !important;
+            color: #b91c1c !important;
+            border-color: #fecdd3 !important;
+        }
+        .badge-warning,
+        .bg-yellow-100,
+        .bg-yellow-50,
+        .bg-orange-100,
+        .bg-orange-50 {
+            background: #fff7ed !important;
+            color: #b45309 !important;
+            border-color: #fed7aa !important;
+        }
+        .badge-purple,
+        .bg-purple-100,
+        .bg-purple-50,
+        .bg-indigo-100,
+        .bg-indigo-50 {
+            background: #f1f5ff !important;
+            color: #315b99 !important;
+            border-color: #d8e2ee !important;
+        }
+        [class*="text-purple-"],
+        [class*="text-indigo-"],
+        [class*="text-pink-"] {
+            color: #315b99 !important;
+        }
+        [class*="bg-purple-"],
+        [class*="bg-indigo-"],
+        [class*="bg-pink-"] {
+            background-color: #f1f5ff !important;
+            border-color: #d8e2ee !important;
+        }
+        .page-enter [class*="bg-purple-"][class*="text-white"],
+        .page-enter [class*="bg-indigo-"][class*="text-white"],
+        .page-enter [class*="bg-pink-"][class*="text-white"],
+        .page-enter [class*="bg-gradient"][class*="text-white"],
+        button[class*="bg-gradient"][class*="text-white"] {
+            background: var(--sx-brand) !important;
+            background-image: none !important;
+            color: #ffffff !important;
+            border-color: var(--sx-brand) !important;
+            box-shadow: 0 8px 18px rgba(18, 58, 99, 0.14) !important;
+        }
+        .login-card .login-logo {
+            background: #123a63 !important;
+            color: #ffffff !important;
+        }
+        .login-card .login-logo img {
+            display: none !important;
+        }
+        .login-card .login-logo i {
+            display: block !important;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+        }
+        .login-card .input-icon-prefix,
+        .login-card .password-toggle,
+        .login-card .slogan-container,
+        .login-card .brand-footer .brand-name,
+        .login-card .brand-footer .version,
+        .login-card [class*="text-purple"],
+        .login-card [class*="text-indigo"],
+        .login-card [class*="text-pink"] {
+            color: var(--sx-muted) !important;
+            -webkit-text-fill-color: var(--sx-muted) !important;
+        }
+        .login-card .input-group:focus-within .input-icon-prefix,
+        .login-card .password-toggle:hover {
+            color: var(--sx-blue) !important;
+            -webkit-text-fill-color: var(--sx-blue) !important;
+        }
+        .login-card .password-toggle,
+        .login-card .remember-checkbox:checked,
+        .login-card .brand-footer,
+        .login-card .vip-login-entry {
+            background: #eaf4ff !important;
+            border-color: #cfe5ff !important;
+            box-shadow: none !important;
+        }
+        .login-card .vip-login-entry,
+        .login-card .vip-login-entry i,
+        .login-card .vip-login-note,
+        .login-card button.hover\:text-purple-300 {
+            color: #315b99 !important;
+            -webkit-text-fill-color: #315b99 !important;
+        }
+        .login-card .divider {
+            background: var(--sx-border-soft) !important;
+        }
+        .page-enter [class*="from-purple"],
+        .page-enter [class*="to-purple"],
+        .page-enter [class*="via-purple"],
+        .page-enter [class*="from-indigo"],
+        .page-enter [class*="to-indigo"],
+        .page-enter [class*="via-indigo"],
+        .page-enter [class*="from-pink"],
+        .page-enter [class*="to-pink"],
+        .page-enter [class*="via-pink"] {
+            background-image: none !important;
+        }
+
+        .btn-secondary,
+        .tab-btn-inactive,
+        button[class*="bg-gray-100"] {
+            background: #ffffff !important;
+            color: var(--sx-text) !important;
+            border: 1px solid var(--sx-border) !important;
+            box-shadow: none !important;
+        }
+        .btn-danger {
+            background: #dc2626 !important;
+            box-shadow: 0 8px 18px rgba(220, 38, 38, 0.12) !important;
+        }
+        input,
+        select,
+        textarea,
+        .input-field {
+            border-color: var(--sx-border) !important;
+            border-radius: 0.625rem !important;
+        }
+        input:focus,
+        select:focus,
+        textarea:focus,
+        .input-field:focus {
+            border-color: var(--sx-blue) !important;
+            box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.12) !important;
+            outline: none !important;
+        }
+
+        .empty-state,
+        [class*="text-center"][class*="py-8"][class*="text-gray"] {
+            color: var(--sx-muted) !important;
+        }
+        .empty-state i {
+            color: #9bb4d1 !important;
+            opacity: 0.7 !important;
+        }
+        [class*="border-dashed"] {
+            border-color: var(--sx-border) !important;
+            background: #f8fafc !important;
+        }
+
+        @media (max-width: 768px) {
+            .page-enter {
+                padding: 1rem !important;
+            }
+            .home-hero-panel,
+            .ai-page-hero {
+                border-radius: 0.75rem !important;
+            }
+            .home-hero-panel h2 {
+                font-size: 2rem !important;
+            }
+            table {
+                min-width: 720px;
+            }
+            .table-container {
+                overflow-x: auto !important;
+            }
+        }
+
         @media (max-width: 480px) {
             .login-card {
                 padding: 2rem 1.5rem;
@@ -2372,7 +2816,7 @@
                                     <div class="absolute inset-0 flex items-center justify-center text-center px-6">
                                         <div class="max-w-md">
                                             <i class="fas fa-chart-line text-4xl text-blue-300 mb-4"></i>
-                                            <div class="font-semibold text-gray-700">暂无趋势数据</div>
+                                            <div class="font-semibold text-gray-700">待形成趋势样本</div>
                                             <p class="text-sm text-gray-500 mt-2">同步 OTA 数据或导入日报后，系统将自动形成经营趋势判断。</p>
                                         </div>
                                     </div>
@@ -2388,7 +2832,7 @@
                                     </div>
                                     <div class="rounded-lg bg-gray-50 border border-gray-100 p-4">
                                         <div class="text-sm font-semibold text-gray-800">关键变化</div>
-                                        <p class="text-sm text-gray-500 mt-2">暂无足够数据形成趋势判断</p>
+                                        <p class="text-sm text-gray-500 mt-2">完成经营数据同步后生成趋势判断</p>
                                     </div>
                                     <div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4">
                                         <div class="text-sm font-semibold text-indigo-900">建议动作</div>
@@ -2438,7 +2882,7 @@
                                 <div class="mt-4 rounded-lg bg-yellow-50 border border-yellow-100 p-3 text-sm text-yellow-800">{{ weatherDemandHint }}</div>
                             </div>
                             <div v-else class="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-gray-500">
-                                暂无天气数据，无法生成需求影响判断。
+                                待校验数据源，暂不生成经营判断。
                             </div>
                         </div>
 
@@ -2607,7 +3051,7 @@
                                 </table>
                                 <div v-if="dailyReports.length === 0" class="empty-state text-center">
                                     <i class="fas fa-file-alt block mx-auto"></i>
-                                    <p>暂无日报数据</p>
+                            <p>待同步经营数据</p>
                                 </div>
                             </div>
                         </div>
@@ -2725,7 +3169,7 @@
                                 </table>
                                 <div v-if="monthlyTasks.length === 0" class="empty-state text-center">
                                     <i class="fas fa-calendar-check block mx-auto"></i>
-                                    <p>暂无月任务数据</p>
+                            <p>尚未形成连续经营样本</p>
                                 </div>
                             </div>
                         </div>
@@ -2796,7 +3240,7 @@
                                 </table>
                                 <div v-if="filteredReportConfigs.length === 0" class="empty-state text-center">
                                     <i class="fas fa-cogs block mx-auto"></i>
-                                    <p>暂无配置项，请添加</p>
+                            <p>待校验数据源</p>
                                 </div>
                             </div>
                         </div>
@@ -3967,7 +4411,7 @@
                                     <div v-if="downloadCenterTab === 'fetched'">
                                         <div v-if="!ctripHotelsList || ctripHotelsList.length === 0" class="text-center py-12 text-gray-400">
                                             <i class="fas fa-inbox text-4xl mb-4"></i>
-                                            <p>暂无数据，请先在"榜单数据获取"中获取数据</p>
+                                        <p>待同步经营数据，请先在"榜单数据获取"中获取数据</p>
                                         </div>
                                         <div v-else>
                                             <!-- 统计概览 -->
@@ -4708,7 +5152,7 @@
                                                     <tr v-if="onlineDataList.filter(i => i.source === 'ctrip').length === 0">
                                                         <td colspan="16" class="px-4 py-8 text-center text-gray-400">
                                                             <i class="fas fa-inbox text-3xl mb-2 block"></i>
-                                                            暂无数据，请先在"榜单数据获取"中获取携程数据
+                                            待同步经营数据，请先在"榜单数据获取"中获取携程数据
                                                         </td>
                                                     </tr>
                                                 </tbody>
@@ -4845,7 +5289,7 @@
                                             <!-- 酒店列表（带复选框） -->
                                             <div v-if="aiAnalysisHotelList.length === 0" class="text-center py-8 text-gray-400">
                                                 <i class="fas fa-inbox text-3xl mb-2"></i>
-                                                <p>暂无携程酒店数据</p>
+                                        <p>待同步经营数据</p>
                                                 <p class="text-sm mt-1">请先在"榜单数据获取"中获取携程数据</p>
                                             </div>
                                             <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto border rounded p-2">
@@ -4904,7 +5348,7 @@
                                             </div>
                                             <div v-if="aiAnalysisHistory.length === 0" class="p-8 text-center text-gray-400">
                                                 <i class="fas fa-inbox text-3xl mb-2"></i>
-                                                <p>暂无分析记录</p>
+                                        <p>暂不生成经营判断</p>
                                             </div>
                                             <div v-else class="divide-y max-h-80 overflow-y-auto">
                                                 <div v-for="record in aiAnalysisHistory" :key="record.id" 
@@ -4987,7 +5431,7 @@
                                         </div>
                                         <div v-if="ctripConfigList.length === 0" class="p-8 text-center text-gray-400">
                                             <i class="fas fa-inbox text-4xl mb-2"></i>
-                                            <p>暂无配置，请添加新配置</p>
+                                        <p>待校验数据源</p>
                                         </div>
                                         <div v-else class="divide-y">
                                             <div v-for="config in ctripConfigList" :key="config.id" 
@@ -6109,7 +6553,7 @@
                                             </div>
                                             <div v-else class="p-8 text-center text-gray-400">
                                                 <i class="fas fa-inbox text-3xl mb-2"></i>
-                                                <p>暂无评论数据</p>
+                                            <p>待形成趋势样本</p>
                                             </div>
                                         </div>
                                     </div>
@@ -6124,7 +6568,7 @@
                                         </div>
                                         <div v-if="meituanConfigList.length === 0" class="p-8 text-center text-gray-400">
                                             <i class="fas fa-inbox text-4xl mb-2"></i>
-                                            <p>暂无配置，请在"榜单数据获取"中添加美团配置</p>
+                                            <p>待校验数据源，请在"榜单数据获取"中添加美团配置</p>
                                         </div>
                                         <div v-else class="divide-y">
                                             <div v-for="config in meituanConfigList" :key="config.id" 
@@ -6341,7 +6785,7 @@
                                             <!-- 酒店列表（带复选框） -->
                                             <div v-if="meituanAiAnalysisHotelList.length === 0" class="text-center py-8 text-gray-400">
                                                 <i class="fas fa-inbox text-3xl mb-2"></i>
-                                                <p>暂无美团酒店数据</p>
+                                        <p>待同步经营数据</p>
                                                 <p class="text-sm mt-1">请先在"榜单数据获取"中获取美团数据</p>
                                             </div>
                                             <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto border rounded p-2">
@@ -6400,7 +6844,7 @@
                                             </div>
                                             <div v-if="meituanAiAnalysisHistory.length === 0" class="p-8 text-center text-gray-400">
                                                 <i class="fas fa-inbox text-3xl mb-2"></i>
-                                                <p>暂无分析记录</p>
+                                        <p>暂不生成经营判断</p>
                                             </div>
                                             <div v-else class="divide-y max-h-80 overflow-y-auto">
                                                 <div v-for="record in meituanAiAnalysisHistory" :key="record.id" 
@@ -6538,7 +6982,7 @@
                                         </div>
                                         <div v-if="meituanConfigList.length === 0" class="p-8 text-center text-gray-400">
                                             <i class="fas fa-inbox text-4xl mb-2"></i>
-                                            <p>暂无配置，请添加新配置</p>
+                                        <p>待校验数据源</p>
                                         </div>
                                         <div v-else class="divide-y">
                                             <div v-for="config in meituanConfigList" :key="config.id" 
@@ -6685,7 +7129,7 @@
                                                     </td>
                                                 </tr>
                                                 <tr v-if="competitorHotels.length === 0">
-                                                    <td colspan="7" class="px-4 py-8 text-center text-gray-400">暂无数据</td>
+                                        <td colspan="7" class="px-4 py-8 text-center text-gray-400">待同步经营数据</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -6751,7 +7195,7 @@
                                                     <td class="px-4 py-3 text-gray-500 text-xs">{{ item.fetch_time }}</td>
                                                 </tr>
                                                 <tr v-if="competitorLogs.length === 0">
-                                                    <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无数据</td>
+                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">待同步经营数据</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -6783,7 +7227,7 @@
                                                     <td class="px-4 py-3 text-gray-500 text-xs">{{ item.last_time || '-' }}</td>
                                                 </tr>
                                                 <tr v-if="competitorDevices.length === 0">
-                                                    <td colspan="4" class="px-4 py-8 text-center text-gray-400">暂无数据</td>
+                                        <td colspan="4" class="px-4 py-8 text-center text-gray-400">待校验数据源</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -6836,7 +7280,7 @@
                                                     </td>
                                                 </tr>
                                                 <tr v-if="competitorRobots.length === 0">
-                                                    <td colspan="5" class="px-3 py-6 text-center text-gray-500">暂无数据</td>
+                                <td colspan="5" class="px-3 py-6 text-center text-gray-500">数据依据不足</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -7037,7 +7481,7 @@
                                                     <h3 class="font-semibold text-gray-800"><i class="fas fa-fire mr-2 text-blue-500"></i>热门知识</h3>
                                                 </div>
                                                 <div class="p-4">
-                                                    <div v-if="staffDashboard.knowledge_base?.hot?.length === 0" class="text-center text-gray-400 py-4">暂无数据</div>
+                                                    <div v-if="staffDashboard.knowledge_base?.hot?.length === 0" class="text-center text-gray-400 py-4">数据依据不足</div>
                                                     <div v-else class="space-y-2">
                                                         <div v-for="item in staffDashboard.knowledge_base?.hot" :key="item.id" class="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
                                                             <span class="text-sm text-gray-700 truncate">{{item.title}}</span>
@@ -7137,7 +7581,7 @@
                                                         </td>
                                                     </tr>
                                                     <tr v-if="knowledgeList.length === 0">
-                                                        <td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无数据</td>
+                                                    <td colspan="5" class="px-4 py-8 text-center text-gray-400">数据依据不足</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -7339,7 +7783,7 @@
                                                         </td>
                                                     </tr>
                                                     <tr v-if="priceSuggestions.length === 0">
-                                                        <td colspan="7" class="px-4 py-8 text-center text-gray-400">暂无数据</td>
+                                                    <td colspan="7" class="px-4 py-8 text-center text-gray-400">待同步经营数据</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -7485,7 +7929,7 @@
                                                         </td>
                                                     </tr>
                                                     <tr v-if="deviceList.length === 0">
-                                                        <td colspan="6" class="px-4 py-8 text-center text-gray-400">暂无数据</td>
+                                                    <td colspan="6" class="px-4 py-8 text-center text-gray-400">待同步经营数据</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -9177,7 +9621,7 @@
                                                     <td class="px-4 py-3 text-right">{{ item.qunar_comment_score || '-' }}</td>
                                                 </tr>
                                                 <tr v-if="onlineDataList.length === 0">
-                                                    <td colspan="11" class="px-4 py-8 text-center text-gray-500">暂无数据记录</td>
+                            <td colspan="11" class="px-4 py-8 text-center text-gray-500">尚未形成连续经营样本</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -11312,7 +11756,7 @@
                     </table>
                     <div v-else class="empty-state text-center">
                         <i :class="[emptyIcon || 'fas fa-inbox', 'block mx-auto']"></i>
-                        <p>{{ emptyText || '暂无数据' }}</p>
+                    <p>{{ emptyText || '数据依据不足' }}</p>
                     </div>
                 </div>
             </div>
@@ -11650,18 +12094,18 @@
                 };
             });
             const homeTrendCards = computed(() => [
-                { name: '收益趋势', value: '--', direction: '暂无数据', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: dailyReports.value.length ? '等待更多连续数据形成收益趋势判断' : '等待日报数据导入后生成收益趋势', spark: [26, 34, 28, 42, 36, 48, 40, 52, 44] },
-                { name: '市场需求', value: '--', direction: '暂无数据', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '暂无足够数据形成趋势判断', spark: [30, 30, 30, 30, 30, 30, 30, 30, 30] },
-                { name: '价格竞争', value: '--', direction: '暂无数据', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格同步后判断价格劣势', spark: [24, 38, 32, 46, 34, 50, 36, 54, 40] },
-                { name: '渠道表现', value: '--', direction: '暂无数据', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 与日报数据同步', spark: [40, 36, 42, 38, 44, 40, 46, 42, 48] }
+            { name: '收益趋势', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: dailyReports.value.length ? '等待更多连续数据形成收益趋势判断' : '等待日报数据导入后生成收益趋势', spark: [26, 34, 28, 42, 36, 48, 40, 52, 44] },
+            { name: '市场需求', value: '--', direction: '数据不足', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '数据依据不足，暂不生成趋势判断', spark: [30, 30, 30, 30, 30, 30, 30, 30, 30] },
+            { name: '价格竞争', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格同步后判断价格劣势', spark: [24, 38, 32, 46, 34, 50, 36, 54, 40] },
+            { name: '渠道表现', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 与日报数据同步', spark: [40, 36, 42, 38, 44, 40, 46, 42, 48] }
             ]);
             const homeMacroSignals = computed(() => [
-                { name: '周期信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待日期与订单节奏数据形成周期判断', action: '去分析', page: 'agent-center' },
-                { name: '天气信号', status: compassWeather.value.length ? '关注' : '暂无数据', className: compassWeather.value.length ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-500 border-gray-200', note: compassWeather.value.length ? '结合未来天气关注取消率、到店率与周边游需求' : '暂无天气数据，无法生成需求影响判断', action: '查看详情', page: 'compass' },
-                { name: '渠道信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 曝光、点击、转化数据同步', action: '去分析', page: 'online-data' },
-                { name: '竞对信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格与排名变化数据', action: '查看详情', page: 'competitor' },
-                { name: '价格信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 ADR、价差与促销压力数据', action: '去分析', page: 'agent-center' },
-                { name: '需求信号', status: '暂无数据', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待入住节奏、提前预订与临近订单数据', action: '去分析', page: 'daily-reports' }
+            { name: '周期信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待日期与订单节奏数据形成周期判断', action: '去分析', page: 'agent-center' },
+            { name: '天气信号', status: compassWeather.value.length ? '关注' : '待校验', className: compassWeather.value.length ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-500 border-gray-200', note: compassWeather.value.length ? '结合未来天气关注取消率、到店率与周边游需求' : '待校验数据源，暂不生成经营判断', action: '查看详情', page: 'compass' },
+            { name: '渠道信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 曝光、点击、转化数据同步', action: '去分析', page: 'online-data' },
+            { name: '竞对信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格与排名变化数据', action: '查看详情', page: 'competitor' },
+            { name: '价格信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 ADR、价差与促销压力数据', action: '去分析', page: 'agent-center' },
+            { name: '需求信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待入住节奏、提前预订与临近订单数据', action: '去分析', page: 'daily-reports' }
             ]);
             const homeAiDecisionCards = [
                 { title: '收益策略', status: '待生成', focus: '关注 ADR、RevPAR、入住率、价格弹性。', source: '暂无' },
@@ -11675,7 +12119,7 @@
                 { name: '天气/日期因子', status: compassWeather.value.length ? '已同步' : '未同步', updatedAt: '--', impact: '会影响需求变化、取消率与节假日策略判断', className: compassWeather.value.length ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200' }
             ]);
             const weatherDemandHint = computed(() => {
-                if (!compassWeather.value.length) return '暂无天气数据，无法生成需求影响判断。';
+        if (!compassWeather.value.length) return '待校验数据源，暂不生成经营判断。';
                 const text = compassWeather.value.map(item => item.condition || '').join('');
                 if (text.includes('雨')) return '雨天：关注取消率、到店率、停车/接送需求。';
                 if (text.includes('高温') || compassWeather.value.some(item => Number(item.temp_high) >= 32)) return '高温：关注避暑、冷饮、夜间消费与亲子需求。';
@@ -14802,7 +15246,7 @@
                         } else if (total > 0) {
                             showToast(`获取成功！共 ${total} 条评论，无新增评论`);
                         } else {
-                            showToast('获取成功，暂无评论数据');
+                    showToast('获取成功，待形成趋势样本');
                         }
                     } else {
                         console.error('获取失败:', res.message);
@@ -15372,7 +15816,7 @@
             // 本地生成AI分析报告（后端API不可用时的备选方案）— 增强版
             const generateLocalAnalysis = (hotels) => {
                 if (!hotels || hotels.length === 0) {
-                    return '<p class="text-gray-500">暂无数据可供分析</p>';
+                return '<p class="text-gray-500">数据依据不足，暂不生成经营判断</p>';
                 }
 
                 // ==================== 1. 基础统计 ====================
@@ -15950,7 +16394,7 @@
             // 复制AI分析结果
             const copyAiAnalysisResult = () => {
                 if (!aiAnalysisResult.value) {
-                    showToast('暂无分析结果可复制', 'warning');
+                    showToast('暂不生成经营判断，暂无分析结果可复制', 'warning');
                     return;
                 }
                 
@@ -16084,7 +16528,7 @@
             // 本地生成美团AI分析报告
             const generateMeituanLocalAnalysis = (hotels) => {
                 if (!hotels || hotels.length === 0) {
-                    return '<p class="text-gray-500">暂无数据可供分析</p>';
+                return '<p class="text-gray-500">数据依据不足，暂不生成经营判断</p>';
                 }
                 
                 // 计算统计数据
@@ -16253,7 +16697,7 @@
             // 复制美团AI分析结果
             const copyMeituanAiAnalysisResult = () => {
                 if (!meituanAiAnalysisResult.value) {
-                    showToast('暂无分析结果可复制', 'warning');
+                    showToast('暂不生成经营判断，暂无分析结果可复制', 'warning');
                     return;
                 }
                 

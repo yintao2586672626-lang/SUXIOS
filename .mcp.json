@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "deepseek-worker": {
+      "command": "python",
+      "args": [
+        "scripts/mcp/deepseek_worker_mcp.py"
+      ]
+    }
+  }
+}
