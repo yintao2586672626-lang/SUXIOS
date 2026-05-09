@@ -21,6 +21,8 @@ use app\model\AgentConversation;
 use app\model\EnergyBenchmark;
 use app\model\EnergySavingSuggestion;
 use app\model\MaintenancePlan;
+use app\model\OperationLog;
+use app\service\FeasibilityReportService;
 use think\Response;
 
 /**
@@ -29,6 +31,11 @@ use think\Response;
  */
 class Agent extends Base
 {
+    private function feasibilityService(): FeasibilityReportService
+    {
+        return new FeasibilityReportService();
+    }
+
     /**
      * 检查管理员权限
      */
@@ -121,6 +128,71 @@ class Agent extends Base
             ],
             'recent_logs' => $recentLogs,
         ]);
+    }
+
+    public function feasibilityReportGenerate(): Response
+    {
+        $this->checkAdmin();
+
+        try {
+            $data = $this->request->post();
+            $report = $this->feasibilityService()->generate($data, (int) ($this->currentUser->id ?? 0));
+            OperationLog::record('agent', 'feasibility_generate', '生成智策可行性报告', (int) ($this->currentUser->id ?? 0), null, null, [
+                'report_id' => $report['id'] ?? 0,
+                'project_name' => $report['project_name'] ?? '',
+            ]);
+
+            return $this->success($report, '报告生成成功');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            OperationLog::error('agent', 'feasibility_generate', '生成智策可行性报告失败', $e->getMessage(), (int) ($this->currentUser->id ?? 0));
+            return $this->error('报告生成失败：' . $e->getMessage(), 500);
+        }
+    }
+
+    public function feasibilityReportDetail(): Response
+    {
+        $this->checkAdmin();
+
+        $id = (int) $this->request->param('id', 0);
+        $report = $this->feasibilityService()->detail($id);
+        if (!$report) {
+            return $this->error('报告不存在', 404);
+        }
+
+        return $this->success($report);
+    }
+
+    public function feasibilityReportRegenerate(): Response
+    {
+        $this->checkAdmin();
+
+        try {
+            $id = (int) $this->request->param('id', 0);
+            $report = $this->feasibilityService()->regenerate($id, (int) ($this->currentUser->id ?? 0));
+            if (!$report) {
+                return $this->error('报告不存在', 404);
+            }
+
+            OperationLog::record('agent', 'feasibility_regenerate', '重新生成智策可行性报告', (int) ($this->currentUser->id ?? 0), null, null, [
+                'source_report_id' => $id,
+                'report_id' => $report['id'] ?? 0,
+            ]);
+
+            return $this->success($report, '报告重新生成成功');
+        } catch (\Throwable $e) {
+            OperationLog::error('agent', 'feasibility_regenerate', '重新生成智策可行性报告失败', $e->getMessage(), (int) ($this->currentUser->id ?? 0));
+            return $this->error('报告重新生成失败：' . $e->getMessage(), 500);
+        }
+    }
+
+    public function feasibilityReportList(): Response
+    {
+        $this->checkAdmin();
+
+        $pagination = $this->getPagination();
+        return $this->success($this->feasibilityService()->list($pagination['page'], $pagination['page_size']));
     }
 
     // ==================== Agent配置 ====================

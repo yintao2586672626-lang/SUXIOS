@@ -210,6 +210,27 @@ class InitDatabase extends Command
         ");
         $output->writeln('✓ 操作日志表创建成功');
 
+        // 创建可行性报告表
+        Db::execute("
+            CREATE TABLE IF NOT EXISTS feasibility_reports (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                project_name VARCHAR(120) NOT NULL,
+                input_json JSON NULL,
+                snapshot_json JSON NULL,
+                report_json JSON NULL,
+                conclusion_grade VARCHAR(8),
+                payback_months DECIMAL(10,2) NULL,
+                total_investment DECIMAL(14,2) DEFAULT 0,
+                created_by INT NULL,
+                created_at DATETIME NULL,
+                updated_at DATETIME NULL,
+                deleted_at DATETIME NULL,
+                INDEX idx_created_by (created_by),
+                INDEX idx_grade (conclusion_grade)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+        $output->writeln('✓ 可行性报告表创建成功');
+
         // 创建报表配置表
         Db::execute("
             CREATE TABLE IF NOT EXISTS report_configs (
@@ -402,6 +423,25 @@ class InitDatabase extends Command
             )
         ");
         $output->writeln('✓ 操作日志表创建成功');
+
+        // 创建可行性报告表
+        Db::execute("
+            CREATE TABLE IF NOT EXISTS feasibility_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name VARCHAR(120) NOT NULL,
+                input_json TEXT,
+                snapshot_json TEXT,
+                report_json TEXT,
+                conclusion_grade VARCHAR(8),
+                payback_months DECIMAL(10,2),
+                total_investment DECIMAL(14,2) DEFAULT 0,
+                created_by INTEGER,
+                created_at DATETIME,
+                updated_at DATETIME,
+                deleted_at DATETIME
+            )
+        ");
+        $output->writeln('✓ 可行性报告表创建成功');
 
         // 创建报表配置表
         Db::execute("

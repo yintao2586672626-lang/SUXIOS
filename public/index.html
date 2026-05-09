@@ -792,10 +792,11 @@
 
         /* 顶部栏增强 */
         .header {
-            background: rgba(255,255,255,0.95);
+            background: #ffffff;
             backdrop-filter: blur(10px);
             border-bottom: 1px solid #e2e8f0;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            z-index: 40;
         }
 
         /* 弹窗增强 */
@@ -914,6 +915,28 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+        }
+        .responsive-metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+            gap: clamp(0.5rem, 0.9vw, 1rem);
+        }
+        .responsive-metric-grid.is-compact {
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.25rem), 1fr));
+        }
+        .responsive-metric-card {
+            min-width: 0;
+            min-height: 6.75rem;
+        }
+        .responsive-metric-grid .text-2xl {
+            font-size: clamp(1.05rem, 1.35vw, 1.5rem);
+            line-height: 1.18;
+            overflow-wrap: anywhere;
+        }
+        .responsive-metric-grid .text-xs,
+        .responsive-metric-grid .text-sm {
+            line-height: 1.25;
+            overflow-wrap: anywhere;
         }
 
         /* 下拉菜单增强 */
@@ -2901,21 +2924,21 @@
                                     <!-- 详细数据表格 -->
                                     <div v-if="ctripHotelsList && ctripHotelsList.length > 0" class="mt-4">
                                         <!-- 统计概览 - 第一行 -->
-                                        <div class="overflow-x-auto mb-4">
-                                            <div class="flex gap-4 min-w-max">
-                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                        <div class="mb-4">
+                                            <div class="responsive-metric-grid">
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-gray-700">{{ ctripHotelsList.length }}</div>
                                                 <div class="text-xs text-gray-500">酒店总数</div>
                                             </div>
-                                            <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-green-600">¥{{ formatNumber(Math.round(ctripHotelsList.reduce((sum, h) => sum + (h.amount || 0), 0))) }}</div>
                                                 <div class="text-xs text-gray-500">总销售额</div>
                                             </div>
-                                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-yellow-600">{{ ctripHotelsList.reduce((sum, h) => sum + (h.quantity || 0), 0) }}</div>
                                                 <div class="text-xs text-gray-500">总间夜量</div>
                                             </div>
-                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-purple-600">¥{{ formatNumber(Math.round(ctripHotelsList.reduce((sum, h) => sum + (h.amount || 0), 0) / Math.max(1, ctripHotelsList.reduce((sum, h) => sum + (h.quantity || 0), 0)))) }}</div>
                                                 <div class="text-xs text-gray-500">平均房价(ADR)</div>
                                             </div>
@@ -2931,7 +2954,7 @@
                                                 else if (ari <= 110) return {backgroundColor: '#f0fdf4', border: '1px solid #86efac'};
                                                 else if (ari <= 130) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else return {backgroundColor: '#eff6ff', border: '1px solid #93c5fd'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList.filter(h => (h.quantity || 0) > 0 && (h.amount || 0) > 0);
@@ -2989,7 +3012,7 @@
                                                 else if (sci <= 370) return {backgroundColor: '#f0fdf4', border: '1px solid #86efac'};
                                                 else if (sci <= 480) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else return {backgroundColor: '#eff6ff', border: '1px solid #93c5fd'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-cyan-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList.filter(h => (h.quantity || 0) > 0 && (h.amount || 0) > 0);
@@ -3043,19 +3066,19 @@
                                                     })()
                                                 }}</div>
                                             </div>
-                                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-indigo-600">{{ formatNumber(ctripHotelsList.reduce((sum, h) => sum + (h.totalDetailNum || 0), 0)) }}</div>
                                                 <div class="text-xs text-gray-500">携程APP总访客量</div>
                                             </div>
-                                            <div class="bg-teal-50 border border-teal-200 rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            <div class="bg-teal-50 border border-teal-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-teal-600">{{ formatNumber(ctripHotelsList.reduce((sum, h) => sum + (h.qunarDetailVisitors || 0), 0)) }}</div>
                                                 <div class="text-xs text-gray-500">去哪儿总访客量</div>
                                             </div>
-                                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-yellow-600">{{ ctripHotelsList.reduce((sum, h) => sum + (h.totalOrderNum || 0), 0) }}</div>
                                                 <div class="text-xs text-gray-500">全渠道AI预计总间夜数</div>
                                             </div>
-                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-blue-600">¥{{ toFixedSafe(ctripHotelsList.reduce((sum, h) => sum + (h.amount || 0), 0) / Math.max(1, ctripHotelsList.reduce((sum, h) => sum + (h.totalDetailNum || 0), 0) + ctripHotelsList.reduce((sum, h) => sum + (h.qunarDetailVisitors || 0), 0)), 2) }}</div>
                                                 <div class="text-xs text-gray-500">流量价值效率</div>
                                             </div>
@@ -3064,8 +3087,8 @@
                                         </div>
 
                                         <!-- 统计概览 - 第二行 -->
-                                        <div class="overflow-x-auto">
-                                            <div class="flex gap-4 min-w-max">
+                                        <div>
+                                            <div class="responsive-metric-grid">
 <div :style="(function() {
                                                 const totalSales = ctripHotelsList.reduce((sum, h) => sum + (h.amount || 0), 0);
                                                 if (totalSales === 0) return {backgroundColor: '#ffffff', border: '1px solid #e5e7eb'};
@@ -3076,7 +3099,7 @@
                                                 if (hhiVal < 500) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else if (hhiVal <= 800) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const totalSales = ctripHotelsList.reduce((sum, h) => sum + (h.amount || 0), 0);
@@ -3128,7 +3151,7 @@
                                                 if (hhiVal < 400) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else if (hhiVal <= 700) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const totalVisitors = ctripHotelsList.reduce((sum, h) => sum + (h.totalDetailNum || 0), 0);
@@ -3186,7 +3209,7 @@
                                                 else if (sigma <= 8) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else if (sigma <= 15) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList;
@@ -3276,7 +3299,7 @@
                                                 else if (deltaPct <= 1) return {backgroundColor: '#f0fdf4', border: '1px solid #86efac'};
                                                 else if (deltaPct <= 3) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else return {backgroundColor: '#eff6ff', border: '1px solid #93c5fd'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList.filter(h => {
@@ -3382,7 +3405,7 @@
                                                 else if (mpi <= 180) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else if (mpi <= 300) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList.filter(h => (h.quantity || 0) > 0);
@@ -3448,7 +3471,7 @@
                                                 else if (avgE < 1) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else if (avgE <= 2) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else return {backgroundColor: '#f0fdf4', border: '1px solid #86efac'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList.filter(h => (h.commentScore || 0) > 0 && (h.totalDetailNum || 0) > 0);
@@ -3535,7 +3558,7 @@
                                                 else if (avgE < 1) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else if (avgE <= 2) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else return {backgroundColor: '#f0fdf4', border: '1px solid #86efac'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList.filter(h => (h.qunarCommentScore || 0) > 0 && (h.qunarDetailVisitors || 0) > 0);
@@ -3610,7 +3633,7 @@
                                                 else if (avgR <= 150) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else if (avgR <= 220) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList.filter(h => (h.commentScore || 0) > 0 && (h.convertionRate || 0) > 0);
@@ -3650,7 +3673,7 @@
                                                 else if (avgR <= 150) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else if (avgR <= 220) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
-                                            })()" class="rounded-lg p-3 text-center flex-1 min-w-[140px]">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const hotels = ctripHotelsList.filter(h => (h.qunarCommentScore || 0) > 0 && (h.qunarDetailCR || 0) > 0);
@@ -5189,13 +5212,13 @@
                                     <!-- 美团竞对排名数据表格 -->
                                     <div v-if="meituanHotelsList && meituanHotelsList.length > 0" class="mt-4">
                                         <!-- 价格指标概览 -->
-                                        <div class="overflow-x-auto mb-4">
-                                            <div class="flex gap-4 min-w-max">
-                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1">
+                                        <div class="mb-4">
+                                            <div class="responsive-metric-grid is-compact">
+                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-gray-700">{{ meituanHotelsList.length }}</div>
                                                     <div class="text-xs text-gray-500">酒店总数</div>
                                                 </div>
-                                                <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-indigo-600">{{
                                                         (() => {
                                                             // 获取竞争圈总房量
@@ -5250,7 +5273,7 @@
                                                     else if (vitalityRate < 60) return {backgroundColor: '#f0fdf4', border: '1px solid #86efac'};
                                                     else if (vitalityRate < 80) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                     else return {backgroundColor: '#eff6ff', border: '1px solid #93c5fd'};
-                                                })()" class="rounded-lg p-3 text-center flex-1">
+                                                })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold {{
                                                         (() => {
                                                             const totalRoomNights = meituanHotelsList.reduce((sum, h) => sum + (h.roomNights || 0), 0);
@@ -5395,7 +5418,7 @@
                                                     else if (sigma <= 15) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                     else if (sigma <= 20) return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
                                                     else return {backgroundColor: '#fef2f2', border: '1px solid #dc2626'};
-                                                })()" class="rounded-lg p-3 text-center flex-1">
+                                                })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold" :class="(() => {
                                                         const hotels = meituanHotelsList;
                                                         if (!hotels || hotels.length < 2) return 'text-gray-600';
@@ -5492,7 +5515,7 @@
                                                         })()
                                                     }}</div>
                                                 </div>
-                                                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-blue-600">{{
                                                         (() => {
                                                             const totalRevenue = meituanHotelsList.reduce((sum, h) => sum + (h.roomRevenue || 0), 0);
@@ -5509,7 +5532,7 @@
                                                     }}</div>
                                                     <div class="text-xs text-gray-500">市场价格预估</div>
                                                 </div>
-                                                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-blue-600">{{
                                                         (() => {
                                                             const totalRoomNights = meituanHotelsList.reduce((sum, h) => sum + (h.roomNights || 0), 0);
@@ -5522,7 +5545,7 @@
                                                     }}</div>
                                                     <div class="text-xs text-gray-500">市场产量预估</div>
                                                 </div>
-                                                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-blue-600">{{
                                                         (() => {
                                                             const hotels = meituanHotelsList;
@@ -5548,7 +5571,7 @@
                                                     }}</div>
                                                     <div class="text-xs text-gray-500">用户决策阻力</div>
                                                 </div>
-                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-blue-600">¥{{
                                                         (() => {
                                                             const totalRevenue = meituanHotelsList.reduce((sum, h) => sum + (h.roomRevenue || 0), 0);
@@ -5558,7 +5581,7 @@
                                                     }}</div>
                                                     <div class="text-xs text-gray-500">平均入住房价</div>
                                                 </div>
-                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-blue-500">¥{{
                                                         (() => {
                                                             const totalSales = meituanHotelsList.reduce((sum, h) => sum + (h.sales || 0), 0);
@@ -5568,7 +5591,7 @@
                                                     }}</div>
                                                     <div class="text-xs text-gray-500">平均销售房价</div>
                                                 </div>
-                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-blue-500">{{
                                                         (() => {
                                                             const totalRoomNights = meituanHotelsList.reduce((sum, h) => sum + (h.roomNights || 0), 0);
@@ -5583,7 +5606,7 @@
                                                     }}</div>
                                                     <div class="text-xs text-gray-500">平均订单间夜</div>
                                                 </div>
-                                                <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-green-700">¥{{
                                                         (() => {
                                                             const totalSales = meituanHotelsList.reduce((sum, h) => sum + (h.sales || 0), 0);
@@ -5593,7 +5616,7 @@
                                                     }}</div>
                                                     <div class="text-xs text-gray-500">曝光价值效率</div>
                                                 </div>
-                                                <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-2xl font-bold text-green-700">¥{{
                                                         (() => {
                                                             const totalSales = meituanHotelsList.reduce((sum, h) => sum + (h.sales || 0), 0);
@@ -5603,15 +5626,15 @@
                                                     }}</div>
                                                     <div class="text-xs text-gray-500">浏览价值效率</div>
                                                 </div>
-                                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center flex-1">
+                                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center responsive-metric-card">
                                                     <div class="text-xl font-bold text-gray-700 font-mono">{{ meituanDataFetchTime || '--' }}</div>
                                                     <div class="text-xs text-gray-500">数据获取时间</div>
                                                 </div>
                                             </div>
                                         </div>
                                         <!-- 统计概览 -->
-                                        <div class="overflow-x-auto">
-                                        <div class="flex gap-4 mb-4 min-w-max">
+                                        <div class="mb-4">
+                                        <div class="responsive-metric-grid is-compact">
                                             <div :style="(function() {
                                                 const totalSales = meituanHotelsList.reduce((sum, h) => sum + (h.sales || 0), 0);
                                                 if (totalSales === 0) return {backgroundColor: '#ffffff', border: '1px solid #e5e7eb'};
@@ -5622,7 +5645,7 @@
                                                 if (hhiVal < 500) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else if (hhiVal <= 800) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
-                                            })()" class="rounded-lg p-3 text-center flex-1">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const totalSales = meituanHotelsList.reduce((sum, h) => sum + (h.sales || 0), 0);
@@ -5674,7 +5697,7 @@
                                                 if (hhiVal < 400) return {backgroundColor: '#fefce8', border: '1px solid #fde047'};
                                                 else if (hhiVal <= 700) return {backgroundColor: '#fff7ed', border: '1px solid #fdba74'};
                                                 else return {backgroundColor: '#fef2f2', border: '1px solid #fca5a5'};
-                                            })()" class="rounded-lg p-3 text-center flex-1">
+                                            })()" class="rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-orange-600">{{
                                                     (() => {
                                                         const totalViews = meituanHotelsList.reduce((sum, h) => sum + (h.views || 0), 0);
@@ -5716,7 +5739,7 @@
                                                     })()
                                                 }}</div>
                                             </div>
-                                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-indigo-600">{{
                                                     (() => {
                                                         const totalSales = meituanHotelsList.reduce((sum, h) => sum + (h.sales || 0), 0);
@@ -5735,35 +5758,35 @@
                                                 }}</div>
                                                 <div class="text-xs text-gray-500">运营重心</div>
                                             </div>
-                                            <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-red-600">{{ formatNumber(meituanHotelsList.reduce((sum, h) => sum + (h.roomNights || 0), 0)) }}</div>
                                                 <div class="text-xs text-gray-500">总入住间夜</div>
                                             </div>
-                                            <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-red-600">¥{{ formatNumber(Math.floor(meituanHotelsList.reduce((sum, h) => sum + (h.roomRevenue || 0), 0))) }}</div>
                                                 <div class="text-xs text-gray-500">总房费收入</div>
                                             </div>
-                                            <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanHotelsList.reduce((sum, h) => sum + (h.salesRoomNights || 0), 0)) }}</div>
                                                 <div class="text-xs text-gray-500">总销售间夜</div>
                                             </div>
-                                            <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-green-600">¥{{ formatNumber(Math.floor(meituanHotelsList.reduce((sum, h) => sum + (h.sales || 0), 0))) }}</div>
                                                 <div class="text-xs text-gray-500">总销售额</div>
                                             </div>
-                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanHotelsList.reduce((sum, h) => sum + (h.exposure || 0), 0)) }}</div>
                                                 <div class="text-xs text-gray-500">总曝光量</div>
                                             </div>
-                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanHotelsList.reduce((sum, h) => sum + (h.views || 0), 0)) }}</div>
                                                 <div class="text-xs text-gray-500">总浏览量</div>
                                             </div>
-                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center flex-1">
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanHotelsList.reduce((sum, h) => sum + ((h.views || 0) * (h.payConversion || 0)), 0)) }}</div>
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(Math.round(meituanHotelsList.reduce((sum, h) => sum + ((h.views || 0) * (h.payConversion || 0)), 0))) }}</div>
                                                 <div class="text-xs text-gray-500">总订单量</div>
                                             </div>
-                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-purple-600">{{
                                                     (() => {
                                                         const hotels = meituanHotelsList;
@@ -5776,7 +5799,7 @@
                                                 }}</div>
                                                 <div class="text-xs text-gray-500">平均浏览转化率</div>
                                             </div>
-                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-purple-600">{{
                                                     (() => {
                                                         const hotels = meituanHotelsList;
@@ -5789,7 +5812,7 @@
                                                 }}</div>
                                                 <div class="text-xs text-gray-500">平均支付转化率</div>
                                             </div>
-                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center flex-1">
+                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-2xl font-bold text-purple-600">{{
                                                     (() => {
                                                         const hotels = meituanHotelsList;
@@ -11314,7 +11337,7 @@
             const user = ref(null);
             const token = ref(localStorage.getItem('token') || '');
             const currentTime = ref('');
-            const currentPage = ref('hotels');
+            const currentPage = ref('compass');
             const showPassword = ref(false);
             const sidebarCollapsed = ref(false); // 侧边栏折叠状态
 
@@ -11658,14 +11681,23 @@
                 if (text.includes('高温') || compassWeather.value.some(item => Number(item.temp_high) >= 32)) return '高温：关注避暑、冷饮、夜间消费与亲子需求。';
                 return '周末与天气变化：关注亲子、周边游与临近订单需求。';
             });
+            const weatherMajorCities = [
+                '北京市', '上海市', '天津市', '重庆市', '广州市', '深圳市', '杭州市', '成都市',
+                '武汉市', '西安市', '南京市', '苏州市', '长沙市', '郑州市', '青岛市', '宁波市',
+                '无锡市', '佛山市', '合肥市', '济南市', '厦门市', '福州市', '东莞市', '昆明市',
+                '沈阳市', '大连市', '哈尔滨市', '长春市', '南昌市', '南宁市', '贵阳市', '太原市',
+                '石家庄市', '泉州市', '温州市', '珠海市', '中山市', '惠州市', '常州市', '嘉兴市',
+                '绍兴市', '南通市', '徐州市', '扬州市', '烟台市', '潍坊市', '洛阳市', '襄阳市',
+                '宜昌市', '株洲市', '赣州市', '海口市', '三亚市', '兰州市', '西宁市', '银川市',
+                '呼和浩特市', '乌鲁木齐市'
+            ];
             const extractCityName = (value) => {
                 const text = String(value || '').trim();
                 if (!text || text === '本地') return '';
                 const direct = text.match(/(北京市|上海市|天津市|重庆市|[^省自治区市]+市|[^省自治区市]+地区|[^省自治区市]+盟|[^省自治区市]+州)/u);
                 if (direct) return direct[1];
-                const aliases = ['北京', '上海', '天津', '重庆', '广州', '深圳', '杭州', '成都', '南京', '苏州', '武汉', '西安', '长沙', '郑州', '厦门', '三亚', '海口'];
-                const alias = aliases.find(name => text.includes(name));
-                return alias ? `${alias}市` : '';
+                const city = weatherMajorCities.find(name => text.includes(name.replace(/市$/, '')));
+                return city || '';
             };
             const defaultWeatherCity = computed(() => {
                 const weatherCity = extractCityName(compassWeather.value[0]?.location);
@@ -11682,7 +11714,7 @@
                     defaultWeatherCity.value,
                     extractCityName(compassWeather.value[0]?.location),
                     extractCityName(aiProject.value.city),
-                    '上海市', '北京市', '广州市', '深圳市', '杭州市', '成都市'
+                    ...weatherMajorCities
                 ].filter(Boolean);
                 return [...new Set(cities)].filter(city => city !== defaultWeatherCity.value);
             });

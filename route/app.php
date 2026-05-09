@@ -166,6 +166,11 @@ Route::group('api/ai', function () {
     Route::post('/feasibility', 'Ai/feasibility');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== 智略·战略推演 API ====================
+Route::group('api/strategy', function () {
+    Route::post('/simulate', 'StrategySimulation/simulate');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 竞对价格监控 API ====================
 Route::post('api/competitor/task', 'CompetitorApi/task');
 Route::post('api/competitor/report', 'CompetitorApi/report');
@@ -534,6 +539,12 @@ Route::any('api/test-ctrip-config-delete', function () {
 Route::group('api/agent', function () {
     // 概览
     Route::get('/overview', 'Agent/overview');
+
+    // 智策·可行性报告
+    Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate');
+    Route::get('/feasibility-report/detail/:id', 'Agent/feasibilityReportDetail');
+    Route::post('/feasibility-report/regenerate/:id', 'Agent/feasibilityReportRegenerate');
+    Route::get('/feasibility-report/list', 'Agent/feasibilityReportList');
     
     // 配置管理
     Route::get('/config', 'Agent/getConfig');
