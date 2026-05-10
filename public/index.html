@@ -2841,7 +2841,7 @@
                                     </div>
                                     <div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4">
                                         <div class="text-sm font-semibold text-indigo-900">建议动作</div>
-                                        <p class="text-sm text-indigo-700 mt-2">进入 Agent 中心或数据中心，基于最新经营数据生成分析。</p>
+                                        <p class="text-sm text-indigo-700 mt-2">进入酒店AI工具箱或数据中心，基于最新经营数据生成分析。</p>
                                     </div>
                                 </div>
                             </div>
@@ -2904,7 +2904,7 @@
                                     </div>
                                     <p class="text-sm text-gray-500 leading-relaxed">{{ item.focus }}</p>
                                     <div class="mt-4 rounded-lg bg-white border border-slate-100 p-3 text-sm text-gray-500">数据依据：{{ item.source }}</div>
-                                    <button @click="currentPage = 'agent-center'" class="mt-4 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">进入 Agent 中心</button>
+                                    <button @click="currentPage = 'agent-center'" class="mt-4 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">进入酒店AI工具箱</button>
                                 </div>
                             </div>
                         </div>
@@ -4002,57 +4002,174 @@
                                 <div v-if="onlineDataTab === 'ctrip-traffic'">
                                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-blue-800 mb-2">
-                                            <i class="fas fa-signal mr-2"></i>携程流量获取
+                                            <i class="fas fa-chart-line mr-2"></i>携程流量对比数据
                                         </h4>
-                                        <p class="text-sm text-blue-700">
-                                            请输入Cookies，可选填写额外参数(JSON)。
-                                        </p>
+                                        <p class="text-sm text-blue-700">我的酒店 vs 竞争圈平均，支持携程与去哪儿流量数据。</p>
                                     </div>
-                                    <!-- API地址和节点ID已隐藏，使用默认值 -->
-                                    <input type="hidden" v-model="ctripTrafficForm.url">
-                                    <input type="hidden" v-model="ctripTrafficForm.nodeId">
-                                    <div class="grid grid-cols-2 gap-4 mb-4">
+
+                                    <div class="mb-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">选择酒店</label>
+                                        <div class="flex gap-2">
+                                            <select v-model="selectedCtripConfigId" @change="applyCtripConfig"
+                                                class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                <option value="">-- 请选择 --</option>
+                                                <option v-for="config in ctripConfigList" :key="config.id" :value="config.id">
+                                                    {{ config.name }}
+                                                </option>
+                                            </select>
+                                            <button @click="loadCtripConfigList"
+                                                class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
+                                                <i class="fas fa-sync-alt"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">平台</label>
+                                            <div class="inline-flex border rounded-lg overflow-hidden bg-white">
+                                                <button type="button" @click="ctripTrafficForm.platform = 'Ctrip'"
+                                                    :class="['px-4 py-2 text-sm', ctripTrafficForm.platform === 'Ctrip' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50']">携程</button>
+                                                <button type="button" @click="ctripTrafficForm.platform = 'Qunar'"
+                                                    :class="['px-4 py-2 text-sm border-l', ctripTrafficForm.platform === 'Qunar' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50']">去哪儿</button>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">日期口径</label>
+                                            <select v-model="ctripTrafficForm.dateRange" class="w-full px-3 py-2 border rounded-lg">
+                                                <option value="today_realtime">今日实时</option>
+                                                <option value="yesterday">昨天</option>
+                                                <option value="last_7_days">过去7天</option>
+                                                <option value="last_30_days">过去30天</option>
+                                                <option value="custom">自定义</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div v-if="ctripTrafficForm.dateRange === 'custom'" class="grid grid-cols-2 gap-4 mb-4">
                                         <div>
                                             <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
-                                            <input v-model="ctripTrafficForm.startDate" type="date" 
-                                                class="w-full px-3 py-2 border rounded-lg">
+                                            <input v-model="ctripTrafficForm.startDate" type="date" class="w-full px-3 py-2 border rounded-lg">
                                         </div>
                                         <div>
                                             <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
-                                            <input v-model="ctripTrafficForm.endDate" type="date" 
-                                                class="w-full px-3 py-2 border rounded-lg">
+                                            <input v-model="ctripTrafficForm.endDate" type="date" class="w-full px-3 py-2 border rounded-lg">
                                         </div>
                                     </div>
+
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Cookies</label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Cookies <span class="text-red-500">*</span></label>
                                         <textarea v-model="ctripTrafficForm.cookies" rows="3"
-                                            class="w-full px-3 py-2 border rounded-lg"
-                                            placeholder="请粘贴登录后的Cookies..."></textarea>
+                                            class="w-full px-3 py-2 border rounded-lg font-mono text-sm"
+                                            placeholder="请粘贴登录后的携程 Cookie"></textarea>
                                     </div>
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">额外参数（JSON，可选）</label>
-                                        <textarea v-model="ctripTrafficForm.extraParams" rows="2"
-                                            class="w-full px-3 py-2 border rounded-lg text-sm"
-                                            placeholder='例如：{"channel":"web","metric":"pv"}'></textarea>
-                                    </div>
+                                    <details class="mb-4">
+                                        <summary class="text-sm text-gray-600 cursor-pointer">高级参数</summary>
+                                        <div class="mt-3 space-y-3">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Request URL</label>
+                                                <input v-model="ctripTrafficForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">原始 Payload 其他字段 JSON</label>
+                                                <textarea v-model="ctripTrafficForm.extraParams" rows="3"
+                                                    class="w-full px-3 py-2 border rounded-lg text-sm font-mono"
+                                                    placeholder='去哪儿失败时可粘贴完整 Payload 的其他字段'></textarea>
+                                            </div>
+                                        </div>
+                                    </details>
+
                                     <div class="flex gap-3 mb-4">
-                                        <button @click="fetchCtripTrafficData" 
-                                            :disabled="fetchingData"
+                                        <button @click="fetchCtripTrafficData" :disabled="fetchingData"
                                             class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
                                             <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '获取流量' }}
                                         </button>
                                     </div>
 
-                                    <!-- 获取结果展示框 -->
                                     <div v-if="onlineDataResult" class="mt-4">
+                                        <div :class="['border rounded-lg p-3 mb-4 text-sm', ctripTrafficRows.length ? 'bg-green-50 border-green-200 text-green-800' : 'bg-yellow-50 border-yellow-200 text-yellow-800']">
+                                            {{ ctripTrafficRows.length ? `请求成功，HTTP ${onlineDataResult.http_code || 200}，保存 ${onlineDataResult.saved_count || 0} 条。` : '当前日期范围暂无流量数据。' }}
+                                        </div>
+
+                                        <div v-if="ctripTrafficSummary" class="responsive-metric-grid is-compact mb-4">
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-blue-700">{{ formatNumber(ctripTrafficSummary.self.listExposure) }}</div>
+                                                <div class="text-xs text-gray-500">我的列表页曝光量</div>
+                                            </div>
+                                            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-slate-700">{{ formatNumber(ctripTrafficSummary.avg.listExposure) }}</div>
+                                                <div class="text-xs text-gray-500">竞争圈平均曝光量</div>
+                                            </div>
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-green-700">{{ formatNumber(ctripTrafficSummary.self.detailExposure) }}</div>
+                                                <div class="text-xs text-gray-500">我的详情页访客量</div>
+                                            </div>
+                                            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-emerald-700">{{ formatNumber(ctripTrafficSummary.avg.detailExposure) }}</div>
+                                                <div class="text-xs text-gray-500">竞争圈平均访客量</div>
+                                            </div>
+                                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-amber-700">{{ ctripTrafficSummary.self.flowRate.toFixed(2) }}%</div>
+                                                <div class="text-xs text-gray-500">我的曝光转化率</div>
+                                            </div>
+                                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-orange-700">{{ ctripTrafficSummary.avg.flowRate.toFixed(2) }}%</div>
+                                                <div class="text-xs text-gray-500">竞争圈平均转化率</div>
+                                            </div>
+                                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-indigo-700">{{ ctripTrafficSummary.self.orderFillRate.toFixed(2) }}%</div>
+                                                <div class="text-xs text-gray-500">我的下单转化率</div>
+                                            </div>
+                                            <div class="bg-violet-50 border border-violet-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-violet-700">{{ ctripTrafficSummary.avg.orderFillRate.toFixed(2) }}%</div>
+                                                <div class="text-xs text-gray-500">竞争圈平均下单转化率</div>
+                                            </div>
+                                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-rose-700">{{ ctripTrafficSummary.self.submitRate.toFixed(2) }}%</div>
+                                                <div class="text-xs text-gray-500">我的成交转化率</div>
+                                            </div>
+                                            <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-center responsive-metric-card">
+                                                <div class="text-xl font-bold text-red-700">{{ ctripTrafficSummary.avg.submitRate.toFixed(2) }}%</div>
+                                                <div class="text-xs text-gray-500">竞争圈平均成交转化率</div>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="ctripTrafficRows.length" class="overflow-x-auto mb-4">
+                                            <table class="w-full text-sm border-collapse">
+                                                <thead>
+                                                    <tr class="bg-gray-50 text-gray-600">
+                                                        <th class="px-3 py-2 border text-left">日期</th>
+                                                        <th class="px-3 py-2 border text-left">对象</th>
+                                                        <th class="px-3 py-2 border text-right">列表页曝光量</th>
+                                                        <th class="px-3 py-2 border text-right">详情页访客量</th>
+                                                        <th class="px-3 py-2 border text-right">曝光转化率</th>
+                                                        <th class="px-3 py-2 border text-right">订单页访客量</th>
+                                                        <th class="px-3 py-2 border text-right">下单转化率</th>
+                                                        <th class="px-3 py-2 border text-right">订单提交人数</th>
+                                                        <th class="px-3 py-2 border text-right">成交转化率</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="row in ctripTrafficRows" :key="row.date + '-' + row.compareType">
+                                                        <td class="px-3 py-2 border">{{ row.date }}</td>
+                                                        <td class="px-3 py-2 border">{{ row.compareType === 'self' ? '我的酒店' : '竞争圈平均' }}</td>
+                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(row.listExposure) }}</td>
+                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(row.detailExposure) }}</td>
+                                                        <td class="px-3 py-2 border text-right">{{ toFixedSafe(row.flowRate, 2) }}%</td>
+                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(row.orderFillingNum) }}</td>
+                                                        <td class="px-3 py-2 border text-right">{{ toFixedSafe(row.orderFillRate, 2) }}%</td>
+                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(row.orderSubmitNum) }}</td>
+                                                        <td class="px-3 py-2 border text-right">{{ toFixedSafe(row.submitRate, 2) }}%</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+
                                         <div class="flex gap-2 mb-2">
-                                            <button @click="showRawData = !showRawData" 
-                                                class="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
-                                                <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>
-                                                {{ showRawData ? '收起' : '展开' }}获取结果
+                                            <button @click="showRawData = !showRawData" class="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
+                                                <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>{{ showRawData ? '收起' : '展开' }}原始数据
                                             </button>
-                                            <button @click="copyOnlineDataResult" 
-                                                class="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600">
+                                            <button @click="copyOnlineDataResult" class="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600">
                                                 <i class="fas fa-copy mr-1"></i>复制JSON
                                             </button>
                                         </div>
@@ -4194,7 +4311,7 @@
                                         </button>
                                         <button @click="switchDownloadTab('traffic')"
                                             :class="['px-6 py-3 font-medium', downloadCenterTab === 'traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                            <i class="fas fa-chart-bar mr-2"></i>流量分析
+                                            <i class="fas fa-robot mr-2"></i>自动抓取
                                         </button>
                                         <button @click="switchDownloadTab('ai')"
                                             :class="['px-6 py-3 font-medium', downloadCenterTab === 'ai' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
@@ -4980,76 +5097,74 @@
                                         </div>
                                     </div>
 
-                                    <!-- 流量分析模块 -->
+                                    <!-- 自动抓取模块 -->
                                     <div v-if="downloadCenterTab === 'traffic'">
-                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">总曝光量</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.exposure_count || 0), 0)) }}</div>
-                                            </div>
-                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">平均浏览转化率</div>
-                                                <div class="text-2xl font-bold text-purple-600">{{
-                                                    (() => {
-                                                        const ctripData = onlineDataList.filter(i => i.source === 'ctrip' && i.exposure_count > 0);
-                                                        if (ctripData.length === 0) return '0.00%';
-                                                        const avgRate = ctripData.reduce((sum, i) => sum + (safeDivide(i.click_count, i.exposure_count) * 100 || 0), 0) / ctripData.length;
-                                                        return toFixedSafe(avgRate, 2) + '%';
-                                                    })()
-                                                }}</div>
-                                            </div>
-                                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">总点击量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.click_count || 0), 0)) }}</div>
-                                            </div>
-                                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">点击转化率</div>
-                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(safeDivide(onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.click_count || 0), 0), onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.exposure_count || 0), 0)) * 100, 2) }}%</div>
+                                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                            <div class="flex items-start gap-3">
+                                                <i class="fas fa-info-circle text-blue-600 mt-1"></i>
+                                                <div>
+                                                    <div class="font-medium text-blue-800">每天 10:00 自动抓取选定酒店的榜单数据</div>
+                                                    <div class="text-sm text-blue-700 mt-1">开启后由定时任务触发，保存携程经营榜单数据；手动抓取会立即执行同一逻辑。</div>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div class="overflow-x-auto table-container">
-                                            <table class="min-w-full bg-white border text-sm table-striped">
-                                                <thead>
-                                                    <tr class="bg-gray-50">
-                                                        <th class="px-3 py-2 text-left border text-xs">酒店</th>
-                                                        <th class="px-3 py-2 text-left border text-xs">日期</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">曝光量</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">点击量</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">转化率</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">访客数</th>
-                                                        <th class="px-3 py-2 text-left border text-xs">获取时间</th>
-                                                        <th class="px-3 py-2 text-center border text-xs">操作</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr v-for="item in onlineDataList.filter(i => i.source === 'ctrip' && (i.data_type === 'traffic' || i.exposure_count))" :key="item.id" class="border-b hover:bg-gray-50">
-                                                        <td class="px-3 py-2 border font-medium">{{ item.hotel_name }}</td>
-                                                        <td class="px-3 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(item.exposure_count) || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(item.click_count) || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ toFixedSafe(safeDivide(item.click_count, item.exposure_count) * 100, 2) }}%</td>
-                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(item.visitor_count) || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-gray-500 text-xs">{{ item.create_time }}</td>
-                                                        <td class="px-3 py-2 border text-center">
-                                                            <button @click="viewOnlineDataDetail(item)" class="action-btn action-btn-view" title="查看详情">
-                                                                <i class="fas fa-eye"></i>
-                                                            </button>
-                                                            <button @click="editOnlineDataItem(item)" class="action-btn action-btn-edit" title="编辑">
-                                                                <i class="fas fa-edit"></i>
-                                                            </button>
-                                                            <button @click="deleteOnlineDataItem(item.id)" class="action-btn action-btn-delete" title="删除">
-                                                                <i class="fas fa-trash"></i>
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                    <tr v-if="onlineDataList.filter(i => i.source === 'ctrip' && (i.data_type === 'traffic' || i.exposure_count)).length === 0">
-                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">
-                                                            <i class="fas fa-inbox text-3xl mb-2 block"></i>
-                                                            暂无流量数据
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+                                        <div class="border rounded-lg p-4">
+                                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                                                <div class="lg:col-span-2">
+                                                    <label class="block text-sm font-medium text-gray-700 mb-1">选择酒店</label>
+                                                    <div class="flex gap-2">
+                                                        <select v-model="autoFetchHotelId" @change="loadAutoFetchStatus"
+                                                            class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                            <option value="">-- 请选择酒店 --</option>
+                                                            <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                        </select>
+                                                        <button @click="loadAutoFetchPanel"
+                                                            class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200" title="刷新">
+                                                            <i class="fas fa-sync-alt"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-sm font-medium text-gray-700 mb-1">运行时间</label>
+                                                    <div class="px-3 py-2 border rounded-lg bg-gray-50 text-gray-700">每天 10:00</div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                                <div class="bg-gray-50 border rounded-lg p-3">
+                                                    <div class="text-xs text-gray-500 mb-1">状态</div>
+                                                    <span :class="['px-2 py-1 rounded text-xs font-medium', autoFetchEnabled ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600']">
+                                                        {{ autoFetchEnabled ? '已开启' : '已关闭' }}
+                                                    </span>
+                                                </div>
+                                                <div class="bg-gray-50 border rounded-lg p-3">
+                                                    <div class="text-xs text-gray-500 mb-1">上次运行</div>
+                                                    <div class="text-sm text-gray-700">{{ autoFetchStatus && autoFetchStatus.last_run_time ? autoFetchStatus.last_run_time : '从未运行' }}</div>
+                                                </div>
+                                                <div class="bg-gray-50 border rounded-lg p-3">
+                                                    <div class="text-xs text-gray-500 mb-1">下次运行</div>
+                                                    <div class="text-sm text-gray-700">{{ autoFetchStatus && autoFetchStatus.next_run_time ? autoFetchStatus.next_run_time : '-' }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-3">
+                                                <label :class="['flex items-center', autoFetchHotelId ? 'cursor-pointer' : 'cursor-not-allowed opacity-60']">
+                                                    <div class="relative">
+                                                        <input type="checkbox" v-model="autoFetchEnabled" @change="toggleAutoFetch" :disabled="!autoFetchHotelId" class="sr-only">
+                                                        <div :class="['w-12 h-6 rounded-full transition-colors', autoFetchEnabled ? 'bg-green-500' : 'bg-gray-300']"></div>
+                                                        <div :class="['absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform', autoFetchEnabled ? 'translate-x-6' : '']"></div>
+                                                    </div>
+                                                    <span class="ml-2 text-sm text-gray-700">启用自动抓取</span>
+                                                </label>
+                                                <button @click="triggerAutoFetch" :disabled="fetchingData || !autoFetchHotelId"
+                                                    class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+                                                    <i :class="['fas mr-2', fetchingData ? 'fa-spinner fa-spin' : 'fa-play']"></i>立即抓取
+                                                </button>
+                                            </div>
+                                            <div v-if="autoFetchStatus && autoFetchStatus.last_result" class="mt-4 pt-3 border-t text-sm">
+                                                <span class="text-gray-600">上次结果：</span>
+                                                <span :class="autoFetchStatus.last_result.success === true ? 'text-green-600' : 'text-red-600'">
+                                                    {{ autoFetchStatus.last_result.message || '-' }}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -6839,359 +6954,32 @@
                             </div>
                         </div>
                     </div>
-
-                    <!-- 竞对价格监控 (仅超级管理员) -->
-                    <div v-if="currentPage === 'competitor'">
-                        <div class="card">
-                            <div class="p-5 border-b border-gray-100">
-                                <div class="flex flex-wrap gap-2 items-center">
-                                    <button @click="competitorTab = 'hotels'" :class="['px-5 py-2.5 rounded-lg font-medium transition', competitorTab==='hotels' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-hotel mr-2"></i>竞对酒店
-                                    </button>
-                                    <button @click="competitorTab = 'logs'" :class="['px-5 py-2.5 rounded-lg font-medium transition', competitorTab==='logs' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-history mr-2"></i>价格日志
-                                    </button>
-                                    <button @click="competitorTab = 'devices'" :class="['px-5 py-2.5 rounded-lg font-medium transition', competitorTab==='devices' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-mobile-alt mr-2"></i>设备管理
-                                    </button>
-                                    <button @click="competitorTab = 'robots'" :class="['px-5 py-2.5 rounded-lg font-medium transition', competitorTab==='robots' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-robot mr-2"></i>企业微信机器人
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="p-5">
-                                <!-- 竞对酒店 -->
-                                <div v-if="competitorTab === 'hotels'">
-                                    <div class="flex flex-wrap gap-3 mb-5 items-end">
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-600 mb-1.5">门店ID</label>
-                                            <input v-model="competitorHotelFilter.store_id" class="input-field w-32" placeholder="门店ID">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-600 mb-1.5">平台</label>
-                                            <select v-model="competitorHotelFilter.platform" class="input-field w-28">
-                                                <option value="">全部</option>
-                                                <option value="mt">美团</option>
-                                                <option value="xc">携程</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-600 mb-1.5">状态</label>
-                                            <select v-model="competitorHotelFilter.status" class="input-field w-28">
-                                                <option value="">全部</option>
-                                                <option :value="1">启用</option>
-                                                <option :value="0">禁用</option>
-                                            </select>
-                                        </div>
-                                        <button @click="loadCompetitorHotels" class="btn-primary">
-                                            <i class="fas fa-search mr-2"></i>查询
-                                        </button>
-                                        <button @click="openCompetitorHotelModal()" class="btn-success">
-                                            <i class="fas fa-plus mr-2"></i>新增
-                                        </button>
-                                    </div>
-
-                                    <div class="table-container overflow-x-auto">
-                                        <table class="w-full text-sm">
-                                            <thead>
-                                                <tr>
-                                                    <th class="px-4 py-3 text-left">门店ID</th>
-                                                    <th class="px-4 py-3 text-left">平台</th>
-                                                    <th class="px-4 py-3 text-left">城市</th>
-                                                    <th class="px-4 py-3 text-left">酒店名称</th>
-                                                    <th class="px-4 py-3 text-left">酒店编码</th>
-                                                    <th class="px-4 py-3 text-left">状态</th>
-                                                    <th class="px-4 py-3 text-left">操作</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr v-for="item in competitorHotels" :key="item.id">
-                                                    <td class="px-4 py-3 text-gray-600">{{ item.store_id }}</td>
-                                                    <td class="px-4 py-3">
-                                                        <span :class="item.platform === 'mt' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'" class="badge">{{ item.platform }}</span>
-                                                    </td>
-                                                    <td class="px-4 py-3 text-gray-600">{{ item.city }}</td>
-                                                    <td class="px-4 py-3 font-medium text-gray-800">{{ item.hotel_name }}</td>
-                                                    <td class="px-4 py-3 text-gray-500">{{ item.hotel_code || '-' }}</td>
-                                                    <td class="px-4 py-3">
-                                                        <span :class="item.status ? 'badge-success' : 'badge-danger'" class="badge">{{ item.status ? '启用' : '禁用' }}</span>
-                                                    </td>
-                                                    <td class="px-4 py-3">
-                                                        <div class="flex items-center gap-2">
-                                                            <button @click="openCompetitorHotelModal(item)" class="action-btn action-btn-edit"><i class="fas fa-edit"></i></button>
-                                                            <button @click="deleteCompetitorHotel(item)" class="action-btn action-btn-delete"><i class="fas fa-trash"></i></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                <tr v-if="competitorHotels.length === 0">
-                                        <td colspan="7" class="px-4 py-8 text-center text-gray-400">待同步经营数据</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                <!-- 价格日志 -->
-                                <div v-if="competitorTab === 'logs'">
-                                    <div class="flex flex-wrap gap-3 mb-5 items-end">
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-600 mb-1.5">门店ID</label>
-                                            <input v-model="competitorLogFilter.store_id" class="input-field w-32" placeholder="门店ID">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-600 mb-1.5">平台</label>
-                                            <select v-model="competitorLogFilter.platform" class="input-field w-28">
-                                                <option value="">全部</option>
-                                                <option value="mt">美团</option>
-                                                <option value="xc">携程</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-600 mb-1.5">城市</label>
-                                            <input v-model="competitorLogFilter.city" class="input-field w-32" placeholder="城市">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-600 mb-1.5">酒店ID</label>
-                                            <input v-model="competitorLogFilter.hotel_id" class="input-field w-32" placeholder="酒店ID">
-                                        </div>
-                                        <button @click="loadCompetitorLogs" class="btn-primary">
-                                            <i class="fas fa-search mr-2"></i>查询
-                                        </button>
-                                    </div>
-
-                                    <div class="table-container overflow-x-auto">
-                                        <table class="w-full text-sm">
-                                            <thead>
-                                                <tr>
-                                                    <th class="px-4 py-3 text-left">门店ID</th>
-                                                    <th class="px-4 py-3 text-left">酒店ID</th>
-                                                    <th class="px-4 py-3 text-left">平台</th>
-                                                    <th class="px-4 py-3 text-left">城市</th>
-                                                    <th class="px-4 py-3 text-left">价格</th>
-                                                    <th class="px-4 py-3 text-left">截图</th>
-                                                    <th class="px-4 py-3 text-left">设备</th>
-                                                    <th class="px-4 py-3 text-left">抓取时间</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr v-for="item in competitorLogs" :key="item.id">
-                                                    <td class="px-4 py-3 text-gray-600">{{ item.store_id }}</td>
-                                                    <td class="px-4 py-3 text-gray-600">{{ item.hotel_id }}</td>
-                                                    <td class="px-4 py-3">
-                                                        <span :class="item.platform === 'mt' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'" class="badge">{{ item.platform }}</span>
-                                                    </td>
-                                                    <td class="px-4 py-3 text-gray-600">{{ item.city }}</td>
-                                                    <td class="px-4 py-3"><span class="text-green-600 font-semibold">¥{{ item.price }}</span></td>
-                                                    <td class="px-4 py-3">
-                                                        <a v-if="item.screenshot" :href="item.screenshot" target="_blank" class="text-blue-500 hover:text-blue-700"><i class="fas fa-image mr-1"></i>预览</a>
-                                                        <span v-else class="text-gray-300">-</span>
-                                                    </td>
-                                                    <td class="px-4 py-3 text-gray-500">{{ item.device_id || '-' }}</td>
-                                                    <td class="px-4 py-3 text-gray-500 text-xs">{{ item.fetch_time }}</td>
-                                                </tr>
-                                                <tr v-if="competitorLogs.length === 0">
-                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">待同步经营数据</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                <!-- 设备管理 -->
-                                <div v-if="competitorTab === 'devices'">
-                                    <div class="table-container overflow-x-auto">
-                                        <table class="w-full text-sm">
-                                            <thead>
-                                                <tr>
-                                                    <th class="px-4 py-3 text-left">设备ID</th>
-                                                    <th class="px-4 py-3 text-left">名称</th>
-                                                    <th class="px-4 py-3 text-left">状态</th>
-                                                    <th class="px-4 py-3 text-left">最后在线</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr v-for="item in competitorDevices" :key="item.id">
-                                                    <td class="px-4 py-3 text-gray-600 font-mono">{{ item.device_id }}</td>
-                                                    <td class="px-4 py-3 font-medium text-gray-800">{{ item.name || '-' }}</td>
-                                                    <td class="px-4 py-3">
-                                                        <span :class="item.is_online ? 'badge-success' : 'badge-danger'" class="badge">
-                                                            <i :class="item.is_online ? 'fas fa-circle text-green-500' : 'fas fa-circle text-gray-400'" class="text-xs mr-1"></i>
-                                                            {{ item.is_online ? '在线' : '离线' }}
-                                                        </span>
-                                                    </td>
-                                                    <td class="px-4 py-3 text-gray-500 text-xs">{{ item.last_time || '-' }}</td>
-                                                </tr>
-                                                <tr v-if="competitorDevices.length === 0">
-                                        <td colspan="4" class="px-4 py-8 text-center text-gray-400">待校验数据源</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                <!-- 企业微信机器人 -->
-                                <div v-if="competitorTab === 'robots'">
-                                    <div class="flex flex-wrap gap-3 mb-5 items-end">
-                                        <div>
-                                            <label class="block text-sm text-gray-600 mb-1">门店</label>
-                                            <select v-model="competitorRobotFilter.store_id" class="px-3 py-2 border rounded-lg min-w-40">
-                                                <option value="">全部门店</option>
-                                                <option v-for="s in competitorStores" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                            </select>
-                                        </div>
-                                        <button @click="loadCompetitorRobots" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
-                                            <i class="fas fa-search mr-2"></i>查询
-                                        </button>
-                                        <button @click="openCompetitorRobotModal()" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600">
-                                            <i class="fas fa-plus mr-2"></i>新增
-                                        </button>
-                                    </div>
-
-                                    <div class="overflow-x-auto border rounded-lg">
-                                        <table class="w-full text-sm">
-                                            <thead class="bg-gray-50">
-                                                <tr>
-                                                    <th class="px-3 py-2 text-left">门店</th>
-                                                    <th class="px-3 py-2 text-left">名称</th>
-                                                    <th class="px-3 py-2 text-left">Webhook</th>
-                                                    <th class="px-3 py-2 text-left">状态</th>
-                                                    <th class="px-3 py-2 text-left">操作</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="divide-y">
-                                                <tr v-for="item in competitorRobots" :key="item.id">
-                                                    <td class="px-3 py-2">{{ getCompetitorStoreName(item.store_id) }}</td>
-                                                    <td class="px-3 py-2">{{ item.name }}</td>
-                                                    <td class="px-3 py-2 text-gray-500 truncate" style="max-width: 320px;">{{ item.webhook }}</td>
-                                                    <td class="px-3 py-2">
-                                                        <span :class="item.status ? 'text-green-600' : 'text-gray-500'">
-                                                            {{ item.status ? '启用' : '禁用' }}
-                                                        </span>
-                                                    </td>
-                                                    <td class="px-3 py-2 space-x-2">
-                                                        <button class="text-blue-600" @click="openCompetitorRobotModal(item)">编辑</button>
-                                                        <button class="text-green-600" @click="testCompetitorRobot(item.store_id)">测试发送</button>
-                                                        <button class="text-red-600" @click="deleteCompetitorRobot(item)">删除</button>
-                                                    </td>
-                                                </tr>
-                                                <tr v-if="competitorRobots.length === 0">
-                                <td colspan="5" class="px-3 py-6 text-center text-gray-500">数据依据不足</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Agent中心 (仅超级管理员) -->
+<!-- 酒店AI工具箱 (仅超级管理员) -->
                     <div v-if="currentPage === 'agent-center'">
                         <div class="card">
                             <div class="p-5 border-b border-gray-100">
-                                <div class="flex flex-wrap gap-2 items-center">
-                                    <button @click="agentTab = 'overview'" :class="['px-5 py-2.5 rounded-lg font-medium transition', agentTab==='overview' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-dashboard mr-2"></i>概览
-                                    </button>
-                                    <button @click="agentTab = 'staff'" :class="['px-5 py-2.5 rounded-lg font-medium transition', agentTab==='staff' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-user-tie mr-2"></i>智能员工Agent
-                                    </button>
-                                    <button @click="agentTab = 'revenue'" :class="['px-5 py-2.5 rounded-lg font-medium transition', agentTab==='revenue' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-chart-line mr-2"></i>收益管理Agent
-                                    </button>
-                                    <button @click="agentTab = 'asset'" :class="['px-5 py-2.5 rounded-lg font-medium transition', agentTab==='asset' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-tools mr-2"></i>资产运维Agent
-                                    </button>
-                                    <button @click="agentTab = 'logs'" :class="['px-5 py-2.5 rounded-lg font-medium transition', agentTab==='logs' ? 'tab-btn-active' : 'tab-btn-inactive']">
-                                        <i class="fas fa-history mr-2"></i>运行日志
-                                    </button>
+                                <div>
+                                    <h2 class="text-xl font-bold text-gray-900">酒店AI工具箱</h2>
+                                    <p class="text-sm text-gray-500 mt-1">常用AI工具快捷入口，用于跳转到指定网站。</p>
                                 </div>
                             </div>
                             <div class="p-5">
                                 <!-- 概览 -->
                                 <div v-if="agentTab === 'overview'">
-                                    <!-- Agent状态卡片 -->
-                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                                        <div v-for="(agent, key) in agentOverview.agents" :key="key" 
-                                            class="bg-white rounded-xl p-5 shadow-sm border transition hover:shadow-md"
-                                            :class="agent.enabled ? 'border-green-200 bg-green-50/30' : 'border-gray-200'">
-                                            <div class="flex items-start justify-between">
-                                                <div>
-                                                    <div class="flex items-center gap-2 mb-2">
-                                                        <span class="text-2xl">{{ agent.icon }}</span>
-                                                        <span class="text-lg font-semibold text-gray-800">{{ agent.name }}</span>
-                                                    </div>
-                                                    <p class="text-sm text-gray-500 mb-3">{{ agent.description }}</p>
-                                                    <div class="flex items-center gap-2">
-                                                        <span :class="agent.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'" class="badge">
-                                                            {{ agent.enabled ? '已启用' : '未启用' }}
-                                                        </span>
-                                                        <span class="text-xs text-gray-400">今日任务: {{ agent.tasks.total }}</span>
-                                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                        <a v-for="tool in hotelAiToolboxLinks" :key="tool.name"
+                                            :href="tool.url" target="_blank" rel="noopener noreferrer"
+                                            class="text-left bg-white rounded-xl border border-gray-100 p-5 shadow-sm hover:shadow-md hover:border-blue-200 transition">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="tool.iconBg">
+                                                    <i :class="[tool.icon, tool.iconColor]"></i>
                                                 </div>
-                                                <div class="text-right">
-                                                    <div class="text-2xl font-bold" :class="agent.enabled ? 'text-green-600' : 'text-gray-400'">
-                                                        {{ agent.tasks.completed }}
-                                                    </div>
-                                                    <div class="text-xs text-gray-500">已完成</div>
-                                                </div>
+                                                <i class="fas fa-external-link-alt text-gray-300 text-sm mt-1"></i>
                                             </div>
-                                            <div class="mt-4 pt-4 border-t flex items-center justify-between">
-                                                <div class="flex gap-3 text-xs text-gray-500">
-                                                    <span><i class="fas fa-clock mr-1 text-yellow-500"></i>{{ agent.tasks.pending }} 待执行</span>
-                                                    <span><i class="fas fa-check mr-1 text-green-500"></i>{{ agent.tasks.completed }} 成功</span>
-                                                    <span v-if="agent.tasks.failed > 0"><i class="fas fa-times mr-1 text-red-500"></i>{{ agent.tasks.failed }} 失败</span>
-                                                </div>
-                                                <button @click="agentTab = key" class="text-blue-600 hover:text-blue-800 text-sm">
-                                                    配置 <i class="fas fa-arrow-right ml-1"></i>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- 最近日志 -->
-                                    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                                        <div class="p-4 border-b border-gray-100 flex items-center justify-between">
-                                            <h3 class="font-semibold text-gray-800"><i class="fas fa-list-alt mr-2 text-blue-500"></i>最近运行日志</h3>
-                                            <button @click="agentTab = 'logs'" class="text-blue-600 hover:text-blue-800 text-sm">查看全部</button>
-                                        </div>
-                                        <table class="w-full text-sm">
-                                            <thead class="bg-gray-50">
-                                                <tr>
-                                                    <th class="px-4 py-3 text-left">时间</th>
-                                                    <th class="px-4 py-3 text-left">Agent</th>
-                                                    <th class="px-4 py-3 text-left">操作</th>
-                                                    <th class="px-4 py-3 text-left">消息</th>
-                                                    <th class="px-4 py-3 text-left">级别</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="divide-y">
-                                                <tr v-for="log in agentOverview.recent_logs" :key="log.id" class="hover:bg-gray-50">
-                                                    <td class="px-4 py-3 text-gray-500 text-xs">{{ log.create_time }}</td>
-                                                    <td class="px-4 py-3">
-                                                        <span class="badge" :class="{
-                                                            'bg-purple-100 text-purple-700': log.agent_type === 1,
-                                                            'bg-green-100 text-green-700': log.agent_type === 2,
-                                                            'bg-orange-100 text-orange-700': log.agent_type === 3
-                                                        }">{{ log.agent_type_name }}</span>
-                                                    </td>
-                                                    <td class="px-4 py-3 text-gray-600">{{ log.action }}</td>
-                                                    <td class="px-4 py-3 text-gray-800">{{ log.message }}</td>
-                                                    <td class="px-4 py-3">
-                                                        <span class="badge" :class="{
-                                                            'bg-gray-100 text-gray-600': log.log_level === 1,
-                                                            'bg-blue-100 text-blue-700': log.log_level === 2,
-                                                            'bg-yellow-100 text-yellow-700': log.log_level === 3,
-                                                            'bg-red-100 text-red-700': log.log_level === 4
-                                                        }">{{ log.log_level_name }}</span>
-                                                    </td>
-                                                </tr>
-                                                <tr v-if="!agentOverview.recent_logs || agentOverview.recent_logs.length === 0">
-                                                    <td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无日志</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                                            <div class="font-semibold text-gray-900 mt-4">{{ tool.name }}</div>
+                                            <div class="text-sm text-gray-500 mt-2 leading-relaxed min-h-[40px]">{{ tool.desc }}</div>
+                                            <div class="text-xs text-gray-400 mt-4 truncate">{{ tool.url }}</div>
+                                        </a>
                                     </div>
                                 </div>
 
@@ -9074,49 +8862,37 @@
                                 <!-- 携程流量 -->
                                 <div v-if="onlineDataTab === 'ctrip-traffic' && user?.is_super_admin">
                                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                                        <h4 class="font-medium text-blue-800 mb-2">
-                                            <i class="fas fa-signal mr-2"></i>携程流量获取
-                                        </h4>
-                                        <p class="text-sm text-blue-700">
-                                            请输入Cookies，可选填写额外参数(JSON)。
-                                        </p>
+                                        <h4 class="font-medium text-blue-800 mb-2"><i class="fas fa-chart-line mr-2"></i>携程流量对比数据</h4>
                                     </div>
-                                    <!-- API地址和节点ID已隐藏，使用默认值 -->
-                                    <input type="hidden" v-model="ctripTrafficForm.url">
-                                    <input type="hidden" v-model="ctripTrafficForm.nodeId">
-                                    <div class="grid grid-cols-2 gap-4 mb-4">
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
-                                            <input v-model="ctripTrafficForm.startDate" type="date" 
-                                                class="w-full px-3 py-2 border rounded-lg">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
-                                            <input v-model="ctripTrafficForm.endDate" type="date" 
-                                                class="w-full px-3 py-2 border rounded-lg">
-                                        </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <select v-model="ctripTrafficForm.platform" class="px-3 py-2 border rounded-lg">
+                                            <option value="Ctrip">携程</option>
+                                            <option value="Qunar">去哪儿</option>
+                                        </select>
+                                        <select v-model="ctripTrafficForm.dateRange" class="px-3 py-2 border rounded-lg">
+                                            <option value="today_realtime">今日实时</option>
+                                            <option value="yesterday">昨天</option>
+                                            <option value="last_7_days">过去7天</option>
+                                            <option value="last_30_days">过去30天</option>
+                                            <option value="custom">自定义</option>
+                                        </select>
+                                    </div>
+                                    <div v-if="ctripTrafficForm.dateRange === 'custom'" class="grid grid-cols-2 gap-4 mb-4">
+                                        <input v-model="ctripTrafficForm.startDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                        <input v-model="ctripTrafficForm.endDate" type="date" class="w-full px-3 py-2 border rounded-lg">
                                     </div>
                                     <div class="mb-4">
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Cookies</label>
-                                        <textarea v-model="ctripTrafficForm.cookies" rows="3"
-                                            class="w-full px-3 py-2 border rounded-lg"
-                                            placeholder="请粘贴登录后的Cookies..."></textarea>
+                                        <textarea v-model="ctripTrafficForm.cookies" rows="3" class="w-full px-3 py-2 border rounded-lg font-mono text-sm"></textarea>
                                     </div>
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">额外参数（JSON，可选）</label>
-                                        <textarea v-model="ctripTrafficForm.extraParams" rows="2"
-                                            class="w-full px-3 py-2 border rounded-lg text-sm"
-                                            placeholder='例如：{"channel":"web","metric":"pv"}'></textarea>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">额外参数 JSON</label>
+                                        <textarea v-model="ctripTrafficForm.extraParams" rows="2" class="w-full px-3 py-2 border rounded-lg text-sm font-mono"></textarea>
                                     </div>
-                                    <div class="flex gap-3">
-                                        <button @click="fetchCtripTrafficData" 
-                                            :disabled="fetchingData"
-                                            class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
-                                            <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '获取流量' }}
-                                        </button>
-                                    </div>
+                                    <button @click="fetchCtripTrafficData" :disabled="fetchingData" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
+                                        <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '获取流量' }}
+                                    </button>
                                 </div>
-                                
                                 <!-- 美团ebooking -->
                                 <div v-if="onlineDataTab === 'meituan' && user?.is_super_admin">
                                     <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
@@ -10885,7 +10661,7 @@
 
             // 线上数据获取
             const onlineDataTab = ref('ctrip-ranking');
-            const downloadCenterTab = ref('overview'); // 下载中心子Tab: overview/traffic/ai/fetched
+            const downloadCenterTab = ref('overview'); // 下载中心子Tab: overview/traffic(auto-fetch)/ai/fetched
             const fetchingData = ref(false);
             const onlineDataResult = ref(null);
             const latestTrafficData = ref(null); // 本次获取的流量数据
@@ -10976,13 +10752,16 @@
                 auth_data: {}, // 认证数据
             });
             const ctripTrafficForm = ref({
-                url: '',
-                nodeId: '',
+                url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+                platform: 'Ctrip',
+                dateRange: 'yesterday',
                 startDate: '',
                 endDate: '',
                 cookies: '',
                 extraParams: '',
             });
+            const ctripTrafficSummary = ref(null);
+            const ctripTrafficRows = ref([]);
             const ctripCommentForm = ref({
                 requestUrl: '',
                 hotelId: '',
@@ -11192,7 +10971,6 @@
             { name: '周期信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待日期与订单节奏数据形成周期判断', action: '去分析', page: 'agent-center' },
             { name: '天气信号', status: compassWeather.value.length ? '关注' : '待校验', className: compassWeather.value.length ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-500 border-gray-200', note: compassWeather.value.length ? '结合未来天气关注取消率、到店率与周边游需求' : '待校验数据源，暂不生成经营判断', action: '查看详情', page: 'compass' },
             { name: '渠道信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 曝光、点击、转化数据同步', action: '去分析', page: 'online-data' },
-            { name: '竞对信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格与排名变化数据', action: '查看详情', page: 'competitor' },
             { name: '价格信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 ADR、价差与促销压力数据', action: '去分析', page: 'agent-center' },
             { name: '需求信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待入住节奏、提前预订与临近订单数据', action: '去分析', page: 'online-data' }
             ]);
@@ -11272,8 +11050,7 @@
             });
             const homeQuickEntries = [
                 { title: '线上数据获取', desc: '同步 OTA 数据', page: 'online-data', icon: 'fas fa-cloud-download-alt' },
-                { title: '竞对价格监控', desc: '查看价格变化', page: 'competitor', icon: 'fas fa-tags' },
-                { title: 'Agent中心', desc: '生成经营建议', page: 'agent-center', icon: 'fas fa-robot' },
+                { title: '酒店AI工具箱', desc: '跳转常用AI工具', page: 'agent-center', icon: 'fas fa-toolbox' },
                 { title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
                 { title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog' }
             ];
@@ -11450,6 +11227,8 @@
             };
             
             // 自动获取状态
+            const autoFetchHotelId = ref('');
+            const autoFetchFixedTime = '10:00';
             const autoFetchEnabled = ref(false);
             const autoFetchStatus = ref({
                 last_run_time: null,
@@ -11607,7 +11386,11 @@
                     } else if (onlineDataTab.value === 'meituan-download' || onlineDataTab.value.startsWith('meituan')) {
                         onlineDataFilter.value.source = 'meituan';
                     }
-                    // 切换到历史记录、流量分析、AI分析时自动加载数据
+                    if (tab === 'traffic' && (onlineDataTab.value === 'ctrip-download' || onlineDataTab.value.startsWith('ctrip'))) {
+                        await loadAutoFetchPanel();
+                        return;
+                    }
+                    // 切换到历史记录、AI分析时自动加载数据
                     await loadOnlineDataList();
                     await loadOnlineDataHotelList();
                     
@@ -11627,6 +11410,10 @@
                 onlineDataTab.value = 'ctrip-download';
                 // 设置数据来源为携程
                 onlineDataFilter.value.source = 'ctrip';
+                if (downloadCenterTab.value === 'traffic') {
+                    await loadAutoFetchPanel();
+                    return;
+                }
                 // 如果默认子 tab 不是 fetched（最新获取数据），自动加载数据
                 if (downloadCenterTab.value !== 'fetched') {
                     await loadOnlineDataList();
@@ -11752,10 +11539,27 @@
             
             // 切换自动获取开关
             const toggleAutoFetch = async () => {
+                const hotelId = getAutoFetchHotelId();
+                if (!hotelId) {
+                    autoFetchEnabled.value = false;
+                    showToast('请先选择酒店', 'error');
+                    return;
+                }
                 try {
+                    if (autoFetchEnabled.value) {
+                        const scheduleRes = await request('/online-data/set-fetch-schedule', {
+                            method: 'POST',
+                            body: JSON.stringify({ hotel_id: hotelId, schedule_time: autoFetchFixedTime })
+                        });
+                        if (scheduleRes.code !== 200) {
+                            autoFetchEnabled.value = false;
+                            showToast(scheduleRes.message || '设置运行时间失败', 'error');
+                            return;
+                        }
+                    }
                     const res = await request('/online-data/toggle-auto-fetch', {
                         method: 'POST',
-                        body: JSON.stringify({ enabled: autoFetchEnabled.value })
+                        body: JSON.stringify({ enabled: autoFetchEnabled.value, hotel_id: hotelId })
                     });
                     if (res.code === 200) {
                         showToast(autoFetchEnabled.value ? '自动获取已开启' : '自动获取已关闭');
@@ -11771,13 +11575,34 @@
             };
             
             // 加载自动获取状态
+            const getAutoFetchHotelId = () => {
+                if (autoFetchHotelId.value) return autoFetchHotelId.value;
+                return onlineDataFilter.value.hotel_id || '';
+            };
+
+            const loadAutoFetchPanel = async () => {
+                if (!hotels.value || hotels.value.length === 0) {
+                    await loadHotels();
+                }
+                if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {
+                    autoFetchHotelId.value = hotels.value[0].id;
+                }
+                await loadAutoFetchStatus();
+            };
+
             const loadAutoFetchStatus = async () => {
                 try {
-                    const res = await request('/online-data/auto-fetch-status');
+                    const params = new URLSearchParams();
+                    const hotelId = getAutoFetchHotelId();
+                    if (hotelId) {
+                        params.append('hotel_id', hotelId);
+                    }
+                    const query = params.toString();
+                    const res = await request(`/online-data/auto-fetch-status${query ? '?' + query : ''}`);
                     if (res.code === 200) {
                         autoFetchEnabled.value = res.data?.enabled || false;
                         autoFetchStatus.value = res.data || {};
-                        autoFetchScheduleTime.value = res.data?.schedule_time || '10:00';
+                        autoFetchScheduleTime.value = autoFetchFixedTime;
                     }
                 } catch (error) {
                     console.error('加载自动获取状态失败:', error);
@@ -11786,13 +11611,15 @@
             
             // 手动触发自动获取
             const triggerAutoFetch = async () => {
+                const hotelId = getAutoFetchHotelId();
+                if (!hotelId) {
+                    showToast('请先选择酒店', 'error');
+                    return;
+                }
                 fetchingData.value = true;
                 showToast('正在获取数据...', 'info');
                 try {
-                    const body = {};
-                    if (onlineDataFilter.value.hotel_id) {
-                        body.system_hotel_id = onlineDataFilter.value.hotel_id;
-                    }
+                    const body = { system_hotel_id: hotelId };
                     const res = await request('/online-data/auto-fetch', { 
                         method: 'POST',
                         body: JSON.stringify(body)
@@ -11870,13 +11697,6 @@
                         loadAutoFetchStatus();
                     }, 100);
                 }
-                if (newPage === 'competitor') {
-                    loadCompetitorHotels();
-                    loadCompetitorLogs();
-                    loadCompetitorDevices();
-                    loadCompetitorStores();
-                    loadCompetitorRobots();
-                }
                 if (newPage === 'operation-logs') {
                     loadOperationLogs();
                 }
@@ -11895,7 +11715,7 @@
                     }, 100);
                 }
                 // 加载携程配置列表
-                if (newTab === 'ctrip-config') {
+                if (newTab === 'ctrip-config' || newTab === 'ctrip-traffic') {
                     loadCtripConfigList();
                 }
                 // 加载美团配置列表
@@ -11993,8 +11813,7 @@
                         { name: '美团ebooking', path: 'meituan-ebooking', icon: 'fas fa-store' }
                     ]
                 },
-                { name: '竞对价格监控', path: 'competitor', icon: 'fas fa-tags', requireSuper: true, permissions: [] },
-                { name: 'Agent中心', path: 'agent-center', icon: 'fas fa-robot', requireSuper: true, permissions: [] },
+                { name: '酒店AI工具箱', path: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true, permissions: [] },
                 { 
                     name: '团队管理', 
                     icon: 'fas fa-users', 
@@ -12696,6 +12515,16 @@
                 agents: {},
                 recent_logs: []
             });
+            const hotelAiToolboxLinks = [
+                { name: 'ChatGPT', desc: '通用问答、文案、数据分析与方案生成。', url: 'https://chatgpt.com/', icon: 'fas fa-comments', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600' },
+                { name: 'DeepSeek', desc: '长文本推理、代码辅助、经营分析草稿。', url: 'https://chat.deepseek.com/', icon: 'fas fa-brain', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+                { name: '豆包', desc: '中文内容生成、短文案、运营素材处理。', url: 'https://www.doubao.com/chat/', icon: 'fas fa-pen-nib', iconBg: 'bg-orange-50', iconColor: 'text-orange-600' },
+                { name: '通义千问', desc: '中文知识问答、表格理解、办公辅助。', url: 'https://tongyi.aliyun.com/qianwen/', icon: 'fas fa-lightbulb', iconBg: 'bg-violet-50', iconColor: 'text-violet-600' },
+                { name: 'Kimi', desc: '长文档阅读、报告提炼、资料归纳。', url: 'https://www.kimi.com/', icon: 'fas fa-file-alt', iconBg: 'bg-sky-50', iconColor: 'text-sky-600' },
+                { name: '腾讯元宝', desc: '中文检索问答、内容创作与办公协同。', url: 'https://yuanbao.tencent.com/', icon: 'fas fa-search', iconBg: 'bg-cyan-50', iconColor: 'text-cyan-600' },
+                { name: '文心一言', desc: '中文生成、品牌内容、经营问答。', url: 'https://yiyan.baidu.com/', icon: 'fas fa-feather-alt', iconBg: 'bg-red-50', iconColor: 'text-red-600' },
+                { name: '秘塔AI搜索', desc: '联网搜索、资料核验、行业信息整理。', url: 'https://metaso.cn/', icon: 'fas fa-globe', iconBg: 'bg-slate-50', iconColor: 'text-slate-600' },
+            ];
 
             // Agent配置
             const agentConfigs = ref({
@@ -13507,6 +13336,55 @@
             
             // 解析并提取所有携程酒店完整数据
             const extractAllCtripHotels = (responseData) => {
+                if (Array.isArray(responseData?.date_results)) {
+                    const rangeHotelMap = new Map();
+                    responseData.date_results.forEach(dayResult => {
+                        const dayHotels = extractAllCtripHotels(dayResult.data);
+                        dayHotels.forEach(hotel => {
+                            const key = `${hotel.hotelId || ''}_${hotel.hotelName || ''}`;
+                            if (!rangeHotelMap.has(key)) {
+                                rangeHotelMap.set(key, {
+                                    ...hotel,
+                                    amount: 0,
+                                    quantity: 0,
+                                    bookOrderNum: 0,
+                                    totalOrderNum: 0,
+                                    totalDetailNum: 0,
+                                    qunarDetailVisitors: 0,
+                                    commentScore: 0,
+                                    qunarCommentScore: 0,
+                                    convertionRate: 0,
+                                    qunarDetailCR: 0,
+                                    amountRank: 0,
+                                    quantityRank: 0,
+                                    commentScoreRank: 0,
+                                    qunarDetailCRRank: 0,
+                                });
+                            }
+                            const existing = rangeHotelMap.get(key);
+                            existing.amount += toNumber(hotel.amount);
+                            existing.quantity += toNumber(hotel.quantity);
+                            existing.bookOrderNum += toNumber(hotel.bookOrderNum);
+                            existing.totalOrderNum += toNumber(hotel.totalOrderNum);
+                            existing.totalDetailNum += toNumber(hotel.totalDetailNum);
+                            existing.qunarDetailVisitors += toNumber(hotel.qunarDetailVisitors);
+                            existing.commentScore = Math.max(existing.commentScore, toNumber(hotel.commentScore));
+                            existing.qunarCommentScore = Math.max(existing.qunarCommentScore, toNumber(hotel.qunarCommentScore));
+                            existing.convertionRate = Math.max(existing.convertionRate, toNumber(hotel.convertionRate));
+                            existing.qunarDetailCR = Math.max(existing.qunarDetailCR, toNumber(hotel.qunarDetailCR));
+                            const amountRank = toNumber(hotel.amountRank, 999);
+                            const quantityRank = toNumber(hotel.quantityRank, 999);
+                            const commentScoreRank = toNumber(hotel.commentScoreRank, 999);
+                            const qunarDetailCRRank = toNumber(hotel.qunarDetailCRRank, 999);
+                            existing.amountRank = existing.amountRank === 0 ? amountRank : Math.min(existing.amountRank, amountRank);
+                            existing.quantityRank = existing.quantityRank === 0 ? quantityRank : Math.min(existing.quantityRank, quantityRank);
+                            existing.commentScoreRank = existing.commentScoreRank === 0 ? commentScoreRank : Math.min(existing.commentScoreRank, commentScoreRank);
+                            existing.qunarDetailCRRank = existing.qunarDetailCRRank === 0 ? qunarDetailCRRank : Math.min(existing.qunarDetailCRRank, qunarDetailCRRank);
+                        });
+                    });
+                    return Array.from(rangeHotelMap.values());
+                }
+
                 let dataList = [];
                 const hotelMap = new Map(); // 用于合并同一酒店的不同榜单数据
                 
@@ -13663,7 +13541,7 @@
                 if (!startDate || !endDate) {
                     const yesterday = new Date();
                     yesterday.setDate(yesterday.getDate() - 1);
-                    const yesterdayStr = yesterday.toISOString().split('T')[0];
+                    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
                     startDate = yesterdayStr;
                     endDate = yesterdayStr;
                 }
@@ -13677,22 +13555,29 @@
                 
                 try {
                     console.log('发送携程数据请求...', { node_id: nodeId, start_date: startDate, end_date: endDate });
-                    // 使用测试路由（无需认证）
-                    const res = await request('/test-ctrip-fetch', {
+                    const selectedConfig = ctripConfigList.value.find(c => c.id === selectedCtripConfigId.value);
+                    const res = await request('/online-data/fetch-ctrip', {
                         method: 'POST',
                         body: JSON.stringify({
+                            url: ctripForm.value.url,
                             node_id: nodeId,
                             cookies: cookies,
+                            auth_data: ctripForm.value.auth_data || {},
                             start_date: startDate,
                             end_date: endDate,
+                            auto_save: true,
+                            system_hotel_id: selectedConfig?.hotel_id || null,
                         }),
                     });
                     console.log('携程数据响应:', res);
                     
                     if (res.code === 200) {
-                        onlineDataResult.value = res.data.data;
+                        const responsePayload = Array.isArray(res.data.date_results) && res.data.date_results.length > 1
+                            ? { date_results: res.data.date_results }
+                            : res.data.data;
+                        onlineDataResult.value = responsePayload;
                         // 提取完整酒店列表并排序
-                        const allHotels = extractAllCtripHotels(res.data.data);
+                        const allHotels = extractAllCtripHotels(responsePayload);
                         allHotels.sort((a, b) => b.quantity - a.quantity);
                         ctripHotelsList.value = allHotels;
                         // 提取前十名
@@ -14040,42 +13925,119 @@
                 }
             };
 
-            // 携程流量数据获取
+            const normalizeCtripTrafficRows = (payload) => {
+                let rows = [];
+                if (Array.isArray(payload)) {
+                    rows = payload;
+                } else if (Array.isArray(payload?.data)) {
+                    rows = payload.data;
+                } else if (Array.isArray(payload?.data?.list)) {
+                    rows = payload.data.list;
+                } else if (Array.isArray(payload?.data?.rows)) {
+                    rows = payload.data.rows;
+                } else if (Array.isArray(payload?.result?.data)) {
+                    rows = payload.result.data;
+                } else if (Array.isArray(payload?.list)) {
+                    rows = payload.list;
+                }
+                return rows
+                    .filter(row => row && (Number(row.hotelId) > 0 || Number(row.hotelId) === -1))
+                    .map(row => ({
+                        date: row.date || row.dataDate || row.statDate || '',
+                        hotelId: Number(row.hotelId),
+                        compareType: Number(row.hotelId) > 0 ? 'self' : 'competitor_avg',
+                        listExposure: Number(row.listExposure || 0),
+                        detailExposure: Number(row.detailExposure || 0),
+                        flowRate: Number(row.flowRate || 0),
+                        orderFillingNum: Number(row.orderFillingNum || 0),
+                        orderSubmitNum: Number(row.orderSubmitNum || 0),
+                        orderFillRate: Number(row.detailExposure || 0) > 0 ? Number(row.orderFillingNum || 0) / Number(row.detailExposure || 0) * 100 : 0,
+                        submitRate: Number(row.orderFillingNum || 0) > 0 ? Number(row.orderSubmitNum || 0) / Number(row.orderFillingNum || 0) * 100 : 0,
+                    }))
+                    .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.compareType === 'self' ? -1 : 1));
+            };
+
+            const buildCtripTrafficSummary = (rows) => {
+                const empty = () => ({
+                    listExposure: 0,
+                    detailExposure: 0,
+                    orderFillingNum: 0,
+                    orderSubmitNum: 0,
+                    flowRate: 0,
+                    orderFillRate: 0,
+                    submitRate: 0,
+                });
+                const summary = { self: empty(), avg: empty() };
+                rows.forEach(row => {
+                    const target = row.compareType === 'self' ? summary.self : summary.avg;
+                    target.listExposure += row.listExposure;
+                    target.detailExposure += row.detailExposure;
+                    target.orderFillingNum += row.orderFillingNum;
+                    target.orderSubmitNum += row.orderSubmitNum;
+                });
+                Object.values(summary).forEach(item => {
+                    item.flowRate = item.listExposure > 0 ? item.detailExposure / item.listExposure * 100 : 0;
+                    item.orderFillRate = item.detailExposure > 0 ? item.orderFillingNum / item.detailExposure * 100 : 0;
+                    item.submitRate = item.orderFillingNum > 0 ? item.orderSubmitNum / item.orderFillingNum * 100 : 0;
+                });
+                return summary;
+            };
+
+            // 携程 / 去哪儿流量对比数据获取
             const fetchCtripTrafficData = async () => {
-                if (!ctripTrafficForm.value.url) {
-                    showToast('请输入接口地址', 'error');
+                const form = ctripTrafficForm.value;
+                if (!form.cookies) {
+                    showToast('请提供携程 Cookie', 'error');
                     return;
                 }
-                if (!ctripTrafficForm.value.cookies) {
-                    showToast('请输入Cookies', 'error');
+                if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
+                    showToast('请选择自定义开始日期和结束日期', 'error');
                     return;
                 }
+
                 fetchingData.value = true;
                 onlineDataResult.value = null;
+                ctripTrafficSummary.value = null;
+                ctripTrafficRows.value = [];
                 try {
-                    const res = await request('/online-data/fetch-ctrip-traffic', {
+                    const selectedConfig = ctripConfigList.value.find(c => c.id === selectedCtripConfigId.value);
+                    const res = await request('/online-data/ctrip/traffic', {
                         method: 'POST',
                         body: JSON.stringify({
-                            url: ctripTrafficForm.value.url,
-                            node_id: ctripTrafficForm.value.nodeId,
-                            cookies: ctripTrafficForm.value.cookies,
-                            start_date: ctripTrafficForm.value.startDate,
-                            end_date: ctripTrafficForm.value.endDate,
+                            url: form.url,
+                            platform: form.platform,
+                            date_range: form.dateRange,
+                            start_date: form.startDate,
+                            end_date: form.endDate,
+                            cookies: form.cookies,
                             auto_save: true,
-                            extra_params: ctripTrafficForm.value.extraParams,
+                            system_hotel_id: selectedConfig?.hotel_id || selectedConfig?.system_hotel_id || null,
+                            extra_params: form.extraParams,
                         }),
                     });
                     if (res.code === 200) {
-                        onlineDataResult.value = res.data.data;
-                        latestTrafficData.value = res.data.data; // 保存本次获取的流量数据
+                        const decoded = res.data.decoded_data || res.data.data || [];
+                        const rows = normalizeCtripTrafficRows(decoded);
+                        ctripTrafficRows.value = rows;
+                        ctripTrafficSummary.value = buildCtripTrafficSummary(rows);
+                        onlineDataResult.value = {
+                            http_code: res.data.http_code,
+                            saved_count: res.data.saved_count || 0,
+                            platform: res.data.platform,
+                            request_start_date: res.data.request_start_date,
+                            request_end_date: res.data.request_end_date,
+                            decoded_data: decoded,
+                            raw_response: res.data.raw_response || '',
+                        };
+                        latestTrafficData.value = decoded;
                         const savedCount = res.data.saved_count || 0;
-                        if (savedCount > 0) {
-                            showToast(`获取成功！已保存 ${savedCount} 条流量数据`);
+                        if (rows.length === 0) {
+                            showToast('当前日期范围暂无流量数据', 'warning');
+                        } else {
+                            showToast(`获取成功，已保存 ${savedCount} 条流量数据`);
                             if (onlineDataTab.value === 'data') {
                                 refreshOnlineData();
                             }
-                        } else {
-                            showToast('获取成功，但未解析到有效流量数据');
                         }
                     } else {
                         showToast(res.message || '获取失败', 'error');
@@ -14086,7 +14048,6 @@
                     fetchingData.value = false;
                 }
             };
-
             const fetchCtripComments = async () => {
                 const form = ctripCommentForm.value;
                 form.requestUrl = (form.requestUrl || '').trim();
@@ -14424,6 +14385,7 @@
                     ctripForm.value.cookies = '';
                     ctripForm.value.nodeId = '24588';
                     ctripForm.value.auth_data = {};
+                    ctripTrafficForm.value.cookies = '';
                     return;
                 }
                 const config = ctripConfigList.value.find(c => c.id === selectedCtripConfigId.value);
@@ -14432,6 +14394,7 @@
                     ctripForm.value.nodeId = config.node_id || '24588';
                     ctripForm.value.cookies = config.cookies || '';
                     ctripForm.value.auth_data = config.auth_data || {};
+                    ctripTrafficForm.value.cookies = config.cookies || '';
                     showToast(`已应用配置: ${config.name}`);
                 }
             };
@@ -16872,12 +16835,12 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripCommentForm, ctripCommentResult, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, bookmarkletCode,
+                onlineDataTab, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripCommentForm, ctripCommentResult, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, bookmarkletCode,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 selectedOnlineDataIds, toggleSelectAllOnlineData, isAllOnlineDataSelected, batchDeleteOnlineData,
-                autoFetchScheduleTime, saveFetchSchedule,
+                autoFetchScheduleTime, saveFetchSchedule, autoFetchHotelId, loadAutoFetchPanel,
                 loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
@@ -16914,7 +16877,7 @@
                 loadCompetitorLogs, loadCompetitorDevices, loadCompetitorStores,
                 loadCompetitorRobots, openCompetitorRobotModal, saveCompetitorRobot, deleteCompetitorRobot, testCompetitorRobot, getCompetitorStoreName,
                 // Agent中心 - 基础
-                agentTab, agentOverview, agentConfigs,
+                agentTab, agentOverview, hotelAiToolboxLinks, agentConfigs,
                 staffAgentTab, knowledgeList, knowledgeCategories, knowledgeFilter,
                 revenueAgentTab, priceSuggestions, priceSuggestionFilter,
                 assetAgentTab, deviceList, deviceStats, deviceFilter, energyData,

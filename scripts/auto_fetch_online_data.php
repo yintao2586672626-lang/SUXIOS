@@ -116,21 +116,40 @@ try {
     $savedCount = 0;
     foreach ($dataList as $item) {
         if (empty($item['hotelId'])) continue;
+
+        $itemDate = $item['dataDate']
+            ?? $item['date']
+            ?? $item['data_date']
+            ?? $item['statDate']
+            ?? $item['stat_date']
+            ?? $item['bizDate']
+            ?? $item['businessDate']
+            ?? $item['reportDate']
+            ?? $yesterday;
+        if (is_string($itemDate) && preg_match('/^\d{4}-\d{2}-\d{2}/', $itemDate, $matches)) {
+            $itemDate = $matches[0];
+        }
         
         $exists = Db::name('online_daily_data')
-            ->where('hotel_id', $item['hotelId'])
-            ->where('data_date', $yesterday)
+            ->where('source', 'ctrip')
+            ->whereNull('system_hotel_id')
+            ->where('hotel_id', (string)$item['hotelId'])
+            ->where('data_date', $itemDate)
             ->find();
         
         $data = [
             'hotel_id' => (string)$item['hotelId'],
             'hotel_name' => $item['hotelName'] ?? '',
-            'data_date' => $yesterday,
+            'system_hotel_id' => null,
+            'data_date' => $itemDate,
             'amount' => floatval($item['amount'] ?? 0),
             'quantity' => intval($item['quantity'] ?? 0),
             'book_order_num' => intval($item['bookOrderNum'] ?? 0),
             'comment_score' => floatval($item['commentScore'] ?? 0),
             'qunar_comment_score' => floatval($item['qunarCommentScore'] ?? 0),
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'dimension' => '',
             'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
         ];
         

@@ -80,6 +80,7 @@ Route::group('api/online-data', function () {
     Route::post('/fetch-ctrip', 'OnlineData/fetchCtrip');
     Route::post('/fetch-meituan', 'OnlineData/fetchMeituan');
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
+    Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');
     Route::post('/fetch-meituan-comments', 'OnlineData/fetchMeituanComments');
     Route::post('/fetch-custom', 'OnlineData/fetchCustom');

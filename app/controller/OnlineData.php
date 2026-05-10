@@ -39,64 +39,112 @@ class OnlineData extends Base
         }
 
         try {
-            // 构建请求参数
-            $postData = ['nodeId' => $nodeId];
-
-            if ($startDate && $endDate) {
-                $postData['startDate'] = $startDate;
-                $postData['endDate'] = $endDate;
-            } else {
+            if (!$startDate || !$endDate) {
                 $yesterday = date('Y-m-d', strtotime('-1 day'));
-                $postData['startDate'] = $yesterday;
-                $postData['endDate'] = $yesterday;
                 $startDate = $yesterday;
+                $endDate = $yesterday;
             }
 
-            // 发送请求
-            $result = $this->sendHttpRequest($url, $postData, $cookies, $authData);
+            $startTimestamp = strtotime($startDate);
+            $endTimestamp = strtotime($endDate);
+            if ($startTimestamp === false || $endTimestamp === false || $startTimestamp > $endTimestamp) {
+                return json(['code' => 400, 'message' => '日期范围无效', 'data' => null]);
+            }
 
-            if (!$result['success']) {
+            $dateResults = [];
+            $responseData = null;
+            $rawResponse = '';
+            $savedCount = 0;
+
+            for ($timestamp = $startTimestamp; $timestamp <= $endTimestamp; $timestamp = strtotime('+1 day', $timestamp)) {
+                $currentDate = date('Y-m-d', $timestamp);
+                $postData = [
+                    'nodeId' => $nodeId,
+                    'startDate' => $currentDate,
+                    'endDate' => $currentDate,
+                ];
+
+                // 发送请求
+                $result = $this->sendHttpRequest($url, $postData, $cookies, $authData);
+
+                if (!$result['success']) {
+                    return json([
+                        'code' => 500,
+                        'message' => $currentDate . ' 请求失败: ' . ($result['error'] ?? '请求失败'),
+                        'data' => ['raw_response' => $result['raw'] ?? '']
+                    ]);
+                }
+
+                $dayResponseData = $result['data'];
+
+                // 检查携程API返回的错误
+                if (is_array($dayResponseData)) {
+                    if (isset($dayResponseData['error'])) {
+                        $errorMsg = $dayResponseData['error_description'] ?? $dayResponseData['error'];
+                        return json([
+                            'code' => 400,
+                            'message' => $currentDate . ' 携程API错误: ' . $errorMsg,
+                            'data' => ['raw_response' => $result['raw']]
+                        ]);
+                    }
+                    if (isset($dayResponseData['code']) && $dayResponseData['code'] != 0 && $dayResponseData['code'] != 200) {
+                        $errorMsg = $dayResponseData['message'] ?? $dayResponseData['msg'] ?? '未知错误';
+                        return json([
+                            'code' => 400,
+                            'message' => $currentDate . ' 携程API返回错误: ' . $errorMsg,
+                            'data' => ['raw_response' => $result['raw']]
+                        ]);
+                    }
+                }
+
+                $responseData = $dayResponseData;
+                $rawResponse = $result['raw'];
+                $dateResults[] = [
+                    'date' => $currentDate,
+                    'data' => $dayResponseData,
+                    'saved_count' => 0,
+                    'fingerprint' => $this->buildCtripBusinessFingerprint($dayResponseData),
+                    'response_dates' => $this->extractCtripResponseDates($dayResponseData),
+                ];
+            }
+
+            $uniqueFingerprints = array_values(array_unique(array_filter(array_column($dateResults, 'fingerprint'))));
+            if ($startDate !== $endDate && count($uniqueFingerprints) === 1) {
                 return json([
-                    'code' => 500,
-                    'message' => $result['error'] ?? '请求失败',
-                    'data' => ['raw_response' => $result['raw'] ?? '']
+                    'code' => 422,
+                    'message' => '携程多日请求返回了同一份经营数据，系统已取消保存，避免把昨天数据按天数写入。请改为单日获取，或确认携程后台该账号是否支持历史日期。',
+                    'data' => [
+                        'date_results' => $dateResults,
+                        'saved_count' => 0,
+                        'request_start_date' => $startDate,
+                        'request_end_date' => $endDate,
+                    ],
                 ]);
             }
 
-            $responseData = $result['data'];
-
-            // 检查携程API返回的错误
-            if (is_array($responseData)) {
-                if (isset($responseData['error'])) {
-                    $errorMsg = $responseData['error_description'] ?? $responseData['error'];
-                    return json([
-                        'code' => 400,
-                        'message' => '携程API错误: ' . $errorMsg,
-                        'data' => ['raw_response' => $result['raw']]
-                    ]);
-                }
-                if (isset($responseData['code']) && $responseData['code'] != 0 && $responseData['code'] != 200) {
-                    $errorMsg = $responseData['message'] ?? $responseData['msg'] ?? '未知错误';
-                    return json([
-                        'code' => 400,
-                        'message' => '携程API返回错误: ' . $errorMsg,
-                        'data' => ['raw_response' => $result['raw']]
-                    ]);
+            foreach ($dateResults as &$dateResult) {
+                if ($autoSave) {
+                    $dateResult['saved_count'] = $this->parseAndSaveData(
+                        $dateResult['data'],
+                        $dateResult['date'],
+                        $dateResult['date'],
+                        $systemHotelId ? (int)$systemHotelId : null
+                    );
+                    $savedCount += $dateResult['saved_count'];
                 }
             }
-
-            $savedCount = 0;
-            if ($autoSave) {
-                $savedCount = $this->parseAndSaveData($responseData, $startDate, $endDate, $systemHotelId ? (int)$systemHotelId : null);
-            }
+            unset($dateResult);
 
             return json([
                 'code' => 200,
                 'message' => '获取成功',
                 'data' => [
                     'data' => $responseData,
-                    'raw_response' => $result['raw'],
+                    'date_results' => $dateResults,
+                    'raw_response' => $rawResponse,
                     'saved_count' => $savedCount,
+                    'request_start_date' => $startDate,
+                    'request_end_date' => $endDate,
                 ]
             ]);
         } catch (\Exception $e) {
@@ -270,55 +318,71 @@ class OnlineData extends Base
     {
         $this->checkPermission();
 
-        $url = $this->request->post('url', '');
-        $nodeId = $this->request->post('node_id', '');
-        $cookies = $this->request->post('cookies', '');
-        $startDate = $this->request->post('start_date', '');
-        $endDate = $this->request->post('end_date', '');
+        $url = (string)$this->request->post('url', '');
+        $platform = (string)$this->request->post('platform', 'Ctrip');
+        $dateRange = (string)$this->request->post('date_range', 'yesterday');
+        $spiderkey = trim((string)$this->request->post('spiderkey', ''));
+        $cookies = trim((string)$this->request->post('cookies', ''));
+        $startDate = (string)$this->request->post('start_date', '');
+        $endDate = (string)$this->request->post('end_date', '');
         $autoSave = $this->request->post('auto_save', true);
         $systemHotelId = $this->request->post('system_hotel_id', null);
-        $extraParamsStr = $this->request->post('extra_params', '');
+        $extraParamsStr = (string)$this->request->post('extra_params', '');
 
-        if (empty($url)) {
-            return $this->error('请提供接口地址');
-        }
-        if (empty($cookies)) {
-            return $this->error('请提供登录Cookies');
+        if ($cookies === '') {
+            return $this->error('请提供携程 Cookie');
         }
 
         try {
             $extraParams = $this->parseJsonParams($extraParamsStr);
+            $platform = ucfirst(strtolower($platform));
+            if (!in_array($platform, ['Ctrip', 'Qunar'], true)) {
+                return $this->error('platform 仅支持 Ctrip 或 Qunar');
+            }
 
-            // 构建请求参数
+            if ($spiderkey === '' && !empty($extraParams['spiderkey'])) {
+                $spiderkey = (string)$extraParams['spiderkey'];
+            }
+
+            [$startDate, $endDate] = $this->buildCtripTrafficDateRange($dateRange, $startDate, $endDate);
+            $requestUrl = $this->normalizeCtripTrafficUrl($url);
+
             $postData = $extraParams;
-            if (!empty($nodeId)) {
-                $postData['nodeId'] = $nodeId;
+            $postData['platform'] = $platform;
+            $postData['startDate'] = $startDate;
+            $postData['endDate'] = $endDate;
+            $postData['fingerPrintKeys'] = $postData['fingerPrintKeys'] ?? '';
+            $postData['spiderkey'] = $spiderkey;
+            $postData['spiderVersion'] = $postData['spiderVersion'] ?? '2.0';
+
+            $result = $this->sendCtripJsonRequest($requestUrl, $postData, $cookies);
+            if (!empty($result['error'])) {
+                return $this->error($result['error'], 400, [
+                    'http_code' => $result['http_code'],
+                    'raw_response' => $result['raw_response'],
+                    'decoded_data' => $result['decoded_data'],
+                ]);
             }
 
-            if ($startDate && $endDate) {
-                $postData['startDate'] = $startDate;
-                $postData['endDate'] = $endDate;
-            } else {
-                $yesterday = date('Y-m-d', strtotime('-1 day'));
-                $postData['startDate'] = $yesterday;
-                $postData['endDate'] = $yesterday;
-                $startDate = $yesterday;
+            $responseData = $result['decoded_data'];
+            $apiError = $this->getCtripTrafficApiError($responseData);
+            if ($apiError !== '') {
+                return $this->error($apiError, 400, [
+                    'http_code' => $result['http_code'],
+                    'raw_response' => $result['raw_response'],
+                    'decoded_data' => $responseData,
+                ]);
             }
 
-            $result = $this->sendHttpRequest($url, $postData, $cookies);
-            if (!$result['success']) {
-                return $this->error('请求失败: ' . $result['error']);
-            }
-
-            $responseData = $result['data'];
             $savedCount = 0;
-            if ($autoSave) {
+            if ($autoSave && is_array($responseData)) {
                 $savedCount = $this->parseAndSaveTrafficData(
                     $responseData,
                     $startDate,
                     $endDate,
-                    'ctrip',
-                    $systemHotelId ? (int)$systemHotelId : null
+                    strtolower($platform),
+                    $systemHotelId ? (int)$systemHotelId : null,
+                    $platform
                 );
             }
 
@@ -326,9 +390,17 @@ class OnlineData extends Base
 
             return $this->success([
                 'data' => $responseData,
-                'raw_response' => $result['raw'],
+                'decoded_data' => $responseData,
+                'raw_response' => $result['raw_response'],
+                'http_code' => $result['http_code'],
                 'saved_count' => $savedCount,
+                'platform' => $platform,
+                'request_start_date' => $startDate,
+                'request_end_date' => $endDate,
+                'request_url' => $requestUrl,
             ]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage());
         } catch (\Throwable $e) {
             return $this->error('请求异常: ' . $e->getMessage());
         }
@@ -1068,42 +1140,7 @@ class OnlineData extends Base
      */
     private function parseAndSaveData($responseData, $startDate, $endDate, ?int $systemHotelId = null): int
     {
-        $dataList = [];
-        
-        // 尝试多种数据结构解析
-        // 结构1: { data: { hotelList: [...] } }
-        if (isset($responseData['data']['hotelList']) && is_array($responseData['data']['hotelList'])) {
-            $dataList = $responseData['data']['hotelList'];
-        }
-        // 结构2: { data: [...] }
-        elseif (isset($responseData['data']) && is_array($responseData['data']) && !isset($responseData['data'][0])) {
-            // data 是对象，继续查找
-            foreach ($responseData['data'] as $key => $value) {
-                if (is_array($value) && isset($value[0]) && isset($value[0]['hotelId'])) {
-                    $dataList = array_merge($dataList, $value);
-                }
-            }
-        }
-        // 结构3: { data: [...] } 直接是数组
-        elseif (isset($responseData['data']) && is_array($responseData['data']) && isset($responseData['data'][0])) {
-            $dataList = $responseData['data'];
-        }
-        // 结构4: { hotelList: [...] }
-        elseif (isset($responseData['hotelList']) && is_array($responseData['hotelList'])) {
-            $dataList = $responseData['hotelList'];
-        }
-        // 结构5: { Response: { hotelList: [...] } }
-        elseif (isset($responseData['Response']['hotelList']) && is_array($responseData['Response']['hotelList'])) {
-            $dataList = $responseData['Response']['hotelList'];
-        }
-        // 结构6: 直接是数组
-        elseif (is_array($responseData) && isset($responseData[0])) {
-            $dataList = $responseData;
-        }
-        // 结构7: 遍历所有字段查找酒店数据
-        else {
-            $dataList = $this->extractHotelData($responseData);
-        }
+        $dataList = $this->extractCtripBusinessDataList($responseData);
         
         if (empty($dataList)) {
             // 记录未能解析的数据结构
@@ -1115,7 +1152,7 @@ class OnlineData extends Base
         }
         
         $savedCount = 0;
-        $dataDate = $startDate ?: date('Y-m-d', strtotime('-1 day'));
+        $dataDate = $startDate ?: ($endDate ?: date('Y-m-d'));
         
         foreach ($dataList as $item) {
             if (!is_array($item)) continue;
@@ -1131,33 +1168,33 @@ class OnlineData extends Base
             $amount = floatval($item['amount'] ?? $item['Amount'] ?? $item['totalAmount'] ?? $item['total_amount'] ?? $item['saleAmount'] ?? 0);
             $quantity = intval($item['quantity'] ?? $item['Quantity'] ?? $item['roomNights'] ?? $item['room_nights'] ?? $item['checkOutQuantity'] ?? 0);
             $bookOrderNum = intval($item['bookOrderNum'] ?? $item['book_order_num'] ?? $item['orderCount'] ?? $item['order_count'] ?? 0);
-            
-            // 全渠道总订单 = 携程预订订单 × (1.2-1.3随机值)
-            $totalOrderNum = intval($bookOrderNum * (1.2 + mt_rand(0, 10) / 100));
-            
             $commentScore = floatval($item['commentScore'] ?? $item['comment_score'] ?? $item['score'] ?? $item['avgScore'] ?? 0);
             $qunarCommentScore = floatval($item['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? $item['qunarScore'] ?? 0);
-
-            // 去哪儿访客和转化率 - 尝试多种字段名
-            $qunarDetailVisitors = intval($item['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? $item['views'] ?? $item['uv'] ?? $item['visitorCount'] ?? $item['detailUv'] ?? 0);
-            $qunarDetailCR = floatval($item['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? $item['qunarDetailConversionRate'] ?? 0);
-
-            // 携程访客和转化率 - 曝光量/浏览量，尝试多种字段名
-            $totalDetailNum = intval($item['totalDetailNum'] ?? $item['total_detail_num'] ?? $item['exposure'] ?? $item['exposureCount'] ?? $item['pv'] ?? $item['pageView'] ?? $item['viewCount'] ?? $item['detailVisitors'] ?? 0);
-            $convertionRate = floatval($item['convertionRate'] ?? $item['convertion_rate'] ?? $item['conversionRate'] ?? 0);
             
-            // 如果有日期字段，使用它
-            $itemDate = $item['dataDate'] ?? $item['date'] ?? $item['data_date'] ?? $dataDate;
+            // 如果有日期字段，优先使用接口返回日期；没有返回时使用请求日期
+            $itemDate = $item['dataDate']
+                ?? $item['date']
+                ?? $item['data_date']
+                ?? $item['statDate']
+                ?? $item['stat_date']
+                ?? $item['bizDate']
+                ?? $item['businessDate']
+                ?? $item['reportDate']
+                ?? $dataDate;
+            if (is_string($itemDate) && preg_match('/^\d{4}-\d{2}-\d{2}/', $itemDate, $matches)) {
+                $itemDate = $matches[0];
+            }
             
-            // 检查是否已存在（按酒店ID、日期、来源去重）
+            // 检查是否已存在（按来源、系统酒店、平台酒店、日期去重）
             $query = Db::name('online_daily_data')
+                ->where('source', 'ctrip')
                 ->where('hotel_id', (string)$hotelId)
-                ->where('data_date', $itemDate)
-                ->where('source', 'ctrip');
+                ->where('data_date', $itemDate);
             
-            // 如果指定了系统酒店ID，则加入条件
             if ($systemHotelId !== null) {
                 $query->where('system_hotel_id', $systemHotelId);
+            } else {
+                $query->whereNull('system_hotel_id');
             }
             
             $exists = $query->find();
@@ -1170,13 +1207,8 @@ class OnlineData extends Base
                 'amount' => $amount,
                 'quantity' => $quantity,
                 'book_order_num' => $bookOrderNum,
-                'total_order_num' => $totalOrderNum,
                 'comment_score' => $commentScore,
                 'qunar_comment_score' => $qunarCommentScore,
-                'qunar_detail_visitors' => $qunarDetailVisitors,
-                'qunar_detail_cr' => $qunarDetailCR,
-                'total_detail_num' => $totalDetailNum,
-                'convertion_rate' => $convertionRate,
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'dimension' => '',
@@ -1194,6 +1226,122 @@ class OnlineData extends Base
         }
         
         return $savedCount;
+    }
+
+    private function extractCtripBusinessDataList($responseData): array
+    {
+        $dataList = [];
+
+        if (isset($responseData['data']['hotelList']) && is_array($responseData['data']['hotelList'])) {
+            return $responseData['data']['hotelList'];
+        }
+        if (isset($responseData['data']) && is_array($responseData['data']) && isset($responseData['data'][0])) {
+            return $responseData['data'];
+        }
+        if (isset($responseData['data']) && is_array($responseData['data']) && !isset($responseData['data'][0])) {
+            foreach ($responseData['data'] as $value) {
+                if (is_array($value) && isset($value[0]) && is_array($value[0]) && (isset($value[0]['hotelId']) || isset($value[0]['hotel_id']) || isset($value[0]['HotelId']))) {
+                    $dataList = array_merge($dataList, $value);
+                }
+            }
+        }
+        if (!empty($dataList)) {
+            return $dataList;
+        }
+        if (isset($responseData['hotelList']) && is_array($responseData['hotelList'])) {
+            return $responseData['hotelList'];
+        }
+        if (isset($responseData['Response']['hotelList']) && is_array($responseData['Response']['hotelList'])) {
+            return $responseData['Response']['hotelList'];
+        }
+        if (is_array($responseData) && isset($responseData[0])) {
+            return $responseData;
+        }
+
+        return $this->extractHotelData($responseData);
+    }
+
+    private function buildCtripBusinessFingerprint($responseData): string
+    {
+        $dataList = $this->extractCtripBusinessDataList($responseData);
+        if (empty($dataList)) {
+            return '';
+        }
+
+        $rows = [];
+        foreach ($dataList as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = (string)($item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? '');
+            if ($hotelId === '') {
+                continue;
+            }
+            $rows[] = [
+                'hotel_id' => $hotelId,
+                'hotel_name' => (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? ''),
+                'amount' => (float)($item['amount'] ?? $item['Amount'] ?? $item['totalAmount'] ?? $item['total_amount'] ?? $item['saleAmount'] ?? 0),
+                'quantity' => (int)($item['quantity'] ?? $item['Quantity'] ?? $item['roomNights'] ?? $item['room_nights'] ?? $item['checkOutQuantity'] ?? 0),
+                'book_order_num' => (int)($item['bookOrderNum'] ?? $item['book_order_num'] ?? $item['orderCount'] ?? $item['order_count'] ?? 0),
+                'comment_score' => (float)($item['commentScore'] ?? $item['comment_score'] ?? $item['score'] ?? $item['avgScore'] ?? 0),
+                'qunar_comment_score' => (float)($item['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? $item['qunarScore'] ?? 0),
+                'total_detail_num' => (int)($item['totalDetailNum'] ?? $item['total_detail_num'] ?? $item['exposure'] ?? $item['exposureCount'] ?? $item['pv'] ?? $item['pageView'] ?? $item['viewCount'] ?? $item['detailVisitors'] ?? 0),
+                'convertion_rate' => (float)($item['convertionRate'] ?? $item['convertion_rate'] ?? $item['conversionRate'] ?? 0),
+                'qunar_detail_visitors' => (int)($item['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? $item['views'] ?? $item['uv'] ?? $item['visitorCount'] ?? $item['detailUv'] ?? 0),
+                'qunar_detail_cr' => (float)($item['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? $item['qunarDetailConversionRate'] ?? 0),
+            ];
+        }
+
+        if (empty($rows)) {
+            return '';
+        }
+
+        usort($rows, static fn($a, $b) => strcmp($a['hotel_id'], $b['hotel_id']));
+        return sha1(json_encode($rows, JSON_UNESCAPED_UNICODE));
+    }
+
+    private function extractCtripResponseDates($data): array
+    {
+        $dates = [];
+        $this->collectCtripResponseDates($data, $dates);
+        return array_values(array_unique($dates));
+    }
+
+    private function collectCtripResponseDates($data, array &$dates): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $dateKeys = ['dataDate', 'date', 'data_date', 'statDate', 'stat_date', 'bizDate', 'businessDate', 'reportDate'];
+        foreach ($data as $key => $value) {
+            if (in_array((string)$key, $dateKeys, true)) {
+                $date = $this->normalizeCtripDate($value);
+                if ($date !== null) {
+                    $dates[] = $date;
+                }
+            }
+            if (is_array($value)) {
+                $this->collectCtripResponseDates($value, $dates);
+            }
+        }
+    }
+
+    private function normalizeCtripDate($value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string)$value);
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $value, $matches)) {
+            return "{$matches[1]}-{$matches[2]}-{$matches[3]}";
+        }
+        if (preg_match('/^(\d{4})(\d{2})(\d{2})$/', $value, $matches)) {
+            return "{$matches[1]}-{$matches[2]}-{$matches[3]}";
+        }
+
+        return null;
     }
     
     /**
@@ -2169,7 +2317,7 @@ JAVASCRIPT;
             'Accept: */*',
             'Accept-Encoding: gzip, deflate, br, zstd',
             'Accept-Language: zh-CN,zh;q=0.9',
-            'Content-Type: application/json',
+            'Content-Type: application/x-www-form-urlencoded; charset=UTF-8',
             'Origin: https://ebooking.ctrip.com',
             'Referer: https://ebooking.ctrip.com/',
             'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
@@ -2194,14 +2342,13 @@ JAVASCRIPT;
         
         $headerStr = implode("\r\n", $headers);
         
-        // 使用JSON格式发送数据
-        $jsonContent = json_encode($postData, JSON_UNESCAPED_UNICODE);
+        $formContent = http_build_query($postData);
         
         $context = stream_context_create([
             'http' => [
                 'method' => 'POST',
                 'header' => $headerStr,
-                'content' => $jsonContent,
+                'content' => $formContent,
                 'timeout' => 30,
                 'ignore_errors' => true,
                 'follow_location' => 0, // 不跟随重定向
@@ -2253,7 +2400,7 @@ JAVASCRIPT;
         if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $decodedResponse)) {
             return [
                 'success' => false,
-                'error' => '返回了HTML页面而非JSON数据（可能Cookie已过期或spidertoken无效，请重新获取）',
+                'error' => '返回了HTML页面而非JSON数据（可能Cookie已过期或请求参数不一致，请重新获取）',
                 'http_code' => $httpCode,
                 'raw' => substr($decodedResponse, 0, 500),
             ];
@@ -2278,10 +2425,246 @@ JAVASCRIPT;
             'http_code' => $httpCode,
         ];
     }
+
+    /**
+     * 发送携程流量 JSON 请求
+     */
+    private function sendCtripJsonRequest(string $url, array $postData, string $cookies): array
+    {
+        $emptyResult = [
+            'http_code' => 0,
+            'raw_response' => '',
+            'decoded_data' => null,
+            'error' => '',
+        ];
+
+        if (!function_exists('curl_init')) {
+            return array_merge($emptyResult, ['error' => '服务器未启用 cURL，无法请求携程流量接口']);
+        }
+
+        $jsonPayload = json_encode($postData, JSON_UNESCAPED_UNICODE);
+        if ($jsonPayload === false) {
+            return array_merge($emptyResult, ['error' => '请求 Body JSON 编码失败: ' . json_last_error_msg()]);
+        }
+
+        $headers = [
+            'Accept: application/json, text/javascript, */*; q=0.01',
+            'Accept-Encoding: gzip, deflate, br',
+            'Accept-Language: zh-CN,zh;q=0.9',
+            'Content-Type: application/json',
+            'Origin: https://ebooking.ctrip.com',
+            'Referer: https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true',
+            'X-Requested-With: XMLHttpRequest',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Cookie: ' . $cookies,
+        ];
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $jsonPayload,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => false,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_ENCODING => '',
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+        ]);
+
+        $rawResponse = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $curlErrno = curl_errno($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+
+        if ($rawResponse === false) {
+            return [
+                'http_code' => $httpCode,
+                'raw_response' => '',
+                'decoded_data' => null,
+                'error' => '请求携程流量接口失败: ' . ($curlError ?: 'cURL 错误 ' . $curlErrno),
+            ];
+        }
+
+        $result = [
+            'http_code' => $httpCode,
+            'raw_response' => $rawResponse,
+            'decoded_data' => null,
+            'error' => '',
+        ];
+
+        if ($httpCode !== 200) {
+            if (in_array($httpCode, [301, 302], true)) {
+                $result['error'] = 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie';
+            } elseif ($httpCode === 415) {
+                $result['error'] = '携程流量接口必须使用 JSON Body，请检查 Content-Type 和 POSTFIELDS';
+            } else {
+                $result['error'] = '携程流量接口 HTTP 错误: ' . $httpCode;
+            }
+            return $result;
+        }
+
+        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $rawResponse)) {
+            $result['error'] = '携程接口返回异常，请检查 Cookie / 日期参数';
+            return $result;
+        }
+
+        $decodedData = json_decode($rawResponse, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $result['error'] = '携程接口返回异常，请检查 Cookie / 日期参数';
+            return $result;
+        }
+
+        $result['decoded_data'] = $decodedData;
+        return $result;
+    }
+
+    /**
+     * 识别携程流量接口业务错误
+     */
+    private function getCtripTrafficApiError($responseData): string
+    {
+        if (!is_array($responseData)) {
+            return '';
+        }
+
+        $code = $responseData['code'] ?? $responseData['resultCode'] ?? $responseData['status'] ?? null;
+        $message = $responseData['message']
+            ?? $responseData['msg']
+            ?? $responseData['errorMessage']
+            ?? $responseData['error_description']
+            ?? $responseData['error']
+            ?? '';
+
+        if (isset($responseData['success']) && $responseData['success'] === false) {
+            return '携程流量接口返回失败: ' . ($message ?: '未知错误');
+        }
+
+        if (isset($responseData['error'])) {
+            return '携程流量接口返回异常: ' . ($message ?: (string)$responseData['error']);
+        }
+
+        if ($code !== null && !in_array((string)$code, ['0', '200', 'success', 'SUCCESS'], true)) {
+            $error = '携程流量接口返回异常: ' . ($message ?: ('code=' . (string)$code));
+            if (preg_match('/登录|过期|权限|未授权|unauthorized|forbidden/i', (string)$message)) {
+                $error .= '，请重新登录携程后台复制Cookie';
+            }
+            return $error;
+        }
+
+        $ack = $responseData['ResponseStatus']['Ack'] ?? null;
+        if ($ack !== null && !in_array((string)$ack, ['Success', 'SUCCESS'], true)) {
+            $errorMessage = $responseData['ResponseStatus']['Errors'][0]['Message'] ?? $message ?: '未知错误';
+            return '携程流量接口返回异常: ' . $errorMessage;
+        }
+
+        return '';
+    }
     
     /**
      * 发送自定义HTTP请求（使用file_get_contents）
      */
+    private function normalizeCtripTrafficUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            $url = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking';
+        }
+        $url = preg_replace('/\s+/', '', $url) ?? $url;
+        $url = preg_replace('/([?&]v=)([0-9.]+)[^&]*/i', '
+    private function sendCustomRequest($2', $url) ?? $url;
+        $random = rtrim(rtrim(sprintf('%.12F', mt_rand() / mt_getrandmax()), '0'), '.');
+        if (stripos($url, 'queryFlowTransforNewV1') === false) {
+            throw new \InvalidArgumentException('Request URL 必须是 queryFlowTransforNewV1 接口');
+        }
+        if (stripos($url, 'hostType=') === false) {
+            $url .= (strpos($url, '?') === false ? '?' : '&') . 'hostType=Ebooking';
+        }
+        if (preg_match('/([?&])v=[^&]*/i', $url)) {
+            return preg_replace('/([?&])v=[^&]*/i', '
+    private function sendCustomRequest(v=' . $random, $url) ?? $url;
+        }
+        return $url . (strpos($url, '?') === false ? '?' : '&') . 'v=' . $random;
+    }
+
+    private function buildCtripTrafficDateRange(string $dateRange, string $startDate, string $endDate): array
+    {
+        $today = date('Y-m-d');
+        switch ($dateRange) {
+            case 'today_realtime':
+            case 'today':
+            case '0':
+                return [$today, $today];
+            case 'last_7_days':
+            case '7':
+                return [date('Y-m-d', strtotime('-6 days')), $today];
+            case 'last_30_days':
+            case '30':
+                return [date('Y-m-d', strtotime('-29 days')), $today];
+            case 'custom':
+                if ($startDate === '' || $endDate === '') {
+                    throw new \InvalidArgumentException('请选择自定义开始日期和结束日期');
+                }
+                break;
+            case 'yesterday':
+            case '1':
+            default:
+                if ($startDate === '' || $endDate === '') {
+                    $yesterday = date('Y-m-d', strtotime('-1 day'));
+                    return [$yesterday, $yesterday];
+                }
+                break;
+        }
+
+        if (strtotime($startDate) === false || strtotime($endDate) === false || strtotime($startDate) > strtotime($endDate)) {
+            throw new \InvalidArgumentException('日期范围无效');
+        }
+        return [$startDate, $endDate];
+    }
+
+    private function extractCtripTrafficRows($responseData): array
+    {
+        if (!is_array($responseData)) {
+            return [];
+        }
+        if (isset($responseData[0]) && is_array($responseData[0])) {
+            return $responseData;
+        }
+        foreach ([['data'], ['data', 'list'], ['data', 'rows'], ['result'], ['result', 'data'], ['result', 'list'], ['list']] as $path) {
+            $current = $responseData;
+            foreach ($path as $key) {
+                if (!is_array($current) || !array_key_exists($key, $current)) {
+                    $current = null;
+                    break;
+                }
+                $current = $current[$key];
+            }
+            if (is_array($current) && isset($current[0]) && is_array($current[0])) {
+                return $current;
+            }
+        }
+        return [];
+    }
+
+    private function getOnlineDailyDataColumns(): array
+    {
+        static $columns = null;
+        if ($columns !== null) {
+            return $columns;
+        }
+        $rows = Db::query('SHOW COLUMNS FROM online_daily_data');
+        $columns = array_fill_keys(array_column($rows, 'Field'), true);
+        return $columns;
+    }
+
+    private function filterOnlineDailyDataFields(array $data): array
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        return array_intersect_key($data, $columns);
+    }
     private function sendCustomRequest(string $url, string $method, string $headersStr, string $body): array
     {
         $headers = [];
@@ -3119,9 +3502,101 @@ JAVASCRIPT;
     /**
      * 解析并保存流量数据
      */
-    private function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null): int
+    private function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null): int
     {
         try {
+            if (in_array($source, ['ctrip', 'qunar'], true)) {
+                $dataList = $this->extractCtripTrafficRows($responseData);
+                if (empty($dataList)) {
+                    return 0;
+                }
+
+                $savedCount = 0;
+                $platform = $platform ?: ($source === 'qunar' ? 'Qunar' : 'Ctrip');
+                foreach ($dataList as $item) {
+                    if (!is_array($item)) {
+                        continue;
+                    }
+
+                    $hotelId = $item['hotelId'] ?? null;
+                    if (!is_numeric($hotelId)) {
+                        continue;
+                    }
+                    $hotelId = (int)$hotelId;
+                    if ($hotelId !== -1 && $hotelId <= 0) {
+                        continue;
+                    }
+
+                    $itemDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $startDate;
+                    if (!$itemDate || strtotime((string)$itemDate) === false) {
+                        continue;
+                    }
+                    $itemDate = date('Y-m-d', strtotime((string)$itemDate));
+                    $compareType = $hotelId > 0 ? 'self' : 'competitor_avg';
+                    $hotelName = $compareType === 'self' ? '我的酒店' : '竞争圈平均';
+                    $listExposure = (int)($item['listExposure'] ?? 0);
+                    $detailExposure = (int)($item['detailExposure'] ?? 0);
+                    $flowRate = isset($item['flowRate']) && is_numeric($item['flowRate'])
+                        ? round((float)$item['flowRate'], 2)
+                        : ($listExposure > 0 ? round($detailExposure / $listExposure * 100, 2) : 0);
+                    $orderFillingNum = (int)($item['orderFillingNum'] ?? 0);
+                    $orderSubmitNum = (int)($item['orderSubmitNum'] ?? 0);
+
+                    $query = Db::name('online_daily_data')
+                        ->where('data_date', $itemDate)
+                        ->where('source', $source)
+                        ->where('data_type', 'traffic')
+                        ->where('hotel_id', (string)$hotelId);
+
+                    $columns = $this->getOnlineDailyDataColumns();
+                    if (isset($columns['platform'])) {
+                        $query->where('platform', $platform);
+                    }
+                    if (isset($columns['compare_type'])) {
+                        $query->where('compare_type', $compareType);
+                    }
+                    if ($systemHotelId !== null) {
+                        $query->where('system_hotel_id', $systemHotelId);
+                    } else {
+                        $query->whereNull('system_hotel_id');
+                    }
+
+                    $exists = $query->find();
+                    $data = $this->filterOnlineDailyDataFields([
+                        'hotel_id' => (string)$hotelId,
+                        'hotel_name' => $hotelName,
+                        'system_hotel_id' => $systemHotelId,
+                        'data_date' => $itemDate,
+                        'amount' => 0,
+                        'quantity' => 0,
+                        'book_order_num' => 0,
+                        'comment_score' => 0,
+                        'qunar_comment_score' => 0,
+                        'data_value' => $listExposure,
+                        'source' => $source,
+                        'data_type' => 'traffic',
+                        'dimension' => $platform . ':' . $compareType,
+                        'platform' => $platform,
+                        'compare_type' => $compareType,
+                        'list_exposure' => $listExposure,
+                        'detail_exposure' => $detailExposure,
+                        'flow_rate' => $flowRate,
+                        'order_filling_num' => $orderFillingNum,
+                        'order_submit_num' => $orderSubmitNum,
+                        'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
+                    ]);
+
+                    if ($exists) {
+                        Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+                    } else {
+                        Db::name('online_daily_data')->insert($data);
+                    }
+                    $savedCount++;
+                }
+
+                return $savedCount;
+            }
+
             $dataList = [];
 
             if (isset($responseData['data']['list']) && is_array($responseData['data']['list'])) {
@@ -3141,7 +3616,6 @@ JAVASCRIPT;
             }
 
             if (empty($dataList)) {
-                \think\facade\Log::warning('流量数据解析 - 未能解析到有效数据');
                 return 0;
             }
 
@@ -3179,7 +3653,7 @@ JAVASCRIPT;
 
                 $exists = $query->find();
 
-                $data = [
+                $data = $this->filterOnlineDailyDataFields([
                     'hotel_id' => $hotelId ? (string)$hotelId : '',
                     'hotel_name' => $hotelName,
                     'system_hotel_id' => $systemHotelId,
@@ -3194,7 +3668,7 @@ JAVASCRIPT;
                     'data_type' => 'traffic',
                     'dimension' => $dimension ?: 'traffic',
                     'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-                ];
+                ]);
 
                 if ($exists) {
                     Db::name('online_daily_data')
@@ -3410,7 +3884,7 @@ JAVASCRIPT;
     private function executeAutoFetch(int $hotelId, string $dataDate): array
     {
         // 获取Cookies
-        $cookiesKey = "online_data_cookies_{$hotelId}";
+        $cookiesKey = "online_data_cookies_hotel_{$hotelId}";
         $cookiesList = $this->getConfigList($cookiesKey);
         
         if (empty($cookiesList)) {
