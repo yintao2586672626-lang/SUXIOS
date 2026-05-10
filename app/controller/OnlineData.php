@@ -3918,12 +3918,15 @@ HTML;
         $hotelId = $this->request->post('hotel_id', '');
         $masterHotelId = $this->request->post('master_hotel_id', '');
         $cookies = $this->request->post('cookies', '');
-        $token = $this->request->post('token', '');
+        $token = $this->request->post('spidertoken', '') ?: $this->request->post('token', '');
         $pageIndex = intval($this->request->post('page_index', 1));
         $pageSize = intval($this->request->post('page_size', 50));
         $startDate = $this->request->post('start_date', '');
         $endDate = $this->request->post('end_date', '');
         $tagType = $this->request->post('tag_type', '');
+        $fxpcqlniredt = $this->request->post('_fxpcqlniredt', '');
+        $xTraceId = $this->request->post('x_trace_id', '');
+        $payloadJson = trim((string)$this->request->post('payload_json', ''));
 
         if (empty($requestUrl)) {
             return $this->error('请求地址不能为空');
@@ -3932,52 +3935,72 @@ HTML;
             return $this->error('Cookies不能为空');
         }
         if (empty($token)) {
-            return $this->error('Token不能为空');
+            return $this->error('spidertoken不能为空');
         }
-        if (empty($hotelId)) {
-            return $this->error('Hotel ID不能为空');
-        }
-
         try {
+            if ($payloadJson !== '') {
+                $payload = json_decode($payloadJson, true);
+                if (!is_array($payload)) {
+                    return $this->error('Payload JSON格式错误');
+                }
+            } else {
+                if (empty($hotelId)) {
+                    return $this->error('请提供原始Payload JSON；当前携程点评接口不再强制要求hotelId');
+                }
+                $payload = [
+                    'hotelId' => $hotelId,
+                    'pageIndex' => $pageIndex,
+                    'pageSize' => $pageSize,
+                ];
+
+                if (!empty($masterHotelId)) {
+                    $payload['masterHotelId'] = $masterHotelId;
+                }
+                if (!empty($startDate)) {
+                    $payload['startDate'] = $startDate;
+                }
+                if (!empty($endDate)) {
+                    $payload['endDate'] = $endDate;
+                }
+                if (!empty($tagType)) {
+                    $payload['tagType'] = $tagType;
+                }
+            }
+
+            if (!empty($fxpcqlniredt) || !empty($xTraceId)) {
+                $query = [];
+                if (!empty($fxpcqlniredt)) {
+                    $query['_fxpcqlniredt'] = $fxpcqlniredt;
+                }
+                if (!empty($xTraceId)) {
+                    $query['x-traceID'] = $xTraceId;
+                }
+                $requestUrl .= (strpos($requestUrl, '?') === false ? '?' : '&') . http_build_query($query);
+            }
+
+            $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
+
             // 构建请求头
             $headers = [
                 'Accept: application/json, text/plain, */*',
-                'Accept-Encoding: gzip, deflate, br',
+                'Accept-Encoding: identity',
                 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8',
                 'Content-Type: application/json',
                 'Origin: https://ebooking.ctrip.com',
-                'Referer: https://ebooking.ctrip.com/',
+                'Referer: https://ebooking.ctrip.com/comment/commentList?microJump=true',
                 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Cookie: ' . $cookies,
-                'Token: ' . $token,
+                'spidertoken: ' . $token,
+                'Content-Length: ' . strlen($jsonPayload),
             ];
-
-            // 构建请求参数
-            $params = [
-                'hotelId' => $hotelId,
-                'pageIndex' => $pageIndex,
-                'pageSize' => $pageSize,
-            ];
-
-            if (!empty($masterHotelId)) {
-                $params['masterHotelId'] = $masterHotelId;
-            }
-            if (!empty($startDate)) {
-                $params['startDate'] = $startDate;
-            }
-            if (!empty($endDate)) {
-                $params['endDate'] = $endDate;
-            }
-            if (!empty($tagType)) {
-                $params['tagType'] = $tagType;
-            }
 
             // 发送请求
             $headerStr = implode("\r\n", $headers);
             $context = stream_context_create([
                 'http' => [
-                    'method' => 'GET',
+                    'method' => 'POST',
                     'header' => $headerStr,
+                    'content' => $jsonPayload,
                     'timeout' => 30,
                     'ignore_errors' => true,
                 ],
@@ -3987,15 +4010,7 @@ HTML;
                 ],
             ]);
 
-            // 构建完整URL
-            $url = $requestUrl;
-            if (strpos($url, '?') === false) {
-                $url .= '?' . http_build_query($params);
-            } else {
-                $url .= '&' . http_build_query($params);
-            }
-
-            $response = @file_get_contents($url, false, $context);
+            $response = @file_get_contents($requestUrl, false, $context);
 
             if ($response === false) {
                 $error = error_get_last();
@@ -4026,12 +4041,25 @@ HTML;
             $data = json_decode($decodedResponse, true);
 
             if ($data === null) {
-                return $this->error('JSON解析失败');
+                $snippet = trim(strip_tags(substr($decodedResponse, 0, 300)));
+                return $this->error('JSON解析失败，可能Cookie/spidertoken已失效，或Payload/Header与携程当前请求不一致。响应摘要: ' . $snippet);
             }
 
             // 解析评论数据
-            $comments = $data['data']['list'] ?? $data['data']['comments'] ?? $data['data'] ?? [];
-            $total = $data['data']['total'] ?? count($comments);
+            $comments = $data['data']['commentList']
+                ?? $data['data']['list']
+                ?? $data['data']['comments']
+                ?? $data['commentList']
+                ?? $data['comments']
+                ?? $data['data']
+                ?? [];
+            $total = $data['data']['total'] ?? $data['total'] ?? count($comments);
+            $upstreamCode = $data['code'] ?? $data['resultCode'] ?? $data['status'] ?? $data['ResponseStatus']['Ack'] ?? null;
+            $upstreamMessage = $data['message'] ?? $data['msg'] ?? $data['errorMessage'] ?? $data['ResponseStatus']['Errors'][0]['Message'] ?? '';
+
+            if (!is_array($comments)) {
+                $comments = [];
+            }
 
             OperationLog::record('online_data', 'fetch_ctrip_comments', '获取携程点评数据', $this->currentUser->id);
 
@@ -4039,6 +4067,9 @@ HTML;
                 'data' => $comments,
                 'total' => $total,
                 'saved_count' => 0,
+                'upstream_code' => $upstreamCode,
+                'upstream_message' => $upstreamMessage,
+                'upstream_keys' => array_keys($data),
             ]);
 
         } catch (\Exception $e) {
