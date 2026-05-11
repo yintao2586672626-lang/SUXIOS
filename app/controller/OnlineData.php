@@ -385,6 +385,7 @@ class OnlineData extends Base
                     $platform
                 );
             }
+            $derivedAnalysis = $this->buildAppTrafficDerivedAnalysis($responseData);
 
             OperationLog::record('online_data', 'fetch_ctrip_traffic', '获取携程流量数据', $this->currentUser->id, $systemHotelId ? (int)$systemHotelId : null);
 
@@ -398,12 +399,262 @@ class OnlineData extends Base
                 'request_start_date' => $startDate,
                 'request_end_date' => $endDate,
                 'request_url' => $requestUrl,
+                'derived_analysis' => $derivedAnalysis,
             ]);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
         } catch (\Throwable $e) {
             return $this->error('请求异常: ' . $e->getMessage());
         }
+    }
+
+    private function buildAppTrafficDerivedAnalysis($responseData): array
+    {
+        $rows = $this->extractCtripTrafficRows($responseData);
+        if (empty($rows)) {
+            return $this->emptyAppTrafficDerivedAnalysis();
+        }
+
+        $daily = [];
+        foreach ($rows as $row) {
+            $normalized = $this->normalizeAppTrafficRow(is_array($row) ? $row : []);
+            if ($normalized === null) {
+                continue;
+            }
+            $date = $normalized['date'];
+            if (!isset($daily[$date])) {
+                $daily[$date] = [
+                    'date' => $date,
+                    'self' => $this->emptyAppTrafficMetrics(),
+                    'competitor' => $this->emptyAppTrafficMetrics(),
+                ];
+            }
+            $daily[$date][$normalized['compare_type']] = $normalized['metrics'];
+        }
+
+        if (empty($daily)) {
+            return $this->emptyAppTrafficDerivedAnalysis();
+        }
+
+        ksort($daily);
+        $summaryBase = [
+            'date' => '',
+            'self' => $this->emptyAppTrafficMetrics(),
+            'competitor' => $this->emptyAppTrafficMetrics(),
+        ];
+        foreach ($daily as $item) {
+            foreach (['self', 'competitor'] as $type) {
+                foreach (['exposure', 'detail_visitors', 'order_visitors', 'submit_users'] as $key) {
+                    $summaryBase[$type][$key] += $item[$type][$key];
+                }
+            }
+        }
+
+        $summary = $this->calculateAppTrafficDerivedMetrics($summaryBase);
+        $derivedRows = [];
+        foreach ($daily as $item) {
+            $derivedRows[] = $this->calculateAppTrafficDerivedMetrics($item);
+        }
+
+        return [
+            'summary' => $summary,
+            'rows' => $derivedRows,
+            'diagnosis' => $summary['diagnosis'],
+            'main_problem_stage' => $summary['main_problem_stage'],
+            'recommendations' => $summary['recommendations'],
+        ];
+    }
+
+    private function emptyAppTrafficDerivedAnalysis(): array
+    {
+        $base = $this->calculateAppTrafficDerivedMetrics([
+            'date' => '',
+            'self' => $this->emptyAppTrafficMetrics(),
+            'competitor' => $this->emptyAppTrafficMetrics(),
+        ]);
+        return [
+            'summary' => $base,
+            'rows' => [],
+            'diagnosis' => $base['diagnosis'],
+            'main_problem_stage' => $base['main_problem_stage'],
+            'recommendations' => $base['recommendations'],
+        ];
+    }
+
+    private function emptyAppTrafficMetrics(): array
+    {
+        return [
+            'exposure' => 0.0,
+            'detail_visitors' => 0.0,
+            'order_visitors' => 0.0,
+            'submit_users' => 0.0,
+            'exposure_rate' => 0.0,
+            'order_rate' => 0.0,
+            'deal_rate' => 0.0,
+        ];
+    }
+
+    private function normalizeAppTrafficRow(array $row): ?array
+    {
+        $date = $row['date'] ?? $row['dataDate'] ?? $row['statDate'] ?? $row['data_date'] ?? '';
+        if ($date === '' || strtotime((string)$date) === false) {
+            return null;
+        }
+
+        $compareType = $row['compareType'] ?? $row['compare_type'] ?? null;
+        if ($compareType === null) {
+            $hotelId = $row['hotelId'] ?? $row['hotel_id'] ?? null;
+            $compareType = is_numeric($hotelId) && (int)$hotelId > 0 ? 'self' : 'competitor';
+        }
+        $compareType = in_array($compareType, ['self', 'my'], true) ? 'self' : 'competitor';
+        $prefix = $compareType === 'self' ? 'self' : 'competitor';
+
+        $exposure = $this->readTrafficNumber($row, ['listExposure', 'list_exposure', "{$prefix}_exposure", 'exposure', 'data_value']);
+        $detailVisitors = $this->readTrafficNumber($row, ['detailExposure', 'detail_exposure', "{$prefix}_detail_visitors", 'detail_visitors']);
+        $orderVisitors = $this->readTrafficNumber($row, ['orderFillingNum', 'order_filling_num', "{$prefix}_order_visitors", 'order_visitors']);
+        $submitUsers = $this->readTrafficNumber($row, ['orderSubmitNum', 'order_submit_num', "{$prefix}_submit_users", 'submit_users']);
+
+        $exposureRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['flowRate', 'flow_rate', "{$prefix}_exposure_rate", 'exposure_rate'], null));
+        $orderRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['orderFillRate', 'order_rate', "{$prefix}_order_rate"], null));
+        $dealRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['submitRate', 'deal_rate', "{$prefix}_deal_rate"], null));
+
+        return [
+            'date' => date('Y-m-d', strtotime((string)$date)),
+            'compare_type' => $compareType,
+            'metrics' => [
+                'exposure' => $exposure,
+                'detail_visitors' => $detailVisitors,
+                'order_visitors' => $orderVisitors,
+                'submit_users' => $submitUsers,
+                'exposure_rate' => $exposureRate > 0 ? $exposureRate : $this->trafficRate($detailVisitors, $exposure),
+                'order_rate' => $orderRate > 0 ? $orderRate : $this->trafficRate($orderVisitors, $detailVisitors),
+                'deal_rate' => $dealRate > 0 ? $dealRate : $this->trafficRate($submitUsers, $orderVisitors),
+            ],
+        ];
+    }
+
+    private function calculateAppTrafficDerivedMetrics(array $base): array
+    {
+        $self = $base['self'];
+        $competitor = $base['competitor'];
+
+        $self['exposure_rate'] = $this->trafficRate($self['detail_visitors'], $self['exposure']);
+        $self['order_rate'] = $this->trafficRate($self['order_visitors'], $self['detail_visitors']);
+        $self['deal_rate'] = $this->trafficRate($self['submit_users'], $self['order_visitors']);
+        $competitor['exposure_rate'] = $this->trafficRate($competitor['detail_visitors'], $competitor['exposure']);
+        $competitor['order_rate'] = $this->trafficRate($competitor['order_visitors'], $competitor['detail_visitors']);
+        $competitor['deal_rate'] = $this->trafficRate($competitor['submit_users'], $competitor['order_visitors']);
+
+        $detailLoss = $self['exposure'] - $self['detail_visitors'];
+        $orderLoss = $self['detail_visitors'] - $self['order_visitors'];
+        $submitLoss = $self['order_visitors'] - $self['submit_users'];
+        $lossMap = [
+            '曝光到详情' => $detailLoss,
+            '详情到订单页' => $orderLoss,
+            '订单页到提交' => $submitLoss,
+        ];
+        arsort($lossMap);
+        $maxLossStage = (float)reset($lossMap) > 0 ? (string)key($lossMap) : '无明显流失';
+
+        $mainProblemStage = $this->diagnoseAppTrafficStage($self, $competitor);
+        $recommendations = $this->buildAppTrafficRecommendations($mainProblemStage);
+
+        $derived = [
+            'date' => $base['date'],
+            'self' => $self,
+            'competitor' => $competitor,
+            'exposure_gap' => $competitor['exposure'] - $self['exposure'],
+            'detail_gap' => $competitor['detail_visitors'] - $self['detail_visitors'],
+            'order_gap' => $competitor['order_visitors'] - $self['order_visitors'],
+            'submit_gap' => $competitor['submit_users'] - $self['submit_users'],
+            'exposure_achieve_rate' => $this->trafficRate($self['exposure'], $competitor['exposure']),
+            'detail_achieve_rate' => $this->trafficRate($self['detail_visitors'], $competitor['detail_visitors']),
+            'order_achieve_rate' => $this->trafficRate($self['order_visitors'], $competitor['order_visitors']),
+            'submit_achieve_rate' => $this->trafficRate($self['submit_users'], $competitor['submit_users']),
+            'detail_loss' => $detailLoss,
+            'order_loss' => $orderLoss,
+            'submit_loss' => $submitLoss,
+            'exposure_rate_gap' => $self['exposure_rate'] - $competitor['exposure_rate'],
+            'order_rate_gap' => $self['order_rate'] - $competitor['order_rate'],
+            'deal_rate_gap' => $self['deal_rate'] - $competitor['deal_rate'],
+            'potential_detail_visitors_by_competitor_rate' => $self['exposure'] * ($competitor['exposure_rate'] / 100),
+            'potential_submit_users_by_competitor_exposure' => $competitor['exposure'] * ($self['exposure_rate'] / 100) * ($self['order_rate'] / 100) * ($self['deal_rate'] / 100),
+            'max_loss_stage' => $maxLossStage,
+            'main_problem_stage' => $mainProblemStage,
+            'recommendations' => $recommendations,
+        ];
+        $derived['potential_submit_gap'] = $derived['potential_submit_users_by_competitor_exposure'] - $self['submit_users'];
+        $derived['diagnosis'] = $this->buildAppTrafficDiagnosis($derived);
+        return $derived;
+    }
+
+    private function diagnoseAppTrafficStage(array $self, array $competitor): string
+    {
+        $stage = '整体接近竞争圈';
+        if ($self['exposure'] < $competitor['exposure'] * 0.5) {
+            $stage = '曝光不足';
+        }
+        if ($self['exposure_rate'] < $competitor['exposure_rate'] - 3) {
+            $stage = '列表点击弱';
+        }
+        if ($self['order_rate'] < $competitor['order_rate'] - 2) {
+            $stage = '详情承接弱';
+        }
+        if ($self['deal_rate'] < $competitor['deal_rate'] - 5) {
+            $stage = '成交转化弱';
+        }
+        if ($self['exposure_rate'] < $competitor['exposure_rate'] && $self['order_rate'] > $competitor['order_rate'] && $self['deal_rate'] > $competitor['deal_rate']) {
+            $stage = '前端流量弱，后端转化强';
+        }
+        return $stage;
+    }
+
+    private function buildAppTrafficRecommendations(string $stage): array
+    {
+        return match ($stage) {
+            '曝光不足' => ['检查排名', '价格竞争力', '房态库存', '活动', '商圈标签', '广告投放'],
+            '列表点击弱' => ['优化首图', '标题', '点评分', '价格展示', '促销标签', '地理位置卖点'],
+            '详情承接弱' => ['优化详情页卖点', '房型结构', '取消政策', '早餐', '接送', '设施图片'],
+            '成交转化弱' => ['检查库存', '支付门槛', '担保规则', '价格跳变', '不可订房型'],
+            '前端流量弱，后端转化强' => ['优先扩大曝光', '提升列表点击', '暂不优先改订单页'],
+            default => ['持续监控曝光规模', '维护详情页转化', '观察竞争圈变化'],
+        };
+    }
+
+    private function buildAppTrafficDiagnosis(array $derived): string
+    {
+        if (($derived['self']['exposure'] ?? 0) <= 0 && ($derived['competitor']['exposure'] ?? 0) <= 0) {
+            return '当前日期范围暂无可分析的 APP 流量转化数据。';
+        }
+
+        $stage = $derived['main_problem_stage'];
+        if ($stage === '前端流量弱，后端转化强') {
+            return '当前酒店曝光转化率低于竞争圈，但下单转化率和成交转化率高于竞争圈，说明后端成交承接能力较好，核心短板在前端曝光规模和列表点击吸引力。';
+        }
+        return "当前酒店 APP 流量转化主要问题为{$stage}，最大流失阶段在{$derived['max_loss_stage']}，建议优先处理对应运营动作。";
+    }
+
+    private function readTrafficNumber(array $row, array $keys, ?float $default = 0.0): ?float
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row) && is_numeric($row[$key])) {
+                return (float)$row[$key];
+            }
+        }
+        return $default;
+    }
+
+    private function normalizeTrafficPercent(?float $value): float
+    {
+        if ($value === null) {
+            return 0.0;
+        }
+        return abs($value) > 0 && abs($value) <= 1 ? $value * 100 : $value;
+    }
+
+    private function trafficRate(float $num, float $denom): float
+    {
+        return $denom > 0 ? round($num / $denom * 100, 2) : 0.0;
     }
 
     /**
@@ -2038,37 +2289,48 @@ JAVASCRIPT;
     public function saveCtripConfig(): Response
     {
         try {
-            $name = $this->request->post('name', '');
-            $cookies = $this->request->post('cookies', '');
+            $id = trim((string)$this->request->post('id', ''));
+            $name = trim((string)$this->request->post('name', ''));
+            $cookies = (string)$this->request->post('cookies', '');
 
-            if (empty($name) || empty($cookies)) {
+            if ($name === '' || trim($cookies) === '') {
                 return json(['code' => 400, 'message' => '配置名称和Cookies不能为空']);
             }
 
-            // 生成唯一ID
-            $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
-
-            // 非超级管理员保存时记录 user_id
-            $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
-
-            $config = [
-                'id' => $id,
-                'name' => $name,
-                'cookies' => $cookies,
-                'url' => $this->request->post('url', ''),
-                'node_id' => $this->request->post('node_id', ''),
-                'user_id' => $userId,
-                'update_time' => date('Y-m-d H:i:s'),
-                'created_at' => date('Y-m-d H:i:s'),
-            ];
-
-            // 保存到数据库
+            // 读取现有配置，编辑时复用原 ID
             $key = 'ctrip_config_list';
             $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
             $list = [];
             if ($existing) {
                 $list = json_decode($existing['config_value'], true) ?: [];
             }
+
+            if ($id !== '') {
+                if (!isset($list[$id])) {
+                    return $this->error('配置不存在');
+                }
+                if (!$this->currentUser->isSuperAdmin() && ($list[$id]['user_id'] ?? null) != $this->currentUser->id) {
+                    return $this->error('无权修改此配置');
+                }
+            } else {
+                $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
+            }
+
+            // 非超级管理员保存时记录 user_id；超级管理员编辑旧配置时保留原归属
+            $originalConfig = $list[$id] ?? [];
+            $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
+
+            $config = array_merge($originalConfig, [
+                'id' => $id,
+                'name' => $name,
+                'cookies' => $cookies,
+                'url' => $this->request->post('url', $originalConfig['url'] ?? ''),
+                'node_id' => $this->request->post('node_id', $originalConfig['node_id'] ?? ''),
+                'user_id' => $userId,
+                'update_time' => date('Y-m-d H:i:s'),
+                'created_at' => $originalConfig['created_at'] ?? date('Y-m-d H:i:s'),
+            ]);
+
             $list[$id] = $config;
             
             $jsonValue = json_encode($list, JSON_UNESCAPED_UNICODE);
@@ -2144,13 +2406,18 @@ JAVASCRIPT;
     {
         $this->checkPermission();
 
-        $id = $this->request->get('id', '');
+        $id = $this->request->param('id', '');
         if (empty($id)) {
             return $this->error('配置ID不能为空');
         }
 
         $key = 'ctrip_config_list';
-        $list = $this->getConfigList($key);
+        $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
+        if (!$existing) {
+            return $this->error('配置不存在');
+        }
+
+        $list = json_decode($existing['config_value'], true) ?: [];
 
         if (!isset($list[$id])) {
             return $this->error('配置不存在');
@@ -2165,7 +2432,10 @@ JAVASCRIPT;
 
         $name = $list[$id]['name'] ?? '';
         unset($list[$id]);
-        $this->setConfigList($key, $list);
+        \think\facade\Db::name('system_configs')->where('config_key', $key)->update([
+            'config_value' => json_encode($list, JSON_UNESCAPED_UNICODE),
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
 
         OperationLog::record('online_data', 'delete_ctrip_config', "删除携程配置: {$name}", $this->currentUser->id);
 

@@ -132,6 +132,11 @@ Route::group('api/ai', function () {
     Route::post('/feasibility', 'Ai/feasibility');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== 节假期收益倒计时 API ====================
+Route::group('api/holiday-revenue', function () {
+    Route::get('/countdown', 'HolidayRevenue/countdown');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 智略·战略推演 API ====================
 Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');

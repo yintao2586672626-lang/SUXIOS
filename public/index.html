@@ -2862,6 +2862,56 @@
                         </div>
 
                         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
+                                <div>
+                                    <h3 class="font-bold text-gray-900 text-lg">节假期收益倒计时</h3>
+                                    <p class="text-sm text-gray-500 mt-1">最近节假日收益目标、完成进度与运营动作</p>
+                                </div>
+                                <span :class="['px-2.5 py-1 rounded text-xs border self-start', holidayRevenue ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200']">
+                                    {{ holidayRevenue?.stage || (holidayRevenueLoading ? '同步中' : '待同步') }}
+                                </span>
+                            </div>
+                            <div v-if="holidayRevenue" class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                                <div class="xl:col-span-4 rounded-xl border border-blue-100 bg-blue-50 p-5">
+                                    <div class="text-sm text-blue-700">距离节假日</div>
+                                    <div class="mt-2 text-4xl font-bold text-blue-900">{{ holidayRevenue.days_left }}<span class="text-base font-semibold ml-1">天</span></div>
+                                    <div class="mt-3 font-semibold text-gray-900">{{ holidayRevenue.holiday_name }}</div>
+                                    <div class="text-sm text-gray-500 mt-1">{{ holidayRevenue.start_date }} 至 {{ holidayRevenue.end_date }} · {{ holidayRevenue.holiday_days }}天</div>
+                                </div>
+                                <div class="xl:col-span-5 grid grid-cols-2 gap-3">
+                                    <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                        <div class="text-xs text-gray-500">目标收益</div>
+                                        <div class="mt-2 text-lg font-bold text-gray-900">{{ formatCurrency(holidayRevenue.target_revenue) }}</div>
+                                    </div>
+                                    <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                        <div class="text-xs text-gray-500">已完成</div>
+                                        <div class="mt-2 text-lg font-bold text-green-700">{{ formatCurrency(holidayRevenue.actual_revenue) }}</div>
+                                    </div>
+                                    <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                        <div class="text-xs text-gray-500">收益缺口</div>
+                                        <div :class="['mt-2 text-lg font-bold', holidayRevenue.gap_revenue > 0 ? 'text-orange-600' : 'text-green-700']">{{ formatCurrency(holidayRevenue.gap_revenue) }}</div>
+                                    </div>
+                                    <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                        <div class="text-xs text-gray-500">完成率</div>
+                                        <div class="mt-2 text-lg font-bold text-indigo-700">{{ toFixedSafe(holidayRevenue.completion_rate, 1, '0') }}%</div>
+                                    </div>
+                                </div>
+                                <div class="xl:col-span-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                    <div class="text-sm font-semibold text-gray-800 mb-3">运营建议</div>
+                                    <div class="space-y-2">
+                                        <div v-for="item in holidayRevenue.suggestions" :key="item" class="flex gap-2 text-sm text-gray-600 leading-relaxed">
+                                            <i class="fas fa-check-circle text-blue-500 mt-0.5"></i>
+                                            <span>{{ item }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
+                                {{ holidayRevenueLoading ? '正在同步节假期收益数据' : '暂无节假期收益数据' }}
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
                             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                                 <div>
                                     <h3 class="font-bold text-gray-900 text-lg">天气与需求影响</h3>
@@ -4063,22 +4113,6 @@
                                             class="w-full px-3 py-2 border rounded-lg font-mono text-sm"
                                             placeholder="请粘贴登录后的携程 Cookie"></textarea>
                                     </div>
-                                    <details class="mb-4">
-                                        <summary class="text-sm text-gray-600 cursor-pointer">高级参数</summary>
-                                        <div class="mt-3 space-y-3">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">Request URL</label>
-                                                <input v-model="ctripTrafficForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm">
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">原始 Payload 其他字段 JSON</label>
-                                                <textarea v-model="ctripTrafficForm.extraParams" rows="3"
-                                                    class="w-full px-3 py-2 border rounded-lg text-sm font-mono"
-                                                    placeholder='去哪儿失败时可粘贴完整 Payload 的其他字段'></textarea>
-                                            </div>
-                                        </div>
-                                    </details>
-
                                     <div class="flex gap-3 mb-4">
                                         <button @click="fetchCtripTrafficData" :disabled="fetchingData"
                                             class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
@@ -4094,7 +4128,7 @@
                                         <div v-if="ctripTrafficSummary" class="responsive-metric-grid is-compact mb-4">
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-blue-700">{{ formatNumber(ctripTrafficSummary.self.listExposure) }}</div>
-                                                <div class="text-xs text-gray-500">我的列表页曝光量</div>
+                                                <div class="text-xs text-gray-500">列表页曝光量</div>
                                             </div>
                                             <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-slate-700">{{ formatNumber(ctripTrafficSummary.avg.listExposure) }}</div>
@@ -4102,7 +4136,7 @@
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-green-700">{{ formatNumber(ctripTrafficSummary.self.detailExposure) }}</div>
-                                                <div class="text-xs text-gray-500">我的详情页访客量</div>
+                                                <div class="text-xs text-gray-500">详情页访客量</div>
                                             </div>
                                             <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-emerald-700">{{ formatNumber(ctripTrafficSummary.avg.detailExposure) }}</div>
@@ -4110,7 +4144,7 @@
                                             </div>
                                             <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-amber-700">{{ ctripTrafficSummary.self.flowRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">我的曝光转化率</div>
+                                                <div class="text-xs text-gray-500">曝光转化率</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-orange-700">{{ ctripTrafficSummary.avg.flowRate.toFixed(2) }}%</div>
@@ -4118,7 +4152,7 @@
                                             </div>
                                             <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-indigo-700">{{ ctripTrafficSummary.self.orderFillRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">我的下单转化率</div>
+                                                <div class="text-xs text-gray-500">下单转化率</div>
                                             </div>
                                             <div class="bg-violet-50 border border-violet-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-violet-700">{{ ctripTrafficSummary.avg.orderFillRate.toFixed(2) }}%</div>
@@ -4126,7 +4160,7 @@
                                             </div>
                                             <div class="bg-rose-50 border border-rose-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-rose-700">{{ ctripTrafficSummary.self.submitRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">我的成交转化率</div>
+                                                <div class="text-xs text-gray-500">成交转化率</div>
                                             </div>
                                             <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-center responsive-metric-card">
                                                 <div class="text-xl font-bold text-red-700">{{ ctripTrafficSummary.avg.submitRate.toFixed(2) }}%</div>
@@ -4134,32 +4168,102 @@
                                             </div>
                                         </div>
 
-                                        <div v-if="ctripTrafficRows.length" class="overflow-x-auto mb-4">
+                                        <div v-if="ctripTrafficAnalysis" class="border border-blue-100 rounded-lg bg-white mb-4 overflow-hidden">
+                                            <div class="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center justify-between gap-3">
+                                                <h4 class="font-medium text-blue-900">
+                                                    <i class="fas fa-chart-pie mr-2"></i>APP流量转化衍生指标分析
+                                                </h4>
+                                                <span class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">{{ ctripTrafficAnalysis.main_problem_stage || '整体接近竞争圈' }}</span>
+                                            </div>
+                                            <div class="p-4">
+                                                <p class="text-sm text-gray-700 mb-4">{{ ctripTrafficAnalysis.diagnosis }}</p>
+                                                <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-blue-700">{{ formatNumber(Math.round(ctripTrafficAnalysis.summary.exposure_gap || 0)) }}</div>
+                                                        <div class="text-xs text-gray-500">曝光差距</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-green-700">{{ formatNumber(Math.round(ctripTrafficAnalysis.summary.detail_gap || 0)) }}</div>
+                                                        <div class="text-xs text-gray-500">详情访客差距</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-indigo-700">{{ formatNumber(Math.round(ctripTrafficAnalysis.summary.order_gap || 0)) }}</div>
+                                                        <div class="text-xs text-gray-500">订单页访客差距</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-rose-700">{{ formatNumber(Math.round(ctripTrafficAnalysis.summary.submit_gap || 0)) }}</div>
+                                                        <div class="text-xs text-gray-500">成交提交差距</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-orange-700">{{ formatNumber(Math.round(ctripTrafficAnalysis.summary.potential_submit_gap || 0)) }}</div>
+                                                        <div class="text-xs text-gray-500">潜在成交增量</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-blue-700">{{ toFixedSafe(ctripTrafficAnalysis.summary.exposure_achieve_rate, 2) }}%</div>
+                                                        <div class="text-xs text-gray-500">曝光达成率</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-green-700">{{ toFixedSafe(ctripTrafficAnalysis.summary.detail_achieve_rate, 2) }}%</div>
+                                                        <div class="text-xs text-gray-500">详情访客达成率</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-indigo-700">{{ toFixedSafe(ctripTrafficAnalysis.summary.order_achieve_rate, 2) }}%</div>
+                                                        <div class="text-xs text-gray-500">订单页达成率</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-rose-700">{{ toFixedSafe(ctripTrafficAnalysis.summary.submit_achieve_rate, 2) }}%</div>
+                                                        <div class="text-xs text-gray-500">成交达成率</div>
+                                                    </div>
+                                                    <div class="border rounded-lg p-3 text-center">
+                                                        <div class="text-lg font-bold text-gray-800">{{ ctripTrafficAnalysis.summary.max_loss_stage || '无明显流失' }}</div>
+                                                        <div class="text-xs text-gray-500">最大流失阶段</div>
+                                                    </div>
+                                                </div>
+                                                <div class="bg-gray-50 border rounded-lg p-3">
+                                                    <div class="text-xs text-gray-500 mb-1">推荐运营动作</div>
+                                                    <div class="text-sm text-gray-700">{{ (ctripTrafficAnalysis.recommendations || []).join('、') }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="ctripTrafficCompareRows.length" class="overflow-x-auto mb-4">
                                             <table class="w-full text-sm border-collapse">
                                                 <thead>
                                                     <tr class="bg-gray-50 text-gray-600">
-                                                        <th class="px-3 py-2 border text-left">日期</th>
-                                                        <th class="px-3 py-2 border text-left">对象</th>
-                                                        <th class="px-3 py-2 border text-right">列表页曝光量</th>
-                                                        <th class="px-3 py-2 border text-right">详情页访客量</th>
-                                                        <th class="px-3 py-2 border text-right">曝光转化率</th>
-                                                        <th class="px-3 py-2 border text-right">订单页访客量</th>
-                                                        <th class="px-3 py-2 border text-right">下单转化率</th>
-                                                        <th class="px-3 py-2 border text-right">订单提交人数</th>
-                                                        <th class="px-3 py-2 border text-right">成交转化率</th>
+                                                        <th class="px-4 py-2 border text-center min-w-[7.5rem] whitespace-nowrap cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('date')">日期 <span class="text-blue-600">{{ ctripTrafficSortIndicator('date') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfListExposure')">列表页曝光量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfListExposure') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgListExposure')">竞争圈列表页曝光量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgListExposure') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfDetailExposure')">详情页访客量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfDetailExposure') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgDetailExposure')">竞争圈详情页访客量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgDetailExposure') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfFlowRate')">曝光转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfFlowRate') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgFlowRate')">竞争圈曝光转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgFlowRate') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfOrderFillingNum')">订单页访客量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderFillingNum') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgOrderFillingNum')">竞争圈订单页访客量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgOrderFillingNum') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfOrderFillRate')">下单转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderFillRate') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgOrderFillRate')">竞争圈下单转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgOrderFillRate') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfOrderSubmitNum')">订单提交人数 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderSubmitNum') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgOrderSubmitNum')">竞争圈订单提交人数 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgOrderSubmitNum') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfSubmitRate')">成交转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfSubmitRate') }}</span></th>
+                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgSubmitRate')">竞争圈成交转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgSubmitRate') }}</span></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="row in ctripTrafficRows" :key="row.date + '-' + row.compareType">
-                                                        <td class="px-3 py-2 border">{{ row.date }}</td>
-                                                        <td class="px-3 py-2 border">{{ row.compareType === 'self' ? '我的酒店' : '竞争圈平均' }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(row.listExposure) }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(row.detailExposure) }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ toFixedSafe(row.flowRate, 2) }}%</td>
-                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(row.orderFillingNum) }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ toFixedSafe(row.orderFillRate, 2) }}%</td>
-                                                        <td class="px-3 py-2 border text-right">{{ formatNumber(row.orderSubmitNum) }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ toFixedSafe(row.submitRate, 2) }}%</td>
+                                                    <tr v-for="row in ctripTrafficCompareRows" :key="row.date">
+                                                        <td class="px-4 py-2 border text-center min-w-[7.5rem] whitespace-nowrap">{{ row.date }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.self.listExposure) }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.avg.listExposure) }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.self.detailExposure) }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.avg.detailExposure) }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.self.flowRate, 2) }}%</td>
+                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.avg.flowRate, 2) }}%</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.self.orderFillingNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.avg.orderFillingNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.self.orderFillRate, 2) }}%</td>
+                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.avg.orderFillRate, 2) }}%</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.self.orderSubmitNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.avg.orderSubmitNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.self.submitRate, 2) }}%</td>
+                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.avg.submitRate, 2) }}%</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -10762,6 +10866,9 @@
             });
             const ctripTrafficSummary = ref(null);
             const ctripTrafficRows = ref([]);
+            const ctripTrafficAnalysis = ref(null);
+            const ctripTrafficSortField = ref('date');
+            const ctripTrafficSortOrder = ref('asc');
             const ctripCommentForm = ref({
                 requestUrl: '',
                 hotelId: '',
@@ -10950,6 +11057,8 @@
             const compassAlerts = ref([]);
             const compassHolidays = ref([]);
             const compassMetricTab = ref('day');
+            const holidayRevenue = ref(null);
+            const holidayRevenueLoading = ref(false);
             const selectedWeatherCity = ref('');
             const homeObservation = computed(() => {
                 const selectedHotel = permittedHotels.value.find(h => String(h.id) === String(filterReportHotel.value)) || permittedHotels.value[0];
@@ -13266,6 +13375,30 @@
                 }
             };
 
+            const loadHolidayRevenueCountdown = async () => {
+                if (!token.value) return;
+                holidayRevenueLoading.value = true;
+                try {
+                    const params = new URLSearchParams({
+                        year: String(new Date().getFullYear())
+                    });
+                    if (filterReportHotel.value) {
+                        params.append('hotel_id', filterReportHotel.value);
+                    }
+                    const res = await request(`/holiday-revenue/countdown?${params.toString()}`);
+                    if (res.code === 200) {
+                        holidayRevenue.value = res.data || null;
+                    } else {
+                        holidayRevenue.value = null;
+                    }
+                } catch (e) {
+                    console.error('加载节假期收益倒计时失败:', e);
+                    holidayRevenue.value = null;
+                } finally {
+                    holidayRevenueLoading.value = false;
+                }
+            };
+
             const loadCompassData = async () => {
                 const res = await request('/compass');
                 if (res.code === 200) {
@@ -13276,7 +13409,14 @@
                     compassAlerts.value = res.data.alerts || [];
                     compassHolidays.value = res.data.holidays || [];
                 }
+                loadHolidayRevenueCountdown();
             };
+
+            watch(filterReportHotel, () => {
+                if (currentPage.value === 'compass') {
+                    loadHolidayRevenueCountdown();
+                }
+            });
 
             const moveCompassBlock = (key, direction) => {
                 const order = compassLayout.value.order || [];
@@ -13957,6 +14097,80 @@
                     .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.compareType === 'self' ? -1 : 1));
             };
 
+            const sortCtripTrafficTable = (field) => {
+                if (ctripTrafficSortField.value === field) {
+                    ctripTrafficSortOrder.value = ctripTrafficSortOrder.value === 'asc' ? 'desc' : 'asc';
+                } else {
+                    ctripTrafficSortField.value = field;
+                    ctripTrafficSortOrder.value = 'desc';
+                }
+            };
+
+            const ctripTrafficSortIndicator = (field) => {
+                if (ctripTrafficSortField.value !== field) return '';
+                return ctripTrafficSortOrder.value === 'asc' ? '↑' : '↓';
+            };
+
+            const getCtripTrafficSortValue = (row, field) => {
+                const values = {
+                    date: row.date || '',
+                    selfListExposure: row.self.listExposure,
+                    avgListExposure: row.avg.listExposure,
+                    selfDetailExposure: row.self.detailExposure,
+                    avgDetailExposure: row.avg.detailExposure,
+                    selfFlowRate: row.self.flowRate,
+                    avgFlowRate: row.avg.flowRate,
+                    selfOrderFillingNum: row.self.orderFillingNum,
+                    avgOrderFillingNum: row.avg.orderFillingNum,
+                    selfOrderFillRate: row.self.orderFillRate,
+                    avgOrderFillRate: row.avg.orderFillRate,
+                    selfOrderSubmitNum: row.self.orderSubmitNum,
+                    avgOrderSubmitNum: row.avg.orderSubmitNum,
+                    selfSubmitRate: row.self.submitRate,
+                    avgSubmitRate: row.avg.submitRate,
+                };
+                return values[field];
+            };
+
+            const ctripTrafficCompareRows = computed(() => {
+                const empty = () => ({
+                    listExposure: 0,
+                    detailExposure: 0,
+                    flowRate: 0,
+                    orderFillingNum: 0,
+                    orderFillRate: 0,
+                    orderSubmitNum: 0,
+                    submitRate: 0,
+                });
+                const rowMap = new Map();
+                ctripTrafficRows.value.forEach(row => {
+                    if (!row.date) return;
+                    if (!rowMap.has(row.date)) {
+                        rowMap.set(row.date, { date: row.date, self: empty(), avg: empty() });
+                    }
+                    const target = row.compareType === 'self' ? rowMap.get(row.date).self : rowMap.get(row.date).avg;
+                    Object.assign(target, {
+                        listExposure: row.listExposure,
+                        detailExposure: row.detailExposure,
+                        flowRate: row.flowRate,
+                        orderFillingNum: row.orderFillingNum,
+                        orderFillRate: row.orderFillRate,
+                        orderSubmitNum: row.orderSubmitNum,
+                        submitRate: row.submitRate,
+                    });
+                });
+                const field = ctripTrafficSortField.value;
+                const orderFactor = ctripTrafficSortOrder.value === 'asc' ? 1 : -1;
+                return Array.from(rowMap.values()).sort((a, b) => {
+                    const aValue = getCtripTrafficSortValue(a, field);
+                    const bValue = getCtripTrafficSortValue(b, field);
+                    if (field === 'date') {
+                        return String(aValue || '').localeCompare(String(bValue || '')) * orderFactor;
+                    }
+                    return (toNumber(aValue, 0) - toNumber(bValue, 0)) * orderFactor;
+                });
+            });
+
             const buildCtripTrafficSummary = (rows) => {
                 const empty = () => ({
                     listExposure: 0,
@@ -13998,6 +14212,7 @@
                 fetchingData.value = true;
                 onlineDataResult.value = null;
                 ctripTrafficSummary.value = null;
+                ctripTrafficAnalysis.value = null;
                 ctripTrafficRows.value = [];
                 try {
                     const selectedConfig = ctripConfigList.value.find(c => c.id === selectedCtripConfigId.value);
@@ -14020,6 +14235,7 @@
                         const rows = normalizeCtripTrafficRows(decoded);
                         ctripTrafficRows.value = rows;
                         ctripTrafficSummary.value = buildCtripTrafficSummary(rows);
+                        ctripTrafficAnalysis.value = res.data.derived_analysis || null;
                         onlineDataResult.value = {
                             http_code: res.data.http_code,
                             saved_count: res.data.saved_count || 0,
@@ -14028,6 +14244,7 @@
                             request_end_date: res.data.request_end_date,
                             decoded_data: decoded,
                             raw_response: res.data.raw_response || '',
+                            derived_analysis: res.data.derived_analysis || null,
                         };
                         latestTrafficData.value = decoded;
                         const savedCount = res.data.saved_count || 0;
@@ -14330,6 +14547,7 @@
                     const res = await request('/online-data/save-ctrip-config', {
                         method: 'POST',
                         body: JSON.stringify({
+                            id: ctripConfigForm.value.id,
                             name: ctripConfigForm.value.name,
                             cookies: ctripConfigForm.value.cookies,
                             url: ctripConfigForm.value.url,
@@ -14413,7 +14631,9 @@
             const deleteCtripConfig = async (id) => {
                 if (!confirm('确定要删除此配置吗？')) return;
                 try {
-                    const data = await request(`/online-data/delete-ctrip-config?id=${id}`);
+                    const data = await request(`/online-data/delete-ctrip-config?id=${id}`, {
+                        method: 'DELETE'
+                    });
                     if (data.code === 200) {
                         showToast('删除成功');
                         loadCtripConfigList();
@@ -16808,7 +17028,7 @@
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyLoading, strategyScoreCards, strategyFreshnessLabel, handleStrategy,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, simulationCostFields, simulationMetricCards, simulationRiskHints, baseSimulation, handleSimulation,
                 aiFeasibilityResult, aiFeasibilityLoading, aiFeasibilityError, handleFeasibility, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, riskBadgeClass,
-                homeObservation, homeTrendCards, homeMacroSignals, homeAiDecisionCards, homeDataSources,
+                homeObservation, homeTrendCards, homeMacroSignals, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading,
                 weatherDemandHint, weatherLocationName, selectedWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, homeQuickEntries,
                 isLoggedIn, loading, user, token, currentTime, currentPage, showPassword,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
@@ -16835,7 +17055,7 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripCommentForm, ctripCommentResult, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, bookmarkletCode,
+                onlineDataTab, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripCommentForm, ctripCommentResult, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, bookmarkletCode,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
@@ -16867,7 +17087,7 @@
                 loadOperationLogs, viewLogDetail,
                 // 门店罗盘
                 compassLayout, compassLayoutPanel, compassWeather, compassTodos, compassMetrics, compassAlerts, compassHolidays, compassMetricTab,
-                loadCompassData, moveCompassBlock, toggleCompassBlock, saveCompassLayout, compassBlockLabel, getHotelName,
+                loadCompassData, loadHolidayRevenueCountdown, moveCompassBlock, toggleCompassBlock, saveCompassLayout, compassBlockLabel, getHotelName,
                 // 竞对价格监控
                 competitorTab, competitorHotels, competitorLogs, competitorDevices, competitorRobots,
                 competitorHotelFilter, competitorLogFilter, competitorRobotFilter,
