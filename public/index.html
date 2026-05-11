@@ -2864,50 +2864,41 @@
                         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
                                 <div>
-                                    <h3 class="font-bold text-gray-900 text-lg">节假期收益倒计时</h3>
-                                    <p class="text-sm text-gray-500 mt-1">最近节假日收益目标、完成进度与运营动作</p>
+                                    <h3 class="font-bold text-gray-900 text-lg">节假期运营倒计时</h3>
+                                    <p class="text-sm text-gray-500 mt-1">最近两个节假日备战窗口与运营动作</p>
                                 </div>
-                                <span :class="['px-2.5 py-1 rounded text-xs border self-start', holidayRevenue ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200']">
-                                    {{ holidayRevenue?.stage || (holidayRevenueLoading ? '同步中' : '待同步') }}
+                                <span class="px-2.5 py-1 rounded text-xs border self-start bg-blue-50 text-blue-700 border-blue-200">
+                                    提前30天备战
                                 </span>
                             </div>
-                            <div v-if="holidayRevenue" class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                            <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
                                 <div class="xl:col-span-4 rounded-xl border border-blue-100 bg-blue-50 p-5">
-                                    <div class="text-sm text-blue-700">距离节假日</div>
-                                    <div class="mt-2 text-4xl font-bold text-blue-900">{{ holidayRevenue.days_left }}<span class="text-base font-semibold ml-1">天</span></div>
-                                    <div class="mt-3 font-semibold text-gray-900">{{ holidayRevenue.holiday_name }}</div>
-                                    <div class="text-sm text-gray-500 mt-1">{{ holidayRevenue.start_date }} 至 {{ holidayRevenue.end_date }} · {{ holidayRevenue.holiday_days }}天</div>
+                                    <div class="text-sm text-blue-700">距离最近节假日</div>
+                                    <template v-if="holidayOperationCountdown.nearest">
+                                        <div class="mt-2 text-4xl font-bold text-blue-900">{{ holidayOperationCountdown.nearest.distance_text }}</div>
+                                        <div class="mt-3 font-semibold text-gray-900">{{ holidayOperationCountdown.nearest.name }}</div>
+                                        <div class="text-sm text-gray-500 mt-1">{{ holidayOperationCountdown.nearest.start_date }} 至 {{ holidayOperationCountdown.nearest.end_date }} · {{ holidayOperationCountdown.nearest.holiday_days }}天</div>
+                                    </template>
+                                    <div v-else class="mt-6 text-sm text-gray-500">暂无节假日计划</div>
                                 </div>
-                                <div class="xl:col-span-5 grid grid-cols-2 gap-3">
-                                    <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                                        <div class="text-xs text-gray-500">目标收益</div>
-                                        <div class="mt-2 text-lg font-bold text-gray-900">{{ formatCurrency(holidayRevenue.target_revenue) }}</div>
-                                    </div>
-                                    <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                                        <div class="text-xs text-gray-500">已完成</div>
-                                        <div class="mt-2 text-lg font-bold text-green-700">{{ formatCurrency(holidayRevenue.actual_revenue) }}</div>
-                                    </div>
-                                    <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                                        <div class="text-xs text-gray-500">收益缺口</div>
-                                        <div :class="['mt-2 text-lg font-bold', holidayRevenue.gap_revenue > 0 ? 'text-orange-600' : 'text-green-700']">{{ formatCurrency(holidayRevenue.gap_revenue) }}</div>
-                                    </div>
-                                    <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                                        <div class="text-xs text-gray-500">完成率</div>
-                                        <div class="mt-2 text-lg font-bold text-indigo-700">{{ toFixedSafe(holidayRevenue.completion_rate, 1, '0') }}%</div>
-                                    </div>
+                                <div class="xl:col-span-4 rounded-xl border border-blue-100 bg-blue-50 p-5">
+                                    <div class="text-sm text-blue-700">距离次近节假日</div>
+                                    <template v-if="holidayOperationCountdown.next">
+                                        <div class="mt-2 text-4xl font-bold text-blue-900">{{ holidayOperationCountdown.next.distance_text }}</div>
+                                        <div class="mt-3 font-semibold text-gray-900">{{ holidayOperationCountdown.next.name }}</div>
+                                        <div class="text-sm text-gray-500 mt-1">{{ holidayOperationCountdown.next.start_date }} 至 {{ holidayOperationCountdown.next.end_date }} · {{ holidayOperationCountdown.next.holiday_days }}天</div>
+                                    </template>
+                                    <div v-else class="mt-6 text-sm text-gray-500">暂无次近节假日</div>
                                 </div>
-                                <div class="xl:col-span-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                <div class="xl:col-span-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
                                     <div class="text-sm font-semibold text-gray-800 mb-3">运营建议</div>
                                     <div class="space-y-2">
-                                        <div v-for="item in holidayRevenue.suggestions" :key="item" class="flex gap-2 text-sm text-gray-600 leading-relaxed">
+                                        <div v-for="item in holidayOperationSuggestions" :key="item" class="flex gap-2 text-sm text-gray-600 leading-relaxed">
                                             <i class="fas fa-check-circle text-blue-500 mt-0.5"></i>
                                             <span>{{ item }}</span>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div v-else class="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
-                                {{ holidayRevenueLoading ? '正在同步节假期收益数据' : '暂无节假期收益数据' }}
                             </div>
                         </div>
 
@@ -5304,14 +5295,14 @@
                                             <div v-if="aiAnalysisHotelList.length === 0" class="text-center py-8 text-gray-400">
                                                 <i class="fas fa-inbox text-3xl mb-2"></i>
                                         <p>待同步经营数据</p>
-                                                <p class="text-sm mt-1">请先在"榜单数据获取"中获取携程数据</p>
+                                                <p class="text-sm mt-1">暂无抓取数据，请先在"榜单数据获取"中获取携程数据</p>
                                             </div>
                                             <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto border rounded p-2">
-                                                <label v-for="hotel in aiAnalysisHotelList" :key="hotel.poiId + '_' + hotel.hotelName" 
+                                                <label v-for="hotel in aiAnalysisHotelList" :key="getAiAnalysisHotelKey(hotel)"
                                                     class="flex items-center p-2 rounded hover:bg-gray-50 cursor-pointer border"
-                                                    :class="aiSelectedHotels.includes(hotel.poiId + '_' + hotel.hotelName) ? 'bg-indigo-50 border-indigo-300' : 'bg-white'">
+                                                    :class="aiSelectedHotels.includes(getAiAnalysisHotelKey(hotel)) ? 'bg-indigo-50 border-indigo-300' : 'bg-white'">
                                                     <input type="checkbox" 
-                                                        :value="hotel.poiId + '_' + hotel.hotelName" 
+                                                        :value="getAiAnalysisHotelKey(hotel)"
                                                         v-model="aiSelectedHotels"
                                                         class="form-checkbox h-4 w-4 text-indigo-500 rounded border-gray-300 focus:ring-indigo-500 mr-2">
                                                     <div class="flex-1 min-w-0">
@@ -5322,32 +5313,227 @@
                                             </div>
                                             
                                             <!-- 操作按钮 -->
-                                            <div class="flex gap-3 mt-4">
+                                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">开始日期</label>
+                                                    <input v-model="onlineDataFilter.start_date" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">结束日期</label>
+                                                    <input v-model="onlineDataFilter.end_date" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">分析模型</label>
+                                                    <select v-model="aiAnalysisModelKey" class="w-full px-3 py-2 border rounded-lg">
+                                                        <option value="deepseek_chat">经济模式</option>
+                                                        <option value="deepseek_reasoner">深度推理</option>
+                                                    </select>
+                                                </div>
+                                                <div class="flex items-end">
                                                 <button @click="startAiAnalysis" 
                                                     :disabled="aiAnalyzing || aiSelectedHotels.length === 0"
-                                                    class="px-6 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg hover:from-indigo-600 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-400">
+                                                        class="w-full px-6 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg hover:from-indigo-600 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-400">
                                                     <i class="fas fa-brain mr-2"></i>
-                                                    {{ aiAnalyzing ? 'AI分析中...' : '开始AI分析' }}
+                                                        {{ aiAnalyzing ? '分析中...' : '开始分析' }}
                                                 </button>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-3 mt-3">
                                                 <span v-if="aiSelectedHotels.length > 0" class="text-sm text-gray-500 self-center">
                                                     已选择 {{ aiSelectedHotels.length }} 家酒店
+                                                </span>
+                                                <span v-if="aiAnalyzing" class="text-sm text-indigo-600">
+                                                    正在分析全部选中酒店，请稍候...
+                                                </span>
+                                                <span v-if="aiAnalyzing || aiAnalysisBatchResults.length > 0" class="text-sm text-gray-500">
+                                                    已完成 {{ aiAnalysisProgress.completedHotels }} 家
+                                                </span>
+                                                <span v-if="aiAnalyzing || aiAnalysisBatchResults.length > 0" class="text-sm text-red-500">
+                                                    失败 {{ aiAnalysisProgress.failedHotels }} 家
+                                                </span>
+                                                <span v-if="aiAnalysisProgress.summarizing" class="text-sm text-indigo-600">
+                                                    正在生成综合报告...
+                                                </span>
+                                                <span v-else-if="!aiAnalyzing && aiAnalysisBatchResults.length > 0" class="text-sm text-green-600">
+                                                    已完成全部分析：成功 {{ aiAnalysisProgress.completedHotels }} 家，失败 {{ aiAnalysisProgress.failedHotels }} 家
                                                 </span>
                                             </div>
                                         </div>
                                         
                                         <!-- AI分析结果区域 -->
-                                        <div v-if="aiAnalysisResult" class="mb-6">
+                                        <div v-if="aiAnalyzing || aiAnalysisCapturedReport || aiAnalysisCapturedError" class="mb-6">
                                             <div class="bg-white border rounded-lg overflow-hidden">
                                                 <div class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-3 flex items-center justify-between">
                                                     <div class="flex items-center">
                                                         <i class="fas fa-chart-line mr-2"></i>
-                                                        <span class="font-medium">AI分析报告</span>
+                                                        <span class="font-medium">批量OTA AI综合诊断报告</span>
                                                     </div>
-                                                    <button @click="copyAiAnalysisResult" class="text-sm bg-white/20 px-3 py-1 rounded hover:bg-white/30">
+                                                    <button v-if="aiAnalysisCapturedReport" @click="copyAiAnalysisResult" class="text-sm bg-white/20 px-3 py-1 rounded hover:bg-white/30">
                                                         <i class="fas fa-copy mr-1"></i>复制报告
                                                     </button>
                                                 </div>
-                                                <div class="p-4 prose prose-sm max-w-none" v-html="aiAnalysisResult"></div>
+                                                    <div v-if="aiAnalyzing && !aiAnalysisCapturedReport" class="p-4 text-sm text-indigo-600">
+                                                        <i class="fas fa-spinner fa-spin mr-2"></i>正在分析全部选中酒店，请稍候...
+                                                    </div>
+                                                    <div v-else-if="aiAnalysisCapturedError && !aiAnalysisCapturedReport" class="p-4 text-sm text-red-600 whitespace-pre-wrap">
+                                                        {{ aiAnalysisCapturedError }}
+                                                    </div>
+                                                    <div v-else class="p-4 space-y-4">
+                                                    <div v-if="aiAnalysisCapturedReport.fallback" class="rounded-lg bg-amber-50 border border-amber-100 p-3 text-sm text-amber-700">
+                                                        AI综合汇总失败，已自动生成基础综合报告。
+                                                    </div>
+                                                    <div class="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                                                        <div class="text-xs font-semibold text-blue-700 mb-1">总体结论</div>
+                                                        <div class="text-sm text-blue-900 leading-relaxed">{{ aiAnalysisCapturedReport.overall_conclusion || '-' }}</div>
+                                                    </div>
+                                                    <div class="flex flex-wrap gap-2">
+                                                        <span class="px-2.5 py-1 rounded text-xs border" :class="aiAnalysisPriorityClass(aiAnalysisCapturedReport.priority)">
+                                                            {{ aiAnalysisPriorityText(aiAnalysisCapturedReport.priority) }}
+                                                        </span>
+                                                        <span v-if="aiAnalysisCapturedReport.summary" class="px-2.5 py-1 rounded text-xs border bg-gray-50 text-gray-600 border-gray-200">
+                                                            已分析 {{ aiAnalysisCapturedReport.summary.hotel_count || 0 }} 家酒店
+                                                        </span>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                        <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                            <div class="text-sm font-semibold text-gray-800 mb-2">关键发现</div>
+                                                            <ul class="space-y-1 text-sm text-gray-600">
+                                                                <li v-for="text in normalizeAiAnalysisList(aiAnalysisCapturedReport.key_findings)" :key="text" class="flex gap-2">
+                                                                    <i class="fas fa-lightbulb text-yellow-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                        <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                            <div class="text-sm font-semibold text-gray-800 mb-2">竞对洞察</div>
+                                                            <ul class="space-y-1 text-sm text-gray-600">
+                                                                <li v-for="text in normalizeAiAnalysisList(aiAnalysisCapturedReport.competitor_insights)" :key="text" class="flex gap-2">
+                                                                    <i class="fas fa-search text-blue-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                        <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                            <div class="text-sm font-semibold text-gray-800 mb-2">问题酒店</div>
+                                                            <ul class="space-y-1 text-sm text-gray-600">
+                                                                <li v-for="text in normalizeAiAnalysisList(aiAnalysisCapturedReport.problem_hotels)" :key="text" class="flex gap-2">
+                                                                    <i class="fas fa-exclamation-circle text-orange-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                        <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                            <div class="text-sm font-semibold text-gray-800 mb-2">建议动作</div>
+                                                            <ul class="space-y-1 text-sm text-gray-600">
+                                                                <li v-for="text in normalizeAiAnalysisList(aiAnalysisCapturedReport.recommended_actions)" :key="text" class="flex gap-2">
+                                                                    <i class="fas fa-check-circle text-green-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                    </div>
+                                                    <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                        <div class="text-sm font-semibold text-gray-800 mb-2">数据异常</div>
+                                                        <ul class="space-y-1 text-sm text-gray-600">
+                                                            <li v-for="text in normalizeAiAnalysisList(aiAnalysisCapturedReport.data_anomalies)" :key="text" class="flex gap-2">
+                                                                <i class="fas fa-clipboard-check text-slate-500 mt-0.5"></i><span>{{ text }}</span>
+                                                            </li>
+                                                        </ul>
+                                                    </div>
+                                                    <div v-if="aiAnalysisCapturedReport.raw_text" class="rounded-lg bg-white border border-gray-100 p-3">
+                                                        <div class="text-sm font-semibold text-gray-800 mb-2">原始返回</div>
+                                                        <pre class="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{{ aiAnalysisCapturedReport.raw_text }}</pre>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-if="aiAnalysisBatchResults.length > 0" class="mb-6">
+                                            <div class="bg-white border rounded-lg overflow-hidden">
+                                                <div class="bg-gray-50 border-b px-4 py-3 flex items-center justify-between">
+                                                    <div class="flex items-center">
+                                                        <i class="fas fa-list-check text-gray-500 mr-2"></i>
+                                                        <span class="font-medium text-gray-700">分析过程</span>
+                                                        <span class="text-xs text-gray-400 ml-2">共 {{ aiAnalysisBatchResults.length }} 组，默认隐藏</span>
+                                                    </div>
+                                                    <button @click="aiAnalysisGroupDetailsOpen = !aiAnalysisGroupDetailsOpen" class="text-sm text-indigo-600 px-3 py-1 rounded hover:bg-indigo-50">
+                                                        <i :class="aiAnalysisGroupDetailsOpen ? 'fas fa-chevron-up mr-1' : 'fas fa-chevron-down mr-1'"></i>{{ aiAnalysisGroupDetailsOpen ? '收起分析过程' : '查看分析过程' }}
+                                                    </button>
+                                                </div>
+                                                <div v-if="aiAnalysisGroupDetailsOpen" class="p-4 space-y-4">
+                                                    <div v-for="item in aiAnalysisBatchResults" :key="item.key" class="border border-gray-100 rounded-lg overflow-hidden">
+                                                        <div class="px-4 py-3 bg-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                                            <div>
+                                                                <div class="font-semibold text-gray-800">第 {{ item.groupIndex }} / {{ item.totalGroups }} 组</div>
+                                                                <div class="text-xs text-gray-400">共 {{ item.hotelCount }} 家：{{ item.hotelNames.join('、') }}</div>
+                                                            </div>
+                                                            <div class="flex items-center gap-2">
+                                                                <span class="px-2.5 py-1 rounded text-xs border" :class="aiAnalysisStatusClass(item.status)">
+                                                                    {{ aiAnalysisStatusText(item.status) }}
+                                                                </span>
+                                                                <span v-if="item.result && item.status === 'success'" class="px-2.5 py-1 rounded text-xs border" :class="aiAnalysisPriorityClass(item.result.priority)">
+                                                                    {{ aiAnalysisPriorityText(item.result.priority) }}
+                                                                </span>
+                                                                <span v-if="item.retried" class="px-2.5 py-1 rounded text-xs border bg-blue-50 text-blue-700 border-blue-200">
+                                                                    已拆分重试
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div v-if="item.status === 'running'" class="p-4 text-sm text-indigo-600">
+                                                            <i class="fas fa-spinner fa-spin mr-2"></i>正在分析本组抓取数据...
+                                                        </div>
+                                                        <div v-else-if="item.status === 'pending'" class="p-4 text-sm text-gray-500">待分析</div>
+                                                        <div v-else-if="item.status === 'failed'" class="p-4 text-sm text-red-600">{{ item.error || '分析失败' }}</div>
+                                                        <div v-else-if="item.result" class="p-4 space-y-3">
+                                                            <div v-if="item.error" class="rounded-lg bg-red-50 border border-red-100 p-3 text-sm text-red-600 whitespace-pre-wrap">{{ item.error }}</div>
+                                                            <div class="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                                                                <div class="text-xs font-semibold text-blue-700 mb-1">本组结论</div>
+                                                                <div class="text-sm text-blue-900 leading-relaxed">{{ item.result.overall_conclusion || '-' }}</div>
+                                                            </div>
+                                                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                                    <div class="text-sm font-semibold text-gray-800 mb-2">关键发现</div>
+                                                                    <ul class="space-y-1 text-sm text-gray-600">
+                                                                        <li v-for="text in normalizeAiAnalysisList(item.result.key_findings)" :key="text" class="flex gap-2">
+                                                                            <i class="fas fa-lightbulb text-yellow-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                        </li>
+                                                                    </ul>
+                                                                </div>
+                                                                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                                    <div class="text-sm font-semibold text-gray-800 mb-2">竞对洞察</div>
+                                                                    <ul class="space-y-1 text-sm text-gray-600">
+                                                                        <li v-for="text in normalizeAiAnalysisList(item.result.competitor_insights)" :key="text" class="flex gap-2">
+                                                                            <i class="fas fa-search text-blue-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                        </li>
+                                                                    </ul>
+                                                                </div>
+                                                                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                                    <div class="text-sm font-semibold text-gray-800 mb-2">问题酒店</div>
+                                                                    <ul class="space-y-1 text-sm text-gray-600">
+                                                                        <li v-for="text in normalizeAiAnalysisList(item.result.problem_hotels)" :key="text" class="flex gap-2">
+                                                                            <i class="fas fa-exclamation-circle text-orange-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                        </li>
+                                                                    </ul>
+                                                                </div>
+                                                                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                                    <div class="text-sm font-semibold text-gray-800 mb-2">建议动作</div>
+                                                                    <ul class="space-y-1 text-sm text-gray-600">
+                                                                        <li v-for="text in normalizeAiAnalysisList(item.result.recommended_actions)" :key="text" class="flex gap-2">
+                                                                            <i class="fas fa-check-circle text-green-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                        </li>
+                                                                    </ul>
+                                                                </div>
+                                                            </div>
+                                                            <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                                <div class="text-sm font-semibold text-gray-800 mb-2">数据异常</div>
+                                                                <ul class="space-y-1 text-sm text-gray-600">
+                                                                    <li v-for="text in normalizeAiAnalysisList(item.result.data_anomalies)" :key="text" class="flex gap-2">
+                                                                        <i class="fas fa-clipboard-check text-slate-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                    </li>
+                                                                </ul>
+                                                            </div>
+                                                            <div v-if="item.result.raw_text" class="rounded-lg bg-white border border-gray-100 p-3">
+                                                                <div class="text-sm font-semibold text-gray-800 mb-2">原始返回</div>
+                                                                <pre class="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{{ item.result.raw_text }}</pre>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                         
@@ -7070,6 +7256,155 @@
                             <div class="p-5">
                                 <!-- 概览 -->
                                 <div v-if="agentTab === 'overview'">
+                                    <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm mb-5">
+                                        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-5">
+                                            <div>
+                                                <h3 class="font-semibold text-gray-900">OTA诊断</h3>
+                                                <p class="text-sm text-gray-500 mt-1">基于线上 OTA 数据生成经营诊断，不涉及 API Key 输入或展示。</p>
+                                            </div>
+                                            <button @click="generateOtaDiagnosis" :disabled="otaDiagnosisLoading" class="btn-primary disabled:opacity-50">
+                                                <i :class="otaDiagnosisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-stethoscope mr-2'"></i>{{ otaDiagnosisLoading ? '生成中...' : '生成OTA诊断' }}
+                                            </button>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 mb-5">
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-500 mb-1.5">酒店</label>
+                                                <select v-model="otaDiagnosisForm.hotel_id" class="input-field w-full">
+                                                    <option value="">请选择酒店</option>
+                                                    <option v-for="hotel in otaDiagnosisHotelOptions" :key="hotel.key" :value="hotel.value">{{ hotel.name }}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-500 mb-1.5">平台</label>
+                                                <select v-model="otaDiagnosisForm.platform" class="input-field w-full">
+                                                    <option value="ctrip">携程</option>
+                                                    <option value="meituan">美团</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-500 mb-1.5">开始日期</label>
+                                                <input v-model="otaDiagnosisForm.start_date" type="date" class="input-field w-full">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-500 mb-1.5">结束日期</label>
+                                                <input v-model="otaDiagnosisForm.end_date" type="date" class="input-field w-full">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-500 mb-1.5">模型</label>
+                                                <select v-model="otaDiagnosisForm.model_key" class="input-field w-full">
+                                                    <option value="deepseek_chat">经济模式</option>
+                                                    <option value="deepseek_reasoner">深度推理</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="otaDiagnosisError" class="rounded-lg border border-red-100 bg-red-50 text-red-700 px-4 py-3 text-sm mb-4">
+                                            {{ otaDiagnosisError }}
+                                        </div>
+                                        <div v-if="otaDiagnosisEmpty" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-5 text-center text-sm text-gray-500">
+                                            暂无该酒店在该日期范围内的OTA数据，请先同步/抓取数据。
+                                        </div>
+                                        <div v-if="otaDiagnosisResult && !otaDiagnosisEmpty" class="space-y-4">
+                                            <div class="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                                                <div class="flex items-center justify-between gap-3 mb-2">
+                                                    <div class="text-sm font-semibold text-blue-900">核心结论</div>
+                                                    <span class="px-2.5 py-1 rounded text-xs border" :class="otaDiagnosisPriorityClass">
+                                                        {{ otaDiagnosisPriorityText }}
+                                                    </span>
+                                                </div>
+                                                <p class="text-sm text-blue-800 leading-relaxed">{{ otaDiagnosisResult.diagnosis?.summary || otaDiagnosisResult.core_conclusion || '-' }}</p>
+                                            </div>
+                                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                <div class="rounded-lg border border-gray-100 bg-white p-3">
+                                                    <div class="text-xs text-gray-500">数据记录</div>
+                                                    <div class="text-lg font-semibold text-gray-900 mt-1">{{ otaDiagnosisResult.metrics?.record_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-white p-3">
+                                                    <div class="text-xs text-gray-500">订单</div>
+                                                    <div class="text-lg font-semibold text-gray-900 mt-1">{{ otaDiagnosisResult.metrics?.book_order_num || 0 }}</div>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-white p-3">
+                                                    <div class="text-xs text-gray-500">曝光</div>
+                                                    <div class="text-lg font-semibold text-gray-900 mt-1">{{ otaDiagnosisResult.metrics?.list_exposure || 0 }}</div>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-white p-3">
+                                                    <div class="text-xs text-gray-500">最近同步</div>
+                                                    <div class="text-sm font-medium text-gray-900 mt-1">{{ otaDiagnosisResult.data_summary?.last_sync_time || '-' }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="font-semibold text-gray-800 mb-3">数据概览</div>
+                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                        <li v-for="item in normalizeOtaDiagnosisList(otaDiagnosisResult.diagnosis?.data_overview || otaDiagnosisResult.main_problems)" :key="item" class="flex gap-2">
+                                                            <i class="fas fa-exclamation-circle text-orange-500 mt-0.5"></i><span>{{ item }}</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="font-semibold text-gray-800 mb-3">异常指标</div>
+                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                        <li v-for="item in normalizeOtaDiagnosisList(otaDiagnosisResult.diagnosis?.abnormal_metrics || otaDiagnosisResult.possible_reasons)" :key="item" class="flex gap-2">
+                                                            <i class="fas fa-search text-blue-500 mt-0.5"></i><span>{{ item }}</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="font-semibold text-gray-800 mb-3">流量问题</div>
+                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                        <li v-for="item in normalizeOtaDiagnosisList(otaDiagnosisResult.diagnosis?.traffic_analysis || otaDiagnosisResult.diagnosis?.exposure_analysis)" :key="item" class="flex gap-2">
+                                                            <i class="fas fa-chart-line text-indigo-500 mt-0.5"></i><span>{{ item }}</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="font-semibold text-gray-800 mb-3">转化问题</div>
+                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                        <li v-for="item in normalizeOtaDiagnosisList([otaDiagnosisResult.diagnosis?.visit_conversion_analysis, otaDiagnosisResult.diagnosis?.order_conversion_analysis].filter(Boolean))" :key="item" class="flex gap-2">
+                                                            <i class="fas fa-filter text-cyan-500 mt-0.5"></i><span>{{ item }}</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="font-semibold text-gray-800 mb-3">价格/竞对问题</div>
+                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                        <li v-for="item in normalizeOtaDiagnosisList([otaDiagnosisResult.diagnosis?.price_analysis, otaDiagnosisResult.diagnosis?.competitor_analysis].filter(Boolean))" :key="item" class="flex gap-2">
+                                                            <i class="fas fa-tags text-purple-500 mt-0.5"></i><span>{{ item }}</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="font-semibold text-gray-800 mb-3">点评问题</div>
+                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                        <li v-for="item in normalizeOtaDiagnosisList(otaDiagnosisResult.diagnosis?.comment_analysis)" :key="item" class="flex gap-2">
+                                                            <i class="fas fa-comment-dots text-yellow-500 mt-0.5"></i><span>{{ item }}</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="font-semibold text-gray-800 mb-3">运营建议</div>
+                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                        <li v-for="item in normalizeOtaDiagnosisList(otaDiagnosisResult.diagnosis?.actions || otaDiagnosisResult.recommended_actions)" :key="item" class="flex gap-2">
+                                                            <i class="fas fa-check-circle text-green-500 mt-0.5"></i><span>{{ item }}</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="font-semibold text-gray-800 mb-3">数据缺失提示</div>
+                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                        <li v-for="item in normalizeOtaDiagnosisList(otaDiagnosisResult.missing_sections || otaDiagnosisResult.data_anomalies_needing_confirmation)" :key="item" class="flex gap-2">
+                                                            <i class="fas fa-clipboard-check text-slate-500 mt-0.5"></i><span>{{ item }}</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                            <div v-if="otaDiagnosisResult.raw_text" class="rounded-lg border border-gray-100 bg-white p-4">
+                                                <div class="font-semibold text-gray-800 mb-3">原始返回</div>
+                                                <pre class="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{{ otaDiagnosisResult.raw_text }}</pre>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                                         <a v-for="tool in hotelAiToolboxLinks" :key="tool.name"
                                             :href="tool.url" target="_blank" rel="noopener noreferrer"
@@ -8597,6 +8932,138 @@
                         </div>
                     </div>
                     
+                    <!-- AI模型配置页面 -->
+                    <div v-if="currentPage === 'ai-model-config'">
+                        <div class="bg-white rounded-lg shadow">
+                            <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-gray-800">AI模型配置</h3>
+                                    <p class="text-sm text-gray-400 mt-1">管理 DeepSeek、OpenAI 等 OpenAI 兼容模型</p>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <button @click="loadAiModelConfigs" class="px-4 py-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition">
+                                        <i class="fas fa-sync-alt mr-2"></i>刷新
+                                    </button>
+                                    <button @click="showAiModelAdvanced = !showAiModelAdvanced" class="btn-primary">
+                                        <i class="fas fa-sliders-h mr-2"></i>高级配置
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="p-6">
+                                <div class="border border-blue-100 bg-blue-50/40 rounded-lg p-5 mb-5">
+                                    <div class="flex flex-col lg:flex-row lg:items-end gap-4">
+                                        <div class="flex-1">
+                                            <div class="flex items-center gap-2 mb-3">
+                                                <div class="w-8 h-8 rounded-lg bg-blue-500 text-white flex items-center justify-center">
+                                                    <i class="fas fa-bolt"></i>
+                                                </div>
+                                                <div>
+                                                    <h4 class="font-semibold text-gray-800">快速配置AI厂家</h4>
+                                                    <p class="text-sm text-gray-500">选择厂家并填写 API Key，系统自动生成可用模型配置。</p>
+                                                </div>
+                                            </div>
+                                            <form @submit.prevent="saveAiProviderQuickSetup" class="grid grid-cols-1 md:grid-cols-[220px_1fr_auto] gap-3">
+                                                <div>
+                                                    <label class="block text-sm font-medium text-gray-700 mb-1.5">模型厂家</label>
+                                                    <select v-model="aiQuickSetupForm.provider" class="input-field w-full">
+                                                        <option value="deepseek">DeepSeek</option>
+                                                        <option value="openai">OpenAI</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-sm font-medium text-gray-700 mb-1.5">API Key</label>
+                                                    <input v-model="aiQuickSetupForm.api_key" type="password" autocomplete="new-password" class="input-field w-full" placeholder="请输入 API Key">
+                                                </div>
+                                                <div class="flex items-end">
+                                                    <button type="submit" :disabled="aiQuickSetupSaving" class="btn-primary w-full md:w-auto disabled:opacity-50">
+                                                        <i :class="aiQuickSetupSaving ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-magic mr-2'"></i>{{ aiQuickSetupSaving ? '配置中...' : '保存并自动配置' }}
+                                                    </button>
+                                                </div>
+                                            </form>
+                                            <div v-if="aiQuickSetupForm.provider === 'deepseek'" class="mt-3 flex flex-wrap gap-2 text-xs text-blue-700">
+                                                <span class="px-2 py-1 rounded bg-blue-50 border border-blue-100">deepseek-v4-flash</span>
+                                                <span class="px-2 py-1 rounded bg-blue-50 border border-blue-100">deepseek-v4-pro</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="showAiModelAdvanced" class="border border-gray-100 rounded-lg p-4 mb-5 bg-gray-50">
+                                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                                        <div>
+                                            <h4 class="font-semibold text-gray-800">高级配置</h4>
+                                            <p class="text-sm text-gray-500 mt-1">手动维护 model_key、provider、base_url、model_name 和使用场景。</p>
+                                        </div>
+                                        <button @click="openAiModelConfigModal()" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
+                                            <i class="fas fa-plus mr-2"></i>新增手动配置
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="table-container overflow-x-auto">
+                                    <table class="w-full text-sm">
+                                        <thead>
+                                            <tr>
+                                                <th class="px-4 py-3 text-left">显示名称</th>
+                                                <th class="px-4 py-3 text-left">model_key</th>
+                                                <th class="px-4 py-3 text-left">供应商</th>
+                                                <th class="px-4 py-3 text-left">模型</th>
+                                                <th class="px-4 py-3 text-left">Base URL</th>
+                                                <th class="px-4 py-3 text-left">API Key</th>
+                                                <th class="px-4 py-3 text-left">场景</th>
+                                                <th class="px-4 py-3 text-left">状态</th>
+                                                <th class="px-4 py-3 text-left">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-if="aiModelConfigLoading">
+                                                <td colspan="9" class="px-4 py-8 text-center text-gray-400">
+                                                    <i class="fas fa-spinner fa-spin mr-2"></i>加载中...
+                                                </td>
+                                            </tr>
+                                            <tr v-for="item in aiModelConfigs" :key="item.id" class="hover:bg-gray-50">
+                                                <td class="px-4 py-3">
+                                                    <div class="font-medium text-gray-800">{{ item.name || '-' }}</div>
+                                                    <span v-if="item.is_default" class="inline-flex mt-1 px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-600">默认</span>
+                                                </td>
+                                                <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ item.model_key }}</td>
+                                                <td class="px-4 py-3 text-gray-600">{{ item.provider }}</td>
+                                                <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ item.model_name }}</td>
+                                                <td class="px-4 py-3 text-gray-500 max-w-xs truncate" :title="item.base_url">{{ item.base_url }}</td>
+                                                <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ item.api_key || '未配置' }}</td>
+                                                <td class="px-4 py-3 text-gray-500">{{ item.usage_scene || '-' }}</td>
+                                                <td class="px-4 py-3">
+                                                    <span :class="item.is_enabled ? 'badge-success' : 'badge-danger'" class="badge">
+                                                        {{ item.is_enabled ? '启用' : '禁用' }}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3">
+                                                    <div class="flex items-center gap-2">
+                                                        <button @click="openAiModelConfigModal(item)" class="action-btn action-btn-edit" title="编辑">
+                                                            <i class="fas fa-edit"></i>
+                                                        </button>
+                                                        <button @click="toggleAiModelConfigEnabled(item)" :class="item.is_enabled ? 'action-btn action-btn-delete' : 'action-btn action-btn-edit'" :title="item.is_enabled ? '禁用' : '启用'">
+                                                            <i :class="item.is_enabled ? 'fas fa-ban' : 'fas fa-check'"></i>
+                                                        </button>
+                                                        <button @click="testAiModelConfig(item)" :disabled="testingAiModelId === item.id || !item.is_enabled" class="action-btn action-btn-view disabled:opacity-50" title="测试连接">
+                                                            <i :class="testingAiModelId === item.id ? 'fas fa-spinner fa-spin' : 'fas fa-plug'"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            <tr v-if="!aiModelConfigLoading && aiModelConfigs.length === 0">
+                                                <td colspan="9" class="px-4 py-10 text-center text-gray-400">
+                                                    <i class="fas fa-robot text-3xl mb-3 block"></i>
+                                                    暂无模型配置
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 数据配置页面 (仅超级管理员) -->
                     <div v-if="currentPage === 'data-config'">
                         <div class="bg-white rounded-lg shadow">
@@ -9892,6 +10359,76 @@
             </div>
         </div>
 
+        <!-- AI模型配置模态框 -->
+        <div v-if="showAiModelConfigModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <h3 class="text-lg font-semibold">{{ aiModelConfigForm.id ? '高级配置：编辑AI模型' : '高级配置：新增AI模型' }}</h3>
+                    <button @click="showAiModelConfigModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="saveAiModelConfig" class="p-5 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">显示名称 *</label>
+                            <input v-model="aiModelConfigForm.name" required class="input-field w-full" placeholder="DeepSeek Chat">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">model_key *</label>
+                            <input v-model="aiModelConfigForm.model_key" required class="input-field w-full" placeholder="deepseek_v4_flash">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">provider *</label>
+                            <input v-model="aiModelConfigForm.provider" required class="input-field w-full" placeholder="deepseek">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">model_name *</label>
+                            <input v-model="aiModelConfigForm.model_name" required class="input-field w-full" placeholder="deepseek-v4-flash">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">base_url *</label>
+                        <input v-model="aiModelConfigForm.base_url" required class="input-field w-full" placeholder="https://api.deepseek.com/v1">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">API Key</label>
+                        <input v-model="aiModelConfigForm.api_key" type="password" autocomplete="new-password" class="input-field w-full" :placeholder="aiModelConfigForm.id ? '留空则不覆盖已有 Key' : '请输入 API Key'">
+                        <p class="text-xs text-gray-500 mt-1">
+                            列表只显示脱敏 Key；编辑时留空不会覆盖旧 Key。
+                            <span v-if="aiModelConfigForm.masked_api_key">当前：{{ aiModelConfigForm.masked_api_key }}</span>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">使用场景</label>
+                        <input v-model="aiModelConfigForm.usage_scene" class="input-field w-full" placeholder="日常经营诊断">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label class="flex items-center justify-between p-4 bg-gray-50 rounded-lg cursor-pointer">
+                            <div>
+                                <div class="font-medium text-gray-800">设为默认</div>
+                                <div class="text-sm text-gray-500">用于默认模型选择</div>
+                            </div>
+                            <input type="checkbox" v-model="aiModelConfigForm.is_default" class="w-4 h-4 rounded border-gray-300 text-blue-600">
+                        </label>
+                        <label class="flex items-center justify-between p-4 bg-gray-50 rounded-lg cursor-pointer">
+                            <div>
+                                <div class="font-medium text-gray-800">启用模型</div>
+                                <div class="text-sm text-gray-500">禁用后不可用于调用</div>
+                            </div>
+                            <input type="checkbox" v-model="aiModelConfigForm.is_enabled" class="w-4 h-4 rounded border-gray-300 text-blue-600">
+                        </label>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                        <button type="button" @click="showAiModelConfigModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                            <i class="fas fa-save mr-2"></i>保存
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <!-- 系统配置模态框 -->
         <div v-if="showSystemConfigModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
             <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
@@ -11004,6 +11541,20 @@
             const aiAnalyzing = ref(false); // AI分析中标志
             const aiAnalysisResult = ref(''); // AI分析结果
             const aiAnalysisHistory = ref([]); // AI分析历史记录
+            const aiAnalysisModelKey = ref('deepseek_reasoner');
+            const aiAnalysisBatchResults = ref([]);
+            const aiAnalysisCapturedReport = ref(null);
+            const aiAnalysisCapturedError = ref('');
+            const aiAnalysisProcess = ref(null);
+            const aiAnalysisGroupDetailsOpen = ref(false);
+            const aiAnalysisProgress = ref({
+                totalHotels: 0,
+                completedHotels: 0,
+                failedHotels: 0,
+                currentGroup: 0,
+                totalGroups: 0,
+                summarizing: false,
+            });
             
             // 美团AI智能分析相关
             const meituanAiSelectedHotels = ref([]); // 选中的酒店列表
@@ -11060,6 +11611,58 @@
             const holidayRevenue = ref(null);
             const holidayRevenueLoading = ref(false);
             const selectedWeatherCity = ref('');
+            const holidayOperationSuggestions = [
+                '最近节假日优先完成底价、库存、连住策略',
+                '次近节假日提前设置预售价和房型库存',
+                '多门店统一检查节假日价格是否低于平日高峰价',
+                '距离30天内的节假日进入重点跟进',
+            ];
+            const parseHolidayDate = (value) => {
+                const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                if (!match) return null;
+                return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+            };
+            const formatHolidayDate = (date) => {
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const d = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            };
+            const normalizeHolidayCountdownItem = (item) => {
+                const name = item?.name || item?.holiday_name || item?.title || '';
+                const start = parseHolidayDate(item?.start_date || item?.startDate);
+                const end = parseHolidayDate(item?.end_date || item?.endDate || item?.start_date || item?.startDate);
+                if (!name || !start || !end) return null;
+                const today = new Date();
+                const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                if (end < todayStart) return null;
+                const dayMs = 24 * 60 * 60 * 1000;
+                const daysLeft = Math.max(0, Math.round((start - todayStart) / dayMs));
+                const holidayDays = Math.max(1, Math.round((end - start) / dayMs) + 1);
+                return {
+                    name,
+                    start_date: formatHolidayDate(start),
+                    end_date: formatHolidayDate(end),
+                    days_left: daysLeft,
+                    distance_text: start <= todayStart && end >= todayStart ? '进行中' : `${daysLeft}天`,
+                    holiday_days: holidayDays,
+                };
+            };
+            const holidayOperationCountdown = computed(() => {
+                const source = Array.isArray(holidayRevenue.value?.holidays)
+                    ? holidayRevenue.value.holidays
+                    : (Array.isArray(compassHolidays.value) && compassHolidays.value.length
+                        ? compassHolidays.value
+                        : (holidayRevenue.value ? [holidayRevenue.value] : []));
+                const holidays = source
+                    .map(normalizeHolidayCountdownItem)
+                    .filter(Boolean)
+                    .sort((a, b) => a.start_date.localeCompare(b.start_date));
+                return {
+                    nearest: holidays[0] || null,
+                    next: holidays[1] || null,
+                };
+            });
             const homeObservation = computed(() => {
                 const selectedHotel = permittedHotels.value.find(h => String(h.id) === String(filterReportHotel.value)) || permittedHotels.value[0];
                 const hasWeather = compassWeather.value.length > 0;
@@ -11809,8 +12412,16 @@
                 if (newPage === 'operation-logs') {
                     loadOperationLogs();
                 }
+                if (newPage === 'ai-model-config') {
+                    loadAiModelConfigs();
+                }
+                if (newPage === 'agent-center') {
+                    loadCtripConfigList();
+                    loadMeituanConfigList();
+                    loadOnlineDataHotelList();
+                }
             });
-            
+
             // 监听数据记录标签页切换（添加防抖）
             let dataLoadTimer = null;
             watch(onlineDataTab, (newTab) => {
@@ -11941,6 +12552,7 @@
                     permissions: [],
                     children: [
                         { name: '系统配置', path: 'system-config', icon: 'fas fa-sliders-h' },
+                        { name: 'AI模型配置', path: 'ai-model-config', icon: 'fas fa-robot' },
                         { name: '数据配置', path: 'data-config', icon: 'fas fa-database' }
                     ]
                 },
@@ -12074,6 +12686,29 @@
             const showPermissionModal = ref(false);
             const showSystemConfigModal = ref(false);
             const showDataConfigModal = ref(false);
+            const showAiModelConfigModal = ref(false);
+            const aiModelConfigs = ref([]);
+            const aiModelConfigLoading = ref(false);
+            const testingAiModelId = ref(null);
+            const showAiModelAdvanced = ref(false);
+            const aiQuickSetupSaving = ref(false);
+            const aiQuickSetupForm = ref({
+                provider: 'deepseek',
+                api_key: '',
+            });
+            const aiModelConfigForm = ref({
+                id: null,
+                name: '',
+                model_key: '',
+                provider: '',
+                base_url: '',
+                model_name: '',
+                api_key: '',
+                masked_api_key: '',
+                usage_scene: '',
+                is_default: false,
+                is_enabled: true,
+            });
             
             // 数据配置
             const currentDataConfigType = ref('');
@@ -12228,6 +12863,50 @@
                 });
             });
 
+            const buildOtaDiagnosisOption = (source, hotel, index) => {
+                const platform = source === 'meituan-config' ? 'meituan' : source === 'ctrip-config' ? 'ctrip' : (hotel.source || '');
+                const rawHotelId = hotel.system_hotel_id || hotel.hotel_id || (platform === 'meituan' ? hotel.poi_id : '');
+                const hotelId = rawHotelId || (source === 'online-data' ? hotel.id : '');
+                const configId = hotel.id || hotel.config_id || '';
+                const name = hotel.name || hotel.hotel_name || hotel.hotelName || hotel.config_name || '';
+                return {
+                    key: `${source}:${configId || hotelId || name || index}`,
+                    value: String(hotelId || ''),
+                    source,
+                    config_id: configId,
+                    hotel_id: hotelId,
+                    name: name || '未命名配置',
+                };
+            };
+
+            const otaDiagnosisHotelOptions = computed(() => {
+                const platform = otaDiagnosisForm.value.platform;
+                const configSource = platform === 'meituan' ? meituanConfigList.value : ctripConfigList.value;
+                const configPrefix = platform === 'meituan' ? 'meituan-config' : 'ctrip-config';
+                const configOptions = (Array.isArray(configSource) ? configSource : [])
+                    .map((item, index) => buildOtaDiagnosisOption(configPrefix, item, index))
+                    .filter(item => item.name && item.hotel_id);
+
+                if (configOptions.length > 0) {
+                    return configOptions;
+                }
+
+                const dataOptions = (Array.isArray(onlineDataHotelList.value) ? onlineDataHotelList.value : [])
+                    .map((item, index) => buildOtaDiagnosisOption('online-data', item, index))
+                    .filter(item => item.name && item.hotel_id);
+                if (dataOptions.length > 0) {
+                    return dataOptions;
+                }
+
+                const source = hotels.value && hotels.value.length > 0 ? hotels.value : permittedHotels.value;
+                return (Array.isArray(source) ? source : []).map((item, index) => ({
+                    key: `system:${item.id || index}`,
+                    value: String(item.id || ''),
+                    hotel_id: item.id || '',
+                    name: item.name || '未命名酒店',
+                })).filter(item => item.hotel_id);
+            });
+
             // API 请求
             const request = async (url, options = {}) => {
                 const headers = { 'Content-Type': 'application/json' };
@@ -12266,6 +12945,164 @@
                 } catch (error) {
                     console.error('API请求失败:', url, error);
                     throw error;
+                }
+            };
+
+            const saveAiProviderQuickSetup = async () => {
+                const provider = aiQuickSetupForm.value.provider;
+                const apiKey = (aiQuickSetupForm.value.api_key || '').trim();
+                if (!provider) {
+                    showToast('请选择模型厂家', 'warning');
+                    return;
+                }
+                if (!apiKey) {
+                    showToast('请输入 API Key', 'warning');
+                    return;
+                }
+
+                aiQuickSetupSaving.value = true;
+                try {
+                    const res = await request('/ai-config/providers/quick-setup', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            provider,
+                            api_key: apiKey,
+                        }),
+                    });
+                    if (res.code === 200) {
+                        const data = res.data || {};
+                        showToast(`自动配置成功：新增 ${data.created || 0} 条，更新 ${data.updated || 0} 条`);
+                        aiQuickSetupForm.value.api_key = '';
+                        await loadAiModelConfigs();
+                    } else {
+                        showToast(res.message || '自动配置失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('自动配置失败: ' + (e.message || '网络错误'), 'error');
+                } finally {
+                    aiQuickSetupSaving.value = false;
+                }
+            };
+
+            const resetAiModelConfigForm = () => ({
+                id: null,
+                name: '',
+                model_key: '',
+                provider: '',
+                base_url: '',
+                model_name: '',
+                api_key: '',
+                masked_api_key: '',
+                usage_scene: '',
+                is_default: false,
+                is_enabled: true,
+            });
+
+            const loadAiModelConfigs = async () => {
+                aiModelConfigLoading.value = true;
+                try {
+                    const res = await request('/ai-config/models');
+                    if (res.code === 200) {
+                        aiModelConfigs.value = Array.isArray(res.data) ? res.data : [];
+                    } else {
+                        showToast(res.message || '加载AI模型配置失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('加载AI模型配置失败: ' + (e.message || '网络错误'), 'error');
+                } finally {
+                    aiModelConfigLoading.value = false;
+                }
+            };
+
+            const openAiModelConfigModal = (model = null) => {
+                if (model) {
+                    aiModelConfigForm.value = {
+                        id: model.id,
+                        name: model.name || '',
+                        model_key: model.model_key || '',
+                        provider: model.provider || '',
+                        base_url: model.base_url || '',
+                        model_name: model.model_name || '',
+                        api_key: '',
+                        masked_api_key: model.api_key || '',
+                        usage_scene: model.usage_scene || '',
+                        is_default: !!model.is_default,
+                        is_enabled: !!model.is_enabled,
+                    };
+                } else {
+                    aiModelConfigForm.value = resetAiModelConfigForm();
+                }
+                showAiModelConfigModal.value = true;
+            };
+
+            const saveAiModelConfig = async () => {
+                const form = aiModelConfigForm.value;
+                const payload = {
+                    name: form.name,
+                    model_key: form.model_key,
+                    provider: form.provider,
+                    base_url: form.base_url,
+                    model_name: form.model_name,
+                    usage_scene: form.usage_scene,
+                    is_default: form.is_default ? 1 : 0,
+                    is_enabled: form.is_enabled ? 1 : 0,
+                };
+                if (form.api_key && form.api_key.trim() !== '') {
+                    payload.api_key = form.api_key.trim();
+                }
+
+                try {
+                    const res = await request(form.id ? `/ai-config/models/${form.id}` : '/ai-config/models', {
+                        method: form.id ? 'PUT' : 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                    if (res.code === 200) {
+                        showToast(form.id ? '模型配置已更新' : '模型配置已创建');
+                        showAiModelConfigModal.value = false;
+                        aiModelConfigForm.value = resetAiModelConfigForm();
+                        await loadAiModelConfigs();
+                    } else {
+                        showToast(res.message || '保存失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('保存失败: ' + (e.message || '网络错误'), 'error');
+                }
+            };
+
+            const toggleAiModelConfigEnabled = async (model) => {
+                try {
+                    const nextEnabled = model.is_enabled ? 0 : 1;
+                    const res = await request(`/ai-config/models/${model.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ is_enabled: nextEnabled }),
+                    });
+                    if (res.code === 200) {
+                        showToast(nextEnabled ? '模型已启用' : '模型已禁用');
+                        await loadAiModelConfigs();
+                    } else {
+                        showToast(res.message || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('操作失败: ' + (e.message || '网络错误'), 'error');
+                }
+            };
+
+            const testAiModelConfig = async (model) => {
+                testingAiModelId.value = model.id;
+                try {
+                    const res = await request(`/ai-config/models/${model.id}/test`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                    });
+                    if (res.code === 200) {
+                        showToast('模型连接测试成功');
+                    } else {
+                        showToast(res.message || '模型连接测试失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('模型连接测试失败: ' + (e.message || '网络错误'), 'error');
+                } finally {
+                    testingAiModelId.value = null;
                 }
             };
 
@@ -12624,6 +13461,36 @@
                 agents: {},
                 recent_logs: []
             });
+            const todayIsoDate = new Date().toISOString().split('T')[0];
+            const otaDiagnosisForm = ref({
+                hotel_id: '',
+                platform: 'ctrip',
+                start_date: todayIsoDate,
+                end_date: todayIsoDate,
+                model_key: 'deepseek_chat',
+            });
+            const otaDiagnosisLoading = ref(false);
+            const otaDiagnosisResult = ref(null);
+            const otaDiagnosisError = ref('');
+            const otaDiagnosisEmpty = ref(false);
+            watch(() => otaDiagnosisForm.value.platform, () => {
+                otaDiagnosisForm.value.hotel_id = '';
+                otaDiagnosisError.value = '';
+            });
+            const otaDiagnosisPriorityClass = computed(() => {
+                const priority = String(otaDiagnosisResult.value?.priority || '').toLowerCase();
+                if (priority === 'high') return 'bg-red-50 text-red-700 border-red-200';
+                if (priority === 'medium') return 'bg-orange-50 text-orange-700 border-orange-200';
+                if (priority === 'low') return 'bg-green-50 text-green-700 border-green-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            });
+            const otaDiagnosisPriorityText = computed(() => {
+                const priority = String(otaDiagnosisResult.value?.priority || '').toLowerCase();
+                if (priority === 'high') return '高优先级';
+                if (priority === 'medium') return '中优先级';
+                if (priority === 'low') return '低优先级';
+                return '未分级';
+            });
             const hotelAiToolboxLinks = [
                 { name: 'ChatGPT', desc: '通用问答、文案、数据分析与方案生成。', url: 'https://chatgpt.com/', icon: 'fas fa-comments', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600' },
                 { name: 'DeepSeek', desc: '长文本推理、代码辅助、经营分析草稿。', url: 'https://chat.deepseek.com/', icon: 'fas fa-brain', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
@@ -12715,6 +13582,76 @@
             const assetDashboard = ref({
                 devices: {}, energy: {}, maintenance: {}, saving_suggestions: {}, anomalies: []
             });
+
+            const normalizeOtaDiagnosisList = (value) => {
+                if (Array.isArray(value)) {
+                    return value.map(item => String(item || '').trim()).filter(Boolean);
+                }
+                if (typeof value === 'string' && value.trim() !== '') {
+                    return [value.trim()];
+                }
+                return ['暂无'];
+            };
+
+            const generateOtaDiagnosis = async () => {
+                const form = otaDiagnosisForm.value;
+                otaDiagnosisError.value = '';
+                otaDiagnosisResult.value = null;
+                otaDiagnosisEmpty.value = false;
+
+                if (!form.hotel_id) {
+                    otaDiagnosisError.value = '请选择酒店';
+                    return;
+                }
+                const selectedHotel = otaDiagnosisHotelOptions.value.find(item => item.value === form.hotel_id);
+                const diagnosisHotelId = String(selectedHotel?.hotel_id || form.hotel_id || '').trim();
+                if (!form.start_date || !form.end_date) {
+                    otaDiagnosisError.value = '请选择日期范围';
+                    return;
+                }
+                if (form.start_date > form.end_date) {
+                    otaDiagnosisError.value = '开始日期不能晚于结束日期';
+                    return;
+                }
+
+                otaDiagnosisLoading.value = true;
+                try {
+                    const res = await request('/agent/ota-diagnosis', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            hotel_id: diagnosisHotelId || 0,
+                            config_id: selectedHotel?.config_id || '',
+                            config_source: selectedHotel?.source || '',
+                            hotel_name: selectedHotel?.name || '',
+                            platform: form.platform,
+                            start_date: form.start_date,
+                            end_date: form.end_date,
+                            mode: 'historical_db',
+                            analysis_type: 'all',
+                            data_type: 'traffic',
+                            model_key: form.model_key,
+                        }),
+                    });
+                    if (res.code === 200) {
+                        const data = res.data || {};
+                        const conclusion = String(data.diagnosis?.summary || data.core_conclusion || '');
+                        const isEmpty = conclusion.includes('暂无 OTA 数据') || conclusion.includes('暂无OTA数据') || conclusion.includes('暂无该酒店在该日期范围内的OTA数据');
+                        otaDiagnosisEmpty.value = isEmpty;
+                        otaDiagnosisResult.value = isEmpty ? null : data;
+                        if (isEmpty) {
+                            showToast('暂无OTA数据', 'warning');
+                        } else {
+                            showToast('OTA诊断已生成');
+                        }
+                    } else {
+                        otaDiagnosisError.value = res.message || 'OTA诊断生成失败';
+                    }
+                } catch (e) {
+                    otaDiagnosisError.value = e?.data?.message || e.message || 'OTA诊断生成失败';
+                } finally {
+                    otaDiagnosisLoading.value = false;
+                }
+            };
 
             // 加载Agent概览
             const loadAgentOverview = async () => {
@@ -13382,9 +14319,6 @@
                     const params = new URLSearchParams({
                         year: String(new Date().getFullYear())
                     });
-                    if (filterReportHotel.value) {
-                        params.append('hotel_id', filterReportHotel.value);
-                    }
                     const res = await request(`/holiday-revenue/countdown?${params.toString()}`);
                     if (res.code === 200) {
                         holidayRevenue.value = res.data || null;
@@ -13720,6 +14654,8 @@
                         const allHotels = extractAllCtripHotels(responsePayload);
                         allHotels.sort((a, b) => b.quantity - a.quantity);
                         ctripHotelsList.value = allHotels;
+                        onlineDataFilter.value.start_date = startDate;
+                        onlineDataFilter.value.end_date = endDate;
                         // 提取前十名
                         topTenHotels.value = allHotels.slice(0, 10);
                         const savedCount = res.data.saved_count || 0;
@@ -14867,6 +15803,288 @@
             };
 
             // AI智能分析相关函数
+            const getAiAnalysisHotelKey = (hotel) => `${hotel.poiId}_${hotel.hotelName}`;
+
+            const htmlEscape = (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+            const aiAnalysisStatusText = (status) => {
+                const map = {
+                    pending: '等待中',
+                    running: '分析中',
+                    success: '成功',
+                    empty: '暂无数据',
+                    failed: '失败',
+                };
+                return map[status] || '待分析';
+            };
+
+            const aiAnalysisStatusClass = (status) => {
+                if (status === 'running') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                if (status === 'success') return 'bg-green-50 text-green-700 border-green-200';
+                if (status === 'empty') return 'bg-gray-50 text-gray-600 border-gray-200';
+                if (status === 'failed') return 'bg-red-50 text-red-700 border-red-200';
+                return 'bg-slate-50 text-slate-600 border-slate-200';
+            };
+
+            const aiAnalysisPriorityClass = (priority) => {
+                const value = String(priority || '').toLowerCase();
+                if (value === 'high') return 'bg-red-50 text-red-700 border-red-200';
+                if (value === 'medium') return 'bg-orange-50 text-orange-700 border-orange-200';
+                if (value === 'low') return 'bg-green-50 text-green-700 border-green-200';
+                return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+
+            const aiAnalysisPriorityText = (priority) => {
+                const value = String(priority || '').toLowerCase();
+                if (value === 'high') return '高优先级';
+                if (value === 'medium') return '中优先级';
+                if (value === 'low') return '低优先级';
+                return '未分级';
+            };
+
+            const buildAiAnalysisCopyHtml = (items) => {
+                if (!items || items.length === 0) return '';
+                return items.map(item => {
+                    const result = item.result || {};
+                    const listHtml = (title, values) => `<h4>${htmlEscape(title)}</h4><ul>${normalizeOtaDiagnosisList(values).map(text => `<li>${htmlEscape(text)}</li>`).join('')}</ul>`;
+                    if (item.status === 'empty') {
+                        return `<section><h3>${htmlEscape(item.hotelName)}（${htmlEscape(item.hotelId)}）</h3><p>暂无数据</p></section>`;
+                    }
+                    if (item.status === 'failed') {
+                        return `<section><h3>${htmlEscape(item.hotelName)}（${htmlEscape(item.hotelId)}）</h3><p>失败：${htmlEscape(item.error || '分析失败')}</p></section>`;
+                    }
+                    return `<section><h3>${htmlEscape(item.hotelName)}（${htmlEscape(item.hotelId)}）</h3><p><strong>优先级：</strong>${htmlEscape(aiAnalysisPriorityText(result.priority))}</p><p><strong>核心结论：</strong>${htmlEscape(result.core_conclusion || '-')}</p>${listHtml('主要问题', result.main_problems)}${listHtml('可能原因', result.possible_reasons)}${listHtml('建议动作', result.recommended_actions)}${listHtml('数据异常', result.data_anomalies_needing_confirmation)}${result.raw_text ? `<pre>${htmlEscape(result.raw_text)}</pre>` : ''}</section>`;
+                }).join('<hr>');
+            };
+
+            const normalizeAiAnalysisList = (value) => {
+                if (Array.isArray(value)) {
+                    const items = value.map(item => {
+                        if (item && typeof item === 'object') {
+                            return Object.entries(item)
+                                .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+                                .map(([k, v]) => `${k}: ${v}`)
+                                .join('；');
+                        }
+                        return String(item || '').trim();
+                    }).filter(Boolean);
+                    return items.length > 0 ? items : ['暂无'];
+                }
+                if (typeof value === 'string' && value.trim() !== '') {
+                    return [value.trim()];
+                }
+                return ['暂无'];
+            };
+
+            const maskAiAnalysisError = (message) => String(message || '分析失败')
+                .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-****')
+                .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer ****')
+                .replace(/(api[_-]?key|authorization|cookie|spidertoken)\s*[:=]\s*[^,\s;]+/gi, '$1=****')
+                .slice(0, 300);
+
+            const extractAiAnalysisErrorDetails = (source, fallback = '分析失败') => {
+                const data = source?.data?.data || source?.data || {};
+                const debug = data.debug || {};
+                return {
+                    error_type: data.error_type || source?.error_type || 'unknown_error',
+                    model: debug.model || '',
+                    model_key: debug.model_key || getSafeAiAnalysisModelKey(),
+                    config_source: debug.config_source || '',
+                    http_status: debug.http_status || '',
+                    error_message: maskAiAnalysisError(debug.error_message || source?.message || fallback),
+                    response_preview: maskAiAnalysisError(debug.response_preview || ''),
+                    prompt_length: debug.prompt_length || 0,
+                    request_payload_size: debug.request_payload_size || 0,
+                };
+            };
+
+            const formatAiAnalysisError = (details) => {
+                const lines = ['模型返回异常'];
+                if (details.model) lines.push(`模型：${details.model}`);
+                if (details.model_key) lines.push(`model_key：${details.model_key}`);
+                if (details.config_source) lines.push(`配置来源：${details.config_source}`);
+                if (details.http_status) lines.push(`HTTP状态：${details.http_status}`);
+                if (details.error_type) lines.push(`错误类型：${details.error_type}`);
+                if (details.error_message) lines.push(`原因：${details.error_message}`);
+                if (details.response_preview) lines.push(`响应预览：${details.response_preview}`);
+                lines.push('建议：减少单组酒店数量或检查字段摘要');
+                return lines.join('\n');
+            };
+
+            const getSafeAiAnalysisModelKey = () => {
+                const allowed = ['deepseek_chat', 'deepseek_reasoner', 'openai_fast'];
+                return allowed.includes(aiAnalysisModelKey.value) ? aiAnalysisModelKey.value : 'deepseek_chat';
+            };
+
+            const isDeepSeekProAnalysisModel = () => getSafeAiAnalysisModelKey() === 'deepseek_reasoner';
+
+            const chunkArray = (items, size) => {
+                const chunks = [];
+                for (let i = 0; i < items.length; i += size) {
+                    chunks.push(items.slice(i, i + size));
+                }
+                return chunks;
+            };
+
+            const buildCapturedOtaHotelPayload = (hotel) => {
+                const roomNights = toNumber(hotel.roomNights);
+                const revenue = toNumber(hotel.roomRevenue || hotel.sales);
+                const visitors = toNumber(hotel.views);
+                const exposure = toNumber(hotel.exposure);
+                const orders = toNumber(hotel.totalOrderNum || hotel.bookOrderNum);
+                const price = roomNights > 0 ? Number((revenue / roomNights).toFixed(2)) : 0;
+                const rankValues = [hotel.amountRank, hotel.quantityRank, hotel.commentScoreRank, hotel.qunarDetailCRRank]
+                    .map(value => toNumber(value))
+                    .filter(value => value > 0);
+                const rank = rankValues.length > 0 ? Math.min(...rankValues) : 0;
+                const score = toNumber(hotel.commentScore || hotel.qunarCommentScore);
+                const tags = [];
+                if (rank > 0) tags.push(`最好排名${rank}`);
+                if (price > 0) tags.push(`ADR ${price}`);
+                if (toNumber(hotel.viewConversion) > 0) tags.push(`浏览转化${toNumber(hotel.viewConversion)}%`);
+                if (toNumber(hotel.payConversion) > 0) tags.push(`支付转化${toNumber(hotel.payConversion)}%`);
+                return {
+                    hotel_id: String(hotel.poiId || ''),
+                    hotel_name: hotel.hotelName || '未知酒店',
+                    rank,
+                    price,
+                    score,
+                    comments_count: toNumber(hotel.commentsCount || hotel.commentCount),
+                    exposure,
+                    visitors,
+                    orders,
+                    revenue,
+                    room_nights: roomNights,
+                    tags: tags.slice(0, 6),
+                    short_summary: `间夜${roomNights}，收入${revenue}，曝光${exposure}，访客${visitors}，订单${orders}`,
+                };
+            };
+
+            const buildCapturedGroupSummary = (item) => ({
+                group_index: item.groupIndex,
+                hotel_count: item.hotelCount,
+                report: item.result ? {
+                    overall_conclusion: item.result.overall_conclusion || '',
+                    key_findings: normalizeAiAnalysisList(item.result.key_findings).slice(0, 5),
+                    competitor_insights: normalizeAiAnalysisList(item.result.competitor_insights).slice(0, 5),
+                    problem_hotels: normalizeAiAnalysisList(item.result.problem_hotels).slice(0, 8),
+                    recommended_actions: normalizeAiAnalysisList(item.result.recommended_actions).slice(0, 6),
+                    priority: item.result.priority || 'medium',
+                    data_anomalies: normalizeAiAnalysisList(item.result.data_anomalies).slice(0, 5),
+                    summary: item.result.summary || { hotel_count: item.hotelCount },
+                } : null,
+            });
+
+            const mergeCapturedGroupReports = (reports, hotelCount, note = '') => {
+                const list = (field, limit) => reports.flatMap(report => normalizeAiAnalysisList(report[field])).filter(text => text && text !== '暂无').slice(0, limit);
+                const priorityRank = { high: 3, medium: 2, low: 1 };
+                const priority = reports.reduce((current, report) => {
+                    const next = report.priority || 'medium';
+                    return (priorityRank[next] || 2) > (priorityRank[current] || 2) ? next : current;
+                }, 'medium');
+                return {
+                    overall_conclusion: note || reports.map(report => report.overall_conclusion).filter(Boolean).join('；') || '拆分重试完成',
+                    key_findings: list('key_findings', 8),
+                    competitor_insights: list('competitor_insights', 8),
+                    problem_hotels: list('problem_hotels', 10),
+                    recommended_actions: list('recommended_actions', 10),
+                    priority,
+                    data_anomalies: list('data_anomalies', 8),
+                    summary: { hotel_count: hotelCount },
+                };
+            };
+
+            const requestCapturedOtaGroup = async (group) => {
+                try {
+                    const res = await request('/agent/analyze-captured-ota-data', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            platform: 'ctrip',
+                            data_source: 'rank',
+                            model_key: getSafeAiAnalysisModelKey(),
+                            start_date: onlineDataFilter.value.start_date,
+                            end_date: onlineDataFilter.value.end_date,
+                            hotels: group,
+                        }),
+                    });
+                    if (res.code === 200) {
+                        return { ok: true, result: res.data || {} };
+                    }
+                    const details = extractAiAnalysisErrorDetails(res, res.message || '分析失败');
+                    return { ok: false, error: formatAiAnalysisError(details), errorDetails: details };
+                } catch (e) {
+                    const details = extractAiAnalysisErrorDetails(e, e.message || '网络错误');
+                    return { ok: false, error: formatAiAnalysisError(details), errorDetails: details };
+                }
+            };
+
+            const retryCapturedOtaGroup = async (group, groupState) => {
+                const retrySize = isDeepSeekProAnalysisModel() ? 1 : (group.length > 2 ? 2 : 1);
+                const retryGroups = chunkArray(group, retrySize);
+                const retryReports = [];
+                const failedItems = [];
+                let successCount = 0;
+                for (const retryGroup of retryGroups) {
+                    const retryResult = await requestCapturedOtaGroup(retryGroup);
+                    if (retryResult.ok) {
+                        retryReports.push(retryResult.result);
+                        successCount += retryGroup.length;
+                    } else {
+                        failedItems.push({
+                            hotelNames: retryGroup.map(item => item.hotel_name).filter(Boolean),
+                            error: retryResult.error,
+                            errorDetails: retryResult.errorDetails,
+                        });
+                    }
+                }
+                groupState.retried = true;
+                if (retryReports.length > 0) {
+                    const failedCount = group.length - successCount;
+                    groupState.status = 'success';
+                    groupState.result = mergeCapturedGroupReports(retryReports, successCount, failedCount > 0 ? '拆分重试部分成功' : '已拆分重试成功');
+                    if (failedItems.length > 0) {
+                        groupState.error = failedItems.map(item => `${item.hotelNames.join('、')}：${item.error}`).join('\n\n');
+                        groupState.errorDetails = failedItems[0].errorDetails || null;
+                    }
+                    return { successCount, failedCount };
+                }
+                groupState.status = 'failed';
+                groupState.error = failedItems.map(item => `${item.hotelNames.join('、')}：${item.error}`).join('\n\n') || '拆分重试失败';
+                groupState.errorDetails = failedItems[0]?.errorDetails || null;
+                return { successCount: 0, failedCount: group.length };
+            };
+
+            const buildCapturedOtaReportCopyHtml = (report) => {
+                if (!report) return '';
+                const listHtml = (title, values) => `<h4>${htmlEscape(title)}</h4><ul>${normalizeAiAnalysisList(values).map(text => `<li>${htmlEscape(text)}</li>`).join('')}</ul>`;
+                return `<section><h3>批量OTA AI综合诊断报告</h3><p><strong>优先级：</strong>${htmlEscape(aiAnalysisPriorityText(report.priority))}</p><p><strong>总体结论：</strong>${htmlEscape(report.overall_conclusion || '-')}</p>${listHtml('关键发现', report.key_findings)}${listHtml('竞对洞察', report.competitor_insights)}${listHtml('问题酒店', report.problem_hotels)}${listHtml('建议动作', report.recommended_actions)}${listHtml('数据异常', report.data_anomalies)}${report.raw_text ? `<pre>${htmlEscape(report.raw_text)}</pre>` : ''}</section>`;
+            };
+
+            const buildCapturedFallbackSummaryReport = (successGroups, failedGroups, selectedCount, reason = '') => {
+                const reports = successGroups.map(item => item.result).filter(Boolean);
+                const report = mergeCapturedGroupReports(reports, aiAnalysisProgress.value.completedHotels, 'AI综合汇总失败，已自动生成基础综合报告。');
+                report.fallback = true;
+                report.fallback_reason = maskAiAnalysisError(reason);
+                report.summary = {
+                    selected_hotel_count: selectedCount,
+                    success_hotel_count: aiAnalysisProgress.value.completedHotels,
+                    failed_hotel_count: aiAnalysisProgress.value.failedHotels,
+                    hotel_count: aiAnalysisProgress.value.completedHotels,
+                    group_count: aiAnalysisBatchResults.value.length,
+                    failed_group_count: failedGroups.length,
+                };
+                report.data_anomalies = [
+                    ...normalizeAiAnalysisList(report.data_anomalies).filter(text => text !== '暂无'),
+                    'AI综合汇总失败，已自动生成基础综合报告。',
+                ];
+                return report;
+            };
+
             // 更新AI分析酒店列表（只从携程数据中提取，并合并同一酒店的不同榜单数据）
             const updateAiAnalysisHotelList = () => {
                 const hotelMap = new Map();
@@ -14892,7 +16110,17 @@
                                 payConversion: h.payConversion || 0,
                                 // 流量榜数据
                                 exposure: h.exposure || h.totalDetailNum || 0,
-                                views: h.views || h.qunarDetailVisitors || 0
+                                views: h.views || h.qunarDetailVisitors || 0,
+                                commentScore: h.commentScore || 0,
+                                qunarCommentScore: h.qunarCommentScore || 0,
+                                convertionRate: h.convertionRate || 0,
+                                qunarDetailCR: h.qunarDetailCR || 0,
+                                totalOrderNum: h.totalOrderNum || 0,
+                                bookOrderNum: h.bookOrderNum || 0,
+                                amountRank: h.amountRank || 0,
+                                quantityRank: h.quantityRank || 0,
+                                commentScoreRank: h.commentScoreRank || 0,
+                                qunarDetailCRRank: h.qunarDetailCRRank || 0
                             });
                         } else {
                             // 已存在该酒店，合并数据（累加或取最大值）
@@ -14909,17 +16137,27 @@
                             // 流量榜数据
                             existing.exposure = Math.max(existing.exposure, h.exposure || h.totalDetailNum || 0);
                             existing.views = Math.max(existing.views, h.views || h.qunarDetailVisitors || 0);
+                            existing.commentScore = Math.max(existing.commentScore || 0, h.commentScore || 0);
+                            existing.qunarCommentScore = Math.max(existing.qunarCommentScore || 0, h.qunarCommentScore || 0);
+                            existing.convertionRate = Math.max(existing.convertionRate || 0, h.convertionRate || 0);
+                            existing.qunarDetailCR = Math.max(existing.qunarDetailCR || 0, h.qunarDetailCR || 0);
+                            existing.totalOrderNum = Math.max(existing.totalOrderNum || 0, h.totalOrderNum || 0);
+                            existing.bookOrderNum = Math.max(existing.bookOrderNum || 0, h.bookOrderNum || 0);
+                            existing.amountRank = existing.amountRank === 0 ? (h.amountRank || 0) : Math.min(existing.amountRank, h.amountRank || existing.amountRank);
+                            existing.quantityRank = existing.quantityRank === 0 ? (h.quantityRank || 0) : Math.min(existing.quantityRank, h.quantityRank || existing.quantityRank);
+                            existing.commentScoreRank = existing.commentScoreRank === 0 ? (h.commentScoreRank || 0) : Math.min(existing.commentScoreRank, h.commentScoreRank || existing.commentScoreRank);
+                            existing.qunarDetailCRRank = existing.qunarDetailCRRank === 0 ? (h.qunarDetailCRRank || 0) : Math.min(existing.qunarDetailCRRank, h.qunarDetailCRRank || existing.qunarDetailCRRank);
                         }
                     });
                 }
                 
                 aiAnalysisHotelList.value = Array.from(hotelMap.values());
-                console.log('AI分析酒店列表更新:', aiAnalysisHotelList.value.length, '家酒店', aiAnalysisHotelList.value);
+                aiSelectedHotels.value = aiSelectedHotels.value.filter(key => aiAnalysisHotelList.value.some(h => getAiAnalysisHotelKey(h) === key));
             };
             
             // 全选AI分析酒店
             const selectAllAiHotels = () => {
-                aiSelectedHotels.value = aiAnalysisHotelList.value.map(h => h.poiId + '_' + h.hotelName);
+                aiSelectedHotels.value = aiAnalysisHotelList.value.map(getAiAnalysisHotelKey);
                 showToast('已全选 ' + aiSelectedHotels.value.length + ' 家酒店');
             };
             
@@ -14938,63 +16176,139 @@
                 
                 // 获取选中酒店的详细数据
                 const selectedData = aiSelectedHotels.value.map(key => {
-                    return aiAnalysisHotelList.value.find(h => h.poiId + '_' + h.hotelName === key);
+                    return aiAnalysisHotelList.value.find(h => getAiAnalysisHotelKey(h) === key);
                 }).filter(Boolean);
                 
                 if (selectedData.length === 0) {
                     showToast('未找到选中的酒店数据', 'error');
                     return;
                 }
+                if (!onlineDataFilter.value.start_date || !onlineDataFilter.value.end_date) {
+                    showToast('请选择分析日期范围', 'error');
+                    return;
+                }
+                if (onlineDataFilter.value.start_date > onlineDataFilter.value.end_date) {
+                    showToast('开始日期不能晚于结束日期', 'error');
+                    return;
+                }
                 
                 aiAnalyzing.value = true;
                 aiAnalysisResult.value = '';
-                
+                aiAnalysisCapturedReport.value = null;
+                aiAnalysisCapturedError.value = '';
+                aiAnalysisProcess.value = null;
+                aiAnalysisGroupDetailsOpen.value = false;
+                const hotelsPayload = selectedData.map(buildCapturedOtaHotelPayload).filter(item => item.hotel_id || item.hotel_name);
+                if (hotelsPayload.length === 0) {
+                    aiAnalyzing.value = false;
+                    showToast('暂无抓取数据', 'error');
+                    return;
+                }
+                const groupSize = isDeepSeekProAnalysisModel() ? 3 : 5;
+                const groups = chunkArray(hotelsPayload, groupSize);
+                aiAnalysisProgress.value = {
+                    totalHotels: hotelsPayload.length,
+                    completedHotels: 0,
+                    failedHotels: 0,
+                    currentGroup: 0,
+                    totalGroups: groups.length,
+                    summarizing: false,
+                };
+                aiAnalysisBatchResults.value = groups.map((group, index) => ({
+                    key: `group_${Date.now()}_${index}`,
+                    groupIndex: index + 1,
+                    totalGroups: groups.length,
+                    hotelCount: group.length,
+                    hotelNames: group.map(h => h.hotel_name).filter(Boolean),
+                    status: 'pending',
+                    result: null,
+                    error: '',
+                    errorDetails: null,
+                    retried: false,
+                }));
+                showToast(`开始分析 ${hotelsPayload.length} 家酒店，共 ${groups.length} 组`);
+
                 try {
-                    // 准备分析数据
-                    const analysisData = {
-                        hotels: selectedData,
-                        total_hotels: selectedData.length,
-                        analysis_type: 'business_overview',
-                        include_suggestions: true
-                    };
-                    
-                    showToast('AI正在分析数据，请稍候...');
-                    
-                    // 调用后端AI分析接口
-                    const res = await request('/online-data/ai-analysis', {
-                        method: 'POST',
-                        body: JSON.stringify(analysisData),
-                    });
-                    
-                    if (res.code === 200 && res.data) {
-                        aiAnalysisResult.value = res.data.report || res.data.analysis || res.data;
-                        
-                        // 添加到历史记录
-                        aiAnalysisHistory.value.unshift({
-                            id: Date.now(),
-                            hotel_names: selectedData.slice(0, 3).map(h => h.hotelName).join('、') + (selectedData.length > 3 ? '等' : ''),
-                            hotel_count: selectedData.length,
-                            summary: res.data.summary || 'AI分析报告',
-                            report: aiAnalysisResult.value,
-                            create_time: new Date().toLocaleString('zh-CN')
-                        });
-                        
-                        // 只保留最近10条记录
-                        if (aiAnalysisHistory.value.length > 10) {
-                            aiAnalysisHistory.value = aiAnalysisHistory.value.slice(0, 10);
+                    for (let index = 0; index < groups.length; index++) {
+                        const group = groups[index];
+                        const groupState = aiAnalysisBatchResults.value[index];
+                        aiAnalysisProgress.value.currentGroup = index + 1;
+                        groupState.status = 'running';
+                        const result = await requestCapturedOtaGroup(group);
+                        if (result.ok) {
+                            groupState.status = 'success';
+                            groupState.result = result.result;
+                            aiAnalysisProgress.value.completedHotels += group.length;
+                        } else {
+                            groupState.error = result.error;
+                            groupState.errorDetails = result.errorDetails;
+                            const retryResult = await retryCapturedOtaGroup(group, groupState);
+                            aiAnalysisProgress.value.completedHotels += retryResult.successCount;
+                            aiAnalysisProgress.value.failedHotels += retryResult.failedCount;
                         }
-                        
-                        showToast('AI分析完成！');
-                    } else {
-                        // 如果后端API未实现，使用本地分析
-                        aiAnalysisResult.value = generateLocalAnalysis(selectedData);
-                        showToast('AI分析完成（本地分析）');
                     }
+
+                    const successGroups = aiAnalysisBatchResults.value.filter(item => item.status === 'success' && item.result);
+                    const failedGroups = aiAnalysisBatchResults.value.filter(item => item.status === 'failed' || item.error).map(item => ({
+                        group_index: item.groupIndex,
+                        hotel_count: item.hotelCount,
+                        error: item.error,
+                    }));
+
+                    if (successGroups.length > 0) {
+                        aiAnalysisProgress.value.summarizing = true;
+                        try {
+                            const summaryRes = await request('/agent/summarize-captured-ota-analysis', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    platform: 'ctrip',
+                                    model_key: getSafeAiAnalysisModelKey(),
+                                    date_range: {
+                                        start_date: onlineDataFilter.value.start_date,
+                                        end_date: onlineDataFilter.value.end_date,
+                                    },
+                                    selected_hotel_count: hotelsPayload.length,
+                                    success_hotel_count: aiAnalysisProgress.value.completedHotels,
+                                    failed_hotel_count: aiAnalysisProgress.value.failedHotels,
+                                    group_summaries: successGroups.map(buildCapturedGroupSummary),
+                                    failed_groups: failedGroups,
+                                }),
+                            });
+                            if (summaryRes.code === 200) {
+                                const summaryData = summaryRes.data || {};
+                                aiAnalysisCapturedReport.value = summaryData.report || summaryData || {};
+                                aiAnalysisProcess.value = summaryData.process || null;
+                            } else {
+                                aiAnalysisCapturedReport.value = buildCapturedFallbackSummaryReport(successGroups, failedGroups, hotelsPayload.length, summaryRes.message || '汇总失败');
+                            }
+                        } catch (e) {
+                            aiAnalysisCapturedReport.value = buildCapturedFallbackSummaryReport(successGroups, failedGroups, hotelsPayload.length, e.message || '网络错误');
+                        } finally {
+                            aiAnalysisProgress.value.summarizing = false;
+                        }
+                    } else {
+                        const failedReason = failedGroups.map(item => `第 ${item.group_index} 组：${item.error || '分析失败'}`).join('\n\n');
+                        aiAnalysisCapturedError.value = '全部分析失败，无法生成综合报告。\n' + maskAiAnalysisError(failedReason);
+                    }
+
+                    aiAnalysisResult.value = aiAnalysisCapturedReport.value
+                        ? buildCapturedOtaReportCopyHtml(aiAnalysisCapturedReport.value)
+                        : successGroups.map(item => buildCapturedOtaReportCopyHtml(item.result)).join('<hr>');
+                    aiAnalysisHistory.value.unshift({
+                        id: Date.now(),
+                        hotel_names: selectedData.slice(0, 3).map(h => h.hotelName).join('、') + (selectedData.length > 3 ? '等' : ''),
+                        hotel_count: selectedData.length,
+                        summary: aiAnalysisCapturedReport.value?.overall_conclusion || `完成 ${aiAnalysisProgress.value.completedHotels} 家，失败 ${aiAnalysisProgress.value.failedHotels} 家`,
+                        report: aiAnalysisResult.value,
+                        create_time: new Date().toLocaleString('zh-CN')
+                    });
+                    if (aiAnalysisHistory.value.length > 10) {
+                        aiAnalysisHistory.value = aiAnalysisHistory.value.slice(0, 10);
+                    }
+                    showToast('AI分析完成');
                 } catch (e) {
-                    console.error('AI分析请求失败:', e);
-                    // 网络错误时使用本地分析
-                    aiAnalysisResult.value = generateLocalAnalysis(selectedData);
-                    showToast('使用本地分析完成');
+                    aiAnalysisCapturedError.value = e.message || '网络错误';
+                    showToast('AI分析失败: ' + aiAnalysisCapturedError.value, 'error');
                 } finally {
                     aiAnalyzing.value = false;
                 }
@@ -17028,7 +18342,7 @@
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyLoading, strategyScoreCards, strategyFreshnessLabel, handleStrategy,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, simulationCostFields, simulationMetricCards, simulationRiskHints, baseSimulation, handleSimulation,
                 aiFeasibilityResult, aiFeasibilityLoading, aiFeasibilityError, handleFeasibility, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, riskBadgeClass,
-                homeObservation, homeTrendCards, homeMacroSignals, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading,
+                homeObservation, homeTrendCards, homeMacroSignals, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationSuggestions,
                 weatherDemandHint, weatherLocationName, selectedWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, homeQuickEntries,
                 isLoggedIn, loading, user, token, currentTime, currentPage, showPassword,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
@@ -17040,6 +18354,10 @@
                 activeConfigGroup, configGroups, menuConfigItems, featureSwitches,
                 showImportConfigModal, importConfigFile, importConfigPreview,
                 exportSystemConfig, handleConfigFileChange, importSystemConfig, resetSystemConfig,
+                // AI模型配置
+                aiModelConfigs, aiModelConfigLoading, showAiModelConfigModal, aiModelConfigForm, testingAiModelId,
+                showAiModelAdvanced, aiQuickSetupForm, aiQuickSetupSaving,
+                loadAiModelConfigs, openAiModelConfigModal, saveAiModelConfig, toggleAiModelConfigEnabled, testAiModelConfig, saveAiProviderQuickSetup,
                 // 数据配置
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, testingConfig, savingConfig, dataConfigForm,
                 showDataConfigSpidertoken, showDataConfigCookie, showDataConfigPayload,
@@ -17076,7 +18394,9 @@
                 loadMeituanConfigList, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet,
                 // AI智能分析（携程）
                 aiSelectedHotels, aiAnalysisHotelList, aiAnalyzing, aiAnalysisResult, aiAnalysisHistory,
+                aiAnalysisModelKey, aiAnalysisBatchResults, aiAnalysisCapturedReport, aiAnalysisCapturedError, aiAnalysisProcess, aiAnalysisGroupDetailsOpen, aiAnalysisProgress,
                 selectAllAiHotels, clearAiHotelSelection, startAiAnalysis, copyAiAnalysisResult, viewAiAnalysisRecord,
+                getAiAnalysisHotelKey, aiAnalysisStatusText, aiAnalysisStatusClass, aiAnalysisPriorityText, aiAnalysisPriorityClass, normalizeAiAnalysisList,
                 // AI智能分析（美团）
                 meituanAiSelectedHotels, meituanAiAnalysisHotelList, meituanAiAnalyzing, meituanAiAnalysisResult, meituanAiAnalysisHistory, showMeituanAIAnalysis, meituanCompetitionIntensity,
                 selectAllMeituanAiHotels, clearMeituanAiHotelSelection, startMeituanAiAnalysis, copyMeituanAiAnalysisResult, viewMeituanAiAnalysisRecord,
@@ -17098,6 +18418,9 @@
                 loadCompetitorRobots, openCompetitorRobotModal, saveCompetitorRobot, deleteCompetitorRobot, testCompetitorRobot, getCompetitorStoreName,
                 // Agent中心 - 基础
                 agentTab, agentOverview, hotelAiToolboxLinks, agentConfigs,
+                otaDiagnosisForm, otaDiagnosisLoading, otaDiagnosisResult, otaDiagnosisError, otaDiagnosisEmpty,
+                otaDiagnosisHotelOptions, otaDiagnosisPriorityClass, otaDiagnosisPriorityText,
+                normalizeOtaDiagnosisList, generateOtaDiagnosis,
                 staffAgentTab, knowledgeList, knowledgeCategories, knowledgeFilter,
                 revenueAgentTab, priceSuggestions, priceSuggestionFilter,
                 assetAgentTab, deviceList, deviceStats, deviceFilter, energyData,

@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\model\AiModelConfig;
 use app\model\OperationLog;
+use think\facade\Db;
 use think\Response;
 
 class AiConfig extends Base
@@ -173,6 +174,83 @@ class AiConfig extends Base
         ], '测试成功');
     }
 
+    public function quickSetupProvider(): Response
+    {
+        $this->checkLogin();
+
+        $provider = strtolower(trim((string) $this->request->param('provider', '')));
+        $apiKey = trim((string) $this->request->param('api_key', ''));
+        if (!in_array($provider, ['deepseek', 'openai'], true)) {
+            return $this->error('provider 仅支持 deepseek/openai', 422);
+        }
+        if ($apiKey === '') {
+            return $this->error('API Key 不能为空', 422);
+        }
+
+        $secret = $this->aiConfigSecret();
+        if ($secret === '') {
+            return $this->error('未配置 AI_CONFIG_SECRET', 400);
+        }
+
+        $encryptedApiKey = AiModelConfig::encryptApiKey($apiKey, $secret);
+        if ($encryptedApiKey === null) {
+            return $this->error('API Key 加密失败', 500);
+        }
+        $apiKeyMask = AiModelConfig::maskApiKey($apiKey);
+
+        $created = 0;
+        $updated = 0;
+        $models = [];
+        $definitions = $this->providerModelDefinitions($provider);
+
+        Db::transaction(function () use ($provider, $definitions, $encryptedApiKey, $apiKeyMask, &$created, &$updated, &$models): void {
+            if ($provider === 'deepseek') {
+                $this->migrateDeepSeekLegacyModels($encryptedApiKey, $apiKeyMask);
+            }
+
+            foreach ($definitions as $definition) {
+                $model = AiModelConfig::where('model_key', $definition['model_key'])->find();
+                if ($model) {
+                    $updated++;
+                } else {
+                    $model = new AiModelConfig();
+                    $model->model_key = $definition['model_key'];
+                    $created++;
+                }
+
+                $model->name = $definition['name'];
+                $model->provider = $definition['provider'];
+                $model->base_url = $definition['base_url'];
+                $model->model_name = $definition['model_name'];
+                $model->usage_scene = $definition['usage_scene'];
+                $model->is_default = $definition['is_default'];
+                $model->is_enabled = 1;
+                $model->api_key_encrypted = $encryptedApiKey;
+                $model->api_key_mask = $apiKeyMask;
+                $model->save();
+
+                if ((int) $model->is_default === 1) {
+                    $this->clearOtherDefault((int) $model->id);
+                }
+
+                $models[] = $model->toSafeArray();
+            }
+        });
+
+        OperationLog::record(
+            'ai_config',
+            'quick_setup',
+            sprintf('快速配置AI厂家: %s, created=%d, updated=%d', $provider, $created, $updated),
+            (int) ($this->currentUser->id ?? 0)
+        );
+
+        return $this->success([
+            'created' => $created,
+            'updated' => $updated,
+            'models' => $models,
+        ], '自动配置成功');
+    }
+
     private function validateModelPayload(array $data, bool $isCreate): ?string
     {
         $requiredFields = ['name', 'model_key', 'provider', 'base_url', 'model_name'];
@@ -216,6 +294,122 @@ class AiConfig extends Base
     private function clearOtherDefault(int $id): void
     {
         AiModelConfig::where('id', '<>', $id)->update(['is_default' => 0]);
+    }
+
+    private function migrateDeepSeekLegacyModels(string $encryptedApiKey, string $apiKeyMask): void
+    {
+        $legacyMap = [
+            'deepseek_chat' => [
+                'name' => 'DeepSeek V4 Flash',
+                'model_key' => 'deepseek_v4_flash',
+                'provider' => 'deepseek',
+                'base_url' => 'https://api.deepseek.com',
+                'model_name' => 'deepseek-v4-flash',
+                'usage_scene' => 'fast_analysis',
+                'is_default' => 1,
+            ],
+            'deepseek_reasoner' => [
+                'name' => 'DeepSeek V4 Pro',
+                'model_key' => 'deepseek_v4_pro',
+                'provider' => 'deepseek',
+                'base_url' => 'https://api.deepseek.com',
+                'model_name' => 'deepseek-v4-pro',
+                'usage_scene' => 'deep_report',
+                'is_default' => 0,
+            ],
+        ];
+
+        foreach ($legacyMap as $legacyKey => $definition) {
+            $legacy = AiModelConfig::where('model_key', $legacyKey)->find();
+            if (!$legacy) {
+                continue;
+            }
+
+            $target = AiModelConfig::where('model_key', $definition['model_key'])->find();
+            if ($target && (int) $target->id !== (int) $legacy->id) {
+                $legacy->is_enabled = 0;
+                $legacy->is_default = 0;
+                $legacy->save();
+                continue;
+            }
+
+            foreach (['name', 'model_key', 'provider', 'base_url', 'model_name', 'usage_scene'] as $field) {
+                $legacy->$field = $definition[$field];
+            }
+            $legacy->is_default = $definition['is_default'];
+            $legacy->is_enabled = 1;
+            $legacy->api_key_encrypted = $encryptedApiKey;
+            $legacy->api_key_mask = $apiKeyMask;
+            $legacy->save();
+
+            if ((int) $legacy->is_default === 1) {
+                $this->clearOtherDefault((int) $legacy->id);
+            }
+        }
+    }
+
+    private function providerModelDefinitions(string $provider): array
+    {
+        if ($provider === 'deepseek') {
+            return [
+                [
+                    'name' => 'DeepSeek V4 Flash',
+                    'model_key' => 'deepseek_v4_flash',
+                    'provider' => 'deepseek',
+                    'base_url' => 'https://api.deepseek.com',
+                    'model_name' => 'deepseek-v4-flash',
+                    'usage_scene' => 'fast_analysis',
+                    'is_default' => 1,
+                ],
+                [
+                    'name' => 'DeepSeek V4 Pro',
+                    'model_key' => 'deepseek_v4_pro',
+                    'provider' => 'deepseek',
+                    'base_url' => 'https://api.deepseek.com',
+                    'model_name' => 'deepseek-v4-pro',
+                    'usage_scene' => 'deep_report',
+                    'is_default' => 0,
+                ],
+            ];
+
+            return [
+                [
+                    'name' => 'DeepSeek 经济模式',
+                    'model_key' => 'deepseek_chat',
+                    'provider' => 'deepseek',
+                    'base_url' => 'https://api.deepseek.com/v1',
+                    'model_name' => 'deepseek-chat',
+                    'usage_scene' => 'ota_diagnosis',
+                    'is_default' => 1,
+                ],
+                [
+                    'name' => 'DeepSeek 深度推理',
+                    'model_key' => 'deepseek_reasoner',
+                    'provider' => 'deepseek',
+                    'base_url' => 'https://api.deepseek.com/v1',
+                    'model_name' => 'deepseek-reasoner',
+                    'usage_scene' => 'reasoning',
+                    'is_default' => 0,
+                ],
+            ];
+        }
+
+        $openAiModel = trim((string) env('OPENAI_MODEL', ''));
+        if ($openAiModel === '') {
+            $openAiModel = 'gpt-4.1-mini';
+        }
+
+        return [
+            [
+                'name' => 'OpenAI 快速模式',
+                'model_key' => 'openai_fast',
+                'provider' => 'openai',
+                'base_url' => 'https://api.openai.com/v1',
+                'model_name' => $openAiModel,
+                'usage_scene' => 'report',
+                'is_default' => 0,
+            ],
+        ];
     }
 
     private function decryptModelApiKey(AiModelConfig $model): array

@@ -26,6 +26,7 @@ use app\model\AiModelConfig;
 use app\service\FeasibilityReportService;
 use think\Response;
 use think\facade\Db;
+use think\facade\Log;
 
 /**
  * Agent控制器
@@ -38,10 +39,13 @@ class Agent extends Base
         return new FeasibilityReportService();
     }
 
-    private function callLlm(string $prompt, string $modelKey = 'openai_fast'): array
+    private function callLlm(string $prompt, string $modelKey = 'deepseek_v4_default', array $meta = [], array $options = []): array
     {
+        $modelKey = $this->normalizeRequestedModelKey($modelKey, $options);
+
         $config = $this->getLlmConfigByModelKey($modelKey);
         if (($config['ok'] ?? false) !== true) {
+            $config['data'] = $this->buildLlmDebug('config_error', $config, 0, '', $prompt, '', (string) ($config['message'] ?? ''), $meta);
             return $config;
         }
 
@@ -55,6 +59,7 @@ class Agent extends Base
             ],
             'temperature' => 0.2,
         ];
+        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
 
         $context = stream_context_create([
             'http' => [
@@ -63,7 +68,7 @@ class Agent extends Base
                     'Content-Type: application/json',
                     'Authorization: Bearer ' . $apiKey,
                 ]),
-                'content' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+                'content' => $payloadJson,
                 'timeout' => 30,
                 'ignore_errors' => true,
             ],
@@ -71,7 +76,14 @@ class Agent extends Base
 
         $response = @file_get_contents($baseUrl . '/chat/completions', false, $context);
         if ($response === false) {
-            return ['ok' => false, 'message' => '网络请求失败', 'code' => 502];
+            $error = error_get_last();
+            $curlError = $this->sanitizeLlmErrorMessage((string) ($error['message'] ?? '网络请求失败'));
+            return [
+                'ok' => false,
+                'message' => '网络请求失败',
+                'code' => 502,
+                'data' => $this->buildLlmDebug('curl_error', $config, 0, $curlError, $prompt, '', $curlError, $meta, strlen((string) $payloadJson)),
+            ];
         }
 
         $headers = $http_response_header ?? [];
@@ -80,28 +92,415 @@ class Agent extends Base
             $statusCode = (int) $matches[1];
         }
         if ($statusCode < 200 || $statusCode >= 300) {
-            return ['ok' => false, 'message' => '模型返回异常', 'code' => 502];
+            $errorData = json_decode($response, true);
+            $errorMessage = $errorData['error']['message'] ?? $errorData['message'] ?? '';
+            $errorMessage = $this->sanitizeLlmErrorMessage((string) $errorMessage);
+            return [
+                'ok' => false,
+                'message' => $errorMessage !== '' ? '模型返回异常: ' . $errorMessage : '模型返回异常',
+                'code' => 502,
+                'data' => $this->buildLlmDebug('http_error', $config, $statusCode, '', $prompt, $response, $errorMessage, $meta, strlen((string) $payloadJson)),
+            ];
         }
 
         $data = json_decode($response, true);
+        if (!is_array($data)) {
+            return [
+                'ok' => false,
+                'message' => '模型返回异常',
+                'code' => 502,
+                'data' => $this->buildLlmDebug('invalid_response', $config, $statusCode, '', $prompt, $response, '模型响应不是 JSON', $meta, strlen((string) $payloadJson)),
+            ];
+        }
         $content = $data['choices'][0]['message']['content'] ?? null;
         if (!is_string($content) || trim($content) === '') {
-            return ['ok' => false, 'message' => '模型返回异常', 'code' => 502];
+            $errorMessage = $data['error']['message'] ?? $data['message'] ?? '';
+            $errorMessage = $this->sanitizeLlmErrorMessage((string) $errorMessage);
+            return [
+                'ok' => false,
+                'message' => $errorMessage !== '' ? '模型返回异常: ' . $errorMessage : '模型返回异常',
+                'code' => 502,
+                'data' => $this->buildLlmDebug('empty_content', $config, $statusCode, '', $prompt, $response, $errorMessage, $meta, strlen((string) $payloadJson)),
+            ];
         }
 
         return ['ok' => true, 'content' => trim($content)];
     }
 
+    private function callDeepSeek(array $messages, array $options = []): array
+    {
+        $startedAt = microtime(true);
+        $modelKey = (string) ($options['model_key'] ?? 'deepseek_v4_default');
+        $modelMode = $this->normalizeDeepSeekModelMode(
+            isset($options['model_mode']) ? (string) $options['model_mode'] : null,
+            $modelKey
+        );
+        $model = $this->resolveDeepSeekModel($modelMode);
+        $baseUrl = rtrim(trim((string) (config('llm.deepseek.base_url') ?: env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'))), '/');
+        $apiKey = trim((string) (config('llm.deepseek.api_key') ?: env('DEEPSEEK_API_KEY', '')));
+        $timeout = max(1, (int) (config('llm.deepseek.timeout') ?: env('DEEPSEEK_TIMEOUT', 60)));
+        $temperature = (float) ($options['temperature'] ?? 0.3);
+        $maxTokens = max(1, (int) ($options['max_tokens'] ?? 2000));
+        $meta = is_array($options['meta'] ?? null) ? $options['meta'] : [];
+        $messages = $this->normalizeDeepSeekMessages($messages);
+        $promptLength = (int) ($options['prompt_length'] ?? $this->messagesContentLength($messages));
+        $meta['prompt_length'] = $promptLength;
+
+        $dbConfig = $this->getDeepSeekDatabaseConfig($modelKey);
+        if ($dbConfig !== null) {
+            if (($dbConfig['ok'] ?? false) !== true) {
+                $dbConfig['data'] = $this->buildLlmDebug('config_error', $dbConfig, 0, '', '', '', (string) ($dbConfig['message'] ?? ''), $meta);
+                return $dbConfig;
+            }
+
+            $baseUrl = rtrim((string) $dbConfig['base_url'], '/');
+            $apiKey = (string) $dbConfig['api_key'];
+            $dbModel = trim((string) ($dbConfig['model'] ?? ''));
+            if ($modelMode === null && $dbModel !== '' && !in_array($dbModel, ['deepseek-chat', 'deepseek-reasoner'], true)) {
+                $model = $dbModel;
+            }
+        }
+
+        $config = [
+            'provider' => 'deepseek',
+            'model_key' => $modelKey,
+            'model' => $model,
+            'base_url' => $baseUrl,
+        ];
+
+        if ($apiKey === '') {
+            $message = '未配置 DEEPSEEK_API_KEY';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, 0);
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 400,
+                'data' => $this->buildLlmDebug('config_error', $config, 0, '', '', '', $message, $meta),
+            ];
+        }
+        if ($baseUrl === '') {
+            $message = '未配置 DEEPSEEK_BASE_URL';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, 0);
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 400,
+                'data' => $this->buildLlmDebug('config_error', $config, 0, '', '', '', $message, $meta),
+            ];
+        }
+        if (empty($messages)) {
+            $message = 'DeepSeek messages 不能为空';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, 0, 0);
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 422,
+                'data' => $this->buildLlmDebug('invalid_messages', $config, 0, '', '', '', $message, $meta),
+            ];
+        }
+
+        $payload = [
+            'model' => $model,
+            'messages' => $messages,
+            'temperature' => $temperature,
+            'max_tokens' => $maxTokens,
+        ];
+        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        if (!is_string($payloadJson)) {
+            $message = 'DeepSeek 请求参数 JSON 编码失败';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, 0);
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 500,
+                'data' => $this->buildLlmDebug('json_encode_error', $config, 0, '', '', '', $message, $meta),
+            ];
+        }
+
+        if (!function_exists('curl_init')) {
+            $message = 'PHP curl 扩展不可用';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, strlen($payloadJson));
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 500,
+                'data' => $this->buildLlmDebug('curl_unavailable', $config, 0, '', '', '', $message, $meta, strlen($payloadJson)),
+            ];
+        }
+
+        $ch = curl_init($baseUrl . '/chat/completions');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $apiKey,
+            ],
+            CURLOPT_POSTFIELDS => $payloadJson,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
+        ]);
+
+        $response = curl_exec($ch);
+        $curlErrno = curl_errno($ch);
+        $curlError = $this->sanitizeLlmErrorMessage((string) curl_error($ch));
+        $statusCode = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+
+        if ($response === false || $curlErrno !== 0) {
+            $message = $curlError !== '' ? 'DeepSeek 请求失败: ' . $curlError : 'DeepSeek 请求失败';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, strlen($payloadJson));
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 502,
+                'data' => $this->buildLlmDebug('curl_error', $config, $statusCode, $curlError, '', '', $message, $meta, strlen($payloadJson)),
+            ];
+        }
+
+        $responseText = (string) $response;
+        if ($statusCode < 200 || $statusCode >= 300) {
+            $errorData = json_decode($responseText, true);
+            $errorMessage = is_array($errorData) ? (string) ($errorData['error']['message'] ?? $errorData['message'] ?? '') : '';
+            $errorMessage = $this->sanitizeLlmErrorMessage($errorMessage);
+            $message = $errorMessage !== '' ? 'DeepSeek 返回异常: ' . $errorMessage : 'DeepSeek 返回异常';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, strlen($payloadJson));
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 502,
+                'data' => $this->buildLlmDebug('http_error', $config, $statusCode, '', '', $responseText, $errorMessage, $meta, strlen($payloadJson)),
+            ];
+        }
+
+        $data = json_decode($responseText, true);
+        if (!is_array($data)) {
+            $message = 'DeepSeek 返回异常';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, 'invalid json response', $promptLength, strlen($payloadJson));
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 502,
+                'data' => $this->buildLlmDebug('invalid_response', $config, $statusCode, '', '', $responseText, 'DeepSeek 响应不是 JSON', $meta, strlen($payloadJson)),
+            ];
+        }
+
+        $content = $data['choices'][0]['message']['content'] ?? null;
+        if (!is_string($content) || trim($content) === '') {
+            $errorMessage = $this->sanitizeLlmErrorMessage((string) ($data['error']['message'] ?? $data['message'] ?? ''));
+            $message = $errorMessage !== '' ? 'DeepSeek 返回异常: ' . $errorMessage : 'DeepSeek 返回异常';
+            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, strlen($payloadJson));
+            return [
+                'ok' => false,
+                'message' => $message,
+                'code' => 502,
+                'data' => $this->buildLlmDebug('empty_content', $config, $statusCode, '', '', $responseText, $errorMessage, $meta, strlen($payloadJson)),
+            ];
+        }
+
+        $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, true, '', $promptLength, strlen($payloadJson));
+        return ['ok' => true, 'content' => trim($content)];
+    }
+
+    private function shouldUseDeepSeek(string $modelKey, array $options): bool
+    {
+        if (array_key_exists('model_mode', $options) && trim((string) $options['model_mode']) !== '') {
+            return true;
+        }
+
+        return in_array($modelKey, [
+            'deepseek_chat',
+            'deepseek_reasoner',
+            'deepseek_v4_default',
+            'deepseek_v4_flash',
+            'deepseek_v4_fast',
+            'deepseek_v4_pro',
+        ], true);
+    }
+
+    private function normalizeRequestedModelKey(string $modelKey, array $options = []): string
+    {
+        $key = trim($modelKey);
+        $mode = strtolower(trim((string) ($options['model_mode'] ?? '')));
+        if ($key === '') {
+            $key = $mode === 'pro' ? 'deepseek_reasoner' : 'deepseek_chat';
+        }
+
+        $aliases = [
+            'deepseek-v4-pro' => 'deepseek_reasoner',
+            'deepseek-reasoner' => 'deepseek_reasoner',
+            'deepseek-v4-flash' => 'deepseek_chat',
+            'deepseek-chat' => 'deepseek_chat',
+        ];
+        $lowerKey = strtolower($key);
+        if (isset($aliases[$lowerKey])) {
+            return $aliases[$lowerKey];
+        }
+
+        if ($key === 'deepseek_v4_default') {
+            return $mode === 'pro' ? 'deepseek_reasoner' : 'deepseek_chat';
+        }
+
+        return $key;
+    }
+
+    private function resolveDeepSeekModel(?string $modelMode): string
+    {
+        $mode = strtolower(trim((string) $modelMode));
+        if ($mode === 'pro') {
+            $model = trim((string) env('DEEPSEEK_PRO_MODEL', 'deepseek-v4-pro'));
+            return $model !== '' ? $model : 'deepseek-v4-pro';
+        }
+        if ($mode === 'fast') {
+            $model = trim((string) env('DEEPSEEK_FAST_MODEL', 'deepseek-v4-flash'));
+            return $model !== '' ? $model : 'deepseek-v4-flash';
+        }
+
+        $model = trim((string) env('DEEPSEEK_DEFAULT_MODEL', 'deepseek-v4-flash'));
+        return $model !== '' ? $model : 'deepseek-v4-flash';
+    }
+
+    private function normalizeDeepSeekModelMode(?string $modelMode, string $modelKey): ?string
+    {
+        $mode = strtolower(trim((string) $modelMode));
+        if (in_array($mode, ['fast', 'pro', 'auto', 'default'], true)) {
+            return $mode;
+        }
+
+        if (in_array($modelKey, ['deepseek_reasoner', 'deepseek_v4_pro'], true)) {
+            return 'pro';
+        }
+        if (in_array($modelKey, ['deepseek_chat', 'deepseek_v4_flash', 'deepseek_v4_fast'], true)) {
+            return 'fast';
+        }
+
+        return null;
+    }
+
+    private function normalizeDeepSeekMessages(array $messages): array
+    {
+        $safe = [];
+        foreach ($messages as $message) {
+            if (!is_array($message)) {
+                continue;
+            }
+            $role = strtolower(trim((string) ($message['role'] ?? 'user')));
+            if (!in_array($role, ['system', 'user', 'assistant'], true)) {
+                $role = 'user';
+            }
+            $content = trim((string) ($message['content'] ?? ''));
+            if ($content === '') {
+                continue;
+            }
+            $safe[] = ['role' => $role, 'content' => $content];
+        }
+
+        return $safe;
+    }
+
+    private function messagesContentLength(array $messages): int
+    {
+        $length = 0;
+        foreach ($messages as $message) {
+            if (is_array($message)) {
+                $length += mb_strlen((string) ($message['content'] ?? ''));
+            }
+        }
+        return $length;
+    }
+
+    private function logDeepSeekCall(string $model, string $modelMode, float $startedAt, bool $success, string $errorSummary, int $promptLength, int $payloadSize): void
+    {
+        try {
+            $context = [
+                'model' => $model,
+                'model_mode' => $modelMode,
+                'elapsed_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'success' => $success,
+                'error_summary' => $this->sanitizeLlmErrorMessage($errorSummary, 180),
+                'prompt_length' => $promptLength,
+                'request_payload_size' => $payloadSize,
+            ];
+
+            if ($success) {
+                Log::info('deepseek_llm_call', $context);
+            } else {
+                Log::warning('deepseek_llm_call', $context);
+            }
+        } catch (\Throwable $e) {
+            // Logging must not affect Agent responses.
+        }
+    }
+
+    private function buildLlmDebug(string $errorType, array $config, int $httpStatus, string $curlError, string $prompt, string $response, string $errorMessage, array $meta = [], int $payloadSize = 0): array
+    {
+        return [
+            'error_type' => $errorType,
+            'debug' => [
+                'provider' => (string) ($config['provider'] ?? ''),
+                'model_key' => (string) ($config['model_key'] ?? ''),
+                'model' => (string) ($config['model'] ?? ''),
+                'config_source' => (string) ($config['source'] ?? ''),
+                'http_status' => $httpStatus,
+                'curl_errno' => 0,
+                'curl_error' => $this->sanitizeLlmErrorMessage($curlError),
+                'error_message' => $this->sanitizeLlmErrorMessage($errorMessage),
+                'selected_hotel_count' => (int) ($meta['selected_hotel_count'] ?? 0),
+                'request_payload_size' => $payloadSize,
+                'prompt_length' => (int) ($meta['prompt_length'] ?? mb_strlen($prompt)),
+                'response_preview' => $this->safeResponsePreview($response),
+            ],
+        ];
+    }
+
+    private function safeResponsePreview(string $response): string
+    {
+        if ($response === '') {
+            return '';
+        }
+        return $this->sanitizeLlmErrorMessage($response, 500);
+    }
+
+    private function sanitizeLlmErrorMessage(string $message, int $limit = 300): string
+    {
+        $message = trim($message);
+        if ($message === '') {
+            return '';
+        }
+        $message = preg_replace('/sk-[A-Za-z0-9_\-]{8,}/', 'sk-****', $message);
+        $message = preg_replace('/Bearer\s+[A-Za-z0-9._\-]+/i', 'Bearer ****', $message);
+        $message = preg_replace('/(api[_-]?key|authorization|cookie|spidertoken)\s*[:=]\s*[^,\s;]+/i', '$1=****', $message);
+        return mb_substr((string) $message, 0, $limit);
+    }
+
     private function getLlmConfigByModelKey(string $modelKey): array
     {
-        $modelKey = trim($modelKey) !== '' ? trim($modelKey) : 'deepseek_chat';
+        $modelKey = $this->normalizeRequestedModelKey($modelKey);
 
         $dbConfig = $this->getDatabaseLlmConfigByModelKey($modelKey);
         if ($dbConfig !== null) {
             return $dbConfig;
         }
 
+        $aliasKey = $this->legacyDeepSeekModelKeyAlias($modelKey);
+        if ($aliasKey !== $modelKey) {
+            $aliasDbConfig = $this->getDatabaseLlmConfigByModelKey($aliasKey);
+            if ($aliasDbConfig !== null) {
+                return $aliasDbConfig;
+            }
+            $modelKey = $aliasKey;
+        }
+
         return $this->getEnvLlmConfigByModelKey($modelKey);
+    }
+
+    private function legacyDeepSeekModelKeyAlias(string $modelKey): string
+    {
+        return [
+            'deepseek_v4_flash' => 'deepseek_chat',
+            'deepseek_v4_fast' => 'deepseek_chat',
+            'deepseek_v4_pro' => 'deepseek_reasoner',
+        ][$modelKey] ?? $modelKey;
     }
 
     private function getDatabaseLlmConfigByModelKey(string $modelKey): ?array
@@ -117,30 +516,44 @@ class Agent extends Base
         }
 
         if ((int) $config->is_enabled !== 1) {
-            return ['ok' => false, 'message' => '模型配置已禁用', 'code' => 400];
+            return [
+                'ok' => false,
+                'message' => '未找到启用的模型配置：' . $modelKey . '，请先到系统设置 > AI模型配置中配置',
+                'code' => 400,
+                'provider' => (string) $config->provider,
+                'model_key' => $modelKey,
+                'model' => (string) $config->model_name,
+                'source' => 'database',
+            ];
         }
 
         $baseUrl = rtrim(trim((string) $config->base_url), '/');
         $modelName = trim((string) $config->model_name);
+        $errorConfig = [
+            'provider' => (string) $config->provider,
+            'model_key' => $modelKey,
+            'model' => $modelName,
+            'source' => 'database',
+        ];
         if ($baseUrl === '') {
-            return ['ok' => false, 'message' => '未配置模型 base_url', 'code' => 400];
+            return array_merge(['ok' => false, 'message' => '未配置模型 base_url', 'code' => 400], $errorConfig);
         }
         if ($modelName === '') {
-            return ['ok' => false, 'message' => '未配置模型名称', 'code' => 400];
+            return array_merge(['ok' => false, 'message' => '未配置模型名称', 'code' => 400], $errorConfig);
         }
 
         if (trim((string) $config->api_key_encrypted) === '') {
-            return ['ok' => false, 'message' => '未配置模型 API Key', 'code' => 400];
+            return array_merge(['ok' => false, 'message' => '未配置模型 API Key', 'code' => 400], $errorConfig);
         }
 
         $secret = trim((string) env('AI_CONFIG_SECRET', ''));
         if ($secret === '') {
-            return ['ok' => false, 'message' => '未配置 AI_CONFIG_SECRET', 'code' => 400];
+            return array_merge(['ok' => false, 'message' => '未配置 AI_CONFIG_SECRET', 'code' => 400], $errorConfig);
         }
 
         $apiKey = AiModelConfig::decryptApiKey((string) $config->api_key_encrypted, $secret);
         if ($apiKey === null) {
-            return ['ok' => false, 'message' => '模型 API Key 解密失败', 'code' => 400];
+            return array_merge(['ok' => false, 'message' => '模型 API Key 解密失败', 'code' => 400], $errorConfig);
         }
 
         return [
@@ -157,17 +570,41 @@ class Agent extends Base
     private function getEnvLlmConfigByModelKey(string $modelKey): array
     {
         $configs = [
+            'deepseek_v4_default' => [
+                'provider' => 'deepseek',
+                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
+                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
+                'model' => $this->resolveDeepSeekModel(null),
+            ],
+            'deepseek_v4_flash' => [
+                'provider' => 'deepseek',
+                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
+                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
+                'model' => $this->resolveDeepSeekModel('fast'),
+            ],
+            'deepseek_v4_fast' => [
+                'provider' => 'deepseek',
+                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
+                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
+                'model' => $this->resolveDeepSeekModel('fast'),
+            ],
+            'deepseek_v4_pro' => [
+                'provider' => 'deepseek',
+                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
+                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
+                'model' => $this->resolveDeepSeekModel('pro'),
+            ],
             'deepseek_chat' => [
                 'provider' => 'deepseek',
-                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')), '/'),
+                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
                 'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
-                'model' => 'deepseek-chat',
+                'model' => $this->resolveDeepSeekModel('fast'),
             ],
             'deepseek_reasoner' => [
                 'provider' => 'deepseek',
-                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')), '/'),
+                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
                 'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
-                'model' => 'deepseek-reasoner',
+                'model' => $this->resolveDeepSeekModel('pro'),
             ],
             'openai_fast' => [
                 'provider' => 'openai',
@@ -178,20 +615,50 @@ class Agent extends Base
         ];
 
         if (!isset($configs[$modelKey])) {
-            return ['ok' => false, 'message' => '未识别的 model_key', 'code' => 422];
+            return [
+                'ok' => false,
+                'message' => '未找到启用的模型配置：' . $modelKey . '，请先到系统设置 > AI模型配置中配置',
+                'code' => 422,
+                'model_key' => $modelKey,
+                'source' => 'env',
+            ];
         }
 
         $config = $configs[$modelKey];
         if ($config['api_key'] === '') {
             $envName = $config['provider'] === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENAI_API_KEY';
-            return ['ok' => false, 'message' => '未配置 ' . $envName, 'code' => 400];
+            return [
+                'ok' => false,
+                'message' => '未配置 ' . $envName,
+                'code' => 400,
+                'provider' => $config['provider'],
+                'model_key' => $modelKey,
+                'model' => $config['model'],
+                'source' => 'env',
+            ];
         }
         if ($config['base_url'] === '') {
             $envName = $config['provider'] === 'deepseek' ? 'DEEPSEEK_BASE_URL' : 'OPENAI_BASE_URL';
-            return ['ok' => false, 'message' => '未配置 ' . $envName, 'code' => 400];
+            return [
+                'ok' => false,
+                'message' => '未配置 ' . $envName,
+                'code' => 400,
+                'provider' => $config['provider'],
+                'model_key' => $modelKey,
+                'model' => $config['model'],
+                'source' => 'env',
+            ];
         }
         if ($config['model'] === '') {
-            return ['ok' => false, 'message' => '未配置 OPENAI_MODEL', 'code' => 400];
+            return [
+                'ok' => false,
+                'message' => '未配置 OPENAI_MODEL',
+                'code' => 400,
+                'provider' => $config['provider'],
+                'model_key' => $modelKey,
+                'model' => '',
+                'source' => 'env',
+            ];
         }
 
         $config['ok'] = true;
@@ -202,7 +669,8 @@ class Agent extends Base
 
     private function isAllowedLlmModelKey(string $modelKey): bool
     {
-        if (in_array($modelKey, ['deepseek_chat', 'deepseek_reasoner', 'openai_fast'], true)) {
+        $modelKey = $this->normalizeRequestedModelKey($modelKey);
+        if (in_array($modelKey, ['deepseek_chat', 'deepseek_reasoner', 'deepseek_v4_default', 'deepseek_v4_flash', 'deepseek_v4_fast', 'deepseek_v4_pro', 'openai_fast'], true)) {
             return true;
         }
 
@@ -316,7 +784,10 @@ class Agent extends Base
             $prompt = '请用一句话说明你已接入宿析OS';
         }
 
-        $result = $this->callLlm($prompt);
+        $modelKey = trim((string) $this->request->param('model_key', 'deepseek_v4_default'));
+        $modelMode = $this->request->param('model_mode', null);
+        $modelOptions = $modelMode !== null && trim((string) $modelMode) !== '' ? ['model_mode' => $modelMode] : [];
+        $result = $this->callLlm($prompt, $modelKey, [], $modelOptions);
         if (($result['ok'] ?? false) !== true) {
             return $this->error((string) $result['message'], (int) $result['code']);
         }
@@ -328,21 +799,23 @@ class Agent extends Base
     {
         $this->checkAdmin();
 
-        $hotelId = (int) $this->request->param('hotel_id', 0);
+        $hotelIdRaw = trim((string) $this->request->param('hotel_id', ''));
+        $hotelId = (int) $hotelIdRaw;
+        $configId = trim((string) $this->request->param('config_id', ''));
+        $hotelName = trim((string) $this->request->param('hotel_name', ''));
         $platform = strtolower(trim((string) $this->request->param('platform', 'ctrip')));
         $startDate = trim((string) $this->request->param('start_date', ''));
         $endDate = trim((string) $this->request->param('end_date', ''));
         $analysisType = strtolower(trim((string) $this->request->param('analysis_type', 'traffic')));
-        $modelKey = trim((string) $this->request->param('model_key', 'deepseek_chat'));
+        $modelKey = trim((string) $this->request->param('model_key', 'deepseek_v4_default'));
+        $modelMode = $this->request->param('model_mode', null);
+        $modelOptions = $modelMode !== null && trim((string) $modelMode) !== '' ? ['model_mode' => $modelMode] : [];
         if ($modelKey === '') {
-            $modelKey = 'deepseek_chat';
+            $modelKey = 'deepseek_v4_default';
         }
 
-        if ($hotelId <= 0) {
-            return $this->error('hotel_id 必须大于 0', 422);
-        }
         if (!$this->isAllowedLlmModelKey($modelKey)) {
-            return $this->error('未识别的 model_key', 422);
+            return $this->error('未找到启用的模型配置：' . $modelKey . '，请先到系统设置 > AI模型配置中配置', 422);
         }
         if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
             return $this->error('platform 仅支持 ctrip、meituan、qunar', 422);
@@ -358,29 +831,258 @@ class Agent extends Base
         }
 
         try {
-            $rows = $this->queryOtaDiagnosisData($hotelId, $platform, $startDate, $endDate, $analysisType);
-            if (empty($rows)) {
+            if ($hotelIdRaw === '' && $configId !== '') {
+                $config = $this->resolveOtaDiagnosisConfig($platform, $configId);
+                if (!empty($config)) {
+                    $hotelId = (int) ($config['hotel_id'] ?? $hotelId);
+                    $hotelIdRaw = (string) ($config['hotel_id'] ?? $hotelIdRaw);
+                    $hotelName = trim((string) ($config['hotel_name'] ?? $hotelName));
+                }
+            }
+            if ($hotelIdRaw === '') {
+                return $this->error('请选择有效的酒店配置，诊断必须包含 hotel_id', 422);
+            }
+
+            $dataSet = $this->queryOtaDiagnosisData($hotelId, $hotelIdRaw, $platform, $startDate, $endDate, $analysisType);
+            if (!$this->hasOtaDiagnosisData($dataSet)) {
                 return $this->success([
-                    'core_conclusion' => '指定条件下暂无 OTA 数据，未调用大模型。',
-                    'main_problems' => [],
-                    'possible_reasons' => [],
-                    'recommended_actions' => [],
+                    'hotel' => $dataSet['hotel'] ?? ['id' => $hotelIdRaw, 'name' => $hotelName],
+                    'platform' => $platform,
+                    'date_range' => ['start_date' => $startDate, 'end_date' => $endDate],
+                    'data_summary' => [
+                        'has_ota_data' => false,
+                        'has_traffic_data' => false,
+                        'has_competitor_data' => false,
+                        'has_comment_data' => false,
+                        'last_sync_time' => $dataSet['last_sync_time'] ?? '',
+                    ],
+                    'metrics' => [],
+                    'diagnosis' => [
+                        'summary' => '暂无该酒店在该日期范围内的OTA数据，请先同步/抓取数据。',
+                        'exposure_analysis' => '',
+                        'visit_conversion_analysis' => '',
+                        'order_conversion_analysis' => '',
+                        'price_analysis' => '',
+                        'competitor_analysis' => '',
+                        'comment_analysis' => '',
+                        'actions' => [],
+                    ],
+                    'missing_sections' => ['OTA历史数据'],
+                    'core_conclusion' => '暂无该酒店在该日期范围内的OTA数据，请先同步/抓取数据。',
                     'priority' => 'none',
-                    'data_anomalies_needing_confirmation' => ['请确认酒店、平台、日期范围和数据类型是否已有采集入库。'],
                 ], '暂无 OTA 数据');
             }
 
-            $summary = $this->buildOtaDiagnosisSummary($rows, $hotelId, $platform, $startDate, $endDate, $analysisType);
-            $llmResult = $this->callLlm($this->buildOtaDiagnosisPrompt($summary), $modelKey);
-            if (($llmResult['ok'] ?? false) !== true) {
-                return $this->error((string) $llmResult['message'], (int) $llmResult['code']);
+            $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $hotelName, $platform, $startDate, $endDate, $analysisType);
+            $llmResult = $this->callLlm($this->buildOtaDiagnosisPrompt($result), $modelKey, [], $modelOptions);
+            if (($llmResult['ok'] ?? false) === true) {
+                $result['diagnosis'] = array_merge($result['diagnosis'], $this->parseOtaDiagnosisResult((string) $llmResult['content']));
+            } else {
+                $result['missing_sections'][] = 'AI模型诊断';
+                $result['diagnosis']['actions'][] = '模型诊断暂不可用，已基于系统历史数据生成基础诊断。';
             }
 
-            $diagnosis = $this->parseOtaDiagnosisResult((string) $llmResult['content']);
+            $result['core_conclusion'] = $result['diagnosis']['summary'] ?? '';
+            $result['main_problems'] = $result['diagnosis']['abnormal_metrics'] ?? [];
+            $result['possible_reasons'] = array_values(array_filter([
+                $result['diagnosis']['exposure_analysis'] ?? '',
+                $result['diagnosis']['visit_conversion_analysis'] ?? '',
+                $result['diagnosis']['order_conversion_analysis'] ?? '',
+                $result['diagnosis']['price_analysis'] ?? '',
+                $result['diagnosis']['competitor_analysis'] ?? '',
+                $result['diagnosis']['comment_analysis'] ?? '',
+            ]));
+            $result['recommended_actions'] = $result['diagnosis']['actions'] ?? [];
+            $result['data_anomalies_needing_confirmation'] = $result['missing_sections'];
+            $result['priority'] = $result['diagnosis']['priority'] ?? $result['priority'];
 
-            return $this->success($diagnosis, 'success');
+            return $this->success($result, 'success');
         } catch (\Throwable $e) {
-            return $this->error('OTA 诊断失败: ' . $e->getMessage(), 500);
+            return $this->error('OTA 诊断失败: ' . $this->sanitizeLlmErrorMessage($e->getMessage()), 500);
+        }
+    }
+
+    public function analyzeCapturedOtaData(): Response
+    {
+        $this->checkAdmin();
+
+        $payload = $this->request->post();
+        $platform = strtolower(trim((string) ($payload['platform'] ?? 'ctrip')));
+        $dataSource = strtolower(trim((string) ($payload['data_source'] ?? 'rank')));
+        $modelKey = trim((string) ($payload['model_key'] ?? 'deepseek_v4_default'));
+        $modelMode = $payload['model_mode'] ?? null;
+        $modelOptions = $modelMode !== null && trim((string) $modelMode) !== '' ? ['model_mode' => $modelMode] : [];
+        $startDate = trim((string) ($payload['start_date'] ?? ''));
+        $endDate = trim((string) ($payload['end_date'] ?? ''));
+        $hotels = $payload['hotels'] ?? [];
+
+        if ($modelKey === '') {
+            $modelKey = 'deepseek_v4_default';
+        }
+        if (!$this->isAllowedLlmModelKey($modelKey)) {
+            return $this->error('未找到启用的模型配置：' . $modelKey . '，请先到系统设置 > AI模型配置中配置', 422);
+        }
+        if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
+            return $this->error('platform 仅支持 ctrip、meituan、qunar', 422);
+        }
+        if (!in_array($dataSource, ['rank', 'traffic', 'business', 'captured'], true)) {
+            return $this->error('data_source 仅支持 rank、traffic、business、captured', 422);
+        }
+        if (!$this->isDateString($startDate) || !$this->isDateString($endDate)) {
+            return $this->error('start_date 和 end_date 必须为 YYYY-MM-DD', 422);
+        }
+        if (strtotime($startDate) > strtotime($endDate)) {
+            return $this->error('start_date 不能晚于 end_date', 422);
+        }
+        if (!is_array($hotels) || empty($hotels)) {
+            return $this->error('暂无抓取数据', 422);
+        }
+
+        try {
+            $summary = $this->buildCapturedOtaSummary($hotels, $platform, $dataSource, $startDate, $endDate);
+            if (empty($summary['hotels'])) {
+                return $this->error('暂无可分析的抓取数据', 422);
+            }
+
+            $llmResult = $this->callLlm($this->buildCapturedOtaPrompt($summary), $modelKey, [
+                'selected_hotel_count' => $summary['hotel_count'],
+            ], $modelOptions);
+            if (($llmResult['ok'] ?? false) !== true) {
+                return $this->error((string) $llmResult['message'], (int) $llmResult['code'], $llmResult['data'] ?? null);
+            }
+
+            $report = $this->parseCapturedOtaAnalysisResult((string) $llmResult['content']);
+            $report['summary'] = [
+                'hotel_count' => $summary['hotel_count'],
+                'input_hotel_count' => $summary['input_hotel_count'],
+                'truncated' => $summary['truncated'],
+                'platform' => $platform,
+                'data_source' => $dataSource,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ];
+
+            OperationLog::record('agent', 'analyze_captured_ota_data', '分析当前抓取OTA数据', (int) ($this->currentUser->id ?? 0), null, null, [
+                'platform' => $platform,
+                'data_source' => $dataSource,
+                'model_key' => $modelKey,
+                'hotel_count' => $summary['hotel_count'],
+                'truncated' => $summary['truncated'],
+            ]);
+
+            return $this->success($report, 'success');
+        } catch (\Throwable $e) {
+            OperationLog::error('agent', 'analyze_captured_ota_data', '分析当前抓取OTA数据失败', $this->sanitizeLlmErrorMessage($e->getMessage()), (int) ($this->currentUser->id ?? 0));
+            return $this->error('抓取数据 AI 分析失败: ' . $this->sanitizeLlmErrorMessage($e->getMessage()), 500);
+        }
+    }
+
+    public function summarizeCapturedOtaAnalysis(): Response
+    {
+        $this->checkAdmin();
+
+        $payload = $this->request->post();
+        $platform = strtolower(trim((string) ($payload['platform'] ?? 'ctrip')));
+        $modelKey = trim((string) ($payload['model_key'] ?? 'deepseek_v4_default'));
+        $modelMode = $payload['model_mode'] ?? null;
+        $modelOptions = $modelMode !== null && trim((string) $modelMode) !== '' ? ['model_mode' => $modelMode] : [];
+        $dateRange = is_array($payload['date_range'] ?? null) ? $payload['date_range'] : [];
+        $startDate = trim((string) ($dateRange['start_date'] ?? $payload['start_date'] ?? ''));
+        $endDate = trim((string) ($dateRange['end_date'] ?? $payload['end_date'] ?? ''));
+        $selectedHotelCount = max(0, (int) ($payload['selected_hotel_count'] ?? 0));
+        $successHotelCount = max(0, (int) ($payload['success_hotel_count'] ?? 0));
+        $failedHotelCount = max(0, (int) ($payload['failed_hotel_count'] ?? 0));
+        $groupReports = $payload['group_summaries'] ?? $payload['group_reports'] ?? [];
+        $failedGroups = $payload['failed_groups'] ?? [];
+
+        if ($modelKey === '') {
+            $modelKey = 'deepseek_v4_default';
+        }
+        if (!$this->isAllowedLlmModelKey($modelKey)) {
+            return $this->error('未找到启用的模型配置：' . $modelKey . '，请先到系统设置 > AI模型配置中配置', 422);
+        }
+        if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
+            return $this->error('platform 仅支持 ctrip、meituan、qunar', 422);
+        }
+        if (!$this->isDateString($startDate) || !$this->isDateString($endDate)) {
+            return $this->error('start_date 和 end_date 必须为 YYYY-MM-DD', 422);
+        }
+        if (!is_array($groupReports) || empty($groupReports)) {
+            return $this->error('暂无可汇总的分组报告', 422);
+        }
+
+        $summary = null;
+        try {
+            $summary = $this->buildCapturedOtaFinalSummary(
+                $groupReports,
+                is_array($failedGroups) ? $failedGroups : [],
+                $platform,
+                $startDate,
+                $endDate,
+                $selectedHotelCount,
+                $successHotelCount,
+                $failedHotelCount,
+                $modelKey
+            );
+            $process = $this->buildCapturedOtaProcess($summary);
+            $summaryMeta = [
+                'group_count' => count($summary['groups']),
+                'failed_group_count' => count($summary['failed_groups']),
+                'selected_hotel_count' => $summary['selected_hotel_count'],
+                'success_hotel_count' => $summary['success_hotel_count'],
+                'failed_hotel_count' => $summary['failed_hotel_count'],
+                'hotel_count' => $summary['success_hotel_count'],
+                'platform' => $platform,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ];
+
+            $llmResult = $this->callLlm($this->buildCapturedOtaFinalPrompt($summary), $modelKey, [
+                'selected_hotel_count' => $summary['selected_hotel_count'],
+            ], $modelOptions);
+            if (($llmResult['ok'] ?? false) === true) {
+                $report = $this->parseCapturedOtaAnalysisResult((string) $llmResult['content']);
+                $report['fallback'] = false;
+            } else {
+                $report = $this->buildCapturedOtaFallbackReport($summary, (string) ($llmResult['message'] ?? '汇总失败'));
+            }
+            $report['summary'] = $summaryMeta;
+
+            OperationLog::record('agent', 'summarize_captured_ota_analysis', '汇总当前抓取OTA分组报告', (int) ($this->currentUser->id ?? 0), null, null, [
+                'platform' => $platform,
+                'model_key' => $modelKey,
+                'group_count' => count($summary['groups']),
+                'failed_group_count' => count($summary['failed_groups']),
+                'selected_hotel_count' => $summary['selected_hotel_count'],
+                'success_hotel_count' => $summary['success_hotel_count'],
+                'failed_hotel_count' => $summary['failed_hotel_count'],
+            ]);
+
+            return $this->success([
+                'report' => $report,
+                'process' => $process,
+            ], 'success');
+        } catch (\Throwable $e) {
+            OperationLog::error('agent', 'summarize_captured_ota_analysis', '汇总当前抓取OTA分组报告失败', $this->sanitizeLlmErrorMessage($e->getMessage()), (int) ($this->currentUser->id ?? 0));
+            if (is_array($summary) && !empty($summary['groups'])) {
+                $report = $this->buildCapturedOtaFallbackReport($summary, $e->getMessage());
+                $report['summary'] = [
+                    'group_count' => count($summary['groups']),
+                    'failed_group_count' => count($summary['failed_groups']),
+                    'selected_hotel_count' => $summary['selected_hotel_count'],
+                    'success_hotel_count' => $summary['success_hotel_count'],
+                    'failed_hotel_count' => $summary['failed_hotel_count'],
+                    'hotel_count' => $summary['success_hotel_count'],
+                    'platform' => $platform,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                ];
+                return $this->success([
+                    'report' => $report,
+                    'process' => $this->buildCapturedOtaProcess($summary),
+                ], 'success');
+            }
+            return $this->error('批量总报告生成失败: ' . $this->sanitizeLlmErrorMessage($e->getMessage()), 500);
         }
     }
 
@@ -393,7 +1095,641 @@ class Agent extends Base
         return $time !== false && date('Y-m-d', $time) === $date;
     }
 
-    private function queryOtaDiagnosisData(int $hotelId, string $platform, string $startDate, string $endDate, string $analysisType): array
+    private function buildCapturedOtaSummary(array $hotels, string $platform, string $dataSource, string $startDate, string $endDate): array
+    {
+        $maxHotels = 50;
+        $inputCount = count($hotels);
+        $rows = [];
+        $totals = [
+            'room_nights' => 0.0,
+            'room_revenue' => 0.0,
+            'sales' => 0.0,
+            'exposure' => 0.0,
+            'views' => 0.0,
+            'orders' => 0.0,
+        ];
+        $scoreValues = [];
+        $conversionValues = [];
+
+        foreach (array_slice($hotels, 0, $maxHotels) as $hotel) {
+            if (!is_array($hotel)) {
+                continue;
+            }
+
+            $hotelId = substr(trim((string) ($hotel['hotel_id'] ?? $hotel['hotelId'] ?? $hotel['poiId'] ?? '')), 0, 64);
+            $hotelName = substr(trim((string) ($hotel['hotel_name'] ?? $hotel['hotelName'] ?? $hotel['name'] ?? '')), 0, 120);
+            if ($hotelId === '' && $hotelName === '') {
+                continue;
+            }
+
+            $metrics = [];
+            foreach (['rank', 'price', 'score', 'comments_count', 'exposure', 'visitors', 'orders', 'revenue', 'room_nights'] as $field) {
+                if (isset($hotel[$field])) {
+                    $metrics[$field] = $hotel[$field];
+                }
+            }
+            $extraMetrics = $hotel['raw_metrics'] ?? $hotel['metrics'] ?? [];
+            if (!is_array($extraMetrics)) {
+                $extraMetrics = [];
+            }
+            foreach ($extraMetrics as $field => $value) {
+                if (!isset($metrics[$field])) {
+                    $metrics[$field] = $value;
+                }
+            }
+            if (!is_array($metrics)) {
+                $metrics = [];
+            }
+            $safeMetrics = $this->sanitizeCapturedOtaMetrics($metrics);
+            $roomNights = (float) ($safeMetrics['room_nights'] ?? 0);
+            $roomRevenue = (float) ($safeMetrics['revenue'] ?? $safeMetrics['room_revenue'] ?? 0);
+            $exposure = (float) ($safeMetrics['exposure'] ?? 0);
+            $views = (float) ($safeMetrics['visitors'] ?? $safeMetrics['views'] ?? 0);
+            $orders = (float) ($safeMetrics['orders'] ?? $safeMetrics['total_order_num'] ?? $safeMetrics['book_order_num'] ?? 0);
+            $sales = (float) ($safeMetrics['sales'] ?? $safeMetrics['revenue'] ?? $roomRevenue);
+            $commentScore = (float) ($safeMetrics['score'] ?? $safeMetrics['comment_score'] ?? 0);
+            $viewConversion = (float) ($safeMetrics['view_conversion'] ?? $safeMetrics['conversion_rate'] ?? 0);
+            $payConversion = (float) ($safeMetrics['pay_conversion'] ?? 0);
+            $tags = $this->sanitizeCapturedTags($hotel['tags'] ?? []);
+            $shortSummary = mb_substr(trim((string) ($hotel['short_summary'] ?? '')), 0, 160);
+
+            $safeMetrics['adr'] = $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : 0.0;
+            $safeMetrics['view_rate'] = $exposure > 0 ? round($views / $exposure * 100, 2) : 0.0;
+            $safeMetrics['order_rate'] = $views > 0 ? round($orders / $views * 100, 2) : 0.0;
+
+            $totals['room_nights'] += $roomNights;
+            $totals['room_revenue'] += $roomRevenue;
+            $totals['sales'] += $sales;
+            $totals['exposure'] += $exposure;
+            $totals['views'] += $views;
+            $totals['orders'] += $orders;
+            if ($commentScore > 0) {
+                $scoreValues[] = $commentScore;
+            }
+            if ($viewConversion > 0) {
+                $conversionValues[] = $viewConversion;
+            }
+            if ($payConversion > 0) {
+                $conversionValues[] = $payConversion;
+            }
+
+            $rows[] = [
+                'hotel_id' => $hotelId,
+                'hotel_name' => $hotelName !== '' ? $hotelName : $hotelId,
+                'metrics' => $safeMetrics,
+                'tags' => $tags,
+                'short_summary' => $shortSummary,
+            ];
+        }
+
+        usort($rows, function (array $a, array $b): int {
+            return ((float) ($b['metrics']['revenue'] ?? $b['metrics']['room_revenue'] ?? 0)) <=> ((float) ($a['metrics']['revenue'] ?? $a['metrics']['room_revenue'] ?? 0));
+        });
+
+        return [
+            'scope' => [
+                'platform' => $platform,
+                'data_source' => $dataSource,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ],
+            'input_hotel_count' => $inputCount,
+            'hotel_count' => count($rows),
+            'truncated' => $inputCount > $maxHotels,
+            'totals' => $totals,
+            'averages' => [
+                'adr' => $this->percentSafeAverage($totals['room_revenue'], $totals['room_nights']),
+                'view_rate' => $this->percentRate($totals['views'], $totals['exposure']),
+                'order_rate' => $this->percentRate($totals['orders'], $totals['views']),
+                'comment_score' => $this->average($scoreValues),
+                'conversion_rate' => $this->average($conversionValues),
+            ],
+            'hotels' => $rows,
+            'top_hotels_by_revenue' => array_slice($rows, 0, 10),
+            'data_anomalies' => $inputCount > $maxHotels ? ['单次最多分析 50 家酒店，已截断超出部分。'] : [],
+        ];
+    }
+
+    private function sanitizeCapturedOtaMetrics(array $metrics): array
+    {
+        $allowed = [
+            'rank',
+            'price',
+            'score',
+            'comments_count',
+            'visitors',
+            'orders',
+            'revenue',
+            'room_nights',
+            'room_revenue',
+            'sales_room_nights',
+            'sales',
+            'view_conversion',
+            'pay_conversion',
+            'exposure',
+            'views',
+            'comment_score',
+            'qunar_comment_score',
+            'conversion_rate',
+            'qunar_detail_cr',
+            'amount_rank',
+            'quantity_rank',
+            'comment_score_rank',
+            'qunar_detail_cr_rank',
+            'total_order_num',
+            'book_order_num',
+        ];
+
+        $safe = [];
+        foreach ($allowed as $key) {
+            if (isset($metrics[$key]) && is_numeric($metrics[$key])) {
+                $safe[$key] = round((float) $metrics[$key], 4);
+            }
+        }
+        return $safe;
+    }
+
+    private function sanitizeCapturedTags($tags): array
+    {
+        if (!is_array($tags)) {
+            return [];
+        }
+        $safe = [];
+        foreach (array_slice($tags, 0, 8) as $tag) {
+            $tag = mb_substr(trim((string) $tag), 0, 24);
+            if ($tag !== '') {
+                $safe[] = $tag;
+            }
+        }
+        return $safe;
+    }
+
+    private function buildCapturedOtaFinalSummary(
+        array $groupReports,
+        array $failedGroups,
+        string $platform,
+        string $startDate,
+        string $endDate,
+        int $selectedHotelCount,
+        int $successHotelCount,
+        int $failedHotelCount,
+        string $modelKey
+    ): array
+    {
+        $groups = [];
+        $hotelCount = 0;
+        foreach (array_slice($groupReports, 0, 20) as $index => $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $report = $group['report'] ?? $group;
+            if (!is_array($report)) {
+                continue;
+            }
+            $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
+            $hotelCount += (int) ($summary['hotel_count'] ?? $group['hotel_count'] ?? 0);
+            $groups[] = [
+                'group_index' => (int) ($group['group_index'] ?? ($index + 1)),
+                'hotel_count' => (int) ($summary['hotel_count'] ?? $group['hotel_count'] ?? 0),
+                'overall_conclusion' => mb_substr((string) ($report['overall_conclusion'] ?? ''), 0, 300),
+                'key_findings' => $this->sanitizeReportList($report['key_findings'] ?? [], 5),
+                'competitor_insights' => $this->sanitizeReportList($report['competitor_insights'] ?? [], 5),
+                'problem_hotels' => $this->sanitizeReportList($report['problem_hotels'] ?? [], 8),
+                'recommended_actions' => $this->sanitizeReportList($report['recommended_actions'] ?? [], 6),
+                'priority' => in_array(($report['priority'] ?? ''), ['high', 'medium', 'low'], true) ? (string) $report['priority'] : 'medium',
+                'data_anomalies' => $this->sanitizeReportList($report['data_anomalies'] ?? [], 5),
+            ];
+        }
+
+        $safeFailedGroups = [];
+        foreach (array_slice($failedGroups, 0, 20) as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $safeFailedGroups[] = [
+                'group_index' => (int) ($group['group_index'] ?? 0),
+                'hotel_count' => (int) ($group['hotel_count'] ?? 0),
+                'error' => $this->sanitizeLlmErrorMessage((string) ($group['error'] ?? '分析失败')),
+            ];
+        }
+
+        return [
+            'scope' => [
+                'platform' => $platform,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ],
+            'selected_hotel_count' => $selectedHotelCount > 0 ? $selectedHotelCount : ($hotelCount + $failedHotelCount),
+            'success_hotel_count' => $successHotelCount > 0 ? $successHotelCount : $hotelCount,
+            'failed_hotel_count' => $failedHotelCount,
+            'model_key' => $modelKey,
+            'date_range' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ],
+            'hotel_count' => $hotelCount,
+            'groups' => $groups,
+            'failed_groups' => $safeFailedGroups,
+        ];
+    }
+
+    private function buildCapturedOtaProcess(array $summary): array
+    {
+        return [
+            'selected_hotel_count' => (int) ($summary['selected_hotel_count'] ?? 0),
+            'success_hotel_count' => (int) ($summary['success_hotel_count'] ?? 0),
+            'failed_hotel_count' => (int) ($summary['failed_hotel_count'] ?? 0),
+            'group_count' => count($summary['groups'] ?? []),
+            'failed_group_count' => count($summary['failed_groups'] ?? []),
+            'groups' => array_values($summary['groups'] ?? []),
+            'failed_groups' => array_values($summary['failed_groups'] ?? []),
+        ];
+    }
+
+    private function buildCapturedOtaFallbackReport(array $summary, string $reason = ''): array
+    {
+        $groups = is_array($summary['groups'] ?? null) ? $summary['groups'] : [];
+        $failedGroups = is_array($summary['failed_groups'] ?? null) ? $summary['failed_groups'] : [];
+        $selectedCount = (int) ($summary['selected_hotel_count'] ?? 0);
+        $successCount = (int) ($summary['success_hotel_count'] ?? 0);
+        $failedCount = (int) ($summary['failed_hotel_count'] ?? 0);
+
+        $keyFindings = [];
+        $competitorInsights = [];
+        $problemHotels = [];
+        $recommendedActions = [];
+        $dataAnomalies = [];
+        $priority = 'medium';
+        $priorityRank = ['low' => 1, 'medium' => 2, 'high' => 3];
+
+        foreach ($groups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            if (!empty($group['overall_conclusion'])) {
+                $keyFindings[] = (string) $group['overall_conclusion'];
+            }
+            $keyFindings = array_merge($keyFindings, $this->sanitizeReportList($group['key_findings'] ?? [], 3));
+            $competitorInsights = array_merge($competitorInsights, $this->sanitizeReportList($group['competitor_insights'] ?? [], 3));
+            $problemHotels = array_merge($problemHotels, $this->sanitizeReportList($group['problem_hotels'] ?? [], 4));
+            $recommendedActions = array_merge($recommendedActions, $this->sanitizeReportList($group['recommended_actions'] ?? [], 4));
+            $dataAnomalies = array_merge($dataAnomalies, $this->sanitizeReportList($group['data_anomalies'] ?? [], 3));
+            $groupPriority = (string) ($group['priority'] ?? 'medium');
+            if (($priorityRank[$groupPriority] ?? 2) > ($priorityRank[$priority] ?? 2)) {
+                $priority = $groupPriority;
+            }
+        }
+
+        if (!empty($failedGroups)) {
+            $dataAnomalies[] = '部分分组汇总失败，报告覆盖可能不完整。';
+        }
+        if ($reason !== '') {
+            $dataAnomalies[] = 'AI综合汇总失败，已自动生成基础综合报告。';
+        }
+
+        return [
+            'overall_conclusion' => sprintf(
+                '已完成 %d/%d 家酒店的OTA抓取数据分析，系统基于成功分组自动归纳基础综合报告。',
+                $successCount,
+                max($selectedCount, $successCount + $failedCount)
+            ),
+            'key_findings' => array_values(array_slice(array_unique(array_filter($keyFindings)), 0, 8)),
+            'competitor_insights' => array_values(array_slice(array_unique(array_filter($competitorInsights)), 0, 8)),
+            'problem_hotels' => array_values(array_slice(array_unique(array_filter($problemHotels)), 0, 10)),
+            'recommended_actions' => array_values(array_slice(array_unique(array_filter($recommendedActions)), 0, 10)),
+            'priority' => $priority,
+            'data_anomalies' => array_values(array_slice(array_unique(array_filter($dataAnomalies)), 0, 8)),
+            'fallback' => true,
+            'fallback_reason' => $this->sanitizeLlmErrorMessage($reason),
+        ];
+    }
+
+    private function sanitizeReportList($value, int $limit): array
+    {
+        $items = is_array($value) ? $value : [$value];
+        $safe = [];
+        foreach (array_slice($items, 0, $limit) as $item) {
+            if (is_array($item)) {
+                $parts = [];
+                foreach ($item as $key => $val) {
+                    if (is_scalar($val) && trim((string) $val) !== '') {
+                        $parts[] = mb_substr((string) $key, 0, 40) . ': ' . mb_substr((string) $val, 0, 160);
+                    }
+                }
+                $text = implode('；', $parts);
+            } else {
+                $text = (string) $item;
+            }
+            $text = mb_substr(trim($text), 0, 240);
+            if ($text !== '') {
+                $safe[] = $text;
+            }
+        }
+        return $safe;
+    }
+
+    private function resolveOtaDiagnosisConfig(string $platform, string $configId): array
+    {
+        $configKey = $platform === 'meituan' ? 'meituan_config_list' : 'ctrip_config_list';
+        $table = $platform === 'meituan' ? 'system_config' : 'system_configs';
+        $raw = (string) Db::name($table)->where('config_key', $configKey)->value('config_value');
+        $list = $raw !== '' ? json_decode($raw, true) : [];
+        if (!is_array($list)) {
+            return [];
+        }
+
+        foreach ($list as $key => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $itemId = (string) ($item['id'] ?? $key);
+            if ($itemId !== $configId && (string) $key !== $configId) {
+                continue;
+            }
+
+            return [
+                'hotel_id' => $item['system_hotel_id'] ?? $item['hotel_id'] ?? ($platform === 'meituan' ? ($item['poi_id'] ?? 0) : 0),
+                'hotel_name' => $item['hotel_name'] ?? $item['name'] ?? '',
+            ];
+        }
+
+        return [];
+    }
+
+    private function queryOtaDiagnosisData(int $hotelId, string $hotelIdRaw, string $platform, string $startDate, string $endDate, string $analysisType): array
+    {
+        $columns = $this->onlineDailyDataColumns();
+        $fields = array_values(array_intersect([
+            'id',
+            'hotel_id',
+            'hotel_name',
+            'system_hotel_id',
+            'data_date',
+            'amount',
+            'quantity',
+            'book_order_num',
+            'comment_score',
+            'qunar_comment_score',
+            'data_value',
+            'source',
+            'dimension',
+            'data_type',
+            'platform',
+            'compare_type',
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+            'raw_data',
+            'create_time',
+            'update_time',
+        ], array_keys($columns)));
+
+        $query = Db::name('online_daily_data')
+            ->field(implode(',', $fields))
+            ->where('data_date', '>=', $startDate)
+            ->where('data_date', '<=', $endDate);
+
+        if (isset($columns['source'])) {
+            $query->where('source', $platform);
+        }
+        $query->where(function ($q) use ($hotelId, $hotelIdRaw, $columns) {
+            $hasWhere = false;
+            if ($hotelId > 0 && isset($columns['system_hotel_id'])) {
+                $q->where('system_hotel_id', $hotelId);
+                $hasWhere = true;
+            }
+            if ($hotelIdRaw !== '' && isset($columns['hotel_id'])) {
+                $hasWhere ? $q->whereOr('hotel_id', $hotelIdRaw) : $q->where('hotel_id', $hotelIdRaw);
+            }
+        });
+
+        if (isset($columns['data_type']) && $analysisType === 'traffic') {
+            $query->where('data_type', 'traffic');
+        } elseif (isset($columns['data_type']) && $analysisType === 'business') {
+            $query->whereIn('data_type', ['business', '']);
+        }
+
+        $onlineRows = $query->order('data_date', 'asc')->order('id', 'asc')->select()->toArray();
+        $dailyReports = $hotelId > 0 && $this->tableExists('daily_reports')
+            ? Db::name('daily_reports')
+                ->field('id,hotel_id,report_date,report_data,occupancy_rate,room_count,guest_count,revenue,expenses,notes,create_time,update_time')
+                ->where('hotel_id', $hotelId)
+                ->where('report_date', '>=', $startDate)
+                ->where('report_date', '<=', $endDate)
+                ->order('report_date', 'asc')
+                ->select()
+                ->toArray()
+            : [];
+        $competitorPrices = $hotelId > 0 && $this->tableExists('competitor_price_log')
+            ? Db::name('competitor_price_log')
+                ->field('id,store_id,hotel_id,platform,city,price,fetch_time,create_time')
+                ->where('hotel_id', $hotelId)
+                ->where('platform', $platform)
+                ->where('create_time', '>=', $startDate . ' 00:00:00')
+                ->where('create_time', '<=', $endDate . ' 23:59:59')
+                ->order('fetch_time', 'asc')
+                ->select()
+                ->toArray()
+            : [];
+        $syncLogs = $hotelId > 0 && $this->tableExists('operation_logs')
+            ? Db::name('operation_logs')
+                ->field('id,module,action,description,create_time,error_info')
+                ->where('hotel_id', $hotelId)
+                ->where('module', 'online_data')
+                ->where('create_time', '>=', $startDate . ' 00:00:00')
+                ->where('create_time', '<=', $endDate . ' 23:59:59')
+                ->order('create_time', 'desc')
+                ->limit(10)
+                ->select()
+                ->toArray()
+            : [];
+        $hotel = $hotelId > 0 && $this->tableExists('hotels')
+            ? (Db::name('hotels')->field('id,name,code,address,status')->where('id', $hotelId)->find() ?: [])
+            : [];
+        $lastSyncTime = $this->maxDateTime(array_merge(
+            array_column($onlineRows, 'update_time'),
+            array_column($onlineRows, 'create_time'),
+            array_column($dailyReports, 'update_time'),
+            array_column($competitorPrices, 'fetch_time'),
+            array_column($syncLogs, 'create_time')
+        ));
+
+        return [
+            'hotel' => $hotel ?: ['id' => $hotelIdRaw, 'name' => ''],
+            'online_rows' => $onlineRows,
+            'daily_reports' => $dailyReports,
+            'competitor_prices' => $competitorPrices,
+            'sync_logs' => $syncLogs,
+            'last_sync_time' => $lastSyncTime,
+        ];
+    }
+
+    private function hasOtaDiagnosisData(array $dataSet): bool
+    {
+        return !empty($dataSet['online_rows']) || !empty($dataSet['daily_reports']) || !empty($dataSet['competitor_prices']);
+    }
+
+    private function buildOtaDiagnosisResult(array $dataSet, int $hotelId, string $hotelIdRaw, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array
+    {
+        $rows = $dataSet['online_rows'] ?? [];
+        $dailyReports = $dataSet['daily_reports'] ?? [];
+        $competitorPrices = $dataSet['competitor_prices'] ?? [];
+        $syncLogs = $dataSet['sync_logs'] ?? [];
+        $summary = $this->buildOtaDiagnosisSummary($rows, $hotelId, $hotelName, $platform, $startDate, $endDate, $analysisType);
+        $totals = $summary['totals'];
+        $rates = $summary['derived_rates'];
+        $avgCompetitorPrice = $this->average(array_map('floatval', array_column($competitorPrices, 'price')));
+        $dailyRevenue = array_sum(array_map('floatval', array_column($dailyReports, 'revenue')));
+        $hasTraffic = ($totals['list_exposure'] + $totals['detail_visitors'] + $totals['order_visitors'] + $totals['submit_users']) > 0;
+        $hasComment = ($summary['averages']['comment_score'] > 0 || $summary['averages']['qunar_comment_score'] > 0);
+        $hasCompetitor = !empty($competitorPrices) || $this->hasCompareRows($rows);
+        $hasDaily = !empty($dailyReports);
+        $missingSections = [];
+        if (!$hasTraffic) {
+            $missingSections[] = 'OTA流量数据';
+        }
+        if (!$hasCompetitor) {
+            $missingSections[] = '竞对数据';
+        }
+        if (!$hasComment) {
+            $missingSections[] = '点评数据';
+        }
+        if (!$hasDaily) {
+            $missingSections[] = '日报经营数据';
+        }
+        if (empty($syncLogs) && ($dataSet['last_sync_time'] ?? '') === '') {
+            $missingSections[] = '抓取日志/最近同步时间';
+        }
+
+        $metrics = [
+            'record_count' => count($rows),
+            'date_count' => $summary['date_count'],
+            'amount' => round((float) $totals['amount'], 2),
+            'quantity' => (int) $totals['quantity'],
+            'book_order_num' => (int) $totals['book_order_num'],
+            'adr' => $summary['averages']['adr'],
+            'list_exposure' => (int) $totals['list_exposure'],
+            'detail_visitors' => (int) $totals['detail_visitors'],
+            'order_visitors' => (int) $totals['order_visitors'],
+            'submit_users' => (int) $totals['submit_users'],
+            'detail_rate' => $rates['detail_rate'],
+            'order_rate' => $rates['order_rate'],
+            'submit_rate' => $rates['submit_rate'],
+            'comment_score' => $summary['averages']['comment_score'],
+            'qunar_comment_score' => $summary['averages']['qunar_comment_score'],
+            'daily_report_revenue' => round($dailyRevenue, 2),
+            'competitor_avg_price' => $avgCompetitorPrice,
+        ];
+        $abnormal = $summary['data_anomalies'];
+        if ($hasTraffic && $rates['detail_rate'] > 0 && $rates['detail_rate'] < 5) {
+            $abnormal[] = '曝光到访问转化偏低';
+        }
+        if ($hasTraffic && $rates['order_rate'] > 0 && $rates['order_rate'] < 3) {
+            $abnormal[] = '访问到订单转化偏低';
+        }
+        if ($hasComment && max($summary['averages']['comment_score'], $summary['averages']['qunar_comment_score']) < 4.5) {
+            $abnormal[] = '点评评分低于 4.5';
+        }
+
+        $displayHotelName = trim((string) ($dataSet['hotel']['name'] ?? ''));
+        if ($displayHotelName === '') {
+            $displayHotelName = $hotelName !== '' ? $hotelName : $hotelIdRaw;
+        }
+        $diagnosis = [
+            'summary' => sprintf('已读取%s在%s至%s的历史OTA数据，覆盖%d条OTA记录、%d条日报、%d条竞对价格记录。', $displayHotelName, $startDate, $endDate, count($rows), count($dailyReports), count($competitorPrices)),
+            'data_overview' => [
+                'OTA记录数: ' . count($rows),
+                '日期覆盖: ' . $summary['date_count'] . ' 天',
+                '收入: ' . $metrics['amount'],
+                '间夜: ' . $metrics['quantity'],
+                '订单: ' . $metrics['book_order_num'],
+            ],
+            'abnormal_metrics' => $abnormal,
+            'traffic_analysis' => $hasTraffic ? sprintf('曝光%d，访问%d，曝光到访问率%s%%。', $metrics['list_exposure'], $metrics['detail_visitors'], $metrics['detail_rate']) : '缺少OTA流量数据，无法判断曝光和访问漏斗。',
+            'exposure_analysis' => $hasTraffic ? sprintf('曝光%d，访问%d，曝光到访问率%s%%。', $metrics['list_exposure'], $metrics['detail_visitors'], $metrics['detail_rate']) : '缺少OTA流量数据，无法判断曝光表现。',
+            'visit_conversion_analysis' => $hasTraffic ? sprintf('访问%d，订单意向%d，访问到订单率%s%%。', $metrics['detail_visitors'], $metrics['order_visitors'], $metrics['order_rate']) : '缺少访问转化数据。',
+            'order_conversion_analysis' => $hasTraffic ? sprintf('订单意向%d，提交用户%d，提交率%s%%。', $metrics['order_visitors'], $metrics['submit_users'], $metrics['submit_rate']) : '缺少订单转化数据。',
+            'price_analysis' => $avgCompetitorPrice > 0 ? sprintf('竞对均价%s，本店ADR%s，需结合房型和日期校准价差。', $avgCompetitorPrice, $metrics['adr']) : '缺少竞对价格数据，暂不能判断价格竞争力。',
+            'competitor_analysis' => $hasCompetitor ? '已有竞对或对比数据，可继续关注价格、曝光和转化差距。' : '缺少竞对数据，无法判断同商圈机会。',
+            'comment_analysis' => $hasComment ? sprintf('携程评分%s，去哪儿评分%s。', $metrics['comment_score'], $metrics['qunar_comment_score']) : '缺少点评数据，无法判断评分和口碑影响。',
+            'actions' => $this->buildOtaDiagnosisActions($hasTraffic, $hasCompetitor, $hasComment, $metrics),
+        ];
+
+        return [
+            'hotel' => $dataSet['hotel'] ?: ['id' => $hotelIdRaw, 'name' => $hotelName],
+            'platform' => $platform,
+            'date_range' => ['start_date' => $startDate, 'end_date' => $endDate],
+            'data_summary' => [
+                'has_ota_data' => !empty($rows),
+                'has_traffic_data' => $hasTraffic,
+                'has_competitor_data' => $hasCompetitor,
+                'has_comment_data' => $hasComment,
+                'has_daily_report_data' => $hasDaily,
+                'last_sync_time' => $dataSet['last_sync_time'] ?? '',
+            ],
+            'metrics' => $metrics,
+            'diagnosis' => $diagnosis,
+            'missing_sections' => array_values(array_unique($missingSections)),
+            'priority' => in_array('访问到订单转化偏低', $abnormal, true) || in_array('曝光到访问转化偏低', $abnormal, true) ? 'high' : 'medium',
+            'source_summary' => $summary,
+        ];
+    }
+
+    private function buildOtaDiagnosisActions(bool $hasTraffic, bool $hasCompetitor, bool $hasComment, array $metrics): array
+    {
+        $actions = [];
+        if ($hasTraffic && (float) ($metrics['detail_rate'] ?? 0) < 5) {
+            $actions[] = '优先优化列表页主图、标题卖点和价格展示，提升曝光到访问转化。';
+        }
+        if ($hasTraffic && (float) ($metrics['order_rate'] ?? 0) < 3) {
+            $actions[] = '检查详情页房型、取消政策、促销和价格阶梯，降低访问后的下单阻力。';
+        }
+        if ($hasCompetitor) {
+            $actions[] = '对比竞对价格和曝光差距，优先处理同价位竞品压制的日期。';
+        }
+        if ($hasComment && max((float) ($metrics['comment_score'] ?? 0), (float) ($metrics['qunar_comment_score'] ?? 0)) < 4.5) {
+            $actions[] = '跟进低分点评，补充近期好评和服务补救动作。';
+        }
+        if (empty($actions)) {
+            $actions[] = '先补齐缺失的数据源，再按曝光、访问、订单、点评顺序复盘。';
+        }
+        return $actions;
+    }
+
+    private function hasCompareRows(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            if (($row['compare_type'] ?? '') === 'competitor') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function tableExists(string $table): bool
+    {
+        static $cache = [];
+        if (!array_key_exists($table, $cache)) {
+            $cache[$table] = !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
+        }
+        return $cache[$table];
+    }
+
+    private function maxDateTime(array $values): string
+    {
+        $max = '';
+        foreach ($values as $value) {
+            $value = trim((string) $value);
+            if ($value !== '' && ($max === '' || strtotime($value) > strtotime($max))) {
+                $max = $value;
+            }
+        }
+        return $max;
+    }
+
+    private function queryOtaDiagnosisRowsLegacy(int $hotelId, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
         $columns = $this->onlineDailyDataColumns();
         $fields = array_values(array_intersect([
@@ -438,12 +1774,36 @@ class Agent extends Base
             return $query->order('data_date', 'asc')->order('id', 'asc');
         };
 
-        $rows = $buildQuery('system_hotel_id', $hotelId)->select()->toArray();
-        if (!empty($rows)) {
-            return $rows;
+        if ($hotelId > 0) {
+            $rows = $buildQuery('system_hotel_id', $hotelId)->select()->toArray();
+            if (!empty($rows)) {
+                return $rows;
+            }
+
+            $rows = $buildQuery('hotel_id', (string) $hotelId)->select()->toArray();
+            if (!empty($rows)) {
+                return $rows;
+            }
         }
 
-        return $buildQuery('hotel_id', (string) $hotelId)->select()->toArray();
+        if ($hotelName !== '' && isset($columns['hotel_name'])) {
+            $query = Db::name('online_daily_data')
+                ->field(implode(',', $fields))
+                ->whereLike('hotel_name', '%' . $hotelName . '%')
+                ->where('source', $platform)
+                ->where('data_date', '>=', $startDate)
+                ->where('data_date', '<=', $endDate);
+
+            if (isset($columns['data_type']) && $analysisType === 'traffic') {
+                $query->where('data_type', 'traffic');
+            } elseif (isset($columns['data_type']) && $analysisType === 'business') {
+                $query->whereIn('data_type', ['business', '']);
+            }
+
+            return $query->order('data_date', 'asc')->order('id', 'asc')->select()->toArray();
+        }
+
+        return [];
     }
 
     private function onlineDailyDataColumns(): array
@@ -463,11 +1823,12 @@ class Agent extends Base
         return $columns;
     }
 
-    private function buildOtaDiagnosisSummary(array $rows, int $hotelId, string $platform, string $startDate, string $endDate, string $analysisType): array
+    private function buildOtaDiagnosisSummary(array $rows, int $hotelId, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
         $summary = [
             'scope' => [
                 'hotel_id' => $hotelId,
+                'hotel_name' => $hotelName,
                 'platform' => $platform,
                 'start_date' => $startDate,
                 'end_date' => $endDate,
@@ -701,19 +2062,38 @@ class Agent extends Base
 
     private function buildOtaDiagnosisPrompt(array $summary): string
     {
-        return "你是宿析OS酒店经营分析顾问。只基于以下结构化 OTA 数据摘要输出诊断，不要编造未提供的数据。\n"
-            . "必须返回 JSON，字段为 core_conclusion、main_problems、possible_reasons、recommended_actions、priority、data_anomalies_needing_confirmation。\n"
-            . "main_problems、possible_reasons、recommended_actions、data_anomalies_needing_confirmation 必须是数组；priority 只能是 high、medium、low。\n"
+        return "你是宿析OS酒店OTA经营分析顾问。只基于以下系统已入库数据摘要输出诊断，不要实时抓取OTA后台，不要把Cookie状态作为历史诊断失败原因，不要编造未提供的数据。\n"
+            . "必须返回 JSON，字段为 summary、data_overview、abnormal_metrics、traffic_analysis、exposure_analysis、visit_conversion_analysis、order_conversion_analysis、price_analysis、competitor_analysis、comment_analysis、actions、priority。\n"
+            . "data_overview、abnormal_metrics、actions 必须是数组；priority 只能是 high、medium、low。\n"
             . "结构化摘要：\n"
+            . json_encode($summary, JSON_UNESCAPED_UNICODE);
+    }
+
+    private function buildCapturedOtaPrompt(array $summary): string
+    {
+        return "你是宿析OS酒店OTA经营分析顾问。只基于以下前端当前抓取的携程ebooking结构化摘要输出一份批量分析报告，不要查询或假设数据库数据。\n"
+            . "必须返回 JSON，字段为 overall_conclusion、key_findings、competitor_insights、problem_hotels、recommended_actions、priority、data_anomalies。\n"
+            . "key_findings、competitor_insights、problem_hotels、recommended_actions、data_anomalies 必须是数组；priority 只能是 high、medium、low。\n"
+            . "只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。problem_hotels 可以包含酒店名、问题、关键指标和处理建议。不要输出 API Key、Cookie 或认证信息。\n"
+            . "结构化摘要：\n"
+            . json_encode($summary, JSON_UNESCAPED_UNICODE);
+    }
+
+    private function buildCapturedOtaFinalPrompt(array $summary): string
+    {
+        return "你是酒店OTA经营分析顾问。请基于多个分组分析结果，输出一份面向酒店经营者的综合诊断报告。\n"
+            . "不要逐组复述，要综合归纳。只基于分组报告摘要，不要使用完整原始抓取数据或假设数据。\n"
+            . "重点回答：1. 整体经营现状；2. 最大问题；3. 最值得关注的酒店；4. 竞对机会；5. 价格、曝光、转化、订单的异常；6. 下一步最优先的运营动作。\n"
+            . "返回 JSON：{\"overall_conclusion\":\"总体结论\",\"key_findings\":[],\"competitor_insights\":[],\"problem_hotels\":[],\"recommended_actions\":[],\"priority\":\"high/medium/low\",\"data_anomalies\":[]}\n"
+            . "key_findings、competitor_insights、problem_hotels、recommended_actions、data_anomalies 必须是数组；priority 只能是 high、medium、low。\n"
+            . "只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。若存在失败组，请在 data_anomalies 中提示分析覆盖不足。不要输出 API Key、Cookie 或认证信息。\n"
+            . "分组报告摘要：\n"
             . json_encode($summary, JSON_UNESCAPED_UNICODE);
     }
 
     private function parseOtaDiagnosisResult(string $content): array
     {
-        $json = trim($content);
-        if (preg_match('/```(?:json)?\s*(.*?)```/s', $json, $matches)) {
-            $json = trim($matches[1]);
-        }
+        $json = $this->extractJsonObjectFromText($content);
 
         $data = json_decode($json, true);
         if (!is_array($data)) {
@@ -725,17 +2105,71 @@ class Agent extends Base
                 'priority' => 'medium',
                 'data_anomalies_needing_confirmation' => ['模型返回格式不是 JSON。'],
                 'raw_text' => $content,
+                'parse_warning' => '模型未返回标准JSON',
             ];
         }
 
         return [
-            'core_conclusion' => (string) ($data['core_conclusion'] ?? ''),
-            'main_problems' => array_values((array) ($data['main_problems'] ?? [])),
-            'possible_reasons' => array_values((array) ($data['possible_reasons'] ?? [])),
+            'summary' => (string) ($data['summary'] ?? $data['core_conclusion'] ?? ''),
+            'data_overview' => array_values((array) ($data['data_overview'] ?? [])),
+            'abnormal_metrics' => array_values((array) ($data['abnormal_metrics'] ?? $data['main_problems'] ?? [])),
+            'traffic_analysis' => (string) ($data['traffic_analysis'] ?? ''),
+            'exposure_analysis' => (string) ($data['exposure_analysis'] ?? ''),
+            'visit_conversion_analysis' => (string) ($data['visit_conversion_analysis'] ?? ''),
+            'order_conversion_analysis' => (string) ($data['order_conversion_analysis'] ?? ''),
+            'price_analysis' => (string) ($data['price_analysis'] ?? ''),
+            'competitor_analysis' => (string) ($data['competitor_analysis'] ?? ''),
+            'comment_analysis' => (string) ($data['comment_analysis'] ?? ''),
+            'actions' => array_values((array) ($data['actions'] ?? $data['recommended_actions'] ?? [])),
+            'priority' => (string) ($data['priority'] ?? 'medium'),
+        ];
+    }
+
+    private function parseCapturedOtaAnalysisResult(string $content): array
+    {
+        $json = $this->extractJsonObjectFromText($content);
+
+        $data = json_decode($json, true);
+        if (!is_array($data)) {
+            return [
+                'overall_conclusion' => '模型未返回可解析 JSON，已返回原始文本供人工判断。',
+                'key_findings' => [],
+                'competitor_insights' => [],
+                'problem_hotels' => [],
+                'recommended_actions' => [],
+                'priority' => 'medium',
+                'data_anomalies' => ['模型返回格式不是 JSON。'],
+                'raw_text' => $content,
+                'parse_warning' => '模型未返回标准JSON',
+            ];
+        }
+
+        return [
+            'overall_conclusion' => (string) ($data['overall_conclusion'] ?? ''),
+            'key_findings' => array_values((array) ($data['key_findings'] ?? [])),
+            'competitor_insights' => array_values((array) ($data['competitor_insights'] ?? [])),
+            'problem_hotels' => array_values((array) ($data['problem_hotels'] ?? [])),
             'recommended_actions' => array_values((array) ($data['recommended_actions'] ?? [])),
             'priority' => (string) ($data['priority'] ?? 'medium'),
-            'data_anomalies_needing_confirmation' => array_values((array) ($data['data_anomalies_needing_confirmation'] ?? [])),
+            'data_anomalies' => array_values((array) ($data['data_anomalies'] ?? [])),
         ];
+    }
+
+    private function extractJsonObjectFromText(string $content): string
+    {
+        $json = trim($content);
+        if (preg_match('/```(?:json)?\s*(.*?)```/is', $json, $matches)) {
+            $json = trim($matches[1]);
+        }
+        if (json_decode($json, true) !== null) {
+            return $json;
+        }
+        $start = strpos($json, '{');
+        $end = strrpos($json, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            return substr($json, $start, $end - $start + 1);
+        }
+        return $json;
     }
 
     public function feasibilityReportGenerate(): Response

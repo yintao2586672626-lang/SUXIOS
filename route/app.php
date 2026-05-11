@@ -135,6 +135,7 @@ Route::group('api/ai', function () {
 // ==================== AI模型配置 API ====================
 Route::group('api/ai-config', function () {
     Route::get('/models', 'AiConfig/models');
+    Route::post('/providers/quick-setup', 'AiConfig/quickSetupProvider');
     Route::post('/models/<id>/test', 'AiConfig/testModel');
     Route::post('/models', 'AiConfig/createModel');
     Route::put('/models/<id>', 'AiConfig/updateModel');
@@ -521,6 +522,8 @@ Route::group('api/agent', function () {
     Route::get('/overview', 'Agent/overview');
     Route::post('/test-llm', 'Agent/testLlm');
     Route::post('/ota-diagnosis', 'Agent/otaDiagnosis');
+    Route::post('/analyze-captured-ota-data', 'Agent/analyzeCapturedOtaData');
+    Route::post('/summarize-captured-ota-analysis', 'Agent/summarizeCapturedOtaAnalysis');
 
     // 智策·可行性报告
     Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate');

@@ -59,6 +59,7 @@ class HolidayRevenue extends Base
             'gap_revenue' => round($gapRevenue, 2),
             'completion_rate' => $completionRate,
             'suggestions' => $this->getSuggestions($today, $startDate, $endDate, $daysLeft, $holiday['name']),
+            'holidays' => $this->getHolidays()[$year] ?? [],
         ]);
     }
 
