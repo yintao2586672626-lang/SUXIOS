@@ -1,30 +1,56 @@
-*.log
+# Environment / local config
 .env
+.env.*
+!.example.env
+.mcp.json
+
+# Dependencies
+/vendor/
+node_modules/
 composer.phar
+
+# ThinkPHP runtime
+/runtime/
+*.log
+debug.log
+
+# Git / IDE / OS
+/.git/
+/.idea/
+/.vscode/
+/.vs/
+/.settings/
+/.buildpath
+/.project
 .DS_Store
 Thumbs.db
 Desktop.ini
-/.idea
-/.vscode
-/vendor
-runtime/
-node_modules/
-/.settings
-/.buildpath
-/.project
+
+# Archives / duplicate package content
+*.rar
+*.zip
+*.7z
+/HOTEL/
+
+# Sensitive database backup
+hotelx_dump.sql
+*_dump.sql
+*_backup*.sql
 
 # Local assistant/workspace files
 .codebuddy/
 .workbuddy/
 .snapshots/
 query/
-$null
 
 # Local debug / one-off tooling
-download_cdn.php
-download_fonts.php
+check_*.py
+download_*.php
+fix_*.py
 fix_*.php
+test_*.py
 test_*.php
+test_*.ps1
 new_hash.txt
 commit.bat
 push.bat
@@ -42,3 +68,13 @@ public/performance*.html
 public/PERFORMANCE*.md
 public/ui-design*.md
 public/ui-example.html
+
+# Public obsolete build leftovers
+public/app-main.*
+public/app-styles.css
+public/app.js
+public/tailwind.min.css.bak
+public/nginx.htaccess
+
+# Optional: ignore Vite build leftovers only after confirming they are unused.
+# public/assets/
