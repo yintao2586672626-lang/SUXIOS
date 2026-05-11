@@ -132,6 +132,15 @@ Route::group('api/ai', function () {
     Route::post('/feasibility', 'Ai/feasibility');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== AI模型配置 API ====================
+Route::group('api/ai-config', function () {
+    Route::get('/models', 'AiConfig/models');
+    Route::post('/models/<id>/test', 'AiConfig/testModel');
+    Route::post('/models', 'AiConfig/createModel');
+    Route::put('/models/<id>', 'AiConfig/updateModel');
+    Route::delete('/models/<id>', 'AiConfig/deleteModel');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 节假期收益倒计时 API ====================
 Route::group('api/holiday-revenue', function () {
     Route::get('/countdown', 'HolidayRevenue/countdown');
@@ -510,6 +519,8 @@ Route::any('api/test-ctrip-config-delete', function () {
 Route::group('api/agent', function () {
     // 概览
     Route::get('/overview', 'Agent/overview');
+    Route::post('/test-llm', 'Agent/testLlm');
+    Route::post('/ota-diagnosis', 'Agent/otaDiagnosis');
 
     // 智策·可行性报告
     Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate');
