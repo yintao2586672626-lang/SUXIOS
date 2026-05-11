@@ -929,7 +929,7 @@ class OnlineData extends Base
                 }
 
                 // 检查是否已存在相同的评论
-                $existing = Db::table('online_data')
+                $existing = Db::name('online_daily_data')
                     ->where('source', 'meituan')
                     ->where('data_type', 'review')
                     ->where('raw_data', 'like', '%"' . $commentId . '"%')
@@ -981,7 +981,7 @@ class OnlineData extends Base
                     'update_time' => date('Y-m-d H:i:s'),
                 ];
 
-                $inserted = Db::table('online_data')->insertGetId($insertData);
+                $inserted = Db::name('online_daily_data')->insertGetId($insertData);
                 if ($inserted) {
                     $savedCount++;
                 }
