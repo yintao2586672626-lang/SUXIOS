@@ -428,7 +428,7 @@
             opacity: 0.8;
         }
         
-        /* VIP 登录入口 */
+        /* 专家入口 */
         .vip-login-card {
             cursor: default;
         }
@@ -1427,6 +1427,118 @@
         .login-card .divider {
             background: var(--sx-border-soft) !important;
         }
+
+        /* 登录页深蓝 SaaS 精修 */
+        .login-bg {
+            background:
+                radial-gradient(circle at 18% 18%, rgba(47, 128, 237, 0.24) 0%, transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(96, 165, 250, 0.16) 0%, transparent 28%),
+                linear-gradient(135deg, #07162b 0%, #0b1f3a 48%, #061426 100%) !important;
+            overflow-x: hidden;
+        }
+        .login-bg .login-card {
+            max-width: min(27rem, calc(100vw - 2rem)) !important;
+            background: linear-gradient(180deg, rgba(12, 31, 58, 0.94) 0%, rgba(7, 20, 38, 0.96) 100%) !important;
+            border: 1px solid rgba(147, 197, 253, 0.22) !important;
+            box-shadow:
+                0 28px 70px rgba(0, 0, 0, 0.42),
+                0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+                0 0 48px rgba(47, 128, 237, 0.16) !important;
+            color: #eaf2ff !important;
+        }
+        .login-bg .login-title {
+            color: #f8fbff !important;
+            -webkit-text-fill-color: #f8fbff !important;
+        }
+        .login-bg .login-slogan,
+        .login-bg .input-label {
+            color: rgba(191, 219, 254, 0.72) !important;
+            -webkit-text-fill-color: rgba(191, 219, 254, 0.72) !important;
+        }
+        .login-bg .login-logo {
+            background: linear-gradient(135deg, #1d4ed8 0%, #123a63 100%) !important;
+            border-color: rgba(147, 197, 253, 0.28) !important;
+            box-shadow: 0 16px 34px rgba(37, 99, 235, 0.24) !important;
+        }
+        .login-bg .input-group .input-field {
+            min-height: 3.15rem;
+            background: rgba(5, 18, 34, 0.72) !important;
+            border: 1px solid rgba(147, 197, 253, 0.22) !important;
+            color: #f8fbff !important;
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+        }
+        .login-bg .input-group .input-field::placeholder {
+            color: rgba(148, 163, 184, 0.62) !important;
+        }
+        .login-bg .input-group .input-field:focus {
+            border-color: rgba(96, 165, 250, 0.78) !important;
+            background: rgba(8, 25, 48, 0.9) !important;
+            box-shadow:
+                0 0 0 3px rgba(47, 128, 237, 0.18),
+                0 10px 26px rgba(3, 15, 32, 0.22) !important;
+        }
+        .login-bg .input-icon-prefix,
+        .login-bg .password-toggle {
+            color: rgba(147, 197, 253, 0.78) !important;
+            -webkit-text-fill-color: rgba(147, 197, 253, 0.78) !important;
+        }
+        .login-bg .password-toggle {
+            background: rgba(15, 42, 76, 0.72) !important;
+            border-color: rgba(147, 197, 253, 0.2) !important;
+        }
+        .login-bg .btn-login {
+            min-height: 3.35rem;
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 46%, #123a63 100%) !important;
+            border-color: rgba(191, 219, 254, 0.22) !important;
+            box-shadow: 0 16px 34px rgba(37, 99, 235, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.08) inset !important;
+            letter-spacing: 0 !important;
+        }
+        .login-bg .btn-login:hover:not(:disabled) {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 48%, #123a63 100%) !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 20px 40px rgba(37, 99, 235, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+        }
+        .login-bg .btn-login:disabled {
+            opacity: 0.68 !important;
+            background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important;
+            box-shadow: none !important;
+        }
+        .login-bg .login-error {
+            background: rgba(127, 29, 29, 0.28) !important;
+            border: 1px solid rgba(248, 113, 113, 0.38) !important;
+            color: #fecaca !important;
+            box-shadow: none !important;
+            animation: none !important;
+        }
+        .login-bg .divider {
+            background: linear-gradient(90deg, transparent, rgba(147, 197, 253, 0.22), transparent) !important;
+        }
+        .login-bg .vip-login-entry {
+            background: rgba(14, 45, 84, 0.72) !important;
+            border-color: rgba(147, 197, 253, 0.18) !important;
+            color: #bfdbfe !important;
+            -webkit-text-fill-color: #bfdbfe !important;
+        }
+        .login-bg .vip-login-entry i,
+        .login-bg .vip-login-note,
+        .login-bg button.hover\:text-purple-300 {
+            color: rgba(191, 219, 254, 0.68) !important;
+            -webkit-text-fill-color: rgba(191, 219, 254, 0.68) !important;
+        }
+        .login-bg .brand-footer {
+            margin-top: 1.1rem;
+            padding-top: 0.9rem;
+            background: transparent !important;
+            border-color: rgba(147, 197, 253, 0.14) !important;
+        }
+        .login-bg .brand-footer .brand-name,
+        .login-bg .brand-footer .version {
+            color: rgba(191, 219, 254, 0.58) !important;
+            -webkit-text-fill-color: rgba(191, 219, 254, 0.58) !important;
+            background: none !important;
+            letter-spacing: 0 !important;
+        }
+
         .page-enter [class*="from-purple"],
         .page-enter [class*="to-purple"],
         .page-enter [class*="via-purple"],
@@ -1569,12 +1681,6 @@
                     <p class="login-slogan text-base font-medium tracking-wide">让每个决策，都有数据依据</p>
                 </div>
                 
-                <!-- 错误提示 -->
-                <div v-if="loginError" class="login-error mb-5 flex items-center gap-3">
-                    <i class="fas fa-exclamation-circle"></i>
-                    <span>{{ loginError }}</span>
-                </div>
-                
                 <!-- 登录表单 -->
                 <form @submit.prevent="handleLogin" class="space-y-5">
                     <!-- 用户名输入 -->
@@ -1584,7 +1690,7 @@
                         </label>
                         <div class="relative">
                             <i class="fas fa-at input-icon-prefix"></i>
-                            <input v-model="loginForm.username" type="text" 
+                            <input v-model="loginForm.username" @input="loginError = ''" type="text"
                                 class="input-field w-full"
                                 placeholder="请输入用户名" required>
                         </div>
@@ -1597,7 +1703,7 @@
                         </label>
                         <div class="relative">
                             <i class="fas fa-lock input-icon-prefix"></i>
-                            <input v-model="loginForm.password" :type="showPassword ? 'text' : 'password'"
+                            <input v-model="loginForm.password" @input="loginError = ''" :type="showPassword ? 'text' : 'password'"
                                 class="input-field w-full"
                                 style="padding-right: 3.5rem;"
                                 placeholder="请输入密码" required>
@@ -1606,6 +1712,12 @@
                                 <i :class="showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
                             </button>
                         </div>
+                    </div>
+
+                    <!-- 错误提示 -->
+                    <div v-if="loginError" class="login-error flex items-center gap-3">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span>{{ loginError }}</span>
                     </div>
                     
                     <!-- 记住选项 -->
@@ -1643,18 +1755,18 @@
                 <!-- 分隔线 -->
                 <div class="divider my-8"></div>
                 
-                <!-- VIP 用户登录入口 -->
+                <!-- 专家入口 -->
                 <div class="text-center">
                     <span class="vip-login-entry">
-                        <i class="fas fa-crown"></i>VIP 用户入口
+                        <i class="fas fa-user-tie"></i>专家入口
                     </span>
-                    <p class="vip-login-note">仅已开通专属账号可使用</p>
+                    <p class="vip-login-note">仅限已开通账号使用</p>
                 </div>
                 
                 <!-- 底部品牌信息 -->
                 <div class="brand-footer">
-                    <div class="brand-name">酒店经营与投资决策的 AI 分析系统</div>
-                    <div class="version">Version 2.0.0</div>
+                    <div class="brand-name">宿析OS · 酒店经营决策系统</div>
+                    <div class="version">v2.0.0</div>
                 </div>
             </div>
         </div>
@@ -5029,165 +5141,174 @@
                                         </div>
                                     </div>
                                     
-                                    <!-- 筛选条件 -->
-                                    <div v-if="downloadCenterTab !== 'fetched'" class="mb-4 flex gap-4 flex-wrap items-center">
-                                        <select v-model="onlineDataFilter.hotel_id" class="px-3 py-2 border rounded-lg">
-                                            <option value="">全部酒店</option>
-                                            <option v-for="h in onlineDataHotelList" :key="h.hotel_id" :value="h.hotel_id">{{ h.hotel_name }}</option>
-                                        </select>
-                                        <div class="flex items-center gap-2">
-                                            <span class="text-sm text-gray-600">获取时间:</span>
-                                            <input v-model="onlineDataFilter.create_start" type="date" class="px-3 py-2 border rounded-lg" placeholder="开始时间">
-                                            <span class="text-gray-400">至</span>
-                                            <input v-model="onlineDataFilter.create_end" type="date" class="px-3 py-2 border rounded-lg" placeholder="结束时间">
+                                    <!-- 历史记录查询中心 -->
+                                    <div v-if="downloadCenterTab === 'overview'" class="space-y-4">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500">历史记录总数</div>
+                                                <div class="text-2xl font-bold text-gray-900">{{ formatNumber(onlineHistorySummary.total_records || 0) }}</div>
+                                            </div>
+                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500">最近一次抓取时间</div>
+                                                <div class="text-lg font-semibold text-gray-900">{{ onlineHistorySummary.latest_fetch_time || '-' }}</div>
+                                            </div>
+                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500">今日新增记录数</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineHistorySummary.today_records || 0) }}</div>
+                                            </div>
+                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500">异常/失败记录数</div>
+                                                <div class="text-2xl font-bold text-red-600">{{ formatNumber(onlineHistorySummary.failed_records || 0) }}</div>
+                                            </div>
                                         </div>
-                                        <button @click="onlineDataPage = 1; loadOnlineDataList()" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
-                                            <i class="fas fa-search mr-2"></i>查询
-                                        </button>
-                                    </div>
 
-                                    <!-- 经营概况模块 -->
-                                    <div v-if="downloadCenterTab === 'overview'">
-                                        <!-- 统计卡片 -->
-                                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-                                            <div class="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">总预订订单</div>
-                                                <div class="text-2xl font-bold">{{ onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.book_order_num || 0), 0) }}</div>
+                                        <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                            <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">平台</label>
+                                                    <select v-model="onlineHistoryFilter.platform" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                        <option value="all">全部</option>
+                                                        <option value="ctrip">携程</option>
+                                                        <option value="meituan">美团</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">数据类型</label>
+                                                    <select v-model="onlineHistoryFilter.data_type" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                        <option value="all">全部</option>
+                                                        <option value="business">经营数据</option>
+                                                        <option value="traffic">流量数据</option>
+                                                        <option value="competitor">竞对数据</option>
+                                                        <option value="review">点评数据</option>
+                                                        <option value="advertising">广告数据</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">酒店范围</label>
+                                                    <select v-model="onlineHistoryFilter.hotel_scope" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                        <option value="all">全部酒店</option>
+                                                        <option value="mine">我的酒店</option>
+                                                        <option value="competitor_avg">竞争圈平均</option>
+                                                        <option v-for="hotel in onlineHistoryHotelList" :key="hotel.value" :value="hotel.value">
+                                                            {{ hotel.label }}
+                                                        </option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">日期范围</label>
+                                                    <select v-model="onlineHistoryFilter.date_preset" @change="applyOnlineHistoryDatePreset" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                        <option value="7">近7天</option>
+                                                        <option value="30">近30天</option>
+                                                        <option value="month">本月</option>
+                                                        <option value="custom">自定义</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">开始日期</label>
+                                                    <input v-model="onlineHistoryFilter.start_date" type="date" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-gray-500 mb-1">结束日期</label>
+                                                    <input v-model="onlineHistoryFilter.end_date" type="date" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                </div>
                                             </div>
-                                            <div class="bg-gradient-to-r from-green-500 to-green-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">总销售额</div>
-                                                <div class="text-2xl font-bold">¥{{ formatNumber(onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.amount || 0), 0)) }}</div>
-                                            </div>
-                                            <div class="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">总间夜量</div>
-                                                <div class="text-2xl font-bold">{{ onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.quantity || 0), 0) }}</div>
-                                            </div>
-                                            <div class="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">平均房价</div>
-                                                <div class="text-2xl font-bold">¥{{ toFixedSafe(safeDivide(onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.amount || 0), 0), onlineDataList.filter(i => i.source === 'ctrip').reduce((sum, i) => sum + (i.quantity || 0), 0)), 2) }}</div>
-                                            </div>
-                                            <div class="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">数据记录数</div>
-                                                <div class="text-2xl font-bold">{{ onlineDataList.filter(i => i.source === 'ctrip').length }}</div>
+                                            <div class="mt-3 flex flex-col md:flex-row gap-3">
+                                                <input v-model.trim="onlineHistoryFilter.keyword" type="text" class="flex-1 px-3 py-2 border rounded-lg bg-white" placeholder="搜索酒店名称 / OTA酒店ID / 批次号">
+                                                <div class="flex gap-2">
+                                                    <button @click="onlineHistoryPage = 1; loadOnlineHistory()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                                        <i class="fas fa-search mr-2"></i>查询历史
+                                                    </button>
+                                                    <button @click="resetOnlineHistoryFilter" class="px-4 py-2 bg-white border text-gray-700 rounded-lg hover:bg-gray-100">
+                                                        <i class="fas fa-undo mr-2"></i>重置筛选
+                                                    </button>
+                                                    <button @click="refreshOnlineHistory" class="px-4 py-2 bg-white border text-gray-700 rounded-lg hover:bg-gray-100">
+                                                        <i class="fas fa-sync-alt mr-2"></i>刷新最新抓取结果
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
+
                                         <div class="overflow-x-auto table-container">
                                             <table class="min-w-full bg-white border text-sm table-striped">
                                                 <thead>
                                                     <tr class="bg-gray-50">
-                                                        <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
-                                                        <th class="px-3 py-2 text-left border text-xs">酒店ID</th>
+                                                        <th class="px-3 py-2 text-left border text-xs">抓取时间</th>
                                                         <th class="px-3 py-2 text-left border text-xs">数据日期</th>
-                                                        <th class="px-3 py-2 text-right border text-xs bg-green-50">销售额</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">销售排名</th>
-                                                        <th class="px-3 py-2 text-right border text-xs bg-yellow-50">间夜量</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">间夜排名</th>
-                                                        <th class="px-3 py-2 text-right border text-xs bg-blue-50">平均房价</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">预订订单</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">订单排名</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">携程评分</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">评分排名</th>
-                                                        <th class="px-3 py-2 text-right border text-xs">去哪儿评分</th>
+                                                        <th class="px-3 py-2 text-left border text-xs">平台</th>
                                                         <th class="px-3 py-2 text-left border text-xs">数据类型</th>
-                                                        <th class="px-3 py-2 text-left border text-xs">获取时间</th>
+                                                        <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
+                                                        <th class="px-3 py-2 text-left border text-xs">OTA酒店ID</th>
+                                                        <th class="px-3 py-2 text-center border text-xs">是否我的酒店</th>
+                                                        <th class="px-3 py-2 text-left border text-xs">批次号</th>
+                                                        <th class="px-3 py-2 text-left border text-xs">核心指标摘要</th>
+                                                        <th class="px-3 py-2 text-center border text-xs">状态</th>
                                                         <th class="px-3 py-2 text-center border text-xs">操作</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="item in onlineDataList.filter(i => i.source === 'ctrip')" :key="item.id" class="border-b hover:bg-gray-50">
-                                                        <td class="px-3 py-2 border font-medium">{{ item.hotel_name }}</td>
-                                                        <td class="px-3 py-2 border font-mono text-xs text-gray-500">{{ item.hotel_id }}</td>
-                                                        <td class="px-3 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-3 py-2 border text-right font-medium text-green-600">¥{{ formatNumber(item.amount) }}</td>
-                                                        <td class="px-3 py-2 border text-right">
-                                                            <span v-if="item.amount_rank" :class="['px-2 py-0.5 rounded text-xs', item.amount_rank <= 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                {{ item.amount_rank }}
-                                                            </span>
-                                                            <span v-else>-</span>
-                                                        </td>
-                                                        <td class="px-3 py-2 border text-right font-medium text-yellow-600">{{ item.quantity || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-right">
-                                                            <span v-if="item.quantity_rank" :class="['px-2 py-0.5 rounded text-xs', item.quantity_rank <= 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                {{ item.quantity_rank }}
-                                                            </span>
-                                                            <span v-else>-</span>
-                                                        </td>
-                                                        <td class="px-3 py-2 border text-right font-medium text-blue-600">¥{{ toFixedSafe(safeDivide(item.amount, item.quantity), 2) }}</td>
-                                                        <td class="px-3 py-2 border text-right">{{ item.book_order_num || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-right">
-                                                            <span v-if="item.book_order_num_rank" :class="['px-2 py-0.5 rounded text-xs', item.book_order_num_rank <= 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                {{ item.book_order_num_rank }}
-                                                            </span>
-                                                            <span v-else>-</span>
-                                                        </td>
-                                                        <td class="px-3 py-2 border text-right">
-                                                            <span :class="item.comment_score >= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ item.comment_score || '-' }}
-                                                            </span>
-                                                        </td>
-                                                        <td class="px-3 py-2 border text-right">
-                                                            <span v-if="item.comment_score_rank" :class="['px-2 py-0.5 rounded text-xs', item.comment_score_rank <= 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                {{ item.comment_score_rank }}
-                                                            </span>
-                                                            <span v-else>-</span>
-                                                        </td>
-                                                        <td class="px-3 py-2 border text-right">
-                                                            <span :class="item.qunar_comment_score >= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ item.qunar_comment_score || '-' }}
-                                                            </span>
-                                                        </td>
-                                                        <td class="px-3 py-2 border">
-                                                            <span v-if="item.data_type === 'business'" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">经营</span>
-                                                            <span v-else-if="item.data_type === 'ranking'" class="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">榜单</span>
-                                                            <span v-else-if="item.data_type === 'traffic'" class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">流量</span>
-                                                            <span v-else-if="item.data_type === 'review'" class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">点评</span>
-                                                            <span v-else class="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">{{ item.data_type }}</span>
-                                                        </td>
-                                                        <td class="px-3 py-2 border text-gray-500 text-xs">{{ item.create_time }}</td>
-                                                        <td class="px-3 py-2 border text-center">
-                                                            <button @click="viewOnlineDataDetail(item)" class="action-btn action-btn-view" title="查看详情">
-                                                                <i class="fas fa-eye"></i>
-                                                            </button>
-                                                            <button @click="editOnlineDataItem(item)" class="action-btn action-btn-edit" title="编辑">
-                                                                <i class="fas fa-edit"></i>
-                                                            </button>
-                                                            <button @click="deleteOnlineDataItem(item.id)" class="action-btn action-btn-delete" title="删除">
-                                                                <i class="fas fa-trash"></i>
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                    <tr v-if="onlineDataList.filter(i => i.source === 'ctrip').length === 0">
-                                                        <td colspan="16" class="px-4 py-8 text-center text-gray-400">
+                                                    <template v-for="item in onlineHistoryList" :key="item.id">
+                                                        <tr class="border-b hover:bg-gray-50">
+                                                            <td class="px-3 py-2 border text-gray-600 text-xs whitespace-nowrap">{{ item.fetch_time || '-' }}</td>
+                                                            <td class="px-3 py-2 border whitespace-nowrap">{{ item.data_date || '-' }}</td>
+                                                            <td class="px-3 py-2 border">{{ item.platform_label || '-' }}</td>
+                                                            <td class="px-3 py-2 border">{{ item.data_type_label || '-' }}</td>
+                                                            <td class="px-3 py-2 border font-medium min-w-[180px]">{{ item.hotel_name || '-' }}</td>
+                                                            <td class="px-3 py-2 border font-mono text-xs text-gray-500">{{ item.ota_hotel_id || '-' }}</td>
+                                                            <td class="px-3 py-2 border text-center">
+                                                                <span :class="item.is_my_hotel ? 'text-blue-600 font-medium' : 'text-gray-400'">{{ item.is_my_hotel ? '是' : '否' }}</span>
+                                                            </td>
+                                                            <td class="px-3 py-2 border font-mono text-xs text-gray-500">{{ item.batch_no || '-' }}</td>
+                                                            <td class="px-3 py-2 border min-w-[220px]">{{ item.metrics_summary || '-' }}</td>
+                                                            <td class="px-3 py-2 border text-center">
+                                                                <span :class="[
+                                                                    'px-2 py-1 rounded text-xs',
+                                                                    item.status === 'success' ? 'bg-green-100 text-green-700' : item.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                                                ]">{{ item.status_label || '-' }}</span>
+                                                            </td>
+                                                            <td class="px-3 py-2 border text-center whitespace-nowrap">
+                                                                <button @click="toggleOnlineHistoryDetail(item)" class="text-blue-600 hover:text-blue-800 mr-2">查看详情</button>
+                                                                <button @click="toggleOnlineHistoryRaw(item)" class="text-gray-600 hover:text-gray-800">查看原始数据</button>
+                                                            </td>
+                                                        </tr>
+                                                        <tr v-if="onlineHistoryExpandedId === item.id" class="bg-blue-50">
+                                                            <td colspan="11" class="px-4 py-3 border text-sm text-gray-700">
+                                                                <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                                    <div><span class="text-gray-500">系统酒店ID：</span>{{ item.hotel_id || '-' }}</div>
+                                                                    <div><span class="text-gray-500">原始酒店名：</span>{{ item.original_hotel_name || '-' }}</div>
+                                                                    <div><span class="text-gray-500">来源字段：</span>{{ item.source || '-' }}</div>
+                                                                    <div><span class="text-gray-500">维度：</span>{{ item.dimension || '-' }}</div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                        <tr v-if="onlineHistoryRawId === item.id" class="bg-gray-900">
+                                                            <td colspan="11" class="px-4 py-3 border">
+                                                                <pre class="text-xs text-green-300 whitespace-pre-wrap max-h-80 overflow-auto">{{ formatOnlineHistoryRaw(item.raw_data) }}</pre>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                    <tr v-if="onlineHistoryList.length === 0">
+                                                        <td colspan="11" class="px-4 py-8 text-center text-gray-400">
                                                             <i class="fas fa-inbox text-3xl mb-2 block"></i>
-                                            待同步经营数据，请先在"榜单数据获取"中获取携程数据
+                                                            暂无符合条件的历史记录
                                                         </td>
                                                     </tr>
                                                 </tbody>
                                             </table>
                                         </div>
-                                        <!-- 分页 -->
-                                        <div v-if="onlineDataPagination.total > 0" class="mt-4 flex items-center justify-between">
+                                        <div v-if="onlineHistoryPagination.total > 0" class="flex items-center justify-between">
                                             <div class="text-sm text-gray-500">
-                                                共 {{ onlineDataPagination.total }} 条记录，第 {{ onlineDataPagination.page }} / {{ Math.ceil(onlineDataPagination.total / onlineDataPagination.page_size) }} 页
+                                                共 {{ onlineHistoryPagination.total }} 条记录，第 {{ onlineHistoryPagination.page }} / {{ Math.ceil(onlineHistoryPagination.total / onlineHistoryPagination.page_size) }} 页
                                             </div>
                                             <div class="flex gap-2">
-                                                <button @click="changeOnlineDataPage(1)" :disabled="onlineDataPagination.page <= 1" 
-                                                    :class="['px-3 py-1 rounded', onlineDataPagination.page <= 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300']">
-                                                    首页
-                                                </button>
-                                                <button @click="changeOnlineDataPage(onlineDataPagination.page - 1)" :disabled="onlineDataPagination.page <= 1"
-                                                    :class="['px-3 py-1 rounded', onlineDataPagination.page <= 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300']">
-                                                    上一页
-                                                </button>
-                                                <span class="px-3 py-1 bg-blue-500 text-white rounded">{{ onlineDataPagination.page }}</span>
-                                                <button @click="changeOnlineDataPage(onlineDataPagination.page + 1)" :disabled="onlineDataPagination.page >= Math.ceil(onlineDataPagination.total / onlineDataPagination.page_size)"
-                                                    :class="['px-3 py-1 rounded', onlineDataPagination.page >= Math.ceil(onlineDataPagination.total / onlineDataPagination.page_size) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300']">
-                                                    下一页
-                                                </button>
-                                                <button @click="changeOnlineDataPage(Math.ceil(onlineDataPagination.total / onlineDataPagination.page_size))" :disabled="onlineDataPagination.page >= Math.ceil(onlineDataPagination.total / onlineDataPagination.page_size)"
-                                                    :class="['px-3 py-1 rounded', onlineDataPagination.page >= Math.ceil(onlineDataPagination.total / onlineDataPagination.page_size) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300']">
-                                                    末页
-                                                </button>
+                                                <button @click="changeOnlineHistoryPage(1)" :disabled="onlineHistoryPagination.page <= 1"
+                                                    :class="['px-3 py-1 rounded', onlineHistoryPagination.page <= 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300']">首页</button>
+                                                <button @click="changeOnlineHistoryPage(onlineHistoryPagination.page - 1)" :disabled="onlineHistoryPagination.page <= 1"
+                                                    :class="['px-3 py-1 rounded', onlineHistoryPagination.page <= 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300']">上一页</button>
+                                                <span class="px-3 py-1 bg-blue-500 text-white rounded">{{ onlineHistoryPagination.page }}</span>
+                                                <button @click="changeOnlineHistoryPage(onlineHistoryPagination.page + 1)" :disabled="onlineHistoryPagination.page >= Math.ceil(onlineHistoryPagination.total / onlineHistoryPagination.page_size)"
+                                                    :class="['px-3 py-1 rounded', onlineHistoryPagination.page >= Math.ceil(onlineHistoryPagination.total / onlineHistoryPagination.page_size) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300']">下一页</button>
+                                                <button @click="changeOnlineHistoryPage(Math.ceil(onlineHistoryPagination.total / onlineHistoryPagination.page_size))" :disabled="onlineHistoryPagination.page >= Math.ceil(onlineHistoryPagination.total / onlineHistoryPagination.page_size)"
+                                                    :class="['px-3 py-1 rounded', onlineHistoryPagination.page >= Math.ceil(onlineHistoryPagination.total / onlineHistoryPagination.page_size) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300']">末页</button>
                                             </div>
                                         </div>
                                     </div>
@@ -11275,6 +11396,7 @@
             // 状态
             const isLoggedIn = ref(false);
             const loading = ref(false);
+            const loginError = ref('');
             const user = ref(null);
             const token = ref(localStorage.getItem('token') || '');
             const currentTime = ref('');
@@ -11596,6 +11718,28 @@
             const onlineDataPage = ref(1);
             const onlineDataHotelList = ref([]);
             const onlineDataSummary = ref(null);
+            const buildDefaultOnlineHistoryFilter = () => ({
+                platform: 'all',
+                data_type: 'all',
+                hotel_scope: 'all',
+                keyword: '',
+                date_preset: '30',
+                start_date: formatDate(thirtyDaysAgo),
+                end_date: formatDate(today),
+            });
+            const onlineHistoryFilter = ref(buildDefaultOnlineHistoryFilter());
+            const onlineHistoryList = ref([]);
+            const onlineHistoryPagination = ref({ total: 0, page: 1, page_size: 20 });
+            const onlineHistoryPage = ref(1);
+            const onlineHistorySummary = ref({
+                total_records: 0,
+                latest_fetch_time: '',
+                today_records: 0,
+                failed_records: 0,
+            });
+            const onlineHistoryHotelList = ref([]);
+            const onlineHistoryExpandedId = ref(null);
+            const onlineHistoryRawId = ref(null);
             const selectedOnlineDataIds = ref([]);
             const autoFetchScheduleTime = ref('10:00');
 
@@ -12102,6 +12246,10 @@
                         await loadAutoFetchPanel();
                         return;
                     }
+                    if (tab === 'overview' && (onlineDataTab.value === 'ctrip-download' || onlineDataTab.value.startsWith('ctrip'))) {
+                        await refreshOnlineHistory();
+                        return;
+                    }
                     // 切换到历史记录、AI分析时自动加载数据
                     await loadOnlineDataList();
                     await loadOnlineDataHotelList();
@@ -12128,8 +12276,12 @@
                 }
                 // 如果默认子 tab 不是 fetched（最新获取数据），自动加载数据
                 if (downloadCenterTab.value !== 'fetched') {
-                    await loadOnlineDataList();
-                    await loadOnlineDataHotelList();
+                    if (downloadCenterTab.value === 'overview') {
+                        await refreshOnlineHistory();
+                    } else {
+                        await loadOnlineDataList();
+                        await loadOnlineDataHotelList();
+                    }
                 }
             };
 
@@ -12141,6 +12293,159 @@
                 // 自动加载数据
                 await loadOnlineDataList();
                 await loadOnlineDataHotelList();
+            };
+
+            const applyOnlineHistoryDatePreset = () => {
+                const now = new Date();
+                if (onlineHistoryFilter.value.date_preset === 'custom') {
+                    return;
+                }
+                if (onlineHistoryFilter.value.date_preset === '7') {
+                    const start = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+                    onlineHistoryFilter.value.start_date = formatDate(start);
+                    onlineHistoryFilter.value.end_date = formatDate(now);
+                    return;
+                }
+                if (onlineHistoryFilter.value.date_preset === 'month') {
+                    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+                    onlineHistoryFilter.value.start_date = formatDate(start);
+                    onlineHistoryFilter.value.end_date = formatDate(now);
+                    return;
+                }
+                const start = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+                onlineHistoryFilter.value.start_date = formatDate(start);
+                onlineHistoryFilter.value.end_date = formatDate(now);
+            };
+
+            const isDirtyQuestionMarkText = (text) => {
+                const value = String(text || '').replace(/\s+/g, '');
+                if (!value) return false;
+                const count = (value.match(/\?/g) || []).length;
+                return count >= 4 && count / Math.max(1, value.length) >= 0.35;
+            };
+
+            const formatOnlineHistoryHotelOption = (hotel) => {
+                const id = hotel?.id ? String(hotel.id) : '';
+                const name = String(hotel?.name || '').trim();
+                if (!id || !name || isDirtyQuestionMarkText(name)) {
+                    return null;
+                }
+                const otaHotelId = String(hotel?.ota_hotel_id || hotel?.platform_hotel_id || hotel?.hotel_id || '').trim();
+                const code = String(hotel?.code || '').trim();
+                const suffix = otaHotelId || code;
+                return {
+                    value: id,
+                    label: suffix ? `${name}（${suffix}）` : name,
+                    ota_hotel_id: otaHotelId,
+                };
+            };
+
+            const loadOnlineHistoryHotelList = async () => {
+                try {
+                    const res = await request('/hotels/all');
+                    if (res.code === 200) {
+                        const seen = new Set();
+                        onlineHistoryHotelList.value = (Array.isArray(res.data) ? res.data : [])
+                            .map(formatOnlineHistoryHotelOption)
+                            .filter(Boolean)
+                            .filter(item => {
+                                const key = `${item.value}:${item.ota_hotel_id || ''}`;
+                                if (seen.has(key)) return false;
+                                seen.add(key);
+                                return true;
+                            });
+                    }
+                } catch (error) {
+                    console.error('加载历史酒店下拉失败:', error);
+                }
+            };
+
+            const loadOnlineHistory = async () => {
+                try {
+                    const params = new URLSearchParams({
+                        page: onlineHistoryPage.value,
+                        page_size: onlineHistoryPagination.value.page_size || 20,
+                    });
+                    const filter = onlineHistoryFilter.value;
+                    if (filter.platform && filter.platform !== 'all') {
+                        params.append('platform', filter.platform);
+                    }
+                    if (filter.data_type && filter.data_type !== 'all') {
+                        params.append('data_type', filter.data_type);
+                    }
+                    if (filter.hotel_scope) {
+                        if (['all', 'mine', 'competitor_avg'].includes(String(filter.hotel_scope))) {
+                            params.append('hotel_scope', filter.hotel_scope);
+                        } else {
+                            params.append('hotel_scope', 'hotel');
+                            params.append('hotel_id', filter.hotel_scope);
+                        }
+                    }
+                    if (filter.keyword) {
+                        params.append('keyword', filter.keyword);
+                    }
+                    if (filter.start_date) {
+                        params.append('start_date', filter.start_date);
+                    }
+                    if (filter.end_date) {
+                        params.append('end_date', filter.end_date);
+                    }
+                    const res = await request(`/online-data/history?${params}`);
+                    if (res.code === 200) {
+                        onlineHistoryList.value = res.data?.list || [];
+                        onlineHistoryPagination.value = {
+                            total: res.data?.total || 0,
+                            page: res.data?.page || onlineHistoryPage.value,
+                            page_size: res.data?.page_size || 20,
+                        };
+                        onlineHistorySummary.value = res.data?.summary || {
+                            total_records: 0,
+                            latest_fetch_time: '',
+                            today_records: 0,
+                            failed_records: 0,
+                        };
+                    } else {
+                        showToast(res.message || '历史记录加载失败', 'error');
+                    }
+                } catch (error) {
+                    console.error('加载历史记录失败:', error);
+                    showToast('历史记录加载失败', 'error');
+                }
+            };
+
+            const refreshOnlineHistory = async () => {
+                await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList()]);
+            };
+
+            const resetOnlineHistoryFilter = async () => {
+                onlineHistoryFilter.value = buildDefaultOnlineHistoryFilter();
+                onlineHistoryExpandedId.value = null;
+                onlineHistoryRawId.value = null;
+                onlineHistoryPage.value = 1;
+                await refreshOnlineHistory();
+            };
+
+            const changeOnlineHistoryPage = async (page) => {
+                onlineHistoryPage.value = Math.max(1, page);
+                await loadOnlineHistory();
+            };
+
+            const toggleOnlineHistoryDetail = (item) => {
+                onlineHistoryExpandedId.value = onlineHistoryExpandedId.value === item.id ? null : item.id;
+            };
+
+            const toggleOnlineHistoryRaw = (item) => {
+                onlineHistoryRawId.value = onlineHistoryRawId.value === item.id ? null : item.id;
+            };
+
+            const formatOnlineHistoryRaw = (raw) => {
+                if (!raw) return '无原始数据';
+                try {
+                    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                    return JSON.stringify(parsed, null, 2);
+                } catch (error) {
+                    return String(raw);
+                }
             };
 
             // 加载线上数据列表
@@ -12339,6 +12644,7 @@
                     if (res.code === 200) {
                         showToast(`获取成功，保存了 ${res.data?.saved_count || 0} 条数据`);
                         await refreshOnlineData();
+                        await refreshOnlineHistory();
                         await loadAutoFetchStatus();
                     } else {
                         showToast(res.message || '获取失败', 'error');
@@ -12865,8 +13171,10 @@
 
             const buildOtaDiagnosisOption = (source, hotel, index) => {
                 const platform = source === 'meituan-config' ? 'meituan' : source === 'ctrip-config' ? 'ctrip' : (hotel.source || '');
-                const rawHotelId = hotel.system_hotel_id || hotel.hotel_id || (platform === 'meituan' ? hotel.poi_id : '');
-                const hotelId = rawHotelId || (source === 'online-data' ? hotel.id : '');
+                const systemHotelId = hotel.system_hotel_id || hotel.systemHotelId || (source === 'system' ? hotel.id : '');
+                const platformHotelId = hotel.platform_hotel_id || hotel.ota_hotel_id || hotel.hotel_id || (platform === 'meituan' ? hotel.poi_id : '');
+                const rawHotelId = systemHotelId || platformHotelId || (source === 'online-data' ? hotel.id : '');
+                const hotelId = rawHotelId || '';
                 const configId = hotel.id || hotel.config_id || '';
                 const name = hotel.name || hotel.hotel_name || hotel.hotelName || hotel.config_name || '';
                 return {
@@ -12875,36 +13183,53 @@
                     source,
                     config_id: configId,
                     hotel_id: hotelId,
+                    system_hotel_id: systemHotelId ? String(systemHotelId) : '',
+                    platform_hotel_id: platformHotelId ? String(platformHotelId) : '',
                     name: name || '未命名配置',
                 };
             };
 
             const otaDiagnosisHotelOptions = computed(() => {
                 const platform = otaDiagnosisForm.value.platform;
+                const systemSource = hotels.value && hotels.value.length > 0 ? hotels.value : permittedHotels.value;
+                const systemOptions = (Array.isArray(systemSource) ? systemSource : [])
+                    .map((item, index) => buildOtaDiagnosisOption('system', item, index))
+                    .filter(item => item.name && item.system_hotel_id);
                 const configSource = platform === 'meituan' ? meituanConfigList.value : ctripConfigList.value;
                 const configPrefix = platform === 'meituan' ? 'meituan-config' : 'ctrip-config';
                 const configOptions = (Array.isArray(configSource) ? configSource : [])
                     .map((item, index) => buildOtaDiagnosisOption(configPrefix, item, index))
-                    .filter(item => item.name && item.hotel_id);
-
-                if (configOptions.length > 0) {
-                    return configOptions;
-                }
+                    .filter(item => item.name && item.system_hotel_id);
 
                 const dataOptions = (Array.isArray(onlineDataHotelList.value) ? onlineDataHotelList.value : [])
                     .map((item, index) => buildOtaDiagnosisOption('online-data', item, index))
-                    .filter(item => item.name && item.hotel_id);
-                if (dataOptions.length > 0) {
-                    return dataOptions;
+                    .filter(item => item.name && item.system_hotel_id);
+
+                const merged = [];
+                const seen = new Set();
+                [...systemOptions, ...configOptions, ...dataOptions].forEach(item => {
+                    const key = String(item.system_hotel_id || item.hotel_id || '');
+                    if (key && !seen.has(key)) {
+                        seen.add(key);
+                        merged.push({
+                            ...item,
+                            value: key,
+                            hotel_id: key,
+                        });
+                    } else if (key) {
+                        const existing = merged.find(option => String(option.hotel_id) === key);
+                        if (existing && !existing.platform_hotel_id && item.platform_hotel_id) {
+                            existing.platform_hotel_id = item.platform_hotel_id;
+                        }
+                    }
+                });
+                if (merged.length > 0) {
+                    return merged;
                 }
 
-                const source = hotels.value && hotels.value.length > 0 ? hotels.value : permittedHotels.value;
-                return (Array.isArray(source) ? source : []).map((item, index) => ({
-                    key: `system:${item.id || index}`,
-                    value: String(item.id || ''),
-                    hotel_id: item.id || '',
-                    name: item.name || '未命名酒店',
-                })).filter(item => item.hotel_id);
+                return (Array.isArray(onlineDataHotelList.value) ? onlineDataHotelList.value : [])
+                    .map((item, index) => buildOtaDiagnosisOption('online-data', item, index))
+                    .filter(item => item.name && item.hotel_id);
             });
 
             // API 请求
@@ -13108,12 +13433,16 @@
 
             // 登录
             const handleLogin = async () => {
+                if (loading.value) {
+                    return;
+                }
                 if (!loginForm.value.username || !loginForm.value.password) {
-                    showToast('请输入用户名和密码', 'warning');
+                    loginError.value = '请输入用户名和密码';
                     return;
                 }
                 
                 loading.value = true;
+                loginError.value = '';
                 try {
                     const res = await request('/auth/login', {
                         method: 'POST',
@@ -13124,6 +13453,7 @@
                     });
                     
                     if (res.code === 200) {
+                        loginError.value = '';
                         token.value = res.data.token;
                         user.value = res.data.user;
                         localStorage.setItem('token', token.value);
@@ -13143,12 +13473,13 @@
                         loadData();
                         loadCompassData();
                     } else {
-                        showToast(res.message || '登录失败，请检查用户名和密码', 'error');
+                        loginError.value = res.message || res.msg || '登录失败，请检查用户名和密码';
                     }
                 } catch (e) {
-                    showToast('网络连接失败，请检查网络后重试', 'error');
+                    loginError.value = e?.data?.message || e?.data?.msg || e.message || '网络连接失败，请检查网络后重试';
+                } finally {
+                    loading.value = false;
                 }
-                loading.value = false;
             };
 
             const forgotPassword = () => {
@@ -13477,6 +13808,10 @@
                 otaDiagnosisForm.value.hotel_id = '';
                 otaDiagnosisError.value = '';
             });
+            const getSafeOtaDiagnosisModelKey = () => {
+                const allowed = ['deepseek_chat', 'deepseek_reasoner', 'openai_fast'];
+                return allowed.includes(otaDiagnosisForm.value.model_key) ? otaDiagnosisForm.value.model_key : 'deepseek_chat';
+            };
             const otaDiagnosisPriorityClass = computed(() => {
                 const priority = String(otaDiagnosisResult.value?.priority || '').toLowerCase();
                 if (priority === 'high') return 'bg-red-50 text-red-700 border-red-200';
@@ -13620,6 +13955,7 @@
                         method: 'POST',
                         body: JSON.stringify({
                             hotel_id: diagnosisHotelId || 0,
+                            platform_hotel_id: selectedHotel?.platform_hotel_id || '',
                             config_id: selectedHotel?.config_id || '',
                             config_source: selectedHotel?.source || '',
                             hotel_name: selectedHotel?.name || '',
@@ -13629,7 +13965,7 @@
                             mode: 'historical_db',
                             analysis_type: 'all',
                             data_type: 'traffic',
-                            model_key: form.model_key,
+                            model_key: getSafeOtaDiagnosisModelKey(),
                         }),
                     });
                     if (res.code === 200) {
@@ -13644,10 +13980,10 @@
                             showToast('OTA诊断已生成');
                         }
                     } else {
-                        otaDiagnosisError.value = res.message || 'OTA诊断生成失败';
+                        otaDiagnosisError.value = res.message || res.msg || 'OTA诊断生成失败';
                     }
                 } catch (e) {
-                    otaDiagnosisError.value = e?.data?.message || e.message || 'OTA诊断生成失败';
+                    otaDiagnosisError.value = e?.data?.message || e?.data?.msg || e.message || 'OTA诊断生成失败';
                 } finally {
                     otaDiagnosisLoading.value = false;
                 }
@@ -14665,6 +15001,7 @@
                         ctripTableTab.value = 'sales';
                         // 更新AI分析酒店列表
                         updateAiAnalysisHotelList();
+                        await refreshOnlineHistory();
                         // 刷新数据记录列表
                         if (onlineDataTab.value === 'data') {
                             refreshOnlineData();
@@ -14986,6 +15323,7 @@
                     
                     if (totalSavedCount > 0) {
                         showToast(`批量获取完成！共保存 ${totalSavedCount} 条数据`);
+                        await refreshOnlineHistory();
                         if (onlineDataTab.value === 'data') {
                             refreshOnlineData();
                         }
@@ -15188,6 +15526,7 @@
                             showToast('当前日期范围暂无流量数据', 'warning');
                         } else {
                             showToast(`获取成功，已保存 ${savedCount} 条流量数据`);
+                            await refreshOnlineHistory();
                             if (onlineDataTab.value === 'data') {
                                 refreshOnlineData();
                             }
@@ -15290,6 +15629,7 @@
                         const savedCount = res.data.saved_count || 0;
                         if (savedCount > 0) {
                             showToast(`获取成功！已保存 ${savedCount} 条流量数据`);
+                            await refreshOnlineHistory();
                             if (onlineDataTab.value === 'data') {
                                 refreshOnlineData();
                             }
@@ -15361,6 +15701,7 @@
                         const total = res.data.total || 0;
                         if (savedCount > 0) {
                             showToast(`获取成功！共 ${total} 条评论，已保存 ${savedCount} 条新评论`);
+                            await refreshOnlineHistory();
                         } else if (total > 0) {
                             showToast(`获取成功！共 ${total} 条评论，无新增评论`);
                         } else {
@@ -18344,7 +18685,7 @@
                 aiFeasibilityResult, aiFeasibilityLoading, aiFeasibilityError, handleFeasibility, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, riskBadgeClass,
                 homeObservation, homeTrendCards, homeMacroSignals, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationSuggestions,
                 weatherDemandHint, weatherLocationName, selectedWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, homeQuickEntries,
-                isLoggedIn, loading, user, token, currentTime, currentPage, showPassword,
+                isLoggedIn, loading, loginError, user, token, currentTime, currentPage, showPassword,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 expandedMenus, toggleSubmenu,
                 hotels, permittedHotels, hotelColumns, userColumns, users, roles,
@@ -18377,6 +18718,9 @@
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
+                onlineHistoryFilter, onlineHistoryList, onlineHistoryPagination, onlineHistoryPage, onlineHistorySummary, onlineHistoryHotelList,
+                onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
+                resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
                 selectedOnlineDataIds, toggleSelectAllOnlineData, isAllOnlineDataSelected, batchDeleteOnlineData,
                 autoFetchScheduleTime, saveFetchSchedule, autoFetchHotelId, loadAutoFetchPanel,
                 loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter,

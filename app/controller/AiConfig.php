@@ -299,22 +299,31 @@ class AiConfig extends Base
     private function migrateDeepSeekLegacyModels(string $encryptedApiKey, string $apiKeyMask): void
     {
         $legacyMap = [
-            'deepseek_chat' => [
-                'name' => 'DeepSeek V4 Flash',
-                'model_key' => 'deepseek_v4_flash',
+            'deepseek_v4_flash' => [
+                'name' => 'DeepSeek 经济模式',
+                'model_key' => 'deepseek_chat',
                 'provider' => 'deepseek',
-                'base_url' => 'https://api.deepseek.com',
-                'model_name' => 'deepseek-v4-flash',
-                'usage_scene' => 'fast_analysis',
+                'base_url' => 'https://api.deepseek.com/v1',
+                'model_name' => 'deepseek-chat',
+                'usage_scene' => 'ota_diagnosis',
                 'is_default' => 1,
             ],
-            'deepseek_reasoner' => [
-                'name' => 'DeepSeek V4 Pro',
-                'model_key' => 'deepseek_v4_pro',
+            'deepseek_v4_fast' => [
+                'name' => 'DeepSeek 经济模式',
+                'model_key' => 'deepseek_chat',
                 'provider' => 'deepseek',
-                'base_url' => 'https://api.deepseek.com',
-                'model_name' => 'deepseek-v4-pro',
-                'usage_scene' => 'deep_report',
+                'base_url' => 'https://api.deepseek.com/v1',
+                'model_name' => 'deepseek-chat',
+                'usage_scene' => 'ota_diagnosis',
+                'is_default' => 1,
+            ],
+            'deepseek_v4_pro' => [
+                'name' => 'DeepSeek 深度推理',
+                'model_key' => 'deepseek_reasoner',
+                'provider' => 'deepseek',
+                'base_url' => 'https://api.deepseek.com/v1',
+                'model_name' => 'deepseek-reasoner',
+                'usage_scene' => 'reasoning',
                 'is_default' => 0,
             ],
         ];
@@ -351,27 +360,6 @@ class AiConfig extends Base
     private function providerModelDefinitions(string $provider): array
     {
         if ($provider === 'deepseek') {
-            return [
-                [
-                    'name' => 'DeepSeek V4 Flash',
-                    'model_key' => 'deepseek_v4_flash',
-                    'provider' => 'deepseek',
-                    'base_url' => 'https://api.deepseek.com',
-                    'model_name' => 'deepseek-v4-flash',
-                    'usage_scene' => 'fast_analysis',
-                    'is_default' => 1,
-                ],
-                [
-                    'name' => 'DeepSeek V4 Pro',
-                    'model_key' => 'deepseek_v4_pro',
-                    'provider' => 'deepseek',
-                    'base_url' => 'https://api.deepseek.com',
-                    'model_name' => 'deepseek-v4-pro',
-                    'usage_scene' => 'deep_report',
-                    'is_default' => 0,
-                ],
-            ];
-
             return [
                 [
                     'name' => 'DeepSeek 经济模式',

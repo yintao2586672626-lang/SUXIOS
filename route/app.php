@@ -111,6 +111,8 @@ Route::group('api/online-data', function () {
     Route::post('/save-ctrip-config-by-bookmark', 'OnlineData/saveCtripConfigByBookmark');
     // 线上数据管理
     Route::post('/save-daily-data', 'OnlineData/saveDailyData');
+    Route::get('/history/:id', 'OnlineData/historyDetail');
+    Route::get('/history', 'OnlineData/history');
     Route::get('/daily-data-list', 'OnlineData/dailyDataList');
     Route::get('/daily-data-summary', 'OnlineData/dailyDataSummary');
     Route::get('/hotel-list', 'OnlineData/hotelList');

@@ -124,20 +124,23 @@ class Agent extends Base
             ];
         }
 
-        return ['ok' => true, 'content' => trim($content)];
+        return [
+            'ok' => true,
+            'content' => trim($content),
+            'data' => [
+                'debug' => $this->buildLlmSuccessDebug($config, $statusCode, $prompt, $meta, strlen((string) $payloadJson)),
+            ],
+        ];
     }
 
     private function callDeepSeek(array $messages, array $options = []): array
     {
         $startedAt = microtime(true);
-        $modelKey = (string) ($options['model_key'] ?? 'deepseek_v4_default');
+        $modelKey = $this->normalizeRequestedModelKey((string) ($options['model_key'] ?? 'deepseek_chat'), $options);
         $modelMode = $this->normalizeDeepSeekModelMode(
             isset($options['model_mode']) ? (string) $options['model_mode'] : null,
             $modelKey
         );
-        $model = $this->resolveDeepSeekModel($modelMode);
-        $baseUrl = rtrim(trim((string) (config('llm.deepseek.base_url') ?: env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'))), '/');
-        $apiKey = trim((string) (config('llm.deepseek.api_key') ?: env('DEEPSEEK_API_KEY', '')));
         $timeout = max(1, (int) (config('llm.deepseek.timeout') ?: env('DEEPSEEK_TIMEOUT', 60)));
         $temperature = (float) ($options['temperature'] ?? 0.3);
         $maxTokens = max(1, (int) ($options['max_tokens'] ?? 2000));
@@ -146,30 +149,18 @@ class Agent extends Base
         $promptLength = (int) ($options['prompt_length'] ?? $this->messagesContentLength($messages));
         $meta['prompt_length'] = $promptLength;
 
-        $dbConfig = $this->getDeepSeekDatabaseConfig($modelKey);
-        if ($dbConfig !== null) {
-            if (($dbConfig['ok'] ?? false) !== true) {
-                $dbConfig['data'] = $this->buildLlmDebug('config_error', $dbConfig, 0, '', '', '', (string) ($dbConfig['message'] ?? ''), $meta);
-                return $dbConfig;
-            }
-
-            $baseUrl = rtrim((string) $dbConfig['base_url'], '/');
-            $apiKey = (string) $dbConfig['api_key'];
-            $dbModel = trim((string) ($dbConfig['model'] ?? ''));
-            if ($modelMode === null && $dbModel !== '' && !in_array($dbModel, ['deepseek-chat', 'deepseek-reasoner'], true)) {
-                $model = $dbModel;
-            }
+        $config = $this->getLlmConfigByModelKey($modelKey);
+        if (($config['ok'] ?? false) !== true) {
+            $config['data'] = $this->buildLlmDebug('config_error', $config, 0, '', '', '', (string) ($config['message'] ?? ''), $meta);
+            return $config;
         }
 
-        $config = [
-            'provider' => 'deepseek',
-            'model_key' => $modelKey,
-            'model' => $model,
-            'base_url' => $baseUrl,
-        ];
+        $baseUrl = rtrim((string) $config['base_url'], '/');
+        $apiKey = (string) $config['api_key'];
+        $model = (string) $config['model'];
 
         if ($apiKey === '') {
-            $message = '未配置 DEEPSEEK_API_KEY';
+            $message = '未配置模型 API Key';
             $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, 0);
             return [
                 'ok' => false,
@@ -440,6 +431,7 @@ class Agent extends Base
                 'provider' => (string) ($config['provider'] ?? ''),
                 'model_key' => (string) ($config['model_key'] ?? ''),
                 'model' => (string) ($config['model'] ?? ''),
+                'model_name' => (string) ($config['model'] ?? ''),
                 'config_source' => (string) ($config['source'] ?? ''),
                 'http_status' => $httpStatus,
                 'curl_errno' => 0,
@@ -450,6 +442,21 @@ class Agent extends Base
                 'prompt_length' => (int) ($meta['prompt_length'] ?? mb_strlen($prompt)),
                 'response_preview' => $this->safeResponsePreview($response),
             ],
+        ];
+    }
+
+    private function buildLlmSuccessDebug(array $config, int $httpStatus, string $prompt, array $meta = [], int $payloadSize = 0): array
+    {
+        return [
+            'provider' => (string) ($config['provider'] ?? ''),
+            'model_key' => (string) ($config['model_key'] ?? ''),
+            'model' => (string) ($config['model'] ?? ''),
+            'model_name' => (string) ($config['model'] ?? ''),
+            'config_source' => (string) ($config['source'] ?? ''),
+            'http_status' => $httpStatus,
+            'selected_hotel_count' => (int) ($meta['selected_hotel_count'] ?? 0),
+            'request_payload_size' => $payloadSize,
+            'prompt_length' => (int) ($meta['prompt_length'] ?? mb_strlen($prompt)),
         ];
     }
 
@@ -477,36 +484,55 @@ class Agent extends Base
     {
         $modelKey = $this->normalizeRequestedModelKey($modelKey);
 
-        $dbConfig = $this->getDatabaseLlmConfigByModelKey($modelKey);
-        if ($dbConfig !== null) {
-            return $dbConfig;
-        }
-
-        $aliasKey = $this->legacyDeepSeekModelKeyAlias($modelKey);
-        if ($aliasKey !== $modelKey) {
-            $aliasDbConfig = $this->getDatabaseLlmConfigByModelKey($aliasKey);
-            if ($aliasDbConfig !== null) {
-                return $aliasDbConfig;
+        foreach ($this->llmModelKeyLookupCandidates($modelKey) as $candidateKey) {
+            $dbConfig = $this->getDatabaseLlmConfigByModelKey($candidateKey, $modelKey);
+            if ($dbConfig !== null) {
+                return $dbConfig;
             }
-            $modelKey = $aliasKey;
         }
 
         return $this->getEnvLlmConfigByModelKey($modelKey);
     }
 
-    private function legacyDeepSeekModelKeyAlias(string $modelKey): string
+    private function llmModelKeyLookupCandidates(string $modelKey): array
     {
-        return [
-            'deepseek_v4_flash' => 'deepseek_chat',
-            'deepseek_v4_fast' => 'deepseek_chat',
-            'deepseek_v4_pro' => 'deepseek_reasoner',
-        ][$modelKey] ?? $modelKey;
+        $groups = [
+            ['deepseek_chat', 'deepseek_v4_flash', 'deepseek_v4_fast'],
+            ['deepseek_reasoner', 'deepseek_v4_pro'],
+        ];
+
+        $candidates = [$modelKey];
+        foreach ($groups as $group) {
+            if (in_array($modelKey, $group, true)) {
+                $candidates = array_merge($candidates, $group);
+                break;
+            }
+        }
+
+        return array_values(array_unique($candidates));
     }
 
-    private function getDatabaseLlmConfigByModelKey(string $modelKey): ?array
+    private function getDatabaseLlmConfigByModelKey(string $modelKey, ?string $requestedModelKey = null): ?array
     {
         try {
-            $config = AiModelConfig::where('model_key', $modelKey)->find();
+            $config = AiModelConfig::where('model_key', $modelKey)
+                ->where('is_enabled', 1)
+                ->find();
+            if (!$config) {
+                $disabledConfig = AiModelConfig::where('model_key', $modelKey)->find();
+                if ($disabledConfig) {
+                    $displayModelKey = $requestedModelKey ?? $modelKey;
+                    return [
+                        'ok' => false,
+                        'message' => '未找到启用的模型配置：' . $displayModelKey . '，请先到系统设置 > AI模型配置中配置',
+                        'code' => 400,
+                        'provider' => (string) $disabledConfig->provider,
+                        'model_key' => $displayModelKey,
+                        'model' => (string) $disabledConfig->model_name,
+                        'source' => 'database',
+                    ];
+                }
+            }
         } catch (\Throwable $e) {
             return null;
         }
@@ -515,23 +541,12 @@ class Agent extends Base
             return null;
         }
 
-        if ((int) $config->is_enabled !== 1) {
-            return [
-                'ok' => false,
-                'message' => '未找到启用的模型配置：' . $modelKey . '，请先到系统设置 > AI模型配置中配置',
-                'code' => 400,
-                'provider' => (string) $config->provider,
-                'model_key' => $modelKey,
-                'model' => (string) $config->model_name,
-                'source' => 'database',
-            ];
-        }
-
         $baseUrl = rtrim(trim((string) $config->base_url), '/');
         $modelName = trim((string) $config->model_name);
+        $displayModelKey = $requestedModelKey ?? $modelKey;
         $errorConfig = [
             'provider' => (string) $config->provider,
-            'model_key' => $modelKey,
+            'model_key' => $displayModelKey,
             'model' => $modelName,
             'source' => 'database',
         ];
@@ -562,7 +577,7 @@ class Agent extends Base
             'base_url' => $baseUrl,
             'api_key' => $apiKey,
             'model' => $modelName,
-            'model_key' => $modelKey,
+            'model_key' => $displayModelKey,
             'source' => 'database',
         ];
     }
@@ -801,6 +816,7 @@ class Agent extends Base
 
         $hotelIdRaw = trim((string) $this->request->param('hotel_id', ''));
         $hotelId = (int) $hotelIdRaw;
+        $platformHotelIdRaw = trim((string) $this->request->param('platform_hotel_id', ''));
         $configId = trim((string) $this->request->param('config_id', ''));
         $hotelName = trim((string) $this->request->param('hotel_name', ''));
         $platform = strtolower(trim((string) $this->request->param('platform', 'ctrip')));
@@ -843,7 +859,7 @@ class Agent extends Base
                 return $this->error('请选择有效的酒店配置，诊断必须包含 hotel_id', 422);
             }
 
-            $dataSet = $this->queryOtaDiagnosisData($hotelId, $hotelIdRaw, $platform, $startDate, $endDate, $analysisType);
+            $dataSet = $this->queryOtaDiagnosisData($hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $startDate, $endDate, $analysisType);
             if (!$this->hasOtaDiagnosisData($dataSet)) {
                 return $this->success([
                     'hotel' => $dataSet['hotel'] ?? ['id' => $hotelIdRaw, 'name' => $hotelName],
@@ -854,7 +870,17 @@ class Agent extends Base
                         'has_traffic_data' => false,
                         'has_competitor_data' => false,
                         'has_comment_data' => false,
+                        'has_price_order_data' => false,
+                        'has_daily_report_data' => false,
                         'last_sync_time' => $dataSet['last_sync_time'] ?? '',
+                        'source_counts' => [
+                            'online_rows' => 0,
+                            'daily_reports' => 0,
+                            'competitor_prices' => 0,
+                            'competitor_analyses' => 0,
+                            'price_suggestions' => 0,
+                            'sync_logs' => count($dataSet['sync_logs'] ?? []),
+                        ],
                     ],
                     'metrics' => [],
                     'diagnosis' => [
@@ -867,7 +893,7 @@ class Agent extends Base
                         'comment_analysis' => '',
                         'actions' => [],
                     ],
-                    'missing_sections' => ['OTA历史数据'],
+                    'missing_sections' => ['OTA历史数据', 'OTA流量数据', '竞对数据', '点评数据', '价格/房态/订单相关数据', '日报经营数据'],
                     'core_conclusion' => '暂无该酒店在该日期范围内的OTA数据，请先同步/抓取数据。',
                     'priority' => 'none',
                 ], '暂无 OTA 数据');
@@ -952,6 +978,9 @@ class Agent extends Base
             }
 
             $report = $this->parseCapturedOtaAnalysisResult((string) $llmResult['content']);
+            if (isset($llmResult['data']['debug']) && is_array($llmResult['data']['debug'])) {
+                $report['debug'] = $llmResult['data']['debug'];
+            }
             $report['summary'] = [
                 'hotel_count' => $summary['hotel_count'],
                 'input_hotel_count' => $summary['input_hotel_count'],
@@ -1040,11 +1069,15 @@ class Agent extends Base
             $llmResult = $this->callLlm($this->buildCapturedOtaFinalPrompt($summary), $modelKey, [
                 'selected_hotel_count' => $summary['selected_hotel_count'],
             ], $modelOptions);
+            $debug = isset($llmResult['data']['debug']) && is_array($llmResult['data']['debug']) ? $llmResult['data']['debug'] : null;
             if (($llmResult['ok'] ?? false) === true) {
                 $report = $this->parseCapturedOtaAnalysisResult((string) $llmResult['content']);
                 $report['fallback'] = false;
             } else {
                 $report = $this->buildCapturedOtaFallbackReport($summary, (string) ($llmResult['message'] ?? '汇总失败'));
+            }
+            if ($debug !== null) {
+                $report['debug'] = $debug;
             }
             $report['summary'] = $summaryMeta;
 
@@ -1061,6 +1094,7 @@ class Agent extends Base
             return $this->success([
                 'report' => $report,
                 'process' => $process,
+                'debug' => $debug,
             ], 'success');
         } catch (\Throwable $e) {
             OperationLog::error('agent', 'summarize_captured_ota_analysis', '汇总当前抓取OTA分组报告失败', $this->sanitizeLlmErrorMessage($e->getMessage()), (int) ($this->currentUser->id ?? 0));
@@ -1432,6 +1466,12 @@ class Agent extends Base
     {
         $configKey = $platform === 'meituan' ? 'meituan_config_list' : 'ctrip_config_list';
         $table = $platform === 'meituan' ? 'system_config' : 'system_configs';
+        if (!$this->tableExists($table)) {
+            $table = $this->tableExists('system_config') ? 'system_config' : $table;
+        }
+        if (!$this->tableExists($table)) {
+            return [];
+        }
         $raw = (string) Db::name($table)->where('config_key', $configKey)->value('config_value');
         $list = $raw !== '' ? json_decode($raw, true) : [];
         if (!is_array($list)) {
@@ -1456,7 +1496,7 @@ class Agent extends Base
         return [];
     }
 
-    private function queryOtaDiagnosisData(int $hotelId, string $hotelIdRaw, string $platform, string $startDate, string $endDate, string $analysisType): array
+    private function queryOtaDiagnosisData(int $hotelId, string $hotelIdRaw, string $platformHotelIdRaw, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
         $columns = $this->onlineDailyDataColumns();
         $fields = array_values(array_intersect([
@@ -1486,73 +1526,120 @@ class Agent extends Base
             'update_time',
         ], array_keys($columns)));
 
-        $query = Db::name('online_daily_data')
-            ->field(implode(',', $fields))
-            ->where('data_date', '>=', $startDate)
-            ->where('data_date', '<=', $endDate);
+        $onlineRows = [];
+        $canQueryOnlineRows = !empty($fields)
+            && isset($columns['data_date'])
+            && (($hotelId > 0 && isset($columns['system_hotel_id'])) || (($hotelIdRaw !== '' || $platformHotelIdRaw !== '') && isset($columns['hotel_id'])));
+        if ($canQueryOnlineRows) {
+            $query = Db::name('online_daily_data')
+                ->field(implode(',', $fields))
+                ->where('data_date', '>=', $startDate)
+                ->where('data_date', '<=', $endDate);
 
-        if (isset($columns['source'])) {
-            $query->where('source', $platform);
-        }
-        $query->where(function ($q) use ($hotelId, $hotelIdRaw, $columns) {
-            $hasWhere = false;
-            if ($hotelId > 0 && isset($columns['system_hotel_id'])) {
-                $q->where('system_hotel_id', $hotelId);
-                $hasWhere = true;
+            if (isset($columns['source'])) {
+                $query->where('source', $platform);
             }
-            if ($hotelIdRaw !== '' && isset($columns['hotel_id'])) {
-                $hasWhere ? $q->whereOr('hotel_id', $hotelIdRaw) : $q->where('hotel_id', $hotelIdRaw);
-            }
-        });
+            $query->where(function ($q) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $columns) {
+                $hasWhere = false;
+                if ($hotelId > 0 && isset($columns['system_hotel_id'])) {
+                    $q->where('system_hotel_id', $hotelId);
+                    $hasWhere = true;
+                }
+                if ($hotelIdRaw !== '' && isset($columns['hotel_id'])) {
+                    $hasWhere ? $q->whereOr('hotel_id', $hotelIdRaw) : $q->where('hotel_id', $hotelIdRaw);
+                    $hasWhere = true;
+                }
+                if ($platformHotelIdRaw !== '' && $platformHotelIdRaw !== $hotelIdRaw && isset($columns['hotel_id'])) {
+                    $hasWhere ? $q->whereOr('hotel_id', $platformHotelIdRaw) : $q->where('hotel_id', $platformHotelIdRaw);
+                }
+            });
 
-        if (isset($columns['data_type']) && $analysisType === 'traffic') {
-            $query->where('data_type', 'traffic');
-        } elseif (isset($columns['data_type']) && $analysisType === 'business') {
-            $query->whereIn('data_type', ['business', '']);
+            if (isset($columns['data_type']) && $analysisType === 'traffic') {
+                $query->where('data_type', 'traffic');
+            } elseif (isset($columns['data_type']) && $analysisType === 'business') {
+                $query->whereIn('data_type', ['business', '']);
+            }
+
+            $onlineRows = $query->order('data_date', 'asc')->order('id', 'asc')->select()->toArray();
         }
 
-        $onlineRows = $query->order('data_date', 'asc')->order('id', 'asc')->select()->toArray();
-        $dailyReports = $hotelId > 0 && $this->tableExists('daily_reports')
-            ? Db::name('daily_reports')
-                ->field('id,hotel_id,report_date,report_data,occupancy_rate,room_count,guest_count,revenue,expenses,notes,create_time,update_time')
-                ->where('hotel_id', $hotelId)
-                ->where('report_date', '>=', $startDate)
-                ->where('report_date', '<=', $endDate)
-                ->order('report_date', 'asc')
-                ->select()
-                ->toArray()
-            : [];
-        $competitorPrices = $hotelId > 0 && $this->tableExists('competitor_price_log')
-            ? Db::name('competitor_price_log')
-                ->field('id,store_id,hotel_id,platform,city,price,fetch_time,create_time')
-                ->where('hotel_id', $hotelId)
-                ->where('platform', $platform)
-                ->where('create_time', '>=', $startDate . ' 00:00:00')
-                ->where('create_time', '<=', $endDate . ' 23:59:59')
-                ->order('fetch_time', 'asc')
-                ->select()
-                ->toArray()
-            : [];
-        $syncLogs = $hotelId > 0 && $this->tableExists('operation_logs')
-            ? Db::name('operation_logs')
-                ->field('id,module,action,description,create_time,error_info')
-                ->where('hotel_id', $hotelId)
-                ->where('module', 'online_data')
-                ->where('create_time', '>=', $startDate . ' 00:00:00')
-                ->where('create_time', '<=', $endDate . ' 23:59:59')
-                ->order('create_time', 'desc')
-                ->limit(10)
-                ->select()
-                ->toArray()
-            : [];
-        $hotel = $hotelId > 0 && $this->tableExists('hotels')
-            ? (Db::name('hotels')->field('id,name,code,address,status')->where('id', $hotelId)->find() ?: [])
+        $dailyReports = $this->queryHotelDateRows(
+            'daily_reports',
+            ['id', 'hotel_id', 'report_date', 'report_data', 'occupancy_rate', 'room_count', 'guest_count', 'revenue', 'expenses', 'notes', 'create_time', 'update_time'],
+            $hotelId,
+            'report_date',
+            $startDate,
+            $endDate,
+            'report_date'
+        );
+        $competitorPrices = $this->queryHotelDateRows(
+            'competitor_price_log',
+            ['id', 'store_id', 'hotel_id', 'platform', 'city', 'price', 'fetch_time', 'create_time', 'update_time'],
+            $hotelId,
+            'create_time',
+            $startDate . ' 00:00:00',
+            $endDate . ' 23:59:59',
+            'fetch_time',
+            function ($query, array $tableColumns) use ($platform): void {
+                if (isset($tableColumns['platform'])) {
+                    $query->where('platform', $platform);
+                }
+            }
+        );
+        $competitorAnalyses = $this->queryHotelDateRows(
+            'competitor_analysis',
+            ['id', 'hotel_id', 'competitor_hotel_id', 'room_type_id', 'analysis_date', 'our_price', 'competitor_price', 'price_difference', 'price_index', 'ota_platform', 'competitor_data', 'create_time', 'update_time'],
+            $hotelId,
+            'analysis_date',
+            $startDate,
+            $endDate,
+            'analysis_date',
+            function ($query, array $tableColumns) use ($platform): void {
+                $platformCode = $this->otaPlatformCode($platform);
+                if ($platformCode !== null && isset($tableColumns['ota_platform'])) {
+                    $query->where('ota_platform', $platformCode);
+                }
+            }
+        );
+        $priceSuggestions = $this->queryHotelDateRows(
+            'price_suggestions',
+            ['id', 'hotel_id', 'room_type_id', 'suggestion_date', 'suggestion_type', 'current_price', 'suggested_price', 'min_price', 'max_price', 'competitor_data', 'factors', 'status', 'create_time', 'update_time'],
+            $hotelId,
+            'suggestion_date',
+            $startDate,
+            $endDate,
+            'suggestion_date'
+        );
+        $syncLogs = $this->queryHotelDateRows(
+            'operation_logs',
+            ['id', 'hotel_id', 'module', 'action', 'description', 'create_time', 'error_info'],
+            $hotelId,
+            'create_time',
+            $startDate . ' 00:00:00',
+            $endDate . ' 23:59:59',
+            'create_time',
+            function ($query, array $tableColumns): void {
+                if (isset($tableColumns['module'])) {
+                    $query->where('module', 'online_data');
+                }
+            },
+            'desc',
+            10
+        );
+        $hotelFields = $this->existingFields('hotels', ['id', 'name', 'code', 'address', 'status']);
+        $hotel = $hotelId > 0 && !empty($hotelFields)
+            ? (Db::name('hotels')->field(implode(',', $hotelFields))->where('id', $hotelId)->find() ?: [])
             : [];
         $lastSyncTime = $this->maxDateTime(array_merge(
             array_column($onlineRows, 'update_time'),
             array_column($onlineRows, 'create_time'),
             array_column($dailyReports, 'update_time'),
             array_column($competitorPrices, 'fetch_time'),
+            array_column($competitorPrices, 'update_time'),
+            array_column($competitorAnalyses, 'update_time'),
+            array_column($competitorAnalyses, 'create_time'),
+            array_column($priceSuggestions, 'update_time'),
+            array_column($priceSuggestions, 'create_time'),
             array_column($syncLogs, 'create_time')
         ));
 
@@ -1561,6 +1648,8 @@ class Agent extends Base
             'online_rows' => $onlineRows,
             'daily_reports' => $dailyReports,
             'competitor_prices' => $competitorPrices,
+            'competitor_analyses' => $competitorAnalyses,
+            'price_suggestions' => $priceSuggestions,
             'sync_logs' => $syncLogs,
             'last_sync_time' => $lastSyncTime,
         ];
@@ -1568,7 +1657,11 @@ class Agent extends Base
 
     private function hasOtaDiagnosisData(array $dataSet): bool
     {
-        return !empty($dataSet['online_rows']) || !empty($dataSet['daily_reports']) || !empty($dataSet['competitor_prices']);
+        return !empty($dataSet['online_rows'])
+            || !empty($dataSet['daily_reports'])
+            || !empty($dataSet['competitor_prices'])
+            || !empty($dataSet['competitor_analyses'])
+            || !empty($dataSet['price_suggestions']);
     }
 
     private function buildOtaDiagnosisResult(array $dataSet, int $hotelId, string $hotelIdRaw, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array
@@ -1576,15 +1669,22 @@ class Agent extends Base
         $rows = $dataSet['online_rows'] ?? [];
         $dailyReports = $dataSet['daily_reports'] ?? [];
         $competitorPrices = $dataSet['competitor_prices'] ?? [];
+        $competitorAnalyses = $dataSet['competitor_analyses'] ?? [];
+        $priceSuggestions = $dataSet['price_suggestions'] ?? [];
         $syncLogs = $dataSet['sync_logs'] ?? [];
         $summary = $this->buildOtaDiagnosisSummary($rows, $hotelId, $hotelName, $platform, $startDate, $endDate, $analysisType);
         $totals = $summary['totals'];
         $rates = $summary['derived_rates'];
-        $avgCompetitorPrice = $this->average(array_map('floatval', array_column($competitorPrices, 'price')));
+        $avgCompetitorPrice = $this->average(array_merge(
+            array_map('floatval', array_column($competitorPrices, 'price')),
+            array_map('floatval', array_column($competitorAnalyses, 'competitor_price'))
+        ));
+        $avgSuggestedPrice = $this->average(array_map('floatval', array_column($priceSuggestions, 'suggested_price')));
         $dailyRevenue = array_sum(array_map('floatval', array_column($dailyReports, 'revenue')));
         $hasTraffic = ($totals['list_exposure'] + $totals['detail_visitors'] + $totals['order_visitors'] + $totals['submit_users']) > 0;
         $hasComment = ($summary['averages']['comment_score'] > 0 || $summary['averages']['qunar_comment_score'] > 0);
-        $hasCompetitor = !empty($competitorPrices) || $this->hasCompareRows($rows);
+        $hasCompetitor = !empty($competitorPrices) || !empty($competitorAnalyses) || $this->hasCompareRows($rows);
+        $hasPriceOrder = ((float) $totals['amount'] + (float) $totals['quantity'] + (float) $totals['book_order_num']) > 0 || !empty($priceSuggestions);
         $hasDaily = !empty($dailyReports);
         $missingSections = [];
         if (!$hasTraffic) {
@@ -1595,6 +1695,9 @@ class Agent extends Base
         }
         if (!$hasComment) {
             $missingSections[] = '点评数据';
+        }
+        if (!$hasPriceOrder) {
+            $missingSections[] = '价格/房态/订单相关数据';
         }
         if (!$hasDaily) {
             $missingSections[] = '日报经营数据';
@@ -1621,6 +1724,12 @@ class Agent extends Base
             'qunar_comment_score' => $summary['averages']['qunar_comment_score'],
             'daily_report_revenue' => round($dailyRevenue, 2),
             'competitor_avg_price' => $avgCompetitorPrice,
+            'suggested_avg_price' => $avgSuggestedPrice,
+            'daily_report_count' => count($dailyReports),
+            'competitor_price_count' => count($competitorPrices),
+            'competitor_analysis_count' => count($competitorAnalyses),
+            'price_suggestion_count' => count($priceSuggestions),
+            'sync_log_count' => count($syncLogs),
         ];
         $abnormal = $summary['data_anomalies'];
         if ($hasTraffic && $rates['detail_rate'] > 0 && $rates['detail_rate'] < 5) {
@@ -1651,7 +1760,7 @@ class Agent extends Base
             'exposure_analysis' => $hasTraffic ? sprintf('曝光%d，访问%d，曝光到访问率%s%%。', $metrics['list_exposure'], $metrics['detail_visitors'], $metrics['detail_rate']) : '缺少OTA流量数据，无法判断曝光表现。',
             'visit_conversion_analysis' => $hasTraffic ? sprintf('访问%d，订单意向%d，访问到订单率%s%%。', $metrics['detail_visitors'], $metrics['order_visitors'], $metrics['order_rate']) : '缺少访问转化数据。',
             'order_conversion_analysis' => $hasTraffic ? sprintf('订单意向%d，提交用户%d，提交率%s%%。', $metrics['order_visitors'], $metrics['submit_users'], $metrics['submit_rate']) : '缺少订单转化数据。',
-            'price_analysis' => $avgCompetitorPrice > 0 ? sprintf('竞对均价%s，本店ADR%s，需结合房型和日期校准价差。', $avgCompetitorPrice, $metrics['adr']) : '缺少竞对价格数据，暂不能判断价格竞争力。',
+            'price_analysis' => $avgCompetitorPrice > 0 ? sprintf('竞对均价%s，本店ADR%s，需结合房型和日期校准价差。', $avgCompetitorPrice, $metrics['adr']) : ($avgSuggestedPrice > 0 ? sprintf('已有%d条定价建议，建议均价%s，可结合房态和订单转化复核。', count($priceSuggestions), $avgSuggestedPrice) : '缺少价格/房态/订单相关数据，暂不能判断价格竞争力。'),
             'competitor_analysis' => $hasCompetitor ? '已有竞对或对比数据，可继续关注价格、曝光和转化差距。' : '缺少竞对数据，无法判断同商圈机会。',
             'comment_analysis' => $hasComment ? sprintf('携程评分%s，去哪儿评分%s。', $metrics['comment_score'], $metrics['qunar_comment_score']) : '缺少点评数据，无法判断评分和口碑影响。',
             'actions' => $this->buildOtaDiagnosisActions($hasTraffic, $hasCompetitor, $hasComment, $metrics),
@@ -1666,8 +1775,17 @@ class Agent extends Base
                 'has_traffic_data' => $hasTraffic,
                 'has_competitor_data' => $hasCompetitor,
                 'has_comment_data' => $hasComment,
+                'has_price_order_data' => $hasPriceOrder,
                 'has_daily_report_data' => $hasDaily,
                 'last_sync_time' => $dataSet['last_sync_time'] ?? '',
+                'source_counts' => [
+                    'online_rows' => count($rows),
+                    'daily_reports' => count($dailyReports),
+                    'competitor_prices' => count($competitorPrices),
+                    'competitor_analyses' => count($competitorAnalyses),
+                    'price_suggestions' => count($priceSuggestions),
+                    'sync_logs' => count($syncLogs),
+                ],
             ],
             'metrics' => $metrics,
             'diagnosis' => $diagnosis,
@@ -1711,10 +1829,101 @@ class Agent extends Base
     private function tableExists(string $table): bool
     {
         static $cache = [];
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+            return false;
+        }
         if (!array_key_exists($table, $cache)) {
             $cache[$table] = !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
         }
         return $cache[$table];
+    }
+
+    private function tableColumns(string $table): array
+    {
+        static $cache = [];
+        if (array_key_exists($table, $cache)) {
+            return $cache[$table];
+        }
+        if (!$this->tableExists($table)) {
+            $cache[$table] = [];
+            return [];
+        }
+
+        $columns = [];
+        foreach (Db::query('SHOW COLUMNS FROM `' . $table . '`') as $row) {
+            if (!empty($row['Field'])) {
+                $columns[(string) $row['Field']] = true;
+            }
+        }
+        $cache[$table] = $columns;
+        return $columns;
+    }
+
+    private function existingFields(string $table, array $fields): array
+    {
+        $columns = $this->tableColumns($table);
+        if (empty($columns)) {
+            return [];
+        }
+        return array_values(array_intersect($fields, array_keys($columns)));
+    }
+
+    private function queryHotelDateRows(
+        string $table,
+        array $fields,
+        int $hotelId,
+        string $dateColumn,
+        string $startDate,
+        string $endDate,
+        string $orderBy,
+        ?callable $extraFilter = null,
+        string $orderDirection = 'asc',
+        int $limit = 0
+    ): array {
+        if ($hotelId <= 0) {
+            return [];
+        }
+
+        $columns = $this->tableColumns($table);
+        if (empty($columns) || !isset($columns['hotel_id']) || !isset($columns[$dateColumn])) {
+            return [];
+        }
+
+        $selectedFields = array_values(array_unique(array_merge($fields, ['hotel_id', $dateColumn])));
+        $selectedFields = array_values(array_intersect($selectedFields, array_keys($columns)));
+        if (empty($selectedFields)) {
+            return [];
+        }
+
+        $query = Db::name($table)
+            ->field(implode(',', $selectedFields))
+            ->where('hotel_id', $hotelId)
+            ->where($dateColumn, '>=', $startDate)
+            ->where($dateColumn, '<=', $endDate);
+
+        if ($extraFilter !== null) {
+            $extraFilter($query, $columns);
+        }
+
+        if (isset($columns[$orderBy])) {
+            $query->order($orderBy, strtolower($orderDirection) === 'desc' ? 'desc' : 'asc');
+        }
+        if ($limit > 0) {
+            $query->limit($limit);
+        }
+
+        return $query->select()->toArray();
+    }
+
+    private function otaPlatformCode(string $platform): ?int
+    {
+        return [
+            'ctrip' => 1,
+            'meituan' => 2,
+            'fliggy' => 3,
+            'booking' => 4,
+            'expedia' => 5,
+        ][$platform] ?? null;
     }
 
     private function maxDateTime(array $values): string
@@ -1808,19 +2017,7 @@ class Agent extends Base
 
     private function onlineDailyDataColumns(): array
     {
-        static $columns = null;
-        if ($columns !== null) {
-            return $columns;
-        }
-
-        $columns = [];
-        foreach (Db::query('SHOW COLUMNS FROM online_daily_data') as $row) {
-            if (!empty($row['Field'])) {
-                $columns[(string) $row['Field']] = true;
-            }
-        }
-
-        return $columns;
+        return $this->tableColumns('online_daily_data');
     }
 
     private function buildOtaDiagnosisSummary(array $rows, int $hotelId, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array

@@ -3168,6 +3168,477 @@ JAVASCRIPT;
             return $this->error('获取数据列表失败: ' . $e->getMessage() . ' 在 ' . $e->getFile() . ':' . $e->getLine());
         }
     }
+
+    /**
+     * OTA历史快照查询中心
+     */
+    public function history(): Response
+    {
+        $currentUser = $this->request->user ?? $this->currentUser;
+        if (!$currentUser) {
+            return $this->error('未登录', 401);
+        }
+
+        try {
+            $page = max(1, intval($this->request->get('page', 1)));
+            $pageSize = min(100, max(1, intval($this->request->get('page_size', 20))));
+            $keyword = trim((string)$this->request->get('keyword', ''));
+
+            $query = Db::name('online_daily_data');
+            $this->applyOnlineHistoryFilters($query, $currentUser);
+
+            $rows = $query->order('create_time', 'desc')
+                ->order('id', 'desc')
+                ->select()
+                ->toArray();
+
+            $hotelMap = $this->getConfiguredHotelNameMap();
+            $historyList = [];
+            foreach ($rows as $row) {
+                $item = $this->normalizeOnlineHistoryRow($row, $hotelMap);
+                if ($keyword !== '' && !$this->onlineHistoryMatchesKeyword($item, $keyword)) {
+                    continue;
+                }
+                $historyList[] = $item;
+            }
+
+            $total = count($historyList);
+            $list = array_slice($historyList, ($page - 1) * $pageSize, $pageSize);
+
+            return $this->success([
+                'list' => $list,
+                'total' => $total,
+                'page' => $page,
+                'page_size' => $pageSize,
+                'summary' => $this->buildOnlineHistorySummary($historyList),
+            ]);
+        } catch (\Throwable $e) {
+            return $this->error('获取历史记录失败: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * OTA历史快照详情
+     */
+    public function historyDetail(int $id): Response
+    {
+        $currentUser = $this->request->user ?? $this->currentUser;
+        if (!$currentUser) {
+            return $this->error('未登录', 401);
+        }
+
+        try {
+            $row = Db::name('online_daily_data')->where('id', $id)->find();
+            if (!$row) {
+                return $this->error('历史记录不存在', 404);
+            }
+
+            if (!$currentUser->isSuperAdmin()) {
+                $permittedHotelIds = $currentUser->getPermittedHotelIds();
+                if (empty($row['system_hotel_id']) || !in_array((int)$row['system_hotel_id'], $permittedHotelIds, true)) {
+                    return $this->error('无权查看该历史记录', 403);
+                }
+            }
+
+            $item = $this->normalizeOnlineHistoryRow($row, $this->getConfiguredHotelNameMap());
+            $rawData = $item['raw_data'] ?? '';
+            $decoded = is_string($rawData) && $rawData !== '' ? json_decode($rawData, true) : null;
+            $item['raw_data_json'] = json_last_error() === JSON_ERROR_NONE ? $decoded : null;
+
+            return $this->success($item);
+        } catch (\Throwable $e) {
+            return $this->error('获取历史详情失败: ' . $e->getMessage());
+        }
+    }
+
+    private function applyOnlineHistoryFilters($query, $currentUser): void
+    {
+        $platform = strtolower((string)$this->request->get('platform', $this->request->get('source', '')));
+        $dataType = (string)$this->request->get('data_type', '');
+        $hotelScope = (string)$this->request->get('hotel_scope', 'all');
+        $hotelId = (string)$this->request->get('hotel_id', '');
+        $otaHotelId = (string)$this->request->get('ota_hotel_id', '');
+        $startDate = (string)$this->request->get('start_date', '');
+        $endDate = (string)$this->request->get('end_date', '');
+
+        if ($platform !== '' && $platform !== 'all') {
+            if ($platform === 'ctrip') {
+                $query->where(function ($q) {
+                    $q->where('source', 'ctrip')->whereOr('platform', 'Ctrip');
+                });
+            } elseif ($platform === 'meituan') {
+                $query->where(function ($q) {
+                    $q->where('source', 'meituan')->whereOr('platform', 'Meituan');
+                });
+            }
+        }
+
+        if ($dataType !== '' && $dataType !== 'all') {
+            if ($dataType === 'business') {
+                $this->applyDataTypeFilter($query, 'business');
+            } elseif ($dataType === 'competitor') {
+                $query->where(function ($q) {
+                    $q->where('data_type', 'competitor')
+                        ->whereOr('compare_type', 'competitor_avg')
+                        ->whereOr('hotel_name', 'like', '%竞争圈平均%');
+                });
+            } elseif ($dataType === 'review') {
+                $query->where(function ($q) {
+                    $q->where('data_type', 'review')->whereOr('data_type', 'comment');
+                });
+            } elseif ($dataType === 'advertising') {
+                $query->where(function ($q) {
+                    $q->where('data_type', 'advertising')->whereOr('data_type', 'ad');
+                });
+            } else {
+                $query->where('data_type', $dataType);
+            }
+        }
+
+        if ($startDate !== '') {
+            $query->where('data_date', '>=', $startDate);
+        }
+        if ($endDate !== '') {
+            $query->where('data_date', '<=', $endDate);
+        }
+
+        if (!in_array($hotelScope, ['all', 'mine', 'competitor_avg', 'hotel'], true) && $hotelScope !== '') {
+            $hotelId = $hotelScope;
+            $hotelScope = 'hotel';
+        }
+
+        if ($hotelScope === 'mine') {
+            $query->where(function ($q) {
+                $q->whereNotNull('system_hotel_id')
+                    ->whereOr('compare_type', 'self')
+                    ->whereOr('hotel_name', '我的酒店');
+            });
+        } elseif ($hotelScope === 'competitor_avg') {
+            $query->where(function ($q) {
+                $q->where('compare_type', 'competitor_avg')
+                    ->whereOr('hotel_id', '-1')
+                    ->whereOr('hotel_name', '竞争圈平均');
+            });
+        } elseif ($hotelScope === 'hotel' && $hotelId !== '' && $hotelId !== 'all') {
+            $query->where('system_hotel_id', intval($hotelId));
+        }
+
+        if ($otaHotelId !== '') {
+            $query->where('hotel_id', $otaHotelId);
+        }
+
+        if (!$currentUser->isSuperAdmin()) {
+            $permittedHotelIds = $currentUser->getPermittedHotelIds();
+            if (empty($permittedHotelIds)) {
+                $query->where('id', 0);
+            } else {
+                $query->whereIn('system_hotel_id', $permittedHotelIds);
+            }
+        }
+    }
+
+    private function getConfiguredHotelNameMap(): array
+    {
+        try {
+            return Db::name('hotels')->where('status', 1)->column('name', 'id');
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function normalizeOnlineHistoryRow(array $row, array $hotelMap): array
+    {
+        $rawData = (string)($row['raw_data'] ?? $row['response_json'] ?? $row['data'] ?? '');
+        $source = strtolower((string)($row['source'] ?? ''));
+        $platformCode = $this->normalizeHistoryPlatformCode($row['platform'] ?? $source);
+        $compareType = (string)($row['compare_type'] ?? '');
+        $otaHotelId = (string)($row['ota_hotel_id'] ?? $row['hotel_id'] ?? '');
+        $systemHotelId = $row['system_hotel_id'] ?? null;
+        $displayHotelName = $this->buildHistoryHotelDisplayName($row, $hotelMap);
+        $dataType = $this->normalizeHistoryDataType((string)($row['data_type'] ?? ''), $compareType);
+        $status = $this->resolveHistoryStatus($row, $rawData);
+
+        $item = $row;
+        $item['id'] = (int)$row['id'];
+        $item['fetch_time'] = (string)($row['create_time'] ?? '');
+        $item['data_date'] = (string)($row['data_date'] ?? '');
+        $item['platform'] = $platformCode;
+        $item['platform_label'] = $this->historyPlatformLabel($platformCode);
+        $item['data_type'] = $dataType;
+        $item['data_type_label'] = $this->historyDataTypeLabel($dataType);
+        $item['hotel_name'] = $displayHotelName;
+        $item['original_hotel_name'] = (string)($row['hotel_name'] ?? '');
+        $item['hotel_id'] = $systemHotelId;
+        $item['ota_hotel_id'] = $otaHotelId;
+        $item['is_my_hotel'] = $this->isMyHotelHistoryRow($row);
+        $item['batch_no'] = $this->buildHistoryBatchNo($row, $rawData, $platformCode, $dataType);
+        $item['status'] = $status;
+        $item['status_label'] = $this->historyStatusLabel($status);
+        $item['raw_data'] = $rawData;
+        $item['metrics_summary'] = $this->buildHistoryMetricSummary($row, $rawData);
+
+        return $item;
+    }
+
+    private function buildHistoryHotelDisplayName(array $row, array $hotelMap): string
+    {
+        $compareType = (string)($row['compare_type'] ?? '');
+        if ($compareType === 'competitor_avg' || (string)($row['hotel_id'] ?? '') === '-1') {
+            return '竞争圈平均';
+        }
+
+        $name = trim((string)($row['hotel_name'] ?? ''));
+        if ($name !== '' && !$this->isDirtyQuestionMarkName($name)) {
+            return $name;
+        }
+
+        $systemHotelId = $row['system_hotel_id'] ?? null;
+        if ($systemHotelId && isset($hotelMap[(int)$systemHotelId])) {
+            return $hotelMap[(int)$systemHotelId];
+        }
+
+        $otaHotelId = (string)($row['hotel_id'] ?? '');
+        return $otaHotelId !== '' ? 'OTA酒店ID ' . $otaHotelId : '未知酒店';
+    }
+
+    private function isDirtyQuestionMarkName(string $name): bool
+    {
+        $text = preg_replace('/\s+/u', '', $name) ?? '';
+        if ($text === '') {
+            return false;
+        }
+        $questionCount = substr_count($text, '?');
+        if ($questionCount === 0) {
+            return false;
+        }
+        return $questionCount >= 4 && ($questionCount / max(1, strlen($text))) >= 0.35;
+    }
+
+    private function normalizeHistoryPlatformCode($platform): string
+    {
+        $value = strtolower((string)$platform);
+        if (in_array($value, ['ctrip', '携程'], true)) {
+            return 'ctrip';
+        }
+        if (in_array($value, ['meituan', '美团'], true)) {
+            return 'meituan';
+        }
+        if (in_array($value, ['qunar', '去哪儿'], true)) {
+            return 'qunar';
+        }
+        return $value !== '' ? $value : 'unknown';
+    }
+
+    private function historyPlatformLabel(string $platform): string
+    {
+        return [
+            'ctrip' => '携程',
+            'meituan' => '美团',
+            'qunar' => '去哪儿',
+            'unknown' => '未知',
+        ][$platform] ?? $platform;
+    }
+
+    private function normalizeHistoryDataType(string $dataType, string $compareType): string
+    {
+        if ($compareType === 'competitor_avg') {
+            return 'competitor';
+        }
+        $value = strtolower(trim($dataType));
+        if ($value === '') {
+            return 'business';
+        }
+        if (in_array($value, ['comment', 'comments'], true)) {
+            return 'review';
+        }
+        if (in_array($value, ['ad', 'ads'], true)) {
+            return 'advertising';
+        }
+        return $value;
+    }
+
+    private function historyDataTypeLabel(string $dataType): string
+    {
+        return [
+            'business' => '经营数据',
+            'traffic' => '流量数据',
+            'competitor' => '竞对数据',
+            'review' => '点评数据',
+            'advertising' => '广告数据',
+        ][$dataType] ?? $dataType;
+    }
+
+    private function resolveHistoryStatus(array $row, string $rawData): string
+    {
+        $status = strtolower((string)($row['status'] ?? ''));
+        if (in_array($status, ['failed', 'fail', 'error'], true)) {
+            return 'failed';
+        }
+        if ($rawData !== '') {
+            $decoded = json_decode($rawData, true);
+            if (is_array($decoded) && (isset($decoded['error']) || isset($decoded['errors']))) {
+                return 'failed';
+            }
+            return 'success';
+        }
+
+        $metrics = [
+            $row['amount'] ?? 0,
+            $row['quantity'] ?? 0,
+            $row['book_order_num'] ?? 0,
+            $row['data_value'] ?? 0,
+            $row['list_exposure'] ?? 0,
+            $row['detail_exposure'] ?? 0,
+            $row['order_submit_num'] ?? 0,
+        ];
+        foreach ($metrics as $metric) {
+            if ((float)$metric > 0) {
+                return 'success';
+            }
+        }
+        return 'empty';
+    }
+
+    private function historyStatusLabel(string $status): string
+    {
+        return [
+            'success' => '成功',
+            'failed' => '失败',
+            'empty' => '数据为空',
+        ][$status] ?? $status;
+    }
+
+    private function isMyHotelHistoryRow(array $row): bool
+    {
+        if (!empty($row['system_hotel_id'])) {
+            return true;
+        }
+        if (($row['compare_type'] ?? '') === 'self') {
+            return true;
+        }
+        return trim((string)($row['hotel_name'] ?? '')) === '我的酒店';
+    }
+
+    private function buildHistoryBatchNo(array $row, string $rawData, string $platformCode, string $dataType): string
+    {
+        if (!empty($row['batch_no'])) {
+            return (string)$row['batch_no'];
+        }
+
+        if ($rawData !== '') {
+            $decoded = json_decode($rawData, true);
+            if (is_array($decoded)) {
+                foreach (['batch_no', 'batchNo', 'fetch_batch_no', 'fetchBatchNo'] as $key) {
+                    if (!empty($decoded[$key])) {
+                        return (string)$decoded[$key];
+                    }
+                }
+            }
+        }
+
+        $fetchTime = (string)($row['create_time'] ?? '');
+        $batchTime = $fetchTime !== '' && strtotime($fetchTime) !== false
+            ? date('YmdHis', strtotime($fetchTime))
+            : 'unknown';
+        return 'B' . $batchTime . '-' . $platformCode . '-' . $dataType;
+    }
+
+    private function buildHistoryMetricSummary(array $row, string $rawData): string
+    {
+        $raw = $rawData !== '' ? json_decode($rawData, true) : [];
+        $raw = is_array($raw) ? $raw : [];
+        $metrics = [];
+
+        $exposure = (int)($row['list_exposure'] ?? $raw['listExposure'] ?? $raw['exposure'] ?? $raw['exposure_count'] ?? 0);
+        if ($exposure > 0) {
+            $metrics[] = '曝光 ' . $exposure;
+        }
+
+        $views = (int)($row['detail_exposure'] ?? $raw['totalDetailNum'] ?? $raw['detailExposure'] ?? $raw['views'] ?? 0);
+        if ($views > 0) {
+            $metrics[] = '浏览 ' . $views;
+        }
+
+        $orders = (int)($row['book_order_num'] ?? $row['order_submit_num'] ?? $raw['bookOrderNum'] ?? $raw['orderCount'] ?? 0);
+        if ($orders > 0) {
+            $metrics[] = '订单 ' . $orders;
+        }
+
+        $amount = (float)($row['amount'] ?? 0);
+        $quantity = (float)($row['quantity'] ?? 0);
+        if ($amount > 0 && $quantity > 0) {
+            $metrics[] = '均房价 ¥' . number_format($amount / $quantity, 2);
+        }
+
+        $rank = $raw['amountRank'] ?? $raw['quantityRank'] ?? $raw['bookOrderNumRank'] ?? $raw['rank'] ?? null;
+        if ($rank !== null && $rank !== '') {
+            $metrics[] = '排名 ' . $rank;
+        }
+
+        if (empty($metrics)) {
+            $dataValue = (float)($row['data_value'] ?? 0);
+            if ($dataValue > 0) {
+                $metrics[] = '指标值 ' . number_format($dataValue, 2);
+            }
+        }
+
+        return empty($metrics) ? '-' : implode(' / ', $metrics);
+    }
+
+    private function onlineHistoryMatchesKeyword(array $item, string $keyword): bool
+    {
+        $needle = mb_strtolower(trim($keyword));
+        if ($needle === '') {
+            return true;
+        }
+
+        $haystack = [
+            $item['hotel_name'] ?? '',
+            $item['original_hotel_name'] ?? '',
+            $item['ota_hotel_id'] ?? '',
+            $item['batch_no'] ?? '',
+            $item['platform'] ?? '',
+            $item['platform_label'] ?? '',
+            $item['data_type'] ?? '',
+            $item['data_type_label'] ?? '',
+            $item['fetch_time'] ?? '',
+        ];
+
+        foreach ($haystack as $value) {
+            if ($value !== '' && mb_strpos(mb_strtolower((string)$value), $needle) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function buildOnlineHistorySummary(array $historyList): array
+    {
+        $latestFetchTime = '';
+        $today = date('Y-m-d');
+        $todayRecords = 0;
+        $failedRecords = 0;
+
+        foreach ($historyList as $item) {
+            $fetchTime = (string)($item['fetch_time'] ?? '');
+            if ($fetchTime !== '' && ($latestFetchTime === '' || strcmp($fetchTime, $latestFetchTime) > 0)) {
+                $latestFetchTime = $fetchTime;
+            }
+            if ($fetchTime !== '' && substr($fetchTime, 0, 10) === $today) {
+                $todayRecords++;
+            }
+            if (($item['status'] ?? '') !== 'success') {
+                $failedRecords++;
+            }
+        }
+
+        return [
+            'total_records' => count($historyList),
+            'latest_fetch_time' => $latestFetchTime,
+            'today_records' => $todayRecords,
+            'failed_records' => $failedRecords,
+        ];
+    }
     
     /**
      * 获取数据统计汇总
