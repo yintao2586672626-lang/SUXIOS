@@ -55,6 +55,78 @@ class StrategySimulation extends Base
         }
     }
 
+    public function records(): Response
+    {
+        try {
+            $missingTables = $this->getMissingStrategyTables();
+            if (!empty($missingTables)) {
+                return $this->error('战略推演数据表缺失: ' . implode(', ', $missingTables), 500);
+            }
+
+            $query = StrategySimulationRecord::whereNull('deleted_at');
+            if (!$this->currentUser->isSuperAdmin()) {
+                $query->where('created_by', (int)($this->currentUser->id ?? 0));
+            }
+
+            $rows = $query->order('id', 'desc')->limit(30)->select()->toArray();
+            return $this->success([
+                'list' => array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows)),
+            ]);
+        } catch (\Throwable $e) {
+            return $this->error('获取战略推演记录失败: ' . $e->getMessage(), 400);
+        }
+    }
+
+    public function detail(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('战略推演记录ID无效', 422);
+            }
+
+            $query = StrategySimulationRecord::where('id', $id)->whereNull('deleted_at');
+            if (!$this->currentUser->isSuperAdmin()) {
+                $query->where('created_by', (int)($this->currentUser->id ?? 0));
+            }
+
+            $row = $query->find();
+            if (!$row) {
+                return $this->error('战略推演记录不存在或无权访问', 404);
+            }
+
+            return $this->success($this->formatRecord($row->toArray(), true));
+        } catch (\Throwable $e) {
+            return $this->error('获取战略推演详情失败: ' . $e->getMessage(), 400);
+        }
+    }
+
+    public function archive(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('战略推演记录ID无效', 422);
+            }
+
+            $query = StrategySimulationRecord::where('id', $id)->whereNull('deleted_at');
+            if (!$this->currentUser->isSuperAdmin()) {
+                $query->where('created_by', (int)($this->currentUser->id ?? 0));
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $updated = $query->update([
+                'deleted_at' => $now,
+                'updated_at' => $now,
+            ]);
+            if ($updated <= 0) {
+                return $this->error('战略推演记录不存在或无权归档', 404);
+            }
+
+            return $this->success(['id' => $id], '战略推演记录已归档');
+        } catch (\Throwable $e) {
+            return $this->error('战略推演记录归档失败: ' . $e->getMessage(), 400);
+        }
+    }
+
     private function normalizeInput(array $data): array
     {
         $input = [
@@ -287,6 +359,61 @@ class StrategySimulation extends Base
                 '租约递增条款、免租期、装修清单和退出条件',
             ],
         ];
+    }
+
+    private function formatRecord(array $row, bool $withDetail): array
+    {
+        $input = $this->decodeJson($row['input_json'] ?? []);
+        if (empty($input)) {
+            $input = [
+                'project_name' => $row['project_name'] ?? '',
+                'city' => $row['city'] ?? '',
+                'district' => $row['district'] ?? '',
+                'address' => $row['address'] ?? '',
+                'property_area' => (float)($row['property_area'] ?? 0),
+                'room_count' => (int)($row['room_count'] ?? 0),
+                'monthly_rent' => (float)($row['monthly_rent'] ?? 0),
+                'decoration_budget' => (float)($row['decoration_budget'] ?? 0),
+                'lease_years' => (int)($row['lease_years'] ?? 0),
+                'rent_free_months' => (int)($row['rent_free_months'] ?? 0),
+                'business_type' => $row['business_type'] ?? '',
+                'target_customer' => $row['target_customer'] ?? '',
+                'target_hotel_level' => $row['target_hotel_level'] ?? '',
+                'competitor_count' => (int)($row['competitor_count'] ?? 0),
+            ];
+        }
+
+        $scoreJson = $this->decodeJson($row['score_json'] ?? []);
+        $recommendation = $this->decodeJson($row['recommendation_json'] ?? []);
+        $risk = $this->decodeJson($row['risk_json'] ?? []);
+        $dataSnapshot = $this->decodeJson($row['data_snapshot_json'] ?? []);
+        $totalScore = (int)($scoreJson['total_score'] ?? 0);
+        $scoreItems = $scoreJson['items'] ?? $scoreJson;
+
+        $record = [
+            'id' => (int)($row['id'] ?? 0),
+            'record_id' => (int)($row['id'] ?? 0),
+            'project_name' => (string)($row['project_name'] ?? ($input['project_name'] ?? '')),
+            'city' => (string)($row['city'] ?? ($input['city'] ?? '')),
+            'district' => (string)($row['district'] ?? ($input['district'] ?? '')),
+            'total_score' => $totalScore,
+            'risk_level' => (string)($risk['risk_level'] ?? ''),
+            'decision' => (string)($recommendation['decision'] ?? ''),
+            'created_at' => (string)($row['created_at'] ?? ''),
+            'updated_at' => (string)($row['updated_at'] ?? ''),
+        ];
+
+        if (!$withDetail) {
+            return $record;
+        }
+
+        return array_merge($record, [
+            'input' => $input,
+            'scores' => $scoreItems,
+            'recommendation' => $recommendation,
+            'risk' => $risk,
+            'data_snapshot' => $dataSnapshot,
+        ]);
     }
 
     private function saveRecord(array $input, array $dataSnapshot, array $scores, array $recommendation, array $risk): int

@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace app\service;
 
 use InvalidArgumentException;
+use RuntimeException;
+use Throwable;
+use think\facade\Db;
 
 class TransferDecisionService
 {
@@ -276,6 +279,180 @@ class TransferDecisionService
         ];
     }
 
+    public function buildSourcePayload(array $hotelIds, ?int $hotelId, string $date): array
+    {
+        $this->ensureTable();
+
+        $targetHotelId = $hotelId ?: ($hotelIds[0] ?? 0);
+        $scopeHotelIds = $targetHotelId > 0 ? [$targetHotelId] : $hotelIds;
+        $sourceDate = date('Y-m-d', strtotime($date) ?: time());
+        $currentStart = date('Y-m-d', strtotime($sourceDate . ' -29 days'));
+        $previousEnd = date('Y-m-d', strtotime($currentStart . ' -1 day'));
+        $previousStart = date('Y-m-d', strtotime($previousEnd . ' -29 days'));
+
+        $currentDaily = $this->dailyReportRows($scopeHotelIds, $currentStart, $sourceDate);
+        $currentOnline = $this->onlineRows($scopeHotelIds, $currentStart, $sourceDate);
+        $previousDaily = $this->dailyReportRows($scopeHotelIds, $previousStart, $previousEnd);
+        $previousOnline = $this->onlineRows($scopeHotelIds, $previousStart, $previousEnd);
+        $current = $this->aggregateTransferMetrics($currentDaily, $currentOnline);
+        $previous = $this->aggregateTransferMetrics($previousDaily, $previousOnline);
+        $hotel = $this->hotelRow($targetHotelId);
+        $hotelName = (string)($hotel['name'] ?? $current['hotel_name'] ?? '');
+
+        $snapshot = [
+            'hotel_id' => $targetHotelId,
+            'hotel_name' => $hotelName,
+            'location' => (string)($hotel['address'] ?? ''),
+            'source_date' => $sourceDate,
+            'current_window' => ['start' => $currentStart, 'end' => $sourceDate],
+            'previous_window' => ['start' => $previousStart, 'end' => $previousEnd],
+            'current' => $current,
+            'previous' => $previous,
+            'source_counts' => [
+                'daily_reports' => count($currentDaily),
+                'online_daily_data' => count($currentOnline),
+                'previous_daily_reports' => count($previousDaily),
+                'previous_online_daily_data' => count($previousOnline),
+            ],
+            'data_status' => $current['actual_days'] > 0 ? '已接入真实数据' : '暂无真实数据',
+            'generated_at' => date('Y-m-d H:i:s'),
+        ];
+
+        return [
+            'hotel_id' => $targetHotelId,
+            'hotel_name' => $hotelName,
+            'source_date' => $sourceDate,
+            'snapshot' => $snapshot,
+            'pricing_input' => [
+                'hotel_id' => $targetHotelId,
+                'hotel_name' => $hotelName,
+                'location' => (string)($hotel['address'] ?? ''),
+                'room_count' => $current['room_count'] > 0 ? $current['room_count'] : null,
+                'monthly_revenue' => $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
+                'occupancy_rate' => $current['occupancy_rate'] > 0 ? $current['occupancy_rate'] : null,
+                'adr' => $current['adr'] > 0 ? $current['adr'] : null,
+                'rating' => $current['rating'] > 0 ? $current['rating'] : null,
+                'order_count' => $current['orders'] > 0 ? $current['orders'] : null,
+                'has_data_anomaly' => $current['has_data_anomaly'],
+            ],
+            'timing_input' => [
+                'hotel_id' => $targetHotelId,
+                'current_revenue' => $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
+                'previous_revenue' => $previous['revenue'] > 0 ? round($previous['revenue'] / 10000, 2) : null,
+                'current_orders' => $current['orders'] > 0 ? $current['orders'] : null,
+                'previous_orders' => $previous['orders'] > 0 ? $previous['orders'] : null,
+                'current_adr' => $current['adr'] > 0 ? $current['adr'] : null,
+                'previous_adr' => $previous['adr'] > 0 ? $previous['adr'] : null,
+                'current_occupancy_rate' => $current['occupancy_rate'] > 0 ? $current['occupancy_rate'] : null,
+                'previous_occupancy_rate' => $previous['occupancy_rate'] > 0 ? $previous['occupancy_rate'] : null,
+                'rating' => $current['rating'] > 0 ? $current['rating'] : null,
+                'has_data_anomaly' => $current['has_data_anomaly'],
+                'has_data_gap' => $current['actual_days'] > 0 && $current['actual_days'] < 7,
+                'exposure' => $current['exposure'] > 0 ? $current['exposure'] : null,
+                'visitors' => $current['visitors'] > 0 ? $current['visitors'] : null,
+                'conversion_rate' => $current['conversion_rate'] > 0 ? $current['conversion_rate'] : null,
+                'order_count' => $current['orders'] > 0 ? $current['orders'] : null,
+                'room_nights' => $current['room_nights'] > 0 ? $current['room_nights'] : null,
+            ],
+            'data_notice' => $snapshot['data_status'],
+        ];
+    }
+
+    public function saveRecord(string $recordType, array $input, array $result, array $snapshot, int $hotelId, int $userId): int
+    {
+        $this->ensureTable();
+
+        $summary = $this->recordSummary($recordType, $input, $result, $snapshot);
+        $now = date('Y-m-d H:i:s');
+
+        return (int)Db::name('transfer_records')->insertGetId([
+            'record_type' => $recordType,
+            'hotel_id' => $hotelId,
+            'hotel_name' => $summary['hotel_name'],
+            'source_date' => $summary['source_date'],
+            'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
+            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
+            'snapshot_json' => json_encode($snapshot, JSON_UNESCAPED_UNICODE),
+            'decision' => $summary['decision'],
+            'risk_level' => $summary['risk_level'],
+            'created_by' => $userId,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
+    public function records(array $hotelIds, int $userId, bool $isSuperAdmin): array
+    {
+        $this->ensureTable();
+
+        $query = Db::name('transfer_records')
+            ->whereNull('deleted_at')
+            ->whereIn('hotel_id', $hotelIds);
+
+        $rows = $query->order('id', 'desc')->limit(80)->select()->toArray();
+        return array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
+    }
+
+    public function detail(int $id, array $hotelIds, int $userId, bool $isSuperAdmin): array
+    {
+        $this->ensureTable();
+
+        $query = Db::name('transfer_records')->where('id', $id)->whereNull('deleted_at');
+        $query->whereIn('hotel_id', $hotelIds);
+
+        $row = $query->find();
+        if (!$row) {
+            throw new RuntimeException('转让记录不存在或无权访问');
+        }
+
+        return $this->formatRecord($row, true);
+    }
+
+    public function archive(int $id, array $hotelIds, int $userId, bool $isSuperAdmin): bool
+    {
+        $this->ensureTable();
+
+        $now = date('Y-m-d H:i:s');
+        $affected = Db::name('transfer_records')
+            ->where('id', $id)
+            ->whereNull('deleted_at')
+            ->whereIn('hotel_id', $hotelIds)
+            ->update([
+                'deleted_at' => $now,
+                'updated_at' => $now,
+            ]);
+        if ((int)$affected <= 0) {
+            throw new RuntimeException('转让记录不存在或无权访问');
+        }
+
+        return true;
+    }
+
+    public function ensureTable(): void
+    {
+        Db::execute("
+            CREATE TABLE IF NOT EXISTS transfer_records (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                record_type VARCHAR(30) NOT NULL DEFAULT '',
+                hotel_id INT UNSIGNED NOT NULL DEFAULT 0,
+                hotel_name VARCHAR(160) NOT NULL DEFAULT '',
+                source_date DATE DEFAULT NULL,
+                input_json JSON DEFAULT NULL,
+                result_json JSON DEFAULT NULL,
+                snapshot_json JSON DEFAULT NULL,
+                decision VARCHAR(120) NOT NULL DEFAULT '',
+                risk_level VARCHAR(30) NOT NULL DEFAULT '',
+                created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                deleted_at DATETIME DEFAULT NULL,
+                PRIMARY KEY (id),
+                INDEX idx_transfer_records_hotel_type (hotel_id, record_type, id),
+                INDEX idx_transfer_records_created_by (created_by, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    }
+
     private function buildValuationMultiple(int $remainingLeaseMonths, float $rating, float $occupancyRate, bool $hasDataAnomaly, bool $licensesComplete): float
     {
         $multiple = 24.0;
@@ -460,6 +637,220 @@ class TransferDecisionService
     {
         $rank = ['低风险' => 1, '中风险' => 2, '高风险' => 3];
         return ($rank[$candidate] ?? 1) > ($rank[$current] ?? 1) ? $candidate : $current;
+    }
+
+    private function recordSummary(string $recordType, array $input, array $result, array $snapshot): array
+    {
+        $hotelName = (string)($snapshot['hotel_name'] ?? $input['hotel_name'] ?? $result['basic_info']['hotel_name'] ?? '');
+        $sourceDate = (string)($snapshot['source_date'] ?? '');
+        $summary = [
+            'hotel_name' => $this->limitText($hotelName, 160),
+            'source_date' => $sourceDate !== '' ? $sourceDate : null,
+            'decision' => '',
+            'risk_level' => '',
+        ];
+
+        if ($recordType === 'pricing') {
+            $summary['decision'] = $this->limitText((string)($result['suggestion'] ?? $result['valuation']['quote_judgement'] ?? ''), 120);
+            $summary['risk_level'] = $this->limitText((string)($result['risk_level'] ?? ''), 30);
+            return $summary;
+        }
+
+        if ($recordType === 'timing') {
+            $summary['decision'] = $this->limitText((string)($result['decision'] ?? $result['suggested_action'] ?? ''), 120);
+            $summary['risk_level'] = $this->limitText((string)($result['data_quality']['notice'] ?? ''), 30);
+            return $summary;
+        }
+
+        $summary['decision'] = $this->limitText((string)($result['suggested_action'] ?? $result['final_judgement'] ?? ''), 120);
+        $summary['risk_level'] = $this->limitText((string)($input['pricing']['risk_level'] ?? ''), 30);
+        return $summary;
+    }
+
+    private function formatRecord(array $row, bool $withDetail): array
+    {
+        $result = $this->decodeJson($row['result_json'] ?? '');
+        $record = [
+            'id' => (int)$row['id'],
+            'record_type' => (string)($row['record_type'] ?? ''),
+            'hotel_id' => (int)($row['hotel_id'] ?? 0),
+            'hotel_name' => (string)($row['hotel_name'] ?? ''),
+            'source_date' => (string)($row['source_date'] ?? ''),
+            'decision' => (string)($row['decision'] ?? ''),
+            'risk_level' => (string)($row['risk_level'] ?? ''),
+            'created_by' => (int)($row['created_by'] ?? 0),
+            'created_at' => (string)($row['created_at'] ?? ''),
+            'summary' => [
+                'monthly_net_profit' => $result['profit']['monthly_net_profit'] ?? null,
+                'reasonable_valuation' => $result['valuation']['reasonable_valuation'] ?? null,
+                'timing_score' => $result['timing_score'] ?? null,
+                'suggested_action' => $result['suggested_action'] ?? null,
+            ],
+        ];
+
+        if ($withDetail) {
+            $record['input'] = $this->decodeJson($row['input_json'] ?? '');
+            $record['result'] = $result;
+            $record['snapshot'] = $this->decodeJson($row['snapshot_json'] ?? '');
+        }
+
+        return $record;
+    }
+
+    private function dailyReportRows(array $hotelIds, string $startDate, string $endDate): array
+    {
+        if (!$this->tableExists('daily_reports') || empty($hotelIds)) {
+            return [];
+        }
+
+        try {
+            return Db::name('daily_reports')
+                ->whereIn('hotel_id', $hotelIds)
+                ->whereBetween('report_date', [$startDate, $endDate])
+                ->select()
+                ->toArray();
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function onlineRows(array $hotelIds, string $startDate, string $endDate): array
+    {
+        if (!$this->tableExists('online_daily_data') || empty($hotelIds)) {
+            return [];
+        }
+
+        try {
+            $safeHotelIds = implode(',', array_map('intval', $hotelIds));
+            return Db::name('online_daily_data')
+                ->whereBetween('data_date', [$startDate, $endDate])
+                ->whereRaw("(system_hotel_id IN ({$safeHotelIds}) OR hotel_id IN ({$safeHotelIds}))")
+                ->select()
+                ->toArray();
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function hotelRow(int $hotelId): array
+    {
+        if ($hotelId <= 0 || !$this->tableExists('hotels')) {
+            return [];
+        }
+
+        try {
+            $row = Db::name('hotels')->where('id', $hotelId)->find();
+            return is_array($row) ? $row : [];
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function aggregateTransferMetrics(array $dailyRows, array $onlineRows): array
+    {
+        $dates = [];
+        $revenue = 0.0;
+        $orders = 0;
+        $roomNights = 0.0;
+        $roomCount = 0;
+        $occValues = [];
+        $ratingValues = [];
+        $exposure = 0;
+        $visitors = 0;
+        $hotelName = '';
+
+        foreach ($dailyRows as $row) {
+            $dates[(string)$row['report_date']] = true;
+            $reportData = $this->decodeJson($row['report_data'] ?? '');
+            $revenue += $this->extractRevenue($row, $reportData);
+            $roomCount = max($roomCount, (int)($row['room_count'] ?? $reportData['room_count'] ?? 0));
+            $roomNights += (float)($reportData['room_nights'] ?? $reportData['occupied_rooms'] ?? $row['guest_count'] ?? 0);
+            $occ = (float)($row['occupancy_rate'] ?? $reportData['occ'] ?? $reportData['occupancy_rate'] ?? 0);
+            if ($occ > 0) {
+                $occValues[] = $occ > 1 ? $occ : $occ * 100;
+            }
+        }
+
+        foreach ($onlineRows as $row) {
+            $dates[(string)$row['data_date']] = true;
+            $raw = $this->decodeJson($row['raw_data'] ?? '');
+            $hotelName = $hotelName ?: (string)($row['hotel_name'] ?? '');
+            $revenue += (float)($row['amount'] ?? $raw['amount'] ?? $raw['revenue'] ?? 0);
+            $orders += (int)($row['book_order_num'] ?? $raw['bookOrderNum'] ?? $raw['orders'] ?? 0);
+            $roomNights += (float)($row['quantity'] ?? $row['data_value'] ?? $raw['roomNights'] ?? 0);
+            $exposure += (int)($raw['exposure'] ?? $raw['showNum'] ?? $raw['impression'] ?? 0);
+            $visitors += (int)($raw['visitors'] ?? $raw['visitorNum'] ?? $raw['qunarDetailVisitors'] ?? $raw['totalDetailNum'] ?? 0);
+            $score = (float)($row['comment_score'] ?? $row['qunar_comment_score'] ?? $raw['rating'] ?? $raw['score'] ?? 0);
+            if ($score > 0) {
+                $ratingValues[] = $score;
+            }
+        }
+
+        $actualDays = count($dates);
+        $adr = $roomNights > 0 ? $revenue / $roomNights : 0;
+        $occupancyRate = $this->avg($occValues);
+        if ($occupancyRate <= 0 && $roomCount > 0 && $roomNights > 0 && $actualDays > 0) {
+            $occupancyRate = $roomNights / ($roomCount * $actualDays) * 100;
+        }
+
+        $conversionRate = $visitors > 0 ? $orders / $visitors * 100 : 0;
+
+        return [
+            'hotel_name' => $hotelName,
+            'actual_days' => $actualDays,
+            'revenue' => round($revenue, 2),
+            'orders' => $orders,
+            'room_nights' => round($roomNights, 2),
+            'room_count' => $roomCount,
+            'adr' => round($adr, 2),
+            'occupancy_rate' => round($occupancyRate, 2),
+            'rating' => $this->avg($ratingValues),
+            'exposure' => $exposure,
+            'visitors' => $visitors,
+            'conversion_rate' => round($conversionRate, 2),
+            'has_data_anomaly' => $orders > 0 && $exposure <= 0 && $visitors <= 0,
+        ];
+    }
+
+    private function extractRevenue(array $row, array $reportData): float
+    {
+        foreach (['revenue', 'day_revenue', 'room_revenue', 'ctrip_revenue', 'meituan_revenue'] as $key) {
+            $value = $row[$key] ?? $reportData[$key] ?? null;
+            if (is_numeric($value) && (float)$value > 0) {
+                return (float)$value;
+            }
+        }
+        return 0.0;
+    }
+
+    private function decodeJson(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        $decoded = json_decode((string)$value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function tableExists(string $table): bool
+    {
+        try {
+            return !empty(Db::query("SHOW TABLES LIKE '{$table}'"));
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private function avg(array $values): float
+    {
+        $values = array_values(array_filter($values, static fn($value): bool => is_numeric($value) && (float)$value > 0));
+        return $values ? round(array_sum($values) / count($values), 2) : 0.0;
+    }
+
+    private function limitText(string $value, int $length): string
+    {
+        return function_exists('mb_substr') ? mb_substr($value, 0, $length) : substr($value, 0, $length);
     }
 
     private function number(array $input, array $keys, float $default = 0.0): float

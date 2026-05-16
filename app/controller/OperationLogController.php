@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace app\controller;
 
-use app\BaseController;
 use app\model\OperationLog;
 use app\model\User;
 use app\model\Hotel;
@@ -76,17 +75,13 @@ class OperationLogController extends Base
         // 获取酒店列表
         $hotels = Hotel::field('id, name')->select()->toArray();
 
-        return json([
-            'code' => 0,
-            'msg' => 'success',
-            'data' => [
-                'list' => $list,
-                'total' => $total,
-                'modules' => $modules,
-                'actions' => $actions,
-                'users' => $users,
-                'hotels' => $hotels,
-            ]
+        return $this->success([
+            'list' => $list,
+            'total' => $total,
+            'modules' => $modules,
+            'actions' => $actions,
+            'users' => $users,
+            'hotels' => $hotels,
         ]);
     }
 
@@ -111,11 +106,7 @@ class OperationLogController extends Base
             $logArr['extra_data'] = json_decode($logArr['extra_data'], true);
         }
 
-        return json([
-            'code' => 0,
-            'msg' => 'success',
-            'data' => $logArr
-        ]);
+        return $this->success($logArr);
     }
 
     /**
@@ -149,24 +140,21 @@ class OperationLogController extends Base
             ->toArray();
 
         // 按用户统计(前10)
-        $userStats = OperationLog::whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
-            ->withJoin(['user' => ['id', 'username', 'realname']], 'LEFT')
-            ->field('user_id, count(*) as count')
-            ->group('user_id')
+        $userStats = OperationLog::alias('log')
+            ->leftJoin('users user', 'user.id = log.user_id')
+            ->whereBetween('log.create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->field('log.user_id, user.username, user.realname, count(*) as count')
+            ->group('log.user_id, user.username, user.realname')
             ->order('count', 'desc')
             ->limit(10)
             ->select()
             ->toArray();
 
-        return json([
-            'code' => 0,
-            'msg' => 'success',
-            'data' => [
-                'module_stats' => $moduleStats,
-                'action_stats' => $actionStats,
-                'date_stats' => $dateStats,
-                'user_stats' => $userStats,
-            ]
+        return $this->success([
+            'module_stats' => $moduleStats,
+            'action_stats' => $actionStats,
+            'date_stats' => $dateStats,
+            'user_stats' => $userStats,
         ]);
     }
 }

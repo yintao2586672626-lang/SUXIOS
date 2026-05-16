@@ -72,12 +72,71 @@ class OpeningService
 
     public function projects(array $hotelIds): array
     {
-        $query = Db::name('opening_projects')->order('id', 'desc');
+        $query = Db::name('opening_projects')
+            ->where('status', '<>', 'archived')
+            ->order('id', 'desc');
         if (!empty($hotelIds)) {
             $query->whereIn('hotel_id', $hotelIds);
         }
 
         return array_map([$this, 'normalizeProject'], $query->select()->toArray());
+    }
+
+    public function updateProject(int $projectId, array $input, array $hotelIds): array
+    {
+        $project = $this->requireProject($projectId, $hotelIds);
+        $data = [];
+
+        foreach (['project_name', 'hotel_name', 'city', 'brand', 'positioning', 'manager_name'] as $field) {
+            if (array_key_exists($field, $input)) {
+                $data[$field] = trim((string)$input[$field]);
+            }
+        }
+        if (array_key_exists('room_count', $input)) {
+            $data['room_count'] = max(0, (int)$input['room_count']);
+        }
+        if (array_key_exists('opening_date', $input)) {
+            $data['opening_date'] = $this->normalizeDate((string)$input['opening_date']);
+        }
+        if (array_key_exists('hotel_id', $input)) {
+            $hotelId = (int)$input['hotel_id'];
+            if ($hotelId <= 0 && count($hotelIds) === 1) {
+                $hotelId = (int)$hotelIds[0];
+            }
+            if ($hotelId > 0 && !empty($hotelIds) && !in_array($hotelId, $hotelIds, true)) {
+                throw new \RuntimeException('无权调整该开业项目所属酒店');
+            }
+            $data['hotel_id'] = max(0, $hotelId);
+        }
+        if (array_key_exists('status', $input)) {
+            $status = trim((string)$input['status']);
+            $allowedStatus = ['preparing', 'ready', 'online', 'paused', 'archived'];
+            if (!in_array($status, $allowedStatus, true)) {
+                throw new \RuntimeException('开业项目状态不正确');
+            }
+            $data['status'] = $status;
+        }
+
+        if (empty($data)) {
+            throw new \RuntimeException('没有可更新的开业项目字段');
+        }
+
+        $data['updated_at'] = $this->now();
+        Db::name('opening_projects')->where('id', $project['id'])->update($data);
+
+        return $this->requireProject($projectId, $hotelIds);
+    }
+
+    public function archiveProject(int $projectId, array $hotelIds): bool
+    {
+        $project = $this->requireProject($projectId, $hotelIds);
+
+        return Db::name('opening_projects')
+            ->where('id', $project['id'])
+            ->update([
+                'status' => 'archived',
+                'updated_at' => $this->now(),
+            ]) > 0;
     }
 
     public function overview(int $projectId, array $hotelIds): array

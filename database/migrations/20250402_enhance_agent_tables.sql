@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS `competitor_analysis` (
     `competitor_price` DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '竞对价格',
     `price_difference` DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '价格差(我方-竞对)',
     `price_index` DECIMAL(5,2) NOT NULL DEFAULT 100 COMMENT '价格指数',
-    `ota_platform` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'OTA平台:1=携程,2=美团,3=飞猪,4=Booking,5=Expedia',
+    `ota_platform` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'OTA平台:1=携程,2=美团,3=飞猪,4=Booking,5=Expedia,6=Agoda',
     `competitor_data` JSON DEFAULT NULL COMMENT '竞对详细数据',
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -20,6 +20,16 @@ class OnlineData extends Base
         return !in_array(strtolower(trim((string)$value)), ['0', 'false', 'no', 'off'], true);
     }
 
+    private function shouldLogOtaDebug(): bool
+    {
+        $value = env('OTA_DEBUG_LOG', false);
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
+    }
+
     private function buildStreamSslOptions(): array
     {
         $verify = $this->shouldVerifyOtaSsl();
@@ -87,6 +97,7 @@ class OnlineData extends Base
                 $result = $this->sendHttpRequest($url, $postData, $cookies, $authData);
 
                 if (!$result['success']) {
+                    $this->recordCookieAlert('ctrip', 'fetch-ctrip', (string)($result['error'] ?? ''), $systemHotelId ? (int)$systemHotelId : null);
                     return json([
                         'code' => 500,
                         'message' => $currentDate . ' 请求失败: ' . ($result['error'] ?? '请求失败'),
@@ -141,6 +152,7 @@ class OnlineData extends Base
                 ]);
             }
 
+            $fetchedAt = date('Y-m-d H:i:s');
             foreach ($dateResults as &$dateResult) {
                 if ($autoSave) {
                     $dateResult['saved_count'] = $this->parseAndSaveData(
@@ -154,6 +166,12 @@ class OnlineData extends Base
             }
             unset($dateResult);
 
+            $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
+            $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
+            if ($this->currentUser && isset($this->currentUser->id)) {
+                OperationLog::record('online_data', 'fetch_ctrip', "获取携程线上数据: {$savedCount}条", $this->currentUser->id, $systemHotelId);
+            }
+
             return json([
                 'code' => 200,
                 'message' => '获取成功',
@@ -162,6 +180,7 @@ class OnlineData extends Base
                     'date_results' => $dateResults,
                     'raw_response' => $rawResponse,
                     'saved_count' => $savedCount,
+                    'fetched_at' => $fetchedAt,
                     'request_start_date' => $startDate,
                     'request_end_date' => $endDate,
                 ]
@@ -279,6 +298,7 @@ class OnlineData extends Base
             $result = $this->sendMeituanRequest($url, $params, $cookies, $authData);
             
             if (!$result['success']) {
+                $this->recordCookieAlert('meituan', 'fetch-meituan', (string)($result['error'] ?? ''), $systemHotelId ? (int)$systemHotelId : null);
                 return $this->error('请求失败: ' . $result['error']);
             }
             
@@ -1208,14 +1228,14 @@ class OnlineData extends Base
         try {
             $dataList = [];
             
-            // 记录原始响应结构用于调试
-            \think\facade\Log::info('美团数据解析 - 完整响应: ' . json_encode($responseData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-            \think\facade\Log::info('美团数据解析 - 原始响应结构: ' . json_encode([
-                'keys' => array_keys($responseData),
-                'data_keys' => isset($responseData['data']) && is_array($responseData['data']) ? array_keys($responseData['data']) : 'not_array',
-                'data_type' => isset($responseData['data']) ? gettype($responseData['data']) : 'not_set',
-                'data_value' => isset($responseData['data']) ? (is_array($responseData['data']) ? 'is_array' : $responseData['data']) : 'not_set',
-            ], JSON_UNESCAPED_UNICODE));
+            if ($this->shouldLogOtaDebug()) {
+                \think\facade\Log::info('美团数据解析 - 原始响应结构: ' . json_encode([
+                    'keys' => array_keys($responseData),
+                    'data_keys' => isset($responseData['data']) && is_array($responseData['data']) ? array_keys($responseData['data']) : 'not_array',
+                    'data_type' => isset($responseData['data']) ? gettype($responseData['data']) : 'not_set',
+                    'data_value_type' => isset($responseData['data']) ? gettype($responseData['data']) : 'not_set',
+                ], JSON_UNESCAPED_UNICODE));
+            }
             
             // 美团竞对排名数据结构解析
             // 实际结构: { data: { peerRankData: [{ dimName, roundRanks: [...], aiMetricName }] } }
@@ -1282,7 +1302,7 @@ class OnlineData extends Base
             $dataDate = $startDate ?: date('Y-m-d', strtotime('-1 day'));
             
             // 记录第一个数据项的字段结构
-            if (!empty($dataList[0])) {
+            if ($this->shouldLogOtaDebug() && !empty($dataList[0])) {
                 \think\facade\Log::info('美团数据解析 - 首条数据字段: ' . json_encode(array_keys($dataList[0]), JSON_UNESCAPED_UNICODE));
                 \think\facade\Log::info('美团数据解析 - 首条数据样例: ' . json_encode($dataList[0], JSON_UNESCAPED_UNICODE));
             }
@@ -2053,9 +2073,8 @@ class OnlineData extends Base
             $authData = json_decode($authDataStr, true) ?: [];
         }
 
-        // 获取配置列表 - 直接查 system_config 表
         $key = 'meituan_config_list';
-        $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+        $raw = SystemConfig::getValue($key, '[]');
         $list = $raw ? json_decode($raw, true) : [];
         if (!is_array($list)) {
             $list = [];
@@ -2065,6 +2084,7 @@ class OnlineData extends Base
         if (empty($id)) {
             $id = 'meituan_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
         }
+        $hotelId = $this->request->post('hotel_id', $list[$id]['hotel_id'] ?? '');
 
         // 非超级管理员：编辑时只能改自己的配置
         if (!$this->currentUser->isSuperAdmin() && !empty($id) && isset($list[$id])) {
@@ -2076,9 +2096,10 @@ class OnlineData extends Base
         // 非超级管理员删除时也只能删自己的
         $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
 
-        $list[$id] = [
+        $config = [
             'id' => $id,
             'name' => $name,
+            'hotel_id' => $hotelId,
             'partner_id' => $partnerId,
             'poi_id' => $poiId,
             'cookies' => $cookies,
@@ -2089,17 +2110,15 @@ class OnlineData extends Base
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => $list[$id]['created_at'] ?? date('Y-m-d H:i:s'),
         ];
+        $config = $this->normalizeOtaConfigHotelBinding($config, 'meituan');
+        $list[$id] = $config;
 
-        // 写回 system_config 表
         $encoded = json_encode($list, JSON_UNESCAPED_UNICODE);
-        \think\facade\Db::name('system_config')->where('config_key', $key)->update([
-            'config_value' => $encoded,
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
+        SystemConfig::setValue($key, $encoded, '美团配置列表');
 
         OperationLog::record('online_data', 'save_meituan_config', "保存美团配置: {$name}", $this->currentUser->id);
 
-        return $this->success($list[$id], '配置保存成功');
+        return $this->success($config, '配置保存成功');
     }
 
     /**
@@ -2114,12 +2133,12 @@ class OnlineData extends Base
 
         try {
             $key = 'meituan_config_list';
-            // 与 getCtripConfigList 保持一致：直接查 system_config 表（注意是单数表，美团数据在此表）
-            $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+            $raw = SystemConfig::getValue($key, '[]');
             $list = $raw ? json_decode($raw, true) : [];
             if (!is_array($list)) {
                 $list = [];
             }
+            $list = $this->normalizeStoredOtaConfigList('system_config', $key, $list, 'meituan');
 
             // 权限控制：超级管理员看到全部，VIP用户只能看到自己保存的配置
             $isAdmin = ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin());
@@ -2141,7 +2160,8 @@ class OnlineData extends Base
 
             return $this->success(array_values($list));
         } catch (\Throwable $e) {
-            return json(['code' => 500, 'message' => '内部错误: ' . $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine()]);
+            \think\facade\Log::error('获取美团配置列表失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('获取美团配置列表失败', 500);
         }
     }
 
@@ -2158,8 +2178,7 @@ class OnlineData extends Base
         }
 
         $key = 'meituan_config_list';
-        // 与读取保持一致：直接查 system_config 表
-        $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+        $raw = SystemConfig::getValue($key, '[]');
         $list = $raw ? json_decode($raw, true) : [];
         if (!is_array($list)) {
             $list = [];
@@ -2178,13 +2197,8 @@ class OnlineData extends Base
 
         $name = $list[$id]['name'] ?? '';
         unset($list[$id]);
-        // 写回 system_config 表
         $encoded = json_encode($list, JSON_UNESCAPED_UNICODE);
-        \think\facade\Db::name('system_config')->update([
-            'config_key' => $key,
-            'config_value' => $encoded,
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
+        SystemConfig::setValue($key, $encoded, '美团配置列表');
 
         OperationLog::record('online_data', 'delete_meituan_config', "删除美团配置: {$name}", $this->currentUser->id);
 
@@ -2372,12 +2386,14 @@ JAVASCRIPT;
                 'id' => $id,
                 'name' => $name,
                 'cookies' => $cookies,
+                'hotel_id' => $this->request->post('hotel_id', $originalConfig['hotel_id'] ?? ''),
                 'url' => $this->request->post('url', $originalConfig['url'] ?? ''),
                 'node_id' => $this->request->post('node_id', $originalConfig['node_id'] ?? ''),
                 'user_id' => $userId,
                 'update_time' => date('Y-m-d H:i:s'),
                 'created_at' => $originalConfig['created_at'] ?? date('Y-m-d H:i:s'),
             ]);
+            $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
 
             $list[$id] = $config;
             
@@ -2422,6 +2438,7 @@ JAVASCRIPT;
             if (!is_array($list)) {
                 $list = [];
             }
+            $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
 
             // 非超级管理员只能看到自己保存的配置（排除无user_id的旧数据）
             $isAdmin = ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin());
@@ -2443,7 +2460,8 @@ JAVASCRIPT;
 
             return $this->success(array_values($list));
         } catch (\Throwable $e) {
-            return json(['code' => 500, 'message' => '内部错误: ' . $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine()]);
+            \think\facade\Log::error('获取携程配置列表失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('获取携程配置列表失败', 500);
         }
     }
 
@@ -2597,7 +2615,7 @@ JAVASCRIPT;
             ];
         }
 
-        $list[$id] = [
+        $config = [
             'id' => $id,
             'name' => $name,
             'hotel_id' => null,
@@ -2609,6 +2627,8 @@ JAVASCRIPT;
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => date('Y-m-d H:i:s'),
         ];
+        $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
+        $list[$id] = $config;
 
         $this->setConfigList($key, $list);
 
@@ -3096,12 +3116,6 @@ JAVASCRIPT;
      */
     public function dailyDataList(): Response
     {
-        // 调试：测试代码是否更新
-        $debug = $this->request->get('debug', '');
-        if ($debug === 'test') {
-            return json(['code' => 200, 'message' => '代码已更新 v5', 'time' => date('Y-m-d H:i:s')]);
-        }
-        
         try {
             // 从请求中获取当前用户（中间件已注入）
             $currentUser = $this->request->user ?? null;
@@ -3158,16 +3172,6 @@ JAVASCRIPT;
                       ->where('create_time', '<=', $createEnd . ' 23:59:59');
             }
             
-            // 调试：记录筛选条件和SQL
-            $debugInfo = [
-                'createStart' => $createStart,
-                'createEnd' => $createEnd,
-                'source' => $source,
-                'hotelId' => $hotelId,
-                'raw_create_start' => $this->request->get('create_start', ''),
-                'raw_create_end' => $this->request->get('create_end', ''),
-            ];
-            
             // 非超级管理员只能看自己酒店的数据
             if (!$currentUser->isSuperAdmin()) {
                 $permittedHotelIds = $currentUser->getPermittedHotelIds();
@@ -3189,13 +3193,13 @@ JAVASCRIPT;
             
             // 解析 raw_data 添加排名等额外字段
             foreach ($list as &$item) {
-                // 计算 total_order_num（全渠道总订单 = 携程预订订单 × 1.2-1.3随机值）
                 $bookOrderNum = intval($item['book_order_num'] ?? 0);
-                $item['total_order_num'] = intval($bookOrderNum * (1.2 + mt_rand(0, 10) / 100));
+                $rawTotalOrderNum = 0;
                 
                 if (!empty($item['raw_data'])) {
                     $rawData = json_decode($item['raw_data'], true);
                     if ($rawData) {
+                        $rawTotalOrderNum = intval($rawData['totalOrderNum'] ?? $rawData['total_order_num'] ?? 0);
                         // 添加排名字段
                         $item['amount_rank'] = $rawData['amountRank'] ?? null;
                         $item['quantity_rank'] = $rawData['quantityRank'] ?? null;
@@ -3208,6 +3212,7 @@ JAVASCRIPT;
                         $item['qunar_detail_cr'] = $rawData['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? null;
                     }
                 }
+                $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
             }
             
             return $this->success([
@@ -3217,11 +3222,10 @@ JAVASCRIPT;
                     'page' => $page,
                     'page_size' => $pageSize,
                 ],
-                'debug' => $debugInfo,
             ]);
         } catch (\Throwable $e) {
-            // 使用 Throwable 捕获所有错误
-            return $this->error('获取数据列表失败: ' . $e->getMessage() . ' 在 ' . $e->getFile() . ':' . $e->getLine());
+            \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('获取数据列表失败', 500);
         }
     }
 
@@ -3464,6 +3468,13 @@ JAVASCRIPT;
             if ($sectionDataDate !== '' && ($dataDate === '' || strcmp($sectionDataDate, $dataDate) > 0)) {
                 $dataDate = $sectionDataDate;
             }
+        }
+
+        $fetchStatus = $this->getCtripLatestFetchStatus($hotelId);
+        if (!empty($fetchStatus['fetched_at']) && ($fetchedAt === '' || strcmp((string)$fetchStatus['fetched_at'], $fetchedAt) >= 0)) {
+            $fetchedAt = (string)$fetchStatus['fetched_at'];
+            $dataDate = (string)($fetchStatus['data_date'] ?? $dataDate);
+            $total = max($total, (int)($fetchStatus['saved_count'] ?? 0));
         }
 
         return [
@@ -4293,25 +4304,15 @@ JAVASCRIPT;
             return $this->error('请选择要获取数据的门店');
         }
         
-        // 获取该门店的 cookies 配置
-        $cookiesKey = "online_data_cookies_hotel_{$systemHotelId}";
-        $cookiesList = $this->getConfigList($cookiesKey);
-        
-        // 取第一个有效的cookies配置（不再限制名称必须包含ctrip）
-        $cookies = '';
-        foreach ($cookiesList as $item) {
-            if (!empty($item['cookies'])) {
-                $cookies = $item['cookies'];
-                break;
-            }
-        }
+        $fetchConfig = $this->resolveCtripFetchConfigForHotel((int)$systemHotelId);
+        $cookies = (string)($fetchConfig['cookies'] ?? '');
         
         if (empty($cookies)) {
             \think\facade\Log::warning('线上数据获取失败: 未配置Cookies', [
                 'user_id' => $this->currentUser->id,
                 'hotel_id' => $systemHotelId
             ]);
-            return $this->error('未配置携程Cookies，请先在Cookies管理中添加');
+            return $this->error('未配置携程Cookies，请先在基础信息管理中关联酒店并保存配置');
         }
         
         // 获取昨天的数据
@@ -4326,8 +4327,8 @@ JAVASCRIPT;
         
         try {
             $result = $this->sendHttpRequest(
-                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                ['nodeId' => '24588', 'startDate' => $yesterday, 'endDate' => $yesterday],
+                (string)($fetchConfig['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
+                ['nodeId' => (string)($fetchConfig['node_id'] ?? '24588'), 'startDate' => $yesterday, 'endDate' => $yesterday],
                 $cookies
             );
             
@@ -4390,6 +4391,7 @@ JAVASCRIPT;
             
             // 更新状态记录
             $this->updateFetchStatus($systemHotelId, true, "成功获取 {$savedCount} 条数据");
+            $this->updateCtripLatestFetchStatus((int)$systemHotelId, date('Y-m-d H:i:s'), $yesterday, $savedCount);
             
             return $this->success(['saved_count' => $savedCount], '自动获取成功');
             
@@ -4420,6 +4422,38 @@ JAVASCRIPT;
         ];
         cache($statusKey, $status, 86400 * 30);
     }
+
+    private function normalizeFetchScheduleTime(string $scheduleTime): ?string
+    {
+        $scheduleTime = trim($scheduleTime);
+        if (!preg_match('/^([01]?[0-9]|2[0-3]):([0-5][0-9])$/', $scheduleTime, $matches)) {
+            return null;
+        }
+        return sprintf('%02d:%02d', (int)$matches[1], (int)$matches[2]);
+    }
+
+    private function resolveAutoFetchHotelId($hotelId): ?int
+    {
+        $hotelId = is_numeric($hotelId) ? (int)$hotelId : 0;
+        if ($this->currentUser->isSuperAdmin()) {
+            return $hotelId > 0 ? $hotelId : null;
+        }
+
+        $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        if (empty($permittedHotelIds)) {
+            return null;
+        }
+        if ($hotelId <= 0) {
+            return $permittedHotelIds[0];
+        }
+        return in_array($hotelId, $permittedHotelIds, true) ? $hotelId : null;
+    }
+
+    private function hasCtripFetchConfigForHotel(int $hotelId): bool
+    {
+        $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
+        return trim((string)($fetchConfig['cookies'] ?? '')) !== '';
+    }
     
     /**
      * 获取自动获取状态
@@ -4432,8 +4466,8 @@ JAVASCRIPT;
         
         // 非超级管理员只能查看自己酒店的状态
         if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds)) {
+            $hotelId = $this->resolveAutoFetchHotelId($hotelId);
+            if ($hotelId === null) {
                 return $this->success([
                     'enabled' => false,
                     'last_run_time' => null,
@@ -4442,7 +4476,6 @@ JAVASCRIPT;
                     'schedule_time' => '10:00'
                 ]);
             }
-            $hotelId = $permittedHotelIds[0];
         }
         
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
@@ -4461,6 +4494,7 @@ JAVASCRIPT;
         if (!isset($status['schedule_time'])) {
             $status['schedule_time'] = '10:00';
         }
+        $status['schedule_time'] = $this->normalizeFetchScheduleTime((string)$status['schedule_time']) ?? '10:00';
         
         // 计算下次运行时间
         if ($status['enabled']) {
@@ -4486,16 +4520,19 @@ JAVASCRIPT;
     {
         $this->checkPermission();
         
-        $enabled = $this->request->post('enabled', true);
-        $hotelId = $this->request->post('hotel_id', null);
+        $enabledRaw = $this->request->post('enabled', true);
+        $enabled = filter_var($enabledRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        $enabled = $enabled === null ? (bool)$enabledRaw : $enabled;
+        $hotelId = $this->resolveAutoFetchHotelId($this->request->post('hotel_id', null));
         
-        // 非超级管理员只能操作自己酒店的设置
-        if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds)) {
-                return $this->error('无权操作');
-            }
-            $hotelId = $permittedHotelIds[0];
+        if ($hotelId === null) {
+            return $this->error('请选择要设置自动抓取的酒店');
+        }
+        if (!$this->currentUser->hasHotelPermission((int)$hotelId, 'can_view_online_data')) {
+            return $this->error('无权操作该门店');
+        }
+        if ($enabled && !$this->hasCtripFetchConfigForHotel((int)$hotelId)) {
+            return $this->error('未配置携程Cookies，请先在基础信息管理中关联酒店并保存配置');
         }
         
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
@@ -4518,21 +4555,22 @@ JAVASCRIPT;
     {
         $this->checkPermission();
         
-        $hotelId = $this->request->post('hotel_id', null);
-        $scheduleTime = $this->request->post('schedule_time', '10:00');
+        $hotelId = $this->resolveAutoFetchHotelId($this->request->post('hotel_id', null));
+        $scheduleTime = $this->normalizeFetchScheduleTime((string)$this->request->post('schedule_time', '10:00'));
         
         // 验证时间格式
-        if (!preg_match('/^([01]?[0-9]|2[0-3]):([0-5][0-9])$/', $scheduleTime)) {
+        if ($scheduleTime === null) {
             return $this->error('时间格式错误，请使用 HH:MM 格式');
         }
         
-        // 非超级管理员只能操作自己酒店的设置
-        if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds)) {
-                return $this->error('无权操作');
-            }
-            $hotelId = $permittedHotelIds[0];
+        if ($hotelId === null) {
+            return $this->error('请选择要设置自动抓取的酒店');
+        }
+        if (!$this->currentUser->hasHotelPermission((int)$hotelId, 'can_view_online_data')) {
+            return $this->error('无权操作该门店');
+        }
+        if (!$this->hasCtripFetchConfigForHotel((int)$hotelId)) {
+            return $this->error('未配置携程Cookies，请先在基础信息管理中关联酒店并保存配置');
         }
         
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
@@ -5099,7 +5137,10 @@ JAVASCRIPT;
     {
         // 简单的token验证
         $token = $this->request->header('X-Cron-Token') ?: $this->request->get('token');
-        $configToken = \think\facade\Env::get('CRON_TOKEN', 'auto-fetch-2024');
+        $configToken = trim((string)\think\facade\Env::get('CRON_TOKEN', ''));
+        if ($configToken === '') {
+            return json(['code' => 403, 'message' => 'CRON_TOKEN未配置'], 403);
+        }
         
         if ($token !== $configToken) {
             return json(['code' => 401, 'message' => 'Unauthorized'], 401);
@@ -5124,7 +5165,7 @@ JAVASCRIPT;
             }
             
             // 检查运行时间
-            $scheduleTime = $status['schedule_time'] ?? '10:00';
+            $scheduleTime = $this->normalizeFetchScheduleTime((string)($status['schedule_time'] ?? '10:00')) ?? '10:00';
             if ($currentTime !== $scheduleTime) {
                 continue;
             }
@@ -5168,21 +5209,8 @@ JAVASCRIPT;
      */
     private function executeAutoFetch(int $hotelId, string $dataDate): array
     {
-        // 获取Cookies
-        $cookiesKey = "online_data_cookies_hotel_{$hotelId}";
-        $cookiesList = $this->getConfigList($cookiesKey);
-        
-        if (empty($cookiesList)) {
-            $cookiesList = $this->getConfigList('online_data_cookies_list');
-        }
-        
-        $cookies = '';
-        foreach ($cookiesList as $item) {
-            if (strpos($item['name'], 'ctrip') !== false) {
-                $cookies = $item['cookies'];
-                break;
-            }
-        }
+        $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
+        $cookies = (string)($fetchConfig['cookies'] ?? '');
         
         if (empty($cookies)) {
             return ['success' => false, 'message' => '未配置Cookies'];
@@ -5190,8 +5218,8 @@ JAVASCRIPT;
         
         try {
             $result = $this->sendHttpRequest(
-                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                ['nodeId' => '24588', 'startDate' => $dataDate, 'endDate' => $dataDate],
+                (string)($fetchConfig['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
+                ['nodeId' => (string)($fetchConfig['node_id'] ?? '24588'), 'startDate' => $dataDate, 'endDate' => $dataDate],
                 $cookies
             );
             
@@ -5206,6 +5234,7 @@ JAVASCRIPT;
             }
             
             \think\facade\Log::info("定时任务自动获取线上数据成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
+            $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
             
             return ['success' => true, 'message' => "成功获取 {$savedCount} 条数据"];
             
@@ -5225,6 +5254,219 @@ JAVASCRIPT;
         return is_array($data) ? $data : [];
     }
 
+    private function getStoredCtripConfigList(): array
+    {
+        try {
+            $raw = Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value');
+            $list = $raw ? json_decode((string)$raw, true) : [];
+            if (!is_array($list)) {
+                return [];
+            }
+            $list = $this->normalizeStoredOtaConfigList('system_configs', 'ctrip_config_list', $list, 'ctrip');
+            return array_values($list);
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function resolveCtripFetchConfigForHotel(int $hotelId): array
+    {
+        foreach ($this->getStoredCtripConfigList() as $config) {
+            $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
+            if ($configHotelId !== '' && (string)$hotelId === $configHotelId && !empty($config['cookies'])) {
+                return $config;
+            }
+        }
+
+        $cookiesList = $this->getConfigList("online_data_cookies_hotel_{$hotelId}");
+        if (empty($cookiesList)) {
+            $cookiesList = $this->getConfigList('online_data_cookies_list');
+        }
+
+        foreach ($cookiesList as $item) {
+            if (!empty($item['cookies'])) {
+                return [
+                    'cookies' => $item['cookies'],
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                    'node_id' => '24588',
+                ];
+            }
+        }
+
+        return [];
+    }
+
+    private function ctripLatestFetchStatusKey(?int $hotelId): string
+    {
+        return $hotelId ? "online_data_ctrip_latest_fetch_{$hotelId}" : 'online_data_ctrip_latest_fetch';
+    }
+
+    private function updateCtripLatestFetchStatus(?int $hotelId, string $fetchedAt, string $dataDate, int $savedCount): void
+    {
+        cache($this->ctripLatestFetchStatusKey($hotelId), [
+            'fetched_at' => $fetchedAt,
+            'data_date' => $dataDate,
+            'saved_count' => $savedCount,
+        ], 86400 * 30);
+    }
+
+    private function getCtripLatestFetchStatus(string $hotelId): array
+    {
+        $statusKeyHotelId = is_numeric($hotelId) && (int)$hotelId > 0 ? (int)$hotelId : null;
+        $status = cache($this->ctripLatestFetchStatusKey($statusKeyHotelId)) ?: [];
+        return is_array($status) ? $status : [];
+    }
+
+
+    private function getHotelsForOtaConfigMatching(): array
+    {
+        try {
+            $rows = Db::name('hotels')
+                ->field('id,name,code,status')
+                ->order('status', 'desc')
+                ->order('id', 'asc')
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        $rows = array_values(array_filter($rows, static function ($row): bool {
+            return is_array($row) && trim((string)($row['name'] ?? '')) !== '';
+        }));
+
+        usort($rows, static function (array $a, array $b): int {
+            $statusCompare = (int)($b['status'] ?? 0) <=> (int)($a['status'] ?? 0);
+            if ($statusCompare !== 0) {
+                return $statusCompare;
+            }
+            return mb_strlen((string)($b['name'] ?? '')) <=> mb_strlen((string)($a['name'] ?? ''));
+        });
+
+        return $rows;
+    }
+
+    private function normalizeOtaConfigMatchText(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = preg_replace('/(携程|美团|ebooking|e-booking|ebk|数据源|配置|主账号|账号|cookie|cookies)/iu', '', $value) ?? $value;
+        $value = preg_replace('/[^\p{Han}a-z0-9]+/iu', '', $value) ?? $value;
+
+        return mb_strtolower($value, 'UTF-8');
+    }
+
+    private function findOtaConfigHotelMatch(array $config, array $hotels): ?array
+    {
+        $currentHotelId = trim((string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? ''));
+        if ($currentHotelId !== '') {
+            foreach ($hotels as $hotel) {
+                if ((string)($hotel['id'] ?? '') === $currentHotelId) {
+                    return $hotel;
+                }
+            }
+        }
+
+        $sourceParts = [
+            $config['hotel_name'] ?? '',
+            $config['name'] ?? '',
+            $config['config_name'] ?? '',
+            $config['remark'] ?? '',
+        ];
+        $source = trim(implode(' ', array_filter(array_map(static fn($part): string => trim((string)$part), $sourceParts))));
+        if ($source === '') {
+            return null;
+        }
+
+        foreach ($hotels as $hotel) {
+            $hotelName = trim((string)($hotel['name'] ?? ''));
+            if ($hotelName !== '' && mb_strpos($source, $hotelName, 0, 'UTF-8') !== false) {
+                return $hotel;
+            }
+        }
+
+        $normalizedSource = $this->normalizeOtaConfigMatchText($source);
+        if ($normalizedSource === '') {
+            return null;
+        }
+
+        foreach ($hotels as $hotel) {
+            $hotelName = $this->normalizeOtaConfigMatchText((string)($hotel['name'] ?? ''));
+            $hotelCode = $this->normalizeOtaConfigMatchText((string)($hotel['code'] ?? ''));
+            if ($hotelName !== '' && mb_strpos($normalizedSource, $hotelName, 0, 'UTF-8') !== false) {
+                return $hotel;
+            }
+            if ($hotelCode !== '' && mb_strpos($normalizedSource, $hotelCode, 0, 'UTF-8') !== false) {
+                return $hotel;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeOtaConfigHotelBinding(array $config, string $platform, ?array $hotels = null): array
+    {
+        $hotels = $hotels ?? $this->getHotelsForOtaConfigMatching();
+        $match = $this->findOtaConfigHotelMatch($config, $hotels);
+
+        if (!$match) {
+            $config['hotel_id'] = $config['hotel_id'] ?? '';
+            $config['hotel_name'] = $config['hotel_name'] ?? '';
+            return $config;
+        }
+
+        $hotelId = (string)($match['id'] ?? '');
+        if ($hotelId === '') {
+            return $config;
+        }
+
+        $config['hotel_id'] = $hotelId;
+        $config['system_hotel_id'] = $hotelId;
+        $config['hotel_name'] = (string)($match['name'] ?? $config['hotel_name'] ?? '');
+        $config['platform'] = $config['platform'] ?? $platform;
+
+        return $config;
+    }
+
+    private function normalizeStoredOtaConfigList(string $table, string $key, array $list, string $platform): array
+    {
+        if (empty($list)) {
+            return $list;
+        }
+
+        $hotels = $this->getHotelsForOtaConfigMatching();
+        if (empty($hotels)) {
+            return $list;
+        }
+
+        $changed = false;
+        $normalizedList = [];
+
+        foreach ($list as $index => $item) {
+            if (!is_array($item)) {
+                $normalizedList[$index] = $item;
+                continue;
+            }
+
+            $normalized = $this->normalizeOtaConfigHotelBinding($item, $platform, $hotels);
+            if ($normalized != $item) {
+                $changed = true;
+            }
+            $normalizedList[$index] = $normalized;
+        }
+
+        if ($changed) {
+            Db::name($table)->where('config_key', $key)->update([
+                'config_value' => json_encode($normalizedList, JSON_UNESCAPED_UNICODE),
+                'update_time' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        return $normalizedList;
+    }
 
     /**
      * 保存列表到系统配置
@@ -5234,6 +5476,168 @@ JAVASCRIPT;
         SystemConfig::setValue($key, json_encode($value, JSON_UNESCAPED_UNICODE), '在线数据Cookies配置');
     }
 
+    public function cookieStatus(): Response
+    {
+        $this->checkPermission();
+        return $this->success([
+            'list' => $this->buildCookieStatusRows(),
+            'alerts' => $this->getCookieAlerts(),
+            'warning_days' => $this->cookieWarningDays(),
+            'expire_days' => $this->cookieExpireDays(),
+            'reauthorize_entry' => '/online-data?tab=cookies',
+        ]);
+    }
+
+    private function buildCookieStatusRows(): array
+    {
+        $rows = [];
+        $hotelIds = $this->visibleCookieHotelIds();
+
+        foreach ($this->getConfigList('online_data_cookies_global') as $item) {
+            $rows[] = $this->buildCookieHealth('generic', 'global', null, $item);
+        }
+
+        foreach ($hotelIds as $hotelId) {
+            foreach ($this->getConfigList("online_data_cookies_hotel_{$hotelId}") as $item) {
+                $rows[] = $this->buildCookieHealth('generic', 'hotel', (int)$hotelId, $item);
+            }
+        }
+
+        foreach ($this->getStoredCtripConfigList() as $item) {
+            $itemHotelId = (int)($item['hotel_id'] ?? $item['system_hotel_id'] ?? 0);
+            if ($this->canSeeCookieHotel($itemHotelId)) {
+                $rows[] = $this->buildCookieHealth('ctrip', $itemHotelId > 0 ? 'hotel' : 'global', $itemHotelId ?: null, $item);
+            }
+        }
+
+        foreach ($this->getConfigList('meituan_config_list') as $item) {
+            $itemHotelId = (int)($item['hotel_id'] ?? $item['system_hotel_id'] ?? 0);
+            if ($this->canSeeCookieHotel($itemHotelId)) {
+                $rows[] = $this->buildCookieHealth('meituan', $itemHotelId > 0 ? 'hotel' : 'global', $itemHotelId ?: null, $item);
+            }
+        }
+
+        usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['updated_at'] ?? ''), (string)($a['updated_at'] ?? '')));
+        return $rows;
+    }
+
+    private function buildCookieHealth(string $platform, string $scope, ?int $hotelId, array $item): array
+    {
+        $name = (string)($item['name'] ?? $item['hotel_name'] ?? $item['config_name'] ?? $platform);
+        $cookieValue = (string)($item['cookies'] ?? $item['cookie'] ?? '');
+        $updatedAt = (string)($item['update_time'] ?? $item['updated_at'] ?? $item['created_at'] ?? '');
+        $timestamp = $updatedAt !== '' ? strtotime($updatedAt) : false;
+        $ageDays = $timestamp ? max(0, (int)floor((time() - $timestamp) / 86400)) : null;
+        $status = 'ok';
+        $message = 'Cookie is usable.';
+
+        if ($cookieValue === '') {
+            $status = 'expired';
+            $message = 'Cookie is empty. Please reauthorize.';
+        } elseif ($ageDays === null) {
+            $status = 'unknown';
+            $message = 'Cookie update time is missing.';
+        } elseif ($ageDays >= $this->cookieExpireDays()) {
+            $status = 'expired';
+            $message = 'Cookie may be expired. Please reauthorize.';
+        } elseif ($ageDays >= $this->cookieWarningDays()) {
+            $status = 'warning';
+            $message = 'Cookie is near expiry. Prepare reauthorization.';
+        }
+
+        foreach ($this->getCookieAlerts() as $alert) {
+            if (($alert['platform'] ?? '') === $platform && (string)($alert['name'] ?? '') === $name) {
+                $status = 'expired';
+                $message = (string)($alert['message'] ?? $message);
+                break;
+            }
+        }
+
+        return [
+            'platform' => $platform,
+            'scope' => $scope,
+            'hotel_id' => $hotelId,
+            'name' => $name,
+            'status' => $status,
+            'message' => $message,
+            'updated_at' => $updatedAt,
+            'age_days' => $ageDays,
+            'has_cookie' => $cookieValue !== '',
+            'reauthorize_entry' => '/online-data?tab=cookies',
+        ];
+    }
+
+    private function visibleCookieHotelIds(): array
+    {
+        if (!$this->currentUser || !$this->currentUser->isSuperAdmin()) {
+            $hotelId = (int)($this->currentUser->hotel_id ?? 0);
+            return $hotelId > 0 ? [$hotelId] : [];
+        }
+
+        try {
+            return array_map('intval', \app\model\Hotel::column('id'));
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function canSeeCookieHotel(int $hotelId): bool
+    {
+        if ($hotelId <= 0 || !$this->currentUser || $this->currentUser->isSuperAdmin()) {
+            return true;
+        }
+        return (int)($this->currentUser->hotel_id ?? 0) === $hotelId;
+    }
+
+    private function cookieWarningDays(): int
+    {
+        return max(1, (int)SystemConfig::getValue('ota_cookie_warning_days', '5'));
+    }
+
+    private function cookieExpireDays(): int
+    {
+        return max($this->cookieWarningDays(), (int)SystemConfig::getValue('ota_cookie_expire_days', '14'));
+    }
+
+    private function isCookieAuthError(string $message): bool
+    {
+        return preg_match('/cookie|login|auth|unauthorized|forbidden|expired|302|401|403|html|登录|授权|过期|失效|权限/i', $message) === 1;
+    }
+
+    private function recordCookieAlert(string $platform, string $name, string $message, ?int $hotelId = null): void
+    {
+        if (!$this->isCookieAuthError($message)) {
+            return;
+        }
+
+        $alerts = $this->getCookieAlerts();
+        $key = md5($platform . '|' . $name . '|' . (string)$hotelId);
+        $alerts[$key] = [
+            'platform' => $platform,
+            'name' => $name,
+            'hotel_id' => $hotelId,
+            'message' => mb_substr($message, 0, 240),
+            'created_at' => date('Y-m-d H:i:s'),
+            'reauthorize_entry' => '/online-data?tab=cookies',
+        ];
+        $alerts = array_slice($alerts, -50, null, true);
+        SystemConfig::setValue('ota_cookie_alerts', json_encode($alerts, JSON_UNESCAPED_UNICODE), 'OTA Cookie alerts');
+
+        try {
+            OperationLog::record('online_data', 'cookie_expired', 'OTA cookie needs reauthorization: ' . $platform . '/' . $name, $this->currentUser->id ?? null, $hotelId, $message);
+        } catch (\Throwable $e) {
+            // Alert storage must not block OTA fetching.
+        }
+    }
+
+    private function getCookieAlerts(): array
+    {
+        $raw = SystemConfig::getValue('ota_cookie_alerts', '{}');
+        $data = json_decode((string)$raw, true);
+        return is_array($data) ? $data : [];
+    }
+
+
     /**
      * 更新线上数据
      */
@@ -5241,7 +5645,7 @@ JAVASCRIPT;
     {
         $this->checkPermission();
 
-        $id = intval($this->request->post('id', 0));
+        $id = intval($this->request->param('id', 0));
         if ($id <= 0) {
             return $this->error('无效的数据ID');
         }
@@ -5291,7 +5695,7 @@ JAVASCRIPT;
     {
         $this->checkPermission();
 
-        $id = intval($this->request->post('id', 0));
+        $id = intval($this->request->param('id', 0));
         if ($id <= 0) {
             return $this->error('无效的数据ID');
         }

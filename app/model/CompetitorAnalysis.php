@@ -41,6 +41,7 @@ class CompetitorAnalysis extends Model
     const PLATFORM_FLIGGY = 3;        // 飞猪
     const PLATFORM_BOOKING = 4;       // Booking.com
     const PLATFORM_EXPEDIA = 5;       // Expedia
+    const PLATFORM_AGODA = 6;         // Agoda
 
     // 价格状态常量
     const STATUS_HIGHER = 1;          // 我方价格高
@@ -83,6 +84,7 @@ class CompetitorAnalysis extends Model
             self::PLATFORM_FLIGGY => '飞猪',
             self::PLATFORM_BOOKING => 'Booking.com',
             self::PLATFORM_EXPEDIA => 'Expedia',
+            self::PLATFORM_AGODA => 'Agoda',
         ];
         return $names[$data['ota_platform']] ?? '未知';
     }

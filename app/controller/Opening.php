@@ -45,6 +45,48 @@ class Opening extends Base
         }
     }
 
+    public function updateProject(int $id): Response
+    {
+        try {
+            $this->ensureReady();
+            if ($id <= 0) {
+                return $this->error('开业项目ID无效', 422);
+            }
+
+            $input = $this->request->put();
+            if (empty($input)) {
+                $input = $this->request->post();
+            }
+            foreach (['project_name' => '项目名称', 'hotel_name' => '酒店名称', 'opening_date' => '开业日期'] as $field => $label) {
+                if (array_key_exists($field, $input) && trim((string)$input[$field]) === '') {
+                    return $this->error($label . '不能为空', 422);
+                }
+            }
+
+            return $this->success($this->service->updateProject($id, $input, $this->hotelScope()), '开业项目已更新');
+        } catch (Throwable $e) {
+            return $this->error('更新开业项目失败：' . $e->getMessage(), 400);
+        }
+    }
+
+    public function archiveProject(int $id): Response
+    {
+        try {
+            $this->ensureReady();
+            if ($id <= 0) {
+                return $this->error('开业项目ID无效', 422);
+            }
+
+            if (!$this->service->archiveProject($id, $this->hotelScope())) {
+                return $this->error('开业项目不存在或无权操作', 404);
+            }
+
+            return $this->success(['id' => $id], '开业项目已归档');
+        } catch (Throwable $e) {
+            return $this->error('归档开业项目失败：' . $e->getMessage(), 400);
+        }
+    }
+
     public function overview(int $id): Response
     {
         try {

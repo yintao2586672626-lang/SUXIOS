@@ -67,7 +67,8 @@ class OperationManagement extends Base
                 return $this->error('请选择需要标记已读的预警', 422);
             }
 
-            return $this->success(['updated' => $this->service->markAlertsRead($ids)]);
+            [$hotelIds] = $this->resolveHotelScope();
+            return $this->success(['updated' => $this->service->markAlertsRead($ids, $hotelIds)]);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '标记预警已读失败'), 500);
         }

@@ -41,7 +41,11 @@ class CompetitorHotelController extends Base
 
         $pagination = $this->getPagination();
         $total = $query->count();
-        $list = $query->page($pagination['page'], $pagination['page_size'])->select();
+        $list = $query->page($pagination['page'], $pagination['page_size'])->select()->toArray();
+        foreach ($list as &$item) {
+            $item['platform_label'] = CompetitorHotel::platformLabel((string)($item['platform'] ?? ''));
+        }
+        unset($item);
 
         return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
     }
@@ -56,6 +60,12 @@ class CompetitorHotelController extends Base
         return $this->success($stores);
     }
 
+    public function platforms(): Response
+    {
+        $this->checkSuperAdmin();
+        return $this->success(CompetitorHotel::platformOptions());
+    }
+
     public function create(): Response
     {
         $this->checkSuperAdmin();
@@ -63,12 +73,13 @@ class CompetitorHotelController extends Base
 
         $this->validate($data, [
             'store_id' => 'require|integer',
-            'platform' => 'require|in:mt,xc',
+            'platform' => 'require|in:' . implode(',', CompetitorHotel::platformCodes()),
             'city' => 'require',
             'hotel_name' => 'require',
         ], [
             'store_id.require' => '请输入门店ID',
             'platform.require' => '请选择平台',
+            'platform.in' => '平台不支持',
             'city.require' => '请输入城市',
             'hotel_name.require' => '请输入酒店名称',
         ]);
@@ -95,6 +106,9 @@ class CompetitorHotelController extends Base
         }
 
         $data = $this->request->post();
+        if (isset($data['platform']) && !in_array((string)$data['platform'], CompetitorHotel::platformCodes(), true)) {
+            return $this->error('平台不支持');
+        }
         if (isset($data['store_id'])) $hotel->store_id = (int)$data['store_id'];
         if (isset($data['platform'])) $hotel->platform = $data['platform'];
         if (isset($data['city'])) $hotel->city = $data['city'];

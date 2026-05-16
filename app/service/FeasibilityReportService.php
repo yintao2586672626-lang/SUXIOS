@@ -8,11 +8,11 @@ use think\facade\Db;
 
 class FeasibilityReportService
 {
-    private OpenAIClient $client;
+    private LlmClient $client;
 
-    public function __construct(?OpenAIClient $client = null)
+    public function __construct(?LlmClient $client = null)
     {
-        $this->client = $client ?: new OpenAIClient();
+        $this->client = $client ?: new LlmClient();
     }
 
     public function generate(array $input, int $userId): array
@@ -38,10 +38,15 @@ class FeasibilityReportService
         return $this->formatRecord($record);
     }
 
-    public function regenerate(int $id, int $userId): ?array
+    public function regenerate(int $id, int $userId, bool $isSuperAdmin): ?array
     {
         $this->ensureTable();
-        $old = FeasibilityReport::where('id', $id)->whereNull('deleted_at')->find();
+        $query = FeasibilityReport::where('id', $id)->whereNull('deleted_at');
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        $old = $query->find();
         if (!$old) {
             return null;
         }
@@ -49,17 +54,26 @@ class FeasibilityReportService
         return $this->generate((array) $old->input_json, $userId);
     }
 
-    public function detail(int $id): ?array
+    public function detail(int $id, int $userId, bool $isSuperAdmin): ?array
     {
         $this->ensureTable();
-        $record = FeasibilityReport::where('id', $id)->whereNull('deleted_at')->find();
+        $query = FeasibilityReport::where('id', $id)->whereNull('deleted_at');
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        $record = $query->find();
         return $record ? $this->formatRecord($record) : null;
     }
 
-    public function list(int $page = 1, int $pageSize = 10): array
+    public function list(int $page = 1, int $pageSize = 10, int $userId = 0, bool $isSuperAdmin = false): array
     {
         $this->ensureTable();
         $query = FeasibilityReport::whereNull('deleted_at')->order('id', 'desc');
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
         $total = (clone $query)->count();
         $list = $query->page($page, $pageSize)->select()->toArray();
 
@@ -72,6 +86,21 @@ class FeasibilityReportService
                 'total_page' => (int) ceil($total / max(1, $pageSize)),
             ],
         ];
+    }
+
+    public function archive(int $id, int $userId, bool $isSuperAdmin): bool
+    {
+        $this->ensureTable();
+
+        $query = FeasibilityReport::where('id', $id)->whereNull('deleted_at');
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        return $query->update([
+            'deleted_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]) > 0;
     }
 
     public function ensureTable(): void
@@ -100,7 +129,7 @@ class FeasibilityReportService
     {
         $fields = [
             'project_name', 'city', 'district', 'address', 'target_brand_level',
-            'target_customer', 'notes',
+            'target_customer', 'notes', 'model_key',
         ];
         $result = [];
         foreach ($fields as $field) {
@@ -308,7 +337,8 @@ class FeasibilityReportService
             ],
         ];
 
-        return $this->client->createJsonResponse($messages, $this->schema());
+        $modelKey = trim((string)($input['model_key'] ?? 'deepseek_v4_default'));
+        return $this->client->createJsonResponse($messages, $this->schema(), $modelKey !== '' ? $modelKey : 'deepseek_v4_default');
     }
 
     private function mergeFinancials(array $report, array $input, array $calculation): array
