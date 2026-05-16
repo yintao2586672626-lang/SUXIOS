@@ -2575,7 +2575,7 @@
                                         <!-- 第三层 -->
                                         <div v-show="expandedMenus.includes(child.name)" class="bg-black/5">
                                             <a v-for="grandChild in child.children" :key="grandChild.path"
-                                                @click.stop="currentPage = grandChild.path"
+                                                @click.stop="handleMenuClick(grandChild)"
                                                 class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100"
                                                 :class="{ 'active': currentPage === grandChild.path }">
                                                 <i :class="grandChild.icon" class="w-4 text-center mr-2 text-blue-300/60 text-[10px]"></i>
@@ -2585,7 +2585,7 @@
                                     </div>
                                     <!-- 第二层: 普通项 -->
                                     <a v-else
-                                        @click.stop="currentPage = child.path"
+                                        @click.stop="handleMenuClick(child)"
                                         class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10"
                                         :class="{ 'active': currentPage === child.path }">
                                         <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
@@ -2762,6 +2762,15 @@
                                         <div v-if="aiStrategyResult.data_snapshot && !aiStrategyResult.data_snapshot.external_data_used" class="rounded-lg border border-amber-100 bg-amber-50 text-amber-700 text-xs px-3 py-2">
                                             外部数据未接入，当前为本地数据推演
                                         </div>
+                                        <div class="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
+                                            <div class="font-semibold text-slate-800 mb-2">数据口径</div>
+                                            <div class="space-y-1">
+                                                <div v-for="row in strategyDataSourceRows" :key="row.label" class="flex items-start justify-between gap-3">
+                                                    <span class="text-slate-500">{{ row.label }}</span>
+                                                    <span class="text-right text-slate-700">{{ row.value }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <div class="rounded-xl p-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
                                             <div class="text-sm text-blue-100">项目适配评分</div>
                                             <div class="text-4xl font-bold mt-1">【{{ aiStrategyResult.total_score }}】</div>
@@ -2815,6 +2824,10 @@
                                     <span>运行三情景模拟</span>
                                 </button>
                             </div>
+                        </div>
+
+                        <div class="mb-5 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                            本模块为本地公式三情景模拟，不调用外部模型；适合测算边界，最终需结合实际经营数据复核。
                         </div>
 
                         <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -5076,7 +5089,7 @@
                         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                             <h3 class="font-bold text-gray-900 text-lg mb-4">快捷入口</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
-                                <button v-for="entry in homeQuickEntries" :key="entry.title" @click="currentPage = entry.page" class="text-left rounded-xl border border-gray-100 bg-gray-50 hover:bg-blue-50 hover:border-blue-100 transition p-4">
+                                <button v-for="entry in homeQuickEntries" :key="entry.title" @click="openHomeQuickEntry(entry)" class="text-left rounded-xl border border-gray-100 bg-gray-50 hover:bg-blue-50 hover:border-blue-100 transition p-4">
                                     <i :class="[entry.icon, 'text-blue-500 mb-3']"></i>
                                     <div class="font-semibold text-gray-800">{{ entry.title }}</div>
                                     <div class="text-xs text-gray-500 mt-1">{{ entry.desc }}</div>
@@ -5126,8 +5139,8 @@
                                         <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.data_date || '暂无' }}</div>
                                     </div>
                                     <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                                        <div class="text-xs text-gray-500 mb-1">数据来源</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.data_source || '携程 ebooking' }}</div>
+                                        <div class="text-xs text-gray-500 mb-1">保存记录数</div>
+                                        <div class="text-sm font-medium text-gray-800">{{ ctripHeaderRecordCount ? ctripHeaderRecordCount + ' 条' : '暂无' }}</div>
                                     </div>
                                     <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
                                         <div class="text-xs text-gray-500 mb-1">采集状态</div>
@@ -9842,10 +9855,10 @@
                                         <button @click="revenueAgentTab = 'config'" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='config' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-cog mr-2"></i>配置
                                         </button>
-                                        <button @click="revenueAgentTab = 'suggestions'" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='suggestions' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                        <button @click="revenueAgentTab = 'suggestions'; loadPriceSuggestions()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='suggestions' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-lightbulb mr-2"></i>定价建议
                                         </button>
-                                        <button @click="revenueAgentTab = 'analysis'" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='analysis' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                        <button @click="revenueAgentTab = 'analysis'; loadRevenueAnalysisBundle()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='analysis' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-chart-bar mr-2"></i>收益分析
                                         </button>
                                     </div>
@@ -9964,11 +9977,116 @@
                                     </div>
 
                                     <!-- 收益分析 -->
-                                    <div v-if="revenueAgentTab === 'analysis'">
-                                        <div class="text-center py-12 text-gray-500">
-                                            <i class="fas fa-chart-line text-6xl mb-4 text-gray-300"></i>
-                                            <p>收益分析功能开发中...</p>
-                                            <p class="text-sm mt-2">将展示 RevPAR 趋势、竞对价格对比、需求预测等数据</p>
+                                    <div v-if="revenueAgentTab === 'analysis'" class="space-y-5">
+                                        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                            <div>
+                                                <h3 class="font-semibold text-gray-900">收益分析看板</h3>
+                                                <p class="text-sm text-gray-500 mt-1">汇总定价建议、需求预测、RevPAR与竞对价格信号</p>
+                                            </div>
+                                            <button @click="loadRevenueAnalysisBundle" class="btn-primary">
+                                                <i class="fas fa-sync-alt mr-2"></i>刷新分析
+                                            </button>
+                                        </div>
+
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 text-amber-700 px-4 py-3 text-sm">
+                                            {{ revenueAnalysisDataNotice }}
+                                        </div>
+
+                                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                                <div class="text-sm text-gray-400 mb-1">待审批建议</div>
+                                                <div class="text-2xl font-bold text-green-700">{{ revenueDashboard.pending_count || 0 }}</div>
+                                            </div>
+                                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                                <div class="text-sm text-gray-400 mb-1">本周RevPAR预测</div>
+                                                <div class="text-2xl font-bold text-gray-800">¥{{ revenueDashboard.week_revpar_forecast || 0 }}</div>
+                                            </div>
+                                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                                <div class="text-sm text-gray-400 mb-1">预测准确率</div>
+                                                <div class="text-2xl font-bold text-blue-700">{{ revenueAccuracyText }}</div>
+                                            </div>
+                                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                                <div class="text-sm text-gray-400 mb-1">高需求日期</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ revenueDashboard.high_demand_count || highDemandDates.length || 0 }}</div>
+                                            </div>
+                                        </div>
+
+                                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                                            <div class="bg-white rounded-xl border border-gray-200 p-4">
+                                                <div class="flex items-center justify-between mb-4">
+                                                    <h3 class="font-semibold text-gray-800">RevPAR趋势</h3>
+                                                    <span class="text-xs text-gray-400">{{ revenueAnalysisData.date_range?.start || '-' }} 至 {{ revenueAnalysisData.date_range?.end || '-' }}</span>
+                                                </div>
+                                                <div v-if="revenueRevparRows.length" class="space-y-2">
+                                                    <div v-for="row in revenueRevparRows" :key="row.date" class="grid grid-cols-4 gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                                                        <div class="font-medium text-gray-800">{{ row.date }}</div>
+                                                        <div class="text-right text-gray-600">RevPAR ¥{{ row.revpar }}</div>
+                                                        <div class="text-right text-gray-600">OCC {{ row.occupancy }}%</div>
+                                                        <div class="text-right text-gray-500">置信 {{ row.confidence }}%</div>
+                                                    </div>
+                                                </div>
+                                                <div v-else class="py-8 text-center text-gray-400">暂无RevPAR预测样本</div>
+                                            </div>
+
+                                            <div class="bg-white rounded-xl border border-gray-200 p-4">
+                                                <h3 class="font-semibold text-gray-800 mb-4">策略建议</h3>
+                                                <div v-if="(revenueAnalysisData.pricing_strategies || []).length" class="space-y-3">
+                                                    <div v-for="item in revenueAnalysisData.pricing_strategies" :key="item.title" class="rounded-lg border border-green-100 bg-green-50 p-3">
+                                                        <div class="font-medium text-green-900">{{ item.title }}</div>
+                                                        <div class="text-sm text-green-700 mt-1">{{ item.description }}</div>
+                                                        <div class="text-sm text-gray-700 mt-2">{{ item.suggested_action }} · {{ item.expected_impact }}</div>
+                                                    </div>
+                                                </div>
+                                                <div v-else class="py-8 text-center text-gray-400">暂无策略建议，需补充预测或竞对样本</div>
+                                            </div>
+                                        </div>
+
+                                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                                            <div class="bg-white rounded-xl border border-gray-200 p-4">
+                                                <h3 class="font-semibold text-gray-800 mb-4">需求预测</h3>
+                                                <div class="flex flex-wrap gap-3 mb-4">
+                                                    <input type="date" v-model="forecastFilter.start_date" class="input-field">
+                                                    <input type="date" v-model="forecastFilter.end_date" class="input-field">
+                                                    <button @click="loadDemandForecasts" class="btn-primary"><i class="fas fa-search mr-2"></i>查询</button>
+                                                </div>
+                                                <div class="overflow-x-auto">
+                                                    <table class="w-full text-sm">
+                                                        <thead class="bg-gray-50 text-gray-500">
+                                                            <tr>
+                                                                <th class="px-3 py-2 text-left">日期</th>
+                                                                <th class="px-3 py-2 text-right">入住率</th>
+                                                                <th class="px-3 py-2 text-right">RevPAR</th>
+                                                                <th class="px-3 py-2 text-right">置信度</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody class="divide-y divide-gray-100">
+                                                            <tr v-for="row in demandForecasts" :key="row.id || row.forecast_date">
+                                                                <td class="px-3 py-2 font-medium text-gray-800">{{ row.forecast_date }}</td>
+                                                                <td class="px-3 py-2 text-right">{{ row.predicted_occupancy || 0 }}%</td>
+                                                                <td class="px-3 py-2 text-right">¥{{ row.predicted_revpar || 0 }}</td>
+                                                                <td class="px-3 py-2 text-right">{{ row.confidence_score || 0 }}%</td>
+                                                            </tr>
+                                                            <tr v-if="!demandForecasts.length">
+                                                                <td colspan="4" class="px-3 py-8 text-center text-gray-400">暂无需求预测</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+
+                                            <div class="bg-white rounded-xl border border-gray-200 p-4">
+                                                <h3 class="font-semibold text-gray-800 mb-4">竞对价格信号</h3>
+                                                <div class="flex flex-wrap gap-3 mb-4">
+                                                    <input type="date" v-model="competitorFilter.date" class="input-field">
+                                                    <button @click="loadCompetitorAnalysis" class="btn-primary"><i class="fas fa-search mr-2"></i>查询</button>
+                                                </div>
+                                                <div v-if="(competitorAnalysis.alerts || []).length" class="space-y-2">
+                                                    <div v-for="item in competitorAnalysis.alerts" :key="item.id || item.competitor_hotel_id" class="rounded-lg bg-orange-50 border border-orange-100 p-3 text-sm text-orange-800">
+                                                        {{ item.competitor_hotel?.hotel_name || item.competitor_hotel_id || '竞对' }} 价格波动 {{ item.price_change_percent || item.price_index || 0 }}%
+                                                    </div>
+                                                </div>
+                                                <div v-else class="py-8 text-center text-gray-400">暂无竞对价格预警</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -9979,11 +10097,20 @@
                                         <button @click="assetAgentTab = 'config'" :class="['px-4 py-2 rounded-lg font-medium transition', assetAgentTab==='config' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-cog mr-2"></i>配置
                                         </button>
-                                        <button @click="assetAgentTab = 'devices'" :class="['px-4 py-2 rounded-lg font-medium transition', assetAgentTab==='devices' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                        <button @click="assetAgentTab = 'dashboard'; loadAssetOpsBundle()" :class="['px-4 py-2 rounded-lg font-medium transition', assetAgentTab==='dashboard' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                            <i class="fas fa-chart-pie mr-2"></i>资产看板
+                                        </button>
+                                        <button @click="assetAgentTab = 'devices'; loadDevices()" :class="['px-4 py-2 rounded-lg font-medium transition', assetAgentTab==='devices' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-server mr-2"></i>设备管理
                                         </button>
-                                        <button @click="assetAgentTab = 'energy'" :class="['px-4 py-2 rounded-lg font-medium transition', assetAgentTab==='energy' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                        <button @click="assetAgentTab = 'energy'; loadEnergyData(); loadEnergyBenchmarks()" :class="['px-4 py-2 rounded-lg font-medium transition', assetAgentTab==='energy' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-bolt mr-2"></i>能耗监控
+                                        </button>
+                                        <button @click="assetAgentTab = 'suggestions'; loadEnergySuggestions()" :class="['px-4 py-2 rounded-lg font-medium transition', assetAgentTab==='suggestions' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                            <i class="fas fa-leaf mr-2"></i>节能建议
+                                        </button>
+                                        <button @click="assetAgentTab = 'maintenance'; loadMaintenancePlans(); loadMaintenanceReminders()" :class="['px-4 py-2 rounded-lg font-medium transition', assetAgentTab==='maintenance' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                            <i class="fas fa-tools mr-2"></i>维护计划
                                         </button>
                                     </div>
 
@@ -10026,6 +10153,65 @@
                                                     <label class="block text-sm font-medium text-gray-700 mb-2">维护提醒提前天数</label>
                                                     <input type="number" v-model.number="agentConfigs.asset.config_data.maintenance_reminder_days" class="input-field w-full" min="1" max="30" @change="saveAgentConfig('asset')">
                                                 </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 资产看板 -->
+                                    <div v-if="assetAgentTab === 'dashboard'" class="space-y-5">
+                                        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                            <div>
+                                                <h3 class="font-semibold text-gray-900">资产运维看板</h3>
+                                                <p class="text-sm text-gray-500 mt-1">汇总设备状态、今日能耗、维护执行与节能建议</p>
+                                            </div>
+                                            <button @click="loadAssetOpsBundle" class="btn-primary">
+                                                <i class="fas fa-sync-alt mr-2"></i>刷新看板
+                                            </button>
+                                        </div>
+                                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                                <div class="text-sm text-gray-400 mb-1">设备总数</div>
+                                                <div class="text-2xl font-bold text-gray-800">{{ assetDashboard.devices?.total || deviceStats.total || 0 }}</div>
+                                            </div>
+                                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                                <div class="text-sm text-gray-400 mb-1">故障设备</div>
+                                                <div class="text-2xl font-bold text-red-600">{{ assetDashboard.devices?.fault || deviceStats.fault || 0 }}</div>
+                                            </div>
+                                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                                <div class="text-sm text-gray-400 mb-1">逾期维护</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ maintenanceReminders.overdue?.length || 0 }}</div>
+                                            </div>
+                                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                                <div class="text-sm text-gray-400 mb-1">高优先级节能</div>
+                                                <div class="text-2xl font-bold text-green-700">{{ assetDashboard.saving_suggestions?.high_priority?.length || 0 }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                                            <div class="bg-white rounded-xl border border-gray-200 p-4">
+                                                <h3 class="font-semibold text-gray-800 mb-4">今日能耗</h3>
+                                                <div class="grid grid-cols-3 gap-3">
+                                                    <div class="rounded-lg bg-yellow-50 p-3 text-center">
+                                                        <div class="text-xs text-yellow-700">用电</div>
+                                                        <div class="text-xl font-bold text-yellow-700 mt-1">{{ assetDashboard.energy?.[1] || energyData.today?.[1] || 0 }}</div>
+                                                    </div>
+                                                    <div class="rounded-lg bg-blue-50 p-3 text-center">
+                                                        <div class="text-xs text-blue-700">用水</div>
+                                                        <div class="text-xl font-bold text-blue-700 mt-1">{{ assetDashboard.energy?.[2] || energyData.today?.[2] || 0 }}</div>
+                                                    </div>
+                                                    <div class="rounded-lg bg-orange-50 p-3 text-center">
+                                                        <div class="text-xs text-orange-700">燃气</div>
+                                                        <div class="text-xl font-bold text-orange-700 mt-1">{{ assetDashboard.energy?.[3] || energyData.today?.[3] || 0 }}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="bg-white rounded-xl border border-gray-200 p-4">
+                                                <h3 class="font-semibold text-gray-800 mb-4">近期异常</h3>
+                                                <div v-if="(assetDashboard.anomalies || []).length" class="space-y-2">
+                                                    <div v-for="item in assetDashboard.anomalies" :key="item.id" class="rounded-lg bg-red-50 border border-red-100 p-3 text-sm text-red-700">
+                                                        {{ item.record_date }} · {{ item.energy_type_name }} · {{ item.consumption_value }}{{ item.unit }}
+                                                    </div>
+                                                </div>
+                                                <div v-else class="py-8 text-center text-gray-400">暂无异常告警</div>
                                             </div>
                                         </div>
                                     </div>
@@ -10150,6 +10336,116 @@
                                                     </tr>
                                                     <tr v-if="!energyData.anomalies || energyData.anomalies.length === 0">
                                                         <td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无异常告警</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- 节能建议 -->
+                                    <div v-if="assetAgentTab === 'suggestions'" class="space-y-5">
+                                        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                            <div>
+                                                <h3 class="font-semibold text-gray-900">节能建议</h3>
+                                                <p class="text-sm text-gray-500 mt-1">基于能耗异常与基准差异生成可执行建议</p>
+                                            </div>
+                                            <div class="flex gap-2">
+                                                <select v-model="suggestionFilter.status" class="input-field" @change="loadEnergySuggestions">
+                                                    <option value="0">全部状态</option>
+                                                    <option value="1">待审批</option>
+                                                    <option value="2">已批准</option>
+                                                    <option value="3">实施中</option>
+                                                    <option value="4">已完成</option>
+                                                </select>
+                                                <button @click="generateEnergySuggestions" class="btn-success">
+                                                    <i class="fas fa-magic mr-2"></i>生成建议
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="table-container overflow-x-auto">
+                                            <table class="w-full text-sm">
+                                                <thead class="bg-gray-50 text-gray-500">
+                                                    <tr>
+                                                        <th class="px-4 py-3 text-left">建议</th>
+                                                        <th class="px-4 py-3 text-left">优先级</th>
+                                                        <th class="px-4 py-3 text-right">预计节省</th>
+                                                        <th class="px-4 py-3 text-left">状态</th>
+                                                        <th class="px-4 py-3 text-left">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="item in energySuggestions" :key="item.id">
+                                                        <td class="px-4 py-3">
+                                                            <div class="font-medium text-gray-800">{{ item.title || item.suggestion_title || '-' }}</div>
+                                                            <div class="text-xs text-gray-500 mt-1">{{ item.description || item.suggestion_content || item.reason || '-' }}</div>
+                                                        </td>
+                                                        <td class="px-4 py-3">{{ item.priority_name || item.priority || '-' }}</td>
+                                                        <td class="px-4 py-3 text-right">¥{{ item.expected_saving || item.estimated_saving || 0 }}</td>
+                                                        <td class="px-4 py-3">{{ item.status_name || item.status || '-' }}</td>
+                                                        <td class="px-4 py-3">
+                                                            <button @click="updateEnergySuggestion(item.id, 'approve')" class="text-green-600 hover:text-green-800 text-sm">批准</button>
+                                                            <button @click="updateEnergySuggestion(item.id, 'start')" class="text-blue-600 hover:text-blue-800 text-sm ml-3">开始</button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="!energySuggestions.length">
+                                                        <td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无节能建议</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- 维护计划 -->
+                                    <div v-if="assetAgentTab === 'maintenance'" class="space-y-5">
+                                        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                            <div>
+                                                <h3 class="font-semibold text-gray-900">维护计划</h3>
+                                                <p class="text-sm text-gray-500 mt-1">查看待维护、逾期维护与设备保养计划</p>
+                                            </div>
+                                            <div class="flex gap-2">
+                                                <button @click="autoGenerateMaintenancePlans" class="btn-success">
+                                                    <i class="fas fa-calendar-plus mr-2"></i>生成默认计划
+                                                </button>
+                                                <button @click="loadMaintenancePlans(); loadMaintenanceReminders()" class="btn-primary">
+                                                    <i class="fas fa-sync-alt mr-2"></i>刷新
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div class="rounded-xl border border-orange-100 bg-orange-50 p-4">
+                                                <div class="text-sm text-orange-700">即将到期</div>
+                                                <div class="text-2xl font-bold text-orange-700 mt-1">{{ maintenanceReminders.upcoming?.length || 0 }}</div>
+                                            </div>
+                                            <div class="rounded-xl border border-red-100 bg-red-50 p-4">
+                                                <div class="text-sm text-red-700">逾期维护</div>
+                                                <div class="text-2xl font-bold text-red-700 mt-1">{{ maintenanceReminders.overdue?.length || 0 }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="table-container overflow-x-auto">
+                                            <table class="w-full text-sm">
+                                                <thead class="bg-gray-50 text-gray-500">
+                                                    <tr>
+                                                        <th class="px-4 py-3 text-left">计划</th>
+                                                        <th class="px-4 py-3 text-left">设备</th>
+                                                        <th class="px-4 py-3 text-left">下次维护</th>
+                                                        <th class="px-4 py-3 text-left">优先级</th>
+                                                        <th class="px-4 py-3 text-left">状态</th>
+                                                        <th class="px-4 py-3 text-left">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="item in maintenancePlans" :key="item.id">
+                                                        <td class="px-4 py-3 font-medium text-gray-800">{{ item.plan_name || '-' }}</td>
+                                                        <td class="px-4 py-3 text-gray-600">{{ item.device?.name || '-' }}</td>
+                                                        <td class="px-4 py-3">{{ item.next_execute_date || item.next_maintenance_date || '-' }}</td>
+                                                        <td class="px-4 py-3">{{ item.priority_name || item.priority || '-' }}</td>
+                                                        <td class="px-4 py-3">{{ item.status_name || item.status || '-' }}</td>
+                                                        <td class="px-4 py-3">
+                                                            <button @click="executeMaintenancePlan(item.id)" class="text-blue-600 hover:text-blue-800 text-sm">执行</button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="!maintenancePlans.length">
+                                                        <td colspan="6" class="px-4 py-8 text-center text-gray-400">暂无维护计划</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -12091,7 +12387,7 @@
                                 </div>
                                 
                                 <!-- 展开数据 -->
-                                <div v-if="onlineDataResult" class="mt-6 border-t pt-6">
+                                <div v-if="shouldShowOnlineFetchResult && onlineDataResult" class="mt-6 border-t pt-6">
                                     <div class="flex justify-between items-center">
                                         <button @click="showRawData = !showRawData" 
                                             class="flex items-center gap-2 text-gray-700 hover:text-blue-600 transition-colors">
@@ -12108,7 +12404,7 @@
                                 </div>
                                 
                                 <!-- 前十名酒店 -->
-                                <div v-if="topTenHotels.length > 0" class="mt-6 border-t pt-6">
+                                <div v-if="shouldShowOnlineFetchResult && topTenHotels.length > 0" class="mt-6 border-t pt-6">
                                     <div class="flex items-center mb-3">
                                         <h4 class="font-medium text-lg">
                                             <i class="fas fa-trophy text-yellow-500 mr-2"></i>前十名酒店（按间夜数排序）
@@ -13458,6 +13754,7 @@
 
             // 线上数据获取
             const onlineDataTab = ref('ctrip-ranking');
+            const shouldShowOnlineFetchResult = computed(() => ['ctrip', 'meituan', 'ctrip-traffic', 'meituan-traffic', 'custom'].includes(onlineDataTab.value));
             const downloadCenterTab = ref('overview'); // 下载中心子Tab: overview/traffic(auto-fetch)/ai/fetched
             const fetchingData = ref(false);
             const onlineDataResult = ref(null);
@@ -13640,6 +13937,7 @@
             const ctripSavedCount = ref(0); // 携程保存的数据条数
             const ctripLatestMeta = ref(null);
             const ctripLatestLoading = ref(false);
+            const ctripHeaderRecordCount = computed(() => ctripSavedCount.value || ctripLatestMeta.value?.total_records || 0);
 
             // 美团配置管理
             const meituanConfigForm = ref({
@@ -13956,11 +14254,18 @@
                 }));
             });
             const homeQuickEntries = [
-                { title: '线上数据获取', desc: '同步 OTA 数据', page: 'online-data', icon: 'fas fa-cloud-download-alt' },
+                { title: '线上数据获取', desc: '同步 OTA 数据', page: 'ctrip-ebooking', tab: 'ctrip-ranking', icon: 'fas fa-cloud-download-alt' },
                 { title: '酒店AI工具箱', desc: '跳转常用AI工具', page: 'agent-center', icon: 'fas fa-toolbox' },
                 { title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
                 { title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog' }
             ];
+
+            const openHomeQuickEntry = (entry) => {
+                if (entry.tab) {
+                    onlineDataTab.value = entry.tab;
+                }
+                currentPage.value = entry.page;
+            };
 
             // 竞对价格监控
             const competitorTab = ref('hotels');
@@ -14759,6 +15064,7 @@
                     loadMeituanConfigList();
                 }
                 if (newPage === 'online-data' && token.value) {
+                    onlineDataTab.value = 'quick';
                     // 延迟加载，确保页面渲染完成
                     setTimeout(() => {
                         loadBookmarklet();
@@ -14991,13 +15297,29 @@
             };
 
             // 页面标题
+            const findMenuItemByPath = (items, path) => {
+                for (const item of items) {
+                    if (item.path === path) return item;
+                    if (item.children) {
+                        const child = findMenuItemByPath(item.children, path);
+                        if (child) return child;
+                    }
+                }
+                return null;
+            };
+
             const pageTitle = computed(() => {
-                const item = menuItems.value.find(m => m.path === currentPage.value);
-                return item ? item.name : '';
+                const item = findMenuItemByPath(menuItems.value, currentPage.value);
+                return item ? (item.title || item.name) : '';
             });
 
             const handleMenuClick = (item) => {
-                currentPage.value = item.path;
+                if (item.tab) {
+                    onlineDataTab.value = item.tab;
+                }
+                if (item.path) {
+                    currentPage.value = item.path;
+                }
             };
 
             // Toast
@@ -16496,6 +16818,15 @@
             const revenueAgentTab = ref('config');
             const priceSuggestions = ref([]);
             const priceSuggestionFilter = ref({ date: new Date().toISOString().split('T')[0], status: 0 });
+            const revenueAnalysisData = ref({
+                statistics: {},
+                room_types: [],
+                forecast_accuracy: {},
+                revpar_trend: [],
+                high_demand_dates: [],
+                pricing_strategies: [],
+                date_range: {}
+            });
 
             // 资产运维Agent
             const assetAgentTab = ref('config');
@@ -16546,6 +16877,31 @@
             // 竞对分析
             const competitorAnalysis = ref({ price_matrix: {}, alerts: [], trends: {} });
             const competitorFilter = ref({ date: new Date().toISOString().split('T')[0] });
+            const roundAgentMetric = (value, digits = 1) => Number((Number(value) || 0).toFixed(digits));
+            const revenueAccuracyText = computed(() => {
+                const source = [
+                    revenueAnalysisData.value.forecast_accuracy,
+                    forecastAccuracy.value,
+                    revenueDashboard.value.forecast_accuracy
+                ].find(item => item && Object.keys(item).length > 0) || {};
+                const value = source.accuracy_rate ?? source.avg_accuracy ?? source.accuracy ?? 0;
+                return Number(value) ? `${roundAgentMetric(value, 1)}%` : '--';
+            });
+            const revenueRevparRows = computed(() => (revenueAnalysisData.value.revpar_trend || []).map(row => ({
+                date: row.date || row.forecast_date || '-',
+                revpar: roundAgentMetric(row.predicted_revpar ?? row.revpar ?? 0, 1),
+                occupancy: roundAgentMetric(row.predicted_occupancy ?? row.occupancy ?? 0, 1),
+                confidence: roundAgentMetric(row.confidence ?? row.confidence_score ?? 0, 1)
+            })));
+            const revenueAnalysisDataNotice = computed(() => {
+                const hasData = revenueRevparRows.value.length > 0
+                    || demandForecasts.value.length > 0
+                    || (revenueAnalysisData.value.pricing_strategies || []).length > 0
+                    || (competitorAnalysis.value.alerts || []).length > 0;
+                return hasData
+                    ? '已接入收益预测、竞对价格与定价建议样本，结果需结合OTA和日报口径复核。'
+                    : '当前缺少需求预测、竞对价格或日报样本，收益分析先显示空状态。';
+            });
 
             // ========== 资产运维Agent 增强功能 ==========
             // 能耗基准
@@ -17016,6 +17372,35 @@
                 }
             };
 
+            // 加载收益分析看板
+            const loadRevenueAnalysis = async () => {
+                try {
+                    const params = new URLSearchParams();
+                    params.append('hotel_id', filterReportHotel.value || 0);
+                    params.append('start_date', forecastFilter.value.start_date);
+                    params.append('end_date', forecastFilter.value.end_date);
+                    const res = await request(`/agent/revenue-analysis?${params}`);
+                    if (res.code === 200) {
+                        revenueAnalysisData.value = {
+                            ...revenueAnalysisData.value,
+                            ...(res.data || {})
+                        };
+                    }
+                } catch (e) {
+                    console.error('加载收益分析失败:', e);
+                }
+            };
+
+            const loadRevenueAnalysisBundle = async () => {
+                await Promise.allSettled([
+                    loadRevenueAnalysis(),
+                    loadRevenueDashboard(),
+                    loadDemandForecasts(),
+                    loadCompetitorAnalysis(),
+                    loadPriceSuggestions()
+                ]);
+            };
+
             // ========== 资产运维Agent API ==========
             // 加载能耗基准
             const loadEnergyBenchmarks = async () => {
@@ -17093,6 +17478,73 @@
                     }
                 } catch (e) {
                     console.error('加载资产仪表板失败:', e);
+                }
+            };
+
+            const loadAssetOpsBundle = async () => {
+                await Promise.allSettled([
+                    loadAssetDashboard(),
+                    loadEnergyData(),
+                    loadEnergyBenchmarks(),
+                    loadEnergySuggestions(),
+                    loadMaintenancePlans(),
+                    loadMaintenanceReminders(),
+                    loadDevices()
+                ]);
+            };
+
+            const updateEnergySuggestion = async (id, action) => {
+                if (!id) return;
+                try {
+                    const res = await request(`/agent/energy-suggestions/${id}/update?action=${action}`, { method: 'POST' });
+                    if (res.code === 200) {
+                        showToast(res.message || '操作成功');
+                        loadEnergySuggestions();
+                        loadAssetDashboard();
+                    } else {
+                        showToast(res.message || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('操作失败: ' + e.message, 'error');
+                }
+            };
+
+            const autoGenerateMaintenancePlans = async () => {
+                try {
+                    const res = await request(`/agent/maintenance-plans/auto-generate?hotel_id=${filterReportHotel.value || 0}`, { method: 'POST' });
+                    if (res.code === 200) {
+                        showToast(`已生成 ${res.data?.count || 0} 个维护计划`);
+                        loadMaintenancePlans();
+                        loadMaintenanceReminders();
+                        loadAssetDashboard();
+                    } else {
+                        showToast(res.message || '生成失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('生成失败: ' + e.message, 'error');
+                }
+            };
+
+            const executeMaintenancePlan = async (id) => {
+                if (!id || !confirm('确认执行该维护计划？')) return;
+                try {
+                    const res = await request(`/agent/maintenance-plans/${id}/execute`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            result: '已完成例行维护',
+                            actual_cost: 0
+                        })
+                    });
+                    if (res.code === 200) {
+                        showToast('维护记录已创建');
+                        loadMaintenancePlans();
+                        loadMaintenanceReminders();
+                        loadAssetDashboard();
+                    } else {
+                        showToast(res.message || '执行失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('执行失败: ' + e.message, 'error');
                 }
             };
 
@@ -21734,6 +22186,21 @@
                 if (snapshot.freshness === 'today_cache') return '今日缓存';
                 return '本地数据';
             });
+            const strategyDataSourceRows = computed(() => {
+                const snapshot = aiStrategyResult.value?.data_snapshot || {};
+                const localData = snapshot.local_data || {};
+                const externalData = snapshot.external_data || {};
+                const sourceSummary = Array.isArray(snapshot.source_summary) ? snapshot.source_summary.filter(Boolean) : [];
+                const missing = [
+                    ...((Array.isArray(localData.missing_data) ? localData.missing_data : [])),
+                    ...((Array.isArray(externalData.missing_data) ? externalData.missing_data : []))
+                ].filter(Boolean);
+                return [
+                    { label: '本地数据', value: snapshot.local_data_used ? (sourceSummary.join('、') || '已使用项目输入') : '未命中' },
+                    { label: '外部数据', value: snapshot.external_data_used ? '已接入' : '未接入' },
+                    { label: '缺失项', value: Array.from(new Set(missing)).join('、') || '无' }
+                ];
+            });
             const simulationMetricCards = computed(() => {
                 const b = baseSimulation.value;
                 if (!b) return [
@@ -21832,7 +22299,7 @@
             };
 
             return {
-                aiProject, aiStrategyParams, aiStrategyResult, aiStrategyLoading, strategyScoreCards, strategyFreshnessLabel, handleStrategy,
+                aiProject, aiStrategyParams, aiStrategyResult, aiStrategyLoading, strategyScoreCards, strategyFreshnessLabel, strategyDataSourceRows, handleStrategy,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, simulationCostFields, simulationMetricCards, simulationRiskHints, baseSimulation, handleSimulation,
                 aiFeasibilityResult, aiFeasibilityLoading, aiFeasibilityError, handleFeasibility, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, riskBadgeClass,
                 marketEvaluationForm, marketEvaluationResult, marketEvaluationLoading, handleMarketEvaluation,
@@ -21854,7 +22321,7 @@
                 loadOpeningProjects, createOpeningProject, selectOpeningProject, generateOpeningTasks, updateOpeningTask, recalculateOpening,
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, macroSignalCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalLevelClass, loadMacroSignalDetail, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationSuggestions,
-                weatherDemandHint, weatherLocationName, selectedWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, homeQuickEntries,
+                weatherDemandHint, weatherLocationName, selectedWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, homeQuickEntries, openHomeQuickEntry,
                 isLoggedIn, loading, loginError, user, token, currentTime, currentPage, showPassword,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 expandedMenus, toggleSubmenu,
@@ -21884,7 +22351,7 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripCommentForm, ctripCommentResult, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripCommentForm, ctripCommentResult, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, bookmarkletCode,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
@@ -21899,7 +22366,7 @@
                 fetchCtripData, fetchCtripTrafficData, fetchCtripComments, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanComments, useMeituanCommentConfig, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId,
-                ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading,
+                ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount,
                 loadCtripConfigList, saveCtripConfig, useCtripConfig, editCtripConfig, deleteCtripConfig, generateCtripBookmarklet, openTargetSite, applyCtripConfig,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanBookmarklet,
@@ -21952,13 +22419,15 @@
                 loadConversations, loadConversationStats, loadStaffDashboard,
                 // Agent中心 - 收益管理增强
                 demandForecasts, forecastFilter, forecastAccuracy, highDemandDates, revenueDashboard,
+                revenueAnalysisData, revenueAnalysisDataNotice, revenueAccuracyText, revenueRevparRows,
                 competitorAnalysis, competitorFilter,
-                loadDemandForecasts, loadCompetitorAnalysis, loadRevenueDashboard,
+                loadDemandForecasts, loadCompetitorAnalysis, loadRevenueDashboard, loadRevenueAnalysis, loadRevenueAnalysisBundle,
                 // Agent中心 - 资产运维增强
                 energyBenchmarks, energySuggestions, suggestionFilter,
                 maintenancePlans, maintenanceReminders, assetDashboard,
                 loadEnergyBenchmarks, loadEnergySuggestions, generateEnergySuggestions,
-                loadMaintenancePlans, loadMaintenanceReminders, loadAssetDashboard,
+                loadMaintenancePlans, loadMaintenanceReminders, loadAssetDashboard, loadAssetOpsBundle,
+                updateEnergySuggestion, autoGenerateMaintenancePlans, executeMaintenancePlan,
                 // 侧边栏
                 sidebarCollapsed, toggleSidebar,
             };

@@ -1420,6 +1420,8 @@ class OnlineData extends Base
         
         $savedCount = 0;
         $dataDate = $startDate ?: ($endDate ?: date('Y-m-d'));
+        $columns = $this->getOnlineDailyDataColumns();
+        $now = date('Y-m-d H:i:s');
         
         foreach ($dataList as $item) {
             if (!is_array($item)) continue;
@@ -1481,12 +1483,19 @@ class OnlineData extends Base
                 'dimension' => '',
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
+
+            if (isset($columns['update_time'])) {
+                $data['update_time'] = $now;
+            }
             
             if ($exists) {
                 Db::name('online_daily_data')
                     ->where('id', $exists['id'])
                     ->update($data);
             } else {
+                if (isset($columns['create_time'])) {
+                    $data['create_time'] = $now;
+                }
                 Db::name('online_daily_data')->insert($data);
             }
             $savedCount++;
