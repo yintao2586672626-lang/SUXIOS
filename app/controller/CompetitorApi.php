@@ -11,8 +11,9 @@ use think\facade\Db;
 
 class CompetitorApi extends Base
 {
-    private const TASK_TOKEN = 'shop2025';
+    private const TASK_TOKEN_ENV = 'COMPETITOR_TASK_TOKEN';
     private const REPORT_TOKEN_ENV = 'COMPETITOR_REPORT_TOKEN';
+    private const DEV_FALLBACK_TOKEN = 'shop2025';
 
     public function task(): Response
     {
@@ -20,7 +21,12 @@ class CompetitorApi extends Base
         $platform = (string)$this->request->post('platform', '');
         $token = (string)$this->request->post('token', '');
 
-        if ($token !== self::TASK_TOKEN) {
+        $expectedToken = $this->getTaskToken();
+        if ($expectedToken === '') {
+            return json(['code' => 403, 'message' => '未配置COMPETITOR_TASK_TOKEN', 'data' => null]);
+        }
+
+        if ($token === '' || !hash_equals($expectedToken, $token)) {
             return json(['code' => 403, 'message' => 'token无效', 'data' => null]);
         }
         if ($deviceId === '' || $platform === '') {
@@ -138,7 +144,17 @@ class CompetitorApi extends Base
             return $token;
         }
 
-        return $this->isLocalOrDevEnvironment() ? self::TASK_TOKEN : '';
+        return $this->isLocalOrDevEnvironment() ? self::DEV_FALLBACK_TOKEN : '';
+    }
+
+    private function getTaskToken(): string
+    {
+        $token = trim((string)env(self::TASK_TOKEN_ENV, ''));
+        if ($token !== '') {
+            return $token;
+        }
+
+        return $this->isLocalOrDevEnvironment() ? self::DEV_FALLBACK_TOKEN : '';
     }
 
     private function isLocalOrDevEnvironment(): bool

@@ -5,6 +5,8 @@ namespace app\service;
 
 use DateTimeImmutable;
 use InvalidArgumentException;
+use RuntimeException;
+use think\facade\Db;
 
 class ExpansionService
 {
@@ -271,6 +273,186 @@ class ExpansionService
             ],
             'data_status' => $this->dataStatus([]),
         ];
+    }
+
+    public function saveRecord(string $recordType, array $input, array $result, int $userId): int
+    {
+        $this->ensureTable();
+
+        $summary = $this->recordSummary($recordType, $input, $result);
+        $now = date('Y-m-d H:i:s');
+
+        return (int)Db::name('expansion_records')->insertGetId([
+            'record_type' => $recordType,
+            'project_name' => $summary['project_name'],
+            'city_area' => $summary['city_area'],
+            'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
+            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
+            'decision' => $summary['decision'],
+            'risk_level' => $summary['risk_level'],
+            'created_by' => $userId,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
+    public function records(int $userId, bool $isSuperAdmin): array
+    {
+        $this->ensureTable();
+
+        $query = Db::name('expansion_records')->whereNull('deleted_at');
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        $rows = $query->order('id', 'desc')->limit(50)->select()->toArray();
+        return array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
+    }
+
+    public function detail(int $id, int $userId, bool $isSuperAdmin): array
+    {
+        $this->ensureTable();
+
+        $query = Db::name('expansion_records')->where('id', $id)->whereNull('deleted_at');
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        $row = $query->find();
+        if (!$row) {
+            throw new RuntimeException('扩张记录不存在或无权访问');
+        }
+
+        return $this->formatRecord($row, true);
+    }
+
+    public function archive(int $id, int $userId, bool $isSuperAdmin): bool
+    {
+        $this->ensureTable();
+
+        $query = Db::name('expansion_records')->where('id', $id)->whereNull('deleted_at');
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $affected = $query->update([
+            'deleted_at' => $now,
+            'updated_at' => $now,
+        ]);
+        if ((int)$affected <= 0) {
+            throw new RuntimeException('扩张记录不存在或无权访问');
+        }
+
+        return true;
+    }
+
+    public function ensureTable(): void
+    {
+        Db::execute("
+            CREATE TABLE IF NOT EXISTS expansion_records (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                record_type VARCHAR(30) NOT NULL DEFAULT '',
+                project_name VARCHAR(160) NOT NULL DEFAULT '',
+                city_area VARCHAR(160) NOT NULL DEFAULT '',
+                input_json JSON DEFAULT NULL,
+                result_json JSON DEFAULT NULL,
+                decision VARCHAR(120) NOT NULL DEFAULT '',
+                risk_level VARCHAR(30) NOT NULL DEFAULT '',
+                created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                deleted_at DATETIME DEFAULT NULL,
+                PRIMARY KEY (id),
+                INDEX idx_expansion_records_type_user (record_type, created_by, id),
+                INDEX idx_expansion_records_city_area (city_area)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    }
+
+    private function recordSummary(string $recordType, array $input, array $result): array
+    {
+        if ($recordType === 'market') {
+            $city = $this->text($input, ['city']);
+            $businessArea = $this->text($input, ['business_area', 'district', 'area']);
+            $cityArea = trim($city . ($businessArea !== '' ? ' ' . $businessArea : ''));
+
+            return [
+                'project_name' => $this->limitText(($cityArea !== '' ? $cityArea : '扩张') . '市场评估', 160),
+                'city_area' => $this->limitText($cityArea, 160),
+                'decision' => $this->limitText((string)($result['decision'] ?? ''), 120),
+                'risk_level' => $this->limitText((string)($result['investment_risk_level'] ?? ''), 30),
+            ];
+        }
+
+        if ($recordType === 'benchmark') {
+            $position = is_array($result['position'] ?? null) ? $result['position'] : [];
+            $city = $this->text($input, ['city'], (string)($position['city'] ?? ''));
+            $businessArea = $this->text($input, ['business_area', 'district', 'area'], (string)($position['business_area'] ?? ''));
+            $cityArea = trim($city . ($businessArea !== '' ? ' ' . $businessArea : ''));
+            $strategies = is_array($result['copyable_strategies'] ?? null) ? $result['copyable_strategies'] : [];
+
+            return [
+                'project_name' => $this->limitText(($cityArea !== '' ? $cityArea : '扩张') . '标杆选模', 160),
+                'city_area' => $this->limitText($cityArea, 160),
+                'decision' => $this->limitText((string)($strategies['price'] ?? '标杆模型已生成'), 120),
+                'risk_level' => '',
+            ];
+        }
+
+        $delayRisk = is_array($result['delay_risk'] ?? null) ? $result['delay_risk'] : [];
+        $progress = is_array($result['progress'] ?? null) ? $result['progress'] : [];
+        $riskLevel = (string)($delayRisk['level'] ?? '');
+
+        return [
+            'project_name' => $this->limitText($this->text($input, ['project_name'], '协同提效项目'), 160),
+            'city_area' => $this->limitText($this->text($input, ['city_area']), 160),
+            'decision' => $this->limitText($riskLevel !== '' ? $riskLevel : (string)($progress['status_text'] ?? '协同看板已生成'), 120),
+            'risk_level' => $this->limitText($riskLevel, 30),
+        ];
+    }
+
+    private function formatRecord(array $row, bool $withDetail): array
+    {
+        $result = $this->decodeJson($row['result_json'] ?? '');
+        $record = [
+            'id' => (int)$row['id'],
+            'record_type' => (string)($row['record_type'] ?? ''),
+            'project_name' => (string)($row['project_name'] ?? ''),
+            'city_area' => (string)($row['city_area'] ?? ''),
+            'decision' => (string)($row['decision'] ?? ''),
+            'risk_level' => (string)($row['risk_level'] ?? ''),
+            'created_by' => (int)($row['created_by'] ?? 0),
+            'created_at' => (string)($row['created_at'] ?? ''),
+            'summary' => [
+                'market_heat_score' => $result['market_heat_score'] ?? null,
+                'investment_risk_level' => $result['investment_risk_level'] ?? ($row['risk_level'] ?? ''),
+                'benchmark_count' => is_array($result['recommended_benchmarks'] ?? null) ? count($result['recommended_benchmarks']) : null,
+                'progress_percent' => $result['progress']['percent'] ?? null,
+            ],
+        ];
+
+        if ($withDetail) {
+            $record['input'] = $this->decodeJson($row['input_json'] ?? '');
+            $record['result'] = $result;
+        }
+
+        return $record;
+    }
+
+    private function decodeJson(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        $decoded = json_decode((string)$value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function limitText(string $value, int $length): string
+    {
+        return function_exists('mb_substr') ? mb_substr($value, 0, $length) : substr($value, 0, $length);
     }
 
     private function normalizeTasks(array $tasks, string $currentStage, DateTimeImmutable $today): array

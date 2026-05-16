@@ -6,6 +6,7 @@ namespace app\controller;
 use app\model\User;
 use app\model\OperationLog;
 use app\model\LoginLog;
+use app\model\SystemConfig;
 use think\exception\ValidateException;
 use think\Response;
 
@@ -28,6 +29,13 @@ class Auth extends Base
         // 获取客户端信息
         $ip = $this->request->ip();
         $userAgent = $this->request->header('User-Agent', '');
+        $lockKey = $this->loginLockKey($username, $ip);
+        $lockedUntil = (int) (cache($lockKey . ':locked_until') ?: 0);
+        if ($lockedUntil > time()) {
+            $remainMinutes = max(1, (int) ceil(($lockedUntil - time()) / 60));
+            LoginLog::record(null, $username, 'login', 'failed', '登录已锁定', $ip, $userAgent, $clientInfo);
+            return $this->error('登录失败次数过多，请 ' . $remainMinutes . ' 分钟后再试');
+        }
 
         $user = User::with(['role', 'hotel'])->where('username', $username)->find();
         
@@ -35,6 +43,7 @@ class Auth extends Base
         if (!$user) {
             // 记录失败日志
             LoginLog::record(null, $username, 'login', 'failed', '用户不存在', $ip, $userAgent, $clientInfo);
+            $this->recordLoginFailure($username, $ip);
             return $this->error('用户名或密码错误');
         }
 
@@ -42,6 +51,7 @@ class Auth extends Base
         if (!$user->verifyPassword($password)) {
             // 记录失败日志
             LoginLog::record($user->id, $username, 'login', 'failed', '密码错误', $ip, $userAgent, $clientInfo);
+            $this->recordLoginFailure($username, $ip);
             return $this->error('用户名或密码错误');
         }
 
@@ -70,6 +80,8 @@ class Auth extends Base
         ];
         cache('token_' . $token, $tokenData, 86400); // 缓存24小时
         cache('user_token_' . $user->id, $token, 86400);
+        cache($lockKey . ':attempts', null);
+        cache($lockKey . ':locked_until', null);
 
         // 记录登录成功日志
         LoginLog::record($user->id, $username, 'login', 'success', null, $ip, $userAgent, $clientInfo);
@@ -99,6 +111,27 @@ class Auth extends Base
         $random = bin2hex(random_bytes(16));
         $time = microtime(true);
         return hash('sha256', $userId . $time . $random . uniqid('', true));
+    }
+
+    private function loginLockKey(string $username, string $ip): string
+    {
+        return 'login_lock_' . sha1(strtolower(trim($username)) . '|' . $ip);
+    }
+
+    private function recordLoginFailure(string $username, string $ip): void
+    {
+        $maxAttempts = max(3, min(10, (int) SystemConfig::getValue(SystemConfig::KEY_LOGIN_MAX_ATTEMPTS, 10)));
+        $lockMinutes = max(1, min(60, (int) SystemConfig::getValue(SystemConfig::KEY_LOGIN_LOCKOUT_DURATION, 1)));
+        $lockKey = $this->loginLockKey($username, $ip);
+        $attempts = (int) (cache($lockKey . ':attempts') ?: 0) + 1;
+
+        if ($attempts >= $maxAttempts) {
+            cache($lockKey . ':attempts', 0, $lockMinutes * 60);
+            cache($lockKey . ':locked_until', time() + $lockMinutes * 60, $lockMinutes * 60);
+            return;
+        }
+
+        cache($lockKey . ':attempts', $attempts, $lockMinutes * 60);
     }
 
     /**

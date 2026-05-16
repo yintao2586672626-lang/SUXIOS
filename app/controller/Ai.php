@@ -2,6 +2,7 @@
 namespace app\controller;
 
 use app\BaseController;
+use app\service\FeasibilityReportService;
 use think\Request;
 
 class Ai extends BaseController
@@ -86,30 +87,29 @@ class Ai extends BaseController
      */
     public function feasibility(Request $request)
     {
-        // 返回可行性报告的数据
-        $data = [
-            'projectName' => '陆家嘴精品商务酒店项目',
-            'date' => date('Y年m月d日'),
-            'summary' => [
-                'rating' => 'A- (建议投资)',
-                'content' => '本项目地处核心商务区边缘，依托即将交付的甲级写字楼集群，具备明确的商务客源支撑。通过AI量化测算，在总投资1580万元的基准下，预计静态回收期为3.2年，IRR达到24.5%，财务模型稳健，抗风险能力较强。'
-            ],
-            'strategies' => [
-                'product' => '中高端轻奢定位，客房标配深度睡眠隔音系统。',
-                'service' => '大堂引入独立咖啡品牌联营，解决早餐和商务洽谈需求。',
-                'customer' => '协议客占比目标45%，OTA零售目标40%，会员直销15%。'
-            ],
-            'financials' => [
-                'occ' => ['pessimistic' => '72%', 'base' => '82%', 'optimistic' => '88%'],
-                'adr' => ['pessimistic' => '¥380', 'base' => '¥450', 'optimistic' => '¥480'],
-                'payback' => ['pessimistic' => '4.5年', 'base' => '3.2年', 'optimistic' => '2.8年']
-            ],
-            'risks' => [
-                'main' => '区域新增商办交付可能延期，导致开业首年爬坡期延长，影响首年现金流。',
-                'mitigation' => '建议在租约谈判中争取6-8个月的免租期，并将前台开业节点与周边核心楼宇实际交付时间动态绑定。'
-            ]
-        ];
+        $input = $request->post();
+        $input = array_merge([
+            'project_name' => $input['projectName'] ?? 'Untitled feasibility project',
+            'city' => $input['city'] ?? '',
+            'district' => $input['district'] ?? '',
+            'address' => $input['address'] ?? '',
+            'property_area' => $input['area'] ?? 5000,
+            'room_count' => $input['rooms'] ?? 120,
+            'monthly_rent' => $input['monthly_rent'] ?? 0,
+            'lease_years' => $input['lease_years'] ?? 10,
+            'decoration_budget' => $input['decoration_budget'] ?? 0,
+            'transfer_fee' => $input['transfer_fee'] ?? 0,
+            'opening_cost' => $input['opening_cost'] ?? 0,
+            'adr' => $input['adr'] ?? 0,
+            'occ' => $input['occ'] ?? 0,
+        ], $input);
 
-        return json(['code' => 200, 'message' => '报告生成成功', 'data' => $data]);
+        try {
+            $userId = (int)($request->user->id ?? 0);
+            $data = (new FeasibilityReportService())->generate($input, $userId);
+            return json(['code' => 200, 'message' => 'success', 'data' => $data]);
+        } catch (\Throwable $e) {
+            return json(['code' => 400, 'message' => $e->getMessage(), 'data' => null], 400);
+        }
     }
 }

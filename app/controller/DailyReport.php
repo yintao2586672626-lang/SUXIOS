@@ -14,6 +14,20 @@ use think\facade\Db;
 
 class DailyReport extends Base
 {
+    private const OTA_CHANNEL_KEYS = ['xb', 'mt', 'fliggy', 'tc', 'dy', 'qn', 'zx', 'booking', 'agoda', 'expedia'];
+    private const OTA_EXCEL_CHANNELS = [
+        ['key' => 'xb', 'label' => '携程'],
+        ['key' => 'mt', 'label' => '美团'],
+        ['key' => 'fliggy', 'label' => '飞猪'],
+        ['key' => 'tc', 'label' => '同程'],
+        ['key' => 'dy', 'label' => '抖音'],
+        ['key' => 'qn', 'label' => '去哪儿'],
+        ['key' => 'zx', 'label' => '智行'],
+        ['key' => 'booking', 'label' => 'Booking.com'],
+        ['key' => 'agoda', 'label' => 'Agoda'],
+        ['key' => 'expedia', 'label' => 'Expedia'],
+    ];
+
     /**
      * 获取报表配置
      */
@@ -230,6 +244,9 @@ class DailyReport extends Base
         $tcRevenue = $getVal($reportData, 'tc_revenue');
         $qnRevenue = $getVal($reportData, 'qn_revenue');
         $zxRevenue = $getVal($reportData, 'zx_revenue');
+        $bookingRevenue = $getVal($reportData, 'booking_revenue');
+        $agodaRevenue = $getVal($reportData, 'agoda_revenue');
+        $expediaRevenue = $getVal($reportData, 'expedia_revenue');
         
         // 线下收入
         $walkinRevenue = $getVal($reportData, 'walkin_revenue');
@@ -259,6 +276,9 @@ class DailyReport extends Base
         $tcRooms = $getVal($reportData, 'tc_rooms');
         $qnRooms = $getVal($reportData, 'qn_rooms');
         $zxRooms = $getVal($reportData, 'zx_rooms');
+        $bookingRooms = $getVal($reportData, 'booking_rooms');
+        $agodaRooms = $getVal($reportData, 'agoda_rooms');
+        $expediaRooms = $getVal($reportData, 'expedia_rooms');
         
         // 线下间夜
         $walkinRooms = $getVal($reportData, 'walkin_rooms');
@@ -304,7 +324,8 @@ class DailyReport extends Base
         // ===== 日计算数据 =====
         
         // 日线上总收入 = 所有OTA收入
-        $dayOnlineRevenue = $xbRevenue + $mtRevenue + $fliggyRevenue + $dyRevenue + $tcRevenue + $qnRevenue + $zxRevenue;
+        $dayOnlineRevenue = $xbRevenue + $mtRevenue + $fliggyRevenue + $dyRevenue + $tcRevenue + $qnRevenue + $zxRevenue
+            + $bookingRevenue + $agodaRevenue + $expediaRevenue;
         
         // 日线下总收入
         $dayOfflineRevenue = $walkinRevenue + $memberExpRevenue + $webExpRevenue + $groupRevenue + 
@@ -322,6 +343,7 @@ class DailyReport extends Base
         
         // 日出租总间数
         $dayTotalRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms +
+                        $bookingRooms + $agodaRooms + $expediaRooms +
                         $walkinRooms + $memberExpRooms + $webExpRooms + $groupRooms + 
                         $protocolRooms + $wechatRooms + $freeRooms + $goldCardRooms + $blackGoldRooms;
         
@@ -342,7 +364,8 @@ class DailyReport extends Base
         $dayRevpar = $salableRooms > 0 ? round($dayRoomRevenue / $salableRooms, 2) : 0;
         
         // OTA总量
-        $otaTotalRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms;
+        $otaTotalRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms
+            + $bookingRooms + $agodaRooms + $expediaRooms;
         
         // 日好评数
         $dayGoodReview = $xbGoodReview + $mtGoodReview + $fliggyGoodReview;
@@ -354,7 +377,8 @@ class DailyReport extends Base
         $monthOnlineRevenue = $getVal($monthSum, 'xb_revenue') + $getVal($monthSum, 'mt_revenue') + 
                               $getVal($monthSum, 'fliggy_revenue') + $getVal($monthSum, 'dy_revenue') + 
                               $getVal($monthSum, 'tc_revenue') + $getVal($monthSum, 'qn_revenue') + 
-                              $getVal($monthSum, 'zx_revenue');
+                              $getVal($monthSum, 'zx_revenue') + $getVal($monthSum, 'booking_revenue') +
+                              $getVal($monthSum, 'agoda_revenue') + $getVal($monthSum, 'expedia_revenue');
         
         // 月线下收入
         $monthOfflineRevenue = $getVal($monthSum, 'walkin_revenue') + $getVal($monthSum, 'member_exp_revenue') + 
@@ -495,6 +519,9 @@ class DailyReport extends Base
             'qn_rooms' => (int)$qnRooms,
             'zx_rooms' => (int)$zxRooms,
             'fliggy_rooms' => (int)$fliggyRooms,
+            'booking_rooms' => (int)$bookingRooms,
+            'agoda_rooms' => (int)$agodaRooms,
+            'expedia_rooms' => (int)$expediaRooms,
             'wechat_count' => (int)$wechatRooms,
             'dy_count' => (int)$dyRooms,
             'member_exp_rooms' => (int)$memberExpRooms,
@@ -1158,7 +1185,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         $html .= '<td rowspan="3" style="background:#B2CFEA;font-weight:bold">日期</td>';
         $html .= '<td rowspan="3" style="background:#B2CFEA;font-weight:bold">星期</td>';
         $html .= '<td colspan="13" rowspan="2" style="background:#B2CFEA;font-weight:bold">合计</td>';
-        $html .= '<td colspan="19" style="background:#B2CFEA;font-weight:bold">线上客房收入</td>';
+        $html .= '<td colspan="25" style="background:#B2CFEA;font-weight:bold">线上客房收入</td>';
         $html .= '<td colspan="23" style="background:#B2CFEA;font-weight:bold">线下客房收入</td>';
         $html .= '<td colspan="2" rowspan="2" style="background:#B2CFEA;font-weight:bold">钟点房</td>';
         $html .= '<td colspan="7" style="background:#B2CFEA;font-weight:bold">其他收入合计</td>';
@@ -1171,15 +1198,11 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         
         // ==================== 第二行表头 ====================
         $html .= '<tr style="height:25pt">';
-        // 线上客房收入子分类（19列：5+2+2+2+2+2+2+2）
+        // 线上客房收入子分类（25列：线上合计5列 + 10个OTA渠道各2列）
         $html .= '<td colspan="5" style="background:#B2CFEA;font-weight:bold">线上合计</td>';
-        $html .= '<td colspan="2" style="background:#EBF1DE;font-weight:bold">携程</td>';
-        $html .= '<td colspan="2" style="background:#EBF1DE;font-weight:bold">美团</td>';
-        $html .= '<td colspan="2" style="background:#EBF1DE;font-weight:bold">飞猪</td>';
-        $html .= '<td colspan="2" style="background:#EBF1DE;font-weight:bold">同程</td>';
-        $html .= '<td colspan="2" style="background:#EBF1DE;font-weight:bold">抖音</td>';
-        $html .= '<td colspan="2" style="background:#EBF1DE;font-weight:bold">去哪儿</td>';
-        $html .= '<td colspan="2" style="background:#EBF1DE;font-weight:bold">智行</td>';
+        foreach (self::OTA_EXCEL_CHANNELS as $channel) {
+            $html .= '<td colspan="2" style="background:#EBF1DE;font-weight:bold">' . $channel['label'] . '</td>';
+        }
         // 线下客房收入子分类（17列：5+2*9=5+18=23？不对，模板是17列）
         // 根据模板：线下合计(5) + 散客(2)+会员体验(2)+网络体验(2)+团队(2)+协议客户(2)+微信(2)+免费房(2)+集团金卡(2)+集团黑金卡(2) = 5+18=23
         // 但模板显示AI1:BE1是17列...让我重新计算
@@ -1226,8 +1249,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         foreach ($cols as $col) {
             $html .= '<td style="background:#D9E1F2;font-weight:bold">' . $col . '</td>';
         }
-        // 携程、美团、飞猪、同程、抖音、去哪儿、智行（7个渠道，各2列，共14列）
-        for ($i = 0; $i < 7; $i++) {
+        // 各OTA渠道（每个渠道：收入、间夜）
+        foreach (self::OTA_EXCEL_CHANNELS as $channel) {
             $html .= '<td style="background:#EBF1DE;font-weight:bold">收入</td>';
             $html .= '<td style="background:#EBF1DE;font-weight:bold">间夜</td>';
         }
@@ -1308,8 +1331,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['online_rooms'], 0) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['online_adr']) . '</td>';
         
-        // 各OTA - 黄色背景（携程、美团、飞猪、同程、抖音、去哪儿、智行）
-        foreach (['xb', 'mt', 'fliggy', 'tc', 'dy', 'qn', 'zx'] as $key) {
+        // 各OTA - 黄色背景
+        foreach (self::OTA_CHANNEL_KEYS as $key) {
             $revKey = $key . '_revenue';
             $roomKey = $key . '_rooms';
             $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$revKey] ?? 0) . '</td>';
@@ -1414,6 +1437,9 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $tcRevenue = $getVal('tc_revenue');
             $qnRevenue = $getVal('qn_revenue');
             $zxRevenue = $getVal('zx_revenue');
+            $bookingRevenue = $getVal('booking_revenue');
+            $agodaRevenue = $getVal('agoda_revenue');
+            $expediaRevenue = $getVal('expedia_revenue');
             
             // 线上间夜
             $xbRooms = $getVal('xb_rooms');
@@ -1423,6 +1449,9 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $tcRooms = $getVal('tc_rooms');
             $qnRooms = $getVal('qn_rooms');
             $zxRooms = $getVal('zx_rooms');
+            $bookingRooms = $getVal('booking_rooms');
+            $agodaRooms = $getVal('agoda_rooms');
+            $expediaRooms = $getVal('expedia_rooms');
             
             // 线下收入
             $walkinRevenue = $getVal('walkin_revenue');
@@ -1457,8 +1486,10 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $otherRevenue = $getVal('other_revenue');
             
             // 计算汇总
-            $onlineRevenue = $xbRevenue + $mtRevenue + $fliggyRevenue + $dyRevenue + $tcRevenue + $qnRevenue + $zxRevenue;
-            $onlineRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms;
+            $onlineRevenue = $xbRevenue + $mtRevenue + $fliggyRevenue + $dyRevenue + $tcRevenue + $qnRevenue + $zxRevenue
+                + $bookingRevenue + $agodaRevenue + $expediaRevenue;
+            $onlineRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms
+                + $bookingRooms + $agodaRooms + $expediaRooms;
             $offlineRevenue = $walkinRevenue + $memberExpRevenue + $webExpRevenue + $groupRevenue + $protocolRevenue + $wechatRevenue + $freeRevenue + $goldCardRevenue + $blackGoldRevenue + $hourlyRevenue;
             $offlineRooms = $walkinRooms + $memberExpRooms + $webExpRooms + $groupRooms + $protocolRooms + $wechatRooms + $freeRooms + $goldCardRooms + $blackGoldRooms + $hourlyRooms;
             $otherRevenueTotal = $parkingRevenue + $diningRevenue + $meetingRevenue + $goodsRevenue + $memberCardRevenue + $otherRevenue;
@@ -1510,6 +1541,15 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             // 智行
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($zxRevenue) . '</td>';
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($zxRooms, 0) . '</td>';
+            // Booking.com
+            $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($bookingRevenue) . '</td>';
+            $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($bookingRooms, 0) . '</td>';
+            // Agoda
+            $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($agodaRevenue) . '</td>';
+            $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($agodaRooms, 0) . '</td>';
+            // Expedia
+            $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($expediaRevenue) . '</td>';
+            $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($expediaRooms, 0) . '</td>';
             
             // 线下合计 - 蓝色背景
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($offlineTarget) . '</td>';
@@ -1646,6 +1686,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             'zx_revenue' => 0, 'zx_rooms' => 0,
             'qn_zx_revenue' => 0, 'qn_zx_rooms' => 0,
             'booking_revenue' => 0, 'booking_rooms' => 0,
+            'agoda_revenue' => 0, 'agoda_rooms' => 0,
+            'expedia_revenue' => 0, 'expedia_rooms' => 0,
             'walkin_revenue' => 0, 'walkin_rooms' => 0,
             'member_exp_revenue' => 0, 'member_exp_rooms' => 0,
             'web_exp_revenue' => 0, 'web_exp_rooms' => 0,
@@ -1699,6 +1741,12 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $totals['zx_rooms'] += $getVal('zx_rooms');
             $totals['qn_zx_revenue'] += $getVal('qn_revenue') + $getVal('zx_revenue');
             $totals['qn_zx_rooms'] += $getVal('qn_rooms') + $getVal('zx_rooms');
+            $totals['booking_revenue'] += $getVal('booking_revenue');
+            $totals['booking_rooms'] += $getVal('booking_rooms');
+            $totals['agoda_revenue'] += $getVal('agoda_revenue');
+            $totals['agoda_rooms'] += $getVal('agoda_rooms');
+            $totals['expedia_revenue'] += $getVal('expedia_revenue');
+            $totals['expedia_rooms'] += $getVal('expedia_rooms');
             
             // 线下
             $totals['walkin_revenue'] += $getVal('walkin_revenue');
@@ -1750,10 +1798,12 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         }
         
         // 计算汇总
-        $totals['online_revenue'] = $totals['xb_revenue'] + $totals['mt_revenue'] + $totals['fliggy_revenue'] + 
-                                    $totals['dy_revenue'] + $totals['tc_revenue'] + $totals['qn_revenue'] + $totals['zx_revenue'];
-        $totals['online_rooms'] = $totals['xb_rooms'] + $totals['mt_rooms'] + $totals['fliggy_rooms'] + 
-                                  $totals['dy_rooms'] + $totals['tc_rooms'] + $totals['qn_rooms'] + $totals['zx_rooms'];
+        $totals['online_revenue'] = 0;
+        $totals['online_rooms'] = 0;
+        foreach (self::OTA_CHANNEL_KEYS as $channel) {
+            $totals['online_revenue'] += $totals[$channel . '_revenue'] ?? 0;
+            $totals['online_rooms'] += $totals[$channel . '_rooms'] ?? 0;
+        }
         $totals['offline_revenue'] = $totals['walkin_revenue'] + $totals['member_exp_revenue'] + $totals['web_exp_revenue'] +
                                      $totals['group_revenue'] + $totals['protocol_revenue'] + $totals['wechat_revenue'] +
                                      $totals['free_revenue'] + $totals['gold_card_revenue'] + $totals['black_gold_revenue'] + $totals['hourly_revenue'];
@@ -2575,6 +2625,10 @@ PYTHON;
             '抖音' => ['revenue' => 'dy_revenue', 'rooms' => 'dy_rooms'],
             '去哪儿' => ['revenue' => 'qn_revenue', 'rooms' => 'qn_rooms'],
             '智行' => ['revenue' => 'zx_revenue', 'rooms' => 'zx_rooms'],
+            'Booking.com' => ['revenue' => 'booking_revenue', 'rooms' => 'booking_rooms'],
+            'Booking' => ['revenue' => 'booking_revenue', 'rooms' => 'booking_rooms'],
+            'Agoda' => ['revenue' => 'agoda_revenue', 'rooms' => 'agoda_rooms'],
+            'Expedia' => ['revenue' => 'expedia_revenue', 'rooms' => 'expedia_rooms'],
             '会员体验' => ['revenue' => 'member_exp_revenue', 'rooms' => 'member_exp_rooms'],
             '网络体验' => ['revenue' => 'web_exp_revenue', 'rooms' => 'web_exp_rooms'],
             '门店' => ['revenue' => 'walkin_revenue', 'rooms' => 'walkin_rooms'],
@@ -2704,7 +2758,7 @@ PYTHON;
         // 计算线上合计
         $onlineRevenue = 0;
         $onlineRooms = 0;
-        foreach (['xb', 'mt', 'fliggy', 'tc', 'dy', 'qn', 'zx'] as $channel) {
+        foreach (self::OTA_CHANNEL_KEYS as $channel) {
             $onlineRevenue += $data[$channel . '_revenue'] ?? 0;
             $onlineRooms += $data[$channel . '_rooms'] ?? 0;
         }

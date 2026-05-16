@@ -130,14 +130,18 @@ class OperationManagementService
         }
 
         $generated = $this->generateRuleAlerts($hotelIds, $hotelId);
+        if (!empty($generated) && $this->tableExists('operation_alerts')) {
+            $generated = $this->persistRuleAlerts($generated);
+        }
+
         return [
             'list' => $generated,
-            'unread_count' => count($generated),
+            'unread_count' => count(array_filter($generated, static fn(array $row): bool => ($row['status'] ?? '') !== 'read')),
             'data_status' => empty($generated) ? '暂无预警' : self::DATA_OK,
         ];
     }
 
-    public function markAlertsRead(array $ids): int
+    public function markAlertsRead(array $ids, array $hotelIds): int
     {
         if (!$this->tableExists('operation_alerts')) {
             return 0;
@@ -145,6 +149,7 @@ class OperationManagementService
 
         return Db::name('operation_alerts')
             ->whereIn('id', $ids)
+            ->whereIn('hotel_id', $hotelIds)
             ->update([
                 'status' => 'read',
                 'updated_at' => date('Y-m-d H:i:s'),
@@ -716,6 +721,54 @@ class OperationManagementService
         }
 
         return $alerts;
+    }
+
+    private function persistRuleAlerts(array $alerts): array
+    {
+        $now = date('Y-m-d H:i:s');
+        $rows = [];
+
+        foreach ($alerts as $alert) {
+            $hotelId = (int)($alert['hotel_id'] ?? 0);
+            $type = (string)($alert['alert_type'] ?? '');
+            $date = (string)($alert['related_date'] ?? date('Y-m-d'));
+            if ($hotelId <= 0 || $type === '') {
+                continue;
+            }
+
+            $payload = [
+                'hotel_id' => $hotelId,
+                'alert_type' => $type,
+                'level' => (string)($alert['level'] ?? 'low'),
+                'title' => (string)($alert['title'] ?? ''),
+                'message' => (string)($alert['message'] ?? ''),
+                'source' => (string)($alert['source'] ?? 'rule'),
+                'related_date' => $date,
+                'raw_data' => json_encode($alert['raw_data'] ?? [], JSON_UNESCAPED_UNICODE),
+                'updated_at' => $now,
+            ];
+
+            $existing = Db::name('operation_alerts')
+                ->where('hotel_id', $hotelId)
+                ->where('alert_type', $type)
+                ->where('source', $payload['source'])
+                ->where('related_date', $date)
+                ->whereNull('deleted_at')
+                ->find();
+
+            if ($existing) {
+                Db::name('operation_alerts')->where('id', (int)$existing['id'])->update($payload);
+                $rows[] = Db::name('operation_alerts')->where('id', (int)$existing['id'])->find();
+                continue;
+            }
+
+            $payload['status'] = 'unread';
+            $payload['created_at'] = $now;
+            $id = (int)Db::name('operation_alerts')->insertGetId($payload);
+            $rows[] = Db::name('operation_alerts')->where('id', $id)->find();
+        }
+
+        return array_values(array_map([$this, 'normalizeAlertRow'], array_filter($rows)));
     }
 
     private function afterData(array $row): array

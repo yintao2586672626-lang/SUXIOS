@@ -22,8 +22,10 @@ use app\model\EnergyBenchmark;
 use app\model\EnergySavingSuggestion;
 use app\model\MaintenancePlan;
 use app\model\OperationLog;
+use app\model\SystemConfig;
 use app\model\AiModelConfig;
 use app\service\FeasibilityReportService;
+use app\service\LlmClient;
 use think\Response;
 use think\facade\Db;
 use think\facade\Log;
@@ -41,272 +43,7 @@ class Agent extends Base
 
     private function callLlm(string $prompt, string $modelKey = 'deepseek_v4_default', array $meta = [], array $options = []): array
     {
-        $modelKey = $this->normalizeRequestedModelKey($modelKey, $options);
-
-        $config = $this->getLlmConfigByModelKey($modelKey);
-        if (($config['ok'] ?? false) !== true) {
-            $config['data'] = $this->buildLlmDebug('config_error', $config, 0, '', $prompt, '', (string) ($config['message'] ?? ''), $meta);
-            return $config;
-        }
-
-        $apiKey = (string) $config['api_key'];
-        $baseUrl = rtrim((string) $config['base_url'], '/');
-
-        $payload = [
-            'model' => $config['model'],
-            'messages' => [
-                ['role' => 'user', 'content' => $prompt],
-            ],
-            'temperature' => 0.2,
-        ];
-        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", [
-                    'Content-Type: application/json',
-                    'Authorization: Bearer ' . $apiKey,
-                ]),
-                'content' => $payloadJson,
-                'timeout' => 30,
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $response = @file_get_contents($baseUrl . '/chat/completions', false, $context);
-        if ($response === false) {
-            $error = error_get_last();
-            $curlError = $this->sanitizeLlmErrorMessage((string) ($error['message'] ?? '网络请求失败'));
-            return [
-                'ok' => false,
-                'message' => '网络请求失败',
-                'code' => 502,
-                'data' => $this->buildLlmDebug('curl_error', $config, 0, $curlError, $prompt, '', $curlError, $meta, strlen((string) $payloadJson)),
-            ];
-        }
-
-        $headers = $http_response_header ?? [];
-        $statusCode = 0;
-        if (isset($headers[0]) && preg_match('/\s(\d{3})\s/', $headers[0], $matches)) {
-            $statusCode = (int) $matches[1];
-        }
-        if ($statusCode < 200 || $statusCode >= 300) {
-            $errorData = json_decode($response, true);
-            $errorMessage = $errorData['error']['message'] ?? $errorData['message'] ?? '';
-            $errorMessage = $this->sanitizeLlmErrorMessage((string) $errorMessage);
-            return [
-                'ok' => false,
-                'message' => $errorMessage !== '' ? '模型返回异常: ' . $errorMessage : '模型返回异常',
-                'code' => 502,
-                'data' => $this->buildLlmDebug('http_error', $config, $statusCode, '', $prompt, $response, $errorMessage, $meta, strlen((string) $payloadJson)),
-            ];
-        }
-
-        $data = json_decode($response, true);
-        if (!is_array($data)) {
-            return [
-                'ok' => false,
-                'message' => '模型返回异常',
-                'code' => 502,
-                'data' => $this->buildLlmDebug('invalid_response', $config, $statusCode, '', $prompt, $response, '模型响应不是 JSON', $meta, strlen((string) $payloadJson)),
-            ];
-        }
-        $content = $data['choices'][0]['message']['content'] ?? null;
-        if (!is_string($content) || trim($content) === '') {
-            $errorMessage = $data['error']['message'] ?? $data['message'] ?? '';
-            $errorMessage = $this->sanitizeLlmErrorMessage((string) $errorMessage);
-            return [
-                'ok' => false,
-                'message' => $errorMessage !== '' ? '模型返回异常: ' . $errorMessage : '模型返回异常',
-                'code' => 502,
-                'data' => $this->buildLlmDebug('empty_content', $config, $statusCode, '', $prompt, $response, $errorMessage, $meta, strlen((string) $payloadJson)),
-            ];
-        }
-
-        return [
-            'ok' => true,
-            'content' => trim($content),
-            'data' => [
-                'debug' => $this->buildLlmSuccessDebug($config, $statusCode, $prompt, $meta, strlen((string) $payloadJson)),
-            ],
-        ];
-    }
-
-    private function callDeepSeek(array $messages, array $options = []): array
-    {
-        $startedAt = microtime(true);
-        $modelKey = $this->normalizeRequestedModelKey((string) ($options['model_key'] ?? 'deepseek_chat'), $options);
-        $modelMode = $this->normalizeDeepSeekModelMode(
-            isset($options['model_mode']) ? (string) $options['model_mode'] : null,
-            $modelKey
-        );
-        $timeout = max(1, (int) (config('llm.deepseek.timeout') ?: env('DEEPSEEK_TIMEOUT', 60)));
-        $temperature = (float) ($options['temperature'] ?? 0.3);
-        $maxTokens = max(1, (int) ($options['max_tokens'] ?? 2000));
-        $meta = is_array($options['meta'] ?? null) ? $options['meta'] : [];
-        $messages = $this->normalizeDeepSeekMessages($messages);
-        $promptLength = (int) ($options['prompt_length'] ?? $this->messagesContentLength($messages));
-        $meta['prompt_length'] = $promptLength;
-
-        $config = $this->getLlmConfigByModelKey($modelKey);
-        if (($config['ok'] ?? false) !== true) {
-            $config['data'] = $this->buildLlmDebug('config_error', $config, 0, '', '', '', (string) ($config['message'] ?? ''), $meta);
-            return $config;
-        }
-
-        $baseUrl = rtrim((string) $config['base_url'], '/');
-        $apiKey = (string) $config['api_key'];
-        $model = (string) $config['model'];
-
-        if ($apiKey === '') {
-            $message = '未配置模型 API Key';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, 0);
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 400,
-                'data' => $this->buildLlmDebug('config_error', $config, 0, '', '', '', $message, $meta),
-            ];
-        }
-        if ($baseUrl === '') {
-            $message = '未配置 DEEPSEEK_BASE_URL';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, 0);
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 400,
-                'data' => $this->buildLlmDebug('config_error', $config, 0, '', '', '', $message, $meta),
-            ];
-        }
-        if (empty($messages)) {
-            $message = 'DeepSeek messages 不能为空';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, 0, 0);
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 422,
-                'data' => $this->buildLlmDebug('invalid_messages', $config, 0, '', '', '', $message, $meta),
-            ];
-        }
-
-        $payload = [
-            'model' => $model,
-            'messages' => $messages,
-            'temperature' => $temperature,
-            'max_tokens' => $maxTokens,
-        ];
-        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
-        if (!is_string($payloadJson)) {
-            $message = 'DeepSeek 请求参数 JSON 编码失败';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, 0);
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 500,
-                'data' => $this->buildLlmDebug('json_encode_error', $config, 0, '', '', '', $message, $meta),
-            ];
-        }
-
-        if (!function_exists('curl_init')) {
-            $message = 'PHP curl 扩展不可用';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, strlen($payloadJson));
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 500,
-                'data' => $this->buildLlmDebug('curl_unavailable', $config, 0, '', '', '', $message, $meta, strlen($payloadJson)),
-            ];
-        }
-
-        $ch = curl_init($baseUrl . '/chat/completions');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $apiKey,
-            ],
-            CURLOPT_POSTFIELDS => $payloadJson,
-            CURLOPT_TIMEOUT => $timeout,
-            CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
-        ]);
-
-        $response = curl_exec($ch);
-        $curlErrno = curl_errno($ch);
-        $curlError = $this->sanitizeLlmErrorMessage((string) curl_error($ch));
-        $statusCode = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
-
-        if ($response === false || $curlErrno !== 0) {
-            $message = $curlError !== '' ? 'DeepSeek 请求失败: ' . $curlError : 'DeepSeek 请求失败';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, strlen($payloadJson));
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 502,
-                'data' => $this->buildLlmDebug('curl_error', $config, $statusCode, $curlError, '', '', $message, $meta, strlen($payloadJson)),
-            ];
-        }
-
-        $responseText = (string) $response;
-        if ($statusCode < 200 || $statusCode >= 300) {
-            $errorData = json_decode($responseText, true);
-            $errorMessage = is_array($errorData) ? (string) ($errorData['error']['message'] ?? $errorData['message'] ?? '') : '';
-            $errorMessage = $this->sanitizeLlmErrorMessage($errorMessage);
-            $message = $errorMessage !== '' ? 'DeepSeek 返回异常: ' . $errorMessage : 'DeepSeek 返回异常';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, strlen($payloadJson));
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 502,
-                'data' => $this->buildLlmDebug('http_error', $config, $statusCode, '', '', $responseText, $errorMessage, $meta, strlen($payloadJson)),
-            ];
-        }
-
-        $data = json_decode($responseText, true);
-        if (!is_array($data)) {
-            $message = 'DeepSeek 返回异常';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, 'invalid json response', $promptLength, strlen($payloadJson));
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 502,
-                'data' => $this->buildLlmDebug('invalid_response', $config, $statusCode, '', '', $responseText, 'DeepSeek 响应不是 JSON', $meta, strlen($payloadJson)),
-            ];
-        }
-
-        $content = $data['choices'][0]['message']['content'] ?? null;
-        if (!is_string($content) || trim($content) === '') {
-            $errorMessage = $this->sanitizeLlmErrorMessage((string) ($data['error']['message'] ?? $data['message'] ?? ''));
-            $message = $errorMessage !== '' ? 'DeepSeek 返回异常: ' . $errorMessage : 'DeepSeek 返回异常';
-            $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, false, $message, $promptLength, strlen($payloadJson));
-            return [
-                'ok' => false,
-                'message' => $message,
-                'code' => 502,
-                'data' => $this->buildLlmDebug('empty_content', $config, $statusCode, '', '', $responseText, $errorMessage, $meta, strlen($payloadJson)),
-            ];
-        }
-
-        $this->logDeepSeekCall($model, (string) $modelMode, $startedAt, true, '', $promptLength, strlen($payloadJson));
-        return ['ok' => true, 'content' => trim($content)];
-    }
-
-    private function shouldUseDeepSeek(string $modelKey, array $options): bool
-    {
-        if (array_key_exists('model_mode', $options) && trim((string) $options['model_mode']) !== '') {
-            return true;
-        }
-
-        return in_array($modelKey, [
-            'deepseek_chat',
-            'deepseek_reasoner',
-            'deepseek_v4_default',
-            'deepseek_v4_flash',
-            'deepseek_v4_fast',
-            'deepseek_v4_pro',
-        ], true);
+        return (new LlmClient())->chat($prompt, $modelKey, $meta, $options);
     }
 
     private function normalizeRequestedModelKey(string $modelKey, array $options = []): string
@@ -333,94 +70,6 @@ class Agent extends Base
         }
 
         return $key;
-    }
-
-    private function resolveDeepSeekModel(?string $modelMode): string
-    {
-        $mode = strtolower(trim((string) $modelMode));
-        if ($mode === 'pro') {
-            $model = trim((string) env('DEEPSEEK_PRO_MODEL', 'deepseek-v4-pro'));
-            return $model !== '' ? $model : 'deepseek-v4-pro';
-        }
-        if ($mode === 'fast') {
-            $model = trim((string) env('DEEPSEEK_FAST_MODEL', 'deepseek-v4-flash'));
-            return $model !== '' ? $model : 'deepseek-v4-flash';
-        }
-
-        $model = trim((string) env('DEEPSEEK_DEFAULT_MODEL', 'deepseek-v4-flash'));
-        return $model !== '' ? $model : 'deepseek-v4-flash';
-    }
-
-    private function normalizeDeepSeekModelMode(?string $modelMode, string $modelKey): ?string
-    {
-        $mode = strtolower(trim((string) $modelMode));
-        if (in_array($mode, ['fast', 'pro', 'auto', 'default'], true)) {
-            return $mode;
-        }
-
-        if (in_array($modelKey, ['deepseek_reasoner', 'deepseek_v4_pro'], true)) {
-            return 'pro';
-        }
-        if (in_array($modelKey, ['deepseek_chat', 'deepseek_v4_flash', 'deepseek_v4_fast'], true)) {
-            return 'fast';
-        }
-
-        return null;
-    }
-
-    private function normalizeDeepSeekMessages(array $messages): array
-    {
-        $safe = [];
-        foreach ($messages as $message) {
-            if (!is_array($message)) {
-                continue;
-            }
-            $role = strtolower(trim((string) ($message['role'] ?? 'user')));
-            if (!in_array($role, ['system', 'user', 'assistant'], true)) {
-                $role = 'user';
-            }
-            $content = trim((string) ($message['content'] ?? ''));
-            if ($content === '') {
-                continue;
-            }
-            $safe[] = ['role' => $role, 'content' => $content];
-        }
-
-        return $safe;
-    }
-
-    private function messagesContentLength(array $messages): int
-    {
-        $length = 0;
-        foreach ($messages as $message) {
-            if (is_array($message)) {
-                $length += mb_strlen((string) ($message['content'] ?? ''));
-            }
-        }
-        return $length;
-    }
-
-    private function logDeepSeekCall(string $model, string $modelMode, float $startedAt, bool $success, string $errorSummary, int $promptLength, int $payloadSize): void
-    {
-        try {
-            $context = [
-                'model' => $model,
-                'model_mode' => $modelMode,
-                'elapsed_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-                'success' => $success,
-                'error_summary' => $this->sanitizeLlmErrorMessage($errorSummary, 180),
-                'prompt_length' => $promptLength,
-                'request_payload_size' => $payloadSize,
-            ];
-
-            if ($success) {
-                Log::info('deepseek_llm_call', $context);
-            } else {
-                Log::warning('deepseek_llm_call', $context);
-            }
-        } catch (\Throwable $e) {
-            // Logging must not affect Agent responses.
-        }
     }
 
     private function buildLlmDebug(string $errorType, array $config, int $httpStatus, string $curlError, string $prompt, string $response, string $errorMessage, array $meta = [], int $payloadSize = 0): array
@@ -491,7 +140,13 @@ class Agent extends Base
             }
         }
 
-        return $this->getEnvLlmConfigByModelKey($modelKey);
+        return [
+            'ok' => false,
+            'message' => 'No enabled AI model config found: ' . $modelKey,
+            'code' => 422,
+            'model_key' => $modelKey,
+            'source' => 'database',
+        ];
     }
 
     private function llmModelKeyLookupCandidates(string $modelKey): array
@@ -582,106 +237,6 @@ class Agent extends Base
         ];
     }
 
-    private function getEnvLlmConfigByModelKey(string $modelKey): array
-    {
-        $configs = [
-            'deepseek_v4_default' => [
-                'provider' => 'deepseek',
-                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
-                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
-                'model' => $this->resolveDeepSeekModel(null),
-            ],
-            'deepseek_v4_flash' => [
-                'provider' => 'deepseek',
-                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
-                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
-                'model' => $this->resolveDeepSeekModel('fast'),
-            ],
-            'deepseek_v4_fast' => [
-                'provider' => 'deepseek',
-                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
-                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
-                'model' => $this->resolveDeepSeekModel('fast'),
-            ],
-            'deepseek_v4_pro' => [
-                'provider' => 'deepseek',
-                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
-                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
-                'model' => $this->resolveDeepSeekModel('pro'),
-            ],
-            'deepseek_chat' => [
-                'provider' => 'deepseek',
-                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
-                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
-                'model' => $this->resolveDeepSeekModel('fast'),
-            ],
-            'deepseek_reasoner' => [
-                'provider' => 'deepseek',
-                'base_url' => rtrim(trim((string) env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')), '/'),
-                'api_key' => trim((string) env('DEEPSEEK_API_KEY', '')),
-                'model' => $this->resolveDeepSeekModel('pro'),
-            ],
-            'openai_fast' => [
-                'provider' => 'openai',
-                'base_url' => rtrim(trim((string) env('OPENAI_BASE_URL', 'https://api.openai.com/v1')), '/'),
-                'api_key' => trim((string) env('OPENAI_API_KEY', '')),
-                'model' => trim((string) env('OPENAI_MODEL', '')),
-            ],
-        ];
-
-        if (!isset($configs[$modelKey])) {
-            return [
-                'ok' => false,
-                'message' => '未找到启用的模型配置：' . $modelKey . '，请先到系统设置 > AI模型配置中配置',
-                'code' => 422,
-                'model_key' => $modelKey,
-                'source' => 'env',
-            ];
-        }
-
-        $config = $configs[$modelKey];
-        if ($config['api_key'] === '') {
-            $envName = $config['provider'] === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENAI_API_KEY';
-            return [
-                'ok' => false,
-                'message' => '未配置 ' . $envName,
-                'code' => 400,
-                'provider' => $config['provider'],
-                'model_key' => $modelKey,
-                'model' => $config['model'],
-                'source' => 'env',
-            ];
-        }
-        if ($config['base_url'] === '') {
-            $envName = $config['provider'] === 'deepseek' ? 'DEEPSEEK_BASE_URL' : 'OPENAI_BASE_URL';
-            return [
-                'ok' => false,
-                'message' => '未配置 ' . $envName,
-                'code' => 400,
-                'provider' => $config['provider'],
-                'model_key' => $modelKey,
-                'model' => $config['model'],
-                'source' => 'env',
-            ];
-        }
-        if ($config['model'] === '') {
-            return [
-                'ok' => false,
-                'message' => '未配置 OPENAI_MODEL',
-                'code' => 400,
-                'provider' => $config['provider'],
-                'model_key' => $modelKey,
-                'model' => '',
-                'source' => 'env',
-            ];
-        }
-
-        $config['ok'] = true;
-        $config['model_key'] = $modelKey;
-        $config['source'] = 'env';
-        return $config;
-    }
-
     private function isAllowedLlmModelKey(string $modelKey): bool
     {
         $modelKey = $this->normalizeRequestedModelKey($modelKey);
@@ -703,6 +258,13 @@ class Agent extends Base
     {
         if (!$this->currentUser || !$this->currentUser->isSuperAdmin()) {
             abort(403, '只有超级管理员可以访问Agent功能');
+        }
+    }
+
+    protected function checkLogin(): void
+    {
+        if (!$this->currentUser) {
+            abort(401, '请先登录');
         }
     }
 
@@ -899,13 +461,38 @@ class Agent extends Base
                 ], '暂无 OTA 数据');
             }
 
-            $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $hotelName, $platform, $startDate, $endDate, $analysisType);
+            $effectiveStartDate = (string) ($dataSet['effective_start_date'] ?? $startDate);
+            $effectiveEndDate = (string) ($dataSet['effective_end_date'] ?? $endDate);
+            $usedLatestAvailableData = !empty($dataSet['used_latest_available_data']);
+            $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $hotelName, $platform, $effectiveStartDate, $effectiveEndDate, $analysisType);
+            if ($usedLatestAvailableData) {
+                $result['requested_date_range'] = ['start_date' => $startDate, 'end_date' => $endDate];
+                $result['data_summary']['used_latest_available_data'] = true;
+                $result['data_summary']['analysis_date_note'] = sprintf(
+                    '所选日期范围暂无OTA明细，已自动使用最近一次已抓取数据：%s 至 %s。',
+                    $effectiveStartDate,
+                    $effectiveEndDate
+                );
+                $result['source_summary']['scope']['requested_start_date'] = $startDate;
+                $result['source_summary']['scope']['requested_end_date'] = $endDate;
+            }
             $llmResult = $this->callLlm($this->buildOtaDiagnosisPrompt($result), $modelKey, [], $modelOptions);
             if (($llmResult['ok'] ?? false) === true) {
                 $result['diagnosis'] = array_merge($result['diagnosis'], $this->parseOtaDiagnosisResult((string) $llmResult['content']));
             } else {
                 $result['missing_sections'][] = 'AI模型诊断';
                 $result['diagnosis']['actions'][] = '模型诊断暂不可用，已基于系统历史数据生成基础诊断。';
+            }
+            if ($usedLatestAvailableData) {
+                $latestDataAction = sprintf(
+                    '所选日期范围暂无OTA明细，当前诊断已基于最近一次已抓取数据（%s 至 %s）生成。',
+                    $effectiveStartDate,
+                    $effectiveEndDate
+                );
+                $result['diagnosis']['actions'] = array_values(array_unique(array_merge(
+                    [$latestDataAction],
+                    is_array($result['diagnosis']['actions'] ?? null) ? $result['diagnosis']['actions'] : []
+                )));
             }
 
             $result['core_conclusion'] = $result['diagnosis']['summary'] ?? '';
@@ -1856,40 +1443,65 @@ class Agent extends Base
         ], array_keys($columns)));
 
         $onlineRows = [];
+        $effectiveStartDate = $startDate;
+        $effectiveEndDate = $endDate;
+        $usedLatestAvailableData = false;
         $canQueryOnlineRows = !empty($fields)
             && isset($columns['data_date'])
             && (($hotelId > 0 && isset($columns['system_hotel_id'])) || (($hotelIdRaw !== '' || $platformHotelIdRaw !== '') && isset($columns['hotel_id'])));
         if ($canQueryOnlineRows) {
+            $applyOnlineScope = function ($query) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $analysisType, $columns) {
+                if (isset($columns['source'])) {
+                    $query->where('source', $platform);
+                }
+                $query->where(function ($q) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $columns) {
+                    $hasWhere = false;
+                    if ($hotelId > 0 && isset($columns['system_hotel_id'])) {
+                        $q->where('system_hotel_id', $hotelId);
+                        $hasWhere = true;
+                    }
+                    if ($hotelIdRaw !== '' && isset($columns['hotel_id'])) {
+                        $hasWhere ? $q->whereOr('hotel_id', $hotelIdRaw) : $q->where('hotel_id', $hotelIdRaw);
+                        $hasWhere = true;
+                    }
+                    if ($platformHotelIdRaw !== '' && $platformHotelIdRaw !== $hotelIdRaw && isset($columns['hotel_id'])) {
+                        $hasWhere ? $q->whereOr('hotel_id', $platformHotelIdRaw) : $q->where('hotel_id', $platformHotelIdRaw);
+                    }
+                });
+
+                if (isset($columns['data_type']) && $analysisType === 'traffic') {
+                    $query->where('data_type', 'traffic');
+                } elseif (isset($columns['data_type']) && $analysisType === 'business') {
+                    $query->whereIn('data_type', ['business', '']);
+                }
+                return $query;
+            };
             $query = Db::name('online_daily_data')
                 ->field(implode(',', $fields))
                 ->where('data_date', '>=', $startDate)
                 ->where('data_date', '<=', $endDate);
-
-            if (isset($columns['source'])) {
-                $query->where('source', $platform);
-            }
-            $query->where(function ($q) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $columns) {
-                $hasWhere = false;
-                if ($hotelId > 0 && isset($columns['system_hotel_id'])) {
-                    $q->where('system_hotel_id', $hotelId);
-                    $hasWhere = true;
-                }
-                if ($hotelIdRaw !== '' && isset($columns['hotel_id'])) {
-                    $hasWhere ? $q->whereOr('hotel_id', $hotelIdRaw) : $q->where('hotel_id', $hotelIdRaw);
-                    $hasWhere = true;
-                }
-                if ($platformHotelIdRaw !== '' && $platformHotelIdRaw !== $hotelIdRaw && isset($columns['hotel_id'])) {
-                    $hasWhere ? $q->whereOr('hotel_id', $platformHotelIdRaw) : $q->where('hotel_id', $platformHotelIdRaw);
-                }
-            });
-
-            if (isset($columns['data_type']) && $analysisType === 'traffic') {
-                $query->where('data_type', 'traffic');
-            } elseif (isset($columns['data_type']) && $analysisType === 'business') {
-                $query->whereIn('data_type', ['business', '']);
-            }
+            $applyOnlineScope($query);
 
             $onlineRows = $query->order('data_date', 'asc')->order('id', 'asc')->select()->toArray();
+            if (empty($onlineRows)) {
+                $latestDateQuery = Db::name('online_daily_data');
+                $applyOnlineScope($latestDateQuery);
+                $latestDataDateRaw = (string) ($latestDateQuery->order('data_date', 'desc')->value('data_date') ?: '');
+                $latestDataTime = $latestDataDateRaw !== '' ? strtotime($latestDataDateRaw) : false;
+                $latestDataDate = $latestDataTime !== false ? date('Y-m-d', $latestDataTime) : '';
+                if ($this->isDateString($latestDataDate)) {
+                    $fallbackQuery = Db::name('online_daily_data')
+                        ->field(implode(',', $fields))
+                        ->where('data_date', $latestDataDate);
+                    $applyOnlineScope($fallbackQuery);
+                    $onlineRows = $fallbackQuery->order('data_date', 'asc')->order('id', 'asc')->select()->toArray();
+                    if (!empty($onlineRows)) {
+                        $effectiveStartDate = $latestDataDate;
+                        $effectiveEndDate = $latestDataDate;
+                        $usedLatestAvailableData = true;
+                    }
+                }
+            }
         }
 
         $dailyReports = $this->queryHotelDateRows(
@@ -1981,6 +1593,9 @@ class Agent extends Base
             'price_suggestions' => $priceSuggestions,
             'sync_logs' => $syncLogs,
             'last_sync_time' => $lastSyncTime,
+            'effective_start_date' => $effectiveStartDate,
+            'effective_end_date' => $effectiveEndDate,
+            'used_latest_available_data' => $usedLatestAvailableData,
         ];
     }
 
@@ -2252,6 +1867,7 @@ class Agent extends Base
             'fliggy' => 3,
             'booking' => 4,
             'expedia' => 5,
+            'agoda' => 6,
         ][$platform] ?? null;
     }
 
@@ -2712,7 +2328,7 @@ class Agent extends Base
 
     public function feasibilityReportGenerate(): Response
     {
-        $this->checkAdmin();
+        $this->checkLogin();
 
         try {
             $data = $this->request->post();
@@ -2733,10 +2349,10 @@ class Agent extends Base
 
     public function feasibilityReportDetail(): Response
     {
-        $this->checkAdmin();
+        $this->checkLogin();
 
         $id = (int) $this->request->param('id', 0);
-        $report = $this->feasibilityService()->detail($id);
+        $report = $this->feasibilityService()->detail($id, (int) ($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
         if (!$report) {
             return $this->error('报告不存在', 404);
         }
@@ -2746,11 +2362,11 @@ class Agent extends Base
 
     public function feasibilityReportRegenerate(): Response
     {
-        $this->checkAdmin();
+        $this->checkLogin();
 
         try {
             $id = (int) $this->request->param('id', 0);
-            $report = $this->feasibilityService()->regenerate($id, (int) ($this->currentUser->id ?? 0));
+            $report = $this->feasibilityService()->regenerate($id, (int) ($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
             if (!$report) {
                 return $this->error('报告不存在', 404);
             }
@@ -2769,10 +2385,31 @@ class Agent extends Base
 
     public function feasibilityReportList(): Response
     {
-        $this->checkAdmin();
+        $this->checkLogin();
 
         $pagination = $this->getPagination();
-        return $this->success($this->feasibilityService()->list($pagination['page'], $pagination['page_size']));
+        return $this->success($this->feasibilityService()->list($pagination['page'], $pagination['page_size'], (int) ($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin()));
+    }
+
+    public function feasibilityReportArchive(): Response
+    {
+        $this->checkLogin();
+
+        try {
+            $id = (int) $this->request->param('id', 0);
+            if ($id <= 0) {
+                return $this->error('报告ID无效', 422);
+            }
+
+            $archived = $this->feasibilityService()->archive($id, (int) ($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
+            if (!$archived) {
+                return $this->error('报告不存在或无权归档', 404);
+            }
+
+            return $this->success(['id' => $id], '报告已归档');
+        } catch (\Throwable $e) {
+            return $this->error('报告归档失败：' . $e->getMessage(), 400);
+        }
     }
 
     // ==================== Agent配置 ====================
@@ -3425,6 +3062,205 @@ class Agent extends Base
         
         return $this->success(null, $message);
     }
+
+    public function generatePriceSuggestions(): Response
+    {
+        $this->checkAdmin();
+
+        $hotelId = (int)$this->request->param('hotel_id', 0);
+        $date = (string)$this->request->param('date', date('Y-m-d'));
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+
+        $roomTypes = RoomType::getHotelRoomTypes($hotelId);
+        $created = [];
+        foreach ($roomTypes as $roomType) {
+            $roomTypeId = (int)$roomType->id;
+            $exists = PriceSuggestion::where('hotel_id', $hotelId)
+                ->where('room_type_id', $roomTypeId)
+                ->where('suggestion_date', $date)
+                ->where('status', PriceSuggestion::STATUS_PENDING)
+                ->find();
+            if ($exists) {
+                continue;
+            }
+
+            $currentPrice = (float)$roomType->base_price;
+            $minPrice = (float)$roomType->min_price;
+            $maxPrice = (float)$roomType->max_price;
+            $forecast = DemandForecast::where('hotel_id', $hotelId)
+                ->where('room_type_id', $roomTypeId)
+                ->where('forecast_date', $date)
+                ->find();
+            $predictedOccupancy = $forecast ? (float)$forecast->predicted_occupancy : 0.0;
+            $competitorAvg = (float)CompetitorAnalysis::where('hotel_id', $hotelId)
+                ->where('room_type_id', $roomTypeId)
+                ->where('analysis_date', $date)
+                ->avg('competitor_price');
+
+            $multiplier = 1.0;
+            $factors = [];
+            if ($predictedOccupancy >= 85) {
+                $multiplier += 0.15;
+                $factors[] = 'high forecast occupancy';
+            } elseif ($predictedOccupancy >= 75) {
+                $multiplier += 0.08;
+                $factors[] = 'medium-high forecast occupancy';
+            } elseif ($predictedOccupancy > 0 && $predictedOccupancy <= 40) {
+                $multiplier -= 0.07;
+                $factors[] = 'low forecast occupancy';
+            }
+            if ($competitorAvg > 0 && $currentPrice > 0) {
+                if ($competitorAvg > $currentPrice * 1.05) {
+                    $multiplier += 0.05;
+                    $factors[] = 'competitor price higher';
+                } elseif ($currentPrice > $competitorAvg * 1.10) {
+                    $multiplier -= 0.05;
+                    $factors[] = 'our price higher than competitor';
+                }
+            }
+
+            $suggestedPrice = $currentPrice > 0 ? round($currentPrice * $multiplier, 2) : 0.0;
+            if ($minPrice > 0) {
+                $suggestedPrice = max($minPrice, $suggestedPrice);
+            }
+            if ($maxPrice > 0) {
+                $suggestedPrice = min($maxPrice, $suggestedPrice);
+            }
+            if ($suggestedPrice <= 0 || abs($suggestedPrice - $currentPrice) < 1) {
+                continue;
+            }
+
+            $suggestion = PriceSuggestion::create([
+                'hotel_id' => $hotelId,
+                'room_type_id' => $roomTypeId,
+                'suggestion_type' => $predictedOccupancy > 0 ? PriceSuggestion::TYPE_FORECAST : PriceSuggestion::TYPE_COMPETITOR,
+                'status' => PriceSuggestion::STATUS_PENDING,
+                'suggestion_date' => $date,
+                'current_price' => $currentPrice,
+                'suggested_price' => $suggestedPrice,
+                'min_price' => $minPrice,
+                'max_price' => $maxPrice,
+                'confidence_score' => $predictedOccupancy > 0 ? 0.82 : 0.65,
+                'competitor_data' => ['avg_price' => $competitorAvg],
+                'factors' => $factors,
+                'reason' => implode('; ', $factors) ?: 'generated from current room price and available revenue data',
+            ]);
+            $created[] = $suggestion->toArray();
+        }
+
+        return $this->success(['created_count' => count($created), 'list' => $created], 'success');
+    }
+
+    public function applyPrice(): Response
+    {
+        $this->checkAdmin();
+        $id = (int)$this->request->param('id', 0);
+        $result = $this->applyPriceSuggestionById($id);
+        if (($result['ok'] ?? false) !== true) {
+            return $this->error((string)($result['message'] ?? 'apply failed'), (int)($result['code'] ?? 400));
+        }
+        return $this->success($result['data'] ?? null, 'success');
+    }
+
+    private function applyPriceSuggestionById(int $id): array
+    {
+        $suggestion = PriceSuggestion::find($id);
+        if (!$suggestion) {
+            return ['ok' => false, 'message' => 'price suggestion not found', 'code' => 404];
+        }
+        if ((int)$suggestion->status === PriceSuggestion::STATUS_REJECTED) {
+            return ['ok' => false, 'message' => 'rejected suggestion cannot be applied', 'code' => 422];
+        }
+        if ((int)$suggestion->status === PriceSuggestion::STATUS_APPLIED) {
+            return ['ok' => true, 'data' => ['id' => $id, 'status' => PriceSuggestion::STATUS_APPLIED]];
+        }
+
+        $roomType = RoomType::find((int)$suggestion->room_type_id);
+        if (!$roomType) {
+            return ['ok' => false, 'message' => 'room type not found', 'code' => 404];
+        }
+
+        $roomType->base_price = (float)$suggestion->suggested_price;
+        $roomType->save();
+        $suggestion->apply((int)($this->currentUser->id ?? 0));
+
+        AgentLog::record(
+            (int)$suggestion->hotel_id,
+            AgentLog::AGENT_TYPE_REVENUE,
+            'price_apply',
+            'Apply price suggestion: ' . $id,
+            AgentLog::LEVEL_INFO,
+            ['suggestion_id' => $id, 'room_type_id' => (int)$suggestion->room_type_id, 'price' => (float)$suggestion->suggested_price],
+            (int)($this->currentUser->id ?? 0)
+        );
+
+        return ['ok' => true, 'data' => ['id' => $id, 'room_type_id' => (int)$suggestion->room_type_id, 'base_price' => (float)$roomType->base_price]];
+    }
+
+    public function priceSuggestionReview(): Response
+    {
+        $this->checkAdmin();
+        $id = (int)$this->request->param('id', 0);
+        $suggestion = PriceSuggestion::find($id);
+        if (!$suggestion) {
+            return $this->error('price suggestion not found', 404);
+        }
+
+        $anchorDate = $suggestion->applied_time ? date('Y-m-d', strtotime((string)$suggestion->applied_time)) : (string)$suggestion->suggestion_date;
+        $beforeStart = date('Y-m-d', strtotime($anchorDate . ' -7 days'));
+        $beforeEnd = date('Y-m-d', strtotime($anchorDate . ' -1 day'));
+        $afterStart = $anchorDate;
+        $afterEnd = date('Y-m-d', strtotime($anchorDate . ' +6 days'));
+        $before = $this->aggregateSuggestionEffect((int)$suggestion->hotel_id, $beforeStart, $beforeEnd);
+        $after = $this->aggregateSuggestionEffect((int)$suggestion->hotel_id, $afterStart, $afterEnd);
+
+        return $this->success([
+            'suggestion' => $suggestion,
+            'before' => $before,
+            'after' => $after,
+            'delta' => [
+                'amount' => round($after['amount'] - $before['amount'], 2),
+                'quantity' => (int)($after['quantity'] - $before['quantity']),
+                'orders' => (int)($after['orders'] - $before['orders']),
+                'adr' => round($after['adr'] - $before['adr'], 2),
+            ],
+        ]);
+    }
+
+    private function aggregateSuggestionEffect(int $hotelId, string $startDate, string $endDate): array
+    {
+        try {
+            $row = Db::name('online_daily_data')
+                ->where('system_hotel_id', $hotelId)
+                ->whereBetween('data_date', [$startDate, $endDate])
+                ->field('COALESCE(SUM(amount),0) amount, COALESCE(SUM(quantity),0) quantity, COALESCE(SUM(book_order_num),0) orders')
+                ->find();
+        } catch (\Throwable $e) {
+            $row = ['amount' => 0, 'quantity' => 0, 'orders' => 0];
+        }
+
+        $amount = (float)($row['amount'] ?? 0);
+        $quantity = (int)($row['quantity'] ?? 0);
+        return [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'amount' => round($amount, 2),
+            'quantity' => $quantity,
+            'orders' => (int)($row['orders'] ?? 0),
+            'adr' => $quantity > 0 ? round($amount / $quantity, 2) : 0,
+        ];
+    }
+
+    public function cookieWarnings(): Response
+    {
+        $this->checkAdmin();
+        $raw = SystemConfig::getValue('ota_cookie_alerts', '{}');
+        $alerts = json_decode((string)$raw, true);
+        return $this->success(['alerts' => is_array($alerts) ? array_values($alerts) : []]);
+    }
+
 
     /**
      * 获取收益分析数据（增强版 - 含RevPAR分析）
