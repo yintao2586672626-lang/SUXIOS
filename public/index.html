@@ -2398,6 +2398,284 @@
                         </div>
                     </div>
 
+                    <!-- 智算·资产定价 -->
+                    <div v-if="currentPage === 'asset-pricing'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-cyan-900 to-blue-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智算·资产定价</h2>
+                                    <p class="text-sm text-cyan-100 mt-1">测算合理转让价、利润、回收周期与接盘风险</p>
+                                </div>
+                                <button @click="handleTransferPricing" :disabled="transferPricingLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="transferPricingLoading ? 'fas fa-spinner fa-spin' : 'fas fa-calculator'"></i>
+                                    <span>{{ transferPricingLoading ? '计算中...' : '计算资产定价' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">基础与经营数据</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div v-for="field in transferPricingFields" :key="field.key" :class="field.full ? 'md:col-span-2' : ''">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input :type="field.type" v-model.number="transferPricingForm[field.key]" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferPricingForm.licenses_complete" class="rounded border-gray-300">
+                                            <span>证照是否齐全</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferPricingForm.has_data_anomaly" class="rounded border-gray-300">
+                                            <span>是否存在数据异常</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-7 space-y-5">
+                                <div v-if="transferPricingResult" class="space-y-5">
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div v-for="card in transferPricingCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                            <div :class="['text-2xl font-bold mt-2', card.className || 'text-gray-800']">{{ card.value }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-4">估值结果</h3>
+                                        <div class="overflow-x-auto">
+                                            <table class="min-w-full text-sm">
+                                                <thead class="bg-gray-50 text-gray-500">
+                                                    <tr>
+                                                        <th class="px-4 py-3 text-left">项目</th>
+                                                        <th class="px-4 py-3 text-right">金额</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="row in transferPricingValuationRows" :key="row.label">
+                                                        <td class="px-4 py-3 font-medium text-gray-800">{{ row.label }}</td>
+                                                        <td class="px-4 py-3 text-right">{{ row.value }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">主要原因</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferPricingResult.main_reasons" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-check-circle text-blue-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">风险点</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferPricingResult.risk_points" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                            <div v-if="transferPricingResult.data_notice" class="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">{{ transferPricingResult.data_notice }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="text-xs text-gray-500 mb-1">下一步建议</div>
+                                        <div class="font-semibold text-gray-800">{{ transferPricingAdvice }}</div>
+                                    </div>
+                                </div>
+                                <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                                    <i class="fas fa-calculator text-4xl mb-3 opacity-50"></i>
+                                    <p>录入转让参数后生成资产定价结果</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智略·时机推演 -->
+                    <div v-if="currentPage === 'timing-strategy'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智略·时机推演</h2>
+                                    <p class="text-sm text-blue-100 mt-1">判断当前是否适合转让，并给出下一步动作</p>
+                                </div>
+                                <button @click="handleTransferTiming" :disabled="transferTimingLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="transferTimingLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chess-knight'"></i>
+                                    <span>{{ transferTimingLoading ? '推演中...' : '生成时机判断' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">趋势与窗口</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div v-for="field in transferTimingCompareFields" :key="field.key">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input type="number" v-model.number="transferTimingForm[field.key]" class="input-field w-full">
+                                        </div>
+                                        <div v-for="field in transferTimingNumberFields" :key="field.key">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input type="number" v-model.number="transferTimingForm[field.key]" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferTimingForm.is_peak_season" class="rounded border-gray-300">
+                                            <span>是否旺季</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferTimingForm.has_data_anomaly" class="rounded border-gray-300">
+                                            <span>是否存在数据异常</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferTimingForm.has_data_gap" class="rounded border-gray-300">
+                                            <span>是否数据断档</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">数据异常校验</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div v-for="field in transferTimingDataFields" :key="field.key">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input type="number" v-model.number="transferTimingForm[field.key]" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-7 space-y-5">
+                                <div v-if="transferTimingResult" class="space-y-5">
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <div class="text-xs text-gray-500">时机评分</div>
+                                            <div class="text-4xl font-bold text-blue-700 mt-2">{{ transferTimingResult.timing_score }}分</div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <div class="text-xs text-gray-500">判断结果</div>
+                                            <div :class="['text-2xl font-bold mt-2', transferDecisionClass(transferTimingResult.decision)]">{{ transferTimingResult.decision }}</div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <div class="text-xs text-gray-500">数据口径</div>
+                                            <div class="text-lg font-semibold text-gray-800 mt-2">{{ transferTimingResult.data_quality.notice }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">主要原因</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferTimingResult.main_reasons" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-check-circle text-blue-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">风险点</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferTimingResult.risk_points" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">下一步建议</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferTimingResult.next_suggestions" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-arrow-right text-indigo-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                                    <i class="fas fa-chess-knight text-4xl mb-3 opacity-50"></i>
+                                    <p>录入趋势与数据口径后生成时机判断</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智决·数据看板 -->
+                    <div v-if="currentPage === 'decision-board'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-indigo-900 to-purple-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智决·数据看板</h2>
+                                    <p class="text-sm text-indigo-100 mt-1">汇总估值、时机、风险项与最终建议动作</p>
+                                </div>
+                                <button @click="handleTransferDashboard" :disabled="transferDashboardLoading || !transferPricingResult || !transferTimingResult" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i :class="transferDashboardLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chart-pie'"></i>
+                                    <span>{{ transferDashboardLoading ? '生成中...' : '生成数据看板' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div v-if="transferDashboardResult" class="space-y-5">
+                            <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4">
+                                <div v-for="card in transferDashboardResult.cards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                    <div class="text-xl font-bold text-gray-800 mt-2">{{ card.value }}</div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                                <div class="xl:col-span-5 space-y-5">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="text-xs text-gray-500 mb-1">最终判断</div>
+                                        <div class="text-lg font-semibold text-gray-900">{{ transferDashboardResult.final_judgement }}</div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="text-xs text-gray-500 mb-1">建议动作</div>
+                                        <div class="text-3xl font-bold text-indigo-700">{{ transferDashboardResult.suggested_action }}</div>
+                                    </div>
+                                </div>
+                                <div class="xl:col-span-7 grid grid-cols-1 lg:grid-cols-3 gap-5">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-3">主要原因</h3>
+                                        <div class="space-y-2 text-sm text-gray-700">
+                                            <div v-for="item in transferDashboardResult.main_reasons" :key="item" class="flex gap-2">
+                                                <i class="fas fa-check-circle text-blue-500 mt-1"></i>
+                                                <span>{{ item }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-3">风险点</h3>
+                                        <div class="space-y-2 text-sm text-gray-700">
+                                            <div v-for="item in transferDashboardResult.risk_points" :key="item" class="flex gap-2">
+                                                <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                <span>{{ item }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-3">下一步建议</h3>
+                                        <div class="space-y-2 text-sm text-gray-700">
+                                            <div v-for="item in transferDashboardResult.next_suggestions" :key="item" class="flex gap-2">
+                                                <i class="fas fa-arrow-right text-indigo-500 mt-1"></i>
+                                                <span>{{ item }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                            <i class="fas fa-chart-pie text-4xl mb-3 opacity-50"></i>
+                            <p>{{ transferPricingResult && transferTimingResult ? '点击“生成数据看板”汇总决策结果' : '请先完成资产定价和时机推演' }}</p>
+                        </div>
+                    </div>
+
                     <!-- 策行·效果追踪 -->
                     <div v-if="currentPage === 'ops-track'">
                         <div class="track-header">
@@ -18247,6 +18525,94 @@
             const aiFeasibilityLoading = ref(false);
             const aiFeasibilityError = ref('');
 
+            const transferPricingForm = ref({
+                hotel_name: '城市中端精选酒店',
+                location: '上海陆家嘴商圈',
+                room_count: 86,
+                monthly_revenue: 80,
+                monthly_rent: 18,
+                labor_cost: 7.2,
+                utility_cost: 2.6,
+                ota_commission: 6,
+                other_fixed_cost: 3,
+                decoration_investment: 200,
+                remaining_lease_months: 60,
+                expected_transfer_price: 280,
+                occupancy_rate: 76,
+                adr: 268,
+                rating: 4.7,
+                order_count: 420,
+                licenses_complete: true,
+                has_data_anomaly: false,
+            });
+            const transferPricingResult = ref(null);
+            const transferPricingLoading = ref(false);
+
+            const transferTimingForm = ref({
+                current_revenue: 80,
+                previous_revenue: 76,
+                current_orders: 420,
+                previous_orders: 390,
+                current_adr: 268,
+                previous_adr: 260,
+                current_occupancy_rate: 76,
+                previous_occupancy_rate: 74,
+                rating: 4.7,
+                holiday_days: 30,
+                is_peak_season: false,
+                has_data_anomaly: false,
+                has_data_gap: false,
+                exposure: 12000,
+                visitors: 1800,
+                conversion_rate: 6.5,
+                order_count: 420,
+                room_nights: 980,
+            });
+            const transferTimingResult = ref(null);
+            const transferTimingLoading = ref(false);
+            const transferDashboardResult = ref(null);
+            const transferDashboardLoading = ref(false);
+
+            const transferPricingFields = [
+                { key: 'hotel_name', label: '酒店名称', type: 'text', full: true },
+                { key: 'location', label: '城市/商圈', type: 'text', full: true },
+                { key: 'room_count', label: '房间数', type: 'number' },
+                { key: 'monthly_revenue', label: '月营业额（万元）', type: 'number' },
+                { key: 'monthly_rent', label: '月租金（万元）', type: 'number' },
+                { key: 'labor_cost', label: '人工成本（万元）', type: 'number' },
+                { key: 'utility_cost', label: '水电能耗（万元）', type: 'number' },
+                { key: 'ota_commission', label: 'OTA佣金（万元）', type: 'number' },
+                { key: 'other_fixed_cost', label: '其他固定成本（万元）', type: 'number' },
+                { key: 'decoration_investment', label: '装修投入（万元）', type: 'number' },
+                { key: 'remaining_lease_months', label: '剩余租期（月）', type: 'number' },
+                { key: 'expected_transfer_price', label: '业主预期转让价（万元）', type: 'number' },
+                { key: 'occupancy_rate', label: '入住率（%）', type: 'number' },
+                { key: 'adr', label: 'ADR（元）', type: 'number' },
+                { key: 'rating', label: '评分', type: 'number' },
+                { key: 'order_count', label: '订单量', type: 'number' },
+            ];
+            const transferTimingCompareFields = [
+                { key: 'current_revenue', label: '近30天营业额（万元）' },
+                { key: 'previous_revenue', label: '上期营业额（万元）' },
+                { key: 'current_orders', label: '近30天订单量' },
+                { key: 'previous_orders', label: '上期订单量' },
+                { key: 'current_adr', label: '近30天ADR（元）' },
+                { key: 'previous_adr', label: '上期ADR（元）' },
+                { key: 'current_occupancy_rate', label: '近30天入住率（%）' },
+                { key: 'previous_occupancy_rate', label: '上期入住率（%）' },
+            ];
+            const transferTimingNumberFields = [
+                { key: 'rating', label: '评分' },
+                { key: 'holiday_days', label: '距离节假日天数' },
+            ];
+            const transferTimingDataFields = [
+                { key: 'exposure', label: '曝光' },
+                { key: 'visitors', label: '访客' },
+                { key: 'conversion_rate', label: '转化率（%）' },
+                { key: 'order_count', label: '订单量' },
+                { key: 'room_nights', label: '间夜' },
+            ];
+
             const simulationCostFields = [
                 { key: 'monthlyRent', label: '月租金' },
                 { key: 'laborCost', label: '人工成本' },
@@ -18265,11 +18631,115 @@
             const formatMoney = formatCurrency;
             const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
 
+            const formatWan = (value) => value === null || value === undefined ? '--' : `${aiRound(toNumber(value), 2)}万元`;
+            const formatPaybackMonth = (value) => value === null || value === undefined ? '不可回收' : `${aiRound(value, 1)}个月`;
+
             const riskBadgeClass = (risk) => {
                 if (['高风险', 'D', 'E'].includes(risk)) return 'bg-red-50 text-red-700 border-red-200';
                 if (['中高风险', 'C'].includes(risk)) return 'bg-orange-50 text-orange-700 border-orange-200';
                 if (['中风险', 'B'].includes(risk)) return 'bg-yellow-50 text-yellow-700 border-yellow-200';
                 return 'bg-green-50 text-green-700 border-green-200';
+            };
+
+            const transferRiskTextClass = (risk) => {
+                if (risk === '高风险') return 'text-red-600';
+                if (risk === '中风险') return 'text-amber-600';
+                return 'text-green-600';
+            };
+
+            const transferDecisionClass = (decision) => {
+                if (decision === '适合转让') return 'text-green-600';
+                if (decision === '谨慎转让') return 'text-amber-600';
+                return 'text-red-600';
+            };
+
+            const transferPricingAdvice = computed(() => transferPricingResult.value?.suggestion || '--');
+            const transferPricingCards = computed(() => {
+                const result = transferPricingResult.value;
+                if (!result) return [];
+                return [
+                    { label: '当前月净利润', value: formatWan(result.profit?.monthly_net_profit), className: toNumber(result.profit?.monthly_net_profit) >= 0 ? 'text-green-600' : 'text-red-600' },
+                    { label: '年净利润', value: formatWan(result.profit?.annual_net_profit) },
+                    { label: '投资回收周期', value: formatPaybackMonth(result.profit?.payback_months) },
+                    { label: '报价判断', value: result.valuation?.quote_judgement || '--' },
+                    { label: '接盘风险等级', value: result.risk_level || '--', className: transferRiskTextClass(result.risk_level) },
+                    { label: '建议动作', value: transferPricingAdvice.value },
+                ];
+            });
+            const transferPricingValuationRows = computed(() => {
+                const valuation = transferPricingResult.value?.valuation;
+                if (!valuation) return [];
+                return [
+                    { label: '保守估值', value: formatWan(valuation.conservative_valuation) },
+                    { label: '合理估值', value: formatWan(valuation.reasonable_valuation) },
+                    { label: '乐观估值', value: formatWan(valuation.optimistic_valuation) },
+                    { label: '业主预期转让价', value: formatWan(valuation.expected_transfer_price) },
+                    { label: '估值倍数', value: `${aiRound(valuation.valuation_multiple, 1)}个月` },
+                ];
+            });
+
+            const buildTransferPricingPayload = () => ({ ...transferPricingForm.value });
+            const buildTransferTimingPayload = () => ({ ...transferTimingForm.value });
+
+            const handleTransferPricing = async () => {
+                transferPricingLoading.value = true;
+                try {
+                    const res = await request('/transfer/pricing', {
+                        method: 'POST',
+                        body: JSON.stringify(buildTransferPricingPayload())
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '资产定价计算失败');
+                    transferPricingResult.value = res.data || null;
+                    transferDashboardResult.value = null;
+                    showToast('资产定价已生成');
+                } catch (error) {
+                    showToast(error.message || '资产定价计算失败', 'error');
+                } finally {
+                    transferPricingLoading.value = false;
+                }
+            };
+
+            const handleTransferTiming = async () => {
+                transferTimingLoading.value = true;
+                try {
+                    const res = await request('/transfer/timing', {
+                        method: 'POST',
+                        body: JSON.stringify(buildTransferTimingPayload())
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '时机推演失败');
+                    transferTimingResult.value = res.data || null;
+                    transferDashboardResult.value = null;
+                    showToast('时机推演已生成');
+                } catch (error) {
+                    showToast(error.message || '时机推演失败', 'error');
+                } finally {
+                    transferTimingLoading.value = false;
+                }
+            };
+
+            const handleTransferDashboard = async () => {
+                if (!transferPricingResult.value || !transferTimingResult.value) {
+                    showToast('请先完成资产定价和时机推演', 'warning');
+                    return;
+                }
+                transferDashboardLoading.value = true;
+                try {
+                    const res = await request('/transfer/dashboard', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            pricing: transferPricingResult.value,
+                            timing: transferTimingResult.value,
+                            metrics: {}
+                        })
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '数据看板生成失败');
+                    transferDashboardResult.value = res.data || null;
+                    showToast('数据看板已生成');
+                } catch (error) {
+                    showToast(error.message || '数据看板生成失败', 'error');
+                } finally {
+                    transferDashboardLoading.value = false;
+                }
             };
 
             const normalizeStrategyResult = (data) => {
@@ -18683,6 +19153,9 @@
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyLoading, strategyScoreCards, strategyFreshnessLabel, handleStrategy,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, simulationCostFields, simulationMetricCards, simulationRiskHints, baseSimulation, handleSimulation,
                 aiFeasibilityResult, aiFeasibilityLoading, aiFeasibilityError, handleFeasibility, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, riskBadgeClass,
+                transferPricingForm, transferPricingFields, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, handleTransferPricing,
+                transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
+                transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
                 homeObservation, homeTrendCards, homeMacroSignals, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationSuggestions,
                 weatherDemandHint, weatherLocationName, selectedWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, homeQuickEntries,
                 isLoggedIn, loading, loginError, user, token, currentTime, currentPage, showPassword,

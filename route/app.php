@@ -154,6 +154,13 @@ Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== 转让管理 API ====================
+Route::group('api/transfer', function () {
+    Route::post('/pricing', 'TransferDecision/pricing');
+    Route::post('/timing', 'TransferDecision/timing');
+    Route::post('/dashboard', 'TransferDecision/dashboard');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 竞对价格监控 API ====================
 Route::post('api/competitor/task', 'CompetitorApi/task');
 Route::post('api/competitor/report', 'CompetitorApi/report');
