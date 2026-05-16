@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS `operation_alerts` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `hotel_id` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '酒店ID',
+  `alert_type` VARCHAR(50) NOT NULL DEFAULT '' COMMENT '预警类型',
+  `level` VARCHAR(20) NOT NULL DEFAULT 'low' COMMENT '预警等级',
+  `title` VARCHAR(120) NOT NULL DEFAULT '' COMMENT '预警标题',
+  `message` VARCHAR(500) NOT NULL DEFAULT '' COMMENT '预警内容',
+  `source` VARCHAR(50) NOT NULL DEFAULT 'rule' COMMENT '来源',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'unread' COMMENT '状态: unread/read',
+  `related_date` DATE DEFAULT NULL COMMENT '关联日期',
+  `raw_data` JSON DEFAULT NULL COMMENT '原始数据',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_operation_alerts_hotel_status` (`hotel_id`, `status`),
+  KEY `idx_operation_alerts_type_date` (`alert_type`, `related_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运营管理预警表';
+
+CREATE TABLE IF NOT EXISTS `operation_action_tracks` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `hotel_id` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '酒店ID',
+  `action_type` VARCHAR(50) NOT NULL DEFAULT '' COMMENT '动作类型',
+  `action_title` VARCHAR(160) NOT NULL DEFAULT '' COMMENT '动作标题',
+  `start_date` DATE NOT NULL COMMENT '开始日期',
+  `end_date` DATE DEFAULT NULL COMMENT '结束日期',
+  `target_metric` VARCHAR(50) NOT NULL DEFAULT '' COMMENT '目标指标',
+  `target_change_rate` DECIMAL(8,2) NOT NULL DEFAULT 0 COMMENT '目标变化率',
+  `before_data_json` JSON DEFAULT NULL COMMENT '执行前数据',
+  `after_data_json` JSON DEFAULT NULL COMMENT '执行后数据',
+  `result_status` VARCHAR(30) NOT NULL DEFAULT 'observing' COMMENT '结果状态',
+  `result_summary` VARCHAR(500) NOT NULL DEFAULT '' COMMENT '结果摘要',
+  `remark` VARCHAR(500) NOT NULL DEFAULT '' COMMENT '备注',
+  `status` VARCHAR(30) NOT NULL DEFAULT 'active' COMMENT '动作状态',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_operation_actions_hotel_status` (`hotel_id`, `status`),
+  KEY `idx_operation_actions_type_start` (`action_type`, `start_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运营管理策略动作追踪表';

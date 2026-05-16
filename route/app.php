@@ -164,6 +164,18 @@ Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== 运营管理 API ====================
+Route::group('api/operation', function () {
+    Route::get('/full-data', 'OperationManagement/fullData');
+    Route::post('/root-cause', 'OperationManagement/rootCause');
+    Route::get('/alerts', 'OperationManagement/alerts');
+    Route::post('/alerts/read', 'OperationManagement/alertsRead');
+    Route::post('/strategy-simulation', 'OperationManagement/strategySimulation');
+    Route::post('/actions/:id/finish', 'OperationManagement/finishAction');
+    Route::post('/actions', 'OperationManagement/actions');
+    Route::get('/action-tracking', 'OperationManagement/actionTracking');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 开业管理 API ====================
 Route::group('api/opening', function () {
     Route::get('/projects/:id/overview', 'Opening/overview');
