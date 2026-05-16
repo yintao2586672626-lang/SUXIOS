@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
@@ -147,6 +149,12 @@ Route::group('api/ai-config', function () {
 // ==================== 节假期收益倒计时 API ====================
 Route::group('api/holiday-revenue', function () {
     Route::get('/countdown', 'HolidayRevenue/countdown');
+})->middleware(\app\middleware\Auth::class);
+
+// ==================== 宏观经营信号 API ====================
+Route::group('api/macro-signals', function () {
+    Route::get('/overview', 'MacroSignal/overview');
+    Route::get('/detail', 'MacroSignal/detail');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== 智略·战略推演 API ====================

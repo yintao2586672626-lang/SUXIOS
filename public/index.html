@@ -3238,16 +3238,51 @@
                         </div>
 
                         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
-                            <h3 class="font-bold text-gray-900 text-lg mb-4">宏观经营信号</h3>
+                            <div class="flex items-center justify-between gap-3 mb-4">
+                                <h3 class="font-bold text-gray-900 text-lg">宏观经营信号</h3>
+                                <span v-if="macroSignalLoading" class="text-xs text-gray-400">同步中</span>
+                            </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                <div v-for="signal in homeMacroSignals" :key="signal.name" class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                <div v-for="signal in macroSignalCards" :key="signal.key" class="rounded-xl border border-gray-100 bg-gray-50 p-4">
                                     <div class="flex items-center justify-between gap-3">
-                                        <div class="font-semibold text-gray-800">{{ signal.name }}</div>
-                                        <span :class="['px-2 py-1 rounded text-xs border', signal.className]">{{ signal.status }}</span>
+                                        <div class="font-semibold text-gray-800">{{ signal.title }}</div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', macroSignalLevelClass(signal)]">{{ signal.status_text || signal.status }}</span>
                                     </div>
-                                    <p class="text-sm text-gray-500 mt-3 min-h-[40px]">{{ signal.note }}</p>
-                                    <button @click="currentPage = signal.page" class="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium">{{ signal.action }}</button>
+                                    <p class="text-sm text-gray-500 mt-3 min-h-[40px]">{{ signal.summary }}</p>
+                                    <div v-if="signal.metrics && signal.metrics.length" class="mt-3 grid grid-cols-2 gap-2">
+                                        <div v-for="metric in signal.metrics.slice(0, 2)" :key="metric.label" class="rounded-lg bg-white border border-gray-100 px-3 py-2">
+                                            <div class="text-xs text-gray-400">{{ metric.label }}</div>
+                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ metric.value }}{{ metric.unit || '' }}</div>
+                                        </div>
+                                    </div>
+                                    <button @click="loadMacroSignalDetail(signal)" class="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium">{{ signal.action_text || '查看详情' }}</button>
                                 </div>
+                            </div>
+                            <div v-if="activeMacroSignal" class="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                <template v-if="macroSignalDetail">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div class="font-semibold text-gray-900">{{ macroSignalDetail.title }}</div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', macroSignalLevelClass(macroSignalDetail)]">{{ macroSignalDetail.status_text || macroSignalDetail.status }}</span>
+                                    </div>
+                                    <p class="text-sm text-gray-500 mt-2">{{ macroSignalDetail.summary }}</p>
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+                                        <div v-for="metric in (macroSignalDetail.metrics || [])" :key="metric.label" class="rounded-lg bg-white border border-gray-100 px-3 py-2">
+                                            <div class="text-xs text-gray-400">{{ metric.label }}</div>
+                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ metric.value }}{{ metric.unit || '' }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-800 mb-2">原因</div>
+                                            <div v-for="item in (macroSignalDetail.reasons || [])" :key="item" class="text-sm text-gray-600 leading-relaxed mb-1">{{ item }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-800 mb-2">建议动作</div>
+                                            <div v-for="item in (macroSignalDetail.suggestions || [])" :key="item" class="text-sm text-gray-600 leading-relaxed mb-1">{{ item }}</div>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div v-else class="text-sm text-gray-500">数据暂不可用</div>
                             </div>
                         </div>
 
@@ -12101,13 +12136,28 @@
             { name: '价格竞争', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待竞对价格同步后判断价格劣势', spark: [24, 38, 32, 46, 34, 50, 36, 54, 40] },
             { name: '渠道表现', value: '--', direction: '待同步', badgeClass: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 数据同步', spark: [40, 36, 42, 38, 44, 40, 46, 42, 48] }
             ]);
-            const homeMacroSignals = computed(() => [
-            { name: '周期信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待日期与订单节奏数据形成周期判断', action: '去分析', page: 'agent-center' },
-            { name: '天气信号', status: compassWeather.value.length ? '关注' : '待校验', className: compassWeather.value.length ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-500 border-gray-200', note: compassWeather.value.length ? '结合未来天气关注取消率、到店率与周边游需求' : '待校验数据源，暂不生成经营判断', action: '查看详情', page: 'compass' },
-            { name: '渠道信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 OTA 曝光、点击、转化数据同步', action: '去分析', page: 'online-data' },
-            { name: '价格信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待 ADR、价差与促销压力数据', action: '去分析', page: 'agent-center' },
-            { name: '需求信号', status: '待同步', className: 'bg-gray-50 text-gray-500 border-gray-200', note: '等待入住节奏、提前预订与临近订单数据', action: '去分析', page: 'online-data' }
+            const buildMacroSignalFallback = (summary = '待同步') => ([
+                { key: 'cycle', title: '周期信号', status: 'pending', status_text: '待同步', level: 'gray', summary, metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['同步订单与日期数据后生成判断'], action_text: '查看详情', updated_at: '--' },
+                { key: 'weather', title: '天气信号', status: 'pending', status_text: '待同步', level: 'gray', summary: '当前未接入天气数据源', metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['接入天气接口后生成判断'], action_text: '查看详情', updated_at: '--' },
+                { key: 'channel', title: '渠道信号', status: 'pending', status_text: '待同步', level: 'gray', summary, metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['同步 OTA 流量数据后生成判断'], action_text: '去分析', updated_at: '--' },
+                { key: 'price', title: '价格信号', status: 'pending', status_text: '待同步', level: 'gray', summary, metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['同步价格与竞对数据后生成判断'], action_text: '去分析', updated_at: '--' },
+                { key: 'demand', title: '需求信号', status: 'pending', status_text: '待同步', level: 'gray', summary, metrics: [{ label: '数据状态', value: '待同步' }], suggestions: ['同步订单与预测数据后生成判断'], action_text: '查看详情', updated_at: '--' }
             ]);
+            const macroSignalCards = ref(buildMacroSignalFallback());
+            const macroSignalLoading = ref(false);
+            const activeMacroSignal = ref('');
+            const macroSignalDetail = ref(null);
+            const macroSignalLevelClass = (signal) => {
+                const level = signal?.level || 'gray';
+                const map = {
+                    red: 'bg-red-50 text-red-700 border-red-200',
+                    yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+                    green: 'bg-green-50 text-green-700 border-green-200',
+                    blue: 'bg-blue-50 text-blue-700 border-blue-200',
+                    gray: 'bg-gray-50 text-gray-500 border-gray-200'
+                };
+                return map[level] || map.gray;
+            };
             const homeAiDecisionCards = [
                 { title: '收益策略', status: '待生成', focus: '关注 ADR、RevPAR、入住率、价格弹性。', source: '暂无' },
                 { title: 'OTA 运营', status: '待生成', focus: '关注曝光、点击、转化、点评、价格力。', source: '暂无' },
@@ -13551,6 +13601,42 @@
                 }
             };
 
+            const loadMacroSignals = async () => {
+                if (!token.value || macroSignalLoading.value) return;
+                macroSignalLoading.value = true;
+                try {
+                    const res = await request('/macro-signals/overview');
+                    if (res.code === 200 && Array.isArray(res.data)) {
+                        macroSignalCards.value = res.data;
+                    } else {
+                        macroSignalCards.value = buildMacroSignalFallback('数据暂不可用');
+                    }
+                } catch (e) {
+                    console.error('加载宏观经营信号失败:', e);
+                    macroSignalCards.value = buildMacroSignalFallback('数据暂不可用');
+                } finally {
+                    macroSignalLoading.value = false;
+                }
+            };
+
+            const loadMacroSignalDetail = async (signal) => {
+                const type = signal?.key;
+                if (!type || !token.value) return;
+                activeMacroSignal.value = type;
+                macroSignalDetail.value = null;
+                try {
+                    const res = await request(`/macro-signals/detail?type=${encodeURIComponent(type)}`);
+                    if (res.code === 200) {
+                        macroSignalDetail.value = res.data || null;
+                    } else {
+                        macroSignalDetail.value = { ...signal, summary: '数据暂不可用', reasons: [res.message || '接口返回异常'], suggestions: ['稍后重试或检查数据源同步状态'] };
+                    }
+                } catch (e) {
+                    console.error('加载宏观经营信号详情失败:', e);
+                    macroSignalDetail.value = { ...signal, summary: '数据暂不可用', reasons: ['接口异常，暂无法生成详情'], suggestions: ['稍后重试或检查数据源同步状态'] };
+                }
+            };
+
             const saveAiProviderQuickSetup = async () => {
                 const provider = aiQuickSetupForm.value.provider;
                 const apiKey = (aiQuickSetupForm.value.api_key || '').trim();
@@ -14958,11 +15044,13 @@
                     compassHolidays.value = res.data.holidays || [];
                 }
                 loadHolidayRevenueCountdown();
+                loadMacroSignals();
             };
 
             watch(filterReportHotel, () => {
                 if (currentPage.value === 'compass') {
                     loadHolidayRevenueCountdown();
+                    loadMacroSignals();
                 }
             });
 
@@ -19156,7 +19244,7 @@
                 transferPricingForm, transferPricingFields, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, handleTransferPricing,
                 transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
-                homeObservation, homeTrendCards, homeMacroSignals, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationSuggestions,
+                homeObservation, homeTrendCards, macroSignalCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalLevelClass, loadMacroSignalDetail, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationSuggestions,
                 weatherDemandHint, weatherLocationName, selectedWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, homeQuickEntries,
                 isLoggedIn, loading, loginError, user, token, currentTime, currentPage, showPassword,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
