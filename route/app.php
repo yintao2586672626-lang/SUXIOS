@@ -85,6 +85,8 @@ Route::group('api/online-data', function () {
     Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');
     Route::post('/fetch-meituan-comments', 'OnlineData/fetchMeituanComments');
+    Route::get('/ctrip/latest', 'OnlineData/ctripLatest');
+    Route::get('/ctrip/history', 'OnlineData/ctripHistory');
     Route::post('/fetch-custom', 'OnlineData/fetchCustom');
     Route::post('/save-cookies', 'OnlineData/saveCookies');
     Route::get('/cookies-list', 'OnlineData/getCookiesList');
@@ -162,6 +164,13 @@ Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== 扩张管理 API ====================
+Route::group('api/expansion', function () {
+    Route::post('/market-evaluation', 'Expansion/marketEvaluation');
+    Route::post('/benchmark-model', 'Expansion/benchmarkModel');
+    Route::post('/collaboration-efficiency', 'Expansion/collaborationEfficiency');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 转让管理 API ====================
 Route::group('api/transfer', function () {
     Route::post('/pricing', 'TransferDecision/pricing');
@@ -224,14 +233,13 @@ Route::group('api/admin/competitor-wechat-robot', function () {
 })->middleware(\app\middleware\Auth::class);
 
 // 接收书签脚本的Cookies（不需要认证中间件，通过token参数验证）
-Route::post('api/online-data/receive-cookies', 'OnlineData/receiveCookies');
-Route::options('api/online-data/receive-cookies', 'OnlineData/receiveCookies');
+Route::rule('api/online-data/receive-cookies', 'OnlineData/receiveCookies', 'POST|OPTIONS');
 
 // 定时任务触发接口（不需要认证，通过X-Cron-Token验证）
 Route::get('api/online-data/cron-trigger', 'OnlineData/cronTrigger');
 
 // 清除opcache缓存（开发调试用）
-Route::get('api/online-data/clear-cache', 'OnlineData/clearCache');
+Route::get('api/online-data/clear-cache', 'OnlineData/clearCache')->middleware(\app\middleware\Auth::class);
 
 // ==================== 操作日志路由 ====================
 Route::group('api/operation-logs', function () {
@@ -245,7 +253,7 @@ Route::get('api/health', function () {
     return json(['status' => 'ok', 'time' => date('Y-m-d H:i:s')]);
 });
 
-// 测试携程API获取（无需认证，用于调试）
+// 测试携程API获取（需登录，用于调试）
 Route::post('api/test-ctrip-fetch', function () {
     try {
         $data = json_decode(file_get_contents('php://input'), true);
@@ -313,9 +321,9 @@ Route::post('api/test-ctrip-fetch', function () {
     } catch (\Exception $e) {
         return json(['code' => 500, 'message' => '异常: ' . $e->getMessage(), 'data' => null]);
     }
-});
+})->middleware(\app\middleware\Auth::class);
 
-// 无认证数据库测试
+// 数据库测试（需登录）
 Route::any('api/db-test', function () {
     try {
         // 测试数据库连接
@@ -324,9 +332,9 @@ Route::any('api/db-test', function () {
     } catch (\Exception $e) {
         return json(['code' => 500, 'message' => '数据库错误: ' . $e->getMessage()]);
     }
-});
+})->middleware(\app\middleware\Auth::class);
 
-// 测试保存携程配置（无需认证）
+// 测试保存携程配置（需登录）
 Route::any('api/test-ctrip-save', function () {
     try {
         $name = 'test_' . date('YmdHis');
@@ -368,7 +376,7 @@ Route::any('api/test-ctrip-save', function () {
     } catch (\Exception $e) {
         return json(['code' => 500, 'message' => '保存失败: ' . $e->getMessage()]);
     }
-});
+})->middleware(\app\middleware\Auth::class);
 
 // 直接保存携程配置（带参数，支持权限过滤）
 Route::any('api/test-ctrip-save-direct', function () {
@@ -438,7 +446,7 @@ Route::any('api/test-ctrip-save-direct', function () {
     } catch (\Exception $e) {
         return json(['code' => 500, 'message' => '保存失败: ' . $e->getMessage()]);
     }
-});
+})->middleware(\app\middleware\Auth::class);
 
 // 获取携程配置列表（直接接口，支持权限过滤）
 Route::any('api/test-ctrip-config-list', function () {
@@ -481,7 +489,7 @@ Route::any('api/test-ctrip-config-list', function () {
     } catch (\Exception $e) {
         return json(['code' => 500, 'message' => '获取失败: ' . $e->getMessage(), 'data' => []]);
     }
-});
+})->middleware(\app\middleware\Auth::class);
 
 // 删除携程配置（直接接口，支持权限过滤）
 Route::any('api/test-ctrip-config-delete', function () {
@@ -531,7 +539,7 @@ Route::any('api/test-ctrip-config-delete', function () {
     } catch (\Exception $e) {
         return json(['code' => 500, 'message' => '删除失败: ' . $e->getMessage()]);
     }
-});
+})->middleware(\app\middleware\Auth::class);
 
 // ==================== AI Agent 路由 ====================
 Route::group('api/agent', function () {

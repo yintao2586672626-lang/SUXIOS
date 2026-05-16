@@ -981,6 +981,9 @@ class Agent extends Base
             if (isset($llmResult['data']['debug']) && is_array($llmResult['data']['debug'])) {
                 $report['debug'] = $llmResult['data']['debug'];
             }
+            $report['data_quality'] = $summary['data_quality'];
+            $report['data_collection_notice'] = $summary['data_collection_notice'];
+            $report = $this->applyCapturedOtaDataQualityGuard($report);
             $report['summary'] = [
                 'hotel_count' => $summary['hotel_count'],
                 'input_hotel_count' => $summary['input_hotel_count'],
@@ -989,6 +992,7 @@ class Agent extends Base
                 'data_source' => $dataSource,
                 'start_date' => $startDate,
                 'end_date' => $endDate,
+                'data_quality' => $summary['data_quality'],
             ];
 
             OperationLog::record('agent', 'analyze_captured_ota_data', '分析当前抓取OTA数据', (int) ($this->currentUser->id ?? 0), null, null, [
@@ -1076,6 +1080,9 @@ class Agent extends Base
             } else {
                 $report = $this->buildCapturedOtaFallbackReport($summary, (string) ($llmResult['message'] ?? '汇总失败'));
             }
+            $report['data_quality'] = $summary['data_quality'];
+            $report['data_collection_notice'] = $summary['data_quality']['warning'] ?? '';
+            $report = $this->applyCapturedOtaDataQualityGuard($report);
             if ($debug !== null) {
                 $report['debug'] = $debug;
             }
@@ -1100,6 +1107,7 @@ class Agent extends Base
             OperationLog::error('agent', 'summarize_captured_ota_analysis', '汇总当前抓取OTA分组报告失败', $this->sanitizeLlmErrorMessage($e->getMessage()), (int) ($this->currentUser->id ?? 0));
             if (is_array($summary) && !empty($summary['groups'])) {
                 $report = $this->buildCapturedOtaFallbackReport($summary, $e->getMessage());
+                $report = $this->applyCapturedOtaDataQualityGuard($report);
                 $report['summary'] = [
                     'group_count' => count($summary['groups']),
                     'failed_group_count' => count($summary['failed_groups']),
@@ -1144,6 +1152,13 @@ class Agent extends Base
         ];
         $scoreValues = [];
         $conversionValues = [];
+        $flowQualityStats = [
+            'exposure' => ['missing' => 0, 'zero' => 0],
+            'views' => ['missing' => 0, 'zero' => 0],
+            'browse_rate' => ['missing' => 0, 'zero' => 0],
+            'order_rate' => ['missing' => 0, 'zero' => 0],
+            'conversion_rate' => ['missing' => 0, 'zero' => 0],
+        ];
 
         foreach (array_slice($hotels, 0, $maxHotels) as $hotel) {
             if (!is_array($hotel)) {
@@ -1177,34 +1192,44 @@ class Agent extends Base
             $safeMetrics = $this->sanitizeCapturedOtaMetrics($metrics);
             $roomNights = (float) ($safeMetrics['room_nights'] ?? 0);
             $roomRevenue = (float) ($safeMetrics['revenue'] ?? $safeMetrics['room_revenue'] ?? 0);
-            $exposure = (float) ($safeMetrics['exposure'] ?? 0);
-            $views = (float) ($safeMetrics['visitors'] ?? $safeMetrics['views'] ?? 0);
+            $exposure = $this->readCapturedNullableMetric($safeMetrics, ['exposure']);
+            $views = $this->readCapturedNullableMetric($safeMetrics, ['visitors', 'views']);
             $orders = (float) ($safeMetrics['orders'] ?? $safeMetrics['total_order_num'] ?? $safeMetrics['book_order_num'] ?? 0);
             $sales = (float) ($safeMetrics['sales'] ?? $safeMetrics['revenue'] ?? $roomRevenue);
             $commentScore = (float) ($safeMetrics['score'] ?? $safeMetrics['comment_score'] ?? 0);
-            $viewConversion = (float) ($safeMetrics['view_conversion'] ?? $safeMetrics['conversion_rate'] ?? 0);
-            $payConversion = (float) ($safeMetrics['pay_conversion'] ?? 0);
+            $viewConversion = $this->readCapturedNullableMetric($safeMetrics, ['view_conversion', 'browse_rate']);
+            $payConversion = $this->readCapturedNullableMetric($safeMetrics, ['pay_conversion', 'order_rate']);
+            $conversionRate = $this->readCapturedNullableMetric($safeMetrics, ['conversion_rate', 'qunar_detail_cr']);
             $tags = $this->sanitizeCapturedTags($hotel['tags'] ?? []);
             $shortSummary = mb_substr(trim((string) ($hotel['short_summary'] ?? '')), 0, 160);
 
             $safeMetrics['adr'] = $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : 0.0;
-            $safeMetrics['view_rate'] = $exposure > 0 ? round($views / $exposure * 100, 2) : 0.0;
-            $safeMetrics['order_rate'] = $views > 0 ? round($orders / $views * 100, 2) : 0.0;
+            $safeMetrics['view_rate'] = $exposure !== null && $views !== null && $exposure > 0 ? round($views / $exposure * 100, 2) : ($exposure === null || $views === null ? null : 0.0);
+            $safeMetrics['order_rate'] = $views !== null && $views > 0 ? round($orders / $views * 100, 2) : ($views === null ? null : 0.0);
+
+            $this->recordCapturedFlowQuality($flowQualityStats, 'exposure', $exposure);
+            $this->recordCapturedFlowQuality($flowQualityStats, 'views', $views);
+            $this->recordCapturedFlowQuality($flowQualityStats, 'browse_rate', $viewConversion);
+            $this->recordCapturedFlowQuality($flowQualityStats, 'order_rate', $payConversion);
+            $this->recordCapturedFlowQuality($flowQualityStats, 'conversion_rate', $conversionRate);
 
             $totals['room_nights'] += $roomNights;
             $totals['room_revenue'] += $roomRevenue;
             $totals['sales'] += $sales;
-            $totals['exposure'] += $exposure;
-            $totals['views'] += $views;
+            $totals['exposure'] += $exposure ?? 0;
+            $totals['views'] += $views ?? 0;
             $totals['orders'] += $orders;
             if ($commentScore > 0) {
                 $scoreValues[] = $commentScore;
             }
-            if ($viewConversion > 0) {
+            if ($viewConversion !== null && $viewConversion > 0) {
                 $conversionValues[] = $viewConversion;
             }
-            if ($payConversion > 0) {
+            if ($payConversion !== null && $payConversion > 0) {
                 $conversionValues[] = $payConversion;
+            }
+            if ($conversionRate !== null && $conversionRate > 0) {
+                $conversionValues[] = $conversionRate;
             }
 
             $rows[] = [
@@ -1219,6 +1244,8 @@ class Agent extends Base
         usort($rows, function (array $a, array $b): int {
             return ((float) ($b['metrics']['revenue'] ?? $b['metrics']['room_revenue'] ?? 0)) <=> ((float) ($a['metrics']['revenue'] ?? $a['metrics']['room_revenue'] ?? 0));
         });
+
+        $dataQuality = $this->buildCapturedOtaDataQuality($flowQualityStats, $totals, $startDate, $endDate, count($rows));
 
         return [
             'scope' => [
@@ -1240,6 +1267,8 @@ class Agent extends Base
             ],
             'hotels' => $rows,
             'top_hotels_by_revenue' => array_slice($rows, 0, 10),
+            'data_quality' => $dataQuality,
+            'data_collection_notice' => $dataQuality['warning'],
             'data_anomalies' => $inputCount > $maxHotels ? ['单次最多分析 50 家酒店，已截断超出部分。'] : [],
         ];
     }
@@ -1266,6 +1295,8 @@ class Agent extends Base
             'qunar_comment_score',
             'conversion_rate',
             'qunar_detail_cr',
+            'browse_rate',
+            'order_rate',
             'amount_rank',
             'quantity_rank',
             'comment_score_rank',
@@ -1278,9 +1309,81 @@ class Agent extends Base
         foreach ($allowed as $key) {
             if (isset($metrics[$key]) && is_numeric($metrics[$key])) {
                 $safe[$key] = round((float) $metrics[$key], 4);
+            } elseif (array_key_exists($key, $metrics) && ($metrics[$key] === null || $metrics[$key] === '')) {
+                $safe[$key] = null;
             }
         }
         return $safe;
+    }
+
+    private function readCapturedNullableMetric(array $metrics, array $keys): ?float
+    {
+        $found = false;
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $metrics)) {
+                continue;
+            }
+            $found = true;
+            if (is_numeric($metrics[$key])) {
+                return (float) $metrics[$key];
+            }
+        }
+        return $found ? null : null;
+    }
+
+    private function recordCapturedFlowQuality(array &$stats, string $field, ?float $value): void
+    {
+        if (!isset($stats[$field])) {
+            return;
+        }
+        if ($value === null) {
+            $stats[$field]['missing']++;
+            return;
+        }
+        if ($value == 0.0) {
+            $stats[$field]['zero']++;
+        }
+    }
+
+    private function buildCapturedOtaDataQuality(array $flowQualityStats, array $totals, string $startDate, string $endDate, int $hotelCount): array
+    {
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        $now = new \DateTimeImmutable('now', $timezone);
+        $today = $now->format('Y-m-d');
+        $hour = (int) $now->format('H');
+        $isTodayQuery = $startDate <= $today && $endDate >= $today;
+        $isCrossDayWindow = $isTodayQuery && $hour >= 0 && $hour < 8;
+        $businessReturned = ((float) ($totals['orders'] ?? 0) + (float) ($totals['room_nights'] ?? 0) + (float) ($totals['room_revenue'] ?? 0) + (float) ($totals['sales'] ?? 0)) > 0;
+
+        $missingFields = [];
+        $zeroFields = [];
+        foreach ($flowQualityStats as $field => $stat) {
+            if (($stat['missing'] ?? 0) > 0) {
+                $missingFields[] = $field;
+            }
+            if (($stat['zero'] ?? 0) > 0) {
+                $zeroFields[] = $field;
+            }
+        }
+
+        $warning = '';
+        $isReliable = true;
+        if ($isCrossDayWindow && (!empty($missingFields) || !empty($zeroFields))) {
+            $warning = '当前可能处于OTA跨日统计窗口，曝光、访客、浏览率、订单率、转化率等流量指标可能暂未更新，不建议直接按0判断经营异常。';
+        } elseif ($businessReturned && !empty($zeroFields)) {
+            $warning = '流量类指标为0但订单、间夜或收入已返回，优先按采集口径提示处理，待平台数据稳定后复查。';
+        } elseif (!$isTodayQuery && !$businessReturned && $hotelCount > 0 && !empty($zeroFields)) {
+            $warning = '历史日期流量类指标仍为0，需结合多次同步结果检查接口、字段映射或Cookie权限。';
+            $isReliable = false;
+        }
+
+        return [
+            'is_reliable' => $isReliable,
+            'is_cross_day_window' => $isCrossDayWindow,
+            'warning' => $warning,
+            'missing_fields' => array_values(array_unique($missingFields)),
+            'zero_maybe_unready_fields' => array_values(array_unique($zeroFields)),
+        ];
     }
 
     private function sanitizeCapturedTags($tags): array
@@ -1321,6 +1424,9 @@ class Agent extends Base
                 continue;
             }
             $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
+            $dataQuality = is_array($report['data_quality'] ?? null)
+                ? $report['data_quality']
+                : (is_array($summary['data_quality'] ?? null) ? $summary['data_quality'] : []);
             $hotelCount += (int) ($summary['hotel_count'] ?? $group['hotel_count'] ?? 0);
             $groups[] = [
                 'group_index' => (int) ($group['group_index'] ?? ($index + 1)),
@@ -1328,10 +1434,11 @@ class Agent extends Base
                 'overall_conclusion' => mb_substr((string) ($report['overall_conclusion'] ?? ''), 0, 300),
                 'key_findings' => $this->sanitizeReportList($report['key_findings'] ?? [], 5),
                 'competitor_insights' => $this->sanitizeReportList($report['competitor_insights'] ?? [], 5),
-                'problem_hotels' => $this->sanitizeReportList($report['problem_hotels'] ?? [], 8),
+                'problem_hotels' => $this->sanitizeProblemHotels($report['problem_hotels'] ?? [], 8),
                 'recommended_actions' => $this->sanitizeReportList($report['recommended_actions'] ?? [], 6),
                 'priority' => in_array(($report['priority'] ?? ''), ['high', 'medium', 'low'], true) ? (string) $report['priority'] : 'medium',
                 'data_anomalies' => $this->sanitizeReportList($report['data_anomalies'] ?? [], 5),
+                'data_quality' => $dataQuality,
             ];
         }
 
@@ -1364,6 +1471,7 @@ class Agent extends Base
             'hotel_count' => $hotelCount,
             'groups' => $groups,
             'failed_groups' => $safeFailedGroups,
+            'data_quality' => $this->buildCapturedOtaFinalDataQuality($groups),
         ];
     }
 
@@ -1405,7 +1513,7 @@ class Agent extends Base
             }
             $keyFindings = array_merge($keyFindings, $this->sanitizeReportList($group['key_findings'] ?? [], 3));
             $competitorInsights = array_merge($competitorInsights, $this->sanitizeReportList($group['competitor_insights'] ?? [], 3));
-            $problemHotels = array_merge($problemHotels, $this->sanitizeReportList($group['problem_hotels'] ?? [], 4));
+            $problemHotels = array_merge($problemHotels, $this->sanitizeProblemHotels($group['problem_hotels'] ?? [], 4));
             $recommendedActions = array_merge($recommendedActions, $this->sanitizeReportList($group['recommended_actions'] ?? [], 4));
             $dataAnomalies = array_merge($dataAnomalies, $this->sanitizeReportList($group['data_anomalies'] ?? [], 3));
             $groupPriority = (string) ($group['priority'] ?? 'medium');
@@ -1429,13 +1537,116 @@ class Agent extends Base
             ),
             'key_findings' => array_values(array_slice(array_unique(array_filter($keyFindings)), 0, 8)),
             'competitor_insights' => array_values(array_slice(array_unique(array_filter($competitorInsights)), 0, 8)),
-            'problem_hotels' => array_values(array_slice(array_unique(array_filter($problemHotels)), 0, 10)),
+            'problem_hotels' => $this->uniqueProblemHotels($problemHotels, 10),
             'recommended_actions' => array_values(array_slice(array_unique(array_filter($recommendedActions)), 0, 10)),
             'priority' => $priority,
             'data_anomalies' => array_values(array_slice(array_unique(array_filter($dataAnomalies)), 0, 8)),
+            'data_quality' => $summary['data_quality'] ?? $this->buildCapturedOtaFinalDataQuality($groups),
             'fallback' => true,
             'fallback_reason' => $this->sanitizeLlmErrorMessage($reason),
         ];
+    }
+
+    private function buildCapturedOtaFinalDataQuality(array $groups): array
+    {
+        $missingFields = [];
+        $zeroFields = [];
+        $isCrossDayWindow = false;
+        $isReliable = true;
+        $warning = '';
+
+        foreach ($groups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $quality = is_array($group['data_quality'] ?? null) ? $group['data_quality'] : [];
+            if (empty($quality)) {
+                continue;
+            }
+            $isCrossDayWindow = $isCrossDayWindow || (bool) ($quality['is_cross_day_window'] ?? false);
+            $isReliable = $isReliable && (bool) ($quality['is_reliable'] ?? true);
+            $missingFields = array_merge($missingFields, array_values((array) ($quality['missing_fields'] ?? [])));
+            $zeroFields = array_merge($zeroFields, array_values((array) ($quality['zero_maybe_unready_fields'] ?? [])));
+            if ($warning === '' && trim((string) ($quality['warning'] ?? '')) !== '') {
+                $warning = trim((string) $quality['warning']);
+            }
+        }
+
+        if ($isCrossDayWindow && $warning === '') {
+            $warning = '当前可能处于OTA跨日统计窗口，曝光、访客、浏览率、订单率、转化率等流量指标可能尚未完成统计。本次报告优先参考订单、间夜、收入、ADR、评分等已返回指标，流量类指标建议待平台更新后复查。';
+        }
+
+        return [
+            'is_reliable' => $isReliable,
+            'is_cross_day_window' => $isCrossDayWindow,
+            'warning' => $warning,
+            'missing_fields' => array_values(array_unique(array_filter($missingFields))),
+            'zero_maybe_unready_fields' => array_values(array_unique(array_filter($zeroFields))),
+        ];
+    }
+
+    private function applyCapturedOtaDataQualityGuard(array $report): array
+    {
+        $quality = is_array($report['data_quality'] ?? null) ? $report['data_quality'] : [];
+        $warning = trim((string) ($quality['warning'] ?? ''));
+        $isCrossDayWindow = (bool) ($quality['is_cross_day_window'] ?? false);
+        $isReliable = ($quality['is_reliable'] ?? true) !== false;
+        $shouldUseNoticeTone = $isCrossDayWindow || ($isReliable && $warning !== '');
+        if (!$shouldUseNoticeTone) {
+            return $report;
+        }
+
+        $notice = $isCrossDayWindow
+            ? '当前流量类指标可能受OTA统计更新时间影响，暂不作为经营判断依据。本组报告主要基于订单、间夜、收入、ADR、评分等已返回指标进行分析，建议待平台流量数据更新后复查。'
+            : ($warning !== '' ? $warning : '流量类指标当前按采集口径提示处理，暂不作为核心经营判断依据。');
+        $blockedPhrases = [
+            '违反基本漏斗逻辑',
+            '严重异常',
+            '严重经营异常',
+            '严重数据异常',
+            '严重采集异常',
+            '数据异常',
+            '采集异常',
+            '严重缺失',
+            '无法准确评估实际经营表现',
+            '立即联系携程ebooking支持团队',
+            '立即联系携程 ebooking 支持团队',
+        ];
+
+        if ($this->textContainsAny((string) ($report['overall_conclusion'] ?? ''), $blockedPhrases)) {
+            $report['overall_conclusion'] = $notice;
+        }
+
+        foreach (['key_findings', 'competitor_insights', 'data_anomalies'] as $field) {
+            $list = $this->sanitizeReportList($report[$field] ?? [], 10);
+            $list = array_values(array_filter($list, fn($item) => !$this->textContainsAny($item, $blockedPhrases)));
+            if ($field === 'data_anomalies' && empty($list)) {
+                $list[] = $warning !== '' ? $warning : $notice;
+            }
+            $report[$field] = $list;
+        }
+
+        $actions = $this->sanitizeReportList($report['recommended_actions'] ?? [], 10);
+        $actions = array_values(array_filter($actions, fn($item) => !$this->textContainsAny($item, $blockedPhrases)));
+        $practicalActions = [
+            '若当前为凌晨或当天数据，等待平台数据更新后重新同步。',
+            '优先查看订单、间夜、收入、ADR、评分判断经营趋势。',
+            '次日上午或平台数据稳定后，再复查曝光、访客、转化率。',
+            '若历史日期仍长期为0，再检查接口、字段映射或Cookie权限。',
+        ];
+        $report['recommended_actions'] = array_values(array_slice(array_unique(array_merge($practicalActions, $actions)), 0, 10));
+
+        return $report;
+    }
+
+    private function textContainsAny(string $text, array $needles): bool
+    {
+        foreach ($needles as $needle) {
+            if ($needle !== '' && mb_strpos($text, $needle) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function sanitizeReportList($value, int $limit): array
@@ -1460,6 +1671,124 @@ class Agent extends Base
             }
         }
         return $safe;
+    }
+
+    private function sanitizeProblemHotels($value, int $limit): array
+    {
+        $items = is_array($value) ? ($this->isListArray($value) ? $value : [$value]) : [$value];
+        $safe = [];
+        foreach (array_slice($items, 0, $limit) as $item) {
+            $hotel = is_array($item) ? $this->normalizeProblemHotelArray($item) : $this->parseProblemHotelString((string) $item);
+            if (!empty(array_filter($hotel, fn($val) => is_array($val) ? !empty($val) : trim((string) $val) !== ''))) {
+                $safe[] = $hotel;
+            }
+        }
+        return $safe;
+    }
+
+    private function normalizeProblemHotelArray(array $item): array
+    {
+        $metrics = $item['key_metrics'] ?? $item['关键指标'] ?? [];
+        if (is_string($metrics)) {
+            $metrics = $this->splitProblemHotelMetrics($metrics);
+        } elseif (!is_array($metrics)) {
+            $metrics = [];
+        }
+
+        return [
+            'hotel_name' => mb_substr(trim((string) ($item['hotel_name'] ?? $item['酒店'] ?? $item['name'] ?? '')), 0, 120),
+            'problem' => mb_substr(trim((string) ($item['problem'] ?? $item['问题'] ?? '')), 0, 240),
+            'key_metrics' => array_values(array_slice(array_filter(array_map(
+                fn($metric) => mb_substr(trim((string) $metric), 0, 80),
+                $metrics
+            )), 0, 8)),
+            'suggestion' => mb_substr(trim((string) ($item['suggestion'] ?? $item['建议'] ?? '')), 0, 240),
+        ];
+    }
+
+    private function parseProblemHotelString(string $text): array
+    {
+        $text = trim($text);
+        $result = [
+            'hotel_name' => '',
+            'problem' => '',
+            'key_metrics' => [],
+            'suggestion' => '',
+        ];
+        if ($text === '') {
+            return $result;
+        }
+
+        $map = [
+            'hotel_name' => 'hotel_name',
+            '酒店' => 'hotel_name',
+            'problem' => 'problem',
+            '问题' => 'problem',
+            'key_metrics' => 'key_metrics',
+            '关键指标' => 'key_metrics',
+            'suggestion' => 'suggestion',
+            '建议' => 'suggestion',
+        ];
+        $keys = implode('|', array_map(fn($key) => preg_quote($key, '/'), array_keys($map)));
+        preg_match_all('/(' . $keys . ')\s*[:：]\s*(.*?)(?=\s*(?:' . $keys . ')\s*[:：]|[；;\r\n]+|$)/us', $text, $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            $key = trim($match[1]);
+            $target = $map[$key] ?? null;
+            if ($target === null) {
+                continue;
+            }
+            if ($target === 'key_metrics') {
+                $result[$target] = $this->splitProblemHotelMetrics($match[2]);
+            } else {
+                $result[$target] = mb_substr(trim($match[2]), 0, $target === 'hotel_name' ? 120 : 240);
+            }
+        }
+
+        if ($result['hotel_name'] === '' && $result['problem'] === '' && empty($result['key_metrics']) && $result['suggestion'] === '') {
+            $result['problem'] = mb_substr($text, 0, 240);
+        }
+
+        return $result;
+    }
+
+    private function isListArray(array $value): bool
+    {
+        $index = 0;
+        foreach (array_keys($value) as $key) {
+            if ($key !== $index++) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function splitProblemHotelMetrics(string $metrics): array
+    {
+        return array_values(array_slice(array_filter(array_map(
+            fn($item) => mb_substr(trim((string) $item), 0, 80),
+            preg_split('/[、,，；;]\s*/u', $metrics) ?: []
+        )), 0, 8));
+    }
+
+    private function uniqueProblemHotels(array $items, int $limit): array
+    {
+        $seen = [];
+        $result = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $key = md5(json_encode($item, JSON_UNESCAPED_UNICODE));
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $result[] = $item;
+            if (count($result) >= $limit) {
+                break;
+            }
+        }
+        return $result;
     }
 
     private function resolveOtaDiagnosisConfig(string $platform, string $configId): array
@@ -2270,8 +2599,14 @@ class Agent extends Base
     {
         return "你是宿析OS酒店OTA经营分析顾问。只基于以下前端当前抓取的携程ebooking结构化摘要输出一份批量分析报告，不要查询或假设数据库数据。\n"
             . "必须返回 JSON，字段为 overall_conclusion、key_findings、competitor_insights、problem_hotels、recommended_actions、priority、data_anomalies。\n"
-            . "key_findings、competitor_insights、problem_hotels、recommended_actions、data_anomalies 必须是数组；priority 只能是 high、medium、low。\n"
-            . "只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。problem_hotels 可以包含酒店名、问题、关键指标和处理建议。不要输出 API Key、Cookie 或认证信息。\n"
+            . "key_findings、competitor_insights、recommended_actions、data_anomalies 必须是字符串数组；priority 只能是 high、medium、low。\n"
+            . "problem_hotels 必须是对象数组，固定格式为 {\"hotel_name\":\"酒店名\",\"problem\":\"问题\",\"key_metrics\":[\"订单127\",\"间夜104\",\"ADR 387.60\",\"评分4.6\"],\"suggestion\":\"建议\"}，不允许返回字符串数组。\n"
+            . "曝光、访客、浏览率、订单率、转化率为0时，必须先看 data_quality.is_cross_day_window；若处于OTA跨日统计窗口，不要判断为经营异常，统一表述为“流量类指标可能尚未完成统计”。\n"
+            . "当天或刚过12点的数据，订单、间夜、收入、ADR、评分作为主要分析依据；流量漏斗类指标只作为数据完整性提示，不作为核心经营判断。\n"
+            . "若 data_quality.warning 非空，必须把它归类为“数据口径提示”或“数据未完全更新”，不能写成“严重采集异常”或核心经营结论。\n"
+            . "不要输出“违反基本漏斗逻辑”“严重异常”“严重采集异常”等绝对结论，除非是历史日期且确认多次采集仍异常。\n"
+            . "建议动作优先为：等待平台数据更新后重新同步；先看订单、间夜、收入、ADR、评分；次日上午复查曝光、访客、转化率；历史日期长期为0再检查接口、字段映射或Cookie权限。\n"
+            . "只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。不要输出 API Key、Cookie 或认证信息。\n"
             . "结构化摘要：\n"
             . json_encode($summary, JSON_UNESCAPED_UNICODE);
     }
@@ -2280,9 +2615,14 @@ class Agent extends Base
     {
         return "你是酒店OTA经营分析顾问。请基于多个分组分析结果，输出一份面向酒店经营者的综合诊断报告。\n"
             . "不要逐组复述，要综合归纳。只基于分组报告摘要，不要使用完整原始抓取数据或假设数据。\n"
-            . "重点回答：1. 整体经营现状；2. 最大问题；3. 最值得关注的酒店；4. 竞对机会；5. 价格、曝光、转化、订单的异常；6. 下一步最优先的运营动作。\n"
-            . "返回 JSON：{\"overall_conclusion\":\"总体结论\",\"key_findings\":[],\"competitor_insights\":[],\"problem_hotels\":[],\"recommended_actions\":[],\"priority\":\"high/medium/low\",\"data_anomalies\":[]}\n"
-            . "key_findings、competitor_insights、problem_hotels、recommended_actions、data_anomalies 必须是数组；priority 只能是 high、medium、low。\n"
+            . "重点回答：1. 整体经营现状；2. 最大问题；3. 最值得关注的酒店；4. 竞对机会；5. 价格与订单表现、流量数据口径提示；6. 下一步最优先的运营动作。\n"
+            . "返回 JSON：{\"overall_conclusion\":\"总体结论\",\"key_findings\":[],\"competitor_insights\":[],\"problem_hotels\":[{\"hotel_name\":\"酒店名\",\"problem\":\"问题\",\"key_metrics\":[],\"suggestion\":\"建议\"}],\"recommended_actions\":[],\"priority\":\"high/medium/low\",\"data_anomalies\":[]}\n"
+            . "key_findings、competitor_insights、recommended_actions、data_anomalies 必须是字符串数组；problem_hotels 必须是对象数组，不允许返回字符串数组；priority 只能是 high、medium、low。\n"
+            . "若 data_quality.is_cross_day_window 为 true，曝光、访客、浏览率、订单率、转化率为0只作为数据口径提示，不能作为核心经营异常或严重结论。\n"
+            . "综合结论主要基于订单、间夜、收入、ADR、评分等已返回指标；流量漏斗类指标建议待平台更新后复查。\n"
+            . "若 data_quality.warning 非空，必须把它归类为“数据口径提示”或“数据未完全更新”，不能写成“严重采集异常”或核心经营结论。\n"
+            . "不要输出“违反基本漏斗逻辑”“严重异常”“严重采集异常”等绝对结论，除非是历史日期且确认多次采集仍异常。\n"
+            . "建议动作优先为等待平台更新后重新同步、先看订单/间夜/收入/ADR/评分、次日上午复查流量指标，历史日期长期为0再检查接口、字段映射或Cookie权限。\n"
             . "只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。若存在失败组，请在 data_anomalies 中提示分析覆盖不足。不要输出 API Key、Cookie 或认证信息。\n"
             . "分组报告摘要：\n"
             . json_encode($summary, JSON_UNESCAPED_UNICODE);
@@ -2345,10 +2685,11 @@ class Agent extends Base
             'overall_conclusion' => (string) ($data['overall_conclusion'] ?? ''),
             'key_findings' => array_values((array) ($data['key_findings'] ?? [])),
             'competitor_insights' => array_values((array) ($data['competitor_insights'] ?? [])),
-            'problem_hotels' => array_values((array) ($data['problem_hotels'] ?? [])),
+            'problem_hotels' => $this->sanitizeProblemHotels($data['problem_hotels'] ?? [], 10),
             'recommended_actions' => array_values((array) ($data['recommended_actions'] ?? [])),
             'priority' => (string) ($data['priority'] ?? 'medium'),
             'data_anomalies' => array_values((array) ($data['data_anomalies'] ?? [])),
+            'data_quality' => is_array($data['data_quality'] ?? null) ? $data['data_quality'] : [],
         ];
     }
 

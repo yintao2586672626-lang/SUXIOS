@@ -12,6 +12,7 @@ use think\facade\Db;
 class CompetitorApi extends Base
 {
     private const TASK_TOKEN = 'shop2025';
+    private const REPORT_TOKEN_ENV = 'COMPETITOR_REPORT_TOKEN';
 
     public function task(): Response
     {
@@ -68,6 +69,15 @@ class CompetitorApi extends Base
 
     public function report(): Response
     {
+        $expectedToken = $this->getReportToken();
+        if ($expectedToken === '') {
+            return json(['code' => 403, 'message' => '未配置COMPETITOR_REPORT_TOKEN', 'data' => null]);
+        }
+
+        if (!$this->isValidReportToken($expectedToken)) {
+            return json(['code' => 403, 'message' => 'report_token无效', 'data' => null]);
+        }
+
         $storeId = (int)$this->request->post('store_id', 0);
         $hotelId = (int)$this->request->post('hotel_id', 0);
         $platform = (string)$this->request->post('platform', '');
@@ -106,6 +116,47 @@ class CompetitorApi extends Base
         }
 
         return json(['code' => 200, 'message' => 'ok', 'data' => ['id' => $log->id]]);
+    }
+
+    private function isValidReportToken(string $expectedToken): bool
+    {
+        $token = trim((string)$this->request->post('report_token', ''));
+        if ($token === '') {
+            $token = trim((string)$this->request->header('X-Report-Token', ''));
+        }
+        if ($token === '') {
+            $token = trim((string)$this->request->post('token', ''));
+        }
+
+        return $token !== '' && hash_equals($expectedToken, $token);
+    }
+
+    private function getReportToken(): string
+    {
+        $token = trim((string)env(self::REPORT_TOKEN_ENV, ''));
+        if ($token !== '') {
+            return $token;
+        }
+
+        return $this->isLocalOrDevEnvironment() ? self::TASK_TOKEN : '';
+    }
+
+    private function isLocalOrDevEnvironment(): bool
+    {
+        $appEnv = strtolower(trim((string)env('APP_ENV', '')));
+        if (in_array($appEnv, ['local', 'dev', 'development'], true)) {
+            return true;
+        }
+        if ($appEnv !== '') {
+            return false;
+        }
+
+        $appDebug = env('APP_DEBUG', false);
+        if (is_bool($appDebug)) {
+            return $appDebug;
+        }
+
+        return in_array(strtolower(trim((string)$appDebug)), ['1', 'true', 'yes', 'on'], true);
     }
 
     private function extractPrice(string $text): float

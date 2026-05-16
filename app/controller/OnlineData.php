@@ -10,6 +10,25 @@ use think\facade\Db;
 
 class OnlineData extends Base
 {
+    private function shouldVerifyOtaSsl(): bool
+    {
+        $value = env('OTA_SSL_VERIFY', true);
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return !in_array(strtolower(trim((string)$value)), ['0', 'false', 'no', 'off'], true);
+    }
+
+    private function buildStreamSslOptions(): array
+    {
+        $verify = $this->shouldVerifyOtaSsl();
+        return [
+            'verify_peer' => $verify,
+            'verify_peer_name' => $verify,
+        ];
+    }
+
     /**
      * 获取线上数据 - 携程ebooking接口
      */
@@ -22,7 +41,7 @@ class OnlineData extends Base
         $startDate = $this->request->post('start_date', '');
         $endDate = $this->request->post('end_date', '');
         $autoSave = $this->request->post('auto_save', true);
-        $systemHotelId = $this->request->post('system_hotel_id', null);
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
 
         if (empty($cookies)) {
             return json(['code' => 400, 'message' => '请提供登录Cookies', 'data' => null]);
@@ -128,7 +147,7 @@ class OnlineData extends Base
                         $dateResult['data'],
                         $dateResult['date'],
                         $dateResult['date'],
-                        $systemHotelId ? (int)$systemHotelId : null
+                        $systemHotelId
                     );
                     $savedCount += $dateResult['saved_count'];
                 }
@@ -326,7 +345,7 @@ class OnlineData extends Base
         $startDate = (string)$this->request->post('start_date', '');
         $endDate = (string)$this->request->post('end_date', '');
         $autoSave = $this->request->post('auto_save', true);
-        $systemHotelId = $this->request->post('system_hotel_id', null);
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
         $extraParamsStr = (string)$this->request->post('extra_params', '');
 
         if ($cookies === '') {
@@ -381,13 +400,13 @@ class OnlineData extends Base
                     $startDate,
                     $endDate,
                     strtolower($platform),
-                    $systemHotelId ? (int)$systemHotelId : null,
+                    $systemHotelId,
                     $platform
                 );
             }
             $derivedAnalysis = $this->buildAppTrafficDerivedAnalysis($responseData);
 
-            OperationLog::record('online_data', 'fetch_ctrip_traffic', '获取携程流量数据', $this->currentUser->id, $systemHotelId ? (int)$systemHotelId : null);
+            OperationLog::record('online_data', 'fetch_ctrip_traffic', '获取携程流量数据', $this->currentUser->id, $systemHotelId);
 
             return $this->success([
                 'data' => $responseData,
@@ -843,8 +862,8 @@ class OnlineData extends Base
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_HTTPHEADER => $headers,
                 CURLOPT_TIMEOUT => 30,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_SSL_VERIFYPEER => $this->shouldVerifyOtaSsl(),
+                CURLOPT_SSL_VERIFYHOST => $this->shouldVerifyOtaSsl() ? 2 : 0,
                 CURLOPT_ENCODING => 'gzip, deflate', // 自动处理gzip
                 CURLOPT_FOLLOWLOCATION => true,
             ]);
@@ -1092,10 +1111,7 @@ class OnlineData extends Base
                 'timeout' => 30,
                 'header' => implode("\r\n", $headers),
             ],
-            'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-            ],
+            'ssl' => $this->buildStreamSslOptions(),
         ];
         
         $context = stream_context_create($options);
@@ -1684,9 +1700,14 @@ class OnlineData extends Base
         }
         
         // 验证token
-        $userId = cache('token_' . $token);
-        if (!$userId) {
+        $tokenData = cache('token_' . $token);
+        if (!$tokenData) {
             return $this->corsError('Token无效或已过期');
+        }
+
+        $userId = $this->resolveUserIdFromTokenData($tokenData);
+        if ($userId === null) {
+            return $this->corsError('Token认证信息无效');
         }
         
         // 保存Cookies配置
@@ -1707,6 +1728,24 @@ class OnlineData extends Base
             'name' => $name,
             'message' => 'Cookies已成功保存到系统',
         ]);
+    }
+
+    private function resolveUserIdFromTokenData($tokenData): ?int
+    {
+        $userId = is_array($tokenData)
+            ? ($tokenData['user_id'] ?? $tokenData['id'] ?? null)
+            : $tokenData;
+
+        if (is_int($userId)) {
+            return $userId > 0 ? $userId : null;
+        }
+
+        if (is_string($userId)) {
+            $userId = trim($userId);
+            return ctype_digit($userId) && (int)$userId > 0 ? (int)$userId : null;
+        }
+
+        return null;
     }
     
     /**
@@ -2623,10 +2662,7 @@ JAVASCRIPT;
                 'ignore_errors' => true,
                 'follow_location' => 0, // 不跟随重定向
             ],
-            'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-            ],
+            'ssl' => $this->buildStreamSslOptions(),
         ]);
         
         $response = @file_get_contents($url, false, $context);
@@ -2740,8 +2776,8 @@ JAVASCRIPT;
             CURLOPT_ENCODING => '',
             CURLOPT_TIMEOUT => 30,
             CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => $this->shouldVerifyOtaSsl(),
+            CURLOPT_SSL_VERIFYHOST => $this->shouldVerifyOtaSsl() ? 2 : 0,
         ]);
 
         $rawResponse = curl_exec($ch);
@@ -2935,6 +2971,20 @@ JAVASCRIPT;
         $columns = $this->getOnlineDailyDataColumns();
         return array_intersect_key($data, $columns);
     }
+
+    private function resolveOnlineDataSystemHotelId($input): ?int
+    {
+        if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
+            return (int)$input;
+        }
+
+        if ($this->currentUser && !$this->currentUser->isSuperAdmin() && !empty($this->currentUser->hotel_id)) {
+            return (int)$this->currentUser->hotel_id;
+        }
+
+        return null;
+    }
+
     private function sendCustomRequest(string $url, string $method, string $headersStr, string $body): array
     {
         $headers = [];
@@ -2957,10 +3007,7 @@ JAVASCRIPT;
                 'timeout' => 30,
                 'ignore_errors' => true,
             ],
-            'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-            ],
+            'ssl' => $this->buildStreamSslOptions(),
         ];
         
         if (strtoupper($method) === 'POST' && !empty($body)) {
@@ -3181,36 +3228,38 @@ JAVASCRIPT;
 
         try {
             $page = max(1, intval($this->request->get('page', 1)));
-            $pageSize = min(100, max(1, intval($this->request->get('page_size', 20))));
-            $keyword = trim((string)$this->request->get('keyword', ''));
+            $pageSizeInput = $this->request->get('page_size', null);
+            if ($pageSizeInput === null || $pageSizeInput === '') {
+                $pageSizeInput = $this->request->get('limit', 20);
+            }
+            $pageSize = min(100, max(1, intval($pageSizeInput)));
+            $keyword = trim((string)$this->request->get('keyword', $this->request->get('search', '')));
 
             $query = Db::name('online_daily_data');
             $this->applyOnlineHistoryFilters($query, $currentUser);
+            $this->applyOnlineHistoryKeywordFilter($query, $keyword);
 
-            $rows = $query->order('create_time', 'desc')
+            $total = (int)(clone $query)->count();
+            $summary = $this->buildOnlineHistorySummaryFromQuery(clone $query, $total);
+
+            $rows = (clone $query)->order('create_time', 'desc')
                 ->order('id', 'desc')
+                ->limit(($page - 1) * $pageSize, $pageSize)
                 ->select()
                 ->toArray();
 
             $hotelMap = $this->getConfiguredHotelNameMap();
             $historyList = [];
             foreach ($rows as $row) {
-                $item = $this->normalizeOnlineHistoryRow($row, $hotelMap);
-                if ($keyword !== '' && !$this->onlineHistoryMatchesKeyword($item, $keyword)) {
-                    continue;
-                }
-                $historyList[] = $item;
+                $historyList[] = $this->normalizeOnlineHistoryRow($row, $hotelMap);
             }
 
-            $total = count($historyList);
-            $list = array_slice($historyList, ($page - 1) * $pageSize, $pageSize);
-
             return $this->success([
-                'list' => $list,
+                'list' => $historyList,
                 'total' => $total,
                 'page' => $page,
                 'page_size' => $pageSize,
-                'summary' => $this->buildOnlineHistorySummary($historyList),
+                'summary' => $summary,
             ]);
         } catch (\Throwable $e) {
             return $this->error('获取历史记录失败: ' . $e->getMessage());
@@ -3251,8 +3300,329 @@ JAVASCRIPT;
         }
     }
 
+    /**
+     * 携程最近一次成功采集数据
+     */
+    public function ctripLatest(): Response
+    {
+        $currentUser = $this->request->user ?? $this->currentUser;
+        if (!$currentUser) {
+            return $this->error('未登录', 401);
+        }
+
+        try {
+            $hotelId = trim((string)$this->request->get('hotel_id', ''));
+            $sections = [
+                'rank' => $this->buildCtripLatestSection('rank', $hotelId, $currentUser),
+                'traffic' => $this->buildCtripLatestSection('traffic', $hotelId, $currentUser),
+                'review' => $this->buildCtripLatestSection('review', $hotelId, $currentUser),
+            ];
+
+            return $this->success([
+                'metadata' => $this->buildCtripLatestMetadata($sections, $hotelId),
+                'rank' => $sections['rank'],
+                'traffic' => $sections['traffic'],
+                'review' => $sections['review'],
+            ]);
+        } catch (\Throwable $e) {
+            return $this->error('获取携程最近采集数据失败: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * 携程采集历史
+     */
+    public function ctripHistory(): Response
+    {
+        $currentUser = $this->request->user ?? $this->currentUser;
+        if (!$currentUser) {
+            return $this->error('未登录', 401);
+        }
+
+        try {
+            $page = max(1, intval($this->request->get('page', 1)));
+            $pageSize = min(100, max(1, intval($this->request->get('page_size', $this->request->get('limit', 20)))));
+            $hotelId = trim((string)$this->request->get('hotel_id', ''));
+            $dataType = trim((string)$this->request->get('data_type', ''));
+            $columns = $this->getOnlineDailyDataColumns();
+
+            $query = Db::name('online_daily_data');
+            $this->applyCtripStorageFilter($query, $columns);
+            $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
+            if ($dataType !== '' && $dataType !== 'all') {
+                $this->applyCtripSectionTypeFilter($query, $dataType, $columns);
+            }
+
+            $total = (int)(clone $query)->count();
+            $summary = $this->buildOnlineHistorySummaryFromQuery(clone $query, $total);
+            $rows = $this->orderOnlineDataByFetchTime(clone $query, $columns)
+                ->limit(($page - 1) * $pageSize, $pageSize)
+                ->select()
+                ->toArray();
+
+            $hotelMap = $this->getConfiguredHotelNameMap();
+            $list = [];
+            foreach ($rows as $row) {
+                $list[] = $this->normalizeOnlineHistoryRow($row, $hotelMap);
+            }
+
+            return $this->success([
+                'list' => $list,
+                'total' => $total,
+                'page' => $page,
+                'page_size' => $pageSize,
+                'summary' => $summary,
+            ]);
+        } catch (\Throwable $e) {
+            return $this->error('获取携程采集历史失败: ' . $e->getMessage());
+        }
+    }
+
+    private function buildCtripLatestSection(string $section, string $hotelId, $currentUser): array
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        $labelMap = [
+            'rank' => '榜单数据',
+            'traffic' => '流量数据',
+            'review' => '点评数据',
+        ];
+
+        $query = Db::name('online_daily_data');
+        $this->applyCtripStorageFilter($query, $columns);
+        $this->applyCtripSectionTypeFilter($query, $section, $columns);
+        $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
+
+        $latest = $this->orderOnlineDataByFetchTime($query, $columns)->find();
+        if (!$latest) {
+            return $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section);
+        }
+
+        $rowsQuery = Db::name('online_daily_data');
+        $this->applyCtripStorageFilter($rowsQuery, $columns);
+        $this->applyCtripSectionTypeFilter($rowsQuery, $section, $columns);
+        $this->applyCtripHotelScope($rowsQuery, $hotelId, $currentUser, $columns);
+        if (isset($columns['data_date']) && !empty($latest['data_date'])) {
+            $rowsQuery->where('data_date', $latest['data_date']);
+        }
+        $this->applyCtripLatestBatchScope($rowsQuery, $latest, $hotelId, $columns);
+
+        $rows = $this->orderOnlineDataByFetchTime($rowsQuery, $columns, 'asc')
+            ->select()
+            ->toArray();
+
+        $fetchedAt = $this->maxOnlineRowsFetchedAt($rows, $columns);
+
+        return [
+            'data_type' => $section,
+            'data_type_label' => $labelMap[$section] ?? $section,
+            'data_source' => '携程 ebooking',
+            'status' => empty($rows) ? 'empty' : 'success',
+            'status_label' => empty($rows) ? '暂无数据' : '成功',
+            'data_date' => (string)($latest['data_date'] ?? ''),
+            'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
+            'total' => count($rows),
+            'rows' => $this->decodeOnlineRawRows($rows),
+        ];
+    }
+
+    private function emptyCtripLatestSection(string $section, string $label): array
+    {
+        return [
+            'data_type' => $section,
+            'data_type_label' => $label,
+            'data_source' => '携程 ebooking',
+            'status' => 'empty',
+            'status_label' => '暂无数据',
+            'data_date' => '',
+            'fetched_at' => '',
+            'total' => 0,
+            'rows' => [],
+        ];
+    }
+
+    private function buildCtripLatestMetadata(array $sections, string $hotelId): array
+    {
+        $fetchedAt = '';
+        $dataDate = '';
+        $total = 0;
+        foreach ($sections as $section) {
+            $total += (int)($section['total'] ?? 0);
+            $sectionFetchedAt = (string)($section['fetched_at'] ?? '');
+            if ($sectionFetchedAt !== '' && ($fetchedAt === '' || strcmp($sectionFetchedAt, $fetchedAt) > 0)) {
+                $fetchedAt = $sectionFetchedAt;
+            }
+            $sectionDataDate = (string)($section['data_date'] ?? '');
+            if ($sectionDataDate !== '' && ($dataDate === '' || strcmp($sectionDataDate, $dataDate) > 0)) {
+                $dataDate = $sectionDataDate;
+            }
+        }
+
+        return [
+            'hotel_id' => $hotelId,
+            'platform' => 'ctrip',
+            'data_source' => '携程 ebooking',
+            'status' => $total > 0 ? 'success' : 'empty',
+            'status_label' => $total > 0 ? '成功' : '暂无成功采集',
+            'data_date' => $dataDate,
+            'fetched_at' => $fetchedAt,
+            'total_records' => $total,
+        ];
+    }
+
+    private function applyCtripStorageFilter($query, array $columns): void
+    {
+        if (isset($columns['source'], $columns['platform'])) {
+            $query->where(function ($q) {
+                $q->where('source', 'ctrip')->whereOr('platform', 'Ctrip');
+            });
+            return;
+        }
+        if (isset($columns['source'])) {
+            $query->where('source', 'ctrip');
+            return;
+        }
+        if (isset($columns['platform'])) {
+            $query->where('platform', 'Ctrip');
+        }
+    }
+
+    private function applyCtripSectionTypeFilter($query, string $section, array $columns): void
+    {
+        if (!isset($columns['data_type'])) {
+            return;
+        }
+
+        $section = strtolower($section);
+        if (in_array($section, ['rank', 'business'], true)) {
+            $query->where(function ($q) {
+                $q->where('data_type', 'business')->whereOr('data_type', '');
+            });
+            return;
+        }
+        if ($section === 'review') {
+            $query->where(function ($q) {
+                $q->where('data_type', 'review')->whereOr('data_type', 'comment')->whereOr('data_type', 'comments');
+            });
+            return;
+        }
+        $query->where('data_type', $section);
+    }
+
+    private function applyCtripHotelScope($query, string $hotelId, $currentUser, array $columns): void
+    {
+        if ($hotelId !== '') {
+            if (isset($columns['system_hotel_id'], $columns['hotel_id'])) {
+                $query->where(function ($q) use ($hotelId) {
+                    if (is_numeric($hotelId)) {
+                        $q->where('system_hotel_id', (int)$hotelId)->whereOr('hotel_id', $hotelId);
+                    } else {
+                        $q->where('hotel_id', $hotelId);
+                    }
+                });
+            } elseif (isset($columns['system_hotel_id']) && is_numeric($hotelId)) {
+                $query->where('system_hotel_id', (int)$hotelId);
+            } elseif (isset($columns['hotel_id'])) {
+                $query->where('hotel_id', $hotelId);
+            }
+        }
+
+        if ($currentUser && !$currentUser->isSuperAdmin()) {
+            $permittedHotelIds = $currentUser->getPermittedHotelIds();
+            if (empty($permittedHotelIds) || !isset($columns['system_hotel_id'])) {
+                $query->where('id', 0);
+            } else {
+                $query->whereIn('system_hotel_id', $permittedHotelIds);
+            }
+        }
+    }
+
+    private function applyCtripLatestBatchScope($query, array $latest, string $hotelId, array $columns): void
+    {
+        if ($hotelId !== '' || !isset($columns['system_hotel_id'])) {
+            return;
+        }
+        if (isset($latest['system_hotel_id']) && $latest['system_hotel_id'] !== null && $latest['system_hotel_id'] !== '') {
+            $query->where('system_hotel_id', (int)$latest['system_hotel_id']);
+            return;
+        }
+        $query->whereNull('system_hotel_id');
+    }
+
+    private function orderOnlineDataByFetchTime($query, array $columns, string $direction = 'desc')
+    {
+        $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
+        if (isset($columns['update_time'])) {
+            $query->order('update_time', $direction);
+        }
+        if (isset($columns['create_time'])) {
+            $query->order('create_time', $direction);
+        }
+        return $query->order('id', $direction);
+    }
+
+    private function onlineRowFetchedAt(array $row, array $columns): string
+    {
+        if (isset($columns['update_time']) && !empty($row['update_time'])) {
+            return (string)$row['update_time'];
+        }
+        if (isset($columns['create_time']) && !empty($row['create_time'])) {
+            return (string)$row['create_time'];
+        }
+        return '';
+    }
+
+    private function maxOnlineRowsFetchedAt(array $rows, array $columns): string
+    {
+        $max = '';
+        foreach ($rows as $row) {
+            $time = $this->onlineRowFetchedAt($row, $columns);
+            if ($time !== '' && ($max === '' || strcmp($time, $max) > 0)) {
+                $max = $time;
+            }
+        }
+        return $max;
+    }
+
+    private function decodeOnlineRawRows(array $rows): array
+    {
+        $payload = [];
+        foreach ($rows as $row) {
+            $raw = (string)($row['raw_data'] ?? '');
+            $decoded = $raw !== '' ? json_decode($raw, true) : null;
+            if (!is_array($decoded)) {
+                $decoded = $this->buildOnlineRowPayload($row);
+            }
+            $decoded['_record_id'] = (int)($row['id'] ?? 0);
+            $decoded['_data_date'] = (string)($row['data_date'] ?? '');
+            $decoded['_fetch_time'] = (string)($row['update_time'] ?? $row['create_time'] ?? '');
+            $payload[] = $decoded;
+        }
+        return $payload;
+    }
+
+    private function buildOnlineRowPayload(array $row): array
+    {
+        return [
+            'hotelId' => $row['hotel_id'] ?? '',
+            'hotelName' => $row['hotel_name'] ?? '',
+            'date' => $row['data_date'] ?? '',
+            'amount' => (float)($row['amount'] ?? 0),
+            'quantity' => (int)($row['quantity'] ?? 0),
+            'bookOrderNum' => (int)($row['book_order_num'] ?? 0),
+            'commentScore' => (float)($row['comment_score'] ?? 0),
+            'qunarCommentScore' => (float)($row['qunar_comment_score'] ?? 0),
+            'dataValue' => (float)($row['data_value'] ?? 0),
+            'listExposure' => (int)($row['list_exposure'] ?? 0),
+            'detailExposure' => (int)($row['detail_exposure'] ?? 0),
+            'flowRate' => (float)($row['flow_rate'] ?? 0),
+            'orderFillingNum' => (int)($row['order_filling_num'] ?? 0),
+            'orderSubmitNum' => (int)($row['order_submit_num'] ?? 0),
+        ];
+    }
+
     private function applyOnlineHistoryFilters($query, $currentUser): void
     {
+        $columns = $this->getOnlineDailyDataColumns();
         $platform = strtolower((string)$this->request->get('platform', $this->request->get('source', '')));
         $dataType = (string)$this->request->get('data_type', '');
         $hotelScope = (string)$this->request->get('hotel_scope', 'all');
@@ -3263,25 +3633,53 @@ JAVASCRIPT;
 
         if ($platform !== '' && $platform !== 'all') {
             if ($platform === 'ctrip') {
-                $query->where(function ($q) {
-                    $q->where('source', 'ctrip')->whereOr('platform', 'Ctrip');
-                });
+                if (isset($columns['source'], $columns['platform'])) {
+                    $query->where(function ($q) {
+                        $q->where('source', 'ctrip')->whereOr('platform', 'Ctrip');
+                    });
+                } elseif (isset($columns['source'])) {
+                    $query->where('source', 'ctrip');
+                } elseif (isset($columns['platform'])) {
+                    $query->where('platform', 'Ctrip');
+                }
             } elseif ($platform === 'meituan') {
-                $query->where(function ($q) {
-                    $q->where('source', 'meituan')->whereOr('platform', 'Meituan');
-                });
+                if (isset($columns['source'], $columns['platform'])) {
+                    $query->where(function ($q) {
+                        $q->where('source', 'meituan')->whereOr('platform', 'Meituan');
+                    });
+                } elseif (isset($columns['source'])) {
+                    $query->where('source', 'meituan');
+                } elseif (isset($columns['platform'])) {
+                    $query->where('platform', 'Meituan');
+                }
+            } elseif ($platform === 'qunar') {
+                if (isset($columns['source'], $columns['platform'])) {
+                    $query->where(function ($q) {
+                        $q->where('source', 'qunar')->whereOr('platform', 'Qunar');
+                    });
+                } elseif (isset($columns['source'])) {
+                    $query->where('source', 'qunar');
+                } elseif (isset($columns['platform'])) {
+                    $query->where('platform', 'Qunar');
+                }
             }
         }
 
-        if ($dataType !== '' && $dataType !== 'all') {
+        if ($dataType !== '' && $dataType !== 'all' && isset($columns['data_type'])) {
             if ($dataType === 'business') {
                 $this->applyDataTypeFilter($query, 'business');
             } elseif ($dataType === 'competitor') {
-                $query->where(function ($q) {
-                    $q->where('data_type', 'competitor')
-                        ->whereOr('compare_type', 'competitor_avg')
-                        ->whereOr('hotel_name', 'like', '%竞争圈平均%');
-                });
+                if (isset($columns['compare_type'])) {
+                    $query->where(function ($q) {
+                        $q->where('data_type', 'competitor')
+                            ->whereOr('compare_type', 'competitor_avg')
+                            ->whereOr('hotel_name', 'like', '%竞争圈平均%');
+                    });
+                } else {
+                    $query->where(function ($q) {
+                        $q->where('data_type', 'competitor')->whereOr('hotel_name', 'like', '%竞争圈平均%');
+                    });
+                }
             } elseif ($dataType === 'review') {
                 $query->where(function ($q) {
                     $q->where('data_type', 'review')->whereOr('data_type', 'comment');
@@ -3295,10 +3693,10 @@ JAVASCRIPT;
             }
         }
 
-        if ($startDate !== '') {
+        if ($startDate !== '' && isset($columns['data_date'])) {
             $query->where('data_date', '>=', $startDate);
         }
-        if ($endDate !== '') {
+        if ($endDate !== '' && isset($columns['data_date'])) {
             $query->where('data_date', '<=', $endDate);
         }
 
@@ -3308,33 +3706,170 @@ JAVASCRIPT;
         }
 
         if ($hotelScope === 'mine') {
-            $query->where(function ($q) {
-                $q->whereNotNull('system_hotel_id')
-                    ->whereOr('compare_type', 'self')
-                    ->whereOr('hotel_name', '我的酒店');
-            });
+            if (isset($columns['system_hotel_id'], $columns['compare_type'], $columns['hotel_name'])) {
+                $query->where(function ($q) {
+                    $q->whereNotNull('system_hotel_id')
+                        ->whereOr('compare_type', 'self')
+                        ->whereOr('hotel_name', '我的酒店');
+                });
+            } elseif (isset($columns['system_hotel_id'], $columns['hotel_name'])) {
+                $query->where(function ($q) {
+                    $q->whereNotNull('system_hotel_id')->whereOr('hotel_name', '我的酒店');
+                });
+            } elseif (isset($columns['system_hotel_id'])) {
+                $query->whereNotNull('system_hotel_id');
+            } elseif (isset($columns['hotel_name'])) {
+                $query->where('hotel_name', '我的酒店');
+            }
         } elseif ($hotelScope === 'competitor_avg') {
-            $query->where(function ($q) {
-                $q->where('compare_type', 'competitor_avg')
-                    ->whereOr('hotel_id', '-1')
-                    ->whereOr('hotel_name', '竞争圈平均');
-            });
+            if (isset($columns['compare_type'])) {
+                $query->where(function ($q) {
+                    $q->where('compare_type', 'competitor_avg')
+                        ->whereOr('hotel_id', '-1')
+                        ->whereOr('hotel_name', '竞争圈平均');
+                });
+            } else {
+                $query->where(function ($q) {
+                    $q->where('hotel_id', '-1')->whereOr('hotel_name', '竞争圈平均');
+                });
+            }
         } elseif ($hotelScope === 'hotel' && $hotelId !== '' && $hotelId !== 'all') {
-            $query->where('system_hotel_id', intval($hotelId));
+            $this->applyOnlineHistoryHotelIdFilter($query, $columns, $hotelId);
+        } elseif ($hotelScope === 'all' && $hotelId !== '' && $hotelId !== 'all') {
+            $this->applyOnlineHistoryHotelIdFilter($query, $columns, $hotelId);
         }
 
-        if ($otaHotelId !== '') {
+        if ($otaHotelId !== '' && isset($columns['hotel_id'])) {
             $query->where('hotel_id', $otaHotelId);
         }
 
         if (!$currentUser->isSuperAdmin()) {
             $permittedHotelIds = $currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds)) {
+            if (empty($permittedHotelIds) || !isset($columns['system_hotel_id'])) {
                 $query->where('id', 0);
             } else {
                 $query->whereIn('system_hotel_id', $permittedHotelIds);
             }
         }
+    }
+
+    private function applyOnlineHistoryHotelIdFilter($query, array $columns, string $hotelId): void
+    {
+        if (isset($columns['system_hotel_id'], $columns['hotel_id'])) {
+            $query->where(function ($q) use ($hotelId) {
+                $q->where('system_hotel_id', intval($hotelId))->whereOr('hotel_id', $hotelId);
+            });
+            return;
+        }
+
+        if (isset($columns['system_hotel_id'])) {
+            $query->where('system_hotel_id', intval($hotelId));
+            return;
+        }
+
+        if (isset($columns['hotel_id'])) {
+            $query->where('hotel_id', $hotelId);
+        }
+    }
+
+    private function applyOnlineHistoryKeywordFilter($query, string $keyword): void
+    {
+        $keyword = trim($keyword);
+        if ($keyword === '') {
+            return;
+        }
+
+        $columns = $this->getOnlineDailyDataColumns();
+        $searchableColumns = array_values(array_filter([
+            'id',
+            'hotel_name',
+            'hotel_id',
+            'source',
+            'platform',
+            'data_type',
+            'compare_type',
+            'batch_no',
+            'create_time',
+            'data_date',
+        ], static fn (string $column): bool => isset($columns[$column])));
+
+        if (empty($searchableColumns)) {
+            return;
+        }
+
+        $terms = $this->expandOnlineHistoryKeywordTerms($keyword);
+        $query->where(function ($q) use ($searchableColumns, $terms) {
+            $hasCondition = false;
+            foreach ($terms as $term) {
+                $like = '%' . $term . '%';
+                foreach ($searchableColumns as $column) {
+                    if ($hasCondition) {
+                        $q->whereOr($column, 'like', $like);
+                    } else {
+                        $q->where($column, 'like', $like);
+                        $hasCondition = true;
+                    }
+                }
+            }
+        });
+    }
+
+    private function expandOnlineHistoryKeywordTerms(string $keyword): array
+    {
+        $keyword = trim($keyword);
+        $lowerKeyword = mb_strtolower($keyword);
+        $terms = [$keyword];
+        $labelMap = [
+            '携程' => ['ctrip', 'Ctrip'],
+            '美团' => ['meituan', 'Meituan'],
+            '去哪儿' => ['qunar', 'Qunar'],
+            '经营数据' => ['business'],
+            '流量数据' => ['traffic'],
+            '竞对数据' => ['competitor', 'competitor_avg'],
+            '竞争圈' => ['competitor', 'competitor_avg'],
+            '点评数据' => ['review', 'comment'],
+            '广告数据' => ['advertising', 'ad'],
+        ];
+
+        foreach ($labelMap as $label => $values) {
+            if (mb_strpos(mb_strtolower($label), $lowerKeyword) !== false || mb_strpos($lowerKeyword, mb_strtolower($label)) !== false) {
+                array_push($terms, ...$values);
+            }
+        }
+
+        return array_values(array_unique(array_filter($terms, static fn (string $term): bool => $term !== '')));
+    }
+
+    private function buildOnlineHistorySummaryFromQuery($query, int $total): array
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        $latestFetchTime = '';
+        $todayRecords = 0;
+        $failedRecords = 0;
+
+        if (isset($columns['create_time'])) {
+            $today = date('Y-m-d');
+            $latestFetchTime = (string)((clone $query)->max('create_time') ?: '');
+            $todayRecords = (int)(clone $query)
+                ->where('create_time', '>=', $today . ' 00:00:00')
+                ->where('create_time', '<=', $today . ' 23:59:59')
+                ->count();
+        }
+
+        if (isset($columns['status'])) {
+            $failedRecords = (int)(clone $query)->whereIn('status', ['failed', 'fail', 'error'])->count();
+        } elseif (isset($columns['raw_data'])) {
+            $failedRecords = (int)(clone $query)->where(function ($q) {
+                $q->where('raw_data', 'like', '%"error"%')->whereOr('raw_data', 'like', '%"errors"%');
+            })->count();
+        }
+
+        return [
+            'total_records' => $total,
+            'latest_fetch_time' => $latestFetchTime,
+            'today_records' => $todayRecords,
+            'failed_records' => $failedRecords,
+        ];
     }
 
     private function getConfiguredHotelNameMap(): array
@@ -5142,6 +5677,7 @@ HTML;
         $fxpcqlniredt = $this->request->post('_fxpcqlniredt', '');
         $xTraceId = $this->request->post('x_trace_id', '');
         $payloadJson = trim((string)$this->request->post('payload_json', ''));
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
 
         if (empty($requestUrl)) {
             return $this->error('请求地址不能为空');
@@ -5219,10 +5755,7 @@ HTML;
                     'timeout' => 30,
                     'ignore_errors' => true,
                 ],
-                'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                ],
+                'ssl' => $this->buildStreamSslOptions(),
             ]);
 
             $response = @file_get_contents($requestUrl, false, $context);
@@ -5276,12 +5809,20 @@ HTML;
                 $comments = [];
             }
 
-            OperationLog::record('online_data', 'fetch_ctrip_comments', '获取携程点评数据', $this->currentUser->id);
+            $savedCount = $this->parseAndSaveCtripComments(
+                $comments,
+                $payload,
+                $hotelId,
+                $startDate ?: $endDate,
+                $systemHotelId
+            );
+
+            OperationLog::record('online_data', 'fetch_ctrip_comments', '获取携程点评数据', $this->currentUser->id, $systemHotelId);
 
             return $this->success([
                 'data' => $comments,
                 'total' => $total,
-                'saved_count' => 0,
+                'saved_count' => $savedCount,
                 'upstream_code' => $upstreamCode,
                 'upstream_message' => $upstreamMessage,
                 'upstream_keys' => array_keys($data),
@@ -5290,6 +5831,126 @@ HTML;
         } catch (\Exception $e) {
             return $this->error('请求异常: ' . $e->getMessage());
         }
+    }
+
+    private function parseAndSaveCtripComments(array $comments, array $payload, string $requestHotelId, string $fallbackDate = '', ?int $systemHotelId = null): int
+    {
+        if (empty($comments)) {
+            return 0;
+        }
+
+        $savedCount = 0;
+        $platformHotelId = $requestHotelId
+            ?: (string)($payload['hotelId'] ?? $payload['hotel_id'] ?? $payload['masterHotelId'] ?? $payload['master_hotel_id'] ?? '');
+        $fallbackDate = $this->normalizeOnlineDataDate($fallbackDate) ?: date('Y-m-d');
+
+        foreach ($comments as $comment) {
+            if (!is_array($comment)) {
+                continue;
+            }
+
+            $commentId = $this->extractCtripCommentId($comment);
+            $commentHotelId = (string)($comment['hotelId'] ?? $comment['hotel_id'] ?? $comment['masterHotelId'] ?? $platformHotelId);
+            $dataDate = $this->extractCtripCommentDate($comment, $fallbackDate);
+            $score = $this->extractCtripCommentScore($comment);
+
+            $query = Db::name('online_daily_data')
+                ->where('source', 'ctrip')
+                ->where('data_type', 'review');
+            if ($commentId !== '') {
+                $query->where('raw_data', 'like', '%"' . $commentId . '"%');
+            } else {
+                $query->where('hotel_id', $commentHotelId)->where('data_date', $dataDate);
+            }
+            if ($systemHotelId !== null) {
+                $query->where('system_hotel_id', $systemHotelId);
+            } else {
+                $query->whereNull('system_hotel_id');
+            }
+            $exists = $query->find();
+
+            $data = $this->filterOnlineDailyDataFields([
+                'hotel_id' => $commentHotelId,
+                'hotel_name' => (string)($comment['hotelName'] ?? $comment['hotel_name'] ?? ''),
+                'system_hotel_id' => $systemHotelId,
+                'data_date' => $dataDate,
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'comment_score' => $score,
+                'qunar_comment_score' => 0,
+                'data_value' => $score,
+                'source' => 'ctrip',
+                'data_type' => 'review',
+                'dimension' => '点评',
+                'platform' => 'Ctrip',
+                'compare_type' => 'self',
+                'raw_data' => json_encode($comment, JSON_UNESCAPED_UNICODE),
+            ]);
+
+            if ($exists) {
+                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+            } else {
+                Db::name('online_daily_data')->insert($data);
+            }
+            $savedCount++;
+        }
+
+        return $savedCount;
+    }
+
+    private function extractCtripCommentId(array $comment): string
+    {
+        foreach (['commentId', 'comment_id', 'id', 'reviewId', 'review_id', 'orderId'] as $field) {
+            if (!empty($comment[$field])) {
+                return (string)$comment[$field];
+            }
+        }
+        return '';
+    }
+
+    private function extractCtripCommentDate(array $comment, string $fallbackDate): string
+    {
+        foreach (['commentTime', 'comment_time', 'createTime', 'create_time', 'submitTime', 'submit_time', 'checkOutDate', 'date'] as $field) {
+            if (!isset($comment[$field]) || $comment[$field] === '') {
+                continue;
+            }
+            $date = $this->normalizeOnlineDataDate($comment[$field]);
+            if ($date !== '') {
+                return $date;
+            }
+        }
+        return $fallbackDate;
+    }
+
+    private function normalizeOnlineDataDate($value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+        if (is_numeric($value)) {
+            $timestamp = (int)$value;
+            if ($timestamp > 9999999999) {
+                $timestamp = (int)floor($timestamp / 1000);
+            }
+            return date('Y-m-d', $timestamp);
+        }
+        $text = trim((string)$value);
+        if (preg_match('/(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/', $text, $matches)) {
+            return sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
+        }
+        $timestamp = strtotime($text);
+        return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    private function extractCtripCommentScore(array $comment): float
+    {
+        foreach (['score', 'rating', 'rate', 'totalScore', 'overallScore', 'commentScore'] as $field) {
+            if (isset($comment[$field]) && is_numeric($comment[$field])) {
+                return (float)$comment[$field];
+            }
+        }
+        return 0.0;
     }
 
     /**

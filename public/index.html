@@ -1277,6 +1277,215 @@
             border-color: rgba(226, 232, 240, 0.2) !important;
             box-shadow: none !important;
         }
+        .home-hero-panel .hero-info-card {
+            position: relative;
+            overflow: hidden;
+            min-width: 0;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+        }
+        .home-hero-panel .hero-info-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 54%);
+            pointer-events: none;
+        }
+        .home-hero-panel .hero-card-head {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 0.875rem;
+        }
+        .home-hero-panel .hero-card-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            color: #f8fafc !important;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+        .home-hero-panel .hero-card-subtitle {
+            margin-top: 0.2rem;
+            color: rgba(219, 234, 254, 0.64) !important;
+            font-size: 0.72rem;
+            line-height: 1.35;
+        }
+        .home-hero-panel .hero-status-chip {
+            flex: 0 0 auto;
+            border-radius: 999px;
+            border: 1px solid rgba(191, 219, 254, 0.18);
+            background: rgba(15, 23, 42, 0.2);
+            color: rgba(239, 246, 255, 0.82) !important;
+            font-size: 0.68rem;
+            line-height: 1;
+            padding: 0.35rem 0.55rem;
+        }
+        .home-observation-grid {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            gap: 0.55rem;
+        }
+        .home-observation-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            border: 1px solid rgba(226, 232, 240, 0.1);
+            border-radius: 0.75rem;
+            background: rgba(15, 23, 42, 0.14);
+            padding: 0.55rem 0.65rem;
+        }
+        .home-observation-label {
+            color: rgba(219, 234, 254, 0.68) !important;
+            font-size: 0.73rem;
+            white-space: nowrap;
+        }
+        .home-observation-value {
+            min-width: 0;
+            color: #f8fafc !important;
+            font-size: 0.82rem;
+            font-weight: 700;
+            text-align: right;
+            overflow-wrap: anywhere;
+        }
+        .home-observation-footer {
+            position: relative;
+            z-index: 1;
+            margin-top: 0.8rem;
+            border-top: 1px solid rgba(226, 232, 240, 0.12);
+            padding-top: 0.75rem;
+        }
+        .home-progress-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            color: rgba(219, 234, 254, 0.66) !important;
+            font-size: 0.72rem;
+        }
+        .home-progress-meta span:first-child { flex: 0 0 auto; }
+        .home-progress-meta span:last-child {
+            min-width: 0;
+            text-align: right;
+            overflow-wrap: anywhere;
+        }
+        .home-progress-track {
+            height: 0.35rem;
+            margin-top: 0.5rem;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.28);
+        }
+        .home-progress-fill {
+            display: block;
+            width: 42%;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, rgba(147, 197, 253, 0.9), rgba(34, 211, 238, 0.72));
+        }
+        .home-radar-layout {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: minmax(8.5rem, 1fr) minmax(5.5rem, 0.72fr);
+            align-items: center;
+            gap: 0.8rem;
+        }
+        .home-radar-visual {
+            position: relative;
+            min-width: 0;
+            height: 8rem;
+        }
+        .home-radar-visual::before,
+        .home-radar-visual::after {
+            content: '';
+            position: absolute;
+            border-radius: 999px;
+            border: 1px solid rgba(191, 219, 254, 0.3);
+        }
+        .home-radar-visual::before { inset: 0.45rem 1rem; }
+        .home-radar-visual::after { inset: 1.5rem 2.15rem; opacity: 0.72; }
+        .home-radar-axis {
+            position: absolute;
+            background: rgba(226, 232, 240, 0.2);
+        }
+        .home-radar-axis.horizontal {
+            left: 1rem;
+            right: 1rem;
+            top: 50%;
+            height: 1px;
+        }
+        .home-radar-axis.vertical {
+            top: 0.65rem;
+            bottom: 0.65rem;
+            left: 50%;
+            width: 1px;
+        }
+        .home-radar-line {
+            position: absolute;
+            left: 2.1rem;
+            right: 1.35rem;
+            top: 4.15rem;
+            height: 2px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(147, 197, 253, 0.3), rgba(34, 211, 238, 0.82), rgba(191, 219, 254, 0.42));
+            transform: rotate(-8deg);
+            transform-origin: left center;
+        }
+        .home-radar-point {
+            position: absolute;
+            width: 0.55rem;
+            height: 0.55rem;
+            border-radius: 999px;
+            background: #93c5fd;
+            box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.12);
+        }
+        .home-radar-point.one { left: 2.25rem; bottom: 2.25rem; background: #67e8f9; }
+        .home-radar-point.two { left: 45%; top: 1.55rem; }
+        .home-radar-point.three { right: 1.75rem; top: 2.7rem; background: #bfdbfe; }
+        .home-radar-label {
+            position: absolute;
+            color: rgba(219, 234, 254, 0.66) !important;
+            font-size: 0.68rem;
+            line-height: 1;
+        }
+        .home-radar-label.top { left: 50%; top: 0; transform: translateX(-50%); }
+        .home-radar-label.right { right: 0; top: 50%; transform: translateY(-50%); }
+        .home-radar-label.bottom { left: 50%; bottom: 0; transform: translateX(-50%); }
+        .home-radar-label.left { left: 0; top: 50%; transform: translateY(-50%); }
+        .home-radar-insight {
+            display: grid;
+            gap: 0.45rem;
+            min-width: 0;
+        }
+        .home-radar-insight span {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            border-radius: 0.65rem;
+            background: rgba(15, 23, 42, 0.15);
+            padding: 0.42rem 0.5rem;
+            color: rgba(219, 234, 254, 0.72) !important;
+            font-size: 0.7rem;
+        }
+        .home-radar-insight strong {
+            color: #f8fafc !important;
+            font-size: 0.72rem;
+            font-weight: 700;
+        }
+        @media (max-width: 640px) {
+            .home-radar-layout {
+                grid-template-columns: 1fr;
+            }
+            .home-radar-visual {
+                height: 7.5rem;
+            }
+        }
 
         .kpi-card,
         .metric-card,
@@ -1431,72 +1640,83 @@
         /* 登录页深蓝 SaaS 精修 */
         .login-bg {
             background:
-                radial-gradient(circle at 18% 18%, rgba(47, 128, 237, 0.24) 0%, transparent 30%),
-                radial-gradient(circle at 82% 8%, rgba(96, 165, 250, 0.16) 0%, transparent 28%),
-                linear-gradient(135deg, #07162b 0%, #0b1f3a 48%, #061426 100%) !important;
+                radial-gradient(circle at 18% 16%, rgba(91, 141, 192, 0.22) 0%, transparent 32%),
+                radial-gradient(circle at 84% 10%, rgba(72, 110, 163, 0.18) 0%, transparent 30%),
+                linear-gradient(135deg, #0d213b 0%, #123253 48%, #0a1b31 100%) !important;
             overflow-x: hidden;
         }
         .login-bg .login-card {
             max-width: min(27rem, calc(100vw - 2rem)) !important;
-            background: linear-gradient(180deg, rgba(12, 31, 58, 0.94) 0%, rgba(7, 20, 38, 0.96) 100%) !important;
-            border: 1px solid rgba(147, 197, 253, 0.22) !important;
+            padding: 2rem 2.1rem 1.55rem !important;
+            background: linear-gradient(180deg, rgba(19, 48, 82, 0.9) 0%, rgba(11, 31, 55, 0.94) 100%) !important;
+            border: 1px solid rgba(151, 176, 205, 0.24) !important;
             box-shadow:
-                0 28px 70px rgba(0, 0, 0, 0.42),
-                0 0 0 1px rgba(255, 255, 255, 0.05) inset,
-                0 0 48px rgba(47, 128, 237, 0.16) !important;
-            color: #eaf2ff !important;
+                0 24px 58px rgba(3, 12, 25, 0.36),
+                0 0 0 1px rgba(255, 255, 255, 0.045) inset,
+                0 0 42px rgba(52, 91, 135, 0.12) !important;
+            color: #e8f0f8 !important;
+        }
+        .login-bg .login-card .text-center.mb-8 {
+            margin-bottom: 1.25rem !important;
         }
         .login-bg .login-title {
-            color: #f8fbff !important;
-            -webkit-text-fill-color: #f8fbff !important;
+            color: #f5f9fc !important;
+            -webkit-text-fill-color: #f5f9fc !important;
+            font-size: 1.85rem !important;
+            line-height: 1.15 !important;
+            margin-bottom: 0.45rem !important;
         }
         .login-bg .login-slogan,
         .login-bg .input-label {
-            color: rgba(191, 219, 254, 0.72) !important;
-            -webkit-text-fill-color: rgba(191, 219, 254, 0.72) !important;
+            color: rgba(185, 202, 222, 0.72) !important;
+            -webkit-text-fill-color: rgba(185, 202, 222, 0.72) !important;
+            letter-spacing: 0 !important;
         }
         .login-bg .login-logo {
-            background: linear-gradient(135deg, #1d4ed8 0%, #123a63 100%) !important;
-            border-color: rgba(147, 197, 253, 0.28) !important;
-            box-shadow: 0 16px 34px rgba(37, 99, 235, 0.24) !important;
+            width: 4.25rem !important;
+            height: 4.25rem !important;
+            margin-bottom: 0.95rem !important;
+            background: linear-gradient(135deg, #234d78 0%, #123a63 100%) !important;
+            border-color: rgba(151, 176, 205, 0.26) !important;
+            box-shadow: 0 12px 28px rgba(10, 31, 55, 0.28) !important;
         }
         .login-bg .input-group .input-field {
-            min-height: 3.15rem;
-            background: rgba(5, 18, 34, 0.72) !important;
-            border: 1px solid rgba(147, 197, 253, 0.22) !important;
-            color: #f8fbff !important;
-            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+            min-height: 3rem;
+            background: rgba(26, 59, 94, 0.72) !important;
+            border: 1px solid rgba(151, 176, 205, 0.28) !important;
+            color: #f4f8fb !important;
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset !important;
         }
         .login-bg .input-group .input-field::placeholder {
-            color: rgba(148, 163, 184, 0.62) !important;
+            color: rgba(165, 181, 199, 0.62) !important;
         }
         .login-bg .input-group .input-field:focus {
-            border-color: rgba(96, 165, 250, 0.78) !important;
-            background: rgba(8, 25, 48, 0.9) !important;
+            border-color: rgba(116, 160, 205, 0.78) !important;
+            background: rgba(29, 67, 105, 0.86) !important;
             box-shadow:
-                0 0 0 3px rgba(47, 128, 237, 0.18),
-                0 10px 26px rgba(3, 15, 32, 0.22) !important;
+                0 0 0 3px rgba(80, 129, 181, 0.16),
+                0 8px 20px rgba(4, 16, 30, 0.18) !important;
         }
         .login-bg .input-icon-prefix,
         .login-bg .password-toggle {
-            color: rgba(147, 197, 253, 0.78) !important;
-            -webkit-text-fill-color: rgba(147, 197, 253, 0.78) !important;
+            color: rgba(157, 179, 204, 0.72) !important;
+            -webkit-text-fill-color: rgba(157, 179, 204, 0.72) !important;
         }
         .login-bg .password-toggle {
-            background: rgba(15, 42, 76, 0.72) !important;
-            border-color: rgba(147, 197, 253, 0.2) !important;
+            background: rgba(23, 53, 87, 0.72) !important;
+            border-color: rgba(151, 176, 205, 0.22) !important;
         }
         .login-bg .btn-login {
-            min-height: 3.35rem;
-            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 46%, #123a63 100%) !important;
-            border-color: rgba(191, 219, 254, 0.22) !important;
-            box-shadow: 0 16px 34px rgba(37, 99, 235, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.08) inset !important;
+            min-height: 3.1rem;
+            background: linear-gradient(135deg, #1f4a74 0%, #173f67 48%, #0e2b49 100%) !important;
+            border-color: rgba(185, 202, 222, 0.2) !important;
+            box-shadow: 0 12px 28px rgba(5, 22, 42, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.06) inset !important;
             letter-spacing: 0 !important;
         }
         .login-bg .btn-login:hover:not(:disabled) {
-            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 48%, #123a63 100%) !important;
+            background: linear-gradient(135deg, #275a88 0%, #1e4d78 48%, #123253 100%) !important;
             transform: translateY(-1px) !important;
-            box-shadow: 0 20px 40px rgba(37, 99, 235, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+            box-shadow: 0 16px 34px rgba(5, 22, 42, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.08) inset !important;
         }
         .login-bg .btn-login:disabled {
             opacity: 0.68 !important;
@@ -1511,25 +1731,39 @@
             animation: none !important;
         }
         .login-bg .divider {
-            background: linear-gradient(90deg, transparent, rgba(147, 197, 253, 0.22), transparent) !important;
+            height: 1px !important;
+            margin-top: 1.05rem !important;
+            margin-bottom: 0.95rem !important;
+            opacity: 0.55;
+            background: linear-gradient(90deg, transparent, rgba(151, 176, 205, 0.2), transparent) !important;
         }
         .login-bg .vip-login-entry {
-            background: rgba(14, 45, 84, 0.72) !important;
-            border-color: rgba(147, 197, 253, 0.18) !important;
-            color: #bfdbfe !important;
-            -webkit-text-fill-color: #bfdbfe !important;
+            padding: 0.4rem 0.9rem !important;
+            background: rgba(24, 57, 92, 0.66) !important;
+            border-color: rgba(151, 176, 205, 0.18) !important;
+            color: #c9d8e8 !important;
+            -webkit-text-fill-color: #c9d8e8 !important;
         }
         .login-bg .vip-login-entry i,
         .login-bg .vip-login-note,
         .login-bg button.hover\:text-purple-300 {
-            color: rgba(191, 219, 254, 0.68) !important;
-            -webkit-text-fill-color: rgba(191, 219, 254, 0.68) !important;
+            color: rgba(185, 202, 222, 0.64) !important;
+            -webkit-text-fill-color: rgba(185, 202, 222, 0.64) !important;
+        }
+        .login-bg form.space-y-5 > :not([hidden]) ~ :not([hidden]) {
+            margin-top: 0.95rem !important;
+        }
+        .login-bg .slogan-container {
+            display: none !important;
+        }
+        .login-bg .vip-login-note {
+            margin-top: 0.48rem !important;
         }
         .login-bg .brand-footer {
-            margin-top: 1.1rem;
-            padding-top: 0.9rem;
+            margin-top: 0.95rem;
+            padding-top: 0.75rem;
             background: transparent !important;
-            border-color: rgba(147, 197, 253, 0.14) !important;
+            border-color: rgba(151, 176, 205, 0.12) !important;
         }
         .login-bg .brand-footer .brand-name,
         .login-bg .brand-footer .version {
@@ -1537,6 +1771,15 @@
             -webkit-text-fill-color: rgba(191, 219, 254, 0.58) !important;
             background: none !important;
             letter-spacing: 0 !important;
+        }
+        @media (max-width: 480px) {
+            .login-bg .login-card {
+                padding: 1.65rem 1.35rem 1.35rem !important;
+            }
+            .login-bg .login-logo {
+                width: 3.75rem !important;
+                height: 3.75rem !important;
+            }
         }
 
         .page-enter [class*="from-purple"],
@@ -1654,6 +1897,508 @@
             }
         }
 
+        /* Login premium SaaS override */
+        .login-bg,
+        .login-bg input,
+        .login-bg button,
+        .login-bg textarea,
+        .login-bg select {
+            font-family: Inter, HarmonyOS Sans, MiSans, "PingFang SC", "Microsoft YaHei", sans-serif !important;
+        }
+
+        .login-bg {
+            background:
+                radial-gradient(circle at 16% 12%, rgba(59, 130, 246, 0.18) 0%, transparent 34%),
+                radial-gradient(circle at 88% 86%, rgba(34, 211, 238, 0.08) 0%, transparent 36%),
+                linear-gradient(180deg, #0b1220 0%, #0f172a 55%, #111827 100%) !important;
+            color: #e5edf7 !important;
+            overflow: hidden !important;
+        }
+
+        .login-bg::before {
+            content: '' !important;
+            position: absolute !important;
+            inset: 0 !important;
+            background-image:
+                linear-gradient(rgba(148, 163, 184, 0.024) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(148, 163, 184, 0.024) 1px, transparent 1px) !important;
+            background-size: 56px 56px !important;
+            opacity: 0.42 !important;
+            mask-image: radial-gradient(circle at 50% 42%, #000 0%, transparent 72%);
+            pointer-events: none !important;
+        }
+
+        .login-bg::after {
+            content: '' !important;
+            position: absolute !important;
+            inset: 0 !important;
+            background:
+                radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.05) 0%, transparent 44%),
+                linear-gradient(180deg, transparent 0%, rgba(2, 6, 23, 0.18) 100%) !important;
+            pointer-events: none !important;
+        }
+
+        .login-glow-purple {
+            position: absolute;
+            width: 620px;
+            height: 620px;
+            left: -220px;
+            top: -180px;
+            border-radius: 999px;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.18) 0%, transparent 68%) !important;
+            filter: blur(58px) !important;
+            opacity: 1 !important;
+            pointer-events: none;
+        }
+
+        .login-glow-bottom {
+            width: 720px !important;
+            height: 720px !important;
+            right: -260px !important;
+            bottom: -280px !important;
+            left: auto !important;
+            background: radial-gradient(circle, rgba(34, 211, 238, 0.08) 0%, transparent 66%) !important;
+            filter: blur(62px) !important;
+            opacity: 1 !important;
+            pointer-events: none !important;
+        }
+
+        .login-bg .login-card {
+            width: min(92vw, 430px) !important;
+            max-width: min(92vw, 430px) !important;
+            padding: 44px 38px 30px !important;
+            border-radius: 24px !important;
+            background: rgba(15, 23, 42, 0.58) !important;
+            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45) !important;
+            backdrop-filter: blur(18px) saturate(150%) !important;
+            -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
+            color: #e5edf7 !important;
+            animation: suxiLoginCardIn 0.58s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+            transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease !important;
+        }
+
+        .login-bg .login-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.08) !important;
+            box-shadow: 0 34px 88px rgba(0, 0, 0, 0.48) !important;
+        }
+
+        .login-bg .login-card::before {
+            display: block !important;
+            content: '' !important;
+            position: absolute !important;
+            inset: 0 !important;
+            border-radius: inherit !important;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, transparent 42%) !important;
+            filter: none !important;
+            z-index: 0 !important;
+            pointer-events: none !important;
+        }
+
+        .login-bg .login-card > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes suxiLoginCardIn {
+            from { opacity: 0; transform: translateY(18px) scale(0.985); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .login-bg .login-card .text-center.mb-8 {
+            margin-bottom: 28px !important;
+        }
+
+        .login-bg .login-logo {
+            width: 66px !important;
+            height: 66px !important;
+            margin-bottom: 18px !important;
+            border-radius: 20px !important;
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(59, 130, 246, 0.16)),
+                rgba(15, 23, 42, 0.36) !important;
+            border: 1px solid rgba(255, 255, 255, 0.09) !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.16),
+                inset 0 0 24px rgba(96, 165, 250, 0.1),
+                0 18px 38px rgba(2, 6, 23, 0.32) !important;
+            animation: none !important;
+            transition: transform 0.25s ease, box-shadow 0.25s ease !important;
+        }
+
+        .login-bg .login-logo:hover {
+            transform: translateY(-1px);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.18),
+                inset 0 0 26px rgba(96, 165, 250, 0.12),
+                0 20px 42px rgba(2, 6, 23, 0.36) !important;
+        }
+
+        .login-bg .login-logo img {
+            display: block !important;
+            width: 42px !important;
+            height: 42px !important;
+            filter: saturate(0.9) brightness(1.06);
+        }
+
+        .login-bg .login-logo i {
+            display: none !important;
+        }
+
+        .login-bg .login-title {
+            margin-bottom: 7px !important;
+            background: none !important;
+            color: #f8fafc !important;
+            -webkit-text-fill-color: #f8fafc !important;
+            font-size: 2rem !important;
+            line-height: 1.12 !important;
+            font-weight: 700 !important;
+            letter-spacing: 0 !important;
+            text-shadow: none !important;
+            filter: none !important;
+            animation: none !important;
+        }
+
+        .login-bg .login-slogan {
+            margin-bottom: 6px !important;
+            background: none !important;
+            color: rgba(203, 213, 225, 0.48) !important;
+            -webkit-text-fill-color: rgba(203, 213, 225, 0.48) !important;
+            font-size: 0.78rem !important;
+            line-height: 1.45 !important;
+            font-weight: 500 !important;
+            letter-spacing: 0 !important;
+            animation: none !important;
+        }
+
+        .login-bg .login-copy {
+            margin: 0 auto;
+            color: rgba(241, 245, 249, 0.88);
+            font-size: 0.98rem;
+            line-height: 1.65;
+            font-weight: 500;
+            letter-spacing: 0;
+        }
+
+        .login-bg .input-label {
+            margin-bottom: 9px !important;
+            color: rgba(226, 232, 240, 0.68) !important;
+            -webkit-text-fill-color: rgba(226, 232, 240, 0.68) !important;
+            font-size: 0.82rem !important;
+            line-height: 1.35 !important;
+            font-weight: 500 !important;
+            letter-spacing: 0 !important;
+        }
+
+        .login-bg .input-label i {
+            color: rgba(148, 163, 184, 0.58) !important;
+            opacity: 0.62 !important;
+        }
+
+        .login-bg .input-group .input-field {
+            height: 54px !important;
+            min-height: 54px !important;
+            padding: 0 3.1rem 0 3.25rem !important;
+            border-radius: 14px !important;
+            background: rgba(255, 255, 255, 0.04) !important;
+            border: 1px solid rgba(255, 255, 255, 0.06) !important;
+            color: #f8fafc !important;
+            font-size: 0.96rem !important;
+            line-height: 54px !important;
+            box-shadow: none !important;
+            outline: none !important;
+            transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease !important;
+        }
+
+        .login-bg .input-group .input-field:hover:not(:focus) {
+            background: rgba(255, 255, 255, 0.052) !important;
+            border-color: rgba(255, 255, 255, 0.1) !important;
+            box-shadow: none !important;
+            transform: none !important;
+        }
+
+        .login-bg .input-group .input-field:focus {
+            background: rgba(255, 255, 255, 0.06) !important;
+            border-color: rgba(96, 165, 250, 0.52) !important;
+            box-shadow:
+                0 0 0 4px rgba(59, 130, 246, 0.11),
+                inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+            transform: none !important;
+        }
+
+        .login-bg .input-group .input-field::placeholder {
+            color: rgba(148, 163, 184, 0.48) !important;
+        }
+
+        .login-bg .input-icon-prefix {
+            left: 1.08rem !important;
+            color: rgba(203, 213, 225, 0.38) !important;
+            -webkit-text-fill-color: rgba(203, 213, 225, 0.38) !important;
+            font-size: 1.02rem !important;
+            text-shadow: none !important;
+            transition: color 0.25s ease, opacity 0.25s ease !important;
+        }
+
+        .login-bg .input-group:focus-within .input-icon-prefix {
+            color: rgba(96, 165, 250, 0.62) !important;
+            -webkit-text-fill-color: rgba(96, 165, 250, 0.62) !important;
+            transform: translateY(-50%) !important;
+            text-shadow: none !important;
+        }
+
+        .login-bg .password-toggle {
+            width: 34px !important;
+            height: 34px !important;
+            padding: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border-radius: 10px !important;
+            background: rgba(255, 255, 255, 0.035) !important;
+            border: 1px solid rgba(255, 255, 255, 0.055) !important;
+            color: rgba(203, 213, 225, 0.42) !important;
+            -webkit-text-fill-color: rgba(203, 213, 225, 0.42) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            transform: translateY(-50%) !important;
+        }
+
+        .login-bg .password-toggle:hover {
+            background: rgba(255, 255, 255, 0.06) !important;
+            border-color: rgba(96, 165, 250, 0.22) !important;
+            color: rgba(147, 197, 253, 0.72) !important;
+            -webkit-text-fill-color: rgba(147, 197, 253, 0.72) !important;
+            transform: translateY(-50%) scale(1.02) !important;
+        }
+
+        .login-bg .remember-checkbox {
+            width: 18px !important;
+            height: 18px !important;
+            border-radius: 6px !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            background: rgba(255, 255, 255, 0.035) !important;
+            box-shadow: none !important;
+        }
+
+        .login-bg .remember-checkbox:checked {
+            background: linear-gradient(135deg, #3b82f6, #06b6d4) !important;
+            border-color: rgba(255, 255, 255, 0.24) !important;
+            box-shadow: 0 6px 18px rgba(59, 130, 246, 0.18) !important;
+            animation: none !important;
+        }
+
+        .login-bg .remember-checkbox:checked::after {
+            content: '' !important;
+            width: 8px !important;
+            height: 4px !important;
+            border-left: 2px solid #ffffff !important;
+            border-bottom: 2px solid #ffffff !important;
+            position: absolute !important;
+            top: 46% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) rotate(-45deg) !important;
+            text-shadow: none !important;
+        }
+
+        .login-bg label.flex.items-center,
+        .login-bg button.hover\:text-purple-300 {
+            color: rgba(203, 213, 225, 0.54) !important;
+            -webkit-text-fill-color: rgba(203, 213, 225, 0.54) !important;
+            transition: color 0.22s ease !important;
+        }
+
+        .login-bg label.flex.items-center:hover,
+        .login-bg button.hover\:text-purple-300:hover {
+            color: rgba(226, 232, 240, 0.8) !important;
+            -webkit-text-fill-color: rgba(226, 232, 240, 0.8) !important;
+        }
+
+        .login-bg .btn-login {
+            min-height: 54px !important;
+            padding: 0 1.4rem !important;
+            border: 0 !important;
+            border-radius: 14px !important;
+            background: linear-gradient(135deg, #2f6fe4, #0891b2) !important;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+            box-shadow: 0 10px 26px rgba(37, 99, 235, 0.18) !important;
+            font-size: 1rem !important;
+            font-weight: 650 !important;
+            letter-spacing: 0 !important;
+            transition: transform 0.24s ease, filter 0.24s ease, box-shadow 0.24s ease !important;
+        }
+
+        .login-bg .btn-login::before {
+            display: none !important;
+        }
+
+        .login-bg .btn-login:hover:not(:disabled) {
+            transform: translateY(-2px) !important;
+            filter: brightness(1.05);
+            background: linear-gradient(135deg, #3477ea, #0b9fbd) !important;
+            box-shadow: 0 12px 30px rgba(37, 99, 235, 0.22) !important;
+        }
+
+        .login-bg .btn-login:active:not(:disabled) {
+            transform: translateY(0) scale(0.995) !important;
+            filter: brightness(0.99);
+        }
+
+        .login-bg .btn-login:disabled {
+            opacity: 0.58 !important;
+            background: linear-gradient(135deg, #2f6fe4, #0891b2) !important;
+            color: rgba(255, 255, 255, 0.72) !important;
+            -webkit-text-fill-color: rgba(255, 255, 255, 0.72) !important;
+            box-shadow: 0 8px 22px rgba(37, 99, 235, 0.1) !important;
+            filter: none !important;
+        }
+
+        .login-bg .login-error {
+            background: rgba(127, 29, 29, 0.22) !important;
+            border: 1px solid rgba(248, 113, 113, 0.28) !important;
+            color: #fecaca !important;
+            box-shadow: none !important;
+            animation: none !important;
+        }
+
+        .login-bg .slogan-container {
+            display: block !important;
+            margin-top: 18px !important;
+        }
+
+        .login-bg .login-system-note {
+            margin: 0 !important;
+            color: rgba(203, 213, 225, 0.52) !important;
+            -webkit-text-fill-color: rgba(203, 213, 225, 0.52) !important;
+            font-size: 0.82rem !important;
+            line-height: 1.7 !important;
+            font-weight: 400 !important;
+            letter-spacing: 0 !important;
+            text-shadow: none !important;
+        }
+
+        .login-bg .login-system-note i {
+            display: none !important;
+        }
+
+        .login-bg .divider {
+            height: 1px !important;
+            margin: 22px 0 16px !important;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.09), transparent) !important;
+            opacity: 1 !important;
+        }
+
+        .login-bg .vip-login-entry {
+            padding: 0.38rem 0.85rem !important;
+            border: 1px solid rgba(148, 163, 184, 0.16) !important;
+            border-radius: 999px !important;
+            background: rgba(255, 255, 255, 0.035) !important;
+            color: rgba(226, 232, 240, 0.68) !important;
+            -webkit-text-fill-color: rgba(226, 232, 240, 0.68) !important;
+            font-size: 0.82rem !important;
+            font-weight: 500 !important;
+            line-height: 1.4 !important;
+            box-shadow: none !important;
+        }
+
+        .login-bg .vip-login-entry i {
+            color: rgba(96, 165, 250, 0.45) !important;
+            -webkit-text-fill-color: rgba(96, 165, 250, 0.45) !important;
+            margin-right: 0.42rem !important;
+        }
+
+        .login-bg .vip-login-note {
+            margin-top: 5px !important;
+            color: rgba(203, 213, 225, 0.5) !important;
+            -webkit-text-fill-color: rgba(203, 213, 225, 0.5) !important;
+            font-size: 0.74rem !important;
+            line-height: 1.5 !important;
+        }
+
+        .login-bg .brand-footer {
+            margin-top: 18px !important;
+            padding-top: 14px !important;
+            background: transparent !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+        }
+
+        .login-bg .brand-footer .brand-name,
+        .login-bg .brand-footer .version {
+            background: none !important;
+            color: rgba(148, 163, 184, 0.38) !important;
+            -webkit-text-fill-color: rgba(148, 163, 184, 0.38) !important;
+            letter-spacing: 0 !important;
+            font-weight: 400 !important;
+        }
+
+        .login-bg .brand-footer .brand-name {
+            font-size: 0.76rem !important;
+        }
+
+        .login-bg .brand-footer .version {
+            margin-top: 4px !important;
+            font-size: 0.7rem !important;
+            opacity: 0.72 !important;
+        }
+
+        @media (max-width: 480px) {
+            .login-bg {
+                padding: 1rem !important;
+            }
+
+            .login-bg .login-card {
+                width: calc(100vw - 32px) !important;
+                max-width: calc(100vw - 32px) !important;
+                padding: 34px 24px 24px !important;
+                border-radius: 22px !important;
+            }
+
+            .login-bg .login-title {
+                font-size: 1.82rem !important;
+            }
+
+            .login-bg .login-copy {
+                font-size: 0.94rem !important;
+            }
+        }
+
+        @media (max-height: 850px) {
+            .login-bg .login-card {
+                padding-top: 30px !important;
+                padding-bottom: 22px !important;
+            }
+
+            .login-bg .login-logo {
+                width: 58px !important;
+                height: 58px !important;
+                margin-bottom: 12px !important;
+            }
+
+            .login-bg .login-logo img {
+                width: 36px !important;
+                height: 36px !important;
+            }
+
+            .login-bg .login-card .text-center.mb-8 {
+                margin-bottom: 20px !important;
+            }
+
+            .login-bg .slogan-container {
+                margin-top: 14px !important;
+            }
+
+            .login-bg .divider {
+                margin-top: 16px !important;
+                margin-bottom: 12px !important;
+            }
+
+            .login-bg .brand-footer {
+                margin-top: 12px !important;
+                padding-top: 10px !important;
+            }
+        }
+
         .sensitive-mask {
             -webkit-text-security: disc;
             text-security: disc;
@@ -1678,7 +2423,8 @@
                         <i class="fas fa-hotel text-4xl text-white" style="display:none"></i>
                     </div>
                     <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
-                    <p class="login-slogan text-base font-medium tracking-wide">让每个决策，都有数据依据</p>
+                    <p class="login-slogan text-base font-medium tracking-wide">Hotel Intelligence Platform</p>
+                    <p class="login-copy">酒店经营与收益决策数据中枢</p>
                 </div>
                 
                 <!-- 登录表单 -->
@@ -1740,7 +2486,7 @@
                         </template>
                         <template v-else>
                             <i class="fas fa-sign-in-alt"></i>
-                            <span>登录系统</span>
+                            <span>进入工作台</span>
                         </template>
                     </button>
                 </form>
@@ -1765,7 +2511,7 @@
                 
                 <!-- 底部品牌信息 -->
                 <div class="brand-footer">
-                    <div class="brand-name">宿析OS · 酒店经营决策系统</div>
+                    <div class="brand-name">宿析OS · Hotel Intelligence Platform</div>
                     <div class="version">v2.0.0</div>
                 </div>
             </div>
@@ -2395,6 +3141,372 @@
                         <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
                             <i class="fas fa-file-contract text-4xl mb-3 opacity-50"></i>
                             <p>{{ aiFeasibilityLoading ? '正在生成结构化报告...' : '请补充项目信息并点击“生成报告”' }}</p>
+                        </div>
+                    </div>
+
+                    <!-- 智投·市场评估 -->
+                    <div v-if="currentPage === 'market-evaluation' || currentPage === 'market-eval'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-emerald-900 to-cyan-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智投·市场评估</h2>
+                                    <p class="text-sm text-emerald-100 mt-1">判断城市、商圈与物业条件是否适合投资开店</p>
+                                </div>
+                                <button @click="handleMarketEvaluation" :disabled="marketEvaluationLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="marketEvaluationLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chart-area'"></i>
+                                    <span>{{ marketEvaluationLoading ? '分析中...' : '生成市场评估' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">投资条件输入</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">城市</label>
+                                            <input v-model="marketEvaluationForm.city" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">商圈/区域</label>
+                                            <input v-model="marketEvaluationForm.business_area" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">物业面积（㎡）</label>
+                                            <input type="number" v-model.number="marketEvaluationForm.property_area" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">预估租金（元/月）</label>
+                                            <input type="number" v-model.number="marketEvaluationForm.estimated_rent" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">目标房量</label>
+                                            <input type="number" v-model.number="marketEvaluationForm.target_room_count" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">装修档次</label>
+                                            <select v-model="marketEvaluationForm.decoration_level" class="input-field w-full">
+                                                <option>经济型</option>
+                                                <option>中端精选</option>
+                                                <option>中高端商务</option>
+                                            </select>
+                                        </div>
+                                        <div class="md:col-span-2">
+                                            <label class="block text-xs text-gray-500 mb-1">目标客群</label>
+                                            <input v-model="marketEvaluationForm.target_customer" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-7 space-y-5">
+                                <div v-if="marketEvaluationResult" class="space-y-5">
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">市场热度评分</div>
+                                            <div class="text-3xl font-bold text-emerald-700 mt-2">{{ marketEvaluationResult.market_heat_score }}分</div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">投资风险等级</div>
+                                            <div class="mt-2">
+                                                <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(marketEvaluationResult.investment_risk_level)]">{{ marketEvaluationResult.investment_risk_level }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">推荐物业类型</div>
+                                            <div class="text-lg font-semibold text-gray-800 mt-2">{{ marketEvaluationResult.recommended_property_type }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">市场判断</h3>
+                                            <div class="space-y-3 text-sm">
+                                                <div>
+                                                    <div class="text-xs text-gray-500">供给竞争强度</div>
+                                                    <div class="font-medium text-gray-800">{{ marketEvaluationResult.supply_competition_strength }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-xs text-gray-500">价格带建议</div>
+                                                    <div class="font-medium text-gray-800">{{ marketEvaluationResult.price_band_suggestion }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-xs text-gray-500">建议动作</div>
+                                                    <div class="font-medium text-gray-800">{{ marketEvaluationResult.decision }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">AI经营建议</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in marketEvaluationResult.ai_operation_suggestions" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-arrow-right text-emerald-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-3">不建议投资的风险点</h3>
+                                        <div class="space-y-2 text-sm text-gray-700">
+                                            <div v-for="item in marketEvaluationResult.not_recommended_risks" :key="item" class="flex gap-2">
+                                                <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                <span>{{ item }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">{{ marketEvaluationResult.data_status.notice }}</div>
+                                    </div>
+                                </div>
+                                <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                                    <i class="fas fa-chart-area text-4xl mb-3 opacity-50"></i>
+                                    <p>录入物业与租金条件后生成市场评估</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智瞰·标杆选模 -->
+                    <div v-if="currentPage === 'benchmark-model'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-indigo-900 to-blue-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智瞰·标杆选模</h2>
+                                    <p class="text-sm text-indigo-100 mt-1">从竞品与标杆模型中提炼可复制经营策略</p>
+                                </div>
+                                <button @click="handleBenchmarkModel" :disabled="benchmarkModelLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="benchmarkModelLoading ? 'fas fa-spinner fa-spin' : 'fas fa-star'"></i>
+                                    <span>{{ benchmarkModelLoading ? '分析中...' : '生成标杆模型' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-4">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">选模条件</h3>
+                                    <div class="space-y-4">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">城市</label>
+                                            <input v-model="benchmarkModelForm.city" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">商圈</label>
+                                            <input v-model="benchmarkModelForm.business_area" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">目标价格带</label>
+                                            <input v-model="benchmarkModelForm.target_price_band" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">酒店类型</label>
+                                            <select v-model="benchmarkModelForm.hotel_type" class="input-field w-full">
+                                                <option>中端商务</option>
+                                                <option>经济型</option>
+                                                <option>中高端商务</option>
+                                                <option>精品度假</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">目标房量</label>
+                                            <input type="number" v-model.number="benchmarkModelForm.target_room_count" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-8 space-y-5">
+                                <template v-if="benchmarkModelResult">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-4">推荐标杆酒店列表</h3>
+                                        <div class="overflow-x-auto">
+                                            <table class="min-w-full text-sm">
+                                                <thead class="bg-gray-50 text-gray-500">
+                                                    <tr>
+                                                        <th class="px-4 py-3 text-left">标杆</th>
+                                                        <th class="px-4 py-3 text-right">评分</th>
+                                                        <th class="px-4 py-3 text-right">价格</th>
+                                                        <th class="px-4 py-3 text-right">房量</th>
+                                                        <th class="px-4 py-3 text-right">热度</th>
+                                                        <th class="px-4 py-3 text-left">卖点</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="item in benchmarkModelResult.recommended_benchmarks" :key="item.name">
+                                                        <td class="px-4 py-3 font-medium text-gray-800">{{ item.name }}</td>
+                                                        <td class="px-4 py-3 text-right">{{ item.score }}</td>
+                                                        <td class="px-4 py-3 text-right">¥{{ item.price }}</td>
+                                                        <td class="px-4 py-3 text-right">{{ item.room_count }}</td>
+                                                        <td class="px-4 py-3 text-right">{{ item.heat }}</td>
+                                                        <td class="px-4 py-3 text-gray-600">{{ item.selling_points.join('、') }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">可复制策略</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="(value, key) in benchmarkModelResult.copyable_strategies" :key="key">
+                                                    <span class="text-gray-400">{{ benchmarkStrategyLabel(key) }}：</span>{{ value }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">差异化建议</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in benchmarkModelResult.differentiation_suggestions" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-lightbulb text-indigo-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">不建议模仿</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in benchmarkModelResult.avoid_copying_points" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-ban text-amber-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">{{ benchmarkModelResult.data_status.notice }}</div>
+                                </template>
+                                <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                                    <i class="fas fa-star text-4xl mb-3 opacity-50"></i>
+                                    <p>录入价格带、类型与房量后生成标杆模型</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智联·协同提效 -->
+                    <div v-if="currentPage === 'collaboration-efficiency' || currentPage === 'sync-efficiency'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智联·协同提效</h2>
+                                    <p class="text-sm text-cyan-100 mt-1">将扩张项目拆解为评估、签约、筹建、上线协同任务</p>
+                                </div>
+                                <button @click="handleCollaborationEfficiency" :disabled="collaborationEfficiencyLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="collaborationEfficiencyLoading ? 'fas fa-spinner fa-spin' : 'fas fa-link'"></i>
+                                    <span>{{ collaborationEfficiencyLoading ? '生成中...' : '生成协同看板' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-4 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">项目概览</h3>
+                                    <div class="space-y-4">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">项目名称</label>
+                                            <input v-model="collaborationProject.project_name" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">城市/区域</label>
+                                            <input v-model="collaborationProject.city_area" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">当前阶段</label>
+                                            <select v-model="collaborationProject.current_stage" class="input-field w-full">
+                                                <option>评估</option>
+                                                <option>签约</option>
+                                                <option>筹建</option>
+                                                <option>上线</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">负责人</label>
+                                            <input v-model="collaborationProject.owner" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">预计上线时间</label>
+                                            <input type="date" v-model="collaborationProject.expected_online_date" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-8 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">任务看板</h3>
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full text-sm">
+                                            <thead class="bg-gray-50 text-gray-500">
+                                                <tr>
+                                                    <th class="px-3 py-3 text-left">任务</th>
+                                                    <th class="px-3 py-3 text-left">状态</th>
+                                                    <th class="px-3 py-3 text-left">负责人</th>
+                                                    <th class="px-3 py-3 text-left">截止时间</th>
+                                                    <th class="px-3 py-3 text-left">风险说明</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                <tr v-for="task in collaborationTasks" :key="task.name">
+                                                    <td class="px-3 py-3 font-medium text-gray-800">{{ task.name }}</td>
+                                                    <td class="px-3 py-3">
+                                                        <select v-model="task.status" class="input-field w-28">
+                                                            <option v-for="status in collaborationStatusOptions" :key="status">{{ status }}</option>
+                                                        </select>
+                                                    </td>
+                                                    <td class="px-3 py-3">
+                                                        <input v-model="task.owner" class="input-field w-28">
+                                                    </td>
+                                                    <td class="px-3 py-3">
+                                                        <input type="date" v-model="task.due_date" class="input-field w-36">
+                                                    </td>
+                                                    <td class="px-3 py-3">
+                                                        <input v-model="task.risk_note" class="input-field w-48">
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <template v-if="collaborationEfficiencyResult">
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">当前项目进度</div>
+                                            <div class="text-3xl font-bold text-blue-700 mt-2">{{ collaborationEfficiencyResult.progress.percent }}%</div>
+                                            <div class="text-xs text-gray-400 mt-1">{{ collaborationEfficiencyResult.progress.status_text }}</div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">延误风险</div>
+                                            <div class="mt-2">
+                                                <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(collaborationEfficiencyResult.delay_risk.level)]">{{ collaborationEfficiencyResult.delay_risk.level }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">距上线</div>
+                                            <div class="text-2xl font-bold text-gray-800 mt-2">{{ collaborationEfficiencyResult.project_overview.days_to_online }}天</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">延误风险</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in collaborationEfficiencyResult.delay_risk.points" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">下一步动作建议</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in collaborationEfficiencyResult.next_actions" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-arrow-right text-blue-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
                     </div>
 
@@ -3149,27 +4261,51 @@
                                         从 OTA、竞对、价格、入住、天气与经营日报中识别趋势，帮助运营专家做出更稳、更快、更有依据的经营判断。
                                     </p>
                                 </div>
-                                <div class="xl:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div class="hero-info-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5">
-                                        <div class="text-sm text-blue-100 mb-3">今日经营观察</div>
-                                        <div class="space-y-3 text-sm">
-                                            <div class="flex justify-between gap-3"><span class="text-blue-100">当前酒店</span><span class="font-medium text-right">{{ homeObservation.hotelName }}</span></div>
-                                            <div class="flex justify-between gap-3"><span class="text-blue-100">数据状态</span><span class="font-medium">{{ homeObservation.dataStatus }}</span></div>
-                                            <div class="flex justify-between gap-3"><span class="text-blue-100">最近更新时间</span><span class="font-medium">{{ homeObservation.updatedAt }}</span></div>
-                                            <div class="flex justify-between gap-3"><span class="text-blue-100">决策可信度</span><span class="font-medium">{{ homeObservation.confidence }}</span></div>
+                                <div class="xl:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-4">
+                                    <div class="hero-info-card hero-observation-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5">
+                                        <div class="hero-card-head">
+                                            <div>
+                                                <div class="hero-card-title"><i class="fas fa-chart-simple"></i>今日经营观察</div>
+                                                <div class="hero-card-subtitle">汇总当前酒店的基础经营信号</div>
+                                            </div>
+                                            <span class="hero-status-chip">{{ homeObservation.dataStatus }}</span>
+                                        </div>
+                                        <div class="home-observation-grid">
+                                            <div class="home-observation-item"><span class="home-observation-label">当前酒店</span><span class="home-observation-value">{{ homeObservation.hotelName }}</span></div>
+                                            <div class="home-observation-item"><span class="home-observation-label">最近更新时间</span><span class="home-observation-value">{{ homeObservation.updatedAt }}</span></div>
+                                            <div class="home-observation-item"><span class="home-observation-label">决策可信度</span><span class="home-observation-value">{{ homeObservation.confidence }}</span></div>
+                                        </div>
+                                        <div class="home-observation-footer">
+                                            <div class="home-progress-meta"><span>数据完整度</span><span>待补全 OTA / 竞对 / 日报</span></div>
+                                            <div class="home-progress-track"><span class="home-progress-fill"></span></div>
                                         </div>
                                     </div>
-                                    <div class="hero-info-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5 min-h-[150px]">
-                                        <div class="text-sm text-blue-100 mb-4">经营趋势雷达</div>
-                                        <div class="relative h-28">
-                                            <div class="absolute inset-4 rounded-full border border-blue-200/25"></div>
-                                            <div class="absolute inset-8 rounded-full border border-purple-200/25"></div>
-                                            <div class="absolute left-4 right-4 top-1/2 h-px bg-white/20"></div>
-                                            <div class="absolute top-4 bottom-4 left-1/2 w-px bg-white/20"></div>
-                                            <div class="absolute left-6 bottom-8 w-3 h-3 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40"></div>
-                                            <div class="absolute left-1/3 top-7 w-2.5 h-2.5 rounded-full bg-blue-300"></div>
-                                            <div class="absolute right-8 top-10 w-3 h-3 rounded-full bg-purple-300"></div>
-                                            <div class="absolute left-8 right-8 top-16 h-0.5 bg-gradient-to-r from-cyan-300 via-blue-300 to-purple-300 rotate-[-8deg]"></div>
+                                    <div class="hero-info-card hero-radar-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5 min-h-[150px]">
+                                        <div class="hero-card-head">
+                                            <div>
+                                                <div class="hero-card-title"><i class="fas fa-crosshairs"></i>经营趋势雷达</div>
+                                                <div class="hero-card-subtitle">收益、需求、价格、渠道四象限</div>
+                                            </div>
+                                            <span class="hero-status-chip">校准中</span>
+                                        </div>
+                                        <div class="home-radar-layout">
+                                            <div class="home-radar-visual">
+                                                <span class="home-radar-label top">收益</span>
+                                                <span class="home-radar-label right">需求</span>
+                                                <span class="home-radar-label bottom">价格</span>
+                                                <span class="home-radar-label left">渠道</span>
+                                                <span class="home-radar-axis horizontal"></span>
+                                                <span class="home-radar-axis vertical"></span>
+                                                <span class="home-radar-line"></span>
+                                                <span class="home-radar-point one"></span>
+                                                <span class="home-radar-point two"></span>
+                                                <span class="home-radar-point three"></span>
+                                            </div>
+                                            <div class="home-radar-insight">
+                                                <span>信号密度 <strong>低</strong></span>
+                                                <span>趋势判断 <strong>待生成</strong></span>
+                                                <span>建议动作 <strong>先同步</strong></span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -3430,6 +4566,27 @@
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-config' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         基础信息管理
                                     </button>
+                                </div>
+
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                        <div class="text-xs text-gray-500 mb-1">最近采集时间</div>
+                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.fetched_at || '暂无' }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                        <div class="text-xs text-gray-500 mb-1">数据日期</div>
+                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.data_date || '暂无' }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                        <div class="text-xs text-gray-500 mb-1">数据来源</div>
+                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.data_source || '携程 ebooking' }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                        <div class="text-xs text-gray-500 mb-1">采集状态</div>
+                                        <div :class="['text-sm font-medium', ctripLatestMeta?.status === 'success' ? 'text-green-700' : 'text-gray-600']">
+                                            {{ ctripLatestLoading ? '加载中' : (ctripLatestMeta?.status_label || '暂无成功采集') }}
+                                        </div>
+                                    </div>
                                 </div>
                                 
                                 <!-- 榜单数据获取 -->
@@ -5847,9 +7004,15 @@
                                                         </div>
                                                         <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
                                                             <div class="text-sm font-semibold text-gray-800 mb-2">问题酒店</div>
-                                                            <ul class="space-y-1 text-sm text-gray-600">
-                                                                <li v-for="text in normalizeAiAnalysisList(aiAnalysisCapturedReport.problem_hotels)" :key="text" class="flex gap-2">
-                                                                    <i class="fas fa-exclamation-circle text-orange-500 mt-0.5"></i><span>{{ text }}</span>
+                                                            <ul class="space-y-2 text-sm text-gray-600">
+                                                                <li v-for="(hotel, index) in normalizeAiProblemHotels(aiAnalysisCapturedReport.problem_hotels)" :key="problemHotelKey(hotel, index)" class="flex gap-2">
+                                                                    <i class="fas fa-exclamation-circle text-orange-500 mt-0.5"></i>
+                                                                    <span class="space-y-0.5">
+                                                                        <span v-if="hotel.hotel_name" class="block"><span class="text-gray-500">酒店：</span>{{ hotel.hotel_name }}</span>
+                                                                        <span v-if="hotel.problem" class="block"><span class="text-gray-500">问题：</span>{{ hotel.problem }}</span>
+                                                                        <span v-if="hotel.key_metrics && hotel.key_metrics.length" class="block"><span class="text-gray-500">关键指标：</span>{{ hotel.key_metrics.join('、') }}</span>
+                                                                        <span v-if="hotel.suggestion" class="block"><span class="text-gray-500">建议：</span>{{ hotel.suggestion }}</span>
+                                                                    </span>
                                                                 </li>
                                                             </ul>
                                                         </div>
@@ -5863,9 +7026,9 @@
                                                         </div>
                                                     </div>
                                                     <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                                                        <div class="text-sm font-semibold text-gray-800 mb-2">数据异常</div>
+                                                        <div class="text-sm font-semibold text-gray-800 mb-2">{{ aiAnalysisDataNoticeTitle(aiAnalysisCapturedReport) }}</div>
                                                         <ul class="space-y-1 text-sm text-gray-600">
-                                                            <li v-for="text in normalizeAiAnalysisList(aiAnalysisCapturedReport.data_anomalies)" :key="text" class="flex gap-2">
+                                                            <li v-for="text in aiAnalysisDataNoticeList(aiAnalysisCapturedReport)" :key="text" class="flex gap-2">
                                                                 <i class="fas fa-clipboard-check text-slate-500 mt-0.5"></i><span>{{ text }}</span>
                                                             </li>
                                                         </ul>
@@ -5938,9 +7101,15 @@
                                                                 </div>
                                                                 <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
                                                                     <div class="text-sm font-semibold text-gray-800 mb-2">问题酒店</div>
-                                                                    <ul class="space-y-1 text-sm text-gray-600">
-                                                                        <li v-for="text in normalizeAiAnalysisList(item.result.problem_hotels)" :key="text" class="flex gap-2">
-                                                                            <i class="fas fa-exclamation-circle text-orange-500 mt-0.5"></i><span>{{ text }}</span>
+                                                                    <ul class="space-y-2 text-sm text-gray-600">
+                                                                        <li v-for="(hotel, index) in normalizeAiProblemHotels(item.result.problem_hotels)" :key="problemHotelKey(hotel, index)" class="flex gap-2">
+                                                                            <i class="fas fa-exclamation-circle text-orange-500 mt-0.5"></i>
+                                                                            <span class="space-y-0.5">
+                                                                                <span v-if="hotel.hotel_name" class="block"><span class="text-gray-500">酒店：</span>{{ hotel.hotel_name }}</span>
+                                                                                <span v-if="hotel.problem" class="block"><span class="text-gray-500">问题：</span>{{ hotel.problem }}</span>
+                                                                                <span v-if="hotel.key_metrics && hotel.key_metrics.length" class="block"><span class="text-gray-500">关键指标：</span>{{ hotel.key_metrics.join('、') }}</span>
+                                                                                <span v-if="hotel.suggestion" class="block"><span class="text-gray-500">建议：</span>{{ hotel.suggestion }}</span>
+                                                                            </span>
                                                                         </li>
                                                                     </ul>
                                                                 </div>
@@ -5954,9 +7123,9 @@
                                                                 </div>
                                                             </div>
                                                             <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                                                                <div class="text-sm font-semibold text-gray-800 mb-2">数据异常</div>
+                                                                <div class="text-sm font-semibold text-gray-800 mb-2">{{ aiAnalysisDataNoticeTitle(item.result) }}</div>
                                                                 <ul class="space-y-1 text-sm text-gray-600">
-                                                                    <li v-for="text in normalizeAiAnalysisList(item.result.data_anomalies)" :key="text" class="flex gap-2">
+                                                                    <li v-for="text in aiAnalysisDataNoticeList(item.result)" :key="text" class="flex gap-2">
                                                                         <i class="fas fa-clipboard-check text-slate-500 mt-0.5"></i><span>{{ text }}</span>
                                                                     </li>
                                                                 </ul>
@@ -11718,10 +12887,13 @@
             const sidebarCollapsed = ref(false); // 侧边栏折叠状态
 
             // 登录表单 - 从localStorage读取记住的账户密码
-            const savedUsername = localStorage.getItem('remembered_username') || '';
-            const savedPassword = localStorage.getItem('remembered_password') || '';
+            const rememberedUsername = localStorage.getItem('remembered_username') || '';
+            const rememberedPassword = localStorage.getItem('remembered_password') || '';
+            const hasRememberedAccount = !!rememberedUsername || !!rememberedPassword;
+            const savedUsername = hasRememberedAccount ? rememberedUsername : '';
+            const savedPassword = hasRememberedAccount ? rememberedPassword : '';
             const loginForm = ref({ username: savedUsername, password: savedPassword });
-            const rememberAccount = ref(!!savedUsername || !!savedPassword);
+            const rememberAccount = ref(hasRememberedAccount);
 
             // 系统配置
             const systemConfig = ref({
@@ -11917,6 +13089,8 @@
             const selectedCtripConfigId = ref(''); // 选中的携程配置ID
             const ctripFetchSuccess = ref(false); // 携程获取成功标志
             const ctripSavedCount = ref(0); // 携程保存的数据条数
+            const ctripLatestMeta = ref(null);
+            const ctripLatestLoading = ref(false);
 
             // 美团配置管理
             const meituanConfigForm = ref({
@@ -13027,7 +14201,7 @@
                 if (newPage === 'ctrip-ebooking') {
                     onlineDataTab.value = 'ctrip-ranking';
                     loadOnlineDataHotelList();
-                    loadCtripConfigList();
+                    loadCtripConfigList().then(() => loadLatestCtripData({ silent: true }));
                 }
                 if (newPage === 'meituan-ebooking') {
                     onlineDataTab.value = 'meituan-ranking';
@@ -13139,9 +14313,9 @@
                             icon: 'fas fa-chart-line', 
                             path: 'ai-expansion',
                             children: [
-                                { name: '智投·市场评估', path: 'market-eval', icon: 'fas fa-chart-area' },
+                                { name: '智投·市场评估', path: 'market-evaluation', icon: 'fas fa-chart-area' },
                                 { name: '智瞰·标杆选模', path: 'benchmark-model', icon: 'fas fa-star' },
-                                { name: '智联·协同提效', path: 'sync-efficiency', icon: 'fas fa-link' }
+                                { name: '智联·协同提效', path: 'collaboration-efficiency', icon: 'fas fa-link' }
                             ]
                         },
                         { 
@@ -15323,8 +16497,6 @@
                 }
                 
                 fetchingData.value = true;
-                onlineDataResult.value = null;
-                topTenHotels.value = [];
                 showRawData.value = false;
                 ctripFetchSuccess.value = false;
                 ctripSavedCount.value = 0;
@@ -15368,6 +16540,7 @@
                         // 更新AI分析酒店列表
                         updateAiAnalysisHotelList();
                         await refreshOnlineHistory();
+                        await loadLatestCtripData({ silent: true });
                         // 刷新数据记录列表
                         if (onlineDataTab.value === 'data') {
                             refreshOnlineData();
@@ -15378,9 +16551,9 @@
                         // 显示错误信息和原始响应
                         const errorMsg = res.message || '获取失败';
                         const rawResponse = res.data?.raw_response || res.data?.raw || '';
-                        showToast(errorMsg, 'error');
+                        await handleCtripFetchFailure(errorMsg);
                         // 如果有原始响应，显示在结果区域
-                        if (rawResponse) {
+                        if (rawResponse && !hasVisibleCtripSnapshot()) {
                             onlineDataResult.value = { 
                                 error: errorMsg, 
                                 raw: rawResponse.substring(0, 1000),
@@ -15391,7 +16564,7 @@
                     }
                 } catch (e) {
                     console.error('携程数据请求异常:', e);
-                    showToast('请求失败: ' + e.message, 'error');
+                    await handleCtripFetchFailure('请求失败: ' + e.message);
                 } finally {
                     fetchingData.value = false;
                 }
@@ -15837,6 +17010,101 @@
                 return summary;
             };
 
+            const getSelectedCtripHotelId = () => {
+                const config = ctripConfigList.value.find(c => c.id === selectedCtripConfigId.value);
+                return String(config?.hotel_id || config?.system_hotel_id || user.value?.hotel_id || '').trim();
+            };
+
+            const applyLatestCtripSnapshot = (payload) => {
+                const rankRows = payload?.rank?.rows || [];
+                const trafficRows = payload?.traffic?.rows || [];
+                const reviewRows = payload?.review?.rows || [];
+
+                ctripLatestMeta.value = payload?.metadata || null;
+
+                if (rankRows.length > 0) {
+                    const allHotels = extractAllCtripHotels(rankRows);
+                    allHotels.sort((a, b) => b.quantity - a.quantity);
+                    ctripHotelsList.value = allHotels;
+                    topTenHotels.value = allHotels.slice(0, 10);
+                    ctripFetchSuccess.value = true;
+                    ctripSavedCount.value = payload.rank.total || allHotels.length;
+                    if (payload.rank.data_date) {
+                        onlineDataFilter.value.start_date = payload.rank.data_date;
+                        onlineDataFilter.value.end_date = payload.rank.data_date;
+                    }
+                    updateAiAnalysisHotelList();
+                }
+
+                if (trafficRows.length > 0) {
+                    const rows = normalizeCtripTrafficRows(trafficRows);
+                    ctripTrafficRows.value = rows;
+                    ctripTrafficSummary.value = buildCtripTrafficSummary(rows);
+                    ctripTrafficAnalysis.value = null;
+                    latestTrafficData.value = trafficRows;
+                }
+
+                if (reviewRows.length > 0) {
+                    ctripCommentResult.value = {
+                        data: reviewRows,
+                        total: payload.review.total || reviewRows.length,
+                        saved_count: payload.review.total || reviewRows.length,
+                    };
+                }
+
+                if (rankRows.length > 0 || trafficRows.length > 0 || reviewRows.length > 0) {
+                    onlineDataResult.value = {
+                        source: 'latest',
+                        metadata: payload.metadata,
+                        rank: payload.rank,
+                        traffic: payload.traffic,
+                        review: payload.review,
+                    };
+                }
+            };
+
+            const loadLatestCtripData = async ({ silent = false } = {}) => {
+                if (!isLoggedIn.value && !token.value) return false;
+                ctripLatestLoading.value = true;
+                try {
+                    const params = new URLSearchParams();
+                    const hotelId = getSelectedCtripHotelId();
+                    if (hotelId) params.append('hotel_id', hotelId);
+                    const res = await request(`/online-data/ctrip/latest?${params}`);
+                    if (res.code === 200) {
+                        applyLatestCtripSnapshot(res.data || {});
+                        return (res.data?.metadata?.status === 'success');
+                    }
+                    if (!silent) {
+                        showToast(res.message || '加载最近采集数据失败', 'error');
+                    }
+                    return false;
+                } catch (e) {
+                    if (!silent) {
+                        showToast('加载最近采集数据失败: ' + e.message, 'error');
+                    }
+                    return false;
+                } finally {
+                    ctripLatestLoading.value = false;
+                }
+            };
+
+            const hasVisibleCtripSnapshot = () => {
+                return (ctripHotelsList.value && ctripHotelsList.value.length > 0)
+                    || (ctripTrafficRows.value && ctripTrafficRows.value.length > 0)
+                    || !!(ctripCommentResult.value?.data && ctripCommentResult.value.data.length > 0);
+            };
+
+            const handleCtripFetchFailure = async (fallbackMessage) => {
+                const hadSnapshot = hasVisibleCtripSnapshot();
+                const loadedLatest = await loadLatestCtripData({ silent: true });
+                if (loadedLatest || hadSnapshot) {
+                    showToast('本次采集失败，已展示上次成功数据', 'warning');
+                } else {
+                    showToast(fallbackMessage || '获取失败', 'error');
+                }
+            };
+
             // 携程 / 去哪儿流量对比数据获取
             const fetchCtripTrafficData = async () => {
                 const form = ctripTrafficForm.value;
@@ -15850,10 +17118,6 @@
                 }
 
                 fetchingData.value = true;
-                onlineDataResult.value = null;
-                ctripTrafficSummary.value = null;
-                ctripTrafficAnalysis.value = null;
-                ctripTrafficRows.value = [];
                 try {
                     const selectedConfig = ctripConfigList.value.find(c => c.id === selectedCtripConfigId.value);
                     const res = await request('/online-data/ctrip/traffic', {
@@ -15893,15 +17157,16 @@
                         } else {
                             showToast(`获取成功，已保存 ${savedCount} 条流量数据`);
                             await refreshOnlineHistory();
+                            await loadLatestCtripData({ silent: true });
                             if (onlineDataTab.value === 'data') {
                                 refreshOnlineData();
                             }
                         }
                     } else {
-                        showToast(res.message || '获取失败', 'error');
+                        await handleCtripFetchFailure(res.message || '获取失败');
                     }
                 } catch (e) {
-                    showToast('请求失败: ' + e.message, 'error');
+                    await handleCtripFetchFailure('请求失败: ' + e.message);
                 } finally {
                     fetchingData.value = false;
                 }
@@ -15932,9 +17197,8 @@
                 }
 
                 fetchingData.value = true;
-                ctripCommentResult.value = null;
-                onlineDataResult.value = null;
                 try {
+                    const selectedConfig = ctripConfigList.value.find(c => c.id === selectedCtripConfigId.value);
                     const res = await request('/online-data/fetch-ctrip-comments', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -15946,6 +17210,7 @@
                             page_index: Number(form.pageIndex || 1),
                             page_size: Number(form.pageSize || 50),
                             payload_json: form.payloadJson,
+                            system_hotel_id: selectedConfig?.hotel_id || selectedConfig?.system_hotel_id || user.value?.hotel_id || null,
                         }),
                     });
 
@@ -15954,12 +17219,14 @@
                         onlineDataResult.value = res.data;
                         showRawData.value = false;
                         const total = res.data?.total || res.data?.data?.length || 0;
-                        showToast(`获取成功，共 ${total} 条点评`);
+                        const savedCount = res.data?.saved_count || 0;
+                        showToast(`获取成功，共 ${total} 条点评，已保存 ${savedCount} 条`);
+                        await loadLatestCtripData({ silent: true });
                     } else {
-                        showToast(res.message || '获取失败', 'error');
+                        await handleCtripFetchFailure(res.message || '获取失败');
                     }
                 } catch (e) {
-                    showToast('请求失败: ' + e.message, 'error');
+                    await handleCtripFetchFailure('请求失败: ' + e.message);
                 } finally {
                     fetchingData.value = false;
                 }
@@ -16167,6 +17434,7 @@
                         const list = res.data || [];
                         ctripConfigList.value = Array.isArray(list) ? list : Object.values(list);
                         console.log('[CTrip] 已加载 ' + ctripConfigList.value.length + ' 条携程配置');
+                        return ctripConfigList.value;
                     } else {
                         console.error('[CTrip] 加载失败:', res);
                     }
@@ -16174,6 +17442,7 @@
                     console.error('[CTrip] 异常:', e);
                     showToast('加载携程配置失败', 'error');
                 }
+                return [];
             };
 
             const saveCtripConfig = async () => {
@@ -16237,6 +17506,7 @@
                 showToast(`已选择: ${config.name}`);
                 // 切换到榜单数据获取tab
                 onlineDataTab.value = 'ctrip-ranking';
+                loadLatestCtripData({ silent: true });
             };
             
             // 在榜单数据获取页面应用选中的配置
@@ -16247,6 +17517,7 @@
                     ctripForm.value.nodeId = '24588';
                     ctripForm.value.auth_data = {};
                     ctripTrafficForm.value.cookies = '';
+                    loadLatestCtripData({ silent: true });
                     return;
                 }
                 const config = ctripConfigList.value.find(c => c.id === selectedCtripConfigId.value);
@@ -16257,6 +17528,7 @@
                     ctripForm.value.auth_data = config.auth_data || {};
                     ctripTrafficForm.value.cookies = config.cookies || '';
                     showToast(`已应用配置: ${config.name}`);
+                    loadLatestCtripData({ silent: true });
                 }
             };
 
@@ -16588,6 +17860,91 @@
                 return ['暂无'];
             };
 
+            const splitAiProblemMetrics = (value) => {
+                if (Array.isArray(value)) {
+                    return value.map(item => String(item || '').trim()).filter(Boolean);
+                }
+                if (typeof value === 'string' && value.trim() !== '') {
+                    return value.split(/[、,，；;]\s*/).map(item => item.trim()).filter(Boolean);
+                }
+                return [];
+            };
+
+            const parseAiProblemHotelText = (text) => {
+                const result = { hotel_name: '', problem: '', key_metrics: [], suggestion: '' };
+                const fieldMap = {
+                    hotel_name: 'hotel_name',
+                    '酒店': 'hotel_name',
+                    problem: 'problem',
+                    '问题': 'problem',
+                    key_metrics: 'key_metrics',
+                    '关键指标': 'key_metrics',
+                    suggestion: 'suggestion',
+                    '建议': 'suggestion',
+                };
+                const fieldKeys = Object.keys(fieldMap).join('|');
+                const pattern = new RegExp(`(${fieldKeys})\\s*[:：]\\s*([\\s\\S]*?)(?=\\s*(?:${fieldKeys})\\s*[:：]|[；;\\r\\n]+|$)`, 'g');
+                let match;
+                while ((match = pattern.exec(String(text || ''))) !== null) {
+                    const key = match[1].trim();
+                    const value = match[2].trim();
+                    const target = fieldMap[key];
+                    if (!target) continue;
+                    if (target === 'key_metrics') {
+                        result.key_metrics = splitAiProblemMetrics(value);
+                    } else {
+                        result[target] = value;
+                    }
+                }
+                if (!result.hotel_name && !result.problem && result.key_metrics.length === 0 && !result.suggestion && String(text || '').trim()) {
+                    result.problem = String(text).trim();
+                }
+                return result;
+            };
+
+            const normalizeAiProblemHotels = (value) => {
+                const items = Array.isArray(value) ? value : (value ? [value] : []);
+                const hotels = items.map(item => {
+                    if (item && typeof item === 'object') {
+                        return {
+                            hotel_name: String(item.hotel_name || item['酒店'] || item.name || '').trim(),
+                            problem: String(item.problem || item['问题'] || '').trim(),
+                            key_metrics: splitAiProblemMetrics(item.key_metrics || item['关键指标']),
+                            suggestion: String(item.suggestion || item['建议'] || '').trim(),
+                        };
+                    }
+                    return parseAiProblemHotelText(item);
+                }).filter(item => item.hotel_name || item.problem || item.key_metrics.length || item.suggestion);
+                return hotels.length > 0 ? hotels : [{ hotel_name: '', problem: '暂无', key_metrics: [], suggestion: '' }];
+            };
+
+            const problemHotelKey = (hotel, index = 0) => [index, hotel.hotel_name, hotel.problem, (hotel.key_metrics || []).join('|'), hotel.suggestion].join('_');
+
+            const formatAiProblemHotelText = (hotel) => {
+                const parts = [];
+                if (hotel.hotel_name) parts.push(`酒店：${hotel.hotel_name}`);
+                if (hotel.problem) parts.push(`问题：${hotel.problem}`);
+                if (hotel.key_metrics && hotel.key_metrics.length) parts.push(`关键指标：${hotel.key_metrics.join('、')}`);
+                if (hotel.suggestion) parts.push(`建议：${hotel.suggestion}`);
+                return parts.join('；') || '暂无';
+            };
+
+            const aiAnalysisDataNoticeTitle = (report) => {
+                const quality = report?.data_quality || {};
+                return (quality.is_cross_day_window || (quality.warning && quality.is_reliable !== false)) ? '数据口径提示' : '数据异常';
+            };
+
+            const aiAnalysisDataNoticeList = (report) => {
+                const quality = report?.data_quality || {};
+                if (quality.is_cross_day_window) {
+                    return ['当前可能处于OTA跨日统计窗口，曝光、访客、浏览率、订单率、转化率等流量指标可能尚未完成统计。本次报告优先参考订单、间夜、收入、ADR、评分等已返回指标，流量类指标建议待平台更新后复查。'];
+                }
+                if (quality.warning && quality.is_reliable !== false) {
+                    return [quality.warning];
+                }
+                return normalizeAiAnalysisList(report?.data_anomalies);
+            };
+
             const maskAiAnalysisError = (message) => String(message || '分析失败')
                 .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-****')
                 .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer ****')
@@ -16638,12 +17995,34 @@
                 return chunks;
             };
 
+            const toNullableNumber = (value) => {
+                if (value === null || value === undefined || value === '') return null;
+                const num = Number(value);
+                return Number.isFinite(num) ? num : null;
+            };
+
+            const pickNullableNumber = (...values) => {
+                for (const value of values) {
+                    const num = toNullableNumber(value);
+                    if (num !== null) return num;
+                }
+                return null;
+            };
+
+            const maxNullableNumber = (...values) => {
+                const nums = values.map(toNullableNumber).filter(value => value !== null);
+                return nums.length > 0 ? Math.max(...nums) : null;
+            };
+
             const buildCapturedOtaHotelPayload = (hotel) => {
                 const roomNights = toNumber(hotel.roomNights);
                 const revenue = toNumber(hotel.roomRevenue || hotel.sales);
-                const visitors = toNumber(hotel.views);
-                const exposure = toNumber(hotel.exposure);
+                const visitors = pickNullableNumber(hotel.views, hotel.totalDetailNum, hotel.qunarDetailVisitors);
+                const exposure = pickNullableNumber(hotel.exposure);
                 const orders = toNumber(hotel.totalOrderNum || hotel.bookOrderNum);
+                const viewConversion = pickNullableNumber(hotel.viewConversion, hotel.convertionRate);
+                const payConversion = pickNullableNumber(hotel.payConversion);
+                const conversionRate = pickNullableNumber(hotel.qunarDetailCR, hotel.conversionRate);
                 const price = roomNights > 0 ? Number((revenue / roomNights).toFixed(2)) : 0;
                 const rankValues = [hotel.amountRank, hotel.quantityRank, hotel.commentScoreRank, hotel.qunarDetailCRRank]
                     .map(value => toNumber(value))
@@ -16653,8 +18032,8 @@
                 const tags = [];
                 if (rank > 0) tags.push(`最好排名${rank}`);
                 if (price > 0) tags.push(`ADR ${price}`);
-                if (toNumber(hotel.viewConversion) > 0) tags.push(`浏览转化${toNumber(hotel.viewConversion)}%`);
-                if (toNumber(hotel.payConversion) > 0) tags.push(`支付转化${toNumber(hotel.payConversion)}%`);
+                if (viewConversion !== null && viewConversion > 0) tags.push(`浏览转化${viewConversion}%`);
+                if (payConversion !== null && payConversion > 0) tags.push(`支付转化${payConversion}%`);
                 return {
                     hotel_id: String(hotel.poiId || ''),
                     hotel_name: hotel.hotelName || '未知酒店',
@@ -16667,8 +18046,11 @@
                     orders,
                     revenue,
                     room_nights: roomNights,
+                    view_conversion: viewConversion,
+                    pay_conversion: payConversion,
+                    conversion_rate: conversionRate,
                     tags: tags.slice(0, 6),
-                    short_summary: `间夜${roomNights}，收入${revenue}，曝光${exposure}，访客${visitors}，订单${orders}`,
+                    short_summary: `间夜${roomNights}，收入${revenue}，曝光${exposure ?? '未返回'}，访客${visitors ?? '未返回'}，订单${orders}`,
                 };
             };
 
@@ -16679,11 +18061,12 @@
                     overall_conclusion: item.result.overall_conclusion || '',
                     key_findings: normalizeAiAnalysisList(item.result.key_findings).slice(0, 5),
                     competitor_insights: normalizeAiAnalysisList(item.result.competitor_insights).slice(0, 5),
-                    problem_hotels: normalizeAiAnalysisList(item.result.problem_hotels).slice(0, 8),
+                    problem_hotels: normalizeAiProblemHotels(item.result.problem_hotels).slice(0, 8),
                     recommended_actions: normalizeAiAnalysisList(item.result.recommended_actions).slice(0, 6),
                     priority: item.result.priority || 'medium',
                     data_anomalies: normalizeAiAnalysisList(item.result.data_anomalies).slice(0, 5),
-                    summary: item.result.summary || { hotel_count: item.hotelCount },
+                    data_quality: item.result.data_quality || item.result.summary?.data_quality || {},
+                    summary: item.result.summary || { hotel_count: item.hotelCount, data_quality: item.result.data_quality || {} },
                 } : null,
             });
 
@@ -16698,10 +18081,11 @@
                     overall_conclusion: note || reports.map(report => report.overall_conclusion).filter(Boolean).join('；') || '拆分重试完成',
                     key_findings: list('key_findings', 8),
                     competitor_insights: list('competitor_insights', 8),
-                    problem_hotels: list('problem_hotels', 10),
+                    problem_hotels: reports.flatMap(report => normalizeAiProblemHotels(report.problem_hotels)).slice(0, 10),
                     recommended_actions: list('recommended_actions', 10),
                     priority,
                     data_anomalies: list('data_anomalies', 8),
+                    data_quality: reports.find(report => report?.data_quality?.is_cross_day_window)?.data_quality || reports.find(report => report?.data_quality)?.data_quality || {},
                     summary: { hotel_count: hotelCount },
                 };
             };
@@ -16769,7 +18153,8 @@
             const buildCapturedOtaReportCopyHtml = (report) => {
                 if (!report) return '';
                 const listHtml = (title, values) => `<h4>${htmlEscape(title)}</h4><ul>${normalizeAiAnalysisList(values).map(text => `<li>${htmlEscape(text)}</li>`).join('')}</ul>`;
-                return `<section><h3>批量OTA AI综合诊断报告</h3><p><strong>优先级：</strong>${htmlEscape(aiAnalysisPriorityText(report.priority))}</p><p><strong>总体结论：</strong>${htmlEscape(report.overall_conclusion || '-')}</p>${listHtml('关键发现', report.key_findings)}${listHtml('竞对洞察', report.competitor_insights)}${listHtml('问题酒店', report.problem_hotels)}${listHtml('建议动作', report.recommended_actions)}${listHtml('数据异常', report.data_anomalies)}${report.raw_text ? `<pre>${htmlEscape(report.raw_text)}</pre>` : ''}</section>`;
+                const problemHtml = `<h4>问题酒店</h4><ul>${normalizeAiProblemHotels(report.problem_hotels).map(hotel => `<li>${htmlEscape(formatAiProblemHotelText(hotel))}</li>`).join('')}</ul>`;
+                return `<section><h3>批量OTA AI综合诊断报告</h3><p><strong>优先级：</strong>${htmlEscape(aiAnalysisPriorityText(report.priority))}</p><p><strong>总体结论：</strong>${htmlEscape(report.overall_conclusion || '-')}</p>${listHtml('关键发现', report.key_findings)}${listHtml('竞对洞察', report.competitor_insights)}${problemHtml}${listHtml('建议动作', report.recommended_actions)}${listHtml(aiAnalysisDataNoticeTitle(report), aiAnalysisDataNoticeList(report))}${report.raw_text ? `<pre>${htmlEscape(report.raw_text)}</pre>` : ''}</section>`;
             };
 
             const buildCapturedFallbackSummaryReport = (successGroups, failedGroups, selectedCount, reason = '') => {
@@ -16813,15 +18198,15 @@
                                 salesRoomNights: h.salesRoomNights || 0,
                                 sales: h.sales || h.amount || 0,
                                 // 转化榜数据
-                                viewConversion: h.viewConversion || h.convertionRate || 0,
-                                payConversion: h.payConversion || 0,
+                                viewConversion: pickNullableNumber(h.viewConversion, h.convertionRate),
+                                payConversion: pickNullableNumber(h.payConversion),
                                 // 流量榜数据
-                                exposure: h.exposure || h.totalDetailNum || 0,
-                                views: h.views || h.qunarDetailVisitors || 0,
+                                exposure: pickNullableNumber(h.exposure),
+                                views: pickNullableNumber(h.views, h.totalDetailNum, h.qunarDetailVisitors),
                                 commentScore: h.commentScore || 0,
                                 qunarCommentScore: h.qunarCommentScore || 0,
-                                convertionRate: h.convertionRate || 0,
-                                qunarDetailCR: h.qunarDetailCR || 0,
+                                convertionRate: pickNullableNumber(h.convertionRate),
+                                qunarDetailCR: pickNullableNumber(h.qunarDetailCR),
                                 totalOrderNum: h.totalOrderNum || 0,
                                 bookOrderNum: h.bookOrderNum || 0,
                                 amountRank: h.amountRank || 0,
@@ -16839,15 +18224,15 @@
                             existing.salesRoomNights = Math.max(existing.salesRoomNights, h.salesRoomNights || 0);
                             existing.sales = Math.max(existing.sales, h.sales || h.amount || 0);
                             // 转化榜数据
-                            existing.viewConversion = Math.max(existing.viewConversion, h.viewConversion || h.convertionRate || 0);
-                            existing.payConversion = Math.max(existing.payConversion, h.payConversion || 0);
+                            existing.viewConversion = maxNullableNumber(existing.viewConversion, h.viewConversion, h.convertionRate);
+                            existing.payConversion = maxNullableNumber(existing.payConversion, h.payConversion);
                             // 流量榜数据
-                            existing.exposure = Math.max(existing.exposure, h.exposure || h.totalDetailNum || 0);
-                            existing.views = Math.max(existing.views, h.views || h.qunarDetailVisitors || 0);
+                            existing.exposure = maxNullableNumber(existing.exposure, h.exposure);
+                            existing.views = maxNullableNumber(existing.views, h.views, h.totalDetailNum, h.qunarDetailVisitors);
                             existing.commentScore = Math.max(existing.commentScore || 0, h.commentScore || 0);
                             existing.qunarCommentScore = Math.max(existing.qunarCommentScore || 0, h.qunarCommentScore || 0);
-                            existing.convertionRate = Math.max(existing.convertionRate || 0, h.convertionRate || 0);
-                            existing.qunarDetailCR = Math.max(existing.qunarDetailCR || 0, h.qunarDetailCR || 0);
+                            existing.convertionRate = maxNullableNumber(existing.convertionRate, h.convertionRate);
+                            existing.qunarDetailCR = maxNullableNumber(existing.qunarDetailCR, h.qunarDetailCR);
                             existing.totalOrderNum = Math.max(existing.totalOrderNum || 0, h.totalOrderNum || 0);
                             existing.bookOrderNum = Math.max(existing.bookOrderNum || 0, h.bookOrderNum || 0);
                             existing.amountRank = existing.amountRank === 0 ? (h.amountRank || 0) : Math.min(existing.amountRank, h.amountRank || existing.amountRank);
@@ -18613,6 +19998,50 @@
             const aiFeasibilityLoading = ref(false);
             const aiFeasibilityError = ref('');
 
+            const expansionDefaultOnlineDate = formatDate(new Date(Date.now() + 45 * 24 * 60 * 60 * 1000));
+            const marketEvaluationForm = ref({
+                city: '上海',
+                business_area: '核心商务区',
+                property_area: 2600,
+                estimated_rent: 160000,
+                target_room_count: 72,
+                decoration_level: '中端精选',
+                target_customer: '商务差旅'
+            });
+            const marketEvaluationResult = ref(null);
+            const marketEvaluationLoading = ref(false);
+
+            const benchmarkModelForm = ref({
+                city: '上海',
+                business_area: '核心商务区',
+                target_price_band: '220-320',
+                hotel_type: '中端商务',
+                target_room_count: 72
+            });
+            const benchmarkModelResult = ref(null);
+            const benchmarkModelLoading = ref(false);
+
+            const collaborationProject = ref({
+                project_name: '新店扩张项目',
+                city_area: '上海核心商务区',
+                current_stage: '筹建',
+                owner: '项目负责人',
+                expected_online_date: expansionDefaultOnlineDate
+            });
+            const collaborationStatusOptions = ['未开始', '进行中', '已完成', '风险'];
+            const buildCollaborationTasks = () => [
+                { name: '市场调研', status: '已完成', owner: '投资经理', due_date: formatDate(new Date(Date.now() - 28 * 24 * 60 * 60 * 1000)), risk_note: '' },
+                { name: '物业评估', status: '已完成', owner: '工程经理', due_date: formatDate(new Date(Date.now() - 21 * 24 * 60 * 60 * 1000)), risk_note: '' },
+                { name: '合同谈判', status: '已完成', owner: '拓展负责人', due_date: formatDate(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)), risk_note: '' },
+                { name: '装修筹建', status: '进行中', owner: '工程经理', due_date: formatDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)), risk_note: '' },
+                { name: '证照办理', status: '进行中', owner: '行政负责人', due_date: formatDate(new Date(Date.now() + 21 * 24 * 60 * 60 * 1000)), risk_note: '' },
+                { name: 'OTA上线', status: '未开始', owner: '运营负责人', due_date: formatDate(new Date(Date.now() + 35 * 24 * 60 * 60 * 1000)), risk_note: '' },
+                { name: '运营交接', status: '未开始', owner: '店长', due_date: expansionDefaultOnlineDate, risk_note: '' }
+            ];
+            const collaborationTasks = ref(buildCollaborationTasks());
+            const collaborationEfficiencyResult = ref(null);
+            const collaborationEfficiencyLoading = ref(false);
+
             const transferPricingForm = ref({
                 hotel_name: '城市中端精选酒店',
                 location: '上海陆家嘴商圈',
@@ -18718,7 +20147,6 @@
             const formatCurrency = (value) => `¥${Math.round(toNumber(value)).toLocaleString()}`;
             const formatMoney = formatCurrency;
             const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
-
             const formatWan = (value) => value === null || value === undefined ? '--' : `${aiRound(toNumber(value), 2)}万元`;
             const formatPaybackMonth = (value) => value === null || value === undefined ? '不可回收' : `${aiRound(value, 1)}个月`;
 
@@ -18739,6 +20167,72 @@
                 if (decision === '适合转让') return 'text-green-600';
                 if (decision === '谨慎转让') return 'text-amber-600';
                 return 'text-red-600';
+            };
+
+            const benchmarkStrategyLabel = (key) => ({
+                room_type: '房型',
+                price: '价格',
+                channel: '渠道',
+                review: '点评',
+                image: '图片',
+                service: '服务'
+            }[key] || key);
+
+            const handleMarketEvaluation = async () => {
+                marketEvaluationLoading.value = true;
+                try {
+                    const res = await request('/expansion/market-evaluation', {
+                        method: 'POST',
+                        body: JSON.stringify(marketEvaluationForm.value)
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '市场评估失败');
+                    marketEvaluationResult.value = res.data || null;
+                    showToast('市场评估已生成');
+                } catch (error) {
+                    showToast(error.message || '市场评估失败', 'error');
+                } finally {
+                    marketEvaluationLoading.value = false;
+                }
+            };
+
+            const handleBenchmarkModel = async () => {
+                benchmarkModelLoading.value = true;
+                try {
+                    const res = await request('/expansion/benchmark-model', {
+                        method: 'POST',
+                        body: JSON.stringify(benchmarkModelForm.value)
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '标杆选模失败');
+                    benchmarkModelResult.value = res.data || null;
+                    showToast('标杆选模已生成');
+                } catch (error) {
+                    showToast(error.message || '标杆选模失败', 'error');
+                } finally {
+                    benchmarkModelLoading.value = false;
+                }
+            };
+
+            const handleCollaborationEfficiency = async () => {
+                collaborationEfficiencyLoading.value = true;
+                try {
+                    const res = await request('/expansion/collaboration-efficiency', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            ...collaborationProject.value,
+                            tasks: collaborationTasks.value
+                        })
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '协同提效看板生成失败');
+                    collaborationEfficiencyResult.value = res.data || null;
+                    if (Array.isArray(res.data?.task_board)) {
+                        collaborationTasks.value = res.data.task_board;
+                    }
+                    showToast('协同提效看板已生成');
+                } catch (error) {
+                    showToast(error.message || '协同提效看板生成失败', 'error');
+                } finally {
+                    collaborationEfficiencyLoading.value = false;
+                }
             };
 
             const transferPricingAdvice = computed(() => transferPricingResult.value?.suggestion || '--');
@@ -19241,6 +20735,9 @@
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyLoading, strategyScoreCards, strategyFreshnessLabel, handleStrategy,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, simulationCostFields, simulationMetricCards, simulationRiskHints, baseSimulation, handleSimulation,
                 aiFeasibilityResult, aiFeasibilityLoading, aiFeasibilityError, handleFeasibility, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, riskBadgeClass,
+                marketEvaluationForm, marketEvaluationResult, marketEvaluationLoading, handleMarketEvaluation,
+                benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkStrategyLabel, handleBenchmarkModel,
+                collaborationProject, collaborationTasks, collaborationStatusOptions, collaborationEfficiencyResult, collaborationEfficiencyLoading, handleCollaborationEfficiency,
                 transferPricingForm, transferPricingFields, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, handleTransferPricing,
                 transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
@@ -19290,7 +20787,7 @@
                 fetchCtripData, fetchCtripTrafficData, fetchCtripComments, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanComments, useMeituanCommentConfig, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId,
-                ctripFetchSuccess, ctripSavedCount,
+                ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading,
                 loadCtripConfigList, saveCtripConfig, useCtripConfig, editCtripConfig, deleteCtripConfig, generateCtripBookmarklet, openTargetSite, applyCtripConfig,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanBookmarklet,
@@ -19302,6 +20799,7 @@
                 aiAnalysisModelKey, aiAnalysisBatchResults, aiAnalysisCapturedReport, aiAnalysisCapturedError, aiAnalysisProcess, aiAnalysisGroupDetailsOpen, aiAnalysisProgress,
                 selectAllAiHotels, clearAiHotelSelection, startAiAnalysis, copyAiAnalysisResult, viewAiAnalysisRecord,
                 getAiAnalysisHotelKey, aiAnalysisStatusText, aiAnalysisStatusClass, aiAnalysisPriorityText, aiAnalysisPriorityClass, normalizeAiAnalysisList,
+                normalizeAiProblemHotels, problemHotelKey, aiAnalysisDataNoticeTitle, aiAnalysisDataNoticeList,
                 // AI智能分析（美团）
                 meituanAiSelectedHotels, meituanAiAnalysisHotelList, meituanAiAnalyzing, meituanAiAnalysisResult, meituanAiAnalysisHistory, showMeituanAIAnalysis, meituanCompetitionIntensity,
                 selectAllMeituanAiHotels, clearMeituanAiHotelSelection, startMeituanAiAnalysis, copyMeituanAiAnalysisResult, viewMeituanAiAnalysisRecord,
