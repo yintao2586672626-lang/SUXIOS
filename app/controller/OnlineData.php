@@ -2086,9 +2086,9 @@ class OnlineData extends Base
         }
         $hotelId = $this->request->post('hotel_id', $list[$id]['hotel_id'] ?? '');
 
-        // 非超级管理员：编辑时只能改自己的配置
-        if (!$this->currentUser->isSuperAdmin() && !empty($id) && isset($list[$id])) {
-            if (($list[$id]['user_id'] ?? '') != $this->currentUser->id) {
+        // 非超级管理员可维护本人创建或本人酒店绑定的配置
+        if (!empty($id) && isset($list[$id])) {
+            if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
                 return $this->error('无权修改此配置');
             }
         }
@@ -2140,19 +2140,7 @@ class OnlineData extends Base
             }
             $list = $this->normalizeStoredOtaConfigList('system_config', $key, $list, 'meituan');
 
-            // 权限控制：超级管理员看到全部，VIP用户只能看到自己保存的配置
-            $isAdmin = ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin());
-            if (!$isAdmin) {
-                $uid = $this->currentUser ? $this->currentUser->id : null;
-                $myList = [];
-                foreach ($list as $item) {
-                    $itemId = $item['user_id'] ?? null;
-                    if ($uid !== null && $itemId !== null && strval($itemId) === strval($uid)) {
-                        $myList[] = $item;
-                    }
-                }
-                $list = $myList;
-            }
+            $list = $this->filterOtaConfigListForCurrentUser($list);
 
             usort($list, function($a, $b) {
                 return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
@@ -2371,7 +2359,7 @@ JAVASCRIPT;
                 if (!isset($list[$id])) {
                     return $this->error('配置不存在');
                 }
-                if (!$this->currentUser->isSuperAdmin() && ($list[$id]['user_id'] ?? null) != $this->currentUser->id) {
+                if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
                     return $this->error('无权修改此配置');
                 }
             } else {
@@ -2440,19 +2428,7 @@ JAVASCRIPT;
             }
             $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
 
-            // 非超级管理员只能看到自己保存的配置（排除无user_id的旧数据）
-            $isAdmin = ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin());
-            if (!$isAdmin) {
-                $uid = $this->currentUser ? $this->currentUser->id : null;
-                $myList = [];
-                foreach ($list as $item) {
-                    $itemId = $item['user_id'] ?? null;
-                    if ($uid !== null && $itemId !== null && strval($itemId) === strval($uid)) {
-                        $myList[] = $item;
-                    }
-                }
-                $list = $myList;
-            }
+            $list = $this->filterOtaConfigListForCurrentUser($list);
 
             usort($list, function($a, $b) {
                 return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
@@ -5267,6 +5243,73 @@ JAVASCRIPT;
         } catch (\Throwable $e) {
             return [];
         }
+    }
+
+    private function filterOtaConfigListForCurrentUser(array $list): array
+    {
+        if (!$this->currentUser || !$this->currentUser->id) {
+            return [];
+        }
+
+        if (method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin()) {
+            return array_values($list);
+        }
+
+        $permittedHotelIdSet = $this->getCurrentUserPermittedHotelIdSet();
+        $visibleList = [];
+
+        foreach ($list as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            if ($this->isOtaConfigVisibleToCurrentUser($item, $permittedHotelIdSet)) {
+                $visibleList[] = $item;
+            }
+        }
+
+        return $visibleList;
+    }
+
+    private function isOtaConfigVisibleToCurrentUser(array $item, ?array $permittedHotelIdSet = null): bool
+    {
+        if (!$this->currentUser || !$this->currentUser->id) {
+            return false;
+        }
+
+        if (method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin()) {
+            return true;
+        }
+
+        $itemUserId = $item['user_id'] ?? null;
+        if ($itemUserId !== null && $itemUserId !== '' && (string)$itemUserId === (string)$this->currentUser->id) {
+            return true;
+        }
+
+        $permittedHotelIdSet = $permittedHotelIdSet ?? $this->getCurrentUserPermittedHotelIdSet();
+        $itemHotelIds = [
+            $item['hotel_id'] ?? null,
+            $item['system_hotel_id'] ?? null,
+        ];
+
+        foreach ($itemHotelIds as $hotelId) {
+            $hotelIdText = trim((string)$hotelId);
+            if ($hotelIdText !== '' && isset($permittedHotelIdSet[$hotelIdText])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function getCurrentUserPermittedHotelIdSet(): array
+    {
+        if (!$this->currentUser || !method_exists($this->currentUser, 'getPermittedHotelIds')) {
+            return [];
+        }
+
+        $hotelIds = array_map('strval', $this->currentUser->getPermittedHotelIds());
+        return array_fill_keys($hotelIds, true);
     }
 
     private function resolveCtripFetchConfigForHotel(int $hotelId): array

@@ -723,6 +723,16 @@
             border-color: #cbd5e1;
         }
 
+        .ota-diagnosis-hotel-menu {
+            min-width: min(32rem, calc(100vw - 3rem));
+        }
+
+        @media (max-width: 640px) {
+            .ota-diagnosis-hotel-menu {
+                min-width: 100%;
+            }
+        }
+
         /* 状态标签增强 */
         .badge {
             padding: 0.25rem 0.75rem;
@@ -9614,13 +9624,47 @@
                                                 </button>
                                             </div>
                                             <div class="p-5 space-y-4">
-                                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
-                                                    <div>
+                                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+                                                    <div class="md:col-span-2 xl:col-span-2">
                                                         <label class="block text-xs font-medium text-gray-500 mb-1.5">酒店</label>
-                                                        <select v-model="otaDiagnosisForm.hotel_id" class="input-field w-full">
-                                                            <option value="">请选择酒店</option>
-                                                            <option v-for="hotel in otaDiagnosisHotelOptions" :key="hotel.key" :value="hotel.value">{{ hotel.name }}</option>
-                                                        </select>
+                                                        <div class="relative">
+                                                            <button type="button" @click="toggleOtaDiagnosisHotelPicker" class="input-field w-full flex items-center justify-between gap-3 text-left">
+                                                                <span class="min-w-0">
+                                                                    <span v-if="otaDiagnosisSelectedHotel" class="block truncate text-gray-900">{{ otaDiagnosisSelectedHotel.name }}</span>
+                                                                    <span v-else class="block text-gray-400">请选择酒店</span>
+                                                                </span>
+                                                                <span class="flex items-center gap-2 text-xs text-gray-400 flex-shrink-0">
+                                                                    <span>{{ otaDiagnosisHotelOptions.length }}家</span>
+                                                                    <i :class="otaDiagnosisHotelPickerOpen ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
+                                                                </span>
+                                                            </button>
+                                                            <div v-if="otaDiagnosisHotelPickerOpen" class="ota-diagnosis-hotel-menu absolute left-0 z-40 mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                                                                <div class="border-b border-gray-100 p-2">
+                                                                    <div class="relative">
+                                                                        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></i>
+                                                                        <input v-model.trim="otaDiagnosisHotelKeyword" @keydown.escape="otaDiagnosisHotelPickerOpen = false" type="text" class="w-full rounded-lg border border-gray-200 py-2 pl-8 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" placeholder="搜索酒店名称">
+                                                                    </div>
+                                                                </div>
+                                                                <div class="max-h-64 overflow-y-auto p-1">
+                                                                    <button v-for="hotel in otaDiagnosisFilteredHotelOptions" :key="hotel.key" type="button" @click="selectOtaDiagnosisHotel(hotel)"
+                                                                        :class="['w-full rounded-lg px-3 py-2.5 text-left transition hover:bg-blue-50', otaDiagnosisForm.hotel_id === hotel.value ? 'bg-blue-50' : '']">
+                                                                        <span class="flex items-start justify-between gap-3">
+                                                                            <span class="min-w-0">
+                                                                                <span class="block truncate text-sm font-medium text-gray-800">{{ hotel.name }}</span>
+                                                                                <span class="mt-1 block text-xs text-gray-400">{{ otaDiagnosisHotelSourceText(hotel) }}</span>
+                                                                            </span>
+                                                                            <i v-if="otaDiagnosisForm.hotel_id === hotel.value" class="fas fa-check mt-1 text-xs text-blue-600"></i>
+                                                                        </span>
+                                                                    </button>
+                                                                    <div v-if="otaDiagnosisFilteredHotelOptions.length === 0" class="px-3 py-6 text-center text-sm text-gray-400">
+                                                                        未找到匹配酒店
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div v-if="otaDiagnosisSelectedHotel" class="mt-1.5 truncate text-xs text-gray-500" :title="otaDiagnosisSelectedHotel.name">
+                                                            当前：{{ otaDiagnosisSelectedHotel.name }}
+                                                        </div>
                                                     </div>
                                                     <div>
                                                         <label class="block text-xs font-medium text-gray-500 mb-1.5">平台</label>
@@ -18284,9 +18328,13 @@
             const otaDiagnosisResult = ref(null);
             const otaDiagnosisError = ref('');
             const otaDiagnosisEmpty = ref(false);
+            const otaDiagnosisHotelPickerOpen = ref(false);
+            const otaDiagnosisHotelKeyword = ref('');
             watch(() => otaDiagnosisForm.value.platform, () => {
                 otaDiagnosisForm.value.hotel_id = '';
                 otaDiagnosisError.value = '';
+                otaDiagnosisHotelPickerOpen.value = false;
+                otaDiagnosisHotelKeyword.value = '';
             });
             const setOtaDiagnosisRange = (days) => {
                 const end = new Date();
@@ -18301,6 +18349,38 @@
                 return allowed.includes(otaDiagnosisForm.value.model_key) ? otaDiagnosisForm.value.model_key : 'deepseek_chat';
             };
             const otaDiagnosisSelectedHotel = computed(() => otaDiagnosisHotelOptions.value.find(item => item.value === otaDiagnosisForm.value.hotel_id) || null);
+            const otaDiagnosisFilteredHotelOptions = computed(() => {
+                const keyword = otaDiagnosisHotelKeyword.value.trim().toLowerCase();
+                if (!keyword) return otaDiagnosisHotelOptions.value;
+                return otaDiagnosisHotelOptions.value.filter(item => {
+                    return [
+                        item.name,
+                        item.system_hotel_id,
+                        item.platform_hotel_id,
+                        item.config_id,
+                    ].some(value => String(value || '').toLowerCase().includes(keyword));
+                });
+            });
+            const otaDiagnosisHotelSourceText = (hotel) => {
+                const sourceMap = {
+                    system: '系统酒店',
+                    'ctrip-config': '携程配置',
+                    'meituan-config': '美团配置',
+                    'online-data': '线上数据',
+                };
+                const parts = [sourceMap[hotel?.source] || '酒店数据'];
+                if (hotel?.platform_hotel_id) parts.push(`OTA ID ${hotel.platform_hotel_id}`);
+                return parts.join(' · ');
+            };
+            const toggleOtaDiagnosisHotelPicker = () => {
+                otaDiagnosisHotelPickerOpen.value = !otaDiagnosisHotelPickerOpen.value;
+            };
+            const selectOtaDiagnosisHotel = (hotel) => {
+                otaDiagnosisForm.value.hotel_id = hotel.value;
+                otaDiagnosisHotelPickerOpen.value = false;
+                otaDiagnosisHotelKeyword.value = '';
+                otaDiagnosisError.value = '';
+            };
             const otaDiagnosisPlatformText = computed(() => otaDiagnosisForm.value.platform === 'meituan' ? '美团' : '携程');
             const otaDiagnosisDateRangeText = computed(() => {
                 const resultRange = otaDiagnosisResult.value?.date_range || {};
@@ -24975,7 +25055,9 @@
                 // Agent中心 - 基础
                 agentTab, agentTabs, agentOverview, hotelAiToolboxLinks, agentConfigs,
                 otaDiagnosisForm, otaDiagnosisLoading, otaDiagnosisResult, otaDiagnosisError, otaDiagnosisEmpty,
-                otaDiagnosisHotelOptions, otaDiagnosisSelectedHotel, otaDiagnosisPlatformText, otaDiagnosisDateRangeText,
+                otaDiagnosisHotelOptions, otaDiagnosisSelectedHotel, otaDiagnosisHotelPickerOpen, otaDiagnosisHotelKeyword,
+                otaDiagnosisFilteredHotelOptions, otaDiagnosisHotelSourceText, toggleOtaDiagnosisHotelPicker, selectOtaDiagnosisHotel,
+                otaDiagnosisPlatformText, otaDiagnosisDateRangeText,
                 otaDiagnosisPriorityClass, otaDiagnosisPriorityText, otaDiagnosisMetricCards, otaDiagnosisResultSections,
                 setOtaDiagnosisRange, normalizeOtaDiagnosisList, generateOtaDiagnosis, switchAgentTab,
                 staffAgentTab, knowledgeList, knowledgeCategories, knowledgeFilter,
