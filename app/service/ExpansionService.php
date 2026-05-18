@@ -277,6 +277,43 @@ class ExpansionService
         $missing = $businessArea === '' ? ['商圈'] : [];
         $price = $this->priceRange($targetPriceBand);
         $baseHeat = $targetRoomCount >= 70 ? 86 : ($targetRoomCount >= 45 ? 78 : 66);
+        $detailInputs = [
+            'competitor_count' => $this->optionalNumberByKeys($input, ['competitor_count', 'benchmark_competitor_count']),
+            'avg_competitor_price' => $this->optionalNumberByKeys($input, ['avg_competitor_price', 'competitor_avg_price', 'average_competitor_price']),
+            'avg_competitor_score' => $this->optionalNumberByKeys($input, ['avg_competitor_score', 'competitor_avg_score', 'average_competitor_score']),
+            'avg_review_count' => $this->optionalNumberByKeys($input, ['avg_review_count', 'competitor_avg_review_count', 'average_review_count']),
+            'ota_heat_index' => $this->optionalNumberByKeys($input, ['ota_heat_index', 'benchmark_ota_heat_index']),
+            'traffic_radius_km' => $this->optionalNumberByKeys($input, ['traffic_radius_km', 'sample_radius_km', 'competitor_radius_km']),
+        ];
+        $filledDetailKeys = array_keys(array_filter($detailInputs, static fn(?float $value): bool => $value !== null));
+        $detailLabels = [
+            'competitor_count' => '竞品数量',
+            'avg_competitor_price' => '竞品均价',
+            'avg_competitor_score' => '竞品均分',
+            'avg_review_count' => '平均点评量',
+            'ota_heat_index' => 'OTA热度指数',
+            'traffic_radius_km' => '采样半径',
+        ];
+        $estimatedFields = array_values(array_map(
+            static fn(string $key): string => $detailLabels[$key] ?? $key,
+            array_diff(array_keys($detailInputs), $filledDetailKeys)
+        ));
+        $competitorCount = (int)max(1, round($detailInputs['competitor_count'] ?? ($targetRoomCount >= 70 ? 16 : 10)));
+        $avgCompetitorPrice = (int)max(1, round($detailInputs['avg_competitor_price'] ?? $price['mid']));
+        $avgCompetitorScore = round(max(1, min(5, $detailInputs['avg_competitor_score'] ?? 4.6)), 1);
+        $avgReviewCount = (int)max(1, round($detailInputs['avg_review_count'] ?? ($targetRoomCount >= 70 ? 420 : 260)));
+        $otaHeatIndex = (int)max(0, min(100, round($detailInputs['ota_heat_index'] ?? $baseHeat)));
+        $trafficRadiusKm = round(max(0.1, $detailInputs['traffic_radius_km'] ?? 3), 1);
+        $detailMetrics = [
+            'competitor_count' => $competitorCount,
+            'avg_competitor_price' => $avgCompetitorPrice,
+            'avg_competitor_score' => $avgCompetitorScore,
+            'avg_review_count' => $avgReviewCount,
+            'ota_heat_index' => $otaHeatIndex,
+            'traffic_radius_km' => $trafficRadiusKm,
+            'data_completeness' => count($filledDetailKeys) . '/' . count($detailInputs),
+            'estimated_fields' => $estimatedFields,
+        ];
         $models = [
             [
                 'name' => '标杆模型A',
@@ -306,6 +343,28 @@ class ExpansionService
                 'learn_from' => '学习服务标签和高价房型包装，不照搬成本结构',
             ],
         ];
+        $distanceFactors = [0.6, 0.85, 1.15];
+        $reviewFactors = [1.25, 1.0, 0.75];
+        $models = array_map(function (array $model, int $index) use ($avgCompetitorPrice, $avgCompetitorScore, $avgReviewCount, $otaHeatIndex, $trafficRadiusKm, $competitorCount, $distanceFactors, $reviewFactors): array {
+            $priceGap = (int)round(((float)$model['price']) - $avgCompetitorPrice);
+            $reviewCount = (int)max(1, round($avgReviewCount * ($reviewFactors[$index] ?? 1)));
+            $distanceKm = round(max(0.1, $trafficRadiusKm * ($distanceFactors[$index] ?? 1)), 1);
+            $scoreGap = round(((float)$model['score']) - $avgCompetitorScore, 1);
+            $heatGap = (int)round(((float)$model['heat']) - $otaHeatIndex);
+            $priceFit = 100 - min(45, abs($priceGap) / max(1, $avgCompetitorPrice) * 100);
+            $scoreFit = 100 - min(35, abs($scoreGap) * 25);
+            $heatFit = 100 - min(40, abs($heatGap));
+
+            $model['distance_km'] = $distanceKm;
+            $model['review_count'] = $reviewCount;
+            $model['price_gap_to_market'] = $priceGap;
+            $model['score_gap_to_market'] = $scoreGap;
+            $model['heat_gap_to_market'] = $heatGap;
+            $model['model_fit_score'] = $this->score($priceFit * 0.42 + $scoreFit * 0.33 + $heatFit * 0.25);
+            $model['sample_basis'] = "{$trafficRadiusKm}公里内{$competitorCount}家竞品样本";
+
+            return $model;
+        }, $models, array_keys($models));
 
         return [
             'position' => [
@@ -314,6 +373,7 @@ class ExpansionService
                 'target_price_band' => $targetPriceBand,
                 'hotel_type' => $hotelType,
                 'target_room_count' => $targetRoomCount,
+                'detail_metrics' => $detailMetrics,
             ],
             'recommended_benchmarks' => $models,
             'copyable_strategies' => [
@@ -323,10 +383,12 @@ class ExpansionService
                 'review' => '围绕卫生、隔音、交通、服务响应建立点评关键词',
                 'image' => '首图突出房间真实尺度，补齐外立面、前台、卫浴和窗景',
                 'service' => str_contains($hotelType, '商务') ? '强化发票、洗衣、延迟退房和安静楼层' : '强化入住指引、行李寄存和本地化推荐',
+                'data' => "按{$trafficRadiusKm}公里、{$competitorCount}家竞品校准价格差、评分差和点评量，再确定主力标杆",
             ],
             'differentiation_suggestions' => [
                 $businessArea === '' ? '补充商圈后再定义差异化锚点' : "围绕{$businessArea}的主要客源设计首图和权益",
                 $targetRoomCount < 45 ? '小房量项目避免复制大店组织架构，优先做轻人效模型' : '用标准化房型提升清扫、人效和收益管理效率',
+                "优先复核与竞品均价差在±30元、评分差在0.2分内的标杆样本",
                 '选择一个强标签作为差异点，不同时堆叠过多卖点',
             ],
             'avoid_copying_points' => [
@@ -938,6 +1000,18 @@ class ExpansionService
             return null;
         }
         return is_numeric($input[$key]) ? (float)$input[$key] : null;
+    }
+
+    private function optionalNumberByKeys(array $input, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            $value = $this->optionalNumber($input, $key);
+            if ($value !== null) {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private function text(array $input, array $keys, string $default = ''): string
