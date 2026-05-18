@@ -1758,10 +1758,34 @@
                                 </div>
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <h3 class="font-bold text-gray-800 mb-4">数据异常校验</h3>
+                                    <div :class="['mb-4 rounded-lg border px-4 py-3', transferTimingDataCheck.panelClass]">
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                            <div class="min-w-0">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <i :class="transferTimingDataCheck.iconClass"></i>
+                                                    <span class="text-sm font-semibold text-gray-800">数据口径预判</span>
+                                                    <span :class="['px-2 py-0.5 rounded-full text-xs border', transferTimingDataCheck.badgeClass]">{{ transferTimingDataCheck.status }}</span>
+                                                </div>
+                                                <p class="mt-2 text-xs leading-5 text-gray-600">{{ transferTimingDataCheck.message }}</p>
+                                                <p class="mt-1 text-xs leading-5" :class="transferTimingDataCheck.suggestionClass">{{ transferTimingDataCheck.suggestion }}</p>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-3 text-right sm:w-40">
+                                                <div>
+                                                    <div class="text-xs text-gray-500">参考转化</div>
+                                                    <div class="text-sm font-semibold text-gray-800">{{ transferTimingDataCheck.derivedConversionLabel }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-xs text-gray-500">间夜/订单</div>
+                                                    <div class="text-sm font-semibold text-gray-800">{{ transferTimingDataCheck.roomNightPerOrderLabel }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div v-for="field in transferTimingDataFields" :key="field.key">
                                             <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
-                                            <input type="number" v-model.number="transferTimingForm[field.key]" class="input-field w-full">
+                                            <input type="number" v-model.number="transferTimingForm[field.key]" :step="field.step || 1" :min="field.min === undefined ? 0 : field.min" inputmode="decimal" class="input-field w-full">
+                                            <p v-if="field.hint" class="mt-1 text-[11px] leading-4 text-gray-400">{{ field.hint }}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -24535,11 +24559,11 @@
                 { key: 'holiday_days', label: '距离节假日天数' },
             ];
             const transferTimingDataFields = [
-                { key: 'exposure', label: '曝光' },
-                { key: 'visitors', label: '访客' },
-                { key: 'conversion_rate', label: '转化率（%）' },
-                { key: 'order_count', label: '订单量' },
-                { key: 'room_nights', label: '间夜' },
+                { key: 'exposure', label: '曝光', hint: 'OTA曝光口径，缺失时填0', min: 0 },
+                { key: 'visitors', label: '访客', hint: 'OTA访客/浏览口径', min: 0 },
+                { key: 'conversion_rate', label: '转化率（%）', hint: '平台展示百分比，不按小数填', min: 0, step: 0.1 },
+                { key: 'order_count', label: '订单量', hint: '近30天有效订单', min: 0 },
+                { key: 'room_nights', label: '间夜', hint: '近30天已售间夜', min: 0 },
             ];
 
             const simulationCostFields = [
@@ -24680,6 +24704,99 @@
                 if (decision === '谨慎转让') return 'text-amber-600';
                 return 'text-red-600';
             };
+
+            const transferTimingDataCheck = computed(() => {
+                const form = transferTimingForm.value || {};
+                const exposure = Math.max(0, toNumber(form.exposure));
+                const visitors = Math.max(0, toNumber(form.visitors));
+                const conversionRate = Math.max(0, toNumber(form.conversion_rate));
+                const orderCount = Math.max(0, toNumber(form.order_count));
+                const roomNights = Math.max(0, toNumber(form.room_nights));
+                const derivedConversion = visitors > 0 ? aiRound((orderCount / visitors) * 100, 1) : null;
+                const roomNightPerOrder = orderCount > 0 ? aiRound(roomNights / orderCount, 2) : null;
+                const issues = [];
+                let hasDataAnomaly = false;
+                let hasDataGap = false;
+
+                const hasAnyMetric = [exposure, visitors, conversionRate, orderCount, roomNights].some(value => value > 0);
+                const suspectedCollectionAnomaly = exposure === 0 && visitors === 0 && conversionRate === 0 && (orderCount > 0 || roomNights > 0);
+
+                if (!hasAnyMetric) {
+                    hasDataGap = true;
+                    issues.push('流量、转化、订单与间夜均为空，无法判断真实经营趋势');
+                } else if (suspectedCollectionAnomaly) {
+                    hasDataAnomaly = true;
+                    issues.push('曝光、访客、转化率为0，但订单或间夜大于0');
+                } else {
+                    if (exposure > 0 && visitors === 0) {
+                        hasDataGap = true;
+                        issues.push('有曝光但访客为0，需确认访客口径是否缺失');
+                    }
+                    if (visitors > exposure && exposure > 0) {
+                        hasDataAnomaly = true;
+                        issues.push('访客大于曝光，存在口径冲突');
+                    }
+                    if (conversionRate > 100) {
+                        hasDataAnomaly = true;
+                        issues.push('转化率超过100%，需复核百分比填写口径');
+                    }
+                    if (orderCount > 0 && roomNights === 0) {
+                        hasDataGap = true;
+                        issues.push('有订单但间夜为0，需补齐间夜数据');
+                    }
+                    if (roomNights > 0 && orderCount === 0) {
+                        hasDataGap = true;
+                        issues.push('有间夜但订单为0，需补齐订单数据');
+                    }
+                }
+
+                if (suspectedCollectionAnomaly) {
+                    return {
+                        status: '疑似采集异常',
+                        message: issues.join('；'),
+                        suggestion: '本次推演会自动纳入异常标记，建议先复核OTA采集口径再解读下滑原因。',
+                        panelClass: 'bg-amber-50 border-amber-200',
+                        badgeClass: 'bg-amber-100 text-amber-700 border-amber-200',
+                        iconClass: 'fas fa-exclamation-triangle text-amber-500',
+                        suggestionClass: 'text-amber-700',
+                        derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
+                        roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
+                        hasDataAnomaly,
+                        hasDataGap,
+                    };
+                }
+
+                if (hasDataAnomaly || hasDataGap) {
+                    const status = hasDataAnomaly ? '口径冲突' : '数据断档';
+                    return {
+                        status,
+                        message: issues.join('；'),
+                        suggestion: hasDataAnomaly ? '本次推演会自动纳入异常标记，建议先校正冲突字段。' : '本次推演会自动纳入断档标记，建议补齐缺失字段后再判断挂牌窗口。',
+                        panelClass: hasDataAnomaly ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200',
+                        badgeClass: hasDataAnomaly ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-700 border-amber-200',
+                        iconClass: hasDataAnomaly ? 'fas fa-exclamation-circle text-rose-500' : 'fas fa-exclamation-triangle text-amber-500',
+                        suggestionClass: hasDataAnomaly ? 'text-rose-700' : 'text-amber-700',
+                        derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
+                        roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
+                        hasDataAnomaly,
+                        hasDataGap,
+                    };
+                }
+
+                return {
+                    status: '数据口径正常',
+                    message: '曝光、访客、转化、订单与间夜关系未发现明显冲突。',
+                    suggestion: '可直接参与时机推演；如数据来自手工录入，仍建议保留原始报表备查。',
+                    panelClass: 'bg-emerald-50 border-emerald-100',
+                    badgeClass: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+                    iconClass: 'fas fa-check-circle text-emerald-500',
+                    suggestionClass: 'text-emerald-700',
+                    derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
+                    roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
+                    hasDataAnomaly: false,
+                    hasDataGap: false,
+                };
+            });
 
             const benchmarkStrategyLabel = (key) => ({
                 room_type: '房型',
@@ -25040,11 +25157,16 @@
                 hotel_id: hotelId || transferSelectedHotelId.value || transferPricingForm.value.hotel_id || transferSourceSnapshot.value?.hotel_id || '',
                 snapshot: transferSourceSnapshot.value || {}
             });
-            const buildTransferTimingPayload = (hotelId) => ({
-                ...transferTimingForm.value,
-                hotel_id: hotelId || transferSelectedHotelId.value || transferTimingForm.value.hotel_id || transferSourceSnapshot.value?.hotel_id || '',
-                snapshot: transferSourceSnapshot.value || {}
-            });
+            const buildTransferTimingPayload = (hotelId) => {
+                const dataCheck = transferTimingDataCheck.value || {};
+                return {
+                    ...transferTimingForm.value,
+                    has_data_anomaly: Boolean(transferTimingForm.value.has_data_anomaly || dataCheck.hasDataAnomaly),
+                    has_data_gap: Boolean(transferTimingForm.value.has_data_gap || dataCheck.hasDataGap),
+                    hotel_id: hotelId || transferSelectedHotelId.value || transferTimingForm.value.hotel_id || transferSourceSnapshot.value?.hotel_id || '',
+                    snapshot: transferSourceSnapshot.value || {}
+                };
+            };
 
             const handleTransferPricing = async () => {
                 const hotelId = ensureTransferHotelSelected(transferPricingForm.value.hotel_id);
