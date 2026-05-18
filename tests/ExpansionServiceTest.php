@@ -111,6 +111,10 @@ final class ExpansionServiceTest extends TestCase
         self::assertSame('杭州', $result['position']['city']);
         self::assertCount(3, $result['recommended_benchmarks']);
         self::assertContains('商圈', $result['data_status']['missing_fields']);
+        self::assertSame('0/6', $result['position']['detail_metrics']['data_completeness']);
+        self::assertSame(270, $result['position']['detail_metrics']['avg_competitor_price']);
+        self::assertArrayHasKey('model_fit_score', $result['recommended_benchmarks'][0]);
+        self::assertArrayHasKey('price_gap_to_market', $result['recommended_benchmarks'][0]);
     }
 
     public function testImproveCollaborationFlagsOverdueCriticalTasks(): void
