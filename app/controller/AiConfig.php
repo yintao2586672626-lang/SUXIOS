@@ -12,7 +12,7 @@ class AiConfig extends Base
 {
     public function models(): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $models = AiModelConfig::order('is_default', 'desc')
             ->order('id', 'asc')
@@ -27,7 +27,7 @@ class AiConfig extends Base
 
     public function createModel(): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $data = $this->request->param();
         $error = $this->validateModelPayload($data, true);
@@ -73,7 +73,7 @@ class AiConfig extends Base
 
     public function updateModel(int $id): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $model = AiModelConfig::find($id);
         if (!$model) {
@@ -125,7 +125,7 @@ class AiConfig extends Base
 
     public function deleteModel(int $id): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $model = AiModelConfig::find($id);
         if (!$model) {
@@ -143,7 +143,7 @@ class AiConfig extends Base
 
     public function testModel(int $id): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $model = AiModelConfig::find($id);
         if (!$model) {
@@ -176,7 +176,7 @@ class AiConfig extends Base
 
     public function quickSetupProvider(): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $provider = strtolower(trim((string) $this->request->param('provider', '')));
         $apiKey = trim((string) $this->request->param('api_key', ''));
@@ -474,6 +474,14 @@ class AiConfig extends Base
     {
         if (!$this->currentUser) {
             abort(401, '未登录');
+        }
+    }
+
+    private function checkSuperAdmin(): void
+    {
+        $this->checkLogin();
+        if (!$this->currentUser->isSuperAdmin()) {
+            abort(403, '无权限操作');
         }
     }
 }

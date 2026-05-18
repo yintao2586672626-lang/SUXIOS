@@ -21,3 +21,4 @@ SOURCE ./database/migrations/20260516_create_operation_management_tables.sql;
 SOURCE ./database/migrations/20260517_create_quant_simulation_records.sql;
 SOURCE ./database/migrations/20260517_create_expansion_records.sql;
 SOURCE ./database/migrations/20260517_create_transfer_records.sql;
+SOURCE ./database/migrations/20260518_create_knowledge_center_tables.sql;

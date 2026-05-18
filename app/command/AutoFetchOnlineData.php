@@ -59,10 +59,10 @@ class AutoFetchOnlineData extends Command
             
             if ($result['success']) {
                 $output->writeln("酒店 {$hotel['name']} 获取成功: {$result['message']}");
-                $this->updateStatus($hotelId, true, $result['message']);
+                $this->updateStatus($hotelId, true, $result['message'], $yesterday);
             } else {
                 $output->writeln("酒店 {$hotel['name']} 获取失败: {$result['message']}");
-                $this->updateStatus($hotelId, false, $result['message']);
+                $this->updateStatus($hotelId, false, $result['message'], $yesterday);
             }
             
             // 标记今天已执行
@@ -127,9 +127,9 @@ class AutoFetchOnlineData extends Command
             Log::warning('读取携程自动抓取配置失败', ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
         }
 
-        $cookiesList = Cache::get("online_data_cookies_{$hotelId}", []);
+        $cookiesList = Cache::get("online_data_cookies_hotel_{$hotelId}", []);
         if (empty($cookiesList)) {
-            $cookiesList = Cache::get('online_data_cookies_list', []);
+            $cookiesList = Cache::get("online_data_cookies_{$hotelId}", []);
         }
 
         foreach ($cookiesList as $item) {
@@ -170,6 +170,10 @@ class AutoFetchOnlineData extends Command
     
     private function sendHttpRequest(string $url, array $postData, string $cookies): array
     {
+        if (!$this->isAllowedCtripRequestUrl($url)) {
+            return ['success' => false, 'error' => '仅允许请求携程官方域名'];
+        }
+
         $headers = [
             'Accept: application/json, text/javascript, */*; q=0.01',
             'Content-Type: application/x-www-form-urlencoded; charset=UTF-8',
@@ -187,7 +191,7 @@ class AutoFetchOnlineData extends Command
                 'content' => http_build_query($postData),
                 'timeout' => 30,
             ],
-            'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+            'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
         ]);
         
         $response = @file_get_contents($url, false, $context);
@@ -197,6 +201,18 @@ class AutoFetchOnlineData extends Command
         }
         
         return ['success' => true, 'data' => json_decode($response, true), 'raw' => $response];
+    }
+
+    private function isAllowedCtripRequestUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return false;
+        }
+
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        return $scheme === 'https' && ($host === 'ctrip.com' || str_ends_with($host, '.ctrip.com'));
     }
     
     private function parseAndSaveData($responseData, $startDate, $endDate, int $hotelId): int
@@ -252,12 +268,46 @@ class AutoFetchOnlineData extends Command
         return $savedCount;
     }
     
-    private function updateStatus(int $hotelId, bool $success, string $message): void
+    private function updateStatus(int $hotelId, bool $success, string $message, ?string $dataDate = null): void
     {
         $statusKey = "online_data_auto_fetch_status_{$hotelId}";
         $status = Cache::get($statusKey, []);
-        $status['last_run_time'] = date('Y-m-d H:i:s');
+        if (!is_array($status)) {
+            $status = [];
+        }
+
+        $runAt = date('Y-m-d H:i:s');
+        $dataDate = $dataDate ?: date('Y-m-d', strtotime('-1 day'));
+        $runRecord = [
+            'run_at' => $runAt,
+            'data_date' => $dataDate,
+            'success' => $success,
+            'message' => $message,
+        ];
+
+        $status['last_run_time'] = $runAt;
+        $status['last_data_date'] = $dataDate;
         $status['last_result'] = ['success' => $success, 'message' => $message];
+
+        $recentRuns = $status['recent_runs'] ?? [];
+        $recentRuns = is_array($recentRuns) ? $recentRuns : [];
+        array_unshift($recentRuns, $runRecord);
+        $status['recent_runs'] = array_slice($recentRuns, 0, 10);
+
+        $failedRecords = $status['failed_records'] ?? [];
+        $failedRecords = is_array($failedRecords) ? $failedRecords : [];
+        $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate) {
+            return (string)($item['data_date'] ?? '') !== $dataDate;
+        }));
+        if (!$success) {
+            array_unshift($failedRecords, [
+                'data_date' => $dataDate,
+                'last_failed_at' => $runAt,
+                'message' => $message,
+            ]);
+        }
+        $status['failed_records'] = array_slice($failedRecords, 0, 30);
+
         Cache::set($statusKey, $status, 86400 * 30);
     }
 }

@@ -354,16 +354,19 @@ class OperationManagementService
         foreach ($daily as $row) {
             $reportData = $this->decodeJson((string)($row['report_data'] ?? ''));
             $base['revenue'] += $this->extractRevenue($row, $reportData);
-            $base['room_nights'] += (float)($reportData['room_nights'] ?? $reportData['occupied_rooms'] ?? $row['guest_count'] ?? 0);
-            $roomCount += (int)($row['room_count'] ?? 0);
+            $base['room_nights'] += $this->extractRoomNights($row, $reportData);
+            $roomCount += $this->extractSalableRoomCount($row, $reportData);
             $base['occ'] = max($base['occ'], (float)($row['occupancy_rate'] ?? 0));
         }
 
+        $dailyFinancialKeys = $this->buildDailyFinancialKeys($daily);
         foreach ($online as $row) {
             $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
-            $base['revenue'] += (float)($row['amount'] ?? 0);
             $base['orders'] += (int)($row['book_order_num'] ?? 0);
-            $base['room_nights'] += (float)($row['quantity'] ?? $row['data_value'] ?? 0);
+            if (!$this->hasDailyFinancialForOnlineRow($dailyFinancialKeys, $row)) {
+                $base['revenue'] += (float)($row['amount'] ?? 0);
+                $base['room_nights'] += (float)($row['quantity'] ?? $row['data_value'] ?? 0);
+            }
             if (($raw['bookOrderNum'] ?? 0) > 0) {
                 $base['orders'] = max($base['orders'], (int)$raw['bookOrderNum']);
             }
@@ -630,17 +633,20 @@ class OperationManagementService
             $dates[(string)$row['report_date']] = true;
             $reportData = $this->decodeJson((string)($row['report_data'] ?? ''));
             $revenue += $this->extractRevenue($row, $reportData);
-            $roomNights += (float)($reportData['room_nights'] ?? $reportData['occupied_rooms'] ?? $row['guest_count'] ?? 0);
+            $roomNights += $this->extractRoomNights($row, $reportData);
         }
 
+        $dailyFinancialKeys = $this->buildDailyFinancialKeys($daily);
         foreach ($online as $row) {
             $dates[(string)$row['data_date']] = true;
             $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
             $orders += (float)($row['book_order_num'] ?? $raw['bookOrderNum'] ?? 0);
-            if ((float)($row['amount'] ?? 0) > 0) {
+            if (!$this->hasDailyFinancialForOnlineRow($dailyFinancialKeys, $row) && (float)($row['amount'] ?? 0) > 0) {
                 $revenue += (float)$row['amount'];
             }
-            $roomNights += (float)($row['quantity'] ?? 0);
+            if (!$this->hasDailyFinancialForOnlineRow($dailyFinancialKeys, $row)) {
+                $roomNights += (float)($row['quantity'] ?? 0);
+            }
             $visitors = (float)($raw['visitors'] ?? $raw['qunarDetailVisitors'] ?? $raw['totalDetailNum'] ?? 0);
             if ($visitors > 0) {
                 $conversionValues[] = ((float)($row['book_order_num'] ?? $raw['bookOrderNum'] ?? 0)) / $visitors * 100;
@@ -685,8 +691,7 @@ class OperationManagementService
         try {
             $query = Db::name('online_daily_data')->whereBetween('data_date', [$startDate, $endDate]);
             if (!empty($hotelIds)) {
-                $safeHotelIds = implode(',', array_map('intval', $hotelIds));
-                $query->whereRaw("(system_hotel_id IN ({$safeHotelIds}) OR system_hotel_id IS NULL)");
+                $query->whereIn('system_hotel_id', array_map('intval', $hotelIds));
             }
             return $query->select()->toArray();
         } catch (Throwable $e) {
@@ -841,6 +846,7 @@ class OperationManagementService
 
     private function cause(string $type, string $title, int $priority, float $confidence, string $evidence, string $suggestion): array
     {
+        $detail = $this->causeDetail($type);
         return [
             'type' => $type,
             'title' => $title,
@@ -848,6 +854,56 @@ class OperationManagementService
             'confidence' => $confidence,
             'evidence' => $evidence,
             'suggestion' => $suggestion,
+            'impact' => $detail['impact'],
+            'check_points' => $detail['check_points'],
+            'action_steps' => $detail['action_steps'],
+        ];
+    }
+
+    private function causeDetail(string $type): array
+    {
+        $details = [
+            'data_abnormal' => [
+                'impact' => '采集口径异常会导致漏斗和转化率失真，先不要直接做价格、库存或投放决策。',
+                'check_points' => ['确认OTA配置是否绑定当前酒店', '检查Cookie或授权是否过期', '核对曝光、访客、订单字段映射和抓取日期'],
+                'action_steps' => ['重新同步当天OTA数据', '对比OTA后台原始值与系统入库值', '修正字段映射后重新执行根因分析'],
+            ],
+            'traffic_down' => [
+                'impact' => '曝光下降处在漏斗最前端，会直接压缩访客和订单上限，优先判断是排名、活动还是供给展示问题。',
+                'check_points' => ['查看近7日曝光曲线和排名变化', '检查标题、首图、房型可售状态', '确认活动流量入口是否下线或预算不足'],
+                'action_steps' => ['先恢复可售房型和基础曝光入口', '优化首图标题并补齐活动位', '次日复看曝光、访客和订单是否同步恢复'],
+            ],
+            'view_conversion_low' => [
+                'impact' => '浏览转化低说明曝光能进来但详情页承接弱，常见原因是图片、卖点、价格展示或可售房型不匹配。',
+                'check_points' => ['复核首图、房型图和核心卖点是否清晰', '对比同圈层竞品的价格与权益展示', '检查可售房型、早餐、取消政策等关键卖点'],
+                'action_steps' => ['优先调整首图和房型展示顺序', '补充高频客群关注的卖点和权益', '观察浏览转化率是否在2到3天内回升'],
+            ],
+            'order_conversion_low' => [
+                'impact' => '订单转化低说明访客已进入购买阶段但未下单，重点排查价格竞争力、库存限制和预订政策阻力。',
+                'check_points' => ['对比本店ADR与竞对均价', '检查取消政策、连住限制和库存余量', '确认促销、会员价和渠道价是否正常生效'],
+                'action_steps' => ['按房型做小幅跟价或权益补偿', '放开低风险库存和过严预订限制', '同步跟踪订单转化、ADR和RevPAR，避免只追单量'],
+            ],
+            'price_high' => [
+                'impact' => '价格偏高会削弱访客下单意愿，但不能只看均价，需要结合房型、权益、评分和节假日窗口判断。',
+                'check_points' => ['按房型对齐竞品价格和权益', '确认高价是否由节假日、库存紧张或高评分支撑', '检查是否存在单渠道异常高价'],
+                'action_steps' => ['先处理明显高于竞品的房型', '用优惠权益替代直接降价时同步观察转化', '保留高需求日期的价格保护线'],
+            ],
+            'score_low' => [
+                'impact' => '评分低会降低详情页信任和订单转化，尤其会放大价格劣势。',
+                'check_points' => ['查看近30天差评关键词和集中问题', '确认是否存在服务、卫生、设施类高频投诉', '对比竞对评分与点评数量差距'],
+                'action_steps' => ['先处理高频差评问题并形成整改记录', '推动可评价订单转化，补充近期正向评价', '复盘评分变化对浏览转化和订单转化的影响'],
+            ],
+            'holiday_near' => [
+                'impact' => '节假日临近会改变需求和价格弹性，库存、底价和活动节奏需要提前锁定。',
+                'check_points' => ['确认节假日库存、底价和连住策略', '对比竞对节假日价格带', '检查活动、预售和高需求日调价是否已生效'],
+                'action_steps' => ['先锁定高需求日底价和保留房量', '分阶段拉升价格并监控订单节奏', '节后复盘ADR、OCC和RevPAR表现'],
+            ],
+        ];
+
+        return $details[$type] ?? [
+            'impact' => '该根因会影响经营结果，需要结合经营、OTA、竞对和口碑数据复核。',
+            'check_points' => ['复核关联指标是否完整', '对比近7日和近30日趋势', '确认数据口径和酒店筛选是否一致'],
+            'action_steps' => ['先补齐关键数据', '按影响最大指标优先处理', '执行后持续跟踪订单、收入和转化变化'],
         ];
     }
 
@@ -862,7 +918,91 @@ class OperationManagementService
                 return (float)$reportData[$key];
             }
         }
+        return $this->sumReportFields($reportData, [
+            'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
+            'booking_revenue', 'agoda_revenue', 'expedia_revenue',
+            'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue',
+            'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
+            'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',
+        ]);
+    }
+
+    private function extractRoomNights(array $row, array $reportData): float
+    {
+        foreach (['room_nights', 'occupied_rooms', 'day_total_rooms', 'total_rooms'] as $key) {
+            if ((float)($reportData[$key] ?? 0) > 0) {
+                return (float)$reportData[$key];
+            }
+        }
+
+        $rooms = $this->sumReportFields($reportData, [
+            'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms',
+            'booking_rooms', 'agoda_rooms', 'expedia_rooms',
+            'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
+            'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
+        ]);
+        if ($rooms > 0) {
+            return $rooms;
+        }
+
+        return (float)($row['guest_count'] ?? 0);
+    }
+
+    private function extractSalableRoomCount(array $row, array $reportData): float
+    {
+        foreach ([
+            $row['room_count'] ?? null,
+            $reportData['salable_rooms'] ?? null,
+            $reportData['salable_rooms_total'] ?? null,
+            $reportData['total_rooms_count'] ?? null,
+            $reportData['room_count'] ?? null,
+            $reportData['rooms_total'] ?? null,
+        ] as $value) {
+            if (is_numeric($value) && (float)$value > 0) {
+                return (float)$value;
+            }
+        }
         return 0.0;
+    }
+
+    private function sumReportFields(array $reportData, array $fields): float
+    {
+        $total = 0.0;
+        foreach ($fields as $field) {
+            $total += (float)($reportData[$field] ?? 0);
+        }
+        return $total;
+    }
+
+    private function buildDailyFinancialKeys(array $dailyRows): array
+    {
+        $keys = [];
+        foreach ($dailyRows as $row) {
+            $date = (string)($row['report_date'] ?? '');
+            if ($date === '') {
+                continue;
+            }
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            if ($hotelId > 0) {
+                $keys[$hotelId . ':' . $date] = true;
+            } else {
+                $keys[$date] = true;
+            }
+        }
+        return $keys;
+    }
+
+    private function hasDailyFinancialForOnlineRow(array $dailyFinancialKeys, array $onlineRow): bool
+    {
+        $date = (string)($onlineRow['data_date'] ?? '');
+        if ($date === '') {
+            return false;
+        }
+        $systemHotelId = (int)($onlineRow['system_hotel_id'] ?? 0);
+        if ($systemHotelId > 0 && isset($dailyFinancialKeys[$systemHotelId . ':' . $date])) {
+            return true;
+        }
+        return isset($dailyFinancialKeys[$date]);
     }
 
     private function decodeJson(string $json): array

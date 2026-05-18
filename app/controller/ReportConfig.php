@@ -72,7 +72,7 @@ class ReportConfig extends Base
     {
         $this->checkSuperAdmin();
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         $this->validate($data, [
             'report_type' => 'require|in:daily,monthly',
@@ -125,7 +125,7 @@ class ReportConfig extends Base
             return $this->error('配置不存在');
         }
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         // 检查字段名是否与其他配置冲突
         if (isset($data['field_name']) && $data['field_name'] !== $config->field_name) {

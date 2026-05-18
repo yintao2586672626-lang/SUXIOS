@@ -325,6 +325,7 @@ class HolidayRevenue extends Base
         $sum = 0.0;
         foreach ([
             'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
+            'booking_revenue', 'agoda_revenue', 'expedia_revenue',
             'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue',
             'wechat_revenue', 'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
             'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',

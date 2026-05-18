@@ -13,7 +13,6 @@ class CompetitorApi extends Base
 {
     private const TASK_TOKEN_ENV = 'COMPETITOR_TASK_TOKEN';
     private const REPORT_TOKEN_ENV = 'COMPETITOR_REPORT_TOKEN';
-    private const DEV_FALLBACK_TOKEN = 'shop2025';
 
     public function task(): Response
     {
@@ -23,14 +22,14 @@ class CompetitorApi extends Base
 
         $expectedToken = $this->getTaskToken();
         if ($expectedToken === '') {
-            return json(['code' => 403, 'message' => '未配置COMPETITOR_TASK_TOKEN', 'data' => null]);
+            return $this->apiError('未配置COMPETITOR_TASK_TOKEN', 403);
         }
 
         if ($token === '' || !hash_equals($expectedToken, $token)) {
-            return json(['code' => 403, 'message' => 'token无效', 'data' => null]);
+            return $this->apiError('token无效', 403);
         }
         if ($deviceId === '' || $platform === '') {
-            return json(['code' => 400, 'message' => '参数不完整', 'data' => null]);
+            return $this->apiError('参数不完整', 400);
         }
 
         $now = date('Y-m-d H:i:s');
@@ -77,11 +76,11 @@ class CompetitorApi extends Base
     {
         $expectedToken = $this->getReportToken();
         if ($expectedToken === '') {
-            return json(['code' => 403, 'message' => '未配置COMPETITOR_REPORT_TOKEN', 'data' => null]);
+            return $this->apiError('未配置COMPETITOR_REPORT_TOKEN', 403);
         }
 
         if (!$this->isValidReportToken($expectedToken)) {
-            return json(['code' => 403, 'message' => 'report_token无效', 'data' => null]);
+            return $this->apiError('report_token无效', 403);
         }
 
         $storeId = (int)$this->request->post('store_id', 0);
@@ -93,9 +92,19 @@ class CompetitorApi extends Base
         $deviceId = (string)$this->request->post('device_id', '');
 
         if ($storeId <= 0 || $hotelId <= 0 || $platform === '' || $city === '' || $deviceId === '') {
-            return json(['code' => 400, 'message' => '参数不完整', 'data' => null]);
+            return $this->apiError('参数不完整', 400);
         }
 
+        $target = CompetitorHotel::where('id', $hotelId)
+            ->where('store_id', $storeId)
+            ->where('platform', $platform)
+            ->where('status', 1)
+            ->find();
+        if (!$target) {
+            return $this->apiError('竞对酒店不存在或未启用', 403);
+        }
+
+        $city = (string)($target->city ?? $city);
         $price = $this->extractPrice($priceText);
 
         $screenshotPath = '';
@@ -139,40 +148,17 @@ class CompetitorApi extends Base
 
     private function getReportToken(): string
     {
-        $token = trim((string)env(self::REPORT_TOKEN_ENV, ''));
-        if ($token !== '') {
-            return $token;
-        }
-
-        return $this->isLocalOrDevEnvironment() ? self::DEV_FALLBACK_TOKEN : '';
+        return trim((string)env(self::REPORT_TOKEN_ENV, ''));
     }
 
     private function getTaskToken(): string
     {
-        $token = trim((string)env(self::TASK_TOKEN_ENV, ''));
-        if ($token !== '') {
-            return $token;
-        }
-
-        return $this->isLocalOrDevEnvironment() ? self::DEV_FALLBACK_TOKEN : '';
+        return trim((string)env(self::TASK_TOKEN_ENV, ''));
     }
 
-    private function isLocalOrDevEnvironment(): bool
+    private function apiError(string $message, int $status): Response
     {
-        $appEnv = strtolower(trim((string)env('APP_ENV', '')));
-        if (in_array($appEnv, ['local', 'dev', 'development'], true)) {
-            return true;
-        }
-        if ($appEnv !== '') {
-            return false;
-        }
-
-        $appDebug = env('APP_DEBUG', false);
-        if (is_bool($appDebug)) {
-            return $appDebug;
-        }
-
-        return in_array(strtolower(trim((string)$appDebug)), ['1', 'true', 'yes', 'on'], true);
+        return json(['code' => $status, 'message' => $message, 'data' => null], $status);
     }
 
     private function extractPrice(string $text): float

@@ -99,6 +99,7 @@ class Auth extends Base
                 'hotel_id' => $user->hotel_id,
                 'hotel_name' => $user->hotel ? $user->hotel->name : '',
                 'is_super_admin' => $user->isSuperAdmin(),
+                'permissions' => $this->buildUserPermissions($user),
             ],
         ], '登录成功');
     }
@@ -106,6 +107,34 @@ class Auth extends Base
     /**
      * 生成安全的 Token
      */
+    private function buildUserPermissions(User $user): array
+    {
+        return [
+            'can_view_report' => $user->hasPermission('can_view_report'),
+            'can_fill_daily_report' => $user->hasPermission('can_fill_daily_report'),
+            'can_fill_monthly_task' => $user->hasPermission('can_fill_monthly_task'),
+            'can_edit_report' => $user->hasPermission('can_edit_report'),
+            'can_delete_report' => $user->hasPermission('can_delete_report'),
+            'can_view_online_data' => $user->hasPermission('can_view_online_data'),
+            'can_fetch_online_data' => $user->hasPermission('can_fetch_online_data'),
+            'can_delete_online_data' => $user->hasPermission('can_delete_online_data'),
+        ];
+    }
+
+    private function extractTokenFromAuthorizationHeader(string $authHeader): string
+    {
+        $authHeader = trim($authHeader);
+        if ($authHeader === '') {
+            return '';
+        }
+
+        if (preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return $authHeader;
+    }
+
     private function generateToken(int $userId): string
     {
         $random = bin2hex(random_bytes(16));
@@ -139,7 +168,7 @@ class Auth extends Base
      */
     public function logout(): Response
     {
-        $token = $this->request->header('Authorization', '');
+        $token = $this->extractTokenFromAuthorizationHeader((string)$this->request->header('Authorization', ''));
         $ip = $this->request->ip();
         $userAgent = $this->request->header('User-Agent', '');
         
@@ -181,14 +210,7 @@ class Auth extends Base
             $permittedHotels = \app\model\Hotel::whereIn('id', $permittedHotelIds)->select();
         }
         
-        // 从角色继承权限
-        $userPermissions = [
-            'can_view_report' => $user->hasPermission('can_view_report'),
-            'can_fill_daily_report' => $user->hasPermission('can_fill_daily_report'),
-            'can_fill_monthly_task' => $user->hasPermission('can_fill_monthly_task'),
-            'can_edit_report' => $user->hasPermission('can_edit_report'),
-            'can_delete_report' => $user->hasPermission('can_delete_report'),
-        ];
+        $userPermissions = $this->buildUserPermissions($user);
 
         return $this->success([
             'id' => $user->id,
@@ -219,8 +241,9 @@ class Auth extends Base
         $oldPassword = $this->request->post('old_password', '');
         $newPassword = $this->request->post('new_password', '');
 
-        if (strlen($newPassword) < 6) {
-            return $this->error('新密码长度至少6位');
+        $passwordError = $this->validatePasswordPolicy((string)$newPassword, '新密码');
+        if ($passwordError) {
+            return $this->error($passwordError);
         }
 
         $user = User::find($this->currentUser->id);

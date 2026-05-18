@@ -338,7 +338,83 @@ class FeasibilityReportService
         ];
 
         $modelKey = trim((string)($input['model_key'] ?? 'deepseek_v4_default'));
-        return $this->client->createJsonResponse($messages, $this->schema(), $modelKey !== '' ? $modelKey : 'deepseek_v4_default');
+        try {
+            return $this->client->createJsonResponse($messages, $this->schema(), $modelKey !== '' ? $modelKey : 'deepseek_v4_default');
+        } catch (\Throwable $e) {
+            return $this->buildFallbackReport($input, $snapshot, $calculation, $e->getMessage());
+        }
+    }
+
+    private function buildFallbackReport(array $input, array $snapshot, array $calculation, string $reason): array
+    {
+        $base = $calculation['scenarios'][1];
+        $payback = $base['payback_months'] ?? null;
+        $riskLevel = (string)($base['risk_level'] ?? '中');
+        $grade = 'C';
+        if ($riskLevel === '低' && $payback !== null && $payback <= 30) {
+            $grade = 'A';
+        } elseif ($riskLevel !== '高' && $payback !== null && $payback <= 42) {
+            $grade = 'B';
+        } elseif ($riskLevel === '高') {
+            $grade = 'D';
+        }
+
+        $location = trim((string)$input['city'] . ' ' . (string)$input['district'] . ' ' . (string)$input['address']);
+        $sourceCounts = $snapshot['source_counts'] ?? [];
+        $hasLocalEvidence = array_sum(array_map('intval', is_array($sourceCounts) ? $sourceCounts : [])) > 0;
+
+        return [
+            'conclusion_grade' => $grade,
+            'conclusion_text' => $grade === 'A' || $grade === 'B' ? '可进入下一轮尽调，需继续校验租金、ADR和入住率假设。' : '当前条件需谨慎推进，建议先优化租金或投资规模。',
+            'core_reason' => '本地测算显示基准情景回本周期为' . ($payback === null ? '不可回本' : $payback . '个月') . '，风险等级为' . $riskLevel . '。',
+            'summary' => [
+                'project_name' => (string)$input['project_name'],
+                'location' => $location,
+                'room_count' => (int)$input['room_count'],
+                'total_investment' => (float)$calculation['total_investment'],
+                'payback_months' => $payback === null ? 0 : (float)$payback,
+            ],
+            'basic_info' => [],
+            'market_judgement' => [
+                'market_score' => $hasLocalEvidence ? 70 : 60,
+                'competition_level' => $hasLocalEvidence ? '可参考本地经营/OTA样本' : '真实样本不足',
+                'recommended_model' => (string)($input['target_brand_level'] ?: '中端精选'),
+                'target_customer' => (string)($input['target_customer'] ?: '商务差旅'),
+                'reasoning' => $hasLocalEvidence ? '已读取系统历史数据快照，仍需补充竞品实采。' : '缺少足够历史样本，本次主要依据用户输入和本地财务模型。',
+            ],
+            'financial_scenarios' => $calculation['scenarios'],
+            'risk_list' => [
+                [
+                    'risk' => '回本周期',
+                    'level' => $riskLevel,
+                    'reason' => $payback === null ? '基准情景月净现金流为负。' : '基准情景回本周期为' . $payback . '个月。',
+                    'action' => '复核ADR、入住率、租金和单房装修投入。',
+                ],
+                [
+                    'risk' => '数据来源',
+                    'level' => $hasLocalEvidence ? '低' : '中',
+                    'reason' => $hasLocalEvidence ? '已有部分系统数据快照。' : '缺少充分经营、OTA和竞对样本。',
+                    'action' => '接入近期日报、OTA订单和竞对价格后重新生成。',
+                ],
+            ],
+            'action_plan' => [
+                ['title' => '复核核心假设', 'priority' => 'P0', 'detail' => '校验ADR、入住率、月租金、装修预算和转让费。'],
+                ['title' => '补齐外部样本', 'priority' => 'P1', 'detail' => '补充竞对价格、评分、商圈客流和OTA转化数据。'],
+                ['title' => '形成投决结论', 'priority' => 'P2', 'detail' => '按保守、基准、乐观三情景确定是否立项。'],
+            ],
+            'assumptions' => array_values(array_unique(array_merge(
+                $calculation['assumptions'],
+                ['LLM报告生成失败，已启用本地测算兜底：' . mb_substr($reason, 0, 120)]
+            ))),
+            'evidence' => [
+                [
+                    'source' => 'system',
+                    'title' => '宿析OS本地测算',
+                    'url' => '',
+                    'summary' => '基于用户输入、系统快照和内置财务公式生成。',
+                ],
+            ],
+        ];
     }
 
     private function mergeFinancials(array $report, array $input, array $calculation): array

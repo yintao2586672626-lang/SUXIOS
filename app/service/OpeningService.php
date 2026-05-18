@@ -10,6 +10,8 @@ use Throwable;
 
 class OpeningService
 {
+    private LlmClient $client;
+
     private const STATUS_TODO = 'todo';
     private const STATUS_DOING = 'doing';
     private const STATUS_DONE = 'done';
@@ -29,6 +31,11 @@ class OpeningService
         '开业营销推广' => 5,
     ];
 
+    public function __construct(?LlmClient $client = null)
+    {
+        $this->client = $client ?: new LlmClient();
+    }
+
     public function tableExists(string $table): bool
     {
         try {
@@ -42,18 +49,13 @@ class OpeningService
     public function createProject(array $input, int $userId, array $hotelIds): int
     {
         $now = $this->now();
-        $hotelId = (int)($input['hotel_id'] ?? 0);
-        if ($hotelId <= 0 && count($hotelIds) === 1) {
-            $hotelId = (int)$hotelIds[0];
-        }
-        if ($hotelId > 0 && !empty($hotelIds) && !in_array($hotelId, $hotelIds, true)) {
-            throw new \RuntimeException('无权创建该酒店的开业项目');
-        }
+        $hotelName = trim((string)$input['hotel_name']);
+        $hotelId = $this->resolveHotelId((int)($input['hotel_id'] ?? 0), $hotelName, $hotelIds);
 
         return (int)Db::name('opening_projects')->insertGetId([
             'hotel_id' => $hotelId,
             'project_name' => trim((string)$input['project_name']),
-            'hotel_name' => trim((string)$input['hotel_name']),
+            'hotel_name' => $hotelName,
             'city' => trim((string)($input['city'] ?? '')),
             'brand' => trim((string)($input['brand'] ?? '')),
             'positioning' => trim((string)($input['positioning'] ?? '')),
@@ -99,14 +101,10 @@ class OpeningService
             $data['opening_date'] = $this->normalizeDate((string)$input['opening_date']);
         }
         if (array_key_exists('hotel_id', $input)) {
-            $hotelId = (int)$input['hotel_id'];
-            if ($hotelId <= 0 && count($hotelIds) === 1) {
-                $hotelId = (int)$hotelIds[0];
-            }
-            if ($hotelId > 0 && !empty($hotelIds) && !in_array($hotelId, $hotelIds, true)) {
-                throw new \RuntimeException('无权调整该开业项目所属酒店');
-            }
-            $data['hotel_id'] = max(0, $hotelId);
+            $hotelName = array_key_exists('hotel_name', $input)
+                ? trim((string)$input['hotel_name'])
+                : (string)($project['hotel_name'] ?? '');
+            $data['hotel_id'] = $this->resolveHotelId((int)$input['hotel_id'], $hotelName, $hotelIds);
         }
         if (array_key_exists('status', $input)) {
             $status = trim((string)$input['status']);
@@ -263,7 +261,7 @@ class OpeningService
             ]);
         }
 
-        $metrics = $this->calculateMetrics($project, $tasks);
+        $metrics = $this->calculateMetrics($project, $tasks, false);
         Db::name('opening_projects')->where('id', $projectId)->update([
             'overall_score' => $metrics['project']['overall_score'],
             'risk_level' => $metrics['project']['risk_level'],
@@ -287,7 +285,7 @@ class OpeningService
         return $this->normalizeProject($project);
     }
 
-    private function calculateMetrics(array $project, array $tasks): array
+    private function calculateMetrics(array $project, array $tasks, bool $withSuggestions = true): array
     {
         $total = count($tasks);
         $done = count(array_filter($tasks, static fn(array $task): bool => $task['status'] === self::STATUS_DONE));
@@ -329,7 +327,7 @@ class OpeningService
                 'ai_penetration_rate' => $project['ai_penetration_rate'],
             ],
             'category_progress' => array_values($categoryProgress),
-            'ai_suggestions' => $this->buildOpeningSuggestions($project, $tasks, $highRisk, $overdue),
+            'ai_suggestions' => $withSuggestions ? $this->buildOpeningSuggestions($project, $tasks, $highRisk, $overdue) : [],
         ];
     }
 
@@ -433,11 +431,166 @@ class OpeningService
         ];
     }
 
+    private function resolveHotelId(int $hotelId, string $hotelName, array $hotelIds): int
+    {
+        if ($hotelId <= 0 && count($hotelIds) === 1) {
+            $hotelId = (int)$hotelIds[0];
+        }
+
+        if ($hotelId <= 0 && $hotelName !== '') {
+            $hotelId = $this->matchHotelIdByName($hotelName, $hotelIds);
+        }
+
+        if ($hotelId > 0 && !empty($hotelIds) && !in_array($hotelId, $hotelIds, true)) {
+            throw new \RuntimeException('无权操作该酒店的开业项目');
+        }
+
+        return max(0, $hotelId);
+    }
+
+    private function matchHotelIdByName(string $hotelName, array $hotelIds): int
+    {
+        $baseQuery = function () use ($hotelIds) {
+            $query = Db::name('hotels')->where('status', 1);
+            if (!empty($hotelIds)) {
+                $query->whereIn('id', $hotelIds);
+            }
+            return $query;
+        };
+
+        $exact = $baseQuery()->where('name', $hotelName)->find();
+        if ($exact) {
+            return (int)$exact['id'];
+        }
+
+        $candidates = $baseQuery()
+            ->whereLike('name', '%' . $hotelName . '%')
+            ->limit(2)
+            ->select()
+            ->toArray();
+
+        return count($candidates) === 1 ? (int)$candidates[0]['id'] : 0;
+    }
+
     private function buildOpeningSuggestions(array $project, array $tasks, int $highRisk, int $overdue): array
     {
         if (empty($tasks)) {
             return ['先生成标准开业检查清单，再按负责人和截止时间推进闭环。'];
         }
+
+        try {
+            $aiSuggestions = $this->buildAiOpeningSuggestions($project, $tasks, $highRisk, $overdue);
+            if (!empty($aiSuggestions)) {
+                return $aiSuggestions;
+            }
+        } catch (Throwable $e) {
+            // AI 不可用时继续使用规则建议，避免影响开业总览加载。
+        }
+
+        return $this->buildFallbackOpeningSuggestions($project, $tasks, $highRisk, $overdue);
+    }
+
+    private function buildAiOpeningSuggestions(array $project, array $tasks, int $highRisk, int $overdue): array
+    {
+        $categoryProgress = $this->categoryProgress($tasks);
+        $blockedTasks = array_values(array_filter($tasks, static fn(array $task): bool => ($task['status'] ?? '') === self::STATUS_BLOCKED));
+        $highRiskTasks = array_values(array_filter($tasks, static fn(array $task): bool => ($task['risk_level'] ?? '') === self::RISK_HIGH));
+        $overdueTasks = array_values(array_filter($tasks, static fn(array $task): bool => !empty($task['is_overdue'])));
+
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => '你是连锁酒店开业项目经理。只输出符合 schema 的 JSON。必须基于用户提供的真实项目、任务、逾期、高风险和分类完成率数据给建议；不得编造未提供的数据、人员、日期或外部市场事实。建议必须可执行、克制、按优先级表达，每条不超过80个中文字符。',
+            ],
+            [
+                'role' => 'user',
+                'content' => json_encode([
+                    'project' => [
+                        'project_name' => $project['project_name'] ?? '',
+                        'hotel_name' => $project['hotel_name'] ?? '',
+                        'city' => $project['city'] ?? '',
+                        'brand' => $project['brand'] ?? '',
+                        'positioning' => $project['positioning'] ?? '',
+                        'room_count' => $project['room_count'] ?? 0,
+                        'opening_date' => $project['opening_date'] ?? '',
+                        'manager_name' => $project['manager_name'] ?? '',
+                        'overall_score' => $project['overall_score'] ?? 0,
+                        'risk_level' => $project['risk_level'] ?? '',
+                        'days_left' => $this->daysLeft((string)($project['opening_date'] ?? '')),
+                    ],
+                    'metrics' => [
+                        'total_tasks' => count($tasks),
+                        'done_tasks' => count(array_filter($tasks, static fn(array $task): bool => ($task['status'] ?? '') === self::STATUS_DONE)),
+                        'high_risk_count' => $highRisk,
+                        'overdue_count' => $overdue,
+                        'blocked_count' => count($blockedTasks),
+                    ],
+                    'category_progress' => array_values($categoryProgress),
+                    'high_risk_tasks' => $this->openingSuggestionTaskSnapshot($highRiskTasks),
+                    'overdue_tasks' => $this->openingSuggestionTaskSnapshot($overdueTasks),
+                    'blocked_tasks' => $this->openingSuggestionTaskSnapshot($blockedTasks),
+                    'report_language' => 'zh-CN',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        $result = $this->client->createJsonResponse($messages, $this->openingSuggestionSchema(), 'deepseek_v4_default');
+        return $this->normalizeOpeningSuggestionList($result['suggestions'] ?? []);
+    }
+
+    private function openingSuggestionTaskSnapshot(array $tasks): array
+    {
+        return array_map(static fn(array $task): array => [
+            'category' => (string)($task['category'] ?? ''),
+            'task_name' => (string)($task['task_name'] ?? ''),
+            'is_core' => (int)($task['is_core'] ?? 0),
+            'owner_name' => (string)($task['owner_name'] ?? ''),
+            'deadline' => (string)($task['deadline'] ?? ''),
+            'status' => (string)($task['status'] ?? ''),
+            'risk_level' => (string)($task['risk_level'] ?? ''),
+            'is_overdue' => !empty($task['is_overdue']),
+            'remark' => mb_substr(trim((string)($task['remark'] ?? '')), 0, 80),
+        ], array_slice($tasks, 0, 8));
+    }
+
+    private function openingSuggestionSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['suggestions'],
+            'properties' => [
+                'suggestions' => [
+                    'type' => 'array',
+                    'minItems' => 2,
+                    'maxItems' => 5,
+                    'items' => [
+                        'type' => 'string',
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    private function normalizeOpeningSuggestionList(array $suggestions): array
+    {
+        $normalized = [];
+        foreach ($suggestions as $suggestion) {
+            $text = trim((string)$suggestion);
+            if ($text === '') {
+                continue;
+            }
+            $normalized[] = mb_substr($text, 0, 120);
+            if (count($normalized) >= 5) {
+                break;
+            }
+        }
+
+        return array_values(array_unique($normalized));
+    }
+
+    private function buildFallbackOpeningSuggestions(array $project, array $tasks, int $highRisk, int $overdue): array
+    {
         $suggestions = [];
         if ($overdue > 0) {
             $suggestions[] = '存在逾期未完成事项，建议今日完成责任人复盘并重新确认截止时间。';

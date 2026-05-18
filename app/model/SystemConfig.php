@@ -118,7 +118,6 @@ class SystemConfig extends Model
             self::KEY_SYSTEM_DESCRIPTION => '深度数据分析赋能酒店收益与决策',
             self::KEY_LOGO_URL => '',
             self::KEY_FAVICON_URL => '',
-            self::KEY_SYSTEM_DESCRIPTION => '深度数据分析赋能酒店收益与决策',
             self::KEY_SYSTEM_KEYWORDS => '酒店管理,收益分析,数据分析',
             
             // 菜单配置
@@ -153,7 +152,7 @@ class SystemConfig extends Model
             self::KEY_LOGIN_MAX_ATTEMPTS => '10',
             self::KEY_LOGIN_LOCKOUT_DURATION => '1',
             self::KEY_SESSION_TIMEOUT => '14400',
-            self::KEY_PASSWORD_MIN_LENGTH => '0',
+            self::KEY_PASSWORD_MIN_LENGTH => '6',
             self::KEY_PASSWORD_REQUIRE_SPECIAL => '0',
             
             // 通知设置

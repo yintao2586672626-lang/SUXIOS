@@ -27,7 +27,8 @@ $sources = @(
     "database/migrations/20260517_create_quant_simulation_records.sql",
     "database/migrations/20260517_create_expansion_records.sql",
     "database/migrations/20260517_create_transfer_records.sql",
-    "database/migrations/20260517_add_international_ota_report_fields.sql"
+    "database/migrations/20260517_add_international_ota_report_fields.sql",
+    "database/migrations/20260518_create_knowledge_center_tables.sql"
 )
 
 Set-Content -Path $resolvedOutput -Value "-- SuXi OS full dump generated at $(Get-Date -Format s)`r`nSET NAMES utf8mb4;`r`nSET time_zone = '+08:00';`r`n" -Encoding UTF8

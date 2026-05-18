@@ -16,6 +16,8 @@ debug.log
 
 # Test artifacts
 tests/report/
+test-results/
+output/
 
 # Git / IDE / OS
 /.git/
@@ -73,11 +75,12 @@ public/ui-design*.md
 public/ui-example.html
 
 # Public obsolete build leftovers
+public/assets/
 public/app-main.*
 public/app-styles.css
 public/app.js
+public/components.css
+public/enhanced-components.css
+public/tailwind-custom.css
 public/tailwind.min.css.bak
 public/nginx.htaccess
-
-# Optional: ignore Vite build leftovers only after confirming they are unused.
-# public/assets/

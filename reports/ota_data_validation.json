@@ -1,0 +1,48 @@
+{
+  "checkedRows": 0,
+  "errors": [],
+  "warnings": [],
+  "record_results": [],
+  "summary": {
+    "checked_rows": 0,
+    "passed_records": 0,
+    "failed_records": 0,
+    "warning_records": 0,
+    "error_count": 0,
+    "warning_count": 0
+  },
+  "details": {
+    "mappings": {
+      "ctrip_business": {
+        "required_fields": [
+          "hotel_id",
+          "hotel_name",
+          "amount",
+          "quantity",
+          "book_order_num"
+        ],
+        "field_count": 10,
+        "missing_required_fields": []
+      },
+      "meituan_rank": {
+        "required_fields": [
+          "hotel_id",
+          "hotel_name",
+          "data_value"
+        ],
+        "field_count": 7,
+        "missing_required_fields": []
+      }
+    },
+    "parser_contracts": {
+      "controller": {
+        "path": "app/controller/OnlineData.php",
+        "missing_tokens": []
+      },
+      "command": {
+        "path": "app/command/AutoFetchOnlineData.php",
+        "missing_tokens": []
+      }
+    }
+  }
+}

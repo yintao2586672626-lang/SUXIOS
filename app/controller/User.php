@@ -8,6 +8,7 @@ use app\model\Role;
 use app\model\Hotel;
 use app\model\OperationLog;
 use think\Response;
+use think\facade\Db;
 
 class User extends Base
 {
@@ -58,6 +59,10 @@ class User extends Base
             return $this->error('用户不存在');
         }
 
+        if (!$this->currentUser->isSuperAdmin() && (int)$user->hotel_id !== (int)$this->currentUser->hotel_id) {
+            return $this->error('权限不足', 403);
+        }
+
         $user->hidden(['password']);
         return $this->success($user);
     }
@@ -74,11 +79,11 @@ class User extends Base
             return $this->error('权限不足');
         }
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         $this->validate($data, [
             'username' => 'require|alphaNum|min:3|max:20',
-            'password' => 'require|min:6',
+            'password' => 'require',
             'role_id' => 'require|integer',
         ], [
             'username.require' => '用户名不能为空',
@@ -86,9 +91,13 @@ class User extends Base
             'username.min' => '用户名至少3个字符',
             'username.max' => '用户名最多20个字符',
             'password.require' => '密码不能为空',
-            'password.min' => '密码至少6个字符',
             'role_id.require' => '请选择角色',
         ]);
+
+        $passwordError = $this->validatePasswordPolicy((string)$data['password'], '密码');
+        if ($passwordError) {
+            return $this->error($passwordError);
+        }
 
         // 检查用户名唯一性
         $exists = UserModel::where('username', $data['username'])->find();
@@ -159,7 +168,7 @@ class User extends Base
             return $this->error('权限不足');
         }
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         // 用户名唯一性检查
         if (!empty($data['username']) && $data['username'] != $user->username) {
@@ -171,8 +180,9 @@ class User extends Base
         }
 
         if (!empty($data['password'])) {
-            if (strlen($data['password']) < 6) {
-                return $this->error('密码至少6个字符');
+            $passwordError = $this->validatePasswordPolicy((string)$data['password'], '密码');
+            if ($passwordError) {
+                return $this->error($passwordError);
             }
             $user->password = $data['password'];
         }
@@ -230,6 +240,11 @@ class User extends Base
             return $this->error('权限不足');
         }
 
+        $references = $this->ensureUserCanBeDeleted($user);
+        if (!empty($references)) {
+            return $this->error('该用户存在关联数据，无法删除，请改为禁用账号', 409, ['references' => $references]);
+        }
+
         $username = $user->username;
         $user->delete();
 
@@ -245,5 +260,55 @@ class User extends Base
     {
         $roles = Role::where('status', 1)->order('level', 'asc')->select();
         return $this->success($roles);
+    }
+
+    private function ensureUserCanBeDeleted(UserModel $user): array
+    {
+        $userId = (int)$user->id;
+        $checks = [
+            ['daily_reports', 'submitter_id', '日报'],
+            ['monthly_tasks', 'submitter_id', '月任务'],
+            ['user_hotel_permissions', 'user_id', '酒店权限'],
+            ['operation_logs', 'user_id', '操作日志'],
+            ['login_logs', 'user_id', '登录日志'],
+            ['quant_simulation_records', 'created_by', '量化测算记录'],
+            ['strategy_simulation_records', 'created_by', '战略推演记录'],
+            ['feasibility_reports', 'created_by', '可研报告'],
+            ['expansion_records', 'created_by', '扩张记录'],
+            ['transfer_records', 'created_by', '转让记录'],
+            ['maintenance_plans', 'created_by', '维护计划'],
+            ['device_maintenance', 'operator_id', '设备维护记录'],
+        ];
+
+        $references = [];
+        foreach ($checks as [$table, $column, $label]) {
+            $count = $this->countReferenceRows($table, $column, $userId);
+            if ($count > 0) {
+                $references[] = ['table' => $table, 'label' => $label, 'count' => $count];
+            }
+        }
+
+        return $references;
+    }
+
+    private function countReferenceRows(string $table, string $column, int $value): int
+    {
+        if (!$this->tableColumnExists($table, $column)) {
+            return 0;
+        }
+
+        return (int)Db::name($table)->where($column, $value)->count();
+    }
+
+    private function tableColumnExists(string $table, string $column): bool
+    {
+        $table = str_replace('`', '', $table);
+        $column = str_replace(['`', "'"], '', $column);
+
+        try {
+            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }

@@ -28,11 +28,17 @@
     },
     "require-dev": {
         "topthink/think-dumper": "^1.0",
-        "topthink/think-trace": "^2.0"
+        "topthink/think-trace": "^2.0",
+        "phpunit/phpunit": "^11.5"
     },
     "autoload": {
         "psr-4": {
             "app\\": "app"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
         }
     },
     "config": {
@@ -42,6 +48,7 @@
         "post-autoload-dump": [
             "@php think service:discover",
             "@php think vendor:publish"
-        ]
+        ],
+        "test": "@php vendor/bin/phpunit"
     }
 }

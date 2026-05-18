@@ -7,9 +7,12 @@ use DateTimeImmutable;
 use InvalidArgumentException;
 use RuntimeException;
 use think\facade\Db;
+use Throwable;
 
 class ExpansionService
 {
+    private LlmClient $client;
+
     private const TASKS = [
         '市场调研',
         '物业评估',
@@ -20,6 +23,11 @@ class ExpansionService
         '运营交接',
     ];
 
+    public function __construct(?LlmClient $client = null)
+    {
+        $this->client = $client ?: new LlmClient();
+    }
+
     public function evaluateMarket(array $input): array
     {
         $city = $this->requiredText($input, 'city', '城市不能为空');
@@ -27,8 +35,33 @@ class ExpansionService
         $propertyArea = $this->requiredNumber($input, 'property_area', '物业面积不能为空');
         $estimatedRent = $this->requiredNumber($input, 'estimated_rent', '预估租金不能为空');
         $targetRoomCount = (int)$this->requiredNumber($input, 'target_room_count', '目标房量不能为空');
-        $decorationLevel = $this->text($input, ['decoration_level'], '中端精选');
-        $targetCustomer = $this->text($input, ['target_customer'], '商务差旅');
+        $cityTier = $this->text($input, ['city_tier'], '');
+        $decorationLevel = $this->text($input, ['decoration_level'], '中端精选-标准');
+        $primaryCustomer = $this->text($input, ['primary_customer'], '商务差旅');
+        $secondaryCustomer = $this->text($input, ['secondary_customer'], '会议会展');
+        $targetCustomer = $this->text($input, ['target_customer'], $primaryCustomer . '+' . $secondaryCustomer);
+        if (trim((string)($input['primary_customer'] ?? '')) === '' && $targetCustomer !== '') {
+            $customerParts = preg_split('/[+＋\/、,，]/u', $targetCustomer) ?: [];
+            $customerParts = array_values(array_filter(array_map(static fn($value) => trim((string)$value), $customerParts)));
+            $primaryCustomer = $customerParts[0] ?? $primaryCustomer;
+            $secondaryCustomer = $customerParts[1] ?? $secondaryCustomer;
+        }
+        $leaseYears = $this->optionalNumber($input, 'lease_years');
+        $rentFreeMonths = $this->optionalNumber($input, 'rent_free_months');
+        $depositMonths = $this->optionalNumber($input, 'deposit_months');
+        $transferFee = $this->optionalNumber($input, 'transfer_fee');
+        $fitoutBudget = $this->optionalNumber($input, 'fitout_budget');
+        $expectedAdr = $this->optionalNumber($input, 'expected_adr');
+        $expectedOccupancyRate = $this->optionalNumber($input, 'expected_occupancy_rate');
+        $competitorCount = $this->optionalNumber($input, 'competitor_count');
+        $otaMarketPenetrationRate = $this->optionalNumber($input, 'ota_market_penetration_rate');
+        if ($otaMarketPenetrationRate === null) {
+            $otaMarketPenetrationRate = $this->optionalNumber($input, 'ota_platform_market_penetration_rate');
+        }
+        $parkingSpaces = $this->optionalNumber($input, 'parking_spaces');
+        $assetType = $this->text($input, ['asset_type'], '集中楼层');
+        $operationModel = $this->text($input, ['operation_model'], '直营');
+        $contractStatus = $this->text($input, ['contract_status'], '待谈判');
 
         if ($propertyArea <= 0) {
             throw new InvalidArgumentException('物业面积必须大于0');
@@ -98,13 +131,83 @@ class ExpansionService
             $score -= 4;
             $riskPoints[] = '装修档次偏高时需控制单房投入，避免回收周期拉长';
         }
+        if ($leaseYears !== null && $leaseYears < 6) {
+            $score -= 8;
+            $riskPoints[] = '租期低于6年，装修摊销和回收周期存在压力';
+        } elseif ($leaseYears !== null && $leaseYears >= 8) {
+            $score += 4;
+            $reasons[] = '租期具备中长期经营稳定性';
+        }
+        if ($rentFreeMonths !== null && $rentFreeMonths < 3) {
+            $score -= 5;
+            $riskPoints[] = '免租期偏短，筹建期现金流缓冲不足';
+        } elseif ($rentFreeMonths !== null && $rentFreeMonths >= 4) {
+            $score += 4;
+            $reasons[] = '免租期可覆盖部分筹建爬坡压力';
+        }
+        if ($fitoutBudget !== null && $targetRoomCount > 0) {
+            $fitoutPerRoom = $fitoutBudget * 10000 / max(1, $targetRoomCount);
+            if ($fitoutPerRoom > 90000) {
+                $score -= 6;
+                $riskPoints[] = '单房装修投入偏高，需压缩非必要配置';
+            } elseif ($fitoutPerRoom > 0 && $fitoutPerRoom <= 65000) {
+                $score += 3;
+                $reasons[] = '单房装修投入处于较可控区间';
+            }
+        }
+        if ($depositMonths !== null && $depositMonths > 6) {
+            $score -= 4;
+            $riskPoints[] = '押金月数偏高，会抬升前期资金占用';
+        }
+        if ($transferFee !== null && $transferFee > 0 && $targetRoomCount > 0 && ($transferFee * 10000 / max(1, $targetRoomCount)) > 50000) {
+            $score -= 5;
+            $riskPoints[] = '转让费摊到单房后偏高，需重新核算回本周期';
+        }
+        if ($expectedAdr !== null && $expectedAdr > 0) {
+            if ($expectedAdr >= $rentPerRoom / 9) {
+                $score += 4;
+                $reasons[] = '目标ADR对租金承压具备一定覆盖能力';
+            } else {
+                $score -= 4;
+                $riskPoints[] = '目标ADR偏低，需复核价格带与租金匹配度';
+            }
+        }
+        if ($expectedOccupancyRate !== null && $expectedOccupancyRate > 0) {
+            if ($expectedOccupancyRate < 65) {
+                $score -= 5;
+                $riskPoints[] = '目标入住率低于65%，项目爬坡安全边际不足';
+            } elseif ($expectedOccupancyRate >= 78) {
+                $score += 3;
+                $reasons[] = '目标入住率达到成熟门店经营区间';
+            }
+        }
+        if ($competitorCount !== null && $competitorCount > 25) {
+            $score -= 5;
+            $riskPoints[] = '周边竞品数量偏多，需强化差异化和价格带验证';
+        }
+        if ($otaMarketPenetrationRate === null) {
+            $missing[] = 'OTA平台市场渗透率';
+        } elseif ($otaMarketPenetrationRate < 35) {
+            $score -= 6;
+            $riskPoints[] = 'OTA平台市场渗透率偏低，线上自然流量和转化基础不足';
+        } elseif ($otaMarketPenetrationRate >= 60) {
+            $score += 5;
+            $reasons[] = 'OTA平台市场渗透率较高，线上获客基础具备验证价值';
+        } else {
+            $score += 2;
+            $reasons[] = 'OTA平台市场渗透率处于可验证区间，需结合竞品价格带复核';
+        }
+        if ($parkingSpaces !== null && $parkingSpaces > 0 && $targetRoomCount > 0 && $parkingSpaces / $targetRoomCount >= 0.25) {
+            $score += 2;
+            $reasons[] = '停车配比可增强自驾及商务客群承接';
+        }
 
         $score = $this->score($score);
         $riskLevel = $this->riskLevel($score, $riskPoints);
         $priceBand = $this->priceBand($decorationLevel, $rentPerRoom);
         $competition = $businessArea === '' ? '待补充商圈后判断' : ($score >= 78 ? '中等竞争，可通过产品差异化切入' : '竞争压力偏高，需补充竞品价格与点评数据');
 
-        return [
+        $result = [
             'market_heat_score' => $score,
             'supply_competition_strength' => $competition,
             'price_band_suggestion' => $priceBand,
@@ -112,7 +215,7 @@ class ExpansionService
             'recommended_property_type' => $this->propertyType($targetRoomCount, $areaPerRoom),
             'ai_operation_suggestions' => [
                 $score >= 75 ? '可进入物业尽调和竞品实采，重点验证周边同档酒店ADR与出租率' : '先重谈租金或调整房量模型，再进入投资立项',
-                $businessArea === '' ? '补充商圈、地铁/办公/医院/景区等客源锚点信息' : '用3公里竞品价格、评分、点评量校准价格带',
+                $businessArea === '' ? '补充商圈与OTA平台渗透率数据' : '用3公里竞品价格、评分、点评量校准价格带',
                 '将租金、免租期、装修单房投入拆成保守/基准/乐观三套现金流',
             ],
             'not_recommended_risks' => array_values(array_unique($riskPoints ?: ['暂无硬性否决项，但需接入真实竞品和客流数据后复核'])),
@@ -121,10 +224,42 @@ class ExpansionService
                 'rent_per_room' => round($rentPerRoom, 0),
                 'rent_per_square' => round($rentPerSquare, 1),
             ],
+            'investment_conditions' => [
+                ['label' => '城市线级', 'value' => $cityTier !== '' ? $cityTier : '待补充'],
+                ['label' => '物业形态', 'value' => $assetType],
+                ['label' => '经营模式', 'value' => $operationModel],
+                ['label' => '合同状态', 'value' => $contractStatus],
+                ['label' => '主客群', 'value' => $primaryCustomer],
+                ['label' => '辅助客群', 'value' => $secondaryCustomer],
+                ['label' => '租期', 'value' => $leaseYears !== null ? round($leaseYears, 1) . '年' : '待补充'],
+                ['label' => '免租期', 'value' => $rentFreeMonths !== null ? round($rentFreeMonths, 1) . '个月' : '待补充'],
+                ['label' => '押金', 'value' => $depositMonths !== null ? round($depositMonths, 1) . '个月' : '待补充'],
+                ['label' => '转让费', 'value' => $transferFee !== null ? round($transferFee, 1) . '万元' : '待补充'],
+                ['label' => '装修预算', 'value' => $fitoutBudget !== null ? round($fitoutBudget, 1) . '万元' : '待补充'],
+                ['label' => '目标ADR', 'value' => $expectedAdr !== null ? round($expectedAdr, 0) . '元' : '待补充'],
+                ['label' => '目标入住率', 'value' => $expectedOccupancyRate !== null ? round($expectedOccupancyRate, 1) . '%' : '待补充'],
+                ['label' => '周边竞品', 'value' => $competitorCount !== null ? round($competitorCount, 0) . '家' : '待补充'],
+                ['label' => 'OTA平台市场渗透率', 'value' => $otaMarketPenetrationRate !== null ? round($otaMarketPenetrationRate, 1) . '%' : '待补充'],
+            ],
             'decision' => $score >= 80 ? '建议推进' : ($score >= 65 ? '谨慎推进' : '不建议按当前条件推进'),
             'data_status' => $this->dataStatus($missing),
             'rule_reasons' => array_values(array_unique($reasons)),
         ];
+
+        $modelKey = trim((string)($input['model_key'] ?? $input['modelKey'] ?? 'deepseek_v4_default'));
+        if ($modelKey === '') {
+            $modelKey = 'deepseek_v4_default';
+        }
+        $aiEvaluation = $this->buildMarketAiEvaluation($input, $result, $modelKey);
+        $result['ai_evaluation'] = $aiEvaluation;
+        if ($aiEvaluation['source'] === 'llm') {
+            $result['ai_operation_suggestions'] = array_values(array_filter(array_map(
+                static fn(array $item): string => trim((string)($item['detail'] ?? $item['title'] ?? '')),
+                $aiEvaluation['recommendations'] ?? []
+            ))) ?: $result['ai_operation_suggestions'];
+        }
+
+        return $result;
     }
 
     public function buildBenchmarkModel(array $input): array
@@ -347,6 +482,29 @@ class ExpansionService
         return true;
     }
 
+    public function archiveByType(string $recordType, int $userId, bool $isSuperAdmin): int
+    {
+        $this->ensureTable();
+
+        $recordType = trim($recordType);
+        if (!in_array($recordType, ['market', 'benchmark', 'collaboration'], true)) {
+            throw new InvalidArgumentException('扩张记录类型无效');
+        }
+
+        $query = Db::name('expansion_records')
+            ->where('record_type', $recordType)
+            ->whereNull('deleted_at');
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $userId);
+        }
+
+        $now = date('Y-m-d H:i:s');
+        return (int)$query->update([
+            'deleted_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
     public function ensureTable(): void
     {
         Db::execute("
@@ -455,6 +613,233 @@ class ExpansionService
         return function_exists('mb_substr') ? mb_substr($value, 0, $length) : substr($value, 0, $length);
     }
 
+    private function buildMarketAiEvaluation(array $input, array $result, string $modelKey): array
+    {
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => '你是酒店投资市场评估分析师。只输出符合 schema 的 JSON。必须基于用户输入和市场评估结果生成投决复核意见；不得改写或发明财务数字；缺少真实市场、竞品或 OTA 数据时写入 assumptions；建议必须可执行、克制、面向投资决策。',
+            ],
+            [
+                'role' => 'user',
+                'content' => json_encode([
+                    'input' => $input,
+                    'rule_result' => $result,
+                    'report_language' => 'zh-CN',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        try {
+            $evaluation = $this->client->createJsonResponse($messages, $this->marketAiEvaluationSchema(), $modelKey);
+            return $this->normalizeMarketAiEvaluation($evaluation, [
+                'source' => 'llm',
+                'model_key' => $modelKey,
+                'generated_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable $e) {
+            return $this->buildFallbackMarketAiEvaluation($result, $modelKey, $e->getMessage());
+        }
+    }
+
+    private function buildFallbackMarketAiEvaluation(array $result, string $modelKey, string $reason): array
+    {
+        $score = (int)($result['market_heat_score'] ?? 0);
+        $riskLevel = (string)($result['investment_risk_level'] ?? '中风险');
+        $decision = (string)($result['decision'] ?? '谨慎推进');
+        $suggestions = $this->stringList($result['ai_operation_suggestions'] ?? []);
+        $risks = $this->stringList($result['not_recommended_risks'] ?? []);
+
+        return [
+            'source' => 'fallback',
+            'model_key' => $modelKey,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'summary' => '本地规则评估显示，市场热度评分为' . $score . '分，投资风险为' . $riskLevel . '，当前建议为' . $decision . '。',
+            'decision' => $decision,
+            'market_judgement' => [
+                'supply_competition_strength' => (string)($result['supply_competition_strength'] ?? ''),
+                'price_band_suggestion' => (string)($result['price_band_suggestion'] ?? ''),
+                'decision' => $decision,
+            ],
+            'recommendations' => array_map(
+                static fn(string $item): array => ['priority' => 'P1', 'title' => '经营建议', 'detail' => $item],
+                array_slice($suggestions, 0, 5)
+            ),
+            'watch_points' => [
+                [
+                    'metric' => '真实竞品价格带',
+                    'threshold' => '补齐3公里同档竞品ADR、评分、点评量',
+                    'action' => '未补齐前仅作为初筛结论，不进入最终投决。',
+                ],
+                [
+                    'metric' => '租金承压',
+                    'threshold' => '单房月租与租金坪效高于模型阈值',
+                    'action' => '优先重谈租金、免租期或调整房量模型。',
+                ],
+            ],
+            'assumptions' => ['AI模型不可用时启用本地规则兜底。', '尚未接入真实市场、竞品和 OTA 复核数据。'],
+            'error' => mb_substr(trim($reason), 0, 120),
+            'risk_points' => $risks,
+        ];
+    }
+
+    private function normalizeMarketAiEvaluation(mixed $raw, array $defaults = []): array
+    {
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        return [
+            'source' => trim((string)($raw['source'] ?? $defaults['source'] ?? '')),
+            'model_key' => trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? '')),
+            'generated_at' => trim((string)($raw['generated_at'] ?? $raw['generatedAt'] ?? $defaults['generated_at'] ?? '')),
+            'summary' => mb_substr(trim((string)($raw['summary'] ?? '')), 0, 300),
+            'decision' => mb_substr(trim((string)($raw['decision'] ?? '')), 0, 160),
+            'market_judgement' => $this->normalizeMarketJudgement($raw['market_judgement'] ?? $raw['marketJudgement'] ?? []),
+            'recommendations' => $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            'watch_points' => $this->normalizeAiWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []),
+            'assumptions' => $this->stringList($raw['assumptions'] ?? []),
+            'error' => mb_substr(trim((string)($raw['error'] ?? '')), 0, 120),
+        ];
+    }
+
+    private function normalizeMarketJudgement(mixed $raw): array
+    {
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        return [
+            'supply_competition_strength' => mb_substr(trim((string)($raw['supply_competition_strength'] ?? $raw['supplyCompetitionStrength'] ?? '')), 0, 160),
+            'price_band_suggestion' => mb_substr(trim((string)($raw['price_band_suggestion'] ?? $raw['priceBandSuggestion'] ?? '')), 0, 160),
+            'decision' => mb_substr(trim((string)($raw['decision'] ?? '')), 0, 160),
+        ];
+    }
+
+    private function normalizeAiRecommendationItems(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $title = trim((string)($item['title'] ?? ''));
+            $detail = trim((string)($item['detail'] ?? $item['content'] ?? ''));
+            if ($title === '' && $detail === '') {
+                continue;
+            }
+            $priority = strtoupper(trim((string)($item['priority'] ?? 'P1')));
+            if (!in_array($priority, ['P0', 'P1', 'P2'], true)) {
+                $priority = 'P1';
+            }
+            $normalized[] = [
+                'priority' => $priority,
+                'title' => $title !== '' ? mb_substr($title, 0, 80) : '市场评估建议',
+                'detail' => mb_substr($detail, 0, 220),
+            ];
+        }
+
+        return array_slice($normalized, 0, 5);
+    }
+
+    private function normalizeAiWatchPointItems(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $metric = trim((string)($item['metric'] ?? ''));
+            $threshold = trim((string)($item['threshold'] ?? ''));
+            $action = trim((string)($item['action'] ?? ''));
+            if ($metric === '' && $threshold === '' && $action === '') {
+                continue;
+            }
+            $normalized[] = [
+                'metric' => $metric !== '' ? mb_substr($metric, 0, 80) : '关键指标',
+                'threshold' => mb_substr($threshold, 0, 160),
+                'action' => mb_substr($action, 0, 220),
+            ];
+        }
+
+        return array_slice($normalized, 0, 5);
+    }
+
+    private function stringList(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $list = [];
+        foreach ($items as $item) {
+            $value = trim((string)$item);
+            if ($value !== '') {
+                $list[] = mb_substr($value, 0, 220);
+            }
+        }
+
+        return array_values(array_unique($list));
+    }
+
+    private function marketAiEvaluationSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['summary', 'decision', 'market_judgement', 'recommendations', 'watch_points', 'assumptions'],
+            'properties' => [
+                'summary' => ['type' => 'string'],
+                'decision' => ['type' => 'string'],
+                'market_judgement' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'required' => ['supply_competition_strength', 'price_band_suggestion', 'decision'],
+                    'properties' => [
+                        'supply_competition_strength' => ['type' => 'string'],
+                        'price_band_suggestion' => ['type' => 'string'],
+                        'decision' => ['type' => 'string'],
+                    ],
+                ],
+                'recommendations' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['priority', 'title', 'detail'],
+                        'properties' => [
+                            'priority' => ['type' => 'string', 'enum' => ['P0', 'P1', 'P2']],
+                            'title' => ['type' => 'string'],
+                            'detail' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'watch_points' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['metric', 'threshold', 'action'],
+                        'properties' => [
+                            'metric' => ['type' => 'string'],
+                            'threshold' => ['type' => 'string'],
+                            'action' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'assumptions' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ];
+    }
+
     private function normalizeTasks(array $tasks, string $currentStage, DateTimeImmutable $today): array
     {
         $inputByName = [];
@@ -545,6 +930,14 @@ class ExpansionService
             throw new InvalidArgumentException($message . '，且必须为数字');
         }
         return (float)$input[$key];
+    }
+
+    private function optionalNumber(array $input, string $key): ?float
+    {
+        if (!array_key_exists($key, $input) || $input[$key] === '' || $input[$key] === null) {
+            return null;
+        }
+        return is_numeric($input[$key]) ? (float)$input[$key] : null;
     }
 
     private function text(array $input, array $keys, string $default = ''): string

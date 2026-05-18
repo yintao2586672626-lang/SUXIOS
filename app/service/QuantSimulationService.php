@@ -4,9 +4,17 @@ declare(strict_types=1);
 namespace app\service;
 
 use think\facade\Db;
+use Throwable;
 
 class QuantSimulationService
 {
+    private LlmClient $client;
+
+    public function __construct(?LlmClient $client = null)
+    {
+        $this->client = $client ?: new LlmClient();
+    }
+
     public function calculateAndSave(array $payload, int $userId): array
     {
         $this->ensureTable();
@@ -20,6 +28,12 @@ class QuantSimulationService
         $result = $this->calculateSimulation($input);
         $scenarios = $this->buildScenarios($input);
         $riskHints = $this->buildRiskHints($result);
+        $modelKey = trim((string)($payload['model_key'] ?? $payload['modelKey'] ?? 'deepseek_v4_default'));
+        if ($modelKey === '') {
+            $modelKey = 'deepseek_v4_default';
+        }
+        $modelAnalysis = $this->buildModelAnalysis($input, $result, $scenarios, $riskHints, $modelKey);
+        $result['modelAnalysis'] = $modelAnalysis;
         $now = date('Y-m-d H:i:s');
 
         $id = (int)Db::name('quant_simulation_records')->insertGetId([
@@ -117,21 +131,22 @@ class QuantSimulationService
     private function calculateSimulation(array $input): array
     {
         $roomCount = (float)$input['roomCount'];
-        $adr = (float)$input['adr'];
-        $occupancyRate = $this->percentToDecimal((float)$input['occupancyRate']);
+        $revenue = $this->calculateRevenueSummary($input);
+        $adr = (float)$revenue['adr'];
+        $occupancyRate = $this->percentToDecimal((float)$revenue['occupancyRate']);
         $otaRate = $this->percentToDecimal((float)$input['otaCommissionRate']);
-        $availableRoomNights = $roomCount * 30;
-        $roomRevenue = $availableRoomNights * $occupancyRate * $adr;
-        $monthlyRevenue = $roomRevenue + (float)$input['otherIncome'];
+        $availableRoomNights = (float)$revenue['availableRoomNights'];
+        $roomRevenue = (float)$revenue['roomRevenue'];
+        $monthlyRevenue = (float)$revenue['monthlyRevenue'];
         $otaCommission = $roomRevenue * $otaRate;
-        $monthlyCost =
+        $fixedMonthlyCost =
             (float)$input['monthlyRent']
             + (float)$input['laborCost']
             + (float)$input['utilityCost']
-            + $otaCommission
             + (float)$input['consumableCost']
             + (float)$input['maintenanceCost']
             + (float)$input['otherFixedCost'];
+        $monthlyCost = $fixedMonthlyCost + $otaCommission;
         $monthlyNetCashflow = $monthlyRevenue - $monthlyCost;
         $totalInvestment =
             (float)$input['decorationInvestment']
@@ -141,7 +156,13 @@ class QuantSimulationService
         $revPAR = $adr * $occupancyRate;
         $paybackMonths = $monthlyNetCashflow > 0 ? $totalInvestment / $monthlyNetCashflow : null;
         $rentRatio = $monthlyRevenue > 0 ? (float)$input['monthlyRent'] / $monthlyRevenue : 0;
-        $breakEvenOccupancy = $roomCount > 0 && $adr > 0 ? $monthlyCost / ($roomCount * 30 * $adr) : 0;
+        $breakEvenOccupancy = $this->calculateBreakEvenOccupancy(
+            $fixedMonthlyCost,
+            (float)$input['otherIncome'],
+            $availableRoomNights,
+            $adr,
+            $otaRate
+        );
 
         return [
             'availableRoomNights' => round($availableRoomNights, 2),
@@ -157,6 +178,26 @@ class QuantSimulationService
             'breakEvenOccupancy' => round($breakEvenOccupancy, 4),
             'riskLevel' => $this->calculateRiskLevel($monthlyNetCashflow, $paybackMonths, $rentRatio, $breakEvenOccupancy),
         ];
+    }
+
+    private function calculateBreakEvenOccupancy(
+        float $fixedMonthlyCost,
+        float $otherIncome,
+        float $availableRoomNights,
+        float $adr,
+        float $otaRate
+    ): float {
+        $requiredRoomMargin = max(0.0, $fixedMonthlyCost - $otherIncome);
+        if ($requiredRoomMargin <= 0) {
+            return 0.0;
+        }
+
+        $netRoomRevenuePerFullOccupancy = $availableRoomNights * $adr * max(0.0, 1 - $otaRate);
+        if ($netRoomRevenuePerFullOccupancy <= 0) {
+            return 1.0;
+        }
+
+        return $requiredRoomMargin / $netRoomRevenuePerFullOccupancy;
     }
 
     private function buildScenarios(array $input): array
@@ -175,13 +216,83 @@ class QuantSimulationService
             $scenarioInput['adr'] = max(1, (float)$input['adr'] - 20);
             $scenarioInput['occupancyRate'] = max(0, (float)$input['occupancyRate'] - 10);
             $scenarioInput['otherIncome'] = max(0, (float)$input['otherIncome'] - 1700);
+            $this->adjustScenarioRevenueDetails($scenarioInput, -20, -10, (float)$scenarioInput['otherIncome']);
         } elseif ($scenarioType === '乐观情景') {
             $scenarioInput['adr'] = max(1, (float)$input['adr'] + 20);
             $scenarioInput['occupancyRate'] = min(100, (float)$input['occupancyRate'] + 8);
             $scenarioInput['otherIncome'] = max(0, (float)$input['otherIncome'] + 2000);
+            $this->adjustScenarioRevenueDetails($scenarioInput, 20, 8, (float)$scenarioInput['otherIncome']);
         }
 
         return array_merge(['scenarioType' => $scenarioType], $this->calculateSimulation($scenarioInput));
+    }
+
+    private function calculateRevenueSummary(array $input): array
+    {
+        $roomCount = (float)$input['roomCount'];
+        $totalDays = 0.0;
+        $occupiedRoomNights = 0.0;
+        $roomRevenue = 0.0;
+
+        foreach ($this->roomRevenueSegments() as $segment) {
+            $days = max(0.0, (float)($input[$segment['daysKey']] ?? 0));
+            $adr = max(0.0, (float)($input[$segment['adrKey']] ?? 0));
+            $occupancy = $this->percentToDecimal($this->clamp((float)($input[$segment['occupancyKey']] ?? 0), 0, 100));
+            $totalDays += $days;
+            $occupiedRoomNights += $roomCount * $days * $occupancy;
+            $roomRevenue += $roomCount * $days * $occupancy * $adr;
+        }
+
+        if ($totalDays <= 0) {
+            $totalDays = 30.0;
+            $occupiedRoomNights = $roomCount * $totalDays * $this->percentToDecimal((float)$input['occupancyRate']);
+            $roomRevenue = $occupiedRoomNights * (float)$input['adr'];
+        }
+
+        $availableRoomNights = $roomCount * $totalDays;
+        $adr = $occupiedRoomNights > 0 ? $roomRevenue / $occupiedRoomNights : (float)$input['adr'];
+        $occupancyRate = $availableRoomNights > 0 ? $occupiedRoomNights / $availableRoomNights * 100 : (float)$input['occupancyRate'];
+        $otherIncome = array_sum(array_map(
+            fn(array $field): float => (float)($input[$field['key']] ?? 0),
+            $this->otherIncomeFields()
+        ));
+
+        return [
+            'totalDays' => round($totalDays, 2),
+            'availableRoomNights' => round($availableRoomNights, 2),
+            'occupiedRoomNights' => round($occupiedRoomNights, 2),
+            'roomRevenue' => round($roomRevenue, 2),
+            'otherIncome' => round($otherIncome, 2),
+            'monthlyRevenue' => round($roomRevenue + $otherIncome, 2),
+            'adr' => round($adr, 2),
+            'occupancyRate' => round($occupancyRate, 2),
+        ];
+    }
+
+    private function adjustScenarioRevenueDetails(array &$input, float $adrDelta, float $occupancyDelta, float $targetOtherIncome): void
+    {
+        foreach ($this->roomRevenueSegments() as $segment) {
+            $input[$segment['adrKey']] = max(1.0, (float)($input[$segment['adrKey']] ?? 0) + $adrDelta);
+            $input[$segment['occupancyKey']] = $this->clamp((float)($input[$segment['occupancyKey']] ?? 0) + $occupancyDelta, 0, 100);
+        }
+
+        $fields = $this->otherIncomeFields();
+        $currentOtherIncome = array_sum(array_map(
+            fn(array $field): float => (float)($input[$field['key']] ?? 0),
+            $fields
+        ));
+        $targetOtherIncome = max(0.0, $targetOtherIncome);
+        if ($currentOtherIncome > 0) {
+            $ratio = $targetOtherIncome / $currentOtherIncome;
+            foreach ($fields as $field) {
+                $input[$field['key']] = round((float)($input[$field['key']] ?? 0) * $ratio, 2);
+            }
+            return;
+        }
+
+        foreach ($fields as $index => $field) {
+            $input[$field['key']] = $index === 0 ? round($targetOtherIncome, 2) : 0.0;
+        }
     }
 
     private function buildRiskHints(array $result): array
@@ -213,14 +324,151 @@ class QuantSimulationService
         ];
     }
 
+    private function buildModelAnalysis(array $input, array $result, array $scenarios, array $riskHints, string $modelKey): array
+    {
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => '你是酒店投资量化模拟分析师。只输出符合 schema 的 JSON。必须基于用户输入、本地公式结果和三情景结果生成经营解读；不得改写或发明财务数字；缺少真实经营数据时明确写入 assumptions；建议必须可执行、克制、面向投决复核。',
+            ],
+            [
+                'role' => 'user',
+                'content' => json_encode([
+                    'input' => $input,
+                    'deterministic_result' => $result,
+                    'scenarios' => $scenarios,
+                    'formula_risk_hints' => $riskHints,
+                    'report_language' => 'zh-CN',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        try {
+            $analysis = $this->client->createJsonResponse($messages, $this->modelAnalysisSchema(), $modelKey);
+            return $this->normalizeModelAnalysis($analysis, [
+                'source' => 'llm',
+                'model_key' => $modelKey,
+                'generated_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable $e) {
+            return $this->buildFallbackModelAnalysis($result, $scenarios, $riskHints, $modelKey, $e->getMessage());
+        }
+    }
+
+    private function buildFallbackModelAnalysis(array $result, array $scenarios, array $riskHints, string $modelKey, string $reason): array
+    {
+        $basePayback = $result['paybackMonths'] ?? null;
+        $paybackText = $basePayback === null ? '暂不可回本' : round((float)$basePayback, 1) . '个月';
+        $riskLevel = (string)($result['riskLevel'] ?? '中风险');
+        $netCashflow = (float)($result['monthlyNetCashflow'] ?? 0);
+        $rentRatio = (float)($result['rentRatio'] ?? 0);
+        $breakEven = (float)($result['breakEvenOccupancy'] ?? 0);
+
+        $decision = ($riskLevel === '高风险' || $netCashflow <= 0)
+            ? '暂缓推进，先复核租金、ADR、入住率和投资规模。'
+            : '可进入下一轮复核，重点校验核心经营假设。';
+
+        $scenarioSummary = array_map(
+            fn(array $row): string => (string)($row['scenarioType'] ?? '-') . '净现金流' . round((float)($row['monthlyNetCashflow'] ?? 0), 2),
+            $scenarios
+        );
+
+        return [
+            'source' => 'fallback',
+            'model_key' => $modelKey,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'summary' => '本地量化结果显示，基准情景月净现金流为' . round($netCashflow, 2) . '元，回本周期为' . $paybackText . '，综合风险为' . $riskLevel . '。',
+            'decision' => $decision,
+            'recommendations' => [
+                [
+                    'priority' => 'P0',
+                    'title' => '复核核心假设',
+                    'detail' => '逐项校验ADR、入住率、月租金、OTA佣金率和总投资，避免单一乐观假设推动投决。',
+                ],
+                [
+                    'priority' => 'P1',
+                    'title' => '压测保守情景',
+                    'detail' => '以保守情景作为底线，确认现金流、回本周期和保本入住率仍在可承受范围内。',
+                ],
+                [
+                    'priority' => 'P2',
+                    'title' => '补齐经营样本',
+                    'detail' => '接入近期日报、OTA订单、竞品价格和商圈客源数据后重新测算。',
+                ],
+            ],
+            'watch_points' => [
+                [
+                    'metric' => '月净现金流',
+                    'threshold' => '连续为正且覆盖租金、人工和OTA佣金波动',
+                    'action' => '若低于安全垫，优先压降租金或缩减装修投入。',
+                ],
+                [
+                    'metric' => '租金占比',
+                    'threshold' => round($rentRatio * 100, 1) . '%',
+                    'action' => '超过30%需重谈租金或提高ADR，超过40%按高风险处理。',
+                ],
+                [
+                    'metric' => '保本入住率',
+                    'threshold' => round($breakEven * 100, 1) . '%',
+                    'action' => '高于55%需补充淡季入住率和竞品供给验证。',
+                ],
+            ],
+            'assumptions' => array_values(array_unique(array_merge(
+                array_map(fn(array $hint): string => (string)($hint['title'] ?? '') . '：' . (string)($hint['content'] ?? ''), $riskHints),
+                [
+                    '模型解读未生成，已使用本地规则兜底：' . mb_substr(trim($reason), 0, 120),
+                    '本次未引入真实经营复核数据，投决前需补齐经营、OTA和竞品样本。',
+                    '三情景现金流参考：' . implode('；', $scenarioSummary),
+                ]
+            ))),
+            'error' => mb_substr(trim($reason), 0, 120),
+        ];
+    }
+
+    private function modelAnalysisSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['summary', 'decision', 'recommendations', 'watch_points', 'assumptions'],
+            'properties' => [
+                'summary' => ['type' => 'string'],
+                'decision' => ['type' => 'string'],
+                'recommendations' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['priority', 'title', 'detail'],
+                        'properties' => [
+                            'priority' => ['type' => 'string', 'enum' => ['P0', 'P1', 'P2']],
+                            'title' => ['type' => 'string'],
+                            'detail' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'watch_points' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['metric', 'threshold', 'action'],
+                        'properties' => [
+                            'metric' => ['type' => 'string'],
+                            'threshold' => ['type' => 'string'],
+                            'action' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'assumptions' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ];
+    }
+
     private function normalizeInput(array $raw): array
     {
         $input = [
             'roomCount' => $this->number($raw, 'roomCount', 'room_count'),
-            'decorationInvestment' => $this->number($raw, 'decorationInvestment', 'decoration_investment'),
-            'furnitureInvestment' => $this->number($raw, 'furnitureInvestment', 'equipment_investment'),
-            'openingCost' => $this->number($raw, 'openingCost', 'pre_opening_cost'),
-            'otherInvestment' => $this->number($raw, 'otherInvestment', 'other_investment'),
             'adr' => $this->number($raw, 'adr', 'adr'),
             'occupancyRate' => $this->number($raw, 'occupancyRate', 'occupancy_rate'),
             'otherIncome' => $this->number($raw, 'otherIncome', 'other_income'),
@@ -232,12 +480,62 @@ class QuantSimulationService
             'maintenanceCost' => $this->number($raw, 'maintenanceCost', 'maintenance_cost'),
             'otherFixedCost' => $this->number($raw, 'otherFixedCost', 'other_fixed_cost'),
         ];
+        $input = array_merge(
+            $input,
+            $this->investmentGroup($raw, 'decorationInvestment', 'decoration_investment', [
+                'decorationHardCost' => 'decoration_hard_cost',
+                'decorationSoftCost' => 'decoration_soft_cost',
+                'fireSafetyCost' => 'fire_safety_cost',
+                'signageDesignCost' => 'signage_design_cost',
+            ]),
+            $this->investmentGroup($raw, 'furnitureInvestment', 'equipment_investment', [
+                'roomFurnitureCost' => 'room_furniture_cost',
+                'applianceEquipmentCost' => 'appliance_equipment_cost',
+                'linenSuppliesCost' => 'linen_supplies_cost',
+                'techSystemCost' => 'tech_system_cost',
+            ]),
+            $this->investmentGroup($raw, 'openingCost', 'pre_opening_cost', [
+                'licensePermitCost' => 'license_permit_cost',
+                'openingMarketingCost' => 'opening_marketing_cost',
+                'recruitmentTrainingCost' => 'recruitment_training_cost',
+                'openingMaterialCost' => 'opening_material_cost',
+            ]),
+            $this->investmentGroup($raw, 'otherInvestment', 'other_investment', [
+                'contingencyCost' => 'contingency_cost',
+                'rentDepositCost' => 'rent_deposit_cost',
+                'otherProjectCost' => 'other_project_cost',
+            ])
+        );
+        $input = array_merge($input, $this->roomRevenueGroup($raw, $input));
+        $input = array_merge($input, $this->otherIncomeGroup($raw, $input));
+        $revenue = $this->calculateRevenueSummary($input);
+        $input['adr'] = (float)$revenue['adr'];
+        $input['occupancyRate'] = (float)$revenue['occupancyRate'];
+        $input['otherIncome'] = (float)$revenue['otherIncome'];
 
         if ($input['roomCount'] <= 0) {
             throw new \InvalidArgumentException('房间数必须大于0');
         }
         if ($input['adr'] <= 0) {
             throw new \InvalidArgumentException('ADR必须大于0');
+        }
+        $totalRevenueDays = 0.0;
+        foreach ($this->roomRevenueSegments() as $segment) {
+            $days = (float)$input[$segment['daysKey']];
+            $occupancy = (float)$input[$segment['occupancyKey']];
+            if ($days < 0) {
+                throw new \InvalidArgumentException('客房收入天数不能为负数');
+            }
+            if ((float)$input[$segment['adrKey']] < 0) {
+                throw new \InvalidArgumentException('客房ADR不能为负数');
+            }
+            if ($occupancy < 0 || $occupancy > 100) {
+                throw new \InvalidArgumentException('客房入住率必须在0到100之间');
+            }
+            $totalRevenueDays += $days;
+        }
+        if ($totalRevenueDays <= 0 || $totalRevenueDays > 31) {
+            throw new \InvalidArgumentException('客房收入天数必须在1到31天之间');
         }
         if ($input['occupancyRate'] < 0 || $input['occupancyRate'] > 100) {
             throw new \InvalidArgumentException('入住率必须在0到100之间');
@@ -275,6 +573,7 @@ class QuantSimulationService
     private function formatRecord(array $row, bool $withDetail): array
     {
         $result = $this->decodeJson($row['result_json'] ?? '');
+        $modelAnalysis = $this->normalizeModelAnalysis($result['modelAnalysis'] ?? $result['model_analysis'] ?? []);
         $record = [
             'id' => (int)$row['id'],
             'project_name' => (string)($row['project_name'] ?? ''),
@@ -296,9 +595,107 @@ class QuantSimulationService
             $record['result'] = $result;
             $record['scenarios'] = $this->decodeJson($row['scenarios_json'] ?? '');
             $record['risk_hints'] = $this->decodeJson($row['risk_hints_json'] ?? '');
+            $record['model_analysis'] = $modelAnalysis;
         }
 
         return $record;
+    }
+
+    private function normalizeModelAnalysis(mixed $raw, array $defaults = []): array
+    {
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        $recommendations = $this->normalizeRecommendationItems($raw['recommendations'] ?? []);
+        $watchPoints = $this->normalizeWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []);
+        $assumptions = $this->stringList($raw['assumptions'] ?? []);
+
+        return [
+            'source' => trim((string)($raw['source'] ?? $defaults['source'] ?? '')),
+            'model_key' => trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? '')),
+            'generated_at' => trim((string)($raw['generated_at'] ?? $raw['generatedAt'] ?? $defaults['generated_at'] ?? '')),
+            'summary' => trim((string)($raw['summary'] ?? '')),
+            'decision' => trim((string)($raw['decision'] ?? '')),
+            'recommendations' => $recommendations,
+            'watch_points' => $watchPoints,
+            'assumptions' => $assumptions,
+            'error' => mb_substr(trim((string)($raw['error'] ?? '')), 0, 120),
+        ];
+    }
+
+    private function normalizeRecommendationItems(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $title = trim((string)($item['title'] ?? ''));
+            $detail = trim((string)($item['detail'] ?? $item['content'] ?? ''));
+            if ($title === '' && $detail === '') {
+                continue;
+            }
+            $priority = strtoupper(trim((string)($item['priority'] ?? 'P1')));
+            if (!in_array($priority, ['P0', 'P1', 'P2'], true)) {
+                $priority = 'P1';
+            }
+            $normalized[] = [
+                'priority' => $priority,
+                'title' => $title !== '' ? $title : '经营建议',
+                'detail' => $detail,
+            ];
+        }
+
+        return array_slice($normalized, 0, 5);
+    }
+
+    private function normalizeWatchPointItems(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $metric = trim((string)($item['metric'] ?? ''));
+            $threshold = trim((string)($item['threshold'] ?? ''));
+            $action = trim((string)($item['action'] ?? ''));
+            if ($metric === '' && $threshold === '' && $action === '') {
+                continue;
+            }
+            $normalized[] = [
+                'metric' => $metric !== '' ? $metric : '关键指标',
+                'threshold' => $threshold,
+                'action' => $action,
+            ];
+        }
+
+        return array_slice($normalized, 0, 5);
+    }
+
+    private function stringList(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $list = [];
+        foreach ($items as $item) {
+            $value = trim((string)$item);
+            if ($value !== '') {
+                $list[] = mb_substr($value, 0, 200);
+            }
+        }
+
+        return array_values(array_unique($list));
     }
 
     private function number(array $raw, string $camel, string $snake): float
@@ -306,9 +703,128 @@ class QuantSimulationService
         return round((float)($raw[$camel] ?? $raw[$snake] ?? 0), 4);
     }
 
+    private function roomRevenueGroup(array $raw, array $baseInput): array
+    {
+        $values = [];
+        $hasDetail = false;
+        foreach ($this->roomRevenueSegments() as $segment) {
+            foreach ([
+                $segment['daysKey'] => $segment['daysSnake'],
+                $segment['adrKey'] => $segment['adrSnake'],
+                $segment['occupancyKey'] => $segment['occupancySnake'],
+            ] as $camel => $snake) {
+                if (array_key_exists($camel, $raw) || array_key_exists($snake, $raw)) {
+                    $hasDetail = true;
+                }
+                $values[$camel] = $this->number($raw, (string)$camel, (string)$snake);
+            }
+        }
+
+        if (!$hasDetail) {
+            $adr = (float)$baseInput['adr'];
+            $occupancy = (float)$baseInput['occupancyRate'];
+            foreach ($this->roomRevenueSegments() as $index => $segment) {
+                $values[$segment['daysKey']] = $index === 0 ? 30.0 : 0.0;
+                $values[$segment['adrKey']] = $adr;
+                $values[$segment['occupancyKey']] = $occupancy;
+            }
+        }
+
+        return $values;
+    }
+
+    private function otherIncomeGroup(array $raw, array $baseInput): array
+    {
+        $values = [];
+        $hasDetail = false;
+        foreach ($this->otherIncomeFields() as $field) {
+            if (array_key_exists($field['key'], $raw) || array_key_exists($field['snake'], $raw)) {
+                $hasDetail = true;
+            }
+            $values[$field['key']] = $this->number($raw, $field['key'], $field['snake']);
+        }
+
+        if (!$hasDetail) {
+            foreach ($this->otherIncomeFields() as $field) {
+                $values[$field['key']] = $field['key'] === 'otherMiscIncome' ? (float)$baseInput['otherIncome'] : 0.0;
+            }
+        }
+
+        return $values;
+    }
+
+    private function investmentGroup(array $raw, string $totalCamel, string $totalSnake, array $detailFields): array
+    {
+        $detailValues = [];
+        $hasDetail = false;
+        foreach ($detailFields as $camel => $snake) {
+            if (array_key_exists($camel, $raw) || array_key_exists($snake, $raw)) {
+                $hasDetail = true;
+            }
+            $detailValues[$camel] = $this->number($raw, (string)$camel, (string)$snake);
+        }
+
+        if (!$hasDetail) {
+            $legacyTotal = $this->number($raw, $totalCamel, $totalSnake);
+            $firstKey = array_key_first($detailValues);
+            foreach ($detailValues as $key => $_) {
+                $detailValues[$key] = $key === $firstKey ? $legacyTotal : 0.0;
+            }
+        }
+
+        $detailValues[$totalCamel] = round(array_sum($detailValues), 4);
+        return $detailValues;
+    }
+
+    private function roomRevenueSegments(): array
+    {
+        return [
+            [
+                'daysKey' => 'weekdayDays',
+                'daysSnake' => 'weekday_days',
+                'adrKey' => 'weekdayAdr',
+                'adrSnake' => 'weekday_adr',
+                'occupancyKey' => 'weekdayOccupancyRate',
+                'occupancySnake' => 'weekday_occupancy_rate',
+            ],
+            [
+                'daysKey' => 'weekendDays',
+                'daysSnake' => 'weekend_days',
+                'adrKey' => 'weekendAdr',
+                'adrSnake' => 'weekend_adr',
+                'occupancyKey' => 'weekendOccupancyRate',
+                'occupancySnake' => 'weekend_occupancy_rate',
+            ],
+            [
+                'daysKey' => 'holidayDays',
+                'daysSnake' => 'holiday_days',
+                'adrKey' => 'holidayAdr',
+                'adrSnake' => 'holiday_adr',
+                'occupancyKey' => 'holidayOccupancyRate',
+                'occupancySnake' => 'holiday_occupancy_rate',
+            ],
+        ];
+    }
+
+    private function otherIncomeFields(): array
+    {
+        return [
+            ['key' => 'breakfastIncome', 'snake' => 'breakfast_income'],
+            ['key' => 'meetingIncome', 'snake' => 'meeting_income'],
+            ['key' => 'retailIncome', 'snake' => 'retail_income'],
+            ['key' => 'parkingLaundryIncome', 'snake' => 'parking_laundry_income'],
+            ['key' => 'otherMiscIncome', 'snake' => 'other_misc_income'],
+        ];
+    }
+
     private function percentToDecimal(float $value): float
     {
         return $value / 100;
+    }
+
+    private function clamp(float $value, float $min, float $max): float
+    {
+        return max($min, min($max, $value));
     }
 
     private function decodeJson(mixed $value): array

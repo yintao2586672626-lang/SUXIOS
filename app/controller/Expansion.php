@@ -111,6 +111,18 @@ class Expansion extends Base
         }
     }
 
+    public function clearMarketEvaluation(): Response
+    {
+        try {
+            $this->ensureLogin();
+            $archivedCount = $this->service->archiveByType('market', (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
+
+            return $this->success(['archived_count' => $archivedCount], '市场评估历史已清空');
+        } catch (\Throwable $e) {
+            return $this->error('市场评估历史清空失败: ' . $e->getMessage(), 400);
+        }
+    }
+
     private function ensureLogin(): void
     {
         if (!$this->currentUser) {

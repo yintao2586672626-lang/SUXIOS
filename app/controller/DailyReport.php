@@ -232,7 +232,7 @@ class DailyReport extends Base
         };
         
         // 酒店房间数（需要从酒店信息或配置获取，这里先默认）
-        $totalRooms = $getVal($taskData, 'salable_rooms_total', 59); // 可售房间总数
+        $totalRooms = $this->resolveSalableRoomsTotal($hotel, $taskData, $reportData);
         
         // ==================== 一、销售业绩 ====================
         
@@ -345,10 +345,10 @@ class DailyReport extends Base
         $dayTotalRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms +
                         $bookingRooms + $agodaRooms + $expediaRooms +
                         $walkinRooms + $memberExpRooms + $webExpRooms + $groupRooms + 
-                        $protocolRooms + $wechatRooms + $freeRooms + $goldCardRooms + $blackGoldRooms;
+                        $protocolRooms + $wechatRooms + $freeRooms + $goldCardRooms + $blackGoldRooms + $hourlyRooms;
         
         // 日过夜房间数
-        $dayOvernightRooms = $overnightRooms > 0 ? $overnightRooms : $dayTotalRooms;
+        $dayOvernightRooms = $overnightRooms > 0 ? $overnightRooms : max(0, $dayTotalRooms - $hourlyRooms);
         $dayNonOvernightRooms = max(0, $dayTotalRooms - $dayOvernightRooms - $hourlyRooms);
         
         // 日综合出租率 = (日出租总间数 / 可售房间数) * 100
@@ -402,11 +402,14 @@ class DailyReport extends Base
         $monthTotalRooms = $getVal($monthSum, 'xb_rooms') + $getVal($monthSum, 'mt_rooms') + 
                            $getVal($monthSum, 'fliggy_rooms') + $getVal($monthSum, 'dy_rooms') + 
                            $getVal($monthSum, 'tc_rooms') + $getVal($monthSum, 'qn_rooms') + 
-                           $getVal($monthSum, 'zx_rooms') + $getVal($monthSum, 'walkin_rooms') + 
+                           $getVal($monthSum, 'zx_rooms') + $getVal($monthSum, 'booking_rooms') +
+                           $getVal($monthSum, 'agoda_rooms') + $getVal($monthSum, 'expedia_rooms') +
+                           $getVal($monthSum, 'walkin_rooms') +
                            $getVal($monthSum, 'member_exp_rooms') + $getVal($monthSum, 'web_exp_rooms') + 
                            $getVal($monthSum, 'group_rooms') + $getVal($monthSum, 'protocol_rooms') + 
                            $getVal($monthSum, 'wechat_rooms') + $getVal($monthSum, 'free_rooms') + 
-                           $getVal($monthSum, 'gold_card_rooms') + $getVal($monthSum, 'black_gold_rooms');
+                           $getVal($monthSum, 'gold_card_rooms') + $getVal($monthSum, 'black_gold_rooms') +
+                           $getVal($monthSum, 'hourly_rooms');
         
         // 月综合出租率
         $monthOccRate = $totalRooms > 0 && $day > 0 ? 
@@ -574,7 +577,7 @@ class DailyReport extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fill_daily_report');
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         $this->validate($data, [
             'hotel_id' => 'require|integer',
@@ -654,14 +657,12 @@ class DailyReport extends Base
             return $this->error('无权编辑此报表');
         }
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         // 提取报表数据
         $reportData = $this->extractReportData($data);
         
-        // 合并原有数据
-        $existingData = $report->report_data ?? [];
-        $report->report_data = array_merge($existingData, $reportData);
+        $report->report_data = $reportData;
         
         if (isset($data['status'])) {
             $report->status = $data['status'];
@@ -713,7 +714,7 @@ class DailyReport extends Base
         
         $reportData = [];
         foreach ($fieldNames as $field) {
-            if (isset($data[$field])) {
+            if (array_key_exists($field, $data)) {
                 $value = $data[$field];
                 $num = $this->normalizeNumber($value);
                 $reportData[$field] = $num !== null ? $num : $value;
@@ -751,6 +752,63 @@ class DailyReport extends Base
             return null;
         }
         return (float)$clean;
+    }
+
+    private function resolveSalableRoomsTotal($hotel, array $taskData, array $reportData): float
+    {
+        foreach ([
+            [$taskData, ['salable_rooms_total']],
+            [$reportData, ['salable_rooms', 'total_rooms_count', 'room_count']],
+            [$hotel, ['salable_rooms_total', 'salable_rooms', 'room_count', 'rooms_total']],
+        ] as [$source, $keys]) {
+            $value = $this->readNumericValue($source, $keys);
+            if ($value !== null && $value > 0) {
+                return $value;
+            }
+        }
+
+        return 0.0;
+    }
+
+    private function resolveReportSalableRooms(array $data): float
+    {
+        return $this->readNumericValue($data, ['salable_rooms', 'total_rooms_count', 'room_count']) ?? 0.0;
+    }
+
+    private function readNumericValue($source, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            $raw = null;
+            $hasValue = false;
+
+            if (is_array($source) && array_key_exists($key, $source)) {
+                $raw = $source[$key];
+                $hasValue = true;
+            } elseif (is_object($source)) {
+                if (isset($source->{$key})) {
+                    $raw = $source->{$key};
+                    $hasValue = true;
+                } elseif (method_exists($source, 'getAttr')) {
+                    try {
+                        $raw = $source->getAttr($key);
+                        $hasValue = true;
+                    } catch (\Throwable $e) {
+                        $hasValue = false;
+                    }
+                }
+            }
+
+            if (!$hasValue) {
+                continue;
+            }
+
+            $num = $this->normalizeNumber($raw);
+            if ($num !== null) {
+                return $num;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1031,7 +1089,7 @@ class DailyReport extends Base
 
         // 权限过滤
         if (!$this->currentUser->isSuperAdmin()) {
-            $hotelIds = $this->currentUser->hotelPermissions->column('hotel_id');
+            $hotelIds = $this->currentUser->getPermittedHotelIds();
             $query->whereIn('hotel_id', $hotelIds);
         }
 
@@ -1049,23 +1107,7 @@ class DailyReport extends Base
 
         $reports = $query->order('report_date', 'asc')->select();
 
-        // 获取月任务数据
         $monthTaskData = [];
-        if ($reports->count() > 0) {
-            $firstReport = $reports[0];
-            $dateParts = explode('-', $firstReport->report_date);
-            $year = (int)$dateParts[0];
-            $month = (int)$dateParts[1];
-            
-            $monthlyTask = MonthlyTask::where('hotel_id', $firstReport->hotel_id)
-                ->where('year', $year)
-                ->where('month', $month)
-                ->find();
-            
-            if ($monthlyTask) {
-                $monthTaskData = $monthlyTask->task_data ?? [];
-            }
-        }
 
         $exportData = [
             'reports' => [],
@@ -1083,16 +1125,19 @@ class DailyReport extends Base
 
         foreach ($reports as $report) {
             $reportData = $report->report_data ?? [];
-            
-            // 如果没有通过hotelId获取酒店名称，从第一条报表获取
+            $taskContext = $this->loadMonthlyTaskContext((int)$report->hotel_id, (string)$report->report_date);
+
             if (!$hotelName && $report->hotel) {
                 $hotelName = $report->hotel->name;
             }
-            
+
             $exportData['reports'][] = [
                 'hotel_name' => $report->hotel->name ?? '',
                 'report_date' => $report->report_date,
-                'data' => $reportData,  // 直接传递原始数据，Excel公式会计算
+                'hotel_id' => (int)$report->hotel_id,
+                'month_task_key' => $taskContext['key'],
+                'month_task' => $taskContext['data'],
+                'data' => $reportData,
             ];
         }
 
@@ -1107,6 +1152,54 @@ class DailyReport extends Base
         $filename .= '.xlsx';
 
         return $this->generateExcelResponse($exportData, $filename);
+    }
+
+    private function loadMonthlyTaskContext(int $hotelId, string $reportDate): array
+    {
+        $dateParts = explode('-', $reportDate);
+        $year = (int)($dateParts[0] ?? 0);
+        $month = (int)($dateParts[1] ?? 0);
+        $key = "{$hotelId}-{$year}-{$month}";
+
+        if ($hotelId <= 0 || $year <= 0 || $month <= 0) {
+            return ['key' => $key, 'data' => []];
+        }
+
+        $monthlyTask = MonthlyTask::where('hotel_id', $hotelId)
+            ->where('year', $year)
+            ->where('month', $month)
+            ->find();
+
+        return [
+            'key' => $key,
+            'data' => $monthlyTask ? ($monthlyTask->task_data ?? []) : [],
+        ];
+    }
+
+    private function sumBatchMonthTaskValue(array $reports, string $field, float $fallback = 0): float
+    {
+        $sum = 0.0;
+        $seen = [];
+
+        foreach ($reports as $report) {
+            $key = (string)($report['month_task_key'] ?? (($report['hotel_id'] ?? '') . '-' . substr((string)($report['report_date'] ?? ''), 0, 7)));
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            $taskData = $report['month_task'] ?? [];
+            if (!is_array($taskData)) {
+                continue;
+            }
+
+            $value = $this->readNumericValue($taskData, [$field]);
+            if ($value !== null) {
+                $sum += $value;
+            }
+        }
+
+        return $sum > 0 ? $sum : $fallback;
     }
 
     /**
@@ -1152,6 +1245,11 @@ class DailyReport extends Base
         $monthRevenueTarget = $monthTask['revenue_budget'] ?? 0;
         $onlineTarget = $monthTask['online_revenue_target'] ?? 0;
         $offlineTarget = $monthTask['offline_revenue_target'] ?? 0;
+        if ($mode === 'batch') {
+            $monthRevenueTarget = $this->sumBatchMonthTaskValue($reports, 'revenue_budget', (float)$monthRevenueTarget);
+            $onlineTarget = $this->sumBatchMonthTaskValue($reports, 'online_revenue_target', (float)$onlineTarget);
+            $offlineTarget = $this->sumBatchMonthTaskValue($reports, 'offline_revenue_target', (float)$offlineTarget);
+        }
         
         // 星期数组
         $weekArray = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -1424,9 +1522,13 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $getVal = function($key, $default = 0) use ($data) {
                 return isset($data[$key]) && is_numeric($data[$key]) ? floatval($data[$key]) : $default;
             };
+            $rowMonthTask = is_array($report['month_task'] ?? null) ? $report['month_task'] : $monthTask;
+            $rowMonthRevenueTarget = (float)($rowMonthTask['revenue_budget'] ?? $monthRevenueTarget);
+            $rowOnlineTarget = (float)($rowMonthTask['online_revenue_target'] ?? $onlineTarget);
+            $rowOfflineTarget = (float)($rowMonthTask['offline_revenue_target'] ?? $offlineTarget);
             
             // 可售房数
-            $salableRooms = $getVal('salable_rooms', 59);
+            $salableRooms = $this->resolveReportSalableRooms($data);
             
             // 计算各项数据
             // 线上收入
@@ -1499,8 +1601,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $overnightRooms = $totalRooms - $hourlyRooms;
             
             // 合计区域 - 蓝色背景
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($monthRevenueTarget) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($totalRevenue / max($monthRevenueTarget, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($rowMonthRevenueTarget) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($totalRevenue / max($rowMonthRevenueTarget, 1)) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($totalRevenue) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($roomRevenue) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($roomRevenue / max($salableRooms, 1)) . '</td>'; // Revpar
@@ -1514,8 +1616,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($salableRooms, 0) . '</td>'; // 可售房数量
             
             // 线上合计 - 蓝色背景
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($onlineTarget) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($onlineRevenue / max($onlineTarget, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($rowOnlineTarget) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($onlineRevenue / max($rowOnlineTarget, 1)) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($onlineRevenue) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($onlineRooms, 0) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($onlineRevenue / max($onlineRooms, 1)) . '</td>';
@@ -1552,8 +1654,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($expediaRooms, 0) . '</td>';
             
             // 线下合计 - 蓝色背景
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($offlineTarget) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($offlineRevenue / max($offlineTarget, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($rowOfflineTarget) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($offlineRevenue / max($rowOfflineTarget, 1)) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($offlineRevenue) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($offlineRooms, 0) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($offlineRevenue / max($offlineRooms, 1)) . '</td>';
@@ -1720,7 +1822,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             };
             
             // 累加各项
-            $totals['salable_rooms'] += $getVal('salable_rooms', 59);
+            $totals['salable_rooms'] += $this->resolveReportSalableRooms($data);
             $totals['hourly_revenue'] += $getVal('hourly_revenue');
             $totals['hourly_rooms'] += $getVal('hourly_rooms');
             
@@ -1928,7 +2030,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
     public function saveViewMapping(): Response
     {
         $this->checkSuperAdmin();
-        $mapping = $this->request->post('mapping');
+        $data = $this->requestData();
+        $mapping = $data['mapping'] ?? null;
         if (!is_array($mapping)) {
             return $this->error('映射配置格式错误');
         }
@@ -1975,10 +2078,16 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
     public function parseImport(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_create');
+        $this->checkActionPermission('can_fill_daily_report');
 
         $file = $this->request->file('file');
         $hotelId = $this->request->post('hotel_id');
+        if (!$hotelId && !$this->currentUser->isSuperAdmin()) {
+            $hotelId = $this->currentUser->hotel_id;
+        }
+        if ($hotelId && !$this->currentUser->hasHotelPermission((int)$hotelId, 'can_fill_daily_report')) {
+            return $this->error('无权导入该酒店日报');
+        }
         
         if (!$file) {
             return $this->error('请上传文件');

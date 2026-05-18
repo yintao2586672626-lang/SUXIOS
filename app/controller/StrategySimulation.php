@@ -5,9 +5,11 @@ namespace app\controller;
 
 use app\model\StrategyDataSnapshot;
 use app\model\StrategySimulationRecord;
+use app\service\LlmClient;
 use think\exception\ValidateException;
 use think\facade\Db;
 use think\Response;
+use Throwable;
 
 class StrategySimulation extends Base
 {
@@ -32,9 +34,11 @@ class StrategySimulation extends Base
             $input = $this->normalizeInput($this->request->post());
             $localData = $this->collectLocalData($input);
             $externalData = $this->collectExternalData($input);
-            $dataSnapshot = $this->buildDataSnapshot($localData, $externalData);
             $scores = $this->calculateScores($input, $localData, $externalData);
             $recommendation = $this->buildRecommendation($input, $scores);
+            $recommendation = $this->attachAiRecommendation($input, $localData, $externalData, $scores, $recommendation);
+            $externalData = $this->attachAiDataStatus($externalData, $recommendation['ai_evaluation'] ?? []);
+            $dataSnapshot = $this->buildDataSnapshot($localData, $externalData);
             $risk = $this->buildRisk($scores, $recommendation);
             $recordId = $this->saveRecord($input, $dataSnapshot, $scores, $recommendation, $risk);
 
@@ -118,12 +122,12 @@ class StrategySimulation extends Base
                 'updated_at' => $now,
             ]);
             if ($updated <= 0) {
-                return $this->error('战略推演记录不存在或无权归档', 404);
+                return $this->error('战略推演记录不存在或无权删除', 404);
             }
 
-            return $this->success(['id' => $id], '战略推演记录已归档');
+            return $this->success(['id' => $id], '战略推演记录已删除');
         } catch (\Throwable $e) {
-            return $this->error('战略推演记录归档失败: ' . $e->getMessage(), 400);
+            return $this->error('战略推演记录删除失败: ' . $e->getMessage(), 400);
         }
     }
 
@@ -131,6 +135,7 @@ class StrategySimulation extends Base
     {
         $input = [
             'project_name' => trim((string)($data['project_name'] ?? '')),
+            'city_tier' => trim((string)($data['city_tier'] ?? '')),
             'city' => trim((string)($data['city'] ?? '')),
             'district' => trim((string)($data['district'] ?? '')),
             'address' => trim((string)($data['address'] ?? '')),
@@ -144,6 +149,7 @@ class StrategySimulation extends Base
             'target_customer' => trim((string)($data['target_customer'] ?? $data['primary_customer'] ?? '')),
             'competitor_count' => max(0, (int)($data['competitor_count'] ?? 0)),
             'target_hotel_level' => trim((string)($data['target_hotel_level'] ?? $data['target_grade'] ?? '')),
+            'model_key' => trim((string)($data['model_key'] ?? $data['modelKey'] ?? 'deepseek_v4_default')),
         ];
 
         $this->validate($input, [
@@ -170,6 +176,9 @@ class StrategySimulation extends Base
         }
         if ($input['target_hotel_level'] === '') {
             $input['target_hotel_level'] = '中端精选';
+        }
+        if ($input['model_key'] === '') {
+            $input['model_key'] = 'deepseek_v4_default';
         }
 
         return $input;
@@ -254,7 +263,7 @@ class StrategySimulation extends Base
                 'reason' => 'missing_api_key',
                 'freshness' => 'external_not_configured',
                 'poi_counts' => [],
-                'source_summary' => ['外部数据未接入，当前为本地数据推演'],
+                'source_summary' => ['外部地图/POI未接入，当前未使用周边POI推演'],
                 'missing_data' => ['AMAP_KEY', 'BAIDU_MAP_KEY'],
             ];
         }
@@ -361,12 +370,195 @@ class StrategySimulation extends Base
         ];
     }
 
+    private function attachAiRecommendation(array $input, array $localData, array $externalData, array $scores, array $recommendation): array
+    {
+        $modelKey = (string)($input['model_key'] ?? 'deepseek_v4_default');
+        $evaluation = $this->buildAiStrategyEvaluation($input, $localData, $externalData, $scores, $recommendation, $modelKey);
+        $recommendation['ai_evaluation'] = $evaluation;
+
+        if (($evaluation['source'] ?? '') !== 'llm') {
+            return $recommendation;
+        }
+
+        foreach (['recommended_model', 'target_customer', 'competition_pressure', 'decision_direction', 'decision'] as $field) {
+            if (isset($evaluation[$field]) && trim((string)$evaluation[$field]) !== '') {
+                $recommendation[$field] = trim((string)$evaluation[$field]);
+            }
+        }
+
+        foreach (['key_actions', 'main_risks', 'next_data_to_verify'] as $field) {
+            if (!empty($evaluation[$field]) && is_array($evaluation[$field])) {
+                $recommendation[$field] = $evaluation[$field];
+            }
+        }
+
+        return $recommendation;
+    }
+
+    private function buildAiStrategyEvaluation(
+        array $input,
+        array $localData,
+        array $externalData,
+        array $scores,
+        array $recommendation,
+        string $modelKey
+    ): array {
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => '你是酒店投资战略推演分析师。只输出符合 schema 的 JSON。必须基于用户输入、本地数据口径、外部地图/POI状态和本地评分结果生成战略推荐；不得发明未提供的经营数字；缺少地图、OTA或竞品数据时写入 assumptions；建议必须可执行、克制、面向酒店筹建投决。',
+            ],
+            [
+                'role' => 'user',
+                'content' => json_encode([
+                    'input' => $input,
+                    'scores' => $scores,
+                    'deterministic_recommendation' => $recommendation,
+                    'local_data_summary' => [
+                        'data_sources' => $localData['data_sources'] ?? [],
+                        'daily_reports' => $localData['daily_reports'] ?? [],
+                        'online_daily_data' => $localData['online_daily_data'] ?? [],
+                        'competitor_analysis' => $localData['competitor_analysis'] ?? [],
+                        'missing_data' => $localData['missing_data'] ?? [],
+                    ],
+                    'external_map_data_summary' => [
+                        'used' => (bool)($externalData['used'] ?? false),
+                        'available' => (bool)($externalData['available'] ?? false),
+                        'reason' => $externalData['reason'] ?? '',
+                        'poi_counts' => $externalData['poi_counts'] ?? [],
+                        'missing_data' => $externalData['missing_data'] ?? [],
+                    ],
+                    'report_language' => 'zh-CN',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        try {
+            $analysis = (new LlmClient())->createJsonResponse($messages, $this->strategyAiEvaluationSchema(), $modelKey);
+            return $this->normalizeAiStrategyEvaluation($analysis, [
+                'source' => 'llm',
+                'model_key' => $modelKey,
+                'generated_at' => date('Y-m-d H:i:s'),
+            ], $recommendation);
+        } catch (Throwable $e) {
+            return $this->buildFallbackAiStrategyEvaluation($recommendation, $scores, $modelKey, $e->getMessage());
+        }
+    }
+
+    private function strategyAiEvaluationSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => [
+                'summary',
+                'decision',
+                'recommended_model',
+                'target_customer',
+                'competition_pressure',
+                'decision_direction',
+                'key_actions',
+                'main_risks',
+                'next_data_to_verify',
+                'assumptions',
+            ],
+            'properties' => [
+                'summary' => ['type' => 'string'],
+                'decision' => ['type' => 'string'],
+                'recommended_model' => ['type' => 'string'],
+                'target_customer' => ['type' => 'string'],
+                'competition_pressure' => ['type' => 'string'],
+                'decision_direction' => ['type' => 'string'],
+                'key_actions' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'main_risks' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'next_data_to_verify' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'assumptions' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ];
+    }
+
+    private function normalizeAiStrategyEvaluation(mixed $raw, array $defaults, array $fallback): array
+    {
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        $source = trim((string)($raw['source'] ?? $defaults['source'] ?? ''));
+        $modelKey = trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? ''));
+        $generatedAt = trim((string)($raw['generated_at'] ?? $raw['generatedAt'] ?? $defaults['generated_at'] ?? ''));
+
+        return [
+            'source' => $source,
+            'model_key' => $modelKey,
+            'generated_at' => $generatedAt,
+            'summary' => $this->textOrFallback($raw['summary'] ?? null, 'AI模型已基于当前项目输入、本地数据和评分结果生成战略判断。'),
+            'decision' => $this->textOrFallback($raw['decision'] ?? null, (string)($fallback['decision'] ?? '')),
+            'recommended_model' => $this->textOrFallback($raw['recommended_model'] ?? $raw['recommendedModel'] ?? null, (string)($fallback['recommended_model'] ?? '')),
+            'target_customer' => $this->textOrFallback($raw['target_customer'] ?? $raw['targetCustomer'] ?? null, (string)($fallback['target_customer'] ?? '')),
+            'competition_pressure' => $this->textOrFallback($raw['competition_pressure'] ?? $raw['competitionPressure'] ?? null, (string)($fallback['competition_pressure'] ?? '')),
+            'decision_direction' => $this->textOrFallback($raw['decision_direction'] ?? $raw['decisionDirection'] ?? null, (string)($fallback['decision_direction'] ?? '')),
+            'key_actions' => $this->stringList($raw['key_actions'] ?? $raw['keyActions'] ?? [], (array)($fallback['key_actions'] ?? [])),
+            'main_risks' => $this->stringList($raw['main_risks'] ?? $raw['mainRisks'] ?? [], (array)($fallback['main_risks'] ?? [])),
+            'next_data_to_verify' => $this->stringList($raw['next_data_to_verify'] ?? $raw['nextDataToVerify'] ?? [], (array)($fallback['next_data_to_verify'] ?? [])),
+            'assumptions' => $this->stringList($raw['assumptions'] ?? [], []),
+            'error' => '',
+        ];
+    }
+
+    private function buildFallbackAiStrategyEvaluation(array $recommendation, array $scores, string $modelKey, string $reason): array
+    {
+        $safeReason = $this->sanitizeAiError($reason);
+        $totalScore = (int)($scores['total_score'] ?? 0);
+
+        return [
+            'source' => 'fallback',
+            'model_key' => $modelKey,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'summary' => 'AI模型未生成结果，已保留本地规则推演。当前综合评分为' . $totalScore . '，结论为' . (string)($recommendation['decision'] ?? '待复核') . '。',
+            'decision' => (string)($recommendation['decision'] ?? ''),
+            'recommended_model' => (string)($recommendation['recommended_model'] ?? ''),
+            'target_customer' => (string)($recommendation['target_customer'] ?? ''),
+            'competition_pressure' => (string)($recommendation['competition_pressure'] ?? ''),
+            'decision_direction' => (string)($recommendation['decision_direction'] ?? '智略定方向'),
+            'key_actions' => $this->stringList($recommendation['key_actions'] ?? [], []),
+            'main_risks' => $this->stringList($recommendation['main_risks'] ?? [], []),
+            'next_data_to_verify' => $this->stringList($recommendation['next_data_to_verify'] ?? [], []),
+            'assumptions' => [
+                'AI模型不可用时启用本地规则兜底：' . $safeReason,
+                '投决前仍需补齐真实OTA、竞品、租约和周边客流样本。',
+            ],
+            'error' => $safeReason,
+        ];
+    }
+
+    private function attachAiDataStatus(array $externalData, array $aiEvaluation): array
+    {
+        $source = (string)($aiEvaluation['source'] ?? '');
+        $modelKey = trim((string)($aiEvaluation['model_key'] ?? 'deepseek_v4_default'));
+        $aiUsed = $source === 'llm';
+        $externalData['ai_available'] = $aiUsed;
+        $externalData['ai_used'] = $aiUsed;
+        $externalData['ai_model_key'] = $modelKey;
+        $externalData['ai_source_summary'] = $aiUsed ? 'AI模型已接入：' . $modelKey : 'AI模型未生成，已使用本地兜底';
+        $externalData['ai_error'] = $aiUsed ? '' : (string)($aiEvaluation['error'] ?? '');
+
+        if (!$aiUsed) {
+            $externalData['missing_data'] = array_values(array_unique(array_merge(
+                (array)($externalData['missing_data'] ?? []),
+                ['AI_MODEL_RESULT']
+            )));
+        }
+
+        return $externalData;
+    }
+
     private function formatRecord(array $row, bool $withDetail): array
     {
         $input = $this->decodeJson($row['input_json'] ?? []);
         if (empty($input)) {
             $input = [
                 'project_name' => $row['project_name'] ?? '',
+                'city_tier' => '',
                 'city' => $row['city'] ?? '',
                 'district' => $row['district'] ?? '',
                 'address' => $row['address'] ?? '',
@@ -394,6 +586,7 @@ class StrategySimulation extends Base
             'id' => (int)($row['id'] ?? 0),
             'record_id' => (int)($row['id'] ?? 0),
             'project_name' => (string)($row['project_name'] ?? ($input['project_name'] ?? '')),
+            'city_tier' => (string)($input['city_tier'] ?? ''),
             'city' => (string)($row['city'] ?? ($input['city'] ?? '')),
             'district' => (string)($row['district'] ?? ($input['district'] ?? '')),
             'total_score' => $totalScore,
@@ -588,13 +781,24 @@ class StrategySimulation extends Base
     {
         $externalUsed = (bool)($externalData['used'] ?? false);
         $externalAvailable = (bool)($externalData['available'] ?? false);
+        $aiUsed = (bool)($externalData['ai_used'] ?? false);
+        $aiAvailable = (bool)($externalData['ai_available'] ?? $aiUsed);
+        $sourceSummary = array_values(array_merge($localData['data_sources'], $externalData['source_summary'] ?? []));
+        if (!empty($externalData['ai_source_summary'])) {
+            $sourceSummary[] = (string)$externalData['ai_source_summary'];
+        }
+
         return [
             'local_data_used' => !empty($localData['data_sources']),
             'external_data_used' => $externalUsed,
             'external_data_available' => $externalAvailable,
             'external_data_reason' => $externalData['reason'] ?? ($externalUsed ? '' : 'missing_api_key'),
+            'ai_data_used' => $aiUsed,
+            'ai_data_available' => $aiAvailable,
+            'ai_model_key' => (string)($externalData['ai_model_key'] ?? ''),
+            'ai_error' => (string)($externalData['ai_error'] ?? ''),
             'freshness' => $externalUsed ? ($externalData['freshness'] ?? 'today_cache') : 'local_only',
-            'source_summary' => array_values(array_merge($localData['data_sources'], $externalData['source_summary'] ?? [])),
+            'source_summary' => array_values(array_unique(array_filter($sourceSummary))),
             'local_data' => $localData,
             'external_data' => $externalData,
         ];
@@ -607,9 +811,25 @@ class StrategySimulation extends Base
         $rooms = [];
         foreach ($rows as $row) {
             $reportData = $this->decodeJson($row['report_data'] ?? null);
-            $occupancy[] = (float)($row['occupancy_rate'] ?? $reportData['day_occ_rate'] ?? 0);
-            $revenue[] = (float)($row['revenue'] ?? $reportData['day_revenue'] ?? 0);
-            $rooms[] = (float)($row['room_count'] ?? $reportData['day_total_rooms'] ?? 0);
+            $occupancy[] = $this->firstPositiveValue([
+                $row['occupancy_rate'] ?? null,
+                $reportData['day_occ_rate'] ?? null,
+                $reportData['occ_rate'] ?? null,
+                $reportData['occupancy_rate'] ?? null,
+            ]) ?? 0;
+            $revenue[] = $this->firstPositiveValue([
+                $row['revenue'] ?? null,
+                $reportData['day_revenue'] ?? null,
+                $reportData['day_total_revenue'] ?? null,
+                $reportData['total_revenue'] ?? null,
+                $reportData['room_revenue'] ?? null,
+            ]) ?? 0;
+            $rooms[] = $this->firstPositiveValue([
+                $row['room_count'] ?? null,
+                $reportData['day_total_rooms'] ?? null,
+                $reportData['total_rooms'] ?? null,
+                $reportData['room_nights'] ?? null,
+            ]) ?? 0;
         }
         return [
             'count' => count($rows),
@@ -749,6 +969,45 @@ class StrategySimulation extends Base
         return is_array($data) ? $data : [];
     }
 
+    private function textOrFallback(mixed $value, string $fallback): string
+    {
+        $text = trim((string)$value);
+        return $text === '' ? $fallback : $text;
+    }
+
+    private function stringList(mixed $items, array $fallback = []): array
+    {
+        if (is_string($items)) {
+            $items = preg_split('/[\r\n;；、]+/u', $items) ?: [];
+        }
+        if (!is_array($items)) {
+            $items = [];
+        }
+
+        $result = [];
+        foreach ($items as $item) {
+            if (is_array($item)) {
+                $item = $item['detail'] ?? $item['title'] ?? $item['summary'] ?? '';
+            }
+            $text = trim((string)$item);
+            if ($text !== '') {
+                $result[] = $text;
+            }
+        }
+
+        if (empty($result)) {
+            $result = array_values(array_filter(array_map(static fn($item): string => trim((string)$item), $fallback)));
+        }
+
+        return array_values(array_unique($result));
+    }
+
+    private function sanitizeAiError(string $error): string
+    {
+        $error = preg_replace('/sk-[A-Za-z0-9_\\-]+/', 'sk-***', $error) ?? $error;
+        return mb_substr(trim($error), 0, 120);
+    }
+
     private function averagePositive(array $values): ?float
     {
         $values = array_values(array_filter(array_map('floatval', $values), fn($v) => $v > 0));
@@ -756,6 +1015,16 @@ class StrategySimulation extends Base
             return null;
         }
         return round(array_sum($values) / count($values), 2);
+    }
+
+    private function firstPositiveValue(array $values): ?float
+    {
+        foreach ($values as $value) {
+            if (is_numeric($value) && (float)$value > 0) {
+                return (float)$value;
+            }
+        }
+        return null;
     }
 
     private function clampScore(float $score): int

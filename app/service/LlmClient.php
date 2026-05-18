@@ -153,10 +153,12 @@ class LlmClient
 
         return [
             'ok' => false,
-            'message' => 'No enabled AI model config found: ' . $modelKey,
+            'message' => '未找到启用的AI模型配置：' . $modelKey . '，请到系统设置 > AI模型配置中启用或新增模型。',
             'code' => 422,
             'model_key' => $modelKey,
             'source' => 'database',
+            'config_entry' => '/ai-model-config',
+            'next_action' => '检查模型Key、Base URL、模型名称、API Key和AI_CONFIG_SECRET。',
         ];
     }
 
@@ -167,15 +169,12 @@ class LlmClient
             if (!$config) {
                 $disabledConfig = AiModelConfig::where('model_key', $modelKey)->find();
                 if ($disabledConfig) {
-                    return [
-                        'ok' => false,
-                        'message' => 'AI model config is disabled: ' . $requestedModelKey,
-                        'code' => 400,
+                    return $this->configIssue('模型配置已停用：' . $requestedModelKey . '，请到系统设置 > AI模型配置中启用。', [
                         'provider' => (string)$disabledConfig->provider,
                         'model_key' => $requestedModelKey,
                         'model' => (string)$disabledConfig->model_name,
                         'source' => 'database',
-                    ];
+                    ]);
                 }
                 return null;
             }
@@ -192,23 +191,23 @@ class LlmClient
             'source' => 'database',
         ];
         if ($baseUrl === '') {
-            return array_merge(['ok' => false, 'message' => 'AI model base_url is empty', 'code' => 400], $errorConfig);
+            return $this->configIssue('AI模型 Base URL 为空，请补充 OpenAI 兼容接口地址。', $errorConfig);
         }
         if ($modelName === '') {
-            return array_merge(['ok' => false, 'message' => 'AI model name is empty', 'code' => 400], $errorConfig);
+            return $this->configIssue('AI模型名称为空，请填写实际模型名。', $errorConfig);
         }
         if (trim((string)$config->api_key_encrypted) === '') {
-            return array_merge(['ok' => false, 'message' => 'AI model API key is empty', 'code' => 400], $errorConfig);
+            return $this->configIssue('AI模型 API Key 为空，请重新保存密钥。', $errorConfig);
         }
 
         $secret = trim((string)env('AI_CONFIG_SECRET', ''));
         if ($secret === '') {
-            return array_merge(['ok' => false, 'message' => 'AI_CONFIG_SECRET is empty', 'code' => 400], $errorConfig);
+            return $this->configIssue('AI_CONFIG_SECRET 未配置，无法解密数据库中的模型密钥。', $errorConfig);
         }
 
         $apiKey = AiModelConfig::decryptApiKey((string)$config->api_key_encrypted, $secret);
         if ($apiKey === null) {
-            return array_merge(['ok' => false, 'message' => 'AI model API key decrypt failed', 'code' => 400], $errorConfig);
+            return $this->configIssue('AI模型 API Key 解密失败，请确认 AI_CONFIG_SECRET 与保存密钥时一致。', $errorConfig);
         }
 
         return [
@@ -220,6 +219,17 @@ class LlmClient
             'model_key' => $requestedModelKey,
             'source' => 'database',
         ];
+    }
+
+    private function configIssue(string $message, array $config, int $code = 400): array
+    {
+        return array_merge([
+            'ok' => false,
+            'message' => $message,
+            'code' => $code,
+            'config_entry' => '/ai-model-config',
+            'next_action' => '检查模型Key、Base URL、模型名称、API Key和AI_CONFIG_SECRET。',
+        ], $config);
     }
 
     private function normalizeModelKey(string $modelKey, array $options = []): string

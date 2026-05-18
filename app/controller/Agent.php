@@ -366,7 +366,12 @@ class Agent extends Base
         $modelOptions = $modelMode !== null && trim((string) $modelMode) !== '' ? ['model_mode' => $modelMode] : [];
         $result = $this->callLlm($prompt, $modelKey, [], $modelOptions);
         if (($result['ok'] ?? false) !== true) {
-            return $this->error((string) $result['message'], (int) $result['code']);
+            return $this->error((string) $result['message'], (int) $result['code'], [
+                'model_key' => $result['model_key'] ?? $modelKey,
+                'config_entry' => $result['config_entry'] ?? '/ai-model-config',
+                'next_action' => $result['next_action'] ?? '检查模型配置后重试。',
+                'debug' => $result['data']['debug'] ?? null,
+            ]);
         }
 
         return $this->success(['content' => $result['content']], 'success');

@@ -100,7 +100,7 @@ class MonthlyTask extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fill_monthly_task');
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         $this->validate($data, [
             'hotel_id' => 'require|integer',
@@ -164,14 +164,12 @@ class MonthlyTask extends Base
             return $this->error('无权编辑此任务');
         }
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         // 提取任务数据
         $taskData = $this->extractTaskData($data);
         
-        // 合并原有数据
-        $existingData = $task->task_data ?? [];
-        $task->task_data = array_merge($existingData, $taskData);
+        $task->task_data = $taskData;
         $task->save();
 
         OperationLog::record('monthly_task', 'update', "更新月任务: {$task->year}年{$task->month}月", $this->currentUser->id, $task->hotel_id);
@@ -230,7 +228,7 @@ class MonthlyTask extends Base
         
         $taskData = [];
         foreach ($fieldNames as $field) {
-            if (isset($data[$field])) {
+            if (array_key_exists($field, $data)) {
                 // 转换为数值类型
                 $value = $data[$field];
                 if (is_string($value)) {

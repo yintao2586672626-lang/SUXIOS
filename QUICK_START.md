@@ -29,10 +29,10 @@ PATH 中的 php
 
 ## 数据库导入
 
-仓库已包含数据库备份：
+仓库已包含完整初始化入口：
 
 ```text
-hotelx_dump.sql
+database/init_full.sql
 ```
 
 创建数据库：
@@ -44,10 +44,12 @@ C:\xampp\mysql\bin\mysql.exe -u root -e "CREATE DATABASE IF NOT EXISTS hotelx CH
 导入数据：
 
 ```powershell
-C:\xampp\mysql\bin\mysql.exe -u root hotelx < hotelx_dump.sql
+C:\xampp\mysql\bin\mysql.exe -u root hotelx < database/init_full.sql
 ```
 
 如果 XAMPP 安装在 D 盘，请把命令中的 `C:\xampp` 改为 `D:\xampp`。
+
+`hotelx_dump.sql` 是基础 dump；完整初始化必须使用 `database/init_full.sql`，它会补齐当前代码使用的迁移表和字段。
 
 ## 环境变量
 
@@ -131,11 +133,11 @@ http://127.0.0.1:8080/api/health
 
 ### 未检测到 hotelx 数据库
 
-先执行数据库创建和 `hotelx_dump.sql` 导入。
+先执行数据库创建和 `database/init_full.sql` 导入。
 
 ### 核心表缺失
 
-说明数据库可能没有完整导入，重新确认 `hotelx_dump.sql` 是否导入成功。
+说明数据库可能没有完整导入，重新确认 `database/init_full.sql` 是否导入成功。
 
 ### 8080-8099 端口均不可用
 

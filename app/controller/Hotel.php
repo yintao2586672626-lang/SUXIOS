@@ -7,6 +7,7 @@ use app\model\Hotel as HotelModel;
 use app\model\OperationLog;
 use think\exception\ValidateException;
 use think\Response;
+use think\facade\Db;
 
 class Hotel extends Base
 {
@@ -92,18 +93,22 @@ class Hotel extends Base
     {
         $this->checkPermission(true);
 
-        $data = $this->request->post();
+        $data = $this->requestData();
+        $code = $this->normalizeHotelCode($data['code'] ?? null);
+        $data['code'] = $code ?? '';
 
         $this->validate($data, [
             'name' => 'require|max:100',
+            'code' => 'max:50',
         ], [
             'name.require' => '酒店名称不能为空',
             'name.max' => '酒店名称最多100个字符',
+            'code.max' => '酒店编码最多50个字符',
         ]);
 
         // 检查编码唯一性
-        if (!empty($data['code'])) {
-            $exists = HotelModel::where('code', $data['code'])->find();
+        if ($code !== null) {
+            $exists = HotelModel::where('code', $code)->find();
             if ($exists) {
                 return $this->error('酒店编码已存在');
             }
@@ -111,7 +116,7 @@ class Hotel extends Base
 
         $hotel = new HotelModel();
         $hotel->name = $data['name'];
-        $hotel->code = $data['code'] ?? '';
+        $hotel->code = $code;
         $hotel->address = $data['address'] ?? '';
         $hotel->contact_person = $data['contact_person'] ?? '';
         $hotel->contact_phone = $data['contact_phone'] ?? '';
@@ -136,18 +141,22 @@ class Hotel extends Base
             return $this->error('酒店不存在');
         }
 
-        $data = $this->request->post();
+        $data = $this->requestData();
+        $code = $this->normalizeHotelCode($data['code'] ?? null);
+        $data['code'] = $code ?? '';
 
         $this->validate($data, [
             'name' => 'require|max:100',
+            'code' => 'max:50',
         ], [
             'name.require' => '酒店名称不能为空',
             'name.max' => '酒店名称最多100个字符',
+            'code.max' => '酒店编码最多50个字符',
         ]);
 
         // 检查编码唯一性
-        if (!empty($data['code']) && $data['code'] != $hotel->code) {
-            $exists = HotelModel::where('code', $data['code'])->find();
+        if ($code !== null) {
+            $exists = HotelModel::where('code', $code)->where('id', '<>', $id)->find();
             if ($exists) {
                 return $this->error('酒店编码已存在');
             }
@@ -166,7 +175,7 @@ class Hotel extends Base
         }
 
         $hotel->name = $data['name'];
-        $hotel->code = $data['code'] ?? '';
+        $hotel->code = $code;
         $hotel->address = $data['address'] ?? '';
         $hotel->contact_person = $data['contact_person'] ?? '';
         $hotel->contact_phone = $data['contact_phone'] ?? '';
@@ -195,6 +204,12 @@ class Hotel extends Base
         return $this->success($result, $statusChanged ? "酒店已{$result['status_text']}，影响{$affectedUsers}个用户的权限" : '更新成功');
     }
 
+    private function normalizeHotelCode($value): ?string
+    {
+        $code = trim((string)($value ?? ''));
+        return $code === '' ? null : $code;
+    }
+
     /**
      * 删除酒店
      */
@@ -205,6 +220,11 @@ class Hotel extends Base
         $hotel = HotelModel::find($id);
         if (!$hotel) {
             return $this->error('酒店不存在');
+        }
+
+        $references = $this->ensureHotelCanBeDeleted($id);
+        if (!empty($references)) {
+            return $this->error('该酒店存在关联数据，无法删除，请改为禁用酒店', 409, ['references' => $references]);
         }
 
         $hotelName = $hotel->name;
@@ -228,6 +248,64 @@ class Hotel extends Base
         // 管理员权限检查
         if ($requireAdmin && !$this->currentUser->isSuperAdmin()) {
             abort(403, '权限不足');
+        }
+    }
+
+    private function ensureHotelCanBeDeleted(int $hotelId): array
+    {
+        $checks = [
+            ['users', 'hotel_id', '用户'],
+            ['user_hotel_permissions', 'hotel_id', '用户酒店权限'],
+            ['daily_reports', 'hotel_id', '日报'],
+            ['monthly_tasks', 'hotel_id', '月任务'],
+            ['online_daily_data', 'system_hotel_id', '线上数据'],
+            ['operation_logs', 'hotel_id', '操作日志'],
+            ['field_mappings', 'hotel_id', '字段映射'],
+            ['hotel_field_templates', 'hotel_id', '字段模板'],
+            ['room_types', 'hotel_id', '房型'],
+            ['devices', 'hotel_id', '设备'],
+            ['device_maintenance', 'hotel_id', '设备维护'],
+            ['energy_consumption', 'hotel_id', '能耗记录'],
+            ['energy_benchmarks', 'hotel_id', '能耗基准'],
+            ['energy_saving_suggestions', 'hotel_id', '节能建议'],
+            ['maintenance_plans', 'hotel_id', '维护计划'],
+            ['price_suggestions', 'hotel_id', '价格建议'],
+            ['demand_forecasts', 'hotel_id', '需求预测'],
+            ['knowledge_categories', 'hotel_id', '知识分类'],
+            ['knowledge_base', 'hotel_id', '知识库'],
+            ['transfer_records', 'hotel_id', '转让记录'],
+            ['operation_strategy_actions', 'hotel_id', '运营策略动作'],
+        ];
+
+        $references = [];
+        foreach ($checks as [$table, $column, $label]) {
+            $count = $this->countReferenceRows($table, $column, $hotelId);
+            if ($count > 0) {
+                $references[] = ['table' => $table, 'label' => $label, 'count' => $count];
+            }
+        }
+
+        return $references;
+    }
+
+    private function countReferenceRows(string $table, string $column, int $value): int
+    {
+        if (!$this->tableColumnExists($table, $column)) {
+            return 0;
+        }
+
+        return (int)Db::name($table)->where($column, $value)->count();
+    }
+
+    private function tableColumnExists(string $table, string $column): bool
+    {
+        $table = str_replace('`', '', $table);
+        $column = str_replace(['`', "'"], '', $column);
+
+        try {
+            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+        } catch (\Throwable $e) {
+            return false;
         }
     }
 }

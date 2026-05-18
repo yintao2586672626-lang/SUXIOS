@@ -10,6 +10,13 @@ use think\facade\Db;
 
 class TransferDecisionService
 {
+    private LlmClient $client;
+
+    public function __construct(?LlmClient $client = null)
+    {
+        $this->client = $client ?: new LlmClient();
+    }
+
     public function calculateAssetPricing(array $input): array
     {
         $hotelName = $this->text($input, ['hotel_name', '酒店名称'], '未命名酒店');
@@ -69,7 +76,7 @@ class TransferDecisionService
         );
         $suggestion = $this->buildPricingSuggestion($risk['risk_level'], $quoteJudgement, $hasDataAnomaly);
 
-        return [
+        $result = [
             'basic_info' => [
                 'hotel_name' => $hotelName,
                 'location' => $location,
@@ -107,6 +114,14 @@ class TransferDecisionService
             'data_notice' => $hasDataAnomaly ? '存在数据异常，本次只能给出谨慎建议，需先复核原始经营数据。' : '',
             'unit' => '万元',
         ];
+
+        $modelKey = trim((string)($input['model_key'] ?? $input['modelKey'] ?? 'deepseek_v4_default'));
+        if ($modelKey === '') {
+            $modelKey = 'deepseek_v4_default';
+        }
+        $result['ai_evaluation'] = $this->buildPricingAiEvaluation($input, $result, $modelKey);
+
+        return $result;
     }
 
     public function calculateTransferTiming(array $input): array
@@ -119,10 +134,10 @@ class TransferDecisionService
         $orderTrend = $this->trend($this->text($input, ['order_trend', '订单趋势'], '持平'));
         $adrTrend = $this->trend($this->text($input, ['adr_trend', 'ADR趋势'], '持平'));
         $occupancyTrend = $this->trend($this->text($input, ['occupancy_trend', '入住率趋势'], '持平'));
-        $revenueTrend = $this->compareTrend($input, ['current_revenue', '近30天营业额'], ['previous_revenue', '上期营业额'], $revenueTrend);
-        $orderTrend = $this->compareTrend($input, ['current_orders', '近30天订单量'], ['previous_orders', '上期订单量'], $orderTrend);
-        $adrTrend = $this->compareTrend($input, ['current_adr', '近30天ADR'], ['previous_adr', '上期ADR'], $adrTrend);
-        $occupancyTrend = $this->compareTrend($input, ['current_occupancy_rate', '近30天入住率'], ['previous_occupancy_rate', '上期入住率'], $occupancyTrend);
+        $revenueTrend = $this->compareTrend($input, ['current_revenue', '近30天营业额'], ['previous_revenue', '年度30天营业额', '年度营业额', '上期营业额'], $revenueTrend);
+        $orderTrend = $this->compareTrend($input, ['current_orders', '近30天订单量'], ['previous_orders', '年度30天订单量', '年度订单量', '上期订单量'], $orderTrend);
+        $adrTrend = $this->compareTrend($input, ['current_adr', '近30天ADR'], ['previous_adr', '年度ADR', '上期ADR'], $adrTrend);
+        $occupancyTrend = $this->compareTrend($input, ['current_occupancy_rate', '近30天入住率'], ['previous_occupancy_rate', '年度入住率', '上期入住率'], $occupancyTrend);
         $rating = $this->number($input, ['rating', '评分']);
         $holidayDays = (int)$this->number($input, ['holiday_days', '距离节假日天数']);
         $isPeakSeason = $this->bool($input, ['is_peak_season', '是否旺季'], false);
@@ -287,15 +302,15 @@ class TransferDecisionService
         $scopeHotelIds = $targetHotelId > 0 ? [$targetHotelId] : $hotelIds;
         $sourceDate = date('Y-m-d', strtotime($date) ?: time());
         $currentStart = date('Y-m-d', strtotime($sourceDate . ' -29 days'));
-        $previousEnd = date('Y-m-d', strtotime($currentStart . ' -1 day'));
-        $previousStart = date('Y-m-d', strtotime($previousEnd . ' -29 days'));
+        $annualStart = date('Y-m-d', strtotime($sourceDate . ' -364 days'));
 
         $currentDaily = $this->dailyReportRows($scopeHotelIds, $currentStart, $sourceDate);
         $currentOnline = $this->onlineRows($scopeHotelIds, $currentStart, $sourceDate);
-        $previousDaily = $this->dailyReportRows($scopeHotelIds, $previousStart, $previousEnd);
-        $previousOnline = $this->onlineRows($scopeHotelIds, $previousStart, $previousEnd);
+        $annualDaily = $this->dailyReportRows($scopeHotelIds, $annualStart, $sourceDate);
+        $annualOnline = $this->onlineRows($scopeHotelIds, $annualStart, $sourceDate);
         $current = $this->aggregateTransferMetrics($currentDaily, $currentOnline);
-        $previous = $this->aggregateTransferMetrics($previousDaily, $previousOnline);
+        $annual = $this->aggregateTransferMetrics($annualDaily, $annualOnline);
+        $annualBenchmark = $this->annualThirtyDayBenchmark($annual);
         $hotel = $this->hotelRow($targetHotelId);
         $hotelName = (string)($hotel['name'] ?? $current['hotel_name'] ?? '');
 
@@ -305,14 +320,15 @@ class TransferDecisionService
             'location' => (string)($hotel['address'] ?? ''),
             'source_date' => $sourceDate,
             'current_window' => ['start' => $currentStart, 'end' => $sourceDate],
-            'previous_window' => ['start' => $previousStart, 'end' => $previousEnd],
+            'annual_window' => ['start' => $annualStart, 'end' => $sourceDate],
             'current' => $current,
-            'previous' => $previous,
+            'annual' => $annual,
+            'annual_benchmark' => $annualBenchmark,
             'source_counts' => [
                 'daily_reports' => count($currentDaily),
                 'online_daily_data' => count($currentOnline),
-                'previous_daily_reports' => count($previousDaily),
-                'previous_online_daily_data' => count($previousOnline),
+                'annual_daily_reports' => count($annualDaily),
+                'annual_online_daily_data' => count($annualOnline),
             ],
             'data_status' => $current['actual_days'] > 0 ? '已接入真实数据' : '暂无真实数据',
             'generated_at' => date('Y-m-d H:i:s'),
@@ -338,13 +354,13 @@ class TransferDecisionService
             'timing_input' => [
                 'hotel_id' => $targetHotelId,
                 'current_revenue' => $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
-                'previous_revenue' => $previous['revenue'] > 0 ? round($previous['revenue'] / 10000, 2) : null,
+                'previous_revenue' => $annualBenchmark['revenue'] > 0 ? round($annualBenchmark['revenue'] / 10000, 2) : null,
                 'current_orders' => $current['orders'] > 0 ? $current['orders'] : null,
-                'previous_orders' => $previous['orders'] > 0 ? $previous['orders'] : null,
+                'previous_orders' => $annualBenchmark['orders'] > 0 ? $annualBenchmark['orders'] : null,
                 'current_adr' => $current['adr'] > 0 ? $current['adr'] : null,
-                'previous_adr' => $previous['adr'] > 0 ? $previous['adr'] : null,
+                'previous_adr' => $annualBenchmark['adr'] > 0 ? $annualBenchmark['adr'] : null,
                 'current_occupancy_rate' => $current['occupancy_rate'] > 0 ? $current['occupancy_rate'] : null,
-                'previous_occupancy_rate' => $previous['occupancy_rate'] > 0 ? $previous['occupancy_rate'] : null,
+                'previous_occupancy_rate' => $annualBenchmark['occupancy_rate'] > 0 ? $annualBenchmark['occupancy_rate'] : null,
                 'rating' => $current['rating'] > 0 ? $current['rating'] : null,
                 'has_data_anomaly' => $current['has_data_anomaly'],
                 'has_data_gap' => $current['actual_days'] > 0 && $current['actual_days'] < 7,
@@ -583,6 +599,232 @@ class TransferDecisionService
         return '报价处于可谈区间，建议进入经营数据和租约尽调。';
     }
 
+    private function buildPricingAiEvaluation(array $input, array $result, string $modelKey): array
+    {
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => '你是酒店资产转让定价复核分析师。只输出符合 schema 的 JSON。必须基于用户输入和本地公式结果生成 AI 评估；不得改写或发明财务数字；缺少真实流水、租约、证照或 OTA 样本时写入 assumptions；建议必须可执行、克制、面向接盘风险和议价决策。',
+            ],
+            [
+                'role' => 'user',
+                'content' => json_encode([
+                    'input' => $input,
+                    'pricing_result' => $result,
+                    'report_language' => 'zh-CN',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        try {
+            $evaluation = $this->client->createJsonResponse($messages, $this->pricingAiEvaluationSchema(), $modelKey);
+            return $this->normalizePricingAiEvaluation($evaluation, [
+                'source' => 'llm',
+                'model_key' => $modelKey,
+                'generated_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable $e) {
+            return $this->buildFallbackPricingAiEvaluation($result, $modelKey, $e->getMessage());
+        }
+    }
+
+    private function buildFallbackPricingAiEvaluation(array $result, string $modelKey, string $reason): array
+    {
+        $riskLevel = (string)($result['risk_level'] ?? '中风险');
+        $quoteJudgement = (string)($result['valuation']['quote_judgement'] ?? '报价需复核');
+        $monthlyNetProfit = (float)($result['profit']['monthly_net_profit'] ?? 0);
+        $paybackMonths = $result['profit']['payback_months'] ?? null;
+        $reasonableValuation = (float)($result['valuation']['reasonable_valuation'] ?? 0);
+        $expectedPrice = (float)($result['valuation']['expected_transfer_price'] ?? 0);
+        $riskPoints = $this->stringList($result['risk_points'] ?? []);
+        $paybackText = $paybackMonths === null ? '不可回收' : round((float)$paybackMonths, 1) . '个月';
+
+        if (!empty($result['data_notice'])) {
+            $decision = '先复核真实经营数据，再进入报价谈判。';
+        } elseif ($riskLevel === '高风险' || $monthlyNetProfit <= 0) {
+            $decision = '暂不建议按当前报价接盘，需重新谈价或补齐交易安全条件。';
+        } elseif ($quoteJudgement === '报价偏高') {
+            $decision = '可作为谈判标的，但报价需回落到合理估值附近。';
+        } else {
+            $decision = '可进入尽调和议价阶段，重点核验流水、租约和证照。';
+        }
+
+        $recommendations = [
+            [
+                'priority' => $riskLevel === '高风险' ? 'P0' : 'P1',
+                'title' => '锁定议价底线',
+                'detail' => '以合理估值' . round($reasonableValuation, 2) . '万元和回收周期' . $paybackText . '作为报价上限复核，避免只按业主预期报价推进。',
+            ],
+            [
+                'priority' => 'P1',
+                'title' => '复核交易资料',
+                'detail' => '进入下一步前核验证照、租约剩余期限、历史流水、OTA订单和评分，确保估值口径可追溯。',
+            ],
+            [
+                'priority' => 'P2',
+                'title' => '设置接盘条件',
+                'detail' => '若存在数据异常、证照或租期风险，应把补资料、降价或附加交割条件写入谈判清单。',
+            ],
+        ];
+
+        return [
+            'source' => 'fallback',
+            'model_key' => $modelKey,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'summary' => '本地公式显示，当前月净利润为' . round($monthlyNetProfit, 2) . '万元，回收周期为' . $paybackText . '，报价判断为' . $quoteJudgement . '，接盘风险为' . $riskLevel . '。',
+            'decision' => $decision,
+            'recommendations' => $recommendations,
+            'watch_points' => [
+                [
+                    'metric' => '转让报价',
+                    'threshold' => '业主预期' . round($expectedPrice, 2) . '万元 / 合理估值' . round($reasonableValuation, 2) . '万元',
+                    'action' => '报价高于乐观估值或回收周期不可控时，优先压价或暂缓。',
+                ],
+                [
+                    'metric' => '经营现金流',
+                    'threshold' => '月净利润需持续为正且覆盖租金、人工、OTA佣金波动',
+                    'action' => '补齐近30-90天流水后再确认接盘安全边际。',
+                ],
+                [
+                    'metric' => '硬性风险',
+                    'threshold' => implode('；', array_slice($riskPoints, 0, 3)) ?: '暂无明显硬性风险',
+                    'action' => '将风险项转化为资料补齐、价格折让或交割前置条件。',
+                ],
+            ],
+            'assumptions' => [
+                'AI模型不可用时启用本地规则兜底：' . mb_substr(trim($reason), 0, 120),
+                '本评估仅基于当前录入和公式结果，最终成交前需核验真实流水、租约、证照和 OTA 样本。',
+            ],
+            'error' => mb_substr(trim($reason), 0, 120),
+        ];
+    }
+
+    private function normalizePricingAiEvaluation(mixed $raw, array $defaults = []): array
+    {
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        return [
+            'source' => trim((string)($raw['source'] ?? $defaults['source'] ?? '')),
+            'model_key' => trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? '')),
+            'generated_at' => trim((string)($raw['generated_at'] ?? $raw['generatedAt'] ?? $defaults['generated_at'] ?? '')),
+            'summary' => mb_substr(trim((string)($raw['summary'] ?? '')), 0, 300),
+            'decision' => mb_substr(trim((string)($raw['decision'] ?? '')), 0, 160),
+            'recommendations' => $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            'watch_points' => $this->normalizeAiWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []),
+            'assumptions' => $this->stringList($raw['assumptions'] ?? []),
+            'error' => mb_substr(trim((string)($raw['error'] ?? '')), 0, 120),
+        ];
+    }
+
+    private function normalizeAiRecommendationItems(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                $value = trim((string)$item);
+                if ($value !== '') {
+                    $normalized[] = ['priority' => 'P1', 'title' => '评估建议', 'detail' => mb_substr($value, 0, 220)];
+                }
+                continue;
+            }
+
+            $title = trim((string)($item['title'] ?? ''));
+            $detail = trim((string)($item['detail'] ?? $item['content'] ?? ''));
+            if ($title === '' && $detail === '') {
+                continue;
+            }
+            $priority = trim((string)($item['priority'] ?? 'P1'));
+            if (!in_array($priority, ['P0', 'P1', 'P2'], true)) {
+                $priority = 'P1';
+            }
+            $normalized[] = [
+                'priority' => $priority,
+                'title' => mb_substr($title !== '' ? $title : '评估建议', 0, 60),
+                'detail' => mb_substr($detail, 0, 220),
+            ];
+        }
+
+        return array_slice($normalized, 0, 6);
+    }
+
+    private function normalizeAiWatchPointItems(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                $value = trim((string)$item);
+                if ($value !== '') {
+                    $normalized[] = ['metric' => '关键指标', 'threshold' => mb_substr($value, 0, 120), 'action' => '进入下一步前复核。'];
+                }
+                continue;
+            }
+
+            $metric = trim((string)($item['metric'] ?? ''));
+            $threshold = trim((string)($item['threshold'] ?? ''));
+            $action = trim((string)($item['action'] ?? ''));
+            if ($metric === '' && $threshold === '' && $action === '') {
+                continue;
+            }
+            $normalized[] = [
+                'metric' => mb_substr($metric !== '' ? $metric : '关键指标', 0, 80),
+                'threshold' => mb_substr($threshold, 0, 160),
+                'action' => mb_substr($action, 0, 200),
+            ];
+        }
+
+        return array_slice($normalized, 0, 6);
+    }
+
+    private function pricingAiEvaluationSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['summary', 'decision', 'recommendations', 'watch_points', 'assumptions'],
+            'properties' => [
+                'summary' => ['type' => 'string'],
+                'decision' => ['type' => 'string'],
+                'recommendations' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['priority', 'title', 'detail'],
+                        'properties' => [
+                            'priority' => ['type' => 'string', 'enum' => ['P0', 'P1', 'P2']],
+                            'title' => ['type' => 'string'],
+                            'detail' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'watch_points' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['metric', 'threshold', 'action'],
+                        'properties' => [
+                            'metric' => ['type' => 'string'],
+                            'threshold' => ['type' => 'string'],
+                            'action' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'assumptions' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ];
+    }
+
     private function applyTrendScore(string $trend, int $points, string $label, array &$reasons): int
     {
         if ($trend === '上涨') {
@@ -721,10 +963,9 @@ class TransferDecisionService
         }
 
         try {
-            $safeHotelIds = implode(',', array_map('intval', $hotelIds));
             return Db::name('online_daily_data')
                 ->whereBetween('data_date', [$startDate, $endDate])
-                ->whereRaw("(system_hotel_id IN ({$safeHotelIds}) OR hotel_id IN ({$safeHotelIds}))")
+                ->whereIn('system_hotel_id', array_map('intval', $hotelIds))
                 ->select()
                 ->toArray();
         } catch (Throwable $e) {
@@ -763,21 +1004,24 @@ class TransferDecisionService
             $dates[(string)$row['report_date']] = true;
             $reportData = $this->decodeJson($row['report_data'] ?? '');
             $revenue += $this->extractRevenue($row, $reportData);
-            $roomCount = max($roomCount, (int)($row['room_count'] ?? $reportData['room_count'] ?? 0));
-            $roomNights += (float)($reportData['room_nights'] ?? $reportData['occupied_rooms'] ?? $row['guest_count'] ?? 0);
+            $roomCount = max($roomCount, (int)$this->extractSalableRoomCount($row, $reportData));
+            $roomNights += $this->extractRoomNights($row, $reportData);
             $occ = (float)($row['occupancy_rate'] ?? $reportData['occ'] ?? $reportData['occupancy_rate'] ?? 0);
             if ($occ > 0) {
                 $occValues[] = $occ > 1 ? $occ : $occ * 100;
             }
         }
 
+        $dailyFinancialKeys = $this->buildDailyFinancialKeys($dailyRows);
         foreach ($onlineRows as $row) {
             $dates[(string)$row['data_date']] = true;
             $raw = $this->decodeJson($row['raw_data'] ?? '');
             $hotelName = $hotelName ?: (string)($row['hotel_name'] ?? '');
-            $revenue += (float)($row['amount'] ?? $raw['amount'] ?? $raw['revenue'] ?? 0);
             $orders += (int)($row['book_order_num'] ?? $raw['bookOrderNum'] ?? $raw['orders'] ?? 0);
-            $roomNights += (float)($row['quantity'] ?? $row['data_value'] ?? $raw['roomNights'] ?? 0);
+            if (!$this->hasDailyFinancialForOnlineRow($dailyFinancialKeys, $row)) {
+                $revenue += (float)($row['amount'] ?? $raw['amount'] ?? $raw['revenue'] ?? 0);
+                $roomNights += (float)($row['quantity'] ?? $row['data_value'] ?? $raw['roomNights'] ?? 0);
+            }
             $exposure += (int)($raw['exposure'] ?? $raw['showNum'] ?? $raw['impression'] ?? 0);
             $visitors += (int)($raw['visitors'] ?? $raw['visitorNum'] ?? $raw['qunarDetailVisitors'] ?? $raw['totalDetailNum'] ?? 0);
             $score = (float)($row['comment_score'] ?? $row['qunar_comment_score'] ?? $raw['rating'] ?? $raw['score'] ?? 0);
@@ -812,6 +1056,20 @@ class TransferDecisionService
         ];
     }
 
+    private function annualThirtyDayBenchmark(array $annual): array
+    {
+        $actualDays = (int)($annual['actual_days'] ?? 0);
+        $scale = $actualDays > 0 ? 30 / $actualDays : 0;
+
+        return [
+            'actual_days' => $actualDays,
+            'revenue' => round((float)($annual['revenue'] ?? 0) * $scale, 2),
+            'orders' => (int)round((float)($annual['orders'] ?? 0) * $scale),
+            'adr' => round((float)($annual['adr'] ?? 0), 2),
+            'occupancy_rate' => round((float)($annual['occupancy_rate'] ?? 0), 2),
+        ];
+    }
+
     private function extractRevenue(array $row, array $reportData): float
     {
         foreach (['revenue', 'day_revenue', 'room_revenue', 'ctrip_revenue', 'meituan_revenue'] as $key) {
@@ -820,7 +1078,108 @@ class TransferDecisionService
                 return (float)$value;
             }
         }
+        return $this->sumReportFields($reportData, [
+            'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
+            'booking_revenue', 'agoda_revenue', 'expedia_revenue',
+            'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue',
+            'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
+            'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',
+        ]);
+    }
+
+    private function extractRoomNights(array $row, array $reportData): float
+    {
+        foreach (['room_nights', 'occupied_rooms', 'day_total_rooms', 'total_rooms'] as $key) {
+            $value = $reportData[$key] ?? null;
+            if (is_numeric($value) && (float)$value > 0) {
+                return (float)$value;
+            }
+        }
+
+        $rooms = $this->sumReportFields($reportData, [
+            'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms',
+            'booking_rooms', 'agoda_rooms', 'expedia_rooms',
+            'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
+            'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
+        ]);
+        if ($rooms > 0) {
+            return $rooms;
+        }
+
+        return (float)($row['guest_count'] ?? 0);
+    }
+
+    private function extractSalableRoomCount(array $row, array $reportData): float
+    {
+        foreach ([
+            $row['room_count'] ?? null,
+            $reportData['salable_rooms'] ?? null,
+            $reportData['salable_rooms_total'] ?? null,
+            $reportData['total_rooms_count'] ?? null,
+            $reportData['room_count'] ?? null,
+            $reportData['rooms_total'] ?? null,
+        ] as $value) {
+            if (is_numeric($value) && (float)$value > 0) {
+                return (float)$value;
+            }
+        }
         return 0.0;
+    }
+
+    private function sumReportFields(array $reportData, array $fields): float
+    {
+        $total = 0.0;
+        foreach ($fields as $field) {
+            $total += (float)($reportData[$field] ?? 0);
+        }
+        return $total;
+    }
+
+    private function buildDailyFinancialKeys(array $dailyRows): array
+    {
+        $keys = [];
+        foreach ($dailyRows as $row) {
+            $date = (string)($row['report_date'] ?? '');
+            if ($date === '') {
+                continue;
+            }
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            if ($hotelId > 0) {
+                $keys[$hotelId . ':' . $date] = true;
+            } else {
+                $keys[$date] = true;
+            }
+        }
+        return $keys;
+    }
+
+    private function hasDailyFinancialForOnlineRow(array $dailyFinancialKeys, array $onlineRow): bool
+    {
+        $date = (string)($onlineRow['data_date'] ?? '');
+        if ($date === '') {
+            return false;
+        }
+        $systemHotelId = (int)($onlineRow['system_hotel_id'] ?? 0);
+        if ($systemHotelId > 0 && isset($dailyFinancialKeys[$systemHotelId . ':' . $date])) {
+            return true;
+        }
+        return isset($dailyFinancialKeys[$date]);
+    }
+
+    private function stringList(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $list = [];
+        foreach ($items as $item) {
+            $value = trim((string)$item);
+            if ($value !== '') {
+                $list[] = mb_substr($value, 0, 220);
+            }
+        }
+        return array_values(array_unique($list));
     }
 
     private function decodeJson(mixed $value): array

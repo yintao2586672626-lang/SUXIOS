@@ -270,8 +270,8 @@ class CompetitorWechatRobotController extends Base
                 'timeout' => 10,
             ],
             'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
+                'verify_peer' => true,
+                'verify_peer_name' => true,
             ],
         ];
         $context = stream_context_create($options);

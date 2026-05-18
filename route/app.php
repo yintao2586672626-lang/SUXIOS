@@ -123,6 +123,7 @@ Route::group('api/online-data', function () {
     Route::post('/fetch-custom', 'OnlineData/fetchCustom');
     Route::post('/save-cookies', 'OnlineData/saveCookies');
     Route::get('/cookies-list', 'OnlineData/getCookiesList');
+    Route::get('/cookies-detail', 'OnlineData/getCookiesDetail');
     Route::post('/delete-cookies', 'OnlineData/deleteCookies');
     Route::get('/bookmarklet', 'OnlineData/bookmarklet');
     // 美团配置
@@ -130,6 +131,7 @@ Route::group('api/online-data', function () {
     Route::get('/get-meituan-config', 'OnlineData/getMeituanConfig');
     Route::post('/save-meituan-config-item', 'OnlineData/saveMeituanConfigItem');
     Route::get('/get-meituan-config-list', 'OnlineData/getMeituanConfigList');
+    Route::get('/get-meituan-config-detail', 'OnlineData/getMeituanConfigDetail');
     Route::delete('/delete-meituan-config', 'OnlineData/deleteMeituanConfig');
     Route::get('/generate-meituan-bookmarklet', 'OnlineData/generateMeituanBookmarklet');
     // 美团点评配置（优化版）
@@ -142,6 +144,7 @@ Route::group('api/online-data', function () {
     // 携程配置
     Route::post('/save-ctrip-config', 'OnlineData/saveCtripConfig');
     Route::get('/get-ctrip-config-list', 'OnlineData/getCtripConfigList');
+    Route::get('/get-ctrip-config-detail', 'OnlineData/getCtripConfigDetail');
     Route::delete('/delete-ctrip-config', 'OnlineData/deleteCtripConfig');
     Route::get('/generate-ctrip-bookmarklet', 'OnlineData/generateCtripBookmarklet');
     Route::any('/auto-capture-ctrip-cookie', 'OnlineData/autoCaptureCtripCookie');
@@ -161,11 +164,23 @@ Route::group('api/online-data', function () {
     Route::get('/auto-fetch-status', 'OnlineData/autoFetchStatus');
     Route::post('/toggle-auto-fetch', 'OnlineData/toggleAutoFetch');
     Route::post('/set-fetch-schedule', 'OnlineData/setFetchSchedule');
+    Route::post('/retry-auto-fetch', 'OnlineData/retryAutoFetch');
     Route::post('/batch-delete', 'OnlineData/batchDelete');
     // 数据分析
     Route::get('/data-analysis', 'OnlineData/dataAnalysis');
     // AI智能分析
     Route::post('/ai-analysis', 'OnlineData/aiAnalysis');
+})->middleware(\app\middleware\Auth::class);
+
+// ==================== 智能知识中枢 API ====================
+Route::group('api/knowledge', function () {
+    Route::get('/list', 'Knowledge/unitList');
+    Route::post('/add', 'Knowledge/add');
+    Route::post('/:unit_id/add-chunk', 'Knowledge/addChunk');
+    Route::post('/:unit_id/update', 'Knowledge/update');
+    Route::post('/:unit_id/status', 'Knowledge/status');
+    Route::delete('/:unit_id', 'Knowledge/delete');
+    Route::get('/:unit_id', 'Knowledge/detail');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== AI 筹建管理路由 ====================
@@ -249,6 +264,7 @@ Route::group('api/expansion', function () {
     Route::post('/market-evaluation', 'Expansion/marketEvaluation');
     Route::post('/benchmark-model', 'Expansion/benchmarkModel');
     Route::post('/collaboration-efficiency', 'Expansion/collaborationEfficiency');
+    Route::delete('/records/market-evaluation', 'Expansion/clearMarketEvaluation');
     Route::delete('/records/:id', 'Expansion/archive');
     Route::get('/records/:id', 'Expansion/detail');
     Route::get('/records', 'Expansion/records');
@@ -326,9 +342,6 @@ Route::rule('api/online-data/receive-cookies', 'OnlineData/receiveCookies', 'POS
 // 定时任务触发接口（不需要认证，通过X-Cron-Token验证）
 Route::get('api/online-data/cron-trigger', 'OnlineData/cronTrigger');
 
-// 清除opcache缓存（开发调试用）
-Route::get('api/online-data/clear-cache', 'OnlineData/clearCache')->middleware(\app\middleware\Auth::class);
-
 // ==================== 操作日志路由 ====================
 Route::group('api/operation-logs', function () {
     Route::get('/', 'OperationLogController/index');
@@ -340,295 +353,6 @@ Route::group('api/operation-logs', function () {
 Route::get('api/health', function () {
     return json(['status' => 'ok', 'time' => date('Y-m-d H:i:s')]);
 });
-
-// 测试携程API获取（需登录，用于调试）
-Route::post('api/test-ctrip-fetch', function () {
-    try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        $nodeId = $data['node_id'] ?? '24588';
-        $cookies = $data['cookies'] ?? '';
-        $startDate = $data['start_date'] ?? date('Y-m-d', strtotime('-1 day'));
-        $endDate = $data['end_date'] ?? date('Y-m-d', strtotime('-1 day'));
-        
-        if (empty($cookies)) {
-            return json(['code' => 400, 'message' => '请提供Cookies', 'data' => null]);
-        }
-        
-        $url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport';
-        
-        $postData = [
-            'nodeId' => $nodeId,
-            'startDate' => $startDate,
-            'endDate' => $endDate,
-        ];
-        
-        $headers = [
-            'Accept: */*',
-            'Content-Type: application/json',
-            'Cookie: ' . $cookies,
-            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Origin: https://ebooking.ctrip.com',
-            'Referer: https://ebooking.ctrip.com/',
-        ];
-        
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", $headers),
-                'content' => json_encode($postData, JSON_UNESCAPED_UNICODE),
-                'timeout' => 30,
-                'ignore_errors' => true,
-            ],
-            'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-            ],
-        ]);
-        
-        $response = @file_get_contents($url, false, $context);
-        
-        if ($response === false) {
-            return json(['code' => 500, 'message' => '请求携程API失败', 'data' => null]);
-        }
-        
-        // 检查是否是gzip压缩
-        if (substr($response, 0, 2) === "\x1f\x8b") {
-            $response = gzdecode($response);
-        }
-        
-        $responseData = json_decode($response, true);
-        
-        return json([
-            'code' => 200,
-            'message' => '请求成功',
-            'data' => [
-                'data' => $responseData,
-                'raw_length' => strlen($response),
-            ]
-        ]);
-    } catch (\Exception $e) {
-        return json(['code' => 500, 'message' => '异常: ' . $e->getMessage(), 'data' => null]);
-    }
-})->middleware(\app\middleware\Auth::class);
-
-// 数据库测试（需登录）
-Route::any('api/db-test', function () {
-    try {
-        // 测试数据库连接
-        $count = \think\facade\Db::name('system_configs')->count();
-        return json(['code' => 200, 'message' => '数据库正常', 'data' => ['count' => $count]]);
-    } catch (\Exception $e) {
-        return json(['code' => 500, 'message' => '数据库错误: ' . $e->getMessage()]);
-    }
-})->middleware(\app\middleware\Auth::class);
-
-// 测试保存携程配置（需登录）
-Route::any('api/test-ctrip-save', function () {
-    try {
-        $name = 'test_' . date('YmdHis');
-        $cookies = 'test_cookies_' . time();
-        
-        $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
-        
-        $key = 'ctrip_config_list';
-        $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
-        $list = [];
-        if ($existing) {
-            $list = json_decode($existing['config_value'], true) ?: [];
-        }
-        $list[$id] = [
-            'id' => $id,
-            'name' => $name,
-            'cookies' => $cookies,
-            'update_time' => date('Y-m-d H:i:s'),
-        ];
-        
-        $jsonValue = json_encode($list, JSON_UNESCAPED_UNICODE);
-        
-        if ($existing) {
-            \think\facade\Db::name('system_configs')->where('config_key', $key)->update([
-                'config_value' => $jsonValue,
-                'update_time' => date('Y-m-d H:i:s'),
-            ]);
-        } else {
-            \think\facade\Db::name('system_configs')->insert([
-                'config_key' => $key,
-                'config_value' => $jsonValue,
-                'description' => '携程配置列表',
-                'create_time' => date('Y-m-d H:i:s'),
-                'update_time' => date('Y-m-d H:i:s'),
-            ]);
-        }
-        
-        return json(['code' => 200, 'message' => '保存成功', 'data' => ['id' => $id, 'name' => $name]]);
-    } catch (\Exception $e) {
-        return json(['code' => 500, 'message' => '保存失败: ' . $e->getMessage()]);
-    }
-})->middleware(\app\middleware\Auth::class);
-
-// 直接保存携程配置（带参数，支持权限过滤）
-Route::any('api/test-ctrip-save-direct', function () {
-    try {
-        // 尝试获取当前用户
-        $currentUser = null;
-        $token = request()->header('Authorization', '');
-        if ($token) {
-            $token = str_replace('Bearer ', '', $token);
-            $userModel = \app\model\User::where('token', $token)->find();
-            if ($userModel) {
-                $currentUser = $userModel;
-            }
-        }
-
-        $data = json_decode(file_get_contents('php://input'), true);
-        $name = $data['name'] ?? '';
-        $cookies = $data['cookies'] ?? '';
-        
-        if (empty($name) || empty($cookies)) {
-            return json(['code' => 400, 'message' => '参数不完整']);
-        }
-        
-        $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
-        
-        // 非超级管理员保存时记录 user_id
-        $userId = null;
-        if ($currentUser && !$currentUser->isSuperAdmin()) {
-            $userId = $currentUser->id;
-        }
-        
-        $key = 'ctrip_config_list';
-        $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
-        $list = [];
-        if ($existing) {
-            $list = json_decode($existing['config_value'], true) ?: [];
-        }
-        $list[$id] = [
-            'id' => $id,
-            'name' => $name,
-            'cookies' => $cookies,
-            'url' => $data['url'] ?? '',
-            'node_id' => $data['node_id'] ?? '',
-            'user_id' => $userId,
-            'update_time' => date('Y-m-d H:i:s'),
-            'created_at' => date('Y-m-d H:i:s'),
-        ];
-        
-        $jsonValue = json_encode($list, JSON_UNESCAPED_UNICODE);
-        
-        if ($existing) {
-            \think\facade\Db::name('system_configs')->where('config_key', $key)->update([
-                'config_value' => $jsonValue,
-                'update_time' => date('Y-m-d H:i:s'),
-            ]);
-        } else {
-            \think\facade\Db::name('system_configs')->insert([
-                'config_key' => $key,
-                'config_value' => $jsonValue,
-                'description' => '携程配置列表',
-                'create_time' => date('Y-m-d H:i:s'),
-                'update_time' => date('Y-m-d H:i:s'),
-            ]);
-        }
-        
-        return json(['code' => 200, 'message' => '配置保存成功', 'data' => $list[$id]]);
-    } catch (\Exception $e) {
-        return json(['code' => 500, 'message' => '保存失败: ' . $e->getMessage()]);
-    }
-})->middleware(\app\middleware\Auth::class);
-
-// 获取携程配置列表（直接接口，支持权限过滤）
-Route::any('api/test-ctrip-config-list', function () {
-    try {
-        // 尝试获取当前用户（用于权限过滤）
-        $currentUser = null;
-        $token = request()->header('Authorization', '');
-        if ($token) {
-            $token = str_replace('Bearer ', '', $token);
-            $userModel = \app\model\User::where('token', $token)->find();
-            if ($userModel) {
-                $currentUser = $userModel;
-            }
-        }
-
-        $key = 'ctrip_config_list';
-        $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
-        $list = $raw ? json_decode($raw, true) : [];
-        if (!is_array($list)) {
-            $list = [];
-        }
-        
-        // 权限过滤：非超级管理员只能看自己保存的配置，超级管理员和未识别用户看到全部
-        if ($currentUser && !$currentUser->isSuperAdmin()) {
-            $myList = [];
-            foreach ($list as $item) {
-                if (($item['user_id'] ?? null) === $currentUser->id) {
-                    $myList[] = $item;
-                }
-            }
-            $list = $myList;
-        }
-        
-        // 转为索引数组并按时间倒序
-        $list = array_values($list);
-        usort($list, function($a, $b) {
-            return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
-        });
-        return json(['code' => 200, 'message' => 'success', 'data' => $list]);
-    } catch (\Exception $e) {
-        return json(['code' => 500, 'message' => '获取失败: ' . $e->getMessage(), 'data' => []]);
-    }
-})->middleware(\app\middleware\Auth::class);
-
-// 删除携程配置（直接接口，支持权限过滤）
-Route::any('api/test-ctrip-config-delete', function () {
-    try {
-        $id = request()->param('id', '');
-        if (empty($id)) {
-            return json(['code' => 400, 'message' => '缺少ID参数']);
-        }
-
-        // 尝试获取当前用户
-        $currentUser = null;
-        $token = request()->header('Authorization', '');
-        if ($token) {
-            $token = str_replace('Bearer ', '', $token);
-            $userModel = \app\model\User::where('token', $token)->find();
-            if ($userModel) {
-                $currentUser = $userModel;
-            }
-        }
-        
-        $key = 'ctrip_config_list';
-        $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
-        if (!$existing) {
-            return json(['code' => 404, 'message' => '配置不存在']);
-        }
-        
-        $list = json_decode($existing['config_value'], true) ?: [];
-        if (!isset($list[$id])) {
-            return json(['code' => 404, 'message' => '配置项不存在']);
-        }
-        
-        // 非超级管理员只能删除自己的配置
-        if ($currentUser && !$currentUser->isSuperAdmin()) {
-            if (($list[$id]['user_id'] ?? null) != $currentUser->id) {
-                return json(['code' => 403, 'message' => '无权删除此配置']);
-            }
-        }
-        
-        unset($list[$id]);
-        
-        \think\facade\Db::name('system_configs')->where('config_key', $key)->update([
-            'config_value' => json_encode($list, JSON_UNESCAPED_UNICODE),
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
-        
-        return json(['code' => 200, 'message' => '删除成功']);
-    } catch (\Exception $e) {
-        return json(['code' => 500, 'message' => '删除失败: ' . $e->getMessage()]);
-    }
-})->middleware(\app\middleware\Auth::class);
-
 // ==================== AI Agent 路由 ====================
 Route::group('api/agent', function () {
     // 概览
@@ -639,6 +363,7 @@ Route::group('api/agent', function () {
     Route::post('/summarize-captured-ota-analysis', 'Agent/summarizeCapturedOtaAnalysis');
 
     // 智策·可行性报告
+    // Feasibility report
     Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate');
     Route::get('/feasibility-report/detail/:id', 'Agent/feasibilityReportDetail');
     Route::post('/feasibility-report/regenerate/:id', 'Agent/feasibilityReportRegenerate');
@@ -722,31 +447,4 @@ Route::group('api/agent', function () {
     Route::get('/logs', 'Agent/logs');
     Route::get('/tasks', 'Agent/tasks');
     Route::post('/tasks', 'Agent/createTask');
-})->middleware(\app\middleware\Auth::class);
-
-// 测试路由
-Route::post('api/test-save', function () {
-    try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        $name = $data['name'] ?? '';
-        $cookies = $data['cookies'] ?? '';
-        
-        if (empty($name) || empty($cookies)) {
-            return json(['code' => 400, 'message' => '参数不完整']);
-        }
-        
-        // 直接保存到数据库
-        $id = 'test_' . date('YmdHis');
-        \think\facade\Db::name('system_configs')->insert([
-            'config_key' => 'test_config_' . $id,
-            'config_value' => json_encode(['name' => $name, 'cookies' => substr($cookies, 0, 100)], JSON_UNESCAPED_UNICODE),
-            'description' => '测试配置',
-            'create_time' => date('Y-m-d H:i:s'),
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
-        
-        return json(['code' => 200, 'message' => '测试保存成功', 'data' => ['id' => $id]]);
-    } catch (\Exception $e) {
-        return json(['code' => 500, 'message' => '测试失败: ' . $e->getMessage()]);
-    }
 })->middleware(\app\middleware\Auth::class);
