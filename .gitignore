@@ -60,6 +60,13 @@ new_hash.txt
 commit.bat
 push.bat
 
+# Local tunnel tooling - do not expose development services
+ngrok.exe
+ngrok*.exe
+ngrok.yml
+ngrok*.yml
+.ngrok2/
+
 # Public debug / one-off tooling
 public/diag*.php
 public/fix_*.php

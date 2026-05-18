@@ -24476,10 +24476,24 @@
                 business_area: '核心商务区',
                 target_price_band: '220-320',
                 hotel_type: '中端商务',
-                target_room_count: 72
+                target_room_count: 72,
+                competitor_count: 16,
+                avg_competitor_price: 268,
+                avg_competitor_score: 4.6,
+                avg_review_count: 420,
+                ota_heat_index: 86,
+                traffic_radius_km: 3
             });
             const benchmarkModelResult = ref(null);
             const benchmarkModelLoading = ref(false);
+            const benchmarkModelDetailFields = [
+                { key: 'competitor_count', label: '竞品数量（家）' },
+                { key: 'avg_competitor_price', label: '竞品均价（元）' },
+                { key: 'avg_competitor_score', label: '竞品均分', step: 0.1 },
+                { key: 'avg_review_count', label: '平均点评量' },
+                { key: 'ota_heat_index', label: 'OTA热度指数' },
+                { key: 'traffic_radius_km', label: '采样半径（km）', step: 0.1 }
+            ];
 
             const collaborationProject = ref({
                 project_name: '新店扩张项目',
@@ -24840,8 +24854,41 @@
                 channel: '渠道',
                 review: '点评',
                 image: '图片',
-                service: '服务'
+                service: '服务',
+                data: '数据'
             }[key] || key);
+            const trimMetricZeros = (value) => String(value).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+            const benchmarkMetricValue = (value, suffix = '', decimals = 0) => {
+                const number = Number(value);
+                if (!Number.isFinite(number)) return '--';
+                return `${trimMetricZeros(number.toFixed(decimals))}${suffix}`;
+            };
+            const benchmarkSignedValue = (value, suffix = '', decimals = 0) => {
+                const number = Number(value);
+                if (!Number.isFinite(number)) return '--';
+                const sign = number > 0 ? '+' : '';
+                return `${sign}${trimMetricZeros(number.toFixed(decimals))}${suffix}`;
+            };
+            const benchmarkModelDetailMetrics = computed(() => benchmarkModelResult.value?.position?.detail_metrics || {});
+            const benchmarkModelDetailCards = computed(() => {
+                const metrics = benchmarkModelDetailMetrics.value;
+                return [
+                    { label: '竞品数量', value: benchmarkMetricValue(metrics.competitor_count, '家') },
+                    { label: '竞品均价', value: benchmarkMetricValue(metrics.avg_competitor_price, '元') },
+                    { label: '竞品均分', value: benchmarkMetricValue(metrics.avg_competitor_score, '分', 1) },
+                    { label: '平均点评量', value: benchmarkMetricValue(metrics.avg_review_count) },
+                    { label: 'OTA热度指数', value: benchmarkMetricValue(metrics.ota_heat_index, '%') },
+                    { label: '采样半径', value: benchmarkMetricValue(metrics.traffic_radius_km, 'km', 1) }
+                ];
+            });
+            const benchmarkModelDetailCompleteness = computed(() => {
+                const completeness = benchmarkModelDetailMetrics.value.data_completeness;
+                return completeness ? `录入完整度 ${completeness}` : '录入完整度 --';
+            });
+            const benchmarkModelEstimatedFields = computed(() => {
+                const fields = benchmarkModelDetailMetrics.value.estimated_fields;
+                return Array.isArray(fields) ? fields : [];
+            });
 
             const expansionRecordTypeLabel = (type) => ({
                 market: '市场评估',
@@ -26241,7 +26288,7 @@
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
                 aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityRecordId, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityDecisionClass, handleFeasibility, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
                 marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
-                benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkStrategyLabel, handleBenchmarkModel,
+                benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
                 collaborationProject, collaborationTasks, collaborationStatusOptions, collaborationEfficiencyResult, collaborationEfficiencyLoading, handleCollaborationEfficiency,
                 expansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, expansionRecordTypeLabel, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory,
                 transferPricingForm, transferPricingFields, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, transferPricingAiEvaluation, transferPricingAiEvaluationVisible, transferPricingAiEvaluationSourceLabel, handleTransferPricing,
