@@ -1,6 +1,9 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const indexPath = 'public/index.html';
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const indexPath = path.join(repoRoot, 'public/index.html');
 const failures = [];
 
 if (!fs.existsSync(indexPath)) {

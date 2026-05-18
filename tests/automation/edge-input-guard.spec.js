@@ -22,7 +22,6 @@ const MODULES = [
   { name: '智联·协同提效', path: 'collaboration-efficiency', group: '扩张管理', groupPath: 'ai-expansion' },
   { name: '智算·资产定价', path: 'asset-pricing', group: '转让管理', groupPath: 'ai-transfer' },
   { name: '智略·时机推演', path: 'timing-strategy', group: '转让管理', groupPath: 'ai-transfer' },
-  { name: '智决·数据看板', path: 'decision-board', group: '转让管理', groupPath: 'ai-transfer' },
 ];
 
 const config = {

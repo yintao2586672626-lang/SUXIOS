@@ -37,6 +37,7 @@ class TransferDecisionService
         $orderCount = (int)$this->number($input, ['order_count', '订单量']);
         $licensesComplete = $this->bool($input, ['licenses_complete', '证照是否齐全'], true);
         $hasDataAnomaly = $this->bool($input, ['has_data_anomaly', '是否存在数据异常'], false);
+        $requireAiEvaluation = $this->bool($input, ['require_ai_evaluation', 'require_ai', '必须使用AI'], false);
 
         if ($roomCount <= 0) {
             throw new InvalidArgumentException('房间数必须大于0');
@@ -119,7 +120,7 @@ class TransferDecisionService
         if ($modelKey === '') {
             $modelKey = 'deepseek_v4_default';
         }
-        $result['ai_evaluation'] = $this->buildPricingAiEvaluation($input, $result, $modelKey);
+        $result['ai_evaluation'] = $this->buildPricingAiEvaluation($input, $result, $modelKey, $requireAiEvaluation);
 
         return $result;
     }
@@ -599,7 +600,7 @@ class TransferDecisionService
         return '报价处于可谈区间，建议进入经营数据和租约尽调。';
     }
 
-    private function buildPricingAiEvaluation(array $input, array $result, string $modelKey): array
+    private function buildPricingAiEvaluation(array $input, array $result, string $modelKey, bool $requireAiEvaluation = false): array
     {
         $messages = [
             [
@@ -624,6 +625,9 @@ class TransferDecisionService
                 'generated_at' => date('Y-m-d H:i:s'),
             ]);
         } catch (Throwable $e) {
+            if ($requireAiEvaluation) {
+                throw new RuntimeException('AI模型调用失败，未生成AI评估结果：' . $e->getMessage(), 0, $e);
+            }
             return $this->buildFallbackPricingAiEvaluation($result, $modelKey, $e->getMessage());
         }
     }

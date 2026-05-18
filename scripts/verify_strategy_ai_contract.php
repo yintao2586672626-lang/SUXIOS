@@ -74,5 +74,9 @@ assert_strategy_ai_contract(
     str_contains($publicSource, 'strategyAiSourceLabel') && str_contains($publicSource, 'ai_data_used'),
     'frontend strategy result must render AI data status instead of only external map status'
 );
+assert_strategy_ai_contract(
+    str_contains($publicSource, '<h3 class="font-bold text-gray-800">AI赋能战略推演结果</h3>') && str_contains($publicSource, 'AI推演结论'),
+    'frontend strategy result must label the result block as AI赋能战略推演结果'
+);
 
 echo 'Strategy AI contract verification passed.' . PHP_EOL;

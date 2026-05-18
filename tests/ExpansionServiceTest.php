@@ -115,6 +115,52 @@ final class ExpansionServiceTest extends TestCase
         self::assertSame(270, $result['position']['detail_metrics']['avg_competitor_price']);
         self::assertArrayHasKey('model_fit_score', $result['recommended_benchmarks'][0]);
         self::assertArrayHasKey('price_gap_to_market', $result['recommended_benchmarks'][0]);
+        self::assertSame('fallback', $result['ai_evaluation']['source']);
+        self::assertSame('标杆模型A', $result['ai_evaluation']['model_judgement']['best_fit_model']);
+    }
+
+    public function testBuildBenchmarkModelUsesLlmEvaluationWhenConfigured(): void
+    {
+        $client = new class extends LlmClient {
+            public array $messages = [];
+
+            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            {
+                $this->messages = $messages;
+                return [
+                    'summary' => 'AI复核后建议优先复制模型A，规则引擎结果仅作初筛。',
+                    'decision' => '优先复制模型A，先做小范围价格测试。',
+                    'model_judgement' => [
+                        'best_fit_model' => '标杆模型A',
+                        'copy_priority' => '先复制房型效率和渠道首图标准。',
+                        'differentiation_focus' => '用商务便利性作为差异化标签。',
+                    ],
+                    'recommendations' => [
+                        ['priority' => 'P0', 'title' => '复核样本', 'detail' => '补齐3公里竞品点评文本和OTA转化数据。'],
+                    ],
+                    'watch_points' => [
+                        ['metric' => '价格差', 'threshold' => '高于竞品均价30元以上', 'action' => '改为节假日上浮，不作为常态挂牌价。'],
+                    ],
+                    'assumptions' => ['未接入真实点评文本。'],
+                ];
+            }
+        };
+
+        $result = (new ExpansionService($client))->buildBenchmarkModel([
+            'city' => '上海',
+            'business_area' => '核心商务区',
+            'target_price_band' => '220-320',
+            'hotel_type' => '中端商务',
+            'target_room_count' => 72,
+            'model_key' => 'openai_fast',
+        ]);
+
+        self::assertSame('llm', $result['ai_evaluation']['source']);
+        self::assertSame('openai_fast', $result['ai_evaluation']['model_key']);
+        self::assertStringNotContainsString('规则引擎', $result['ai_evaluation']['summary']);
+        self::assertSame('优先复制模型A，先做小范围价格测试。', $result['ai_evaluation']['decision']);
+        self::assertSame('补齐3公里竞品点评文本和OTA转化数据。', $result['ai_evaluation']['recommendations'][0]['detail']);
+        self::assertStringContainsString('benchmark_result', (string)($client->messages[1]['content'] ?? ''));
     }
 
     public function testImproveCollaborationFlagsOverdueCriticalTasks(): void

@@ -265,6 +265,7 @@ Route::group('api/expansion', function () {
     Route::post('/benchmark-model', 'Expansion/benchmarkModel');
     Route::post('/collaboration-efficiency', 'Expansion/collaborationEfficiency');
     Route::delete('/records/market-evaluation', 'Expansion/clearMarketEvaluation');
+    Route::delete('/records', 'Expansion/clearRecords');
     Route::delete('/records/:id', 'Expansion/archive');
     Route::get('/records/:id', 'Expansion/detail');
     Route::get('/records', 'Expansion/records');

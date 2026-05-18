@@ -123,6 +123,18 @@ class Expansion extends Base
         }
     }
 
+    public function clearRecords(): Response
+    {
+        try {
+            $this->ensureLogin();
+            $archivedCount = $this->service->archiveByTypes(['market', 'benchmark', 'collaboration'], (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
+
+            return $this->success(['archived_count' => $archivedCount], '扩张历史数据已清空');
+        } catch (\Throwable $e) {
+            return $this->error('扩张历史数据清空失败: ' . $e->getMessage(), 400);
+        }
+    }
+
     private function ensureLogin(): void
     {
         if (!$this->currentUser) {

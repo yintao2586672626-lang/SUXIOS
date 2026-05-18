@@ -61,6 +61,24 @@ final class TransferDecisionServiceTest extends TestCase
         self::assertNotEmpty($result['ai_evaluation']['watch_points']);
     }
 
+    public function testCalculateAssetPricingCanRequireRealAiEvaluation(): void
+    {
+        $service = new TransferDecisionService(new class extends LlmClient {
+            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            {
+                throw new RuntimeException('missing model config');
+            }
+        });
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('AI模型调用失败');
+
+        $service->calculateAssetPricing(array_merge($this->pricingInput(), [
+            'require_ai_evaluation' => true,
+            'model_key' => 'openai_fast',
+        ]));
+    }
+
     public function testCalculateAssetPricingUsesLlmAiEvaluationWhenAvailable(): void
     {
         $client = new class extends LlmClient {

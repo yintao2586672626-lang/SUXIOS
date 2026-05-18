@@ -384,7 +384,7 @@
                             <div class="xl:col-span-5 space-y-5">
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between mb-4">
-                                        <h3 class="font-bold text-gray-800">战略推荐结果</h3>
+                                        <h3 class="font-bold text-gray-800">AI赋能战略推演结果</h3>
                                         <div v-if="aiStrategyResult" class="flex items-center gap-2">
                                             <span v-if="aiStrategyResult.ai_evaluation" :class="['px-2 py-1 rounded text-xs border', aiStrategyResult.ai_evaluation.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">{{ strategyAiSourceLabel }}</span>
                                             <span class="px-2 py-1 rounded text-xs border bg-slate-50 text-slate-600 border-slate-200">{{ strategyFreshnessLabel }}</span>
@@ -406,13 +406,23 @@
                                         </div>
                                         <div v-if="aiStrategyResult.ai_evaluation" class="border-l-4 border-cyan-400 bg-cyan-50/60 px-3 py-2 text-sm text-slate-700">
                                             <div class="flex items-center justify-between gap-3 mb-1">
-                                                <div class="font-semibold text-cyan-900">AI战略判断</div>
+                                                <div class="font-semibold text-cyan-900">AI推演结论</div>
                                                 <span class="text-xs text-cyan-700">{{ strategyAiSourceLabel }}</span>
                                             </div>
                                             <p v-if="aiStrategyResult.ai_evaluation.summary" class="text-xs text-slate-600">{{ aiStrategyResult.ai_evaluation.summary }}</p>
                                             <div v-if="aiStrategyResult.ai_evaluation.decision" class="mt-2 text-sm font-medium text-slate-800">{{ aiStrategyResult.ai_evaluation.decision }}</div>
                                             <div v-if="aiStrategyResult.ai_evaluation.key_actions.length" class="mt-2 flex flex-wrap gap-2">
                                                 <span v-for="item in aiStrategyResult.ai_evaluation.key_actions.slice(0, 3)" :key="item" class="rounded bg-white/70 px-2 py-1 text-xs text-cyan-800 border border-cyan-100">{{ item }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                            <div v-for="card in strategyAiEmpowermentCards" :key="card.label" class="rounded-lg border border-cyan-100 bg-white p-3 min-w-0">
+                                                <div class="flex items-center justify-between gap-2 mb-1">
+                                                    <div class="text-xs font-semibold text-cyan-700">{{ card.label }}</div>
+                                                    <i :class="card.icon" class="text-cyan-600"></i>
+                                                </div>
+                                                <div class="font-semibold text-slate-900 break-words">{{ card.value }}</div>
+                                                <div class="text-xs text-slate-500 mt-1 leading-relaxed break-words">{{ card.hint }}</div>
                                             </div>
                                         </div>
                                         <div class="rounded-xl p-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
@@ -448,7 +458,7 @@
                                     </div>
                                     <div v-else class="py-16 text-center text-gray-400">
                                         <i class="fas fa-route text-4xl mb-3 opacity-50"></i>
-                                        <p>录入项目参数后生成战略评分</p>
+                                        <p>录入项目参数后生成AI赋能战略推演结果</p>
                                     </div>
                                 </div>
 
@@ -592,11 +602,57 @@
                                 </div>
 
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                                    <h3 class="font-bold text-gray-800 mb-4">成本参数</h3>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div v-for="field in simulationCostFields" :key="field.key">
-                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
-                                            <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">成本参数</h3>
+                                        <div class="text-xs text-gray-500">月总成本 <span class="font-semibold text-gray-800">{{ formatCurrency(simulationCostSummary.monthlyCost) }}</span></div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">固定月成本</div>
+                                            <div class="font-semibold text-amber-900">{{ formatCurrency(simulationCostSummary.fixedMonthlyCost) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">综合OTA佣金率</div>
+                                            <div class="font-semibold text-amber-900">{{ aiRound(simulationCostSummary.otaCommissionRate, 2) }}%</div>
+                                        </div>
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">OTA佣金</div>
+                                            <div class="font-semibold text-amber-900">{{ formatCurrency(simulationCostSummary.otaCommission) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-5">
+                                        <div v-for="group in simulationCostGroups" :key="group.title" class="border-t border-gray-100 pt-4 first:border-t-0 first:pt-0">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <div class="font-semibold text-gray-700">{{ group.title }}</div>
+                                                <div class="text-xs text-gray-500">小计 <span class="font-semibold text-gray-800">{{ formatCurrency(group.total) }}</span></div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div v-for="field in group.fields" :key="field.key">
+                                                    <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                                    <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="border-t border-gray-100 pt-4">
+                                            <div class="font-semibold text-gray-700 mb-3">渠道佣金结构</div>
+                                            <div class="space-y-3">
+                                                <div v-for="channel in simulationOtaCommissionChannels" :key="channel.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                    <div class="flex items-center justify-between mb-3">
+                                                        <div class="font-medium text-gray-800">{{ channel.label }}</div>
+                                                        <div class="text-xs text-gray-500">折合 {{ aiRound(channel.weightedRate, 2) }}%</div>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">收入占比(%)</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[channel.shareKey]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">佣金率(%)</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[channel.rateKey]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -870,6 +926,37 @@
                         </div>
 
                         <div v-if="aiFeasibilityResult" class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                            <section class="feasibility-ai-result xl:col-span-12">
+                                <div class="feasibility-ai-result-head">
+                                    <div>
+                                        <span>AI赋能结果</span>
+                                        <h3>{{ feasibilityAiEmpowerment.headline }}</h3>
+                                        <p>{{ feasibilityAiEmpowerment.conclusion }}</p>
+                                    </div>
+                                    <div :class="['feasibility-ai-source', feasibilityAiEmpowerment.isFallback ? 'fallback' : 'active']">
+                                        <i :class="feasibilityAiEmpowerment.isFallback ? 'fas fa-shield-alt' : 'fas fa-wand-magic-sparkles'"></i>
+                                        <span>{{ feasibilityAiEmpowerment.sourceLabel }}</span>
+                                    </div>
+                                </div>
+                                <div class="feasibility-ai-result-grid">
+                                    <div v-for="card in feasibilityAiEmpowerment.cards" :key="card.label">
+                                        <span>{{ card.label }}</span>
+                                        <strong>{{ card.value }}</strong>
+                                        <em>{{ card.meta }}</em>
+                                    </div>
+                                </div>
+                                <div class="feasibility-ai-result-foot">
+                                    <div>
+                                        <strong>下一步动作</strong>
+                                        <p>{{ feasibilityAiEmpowerment.nextAction }}</p>
+                                    </div>
+                                    <div>
+                                        <strong>证据来源</strong>
+                                        <p>{{ feasibilityAiEmpowerment.evidenceText }}</p>
+                                    </div>
+                                </div>
+                            </section>
+
                             <aside class="xl:col-span-4 space-y-5">
                                 <section class="feasibility-decision-card">
                                     <div class="feasibility-decision-top">
@@ -933,6 +1020,15 @@
                                         </div>
                                         <div :class="['feasibility-grade-badge strong', feasibilityDecisionClass]">{{ aiFeasibilityResult.conclusion_grade || '-' }}</div>
                                     </header>
+
+                                    <section class="feasibility-report-section">
+                                        <h3>AI赋能结果</h3>
+                                        <div class="feasibility-ai-print-brief">
+                                            <div><span>生成状态</span><strong>{{ feasibilityAiEmpowerment.sourceLabel }}</strong></div>
+                                            <div><span>核心结论</span><strong>{{ feasibilityAiEmpowerment.headline }}</strong></div>
+                                            <div><span>下一步动作</span><strong>{{ feasibilityAiEmpowerment.nextAction }}</strong></div>
+                                        </div>
+                                    </section>
 
                                     <section class="feasibility-report-section">
                                         <h3>1. 项目摘要</h3>
@@ -1298,6 +1394,50 @@
                                             未录入：{{ benchmarkModelEstimatedFields.join('、') }}，已按目标价格带与房量推导兜底。
                                         </p>
                                     </div>
+                                    <div v-if="benchmarkModelResult.ai_evaluation" class="bg-white rounded-xl shadow-sm border border-cyan-100 p-5">
+                                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                                            <h3 class="font-bold text-gray-800">AI赋能结果</h3>
+                                            <span :class="['px-2 py-1 rounded text-xs border', benchmarkModelResult.ai_evaluation.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">
+                                                {{ benchmarkModelAiSourceLabel }}
+                                            </span>
+                                        </div>
+                                        <p v-if="benchmarkModelResult.ai_evaluation.summary" class="text-sm text-gray-600 mb-4">{{ benchmarkModelResult.ai_evaluation.summary }}</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+                                            <div v-for="card in benchmarkModelAiOutcomeCards" :key="card.label" class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 min-w-0">
+                                                <div class="flex items-center justify-between gap-2 mb-1">
+                                                    <div class="text-xs text-cyan-600">{{ card.label }}</div>
+                                                    <i :class="card.icon" class="text-cyan-600"></i>
+                                                </div>
+                                                <div class="text-sm font-medium text-gray-800 break-words">{{ card.value }}</div>
+                                                <div class="text-xs text-gray-500 mt-1 leading-relaxed break-words">{{ card.hint }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                            <div>
+                                                <div class="text-sm font-semibold text-gray-700 mb-2">AI行动建议</div>
+                                                <div class="space-y-2">
+                                                    <div v-for="(item, index) in benchmarkModelAiRecommendations" :key="`${item.priority}-${item.title}-${index}`" class="rounded-lg border border-gray-100 px-3 py-2 text-sm">
+                                                        <div class="flex items-center gap-2 mb-1">
+                                                            <span class="px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 text-xs">{{ item.priority }}</span>
+                                                            <span class="font-medium text-gray-800">{{ item.title }}</span>
+                                                        </div>
+                                                        <div class="text-gray-600">{{ item.detail }}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div class="text-sm font-semibold text-gray-700 mb-2">AI关注风险</div>
+                                                <div class="space-y-2">
+                                                    <div v-for="(item, index) in benchmarkModelAiWatchPoints" :key="`${item.metric}-${index}`" class="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-sm">
+                                                        <div class="font-medium text-amber-800">{{ item.metric }}</div>
+                                                        <div class="text-amber-700 mt-1">{{ item.threshold }}</div>
+                                                        <div class="text-gray-600 mt-1">{{ item.action }}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-if="benchmarkModelAiAssumptionNote" class="mt-3 text-xs text-gray-500">{{ benchmarkModelAiAssumptionNote }}</div>
+                                    </div>
                                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                         <h3 class="font-bold text-gray-800 mb-4">推荐标杆酒店列表</h3>
                                         <div class="overflow-x-auto">
@@ -1362,7 +1502,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">{{ benchmarkModelResult.data_status.notice }}</div>
+                                    <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">{{ benchmarkModelDataNotice }}</div>
                                 </template>
                                 <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
                                     <i class="fas fa-star text-4xl mb-3 opacity-50"></i>
@@ -1508,9 +1648,9 @@
                                 <p class="text-xs text-gray-500 mt-1">保存市场评估、标杆选模、协同提效的输入与结果，支持查看和复用。</p>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
-                                <button v-if="currentPage === 'market-evaluation' || currentPage === 'market-eval'" @click="clearMarketEvaluationHistory" :disabled="expansionRecordsLoading || !hasMarketEvaluationHistory" class="px-3 py-2 rounded-lg border border-red-200 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <button @click="clearExpansionHistory" :disabled="expansionRecordsLoading || !hasExpansionHistory" class="px-3 py-2 rounded-lg border border-red-200 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
                                     <i :class="expansionRecordsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-trash-alt'" class="mr-1"></i>
-                                    清空评估历史
+                                    清空历史数据
                                 </button>
                                 <button @click="loadExpansionRecords" :disabled="expansionRecordsLoading" class="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-60">
                                     <i :class="expansionRecordsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-1"></i>
@@ -1607,7 +1747,7 @@
                                 </div>
                                 <button @click="handleTransferPricing" :disabled="transferPricingLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
                                     <i :class="transferPricingLoading ? 'fas fa-spinner fa-spin' : 'fas fa-calculator'"></i>
-                                    <span>{{ transferPricingLoading ? '计算中...' : '计算资产定价' }}</span>
+                                    <span>{{ transferPricingLoading ? 'AI生成中...' : '计算并生成AI结果' }}</span>
                                 </button>
                             </div>
                         </div>
@@ -1631,6 +1771,21 @@
                                             <input type="checkbox" v-model="transferPricingForm.has_data_anomaly" class="rounded border-gray-300">
                                             <span>是否存在数据异常</span>
                                         </label>
+                                    </div>
+                                    <div class="mt-4 rounded-lg border border-cyan-100 bg-cyan-50/60 p-4">
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-xs text-cyan-700 mb-1">AI模型</label>
+                                                <select v-model="transferPricingForm.model_key" class="input-field w-full bg-white">
+                                                    <option v-for="model in transferAiModelOptions" :key="model.value" :value="model.value">{{ model.label }}</option>
+                                                </select>
+                                            </div>
+                                            <label class="flex items-center gap-2 rounded-lg border border-cyan-100 bg-white px-3 py-2 text-sm text-cyan-800">
+                                                <input type="checkbox" v-model="transferPricingForm.require_ai_evaluation" class="rounded border-cyan-300">
+                                                <span>必须使用AI生成评估</span>
+                                            </label>
+                                        </div>
+                                        <p class="mt-2 text-xs text-cyan-700">开启后模型未配置或调用失败会直接提示错误，不使用本地兜底冒充AI结果。</p>
                                     </div>
                                 </div>
                             </div>
@@ -2211,7 +2366,7 @@
                         <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                             <div>
                                 <h2 class="text-2xl font-bold text-gray-900">开业检查清单</h2>
-                                <p class="text-sm text-gray-500 mt-1">按分类、状态、风险筛选，管理负责人、截止时间、状态和备注</p>
+                                <p class="text-sm text-gray-500 mt-1">按分类、状态、风险筛选，管理负责人、截止时间、进度保存和备注</p>
                             </div>
                             <div class="flex flex-wrap items-center gap-3">
                                 <select v-model="selectedOpeningProjectId" @change="selectOpeningProject" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[220px]">
@@ -2236,6 +2391,83 @@
                                 <div class="text-xs text-gray-500 mt-3">{{ card.hint }}</div>
                                 <div v-if="card.progress !== null" class="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
                                     <div :class="['h-full rounded-full', card.progressClass || 'bg-blue-600']" :style="{ width: card.progress + '%' }"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="selectedOpeningProjectId" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                                <div>
+                                    <div class="font-medium text-gray-900">项目进度展示</div>
+                                    <div class="text-xs text-gray-500 mt-1">按每个检查项保存的进度百分比计算</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-2xl font-bold text-blue-600">{{ openingTaskStats.averageProgress }}%</div>
+                                    <div class="text-xs text-gray-500">任务进度均值</div>
+                                </div>
+                            </div>
+                            <div class="h-3 bg-gray-100 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full bg-blue-600" :style="{ width: openingTaskStats.averageProgress + '%' }"></div>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                                <div v-for="stage in openingTaskProgressStages" :key="stage.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs text-gray-500">{{ stage.label }}</span>
+                                        <span :class="stage.className" class="text-sm font-semibold">{{ stage.count }}</span>
+                                    </div>
+                                    <div class="mt-2 h-1.5 bg-white rounded-full overflow-hidden">
+                                        <div :class="stage.barClass" class="h-full rounded-full" :style="{ width: stage.percent + '%' }"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="selectedOpeningProjectId" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+                                <div>
+                                    <div class="font-medium text-gray-900">AI输出结果</div>
+                                    <div class="text-xs text-gray-500 mt-1">直接展示AI生成清单与开业总览返回的建议结果</div>
+                                </div>
+                                <span :class="openingAiOutputResult.badgeClass" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium">
+                                    <i class="fas fa-robot mr-1"></i>{{ openingAiOutputResult.badgeText }}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                <div v-for="card in openingAiOutputResult.cards" :key="card.label" class="border-l-4 pl-3" :class="card.borderClass">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <i :class="[card.icon, card.iconClass]"></i>
+                                    </div>
+                                    <div :class="['text-xl font-bold mt-1', card.valueClass || 'text-gray-900']">{{ card.value }}</div>
+                                    <div class="text-xs text-gray-500 mt-1 leading-relaxed">{{ card.hint }}</div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5 pt-4 border-t border-gray-100">
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900 mb-3">总览AI输出</div>
+                                    <div v-if="openingAiOutputResult.overviewOutputs.length" class="space-y-2">
+                                        <div v-for="item in openingAiOutputResult.overviewOutputs" :key="item" class="flex gap-2 text-sm text-gray-700 leading-relaxed">
+                                            <i class="fas fa-check-circle text-blue-500 mt-0.5"></i>
+                                            <span>{{ item }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-else class="text-sm text-gray-400">暂无总览AI输出，请先生成清单或刷新开业总览</div>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900 mb-3">检查项AI输出</div>
+                                    <div v-if="openingAiOutputResult.taskOutputs.length" class="space-y-2">
+                                        <div v-for="task in openingAiOutputResult.taskOutputs" :key="task.id" class="border-b border-gray-50 pb-2 last:border-b-0 last:pb-0">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-medium text-gray-900 truncate">{{ task.task_name }}</div>
+                                                    <div class="text-xs text-gray-500 mt-1">{{ task.category }} · {{ task.owner_name || '未分配负责人' }} · {{ task.progress }}%</div>
+                                                </div>
+                                                <div :class="task.className" class="text-xs font-semibold flex-shrink-0">{{ task.reason }}</div>
+                                            </div>
+                                            <div class="text-sm text-gray-700 leading-relaxed mt-2">{{ task.suggestion }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else class="text-sm text-gray-400">暂无检查项AI输出</div>
                                 </div>
                             </div>
                         </div>
@@ -2296,6 +2528,7 @@
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">负责人</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">截止时间</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">状态</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">进度保存</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">风险</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">AI建议 / 验收标准</th>
                                         </tr>
@@ -2319,7 +2552,7 @@
                                                 <div :class="openingTaskDueClass(task)" class="text-xs mt-2">{{ openingTaskDueLabel(task) }}</div>
                                             </td>
                                             <td class="px-4 py-4 min-w-[130px]">
-                                                <select v-model="task.status" @change="updateOpeningTask(task, { refreshOverview: true })" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white">
+                                                <select v-model="task.status" @change="handleOpeningTaskStatusChange(task)" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white">
                                                     <option v-for="status in openingStatusOptions" :key="status.value" :value="status.value">{{ status.label }}</option>
                                                 </select>
                                                 <div class="flex flex-wrap gap-1 mt-2">
@@ -2328,6 +2561,19 @@
                                                     <button v-if="task.status !== 'blocked'" @click.stop="setOpeningTaskStatus(task, 'blocked')" class="w-7 h-7 rounded-lg border border-yellow-100 bg-yellow-50 text-yellow-700 hover:bg-yellow-100" title="标记受阻"><i class="fas fa-ban text-xs"></i></button>
                                                 </div>
                                                 <textarea v-model="task.remark" @change="updateOpeningTask(task)" rows="2" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs mt-2" placeholder="备注"></textarea>
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[190px]">
+                                                <div class="flex items-center justify-between text-xs mb-2">
+                                                    <span :class="openingTaskProgressTextClass(task)" class="font-semibold">{{ openingTaskProgressPercent(task) }}%</span>
+                                                    <span class="text-gray-500">{{ openingTaskProgressStage(task) }}</span>
+                                                </div>
+                                                <input v-model.number="task.progress_percent" @input="handleOpeningTaskProgressInput(task)" type="range" min="0" max="100" step="5" class="w-full">
+                                                <div class="flex flex-wrap gap-1 mt-2">
+                                                    <button v-for="value in openingProgressQuickValues" :key="value" @click.stop="setOpeningTaskProgress(task, value)" :class="openingTaskProgressPercent(task) === value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'" class="px-2 py-1 rounded border text-xs">{{ value }}%</button>
+                                                </div>
+                                                <button @click.stop="saveOpeningTaskProgress(task)" class="mt-2 w-full px-2 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">
+                                                    <i class="fas fa-save mr-1"></i>保存进度
+                                                </button>
                                             </td>
                                             <td class="px-4 py-4"><span :class="openingRiskClass(task.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap">{{ openingRiskText(task.risk_level) }}</span></td>
                                             <td class="px-4 py-4 min-w-[320px]">
@@ -2338,7 +2584,7 @@
                                             </td>
                                         </tr>
                                         <tr v-if="!filteredOpeningTasks.length">
-                                            <td colspan="6" class="px-4 py-12 text-center text-gray-400"><i class="fas fa-inbox text-3xl mb-2"></i><div>{{ selectedOpeningProjectId ? '暂无检查项，请先生成清单' : '请先选择开业项目' }}</div></td>
+                                            <td colspan="7" class="px-4 py-12 text-center text-gray-400"><i class="fas fa-inbox text-3xl mb-2"></i><div>{{ selectedOpeningProjectId ? '暂无检查项，请先生成清单' : '请先选择开业项目' }}</div></td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -11746,10 +11992,10 @@
                         </div>
                         
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1.5">详细地址</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">城市/商圈</label>
                             <div class="relative">
                                 <i class="fas fa-map-marker-alt absolute left-3 top-3 text-gray-400"></i>
-                                <input v-model="hotelForm.address" type="text" placeholder="请输入酒店完整地址"
+                                <input v-model="hotelForm.address" type="text" placeholder="如：上海·陆家嘴 / 西安·钟楼"
                                     class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
                             </div>
                         </div>
@@ -15183,8 +15429,7 @@
                             path: 'ai-transfer',
                             children: [
                                 { name: '智算·资产定价', path: 'asset-pricing', icon: 'fas fa-calculator' },
-                                { name: '智略·时机推演', path: 'timing-strategy', icon: 'fas fa-chess-knight' },
-                                { name: '智决·数据看板', path: 'decision-board', icon: 'fas fa-chart-pie' }
+                                { name: '智略·时机推演', path: 'timing-strategy', icon: 'fas fa-chess-knight' }
                             ]
                         }
                     ]
@@ -16544,6 +16789,7 @@
                 { value: 'done', label: '已完成' },
                 { value: 'blocked', label: '受阻' },
             ];
+            const openingProgressQuickValues = [0, 25, 50, 75, 100];
 
             const selectedOpeningProject = computed(() => {
                 const id = Number(selectedOpeningProjectId.value);
@@ -16720,6 +16966,12 @@
                 return days !== null && days >= 0 && days <= 7;
             };
             const openingTaskHasOwner = (task) => String(task?.owner_name || '').trim().length > 0;
+            const clampOpeningTaskProgress = (value) => {
+                const number = Number(value);
+                if (!Number.isFinite(number)) return 0;
+                return Math.max(0, Math.min(100, Math.round(number)));
+            };
+            const openingTaskProgressPercent = (task) => clampOpeningTaskProgress(task?.progress_percent ?? (task?.status === 'done' ? 100 : 0));
             const openingTaskCount = (predicate) => openingTasks.value.filter(predicate).length;
 
             const openingTaskStats = computed(() => {
@@ -16733,29 +16985,42 @@
                 const dueSoon = openingTaskCount(openingTaskIsDueSoon);
                 const core = openingTaskCount(task => Number(task.is_core) === 1);
                 const noOwner = openingTaskCount(task => !openingTaskHasOwner(task));
+                const progressSum = openingTasks.value.reduce((sum, task) => sum + openingTaskProgressPercent(task), 0);
+                const averageProgress = total > 0 ? Math.round(progressSum / total) : 0;
+                const progressEmpty = openingTaskCount(task => openingTaskProgressPercent(task) <= 0);
+                const progressLow = openingTaskCount(task => {
+                    const progress = openingTaskProgressPercent(task);
+                    return progress > 0 && progress < 50;
+                });
+                const progressHigh = openingTaskCount(task => {
+                    const progress = openingTaskProgressPercent(task);
+                    return progress >= 50 && progress < 100;
+                });
+                const progressDone = openingTaskCount(task => openingTaskProgressPercent(task) >= 100);
                 const completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
-                return { total, done, doing, todo, blocked, highRisk, overdue, dueSoon, core, noOwner, completionRate };
+                return { total, done, doing, todo, blocked, highRisk, overdue, dueSoon, core, noOwner, completionRate, averageProgress, progressEmpty, progressLow, progressHigh, progressDone };
             });
 
             const openingTaskProgressCards = computed(() => {
                 const stats = openingTaskStats.value;
                 return [
                     {
-                        label: '整体完成率',
-                        value: `${stats.completionRate}%`,
-                        hint: stats.total > 0 ? `${stats.done}/${stats.total} 项已完成` : '暂无检查项',
+                        label: '任务进度均值',
+                        value: `${stats.averageProgress}%`,
+                        hint: stats.total > 0 ? `${stats.total} 项检查项已纳入进度` : '暂无检查项',
                         icon: 'fas fa-clipboard-check',
                         iconClass: 'bg-blue-50 text-blue-600',
-                        progress: stats.completionRate,
+                        progress: stats.averageProgress,
                         progressClass: 'bg-blue-600',
                     },
                     {
-                        label: '推进中',
-                        value: stats.doing,
-                        hint: `待开始 ${stats.todo} 项，受阻 ${stats.blocked} 项`,
-                        icon: 'fas fa-play',
+                        label: '整体完成率',
+                        value: `${stats.completionRate}%`,
+                        hint: `${stats.done}/${stats.total} 项已完成，推进中 ${stats.doing} 项`,
+                        icon: 'fas fa-check-circle',
                         iconClass: 'bg-green-50 text-green-600',
-                        progress: null,
+                        progress: stats.completionRate,
+                        progressClass: 'bg-green-600',
                     },
                     {
                         label: '逾期未完成',
@@ -16784,6 +17049,17 @@
                         valueClass: stats.noOwner > 0 ? 'text-yellow-700' : 'text-gray-900',
                         progress: null,
                     },
+                ];
+            });
+
+            const openingTaskProgressStages = computed(() => {
+                const stats = openingTaskStats.value;
+                const total = Math.max(1, stats.total);
+                return [
+                    { label: '未开始', count: stats.progressEmpty, percent: Math.round(stats.progressEmpty / total * 100), className: 'text-gray-700', barClass: 'bg-gray-400' },
+                    { label: '1%-49%', count: stats.progressLow, percent: Math.round(stats.progressLow / total * 100), className: 'text-yellow-700', barClass: 'bg-yellow-500' },
+                    { label: '50%-99%', count: stats.progressHigh, percent: Math.round(stats.progressHigh / total * 100), className: 'text-blue-700', barClass: 'bg-blue-600' },
+                    { label: '100%', count: stats.progressDone, percent: Math.round(stats.progressDone / total * 100), className: 'text-green-700', barClass: 'bg-green-600' },
                 ];
             });
 
@@ -16851,6 +17127,162 @@
                 if (openingTaskIsDueSoon(task)) return 'text-yellow-700';
                 if (openingTaskIsDone(task)) return 'text-green-600';
                 return 'text-gray-500';
+            };
+
+            const openingTaskProgressStage = (task) => {
+                if ((task?.status || '') === 'blocked') return '受阻';
+                const progress = openingTaskProgressPercent(task);
+                if (progress >= 100) return '已完成';
+                if (progress >= 50) return '推进过半';
+                if (progress > 0) return '已启动';
+                return '未开始';
+            };
+
+            const openingTaskProgressTextClass = (task) => {
+                if ((task?.status || '') === 'blocked') return 'text-yellow-700';
+                const progress = openingTaskProgressPercent(task);
+                if (progress >= 100) return 'text-green-600';
+                if (progress >= 50) return 'text-blue-600';
+                if (progress > 0) return 'text-yellow-700';
+                return 'text-gray-600';
+            };
+
+            const openingAiTaskReason = (task) => {
+                if (openingTaskIsOverdue(task)) return { text: '逾期', className: 'text-red-600' };
+                if ((task?.status || '') === 'blocked') return { text: '受阻', className: 'text-yellow-700' };
+                if ((task?.risk_level || '') === 'high') return { text: '高风险', className: 'text-red-600' };
+                if (openingTaskIsDueSoon(task)) return { text: '临期', className: 'text-yellow-700' };
+                if (!openingTaskHasOwner(task)) return { text: '待分配', className: 'text-gray-700' };
+                return { text: '待推进', className: 'text-blue-600' };
+            };
+
+            const openingAiTaskPriorityScore = (task) => {
+                let score = 0;
+                if (openingTaskIsOverdue(task)) score += 100;
+                if ((task?.status || '') === 'blocked') score += 80;
+                if ((task?.risk_level || '') === 'high') score += 70;
+                if (openingTaskIsDueSoon(task)) score += 45;
+                if (Number(task?.is_core) === 1) score += 25;
+                if (!openingTaskHasOwner(task)) score += 15;
+                score += Math.max(0, 100 - openingTaskProgressPercent(task)) / 10;
+                return score;
+            };
+
+            const openingAiOutputResult = computed(() => {
+                const tasks = openingTasks.value || [];
+                const stats = openingTaskStats.value;
+                const total = Math.max(0, stats.total);
+                const overviewOutputs = Array.isArray(openingOverview.value?.ai_suggestions)
+                    ? openingOverview.value.ai_suggestions.map(item => String(item || '').trim()).filter(Boolean)
+                    : [];
+                const taskOutputs = tasks
+                    .filter(task => String(task.ai_suggestion || '').trim())
+                    .map(task => {
+                        const reason = openingAiTaskReason(task);
+                        return {
+                            id: task.id,
+                            category: task.category || '未分类',
+                            task_name: task.task_name || '未命名检查项',
+                            owner_name: task.owner_name || '',
+                            suggestion: String(task.ai_suggestion || '').trim(),
+                            progress: openingTaskProgressPercent(task),
+                            reason: reason.text,
+                            className: reason.className,
+                            priorityScore: openingAiTaskPriorityScore(task),
+                        };
+                    })
+                    .sort((a, b) => b.priorityScore - a.priorityScore)
+                    .slice(0, 6);
+                const aiCovered = taskOutputs.length;
+                const aiCoverage = total > 0 ? Math.round(aiCovered / total * 100) : 0;
+                const riskOutputCount = tasks
+                    .filter(task => (task.risk_level === 'high') || openingTaskIsOverdue(task) || task.status === 'blocked')
+                    .filter(task => String(task.ai_suggestion || '').trim()).length;
+                const missingAi = Math.max(0, total - aiCovered);
+                const hasAiOutput = overviewOutputs.length > 0 || taskOutputs.length > 0;
+                return {
+                    badgeText: hasAiOutput ? '已有AI输出' : '暂无AI输出',
+                    badgeClass: hasAiOutput ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600',
+                    cards: [
+                        {
+                            label: '总览输出',
+                            value: overviewOutputs.length,
+                            hint: overviewOutputs.length > 0 ? '来自开业总览AI建议' : '暂无总览AI建议',
+                            icon: 'fas fa-comment-dots',
+                            iconClass: 'text-blue-600',
+                            borderClass: 'border-blue-500',
+                            valueClass: 'text-blue-600',
+                        },
+                        {
+                            label: '检查项输出',
+                            value: `${aiCoverage}%`,
+                            hint: total > 0 ? `${aiCovered}/${total} 项带AI建议` : '暂无检查项',
+                            icon: 'fas fa-robot',
+                            iconClass: aiCoverage >= 80 ? 'text-green-600' : 'text-yellow-700',
+                            borderClass: aiCoverage >= 80 ? 'border-green-500' : 'border-yellow-500',
+                            valueClass: aiCoverage >= 80 ? 'text-green-600' : 'text-yellow-700',
+                        },
+                        {
+                            label: '风险项AI输出',
+                            value: riskOutputCount,
+                            hint: `高风险 ${stats.highRisk} · 逾期 ${stats.overdue} · 受阻 ${stats.blocked}`,
+                            icon: 'fas fa-shield-alt',
+                            iconClass: riskOutputCount > 0 ? 'text-red-600' : 'text-gray-500',
+                            borderClass: riskOutputCount > 0 ? 'border-red-500' : 'border-gray-300',
+                            valueClass: riskOutputCount > 0 ? 'text-red-600' : 'text-gray-700',
+                        },
+                        {
+                            label: '待补齐输出',
+                            value: missingAi,
+                            hint: missingAi > 0 ? '这些检查项还没有AI建议' : '检查项AI建议已覆盖',
+                            icon: 'fas fa-exclamation-circle',
+                            iconClass: missingAi > 0 ? 'text-yellow-700' : 'text-green-600',
+                            borderClass: missingAi > 0 ? 'border-yellow-500' : 'border-green-500',
+                            valueClass: missingAi > 0 ? 'text-yellow-700' : 'text-green-600',
+                        },
+                    ],
+                    overviewOutputs,
+                    taskOutputs,
+                };
+            });
+
+            const handleOpeningTaskProgressInput = (task) => {
+                if (!task) return;
+                task.progress_percent = openingTaskProgressPercent(task);
+                if (task.progress_percent >= 100) {
+                    task.status = 'done';
+                } else if (task.progress_percent > 0 && (!task.status || task.status === 'todo')) {
+                    task.status = 'doing';
+                } else if (task.progress_percent === 0 && task.status !== 'blocked') {
+                    task.status = 'todo';
+                }
+            };
+
+            const syncOpeningTaskProgressByStatus = (task) => {
+                if (!task) return;
+                const progress = openingTaskProgressPercent(task);
+                if (task.status === 'done') {
+                    task.progress_percent = 100;
+                } else if (task.status === 'todo') {
+                    task.progress_percent = 0;
+                } else if (task.status === 'doing' && progress === 0) {
+                    task.progress_percent = 50;
+                } else if (task.status === 'blocked' && progress >= 100) {
+                    task.progress_percent = 75;
+                } else {
+                    task.progress_percent = progress;
+                }
+            };
+
+            const handleOpeningTaskStatusChange = async (task) => {
+                syncOpeningTaskProgressByStatus(task);
+                await updateOpeningTask(task, { refreshOverview: true });
+            };
+
+            const setOpeningTaskProgress = (task, value) => {
+                if (!task) return;
+                task.progress_percent = clampOpeningTaskProgress(value);
+                handleOpeningTaskProgressInput(task);
             };
 
             const openingRiskText = (risk) => ({ high: '高风险', medium: '中风险', low: '低风险' }[risk] || '低风险');
@@ -17117,6 +17549,7 @@
                         collaborator_name: task.collaborator_name || '',
                         deadline: task.deadline || '',
                         status: task.status || 'todo',
+                        progress_percent: openingTaskProgressPercent(task),
                         remark: task.remark || '',
                     };
                     const res = await request(`/opening/tasks/${task.id}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -17135,13 +17568,25 @@
                 return false;
             };
 
+            const saveOpeningTaskProgress = async (task) => {
+                if (!task) return;
+                handleOpeningTaskProgressInput(task);
+                const saved = await updateOpeningTask(task, { refreshOverview: true });
+                if (saved) {
+                    showToast('进度已保存');
+                }
+            };
+
             const setOpeningTaskStatus = async (task, status) => {
                 if (!task || task.status === status) return;
                 const previousStatus = task.status || 'todo';
+                const previousProgress = task.progress_percent;
                 task.status = status;
+                syncOpeningTaskProgressByStatus(task);
                 const updated = await updateOpeningTask(task, { refreshOverview: true });
                 if (!updated) {
                     task.status = previousStatus;
+                    task.progress_percent = previousProgress;
                 }
             };
 
@@ -24137,12 +24582,36 @@
                 parkingLaundryIncome: 1800,
                 otherMiscIncome: 2500,
                 monthlyRent: 180000,
+                baseRentCost: 165000,
+                propertyManagementCost: 15000,
                 laborCost: 72000,
+                frontDeskLaborCost: 22000,
+                housekeepingLaborCost: 28000,
+                managementLaborCost: 14000,
+                socialSecurityCost: 8000,
                 utilityCost: 26000,
+                electricityCost: 15000,
+                waterGasCost: 5000,
+                networkEnergyCost: 6000,
                 otaCommissionRate: 12,
+                ctripRevenueShare: 50,
+                ctripCommissionRate: 12,
+                meituanRevenueShare: 30,
+                meituanCommissionRate: 10,
+                otherOtaRevenueShare: 20,
+                otherOtaCommissionRate: 15,
                 consumableCost: 18000,
+                roomConsumableCost: 9000,
+                cleaningSuppliesCost: 4000,
+                linenReplacementCost: 5000,
                 maintenanceCost: 12000,
-                otherFixedCost: 30000
+                routineRepairCost: 5000,
+                equipmentMaintenanceCost: 4000,
+                roomRenovationReserve: 3000,
+                otherFixedCost: 30000,
+                marketingSystemCost: 9000,
+                insuranceTaxCost: 6000,
+                adminMiscCost: 15000
             };
             const aiSimulationParams = ref({ ...defaultSimulationInput });
             const aiSimulationResult = ref(null);
@@ -24518,6 +24987,7 @@
             const expansionRecords = ref([]);
             const expansionRecordsLoading = ref(false);
             const hasMarketEvaluationHistory = computed(() => expansionRecords.value.some(record => record.record_type === 'market'));
+            const hasExpansionHistory = computed(() => expansionRecords.value.length > 0);
 
             const transferPricingForm = ref({
                 hotel_id: '',
@@ -24539,6 +25009,8 @@
                 order_count: 420,
                 licenses_complete: true,
                 has_data_anomaly: false,
+                model_key: 'deepseek_chat',
+                require_ai_evaluation: true,
             });
             const transferPricingResult = ref(null);
             const transferPricingLoading = ref(false);
@@ -24575,6 +25047,11 @@
             const transferRecords = ref([]);
             const transferRecordsLoading = ref(false);
             const transferHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
+            const transferAiModelOptions = [
+                { value: 'deepseek_chat', label: 'DeepSeek 经济模式' },
+                { value: 'deepseek_reasoner', label: 'DeepSeek 深度推理' },
+                { value: 'openai_fast', label: 'OpenAI 快速模式' },
+            ];
 
             const transferPricingFields = [
                 { key: 'hotel_name', label: '酒店名称', type: 'text', full: true },
@@ -24624,6 +25101,67 @@
                 { key: 'consumableCost', label: '耗品成本' },
                 { key: 'maintenanceCost', label: '维修成本' },
                 { key: 'otherFixedCost', label: '其他固定成本' }
+            ];
+            const simulationCostFieldGroups = [
+                {
+                    title: '月租金',
+                    totalKey: 'monthlyRent',
+                    fields: [
+                        { key: 'baseRentCost', label: '基础租金' },
+                        { key: 'propertyManagementCost', label: '物业/公区费' }
+                    ]
+                },
+                {
+                    title: '人工成本',
+                    totalKey: 'laborCost',
+                    fields: [
+                        { key: 'frontDeskLaborCost', label: '前厅人工' },
+                        { key: 'housekeepingLaborCost', label: '客房人工' },
+                        { key: 'managementLaborCost', label: '店长/管理岗' },
+                        { key: 'socialSecurityCost', label: '社保及福利' }
+                    ]
+                },
+                {
+                    title: '水电成本',
+                    totalKey: 'utilityCost',
+                    fields: [
+                        { key: 'electricityCost', label: '电费' },
+                        { key: 'waterGasCost', label: '水费/燃气' },
+                        { key: 'networkEnergyCost', label: '网络及能耗杂费' }
+                    ]
+                },
+                {
+                    title: '耗品成本',
+                    totalKey: 'consumableCost',
+                    fields: [
+                        { key: 'roomConsumableCost', label: '客房一次性用品' },
+                        { key: 'cleaningSuppliesCost', label: '清洁用品' },
+                        { key: 'linenReplacementCost', label: '布草洗涤/补充' }
+                    ]
+                },
+                {
+                    title: '维修成本',
+                    totalKey: 'maintenanceCost',
+                    fields: [
+                        { key: 'routineRepairCost', label: '日常维修' },
+                        { key: 'equipmentMaintenanceCost', label: '设备维保' },
+                        { key: 'roomRenovationReserve', label: '客房翻新预提' }
+                    ]
+                },
+                {
+                    title: '其他固定成本',
+                    totalKey: 'otherFixedCost',
+                    fields: [
+                        { key: 'marketingSystemCost', label: '营销/系统服务费' },
+                        { key: 'insuranceTaxCost', label: '保险及税费' },
+                        { key: 'adminMiscCost', label: '办公及杂项' }
+                    ]
+                }
+            ];
+            const simulationOtaCommissionChannelDefinitions = [
+                { key: 'ctrip', label: '携程', shareKey: 'ctripRevenueShare', rateKey: 'ctripCommissionRate' },
+                { key: 'meituan', label: '美团', shareKey: 'meituanRevenueShare', rateKey: 'meituanCommissionRate' },
+                { key: 'otherOta', label: '其他OTA', shareKey: 'otherOtaRevenueShare', rateKey: 'otherOtaCommissionRate' }
             ];
             const simulationInvestmentFieldGroups = [
                 {
@@ -24732,6 +25270,50 @@
                     { label: '市场评分', value: market.market_score ?? '--', meta: '智略市场判断' },
                     { label: '竞争强度', value: market.competition_level || '--', meta: market.recommended_model || '定位待判断' }
                 ];
+            });
+
+            const feasibilityAiEmpowerment = computed(() => {
+                const report = aiFeasibilityResult.value || {};
+                const market = report.market_judgement || {};
+                const actions = Array.isArray(report.action_plan) ? report.action_plan : [];
+                const risks = Array.isArray(report.risk_list) ? report.risk_list : [];
+                const evidence = Array.isArray(report.evidence) ? report.evidence : [];
+                const assumptions = Array.isArray(report.assumptions) ? report.assumptions : [];
+                const isFallback = assumptions.some(item => String(item || '').includes('LLM报告生成失败') || String(item || '').includes('本地测算兜底'));
+                const firstAction = actions[0] || {};
+                const firstRisk = risks[0] || {};
+                const sourceText = evidence.map(item => item.source || item.title).filter(Boolean).slice(0, 3).join('、');
+
+                return {
+                    isFallback,
+                    sourceLabel: isFallback ? '本地测算兜底' : 'AI模型已生成',
+                    headline: `${report.conclusion_grade || '-'}级 · ${report.conclusion_text || '等待生成结论'}`,
+                    conclusion: report.core_reason || '生成后将汇总项目输入、智略判断、智算结果和风险动作。',
+                    nextAction: firstAction.title ? `${firstAction.title}：${firstAction.detail || '-'}` : '生成后输出首要执行动作',
+                    evidenceText: sourceText || '用户输入、本地测算与系统数据快照',
+                    cards: [
+                        {
+                            label: '产品定位',
+                            value: market.recommended_model || '--',
+                            meta: market.target_customer || '目标客群待确认'
+                        },
+                        {
+                            label: '市场判断',
+                            value: market.market_score !== undefined && market.market_score !== null ? `${market.market_score}分` : '--',
+                            meta: market.competition_level || '竞争强度待判断'
+                        },
+                        {
+                            label: '首要动作',
+                            value: firstAction.priority || 'P0',
+                            meta: firstAction.title || '复核核心假设'
+                        },
+                        {
+                            label: '主要风险',
+                            value: firstRisk.level ? `${firstRisk.level}风险` : '--',
+                            meta: firstRisk.risk || '风险清单待生成'
+                        }
+                    ]
+                };
             });
 
             const feasibilityDecisionClass = computed(() => {
@@ -24889,6 +25471,81 @@
                 const fields = benchmarkModelDetailMetrics.value.estimated_fields;
                 return Array.isArray(fields) ? fields : [];
             });
+            const benchmarkModelAiSourceLabel = computed(() => {
+                const source = benchmarkModelResult.value?.ai_evaluation?.source;
+                if (source === 'llm') return 'AI模型评估';
+                if (source === 'fallback') return '本地兜底';
+                return 'AI评估';
+            });
+            const benchmarkModelAiRecommendations = computed(() => {
+                const recommendations = benchmarkModelResult.value?.ai_evaluation?.recommendations;
+                return Array.isArray(recommendations)
+                    ? recommendations.map(normalizeAiRecommendationDisplay).filter(item => item.detail)
+                    : [];
+            });
+            const benchmarkModelAiWatchPoints = computed(() => {
+                const watchPoints = benchmarkModelResult.value?.ai_evaluation?.watch_points;
+                if (!Array.isArray(watchPoints)) return [];
+                return watchPoints.map(item => ({
+                    metric: String(item?.metric || '关注指标').trim() || '关注指标',
+                    threshold: String(item?.threshold || '').trim(),
+                    action: String(item?.action || '').trim() || '补充真实竞品和 OTA 数据后复核。'
+                })).filter(item => item.metric || item.threshold || item.action);
+            });
+            const benchmarkModelAiAssumptionNote = computed(() => {
+                const assumptions = benchmarkModelResult.value?.ai_evaluation?.assumptions;
+                if (!Array.isArray(assumptions)) return '';
+                const items = assumptions.map(item => String(item || '').trim()).filter(Boolean);
+                return items.length ? `AI复核假设：${items.join('；')}` : '';
+            });
+            const benchmarkModelDataNotice = computed(() => {
+                const result = benchmarkModelResult.value || {};
+                if (result.ai_evaluation?.source === 'llm') {
+                    return 'AI赋能结果基于当前输入、竞品细化数据和标杆模型生成，需用真实竞品与 OTA 数据复核。';
+                }
+                if (result.ai_evaluation?.source === 'fallback') {
+                    return 'AI模型不可用，当前使用本地兜底生成标杆建议，需接入真实竞品与 OTA 数据复核。';
+                }
+                return String(result.data_status?.notice || '').trim();
+            });
+            const benchmarkModelAiOutcomeCards = computed(() => {
+                const result = benchmarkModelResult.value || {};
+                const evaluation = result.ai_evaluation || {};
+                const judgement = evaluation.model_judgement || {};
+                const recommendations = benchmarkModelAiRecommendations.value;
+                const watchPoints = benchmarkModelAiWatchPoints.value;
+                const bestBenchmark = Array.isArray(result.recommended_benchmarks) ? result.recommended_benchmarks[0] : null;
+                const bestModel = String(judgement.best_fit_model || bestBenchmark?.name || '').trim() || '--';
+                const firstRecommendation = recommendations[0] || {};
+                const firstWatchPoint = watchPoints[0] || {};
+                const assumptionText = benchmarkModelAiAssumptionNote.value.replace(/^AI复核假设：/, '');
+                return [
+                    {
+                        label: '选模结论',
+                        value: evaluation.decision || '等待AI结论',
+                        hint: bestModel !== '--' ? `优先标杆：${bestModel}` : '生成后输出优先标杆',
+                        icon: 'fas fa-bullseye'
+                    },
+                    {
+                        label: '复制策略',
+                        value: judgement.copy_priority || firstRecommendation.detail || '先复制高匹配标杆做法',
+                        hint: firstRecommendation.title || '房型、价格、渠道优先',
+                        icon: 'fas fa-copy'
+                    },
+                    {
+                        label: '风险监控',
+                        value: firstWatchPoint.metric || '真实竞品价格带',
+                        hint: firstWatchPoint.threshold || firstWatchPoint.action || '补齐竞品ADR、评分、点评量',
+                        icon: 'fas fa-shield-halved'
+                    },
+                    {
+                        label: '数据复核',
+                        value: benchmarkModelDataNotice.value || benchmarkModelDetailCompleteness.value,
+                        hint: assumptionText || '生成后用 OTA 转化与点评文本复核',
+                        icon: 'fas fa-clipboard-check'
+                    }
+                ];
+            });
 
             const expansionRecordTypeLabel = (type) => ({
                 market: '市场评估',
@@ -25002,6 +25659,26 @@
                 }
             };
 
+            const clearExpansionHistory = async () => {
+                if (!hasExpansionHistory.value || expansionRecordsLoading.value) return;
+                if (!confirm('确认清空扩张历史数据？清空后将从扩张历史记录中隐藏。')) return;
+                let shouldReload = false;
+                expansionRecordsLoading.value = true;
+                try {
+                    const res = await request('/expansion/records', { method: 'DELETE' });
+                    if (res.code !== 200) throw new Error(res.message || '扩张历史数据清空失败');
+                    showToast('扩张历史数据已清空');
+                    shouldReload = true;
+                } catch (error) {
+                    showToast(error.message || '扩张历史数据清空失败', 'error');
+                } finally {
+                    expansionRecordsLoading.value = false;
+                }
+                if (shouldReload) {
+                    await loadExpansionRecords();
+                }
+            };
+
             const handleMarketEvaluation = async () => {
                 marketEvaluationLoading.value = true;
                 try {
@@ -25095,9 +25772,9 @@
             });
             const transferPricingAiEvaluationSourceLabel = computed(() => {
                 const source = transferPricingAiEvaluation.value?.source;
-                if (source === 'llm') return 'AI模型评估';
-                if (source === 'fallback') return '本地兜底';
-                return 'AI评估';
+                if (source === 'llm') return 'AI模型生成';
+                if (source === 'fallback') return '本地兜底（非AI）';
+                return '未生成';
             });
 
             const transferRecordTypeLabel = (type) => ({
@@ -25502,21 +26179,14 @@
                 input = enrichSimulationTotals(input);
                 const roomCount = toNumber(input.roomCount);
                 const revenueSummary = simulationRevenueSummaryFromInput(input);
+                const costSummary = simulationCostSummaryFromInput(input);
                 const adr = toNumber(revenueSummary.adr);
                 const occupancyRate = toNumber(revenueSummary.occupancyRate) / 100;
-                const otaRate = percentToDecimal(input.otaCommissionRate);
                 const availableRoomNights = revenueSummary.availableRoomNights || roomCount * 30;
                 const roomRevenue = revenueSummary.roomRevenue;
                 const monthlyRevenue = revenueSummary.monthlyRevenue;
-                const otaCommission = roomRevenue * otaRate;
-                const monthlyCost =
-                    toNumber(input.monthlyRent)
-                    + toNumber(input.laborCost)
-                    + toNumber(input.utilityCost)
-                    + otaCommission
-                    + toNumber(input.consumableCost)
-                    + toNumber(input.maintenanceCost)
-                    + toNumber(input.otherFixedCost);
+                const otaCommission = costSummary.otaCommission;
+                const monthlyCost = costSummary.monthlyCost;
                 const monthlyNetCashflow = monthlyRevenue - monthlyCost;
                 const totalInvestment =
                     toNumber(input.decorationInvestment)
@@ -25659,8 +26329,51 @@
                 return enriched;
             }
 
+            function simulationOtaCommissionRateFromInput(input) {
+                return simulationOtaCommissionChannelDefinitions.reduce((sum, channel) => {
+                    const share = Math.max(0, toNumber(input[channel.shareKey]));
+                    const rate = Math.max(0, toNumber(input[channel.rateKey]));
+                    return sum + share * rate / 100;
+                }, 0);
+            }
+
+            function enrichSimulationCostTotals(input) {
+                const enriched = { ...input };
+                simulationCostFieldGroups.forEach(group => {
+                    enriched[group.totalKey] = simulationGroupTotal(enriched, group);
+                });
+                const hasOtaDetail = simulationOtaCommissionChannelDefinitions.some(channel =>
+                    Object.prototype.hasOwnProperty.call(enriched, channel.shareKey)
+                    || Object.prototype.hasOwnProperty.call(enriched, channel.rateKey)
+                );
+                if (hasOtaDetail) {
+                    enriched.otaCommissionRate = aiRound(simulationOtaCommissionRateFromInput(enriched), 4);
+                }
+                return enriched;
+            }
+
+            function simulationCostSummaryFromInput(input) {
+                const enriched = enrichSimulationCostTotals(input);
+                const revenueSummary = simulationRevenueSummaryFromInput(enriched);
+                const fixedMonthlyCost =
+                    toNumber(enriched.monthlyRent)
+                    + toNumber(enriched.laborCost)
+                    + toNumber(enriched.utilityCost)
+                    + toNumber(enriched.consumableCost)
+                    + toNumber(enriched.maintenanceCost)
+                    + toNumber(enriched.otherFixedCost);
+                const otaCommissionRate = toNumber(enriched.otaCommissionRate);
+                const otaCommission = revenueSummary.roomRevenue * percentToDecimal(otaCommissionRate);
+                return {
+                    fixedMonthlyCost,
+                    otaCommissionRate,
+                    otaCommission,
+                    monthlyCost: fixedMonthlyCost + otaCommission
+                };
+            }
+
             function enrichSimulationTotals(input) {
-                return enrichSimulationRevenueTotals(enrichSimulationInvestmentTotals(input));
+                return enrichSimulationCostTotals(enrichSimulationRevenueTotals(enrichSimulationInvestmentTotals(input)));
             }
 
             function generateRiskHints(result, scenarios) {
@@ -25804,12 +26517,36 @@
                     parkingLaundryIncome: raw.parkingLaundryIncome ?? raw.parking_laundry_income,
                     otherMiscIncome: raw.otherMiscIncome ?? raw.other_misc_income,
                     monthlyRent: raw.monthlyRent ?? raw.monthly_rent,
+                    baseRentCost: raw.baseRentCost ?? raw.base_rent_cost,
+                    propertyManagementCost: raw.propertyManagementCost ?? raw.property_management_cost,
                     laborCost: raw.laborCost ?? raw.labor_cost,
+                    frontDeskLaborCost: raw.frontDeskLaborCost ?? raw.front_desk_labor_cost,
+                    housekeepingLaborCost: raw.housekeepingLaborCost ?? raw.housekeeping_labor_cost,
+                    managementLaborCost: raw.managementLaborCost ?? raw.management_labor_cost,
+                    socialSecurityCost: raw.socialSecurityCost ?? raw.social_security_cost,
                     utilityCost: raw.utilityCost ?? raw.utility_cost,
+                    electricityCost: raw.electricityCost ?? raw.electricity_cost,
+                    waterGasCost: raw.waterGasCost ?? raw.water_gas_cost,
+                    networkEnergyCost: raw.networkEnergyCost ?? raw.network_energy_cost,
                     otaCommissionRate: raw.otaCommissionRate ?? raw.ota_commission_rate,
+                    ctripRevenueShare: raw.ctripRevenueShare ?? raw.ctrip_revenue_share,
+                    ctripCommissionRate: raw.ctripCommissionRate ?? raw.ctrip_commission_rate,
+                    meituanRevenueShare: raw.meituanRevenueShare ?? raw.meituan_revenue_share,
+                    meituanCommissionRate: raw.meituanCommissionRate ?? raw.meituan_commission_rate,
+                    otherOtaRevenueShare: raw.otherOtaRevenueShare ?? raw.other_ota_revenue_share,
+                    otherOtaCommissionRate: raw.otherOtaCommissionRate ?? raw.other_ota_commission_rate,
                     consumableCost: raw.consumableCost ?? raw.consumable_cost,
+                    roomConsumableCost: raw.roomConsumableCost ?? raw.room_consumable_cost,
+                    cleaningSuppliesCost: raw.cleaningSuppliesCost ?? raw.cleaning_supplies_cost,
+                    linenReplacementCost: raw.linenReplacementCost ?? raw.linen_replacement_cost,
                     maintenanceCost: raw.maintenanceCost ?? raw.maintenance_cost,
+                    routineRepairCost: raw.routineRepairCost ?? raw.routine_repair_cost,
+                    equipmentMaintenanceCost: raw.equipmentMaintenanceCost ?? raw.equipment_maintenance_cost,
+                    roomRenovationReserve: raw.roomRenovationReserve ?? raw.room_renovation_reserve,
                     otherFixedCost: raw.otherFixedCost ?? raw.other_fixed_cost,
+                    marketingSystemCost: raw.marketingSystemCost ?? raw.marketing_system_cost,
+                    insuranceTaxCost: raw.insuranceTaxCost ?? raw.insurance_tax_cost,
+                    adminMiscCost: raw.adminMiscCost ?? raw.admin_misc_cost,
                     recommendedModel: raw.recommendedModel,
                     targetCustomer: raw.targetCustomer
                 };
@@ -25848,6 +26585,24 @@
                 if (!hasOtherIncomeDetail && Object.prototype.hasOwnProperty.call(output, 'otherIncome')) {
                     simulationOtherIncomeFields.forEach(field => {
                         output[field.key] = field.key === 'otherMiscIncome' ? output.otherIncome : 0;
+                    });
+                }
+                simulationCostFieldGroups.forEach(group => {
+                    const hasDetail = group.fields.some(field => Object.prototype.hasOwnProperty.call(output, field.key));
+                    if (!hasDetail && Object.prototype.hasOwnProperty.call(output, group.totalKey)) {
+                        group.fields.forEach((field, index) => {
+                            output[field.key] = index === 0 ? output[group.totalKey] : 0;
+                        });
+                    }
+                });
+                const hasOtaDetail = simulationOtaCommissionChannelDefinitions.some(channel =>
+                    Object.prototype.hasOwnProperty.call(output, channel.shareKey)
+                    || Object.prototype.hasOwnProperty.call(output, channel.rateKey)
+                );
+                if (!hasOtaDetail && Object.prototype.hasOwnProperty.call(output, 'otaCommissionRate')) {
+                    simulationOtaCommissionChannelDefinitions.forEach(channel => {
+                        output[channel.shareKey] = channel.key === 'otherOta' ? 100 : 0;
+                        output[channel.rateKey] = output.otaCommissionRate;
                     });
                 }
                 return enrichSimulationTotals(output);
@@ -25890,7 +26645,12 @@
                 const roomAdrFields = simulationRoomRevenueDefinitions.map(segment => segment.adrKey);
                 const roomDayFields = simulationRoomRevenueDefinitions.map(segment => segment.daysKey);
                 const roomOccupancyFields = simulationRoomRevenueDefinitions.map(segment => segment.occupancyKey);
-                const costFields = ['monthlyRent', 'laborCost', 'utilityCost', 'consumableCost', 'maintenanceCost', 'otherFixedCost'];
+                const costFields = [
+                    'monthlyRent', 'laborCost', 'utilityCost', 'consumableCost', 'maintenanceCost', 'otherFixedCost',
+                    ...simulationCostFieldGroups.flatMap(group => group.fields.map(field => field.key))
+                ];
+                const otaShareFields = simulationOtaCommissionChannelDefinitions.map(channel => channel.shareKey);
+                const otaRateFields = simulationOtaCommissionChannelDefinitions.map(channel => channel.rateKey);
                 if (toNumber(input.roomCount) <= 0) return '房间数必须大于0';
                 if (toNumber(input.adr) <= 0) return 'ADR必须大于0';
                 if (toNumber(input.occupancyRate) < 0 || toNumber(input.occupancyRate) > 100) return '入住率必须在0到100之间';
@@ -25899,6 +26659,9 @@
                 if (roomDayFields.reduce((sum, key) => sum + toNumber(input[key]), 0) <= 0) return '客房收入天数必须大于0';
                 if (roomDayFields.reduce((sum, key) => sum + toNumber(input[key]), 0) > 31) return '客房收入天数不能超过31天';
                 if (roomOccupancyFields.some(key => toNumber(input[key]) < 0 || toNumber(input[key]) > 100)) return '所有客房入住率必须在0到100之间';
+                if (otaShareFields.some(key => toNumber(input[key]) < 0 || toNumber(input[key]) > 100)) return '渠道收入占比必须在0到100之间';
+                if (otaShareFields.reduce((sum, key) => sum + toNumber(input[key]), 0) > 100) return '渠道收入占比合计不能超过100%';
+                if (otaRateFields.some(key => toNumber(input[key]) < 0 || toNumber(input[key]) > 100)) return '渠道佣金率必须在0到100之间';
                 if (toNumber(input.otaCommissionRate) < 0 || toNumber(input.otaCommissionRate) > 100) return 'OTA佣金率必须在0到100之间';
                 if (investmentFields.some(key => toNumber(input[key]) < 0)) return '所有投资字段不能为负数';
                 if (incomeFields.some(key => toNumber(input[key]) < 0)) return '所有收入字段不能为负数';
@@ -26047,6 +26810,21 @@
                     revenue: toNumber(aiSimulationParams.value.roomCount) * days * occupancy * adr
                 };
             }));
+            const simulationCostSummary = computed(() => simulationCostSummaryFromInput(aiSimulationParams.value));
+            const simulationCostGroups = computed(() => simulationCostFieldGroups.map(group => ({
+                ...group,
+                total: simulationGroupTotal(aiSimulationParams.value, group)
+            })));
+            const simulationOtaCommissionChannels = computed(() => simulationOtaCommissionChannelDefinitions.map(channel => {
+                const share = Math.max(0, toNumber(aiSimulationParams.value[channel.shareKey]));
+                const rate = Math.max(0, toNumber(aiSimulationParams.value[channel.rateKey]));
+                return {
+                    ...channel,
+                    share,
+                    rate,
+                    weightedRate: share * rate / 100
+                };
+            }));
             const simulationModelAnalysisVisible = computed(() => {
                 const analysis = simulationModelAnalysis.value;
                 return !!(analysis && (analysis.summary || analysis.decision || analysis.recommendations.length || analysis.watch_points.length || analysis.assumptions.length));
@@ -26113,6 +26891,48 @@
                     { label: 'AI模型', value: snapshot.ai_data_used ? `已接入${aiModel}` : '未生成' },
                     { label: '地图/POI', value: snapshot.external_data_used ? '已接入' : '未接入' },
                     { label: '缺失项', value: Array.from(new Set(missing)).join('、') || '无' }
+                ];
+            });
+            const strategyAiEmpowermentCards = computed(() => {
+                const result = aiStrategyResult.value;
+                if (!result) return [];
+                const evaluation = result.ai_evaluation || {};
+                const actions = Array.isArray(evaluation.key_actions) ? evaluation.key_actions : [];
+                const risks = Array.isArray(evaluation.main_risks) ? evaluation.main_risks : [];
+                const verifyItems = Array.isArray(evaluation.next_data_to_verify) ? evaluation.next_data_to_verify : [];
+                const snapshot = result.data_snapshot || {};
+                const evidenceCount = strategyDataSourceRows.value.filter(row => {
+                    const value = String(row.value || '').trim();
+                    return value && !['未命中', '未生成', '未接入', '无'].includes(value);
+                }).length;
+                const firstAction = actions[0] || result.decision_direction || '先完成项目参数复核';
+                const firstRisk = risks[0] || result.risk_level || result.competition_pressure || '等待风险复核';
+                const firstVerify = verifyItems[0] || (snapshot.external_data_used ? '复核真实 OTA 转化与竞品点评' : '补充真实竞品、客流和 OTA 数据');
+                return [
+                    {
+                        label: '执行动作',
+                        value: firstAction,
+                        hint: actions.length > 1 ? `另有 ${actions.length - 1} 项动作待推进` : '承接 AI 判断进入下一步执行',
+                        icon: 'fas fa-list-check'
+                    },
+                    {
+                        label: '主要风险',
+                        value: firstRisk,
+                        hint: risks.length > 1 ? `另有 ${risks.length - 1} 项风险需跟踪` : (result.competition_pressure || '结合评分项持续观察'),
+                        icon: 'fas fa-triangle-exclamation'
+                    },
+                    {
+                        label: '证据覆盖',
+                        value: `${evidenceCount}/4`,
+                        hint: `${strategyFreshnessLabel.value} · ${snapshot.external_data_used ? '地图/POI已接入' : '地图/POI待补齐'}`,
+                        icon: 'fas fa-database'
+                    },
+                    {
+                        label: '复核要求',
+                        value: firstVerify,
+                        hint: verifyItems.length > 1 ? `另需复核 ${verifyItems.length - 1} 项数据` : (strategyDataNotice.value || '进入可研报告前复核关键假设'),
+                        icon: 'fas fa-clipboard-check'
+                    }
                 ];
             });
             const simulationMetricCards = computed(() => {
@@ -26284,14 +27104,14 @@
             };
 
             return {
-                aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
-                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
-                aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityRecordId, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityDecisionClass, handleFeasibility, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
+                aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
+                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
+                aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityRecordId, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, handleFeasibility, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
                 marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
-                benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
+                benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkModelAiSourceLabel, benchmarkModelAiRecommendations, benchmarkModelAiWatchPoints, benchmarkModelAiAssumptionNote, benchmarkModelDataNotice, benchmarkModelAiOutcomeCards, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
                 collaborationProject, collaborationTasks, collaborationStatusOptions, collaborationEfficiencyResult, collaborationEfficiencyLoading, handleCollaborationEfficiency,
-                expansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, expansionRecordTypeLabel, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory,
-                transferPricingForm, transferPricingFields, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, transferPricingAiEvaluation, transferPricingAiEvaluationVisible, transferPricingAiEvaluationSourceLabel, handleTransferPricing,
+                expansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, hasExpansionHistory, expansionRecordTypeLabel, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
+                transferPricingForm, transferPricingFields, transferAiModelOptions, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, transferPricingAiEvaluation, transferPricingAiEvaluationVisible, transferPricingAiEvaluationSourceLabel, handleTransferPricing,
                 transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingDataCheck, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
                 transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferHotelOptions,
@@ -26306,9 +27126,9 @@
                 operationAlertStatusLabel, operationAlertLevelClass, operationRiskLevelLabel, operationStrategyTypeLabel,
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
                 openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingOverview, openingTasks, openingLoading,
-                openingProjectForm, openingProjectHotelOptions, openingTaskFilter, openingCategories, openingStatusOptions, openingOverviewCards, openingCategoryProgressCards, openingTaskProgressCards, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
+                openingProjectForm, openingProjectHotelOptions, openingTaskFilter, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
                 loadOpeningProjects, createOpeningProject, saveOpeningProject, archiveOpeningProject, startOpeningProjectCreate, selectOpeningProject, generateOpeningTasks, openOpeningChecklist, applyOpeningHotelToForm, updateOpeningTask, setOpeningTaskStatus, resetOpeningTaskFilter, recalculateOpening,
-                openingTaskDueLabel, openingTaskDueClass,
+                openingTaskDueLabel, openingTaskDueClass, openingTaskProgressPercent, openingTaskProgressStage, openingTaskProgressTextClass, handleOpeningTaskProgressInput, handleOpeningTaskStatusChange, setOpeningTaskProgress, saveOpeningTaskProgress,
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState, selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,

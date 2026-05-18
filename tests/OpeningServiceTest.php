@@ -46,6 +46,8 @@ final class OpeningServiceTest extends TestCase
         self::assertStringContainsString('OTA门店资料上线', $payload);
         self::assertStringContainsString('category_progress', $payload);
         self::assertStringContainsString('high_risk_tasks', $payload);
+        self::assertStringContainsString('progress_percent', $payload);
+        self::assertStringContainsString('progress_rate', $payload);
     }
 
     public function testOpeningSuggestionsFallbackWhenLlmUnavailable(): void
@@ -67,6 +69,59 @@ final class OpeningServiceTest extends TestCase
 
         self::assertContains('存在逾期未完成事项，建议今日完成责任人复盘并重新确认截止时间。', $suggestions);
         self::assertContains('高风险事项需要进入开业日会，优先处理PMS、OTA、支付、消防、安全和库存相关任务。', $suggestions);
+    }
+
+    public function testTaskProgressDefaultsFromExistingStatus(): void
+    {
+        $service = new OpeningService();
+
+        $doingTask = $this->invokeNonPublic($service, 'normalizeTask', [
+            [
+                'id' => 1,
+                'project_id' => 1,
+                'category' => 'PMS系统配置',
+                'task_name' => 'PMS基础档案配置',
+                'task_desc' => '',
+                'is_core' => 1,
+                'deadline' => '2026-07-01',
+                'status' => 'doing',
+                'sort_order' => 1,
+            ],
+            $this->project(),
+        ]);
+        $doneTask = $this->invokeNonPublic($service, 'normalizeTask', [
+            [
+                'id' => 2,
+                'project_id' => 1,
+                'category' => 'PMS系统配置',
+                'task_name' => 'PMS基础档案配置',
+                'task_desc' => '',
+                'is_core' => 1,
+                'deadline' => '2026-07-01',
+                'status' => 'done',
+                'sort_order' => 2,
+            ],
+            $this->project(),
+        ]);
+
+        self::assertSame(50, $doingTask['progress_percent']);
+        self::assertSame(100, $doneTask['progress_percent']);
+    }
+
+    public function testMetricsIncludeSavedProgressRate(): void
+    {
+        $service = new OpeningService();
+        $metrics = $this->invokeNonPublic($service, 'calculateMetrics', [
+            $this->project(),
+            [
+                ['category' => 'PMS系统配置', 'status' => 'doing', 'progress_percent' => 50, 'is_core' => 1, 'risk_level' => 'medium', 'ai_suggestion' => '', 'deadline' => '2026-07-01'],
+                ['category' => 'OTA上线配置', 'status' => 'done', 'progress_percent' => 100, 'is_core' => 1, 'risk_level' => 'low', 'ai_suggestion' => '', 'deadline' => '2026-07-01'],
+            ],
+            false,
+        ]);
+
+        self::assertSame(75.0, $metrics['metrics']['progress_rate']);
+        self::assertSame(50.0, $metrics['category_progress'][0]['progress_rate']);
     }
 
     private function project(): array
@@ -96,6 +151,7 @@ final class OpeningServiceTest extends TestCase
                 'owner_name' => '张三',
                 'deadline' => '2026-05-01',
                 'status' => 'todo',
+                'progress_percent' => 0,
                 'risk_level' => 'high',
                 'is_overdue' => true,
                 'remark' => 'PMS账号未开通',
@@ -108,6 +164,7 @@ final class OpeningServiceTest extends TestCase
                 'owner_name' => '李四',
                 'deadline' => '2026-06-01',
                 'status' => 'todo',
+                'progress_percent' => 0,
                 'risk_level' => 'high',
                 'is_overdue' => false,
                 'remark' => '',

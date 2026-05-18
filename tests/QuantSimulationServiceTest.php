@@ -196,6 +196,99 @@ final class QuantSimulationServiceTest extends TestCase
         self::assertSame(123.0, $input['otherIncome']);
     }
 
+    public function testDetailedCostFieldsOverrideLegacySummary(): void
+    {
+        $service = new QuantSimulationService();
+        $input = $this->invokeNonPublic($service, 'normalizeInput', [[
+            'roomCount' => 10,
+            'decorationInvestment' => 0,
+            'furnitureInvestment' => 0,
+            'openingCost' => 0,
+            'otherInvestment' => 0,
+            'adr' => 100,
+            'occupancyRate' => 50,
+            'otherIncome' => 0,
+            'monthlyRent' => 999999,
+            'baseRentCost' => 1000,
+            'propertyManagementCost' => 200,
+            'laborCost' => 999999,
+            'frontDeskLaborCost' => 300,
+            'housekeepingLaborCost' => 200,
+            'managementLaborCost' => 100,
+            'socialSecurityCost' => 100,
+            'utilityCost' => 999999,
+            'electricityCost' => 100,
+            'waterGasCost' => 50,
+            'networkEnergyCost' => 50,
+            'otaCommissionRate' => 99,
+            'ctripRevenueShare' => 50,
+            'ctripCommissionRate' => 12,
+            'meituanRevenueShare' => 30,
+            'meituanCommissionRate' => 10,
+            'otherOtaRevenueShare' => 20,
+            'otherOtaCommissionRate' => 15,
+            'consumableCost' => 999999,
+            'roomConsumableCost' => 30,
+            'cleaningSuppliesCost' => 40,
+            'linenReplacementCost' => 30,
+            'maintenanceCost' => 999999,
+            'routineRepairCost' => 50,
+            'equipmentMaintenanceCost' => 25,
+            'roomRenovationReserve' => 25,
+            'otherFixedCost' => 999999,
+            'marketingSystemCost' => 100,
+            'insuranceTaxCost' => 100,
+            'adminMiscCost' => 100,
+        ]]);
+
+        self::assertSame(1200.0, $input['monthlyRent']);
+        self::assertSame(700.0, $input['laborCost']);
+        self::assertSame(200.0, $input['utilityCost']);
+        self::assertSame(100.0, $input['consumableCost']);
+        self::assertSame(100.0, $input['maintenanceCost']);
+        self::assertSame(300.0, $input['otherFixedCost']);
+        self::assertSame(12.0, $input['otaCommissionRate']);
+
+        $result = $this->invokeNonPublic($service, 'calculateSimulation', [$input]);
+
+        self::assertSame(15000.0, $result['roomRevenue']);
+        self::assertSame(1800.0, $result['otaCommission']);
+        self::assertSame(4400.0, $result['monthlyCost']);
+        self::assertSame(10600.0, $result['monthlyNetCashflow']);
+    }
+
+    public function testLegacyCostFieldsBackfillDetailFields(): void
+    {
+        $input = $this->invokeNonPublic(new QuantSimulationService(), 'normalizeInput', [[
+            'roomCount' => 10,
+            'decorationInvestment' => 0,
+            'furnitureInvestment' => 0,
+            'openingCost' => 0,
+            'otherInvestment' => 0,
+            'adr' => 100,
+            'occupancyRate' => 50,
+            'otherIncome' => 0,
+            'monthlyRent' => 1000,
+            'laborCost' => 2000,
+            'utilityCost' => 3000,
+            'otaCommissionRate' => 10,
+            'consumableCost' => 4000,
+            'maintenanceCost' => 5000,
+            'otherFixedCost' => 6000,
+        ]]);
+
+        self::assertSame(1000.0, $input['baseRentCost']);
+        self::assertSame(0.0, $input['propertyManagementCost']);
+        self::assertSame(2000.0, $input['frontDeskLaborCost']);
+        self::assertSame(3000.0, $input['electricityCost']);
+        self::assertSame(4000.0, $input['roomConsumableCost']);
+        self::assertSame(5000.0, $input['routineRepairCost']);
+        self::assertSame(6000.0, $input['marketingSystemCost']);
+        self::assertSame(100.0, $input['otherOtaRevenueShare']);
+        self::assertSame(10.0, $input['otherOtaCommissionRate']);
+        self::assertSame(10.0, $input['otaCommissionRate']);
+    }
+
     #[DataProvider('invalidInputProvider')]
     public function testNormalizeInputRejectsInvalidValues(array $override): void
     {
@@ -292,6 +385,9 @@ final class QuantSimulationServiceTest extends TestCase
             'occupancy high' => [['occupancyRate' => 101]],
             'ota negative' => [['otaCommissionRate' => -1]],
             'negative cost' => [['laborCost' => -1]],
+            'ota channel share high' => [['ctripRevenueShare' => 101]],
+            'ota channel share total high' => [['ctripRevenueShare' => 60, 'meituanRevenueShare' => 50]],
+            'ota channel rate high' => [['ctripRevenueShare' => 10, 'ctripCommissionRate' => 101]],
         ];
     }
 

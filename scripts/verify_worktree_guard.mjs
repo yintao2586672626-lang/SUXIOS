@@ -1,8 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const git = spawnSync('git', ['status', '--porcelain=v1'], {
   encoding: 'utf8',
+  cwd: repoRoot,
   shell: false,
 });
 
@@ -49,8 +53,9 @@ for (const line of lines) {
   }
 }
 
-if (fs.existsSync('public/index.html')) {
-  const size = fs.statSync('public/index.html').size;
+const publicIndexPath = path.join(repoRoot, 'public/index.html');
+if (fs.existsSync(publicIndexPath)) {
+  const size = fs.statSync(publicIndexPath).size;
   if (size < 500_000) {
     failures.push(`public/index.html is only ${size} bytes; expected the single-file SPA, not a generated stub.`);
   }

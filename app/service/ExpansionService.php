@@ -366,7 +366,7 @@ class ExpansionService
             return $model;
         }, $models, array_keys($models));
 
-        return [
+        $result = [
             'position' => [
                 'city' => $city,
                 'business_area' => $businessArea,
@@ -398,6 +398,14 @@ class ExpansionService
             ],
             'data_status' => $this->dataStatus($missing),
         ];
+
+        $modelKey = trim((string)($input['model_key'] ?? $input['modelKey'] ?? 'deepseek_v4_default'));
+        if ($modelKey === '') {
+            $modelKey = 'deepseek_v4_default';
+        }
+        $result['ai_evaluation'] = $this->buildBenchmarkAiEvaluation($input, $result, $modelKey);
+
+        return $result;
     }
 
     public function improveCollaboration(array $input): array
@@ -546,15 +554,25 @@ class ExpansionService
 
     public function archiveByType(string $recordType, int $userId, bool $isSuperAdmin): int
     {
+        return $this->archiveByTypes([$recordType], $userId, $isSuperAdmin);
+    }
+
+    public function archiveByTypes(array $recordTypes, int $userId, bool $isSuperAdmin): int
+    {
         $this->ensureTable();
 
-        $recordType = trim($recordType);
-        if (!in_array($recordType, ['market', 'benchmark', 'collaboration'], true)) {
+        $allowedTypes = ['market', 'benchmark', 'collaboration'];
+        $recordTypes = array_values(array_unique(array_map(
+            static fn(mixed $recordType): string => trim((string)$recordType),
+            $recordTypes
+        )));
+        $recordTypes = array_values(array_filter($recordTypes, static fn(string $recordType): bool => $recordType !== ''));
+        if (empty($recordTypes) || array_diff($recordTypes, $allowedTypes) !== []) {
             throw new InvalidArgumentException('扩张记录类型无效');
         }
 
         $query = Db::name('expansion_records')
-            ->where('record_type', $recordType)
+            ->whereIn('record_type', $recordTypes)
             ->whereNull('deleted_at');
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
@@ -755,13 +773,13 @@ class ExpansionService
             'source' => trim((string)($raw['source'] ?? $defaults['source'] ?? '')),
             'model_key' => trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? '')),
             'generated_at' => trim((string)($raw['generated_at'] ?? $raw['generatedAt'] ?? $defaults['generated_at'] ?? '')),
-            'summary' => mb_substr(trim((string)($raw['summary'] ?? '')), 0, 300),
-            'decision' => mb_substr(trim((string)($raw['decision'] ?? '')), 0, 160),
+            'summary' => $this->cleanAiText((string)($raw['summary'] ?? ''), 300),
+            'decision' => $this->cleanAiText((string)($raw['decision'] ?? ''), 160),
             'market_judgement' => $this->normalizeMarketJudgement($raw['market_judgement'] ?? $raw['marketJudgement'] ?? []),
             'recommendations' => $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
             'watch_points' => $this->normalizeAiWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []),
             'assumptions' => $this->stringList($raw['assumptions'] ?? []),
-            'error' => mb_substr(trim((string)($raw['error'] ?? '')), 0, 120),
+            'error' => $this->cleanAiText((string)($raw['error'] ?? ''), 120),
         ];
     }
 
@@ -772,9 +790,9 @@ class ExpansionService
         }
 
         return [
-            'supply_competition_strength' => mb_substr(trim((string)($raw['supply_competition_strength'] ?? $raw['supplyCompetitionStrength'] ?? '')), 0, 160),
-            'price_band_suggestion' => mb_substr(trim((string)($raw['price_band_suggestion'] ?? $raw['priceBandSuggestion'] ?? '')), 0, 160),
-            'decision' => mb_substr(trim((string)($raw['decision'] ?? '')), 0, 160),
+            'supply_competition_strength' => $this->cleanAiText((string)($raw['supply_competition_strength'] ?? $raw['supplyCompetitionStrength'] ?? ''), 160),
+            'price_band_suggestion' => $this->cleanAiText((string)($raw['price_band_suggestion'] ?? $raw['priceBandSuggestion'] ?? ''), 160),
+            'decision' => $this->cleanAiText((string)($raw['decision'] ?? ''), 160),
         ];
     }
 
@@ -800,8 +818,8 @@ class ExpansionService
             }
             $normalized[] = [
                 'priority' => $priority,
-                'title' => $title !== '' ? mb_substr($title, 0, 80) : '市场评估建议',
-                'detail' => mb_substr($detail, 0, 220),
+                'title' => $title !== '' ? $this->cleanAiText($title, 80) : '市场评估建议',
+                'detail' => $this->cleanAiText($detail, 220),
             ];
         }
 
@@ -826,9 +844,9 @@ class ExpansionService
                 continue;
             }
             $normalized[] = [
-                'metric' => $metric !== '' ? mb_substr($metric, 0, 80) : '关键指标',
-                'threshold' => mb_substr($threshold, 0, 160),
-                'action' => mb_substr($action, 0, 220),
+                'metric' => $metric !== '' ? $this->cleanAiText($metric, 80) : '关键指标',
+                'threshold' => $this->cleanAiText($threshold, 160),
+                'action' => $this->cleanAiText($action, 220),
             ];
         }
 
@@ -845,11 +863,17 @@ class ExpansionService
         foreach ($items as $item) {
             $value = trim((string)$item);
             if ($value !== '') {
-                $list[] = mb_substr($value, 0, 220);
+                $list[] = $this->cleanAiText($value, 220);
             }
         }
 
         return array_values(array_unique($list));
+    }
+
+    private function cleanAiText(string $value, int $length): string
+    {
+        $value = preg_replace('/规则引擎|rule engine/i', '初筛模型', $value) ?? $value;
+        return mb_substr(trim($value), 0, $length);
     }
 
     private function marketAiEvaluationSchema(): array
@@ -869,6 +893,181 @@ class ExpansionService
                         'supply_competition_strength' => ['type' => 'string'],
                         'price_band_suggestion' => ['type' => 'string'],
                         'decision' => ['type' => 'string'],
+                    ],
+                ],
+                'recommendations' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['priority', 'title', 'detail'],
+                        'properties' => [
+                            'priority' => ['type' => 'string', 'enum' => ['P0', 'P1', 'P2']],
+                            'title' => ['type' => 'string'],
+                            'detail' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'watch_points' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['metric', 'threshold', 'action'],
+                        'properties' => [
+                            'metric' => ['type' => 'string'],
+                            'threshold' => ['type' => 'string'],
+                            'action' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'assumptions' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ];
+    }
+
+    private function buildBenchmarkAiEvaluation(array $input, array $result, string $modelKey): array
+    {
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => '你是酒店扩张标杆选模分析师。只输出符合 schema 的 JSON。必须基于用户输入、竞品细化数据和标杆选模结果生成复核意见；不得发明真实酒店名称或未提供的财务数字；不得输出“规则引擎”等内部实现描述，需用“初筛模型”或“当前输入”表达；缺少真实竞品、点评或 OTA 数据时写入 assumptions；建议必须可执行、克制、面向复制策略和差异化落地。',
+            ],
+            [
+                'role' => 'user',
+                'content' => json_encode([
+                    'input' => $input,
+                    'benchmark_result' => $result,
+                    'report_language' => 'zh-CN',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        try {
+            $evaluation = $this->client->createJsonResponse($messages, $this->benchmarkAiEvaluationSchema(), $modelKey);
+            return $this->normalizeBenchmarkAiEvaluation($evaluation, [
+                'source' => 'llm',
+                'model_key' => $modelKey,
+                'generated_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable $e) {
+            return $this->buildFallbackBenchmarkAiEvaluation($result, $modelKey, $e->getMessage());
+        }
+    }
+
+    private function buildFallbackBenchmarkAiEvaluation(array $result, string $modelKey, string $reason): array
+    {
+        $benchmarks = is_array($result['recommended_benchmarks'] ?? null) ? $result['recommended_benchmarks'] : [];
+        $best = $benchmarks[0] ?? ['name' => '标杆模型A', 'model_fit_score' => null];
+        foreach ($benchmarks as $benchmark) {
+            if ((int)($benchmark['model_fit_score'] ?? 0) > (int)($best['model_fit_score'] ?? 0)) {
+                $best = $benchmark;
+            }
+        }
+        $bestName = (string)($best['name'] ?? '标杆模型A');
+        $fitScore = $best['model_fit_score'] ?? null;
+        $strategies = is_array($result['copyable_strategies'] ?? null) ? $result['copyable_strategies'] : [];
+        $strategyLabels = [
+            'room_type' => '房型策略',
+            'price' => '价格策略',
+            'channel' => '渠道策略',
+            'review' => '点评策略',
+            'image' => '图片策略',
+            'service' => '服务策略',
+            'data' => '数据校准',
+        ];
+
+        $recommendations = [];
+        foreach (array_slice($strategies, 0, 4, true) as $key => $value) {
+            $value = trim((string)$value);
+            if ($value === '') {
+                continue;
+            }
+            $recommendations[] = [
+                'priority' => $key === 'data' ? 'P0' : 'P1',
+                'title' => $strategyLabels[(string)$key] ?? '复制策略',
+                'detail' => $value,
+            ];
+        }
+
+        $avoidPoints = $this->stringList($result['avoid_copying_points'] ?? []);
+        $watchPoints = array_map(
+            static fn(string $item): array => [
+                'metric' => '不建议照搬',
+                'threshold' => $item,
+                'action' => '落地前结合自身房量、成本结构和商圈客源重新校准。',
+            ],
+            array_slice($avoidPoints, 0, 3)
+        );
+
+        return [
+            'source' => 'fallback',
+            'model_key' => $modelKey,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'summary' => '本地标杆选模显示，优先参考' . $bestName . ($fitScore !== null ? '，匹配度约' . (int)$fitScore . '%' : '') . '，需结合真实竞品样本复核。',
+            'decision' => '优先复制高匹配标杆的房型、价格和渠道做法，差异化卖点需单独验证。',
+            'model_judgement' => [
+                'best_fit_model' => $bestName,
+                'copy_priority' => '先复制房型效率、主力价格带和渠道首图标准，再验证服务标签。',
+                'differentiation_focus' => '围绕商圈主客源选择一个强标签，不同时堆叠过多卖点。',
+            ],
+            'recommendations' => $recommendations,
+            'watch_points' => $watchPoints,
+            'assumptions' => ['AI模型不可用时启用本地标杆选模兜底。', '尚未接入真实竞品酒店名称、点评文本和 OTA 转化数据。'],
+            'error' => mb_substr(trim($reason), 0, 120),
+        ];
+    }
+
+    private function normalizeBenchmarkAiEvaluation(mixed $raw, array $defaults = []): array
+    {
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        return [
+            'source' => trim((string)($raw['source'] ?? $defaults['source'] ?? '')),
+            'model_key' => trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? '')),
+            'generated_at' => trim((string)($raw['generated_at'] ?? $raw['generatedAt'] ?? $defaults['generated_at'] ?? '')),
+            'summary' => $this->cleanAiText((string)($raw['summary'] ?? ''), 300),
+            'decision' => $this->cleanAiText((string)($raw['decision'] ?? ''), 160),
+            'model_judgement' => $this->normalizeBenchmarkJudgement($raw['model_judgement'] ?? $raw['modelJudgement'] ?? []),
+            'recommendations' => $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            'watch_points' => $this->normalizeAiWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []),
+            'assumptions' => $this->stringList($raw['assumptions'] ?? []),
+            'error' => $this->cleanAiText((string)($raw['error'] ?? ''), 120),
+        ];
+    }
+
+    private function normalizeBenchmarkJudgement(mixed $raw): array
+    {
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        return [
+            'best_fit_model' => $this->cleanAiText((string)($raw['best_fit_model'] ?? $raw['bestFitModel'] ?? ''), 120),
+            'copy_priority' => $this->cleanAiText((string)($raw['copy_priority'] ?? $raw['copyPriority'] ?? ''), 180),
+            'differentiation_focus' => $this->cleanAiText((string)($raw['differentiation_focus'] ?? $raw['differentiationFocus'] ?? ''), 180),
+        ];
+    }
+
+    private function benchmarkAiEvaluationSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['summary', 'decision', 'model_judgement', 'recommendations', 'watch_points', 'assumptions'],
+            'properties' => [
+                'summary' => ['type' => 'string'],
+                'decision' => ['type' => 'string'],
+                'model_judgement' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'required' => ['best_fit_model', 'copy_priority', 'differentiation_focus'],
+                    'properties' => [
+                        'best_fit_model' => ['type' => 'string'],
+                        'copy_priority' => ['type' => 'string'],
+                        'differentiation_focus' => ['type' => 'string'],
                     ],
                 ],
                 'recommendations' => [

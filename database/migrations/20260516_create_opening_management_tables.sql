@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS `opening_tasks` (
   `collaborator_name` VARCHAR(120) NOT NULL DEFAULT '' COMMENT '协同人',
   `deadline` DATE DEFAULT NULL COMMENT '截止时间',
   `status` VARCHAR(30) NOT NULL DEFAULT 'todo' COMMENT '状态 todo/doing/done/blocked',
+  `progress_percent` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '任务进度百分比',
   `risk_level` VARCHAR(20) NOT NULL DEFAULT 'low' COMMENT '风险等级',
   `acceptance_standard` VARCHAR(500) NOT NULL DEFAULT '' COMMENT '验收标准',
   `ai_suggestion` VARCHAR(500) NOT NULL DEFAULT '' COMMENT 'AI建议',

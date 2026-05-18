@@ -234,6 +234,23 @@ class OpeningService
             }
             $data['status'] = $status;
         }
+        if (array_key_exists('progress_percent', $input)) {
+            $data['progress_percent'] = $this->normalizeProgressPercent($input['progress_percent']);
+        }
+
+        if (array_key_exists('status', $data) && $data['status'] === self::STATUS_DONE) {
+            $data['progress_percent'] = 100;
+        } elseif (array_key_exists('progress_percent', $data)) {
+            $currentStatus = (string)($data['status'] ?? $task['status'] ?? self::STATUS_TODO);
+            if ($data['progress_percent'] >= 100) {
+                $data['status'] = self::STATUS_DONE;
+                $data['progress_percent'] = 100;
+            } elseif ($data['progress_percent'] > 0 && $currentStatus === self::STATUS_TODO) {
+                $data['status'] = self::STATUS_DOING;
+            } elseif ($data['progress_percent'] <= 0 && $currentStatus !== self::STATUS_BLOCKED) {
+                $data['status'] = self::STATUS_TODO;
+            }
+        }
 
         if (empty($data)) {
             throw new \RuntimeException('没有可更新的检查项字段');
@@ -289,6 +306,7 @@ class OpeningService
     {
         $total = count($tasks);
         $done = count(array_filter($tasks, static fn(array $task): bool => $task['status'] === self::STATUS_DONE));
+        $progressTotal = array_sum(array_map(fn(array $task): int => $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO)), $tasks));
         $core = array_values(array_filter($tasks, static fn(array $task): bool => (int)$task['is_core'] === 1));
         $coreDone = count(array_filter($core, static fn(array $task): bool => $task['status'] === self::STATUS_DONE));
         $highRisk = count(array_filter($tasks, static fn(array $task): bool => $task['risk_level'] === self::RISK_HIGH));
@@ -319,6 +337,7 @@ class OpeningService
                 'total_tasks' => $total,
                 'completed_tasks' => $done,
                 'completion_rate' => $total > 0 ? round($done / $total * 100, 1) : 0,
+                'progress_rate' => $total > 0 ? round($progressTotal / $total, 1) : 0,
                 'core_tasks' => count($core),
                 'core_completed_tasks' => $coreDone,
                 'core_completion_rate' => count($core) > 0 ? round($coreDone / count($core) * 100, 1) : 0,
@@ -335,15 +354,16 @@ class OpeningService
     {
         $groups = [];
         foreach (array_keys(self::SCORE_WEIGHTS) as $category) {
-            $groups[$category] = ['category' => $category, 'total' => 0, 'done' => 0, 'completion_rate' => 0];
+            $groups[$category] = ['category' => $category, 'total' => 0, 'done' => 0, 'completion_rate' => 0, 'progress_rate' => 0, 'progress_sum' => 0];
         }
 
         foreach ($tasks as $task) {
             $category = $this->scoreCategory((string)$task['category']);
             if (!isset($groups[$category])) {
-                $groups[$category] = ['category' => $category, 'total' => 0, 'done' => 0, 'completion_rate' => 0];
+                $groups[$category] = ['category' => $category, 'total' => 0, 'done' => 0, 'completion_rate' => 0, 'progress_rate' => 0, 'progress_sum' => 0];
             }
             $groups[$category]['total']++;
+            $groups[$category]['progress_sum'] += $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO));
             if ($task['status'] === self::STATUS_DONE) {
                 $groups[$category]['done']++;
             }
@@ -351,6 +371,8 @@ class OpeningService
 
         foreach ($groups as &$group) {
             $group['completion_rate'] = $group['total'] > 0 ? round($group['done'] / $group['total'] * 100, 1) : 0;
+            $group['progress_rate'] = $group['total'] > 0 ? round($group['progress_sum'] / $group['total'], 1) : 0;
+            unset($group['progress_sum']);
         }
         unset($group);
 
@@ -371,9 +393,23 @@ class OpeningService
         $row['project_id'] = (int)$row['project_id'];
         $row['is_core'] = (int)($row['is_core'] ?? 0);
         $row['sort_order'] = (int)($row['sort_order'] ?? 0);
+        $row['progress_percent'] = $this->normalizeProgressPercent($row['progress_percent'] ?? null, (string)($row['status'] ?? self::STATUS_TODO));
         $row['risk_level'] = $this->taskRiskLevel($row, $project);
         $row['is_overdue'] = $this->isOverdue($row);
         return $row;
+    }
+
+    private function normalizeProgressPercent(mixed $value, string $status = self::STATUS_TODO): int
+    {
+        if ($value === null || $value === '') {
+            return match ($status) {
+                self::STATUS_DONE => 100,
+                self::STATUS_DOING => 50,
+                self::STATUS_BLOCKED => 25,
+                default => 0,
+            };
+        }
+        return max(0, min(100, (int)round((float)$value)));
     }
 
     private function taskRiskLevel(array $task, array $project): string
@@ -496,6 +532,7 @@ class OpeningService
         $blockedTasks = array_values(array_filter($tasks, static fn(array $task): bool => ($task['status'] ?? '') === self::STATUS_BLOCKED));
         $highRiskTasks = array_values(array_filter($tasks, static fn(array $task): bool => ($task['risk_level'] ?? '') === self::RISK_HIGH));
         $overdueTasks = array_values(array_filter($tasks, static fn(array $task): bool => !empty($task['is_overdue'])));
+        $progressTotal = array_sum(array_map(fn(array $task): int => $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO)), $tasks));
 
         $messages = [
             [
@@ -521,6 +558,7 @@ class OpeningService
                     'metrics' => [
                         'total_tasks' => count($tasks),
                         'done_tasks' => count(array_filter($tasks, static fn(array $task): bool => ($task['status'] ?? '') === self::STATUS_DONE)),
+                        'progress_rate' => count($tasks) > 0 ? round($progressTotal / count($tasks), 1) : 0,
                         'high_risk_count' => $highRisk,
                         'overdue_count' => $overdue,
                         'blocked_count' => count($blockedTasks),
@@ -547,6 +585,7 @@ class OpeningService
             'owner_name' => (string)($task['owner_name'] ?? ''),
             'deadline' => (string)($task['deadline'] ?? ''),
             'status' => (string)($task['status'] ?? ''),
+            'progress_percent' => (int)($task['progress_percent'] ?? 0),
             'risk_level' => (string)($task['risk_level'] ?? ''),
             'is_overdue' => !empty($task['is_overdue']),
             'remark' => mb_substr(trim((string)($task['remark'] ?? '')), 0, 80),

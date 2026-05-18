@@ -2454,6 +2454,114 @@ textarea:focus,
     color: #b91c1c;
     font-size: 0.9rem;
 }
+.feasibility-ai-result {
+    padding: 1.15rem;
+    border-radius: 0.75rem;
+    background:
+        linear-gradient(135deg, rgba(238, 246, 255, 0.95) 0%, rgba(255, 255, 255, 0.98) 58%),
+        #ffffff;
+    border: 1px solid #cfe5ff;
+    box-shadow: var(--sx-shadow-sm);
+}
+.feasibility-ai-result-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+.feasibility-ai-result-head span {
+    display: block;
+    color: #1d4ed8;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+.feasibility-ai-result-head h3 {
+    margin: 0.28rem 0 0;
+    color: var(--sx-title);
+    font-size: 1.25rem !important;
+    font-weight: 900;
+    line-height: 1.35;
+}
+.feasibility-ai-result-head p {
+    margin: 0.45rem 0 0;
+    color: var(--sx-text);
+    line-height: 1.65;
+}
+.feasibility-ai-source {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 2.25rem;
+    padding: 0 0.75rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 800;
+    border: 1px solid currentColor;
+}
+.feasibility-ai-source.active {
+    background: #ecfdf3;
+    color: #15803d;
+    border-color: #bbf7d0;
+}
+.feasibility-ai-source.fallback {
+    background: #fff7ed;
+    color: #b45309;
+    border-color: #fed7aa;
+}
+.feasibility-ai-result-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+.feasibility-ai-result-grid > div {
+    min-width: 0;
+    padding: 0.85rem;
+    border-radius: 0.65rem;
+    background: #ffffff;
+    border: 1px solid var(--sx-border-soft);
+}
+.feasibility-ai-result-grid span,
+.feasibility-ai-result-grid em {
+    display: block;
+    color: var(--sx-muted);
+    font-size: 0.78rem;
+    font-style: normal;
+    line-height: 1.35;
+}
+.feasibility-ai-result-grid strong {
+    display: block;
+    margin: 0.25rem 0;
+    color: var(--sx-title);
+    font-size: 1.05rem;
+    font-weight: 850;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+.feasibility-ai-result-foot {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+.feasibility-ai-result-foot > div {
+    min-width: 0;
+    padding: 0.85rem;
+    border-radius: 0.65rem;
+    background: rgba(255, 255, 255, 0.68);
+    border: 1px solid rgba(207, 229, 255, 0.9);
+}
+.feasibility-ai-result-foot strong {
+    display: block;
+    color: var(--sx-title);
+    font-size: 0.86rem;
+}
+.feasibility-ai-result-foot p {
+    margin: 0.28rem 0 0;
+    color: var(--sx-muted);
+    line-height: 1.55;
+}
 .feasibility-grade-badge {
     flex: 0 0 auto;
     min-width: 2.1rem;
@@ -2681,6 +2789,30 @@ textarea:focus,
 .feasibility-report-callout p + p {
     margin-top: 0.45rem;
 }
+.feasibility-ai-print-brief {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+.feasibility-ai-print-brief div {
+    min-width: 0;
+    padding: 0.8rem;
+    border-radius: 0.65rem;
+    background: #f8fafc;
+    border: 1px solid var(--sx-border-soft);
+}
+.feasibility-ai-print-brief span {
+    display: block;
+    color: var(--sx-muted);
+    font-size: 0.78rem;
+}
+.feasibility-ai-print-brief strong {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--sx-title);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
 .feasibility-basic-grid,
 .feasibility-market-grid {
     display: grid;
@@ -2879,11 +3011,18 @@ textarea:focus,
         flex: 1 1 calc(50% - 0.55rem);
     }
     .feasibility-hero-metrics,
+    .feasibility-ai-result-grid,
     .feasibility-empty-metrics {
         grid-template-columns: 1fr 1fr;
     }
+    .feasibility-ai-result-head,
+    .feasibility-ai-result-foot {
+        grid-template-columns: 1fr;
+        flex-direction: column;
+    }
     .feasibility-basic-grid,
     .feasibility-market-grid,
+    .feasibility-ai-print-brief,
     .feasibility-evidence-box {
         grid-template-columns: 1fr;
     }
@@ -2925,6 +3064,7 @@ textarea:focus,
         font-size: 0.72rem;
     }
     .feasibility-hero-metrics,
+    .feasibility-ai-result-grid,
     .feasibility-report-metrics,
     .feasibility-empty-metrics {
         grid-template-columns: 1fr;

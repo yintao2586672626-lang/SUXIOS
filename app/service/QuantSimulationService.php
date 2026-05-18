@@ -508,10 +508,45 @@ class QuantSimulationService
         );
         $input = array_merge($input, $this->roomRevenueGroup($raw, $input));
         $input = array_merge($input, $this->otherIncomeGroup($raw, $input));
+        $input = array_merge(
+            $input,
+            $this->costGroup($raw, 'monthlyRent', 'monthly_rent', [
+                'baseRentCost' => 'base_rent_cost',
+                'propertyManagementCost' => 'property_management_cost',
+            ]),
+            $this->costGroup($raw, 'laborCost', 'labor_cost', [
+                'frontDeskLaborCost' => 'front_desk_labor_cost',
+                'housekeepingLaborCost' => 'housekeeping_labor_cost',
+                'managementLaborCost' => 'management_labor_cost',
+                'socialSecurityCost' => 'social_security_cost',
+            ]),
+            $this->costGroup($raw, 'utilityCost', 'utility_cost', [
+                'electricityCost' => 'electricity_cost',
+                'waterGasCost' => 'water_gas_cost',
+                'networkEnergyCost' => 'network_energy_cost',
+            ]),
+            $this->costGroup($raw, 'consumableCost', 'consumable_cost', [
+                'roomConsumableCost' => 'room_consumable_cost',
+                'cleaningSuppliesCost' => 'cleaning_supplies_cost',
+                'linenReplacementCost' => 'linen_replacement_cost',
+            ]),
+            $this->costGroup($raw, 'maintenanceCost', 'maintenance_cost', [
+                'routineRepairCost' => 'routine_repair_cost',
+                'equipmentMaintenanceCost' => 'equipment_maintenance_cost',
+                'roomRenovationReserve' => 'room_renovation_reserve',
+            ]),
+            $this->costGroup($raw, 'otherFixedCost', 'other_fixed_cost', [
+                'marketingSystemCost' => 'marketing_system_cost',
+                'insuranceTaxCost' => 'insurance_tax_cost',
+                'adminMiscCost' => 'admin_misc_cost',
+            ])
+        );
+        $input = array_merge($input, $this->otaCommissionGroup($raw, $input));
         $revenue = $this->calculateRevenueSummary($input);
         $input['adr'] = (float)$revenue['adr'];
         $input['occupancyRate'] = (float)$revenue['occupancyRate'];
         $input['otherIncome'] = (float)$revenue['otherIncome'];
+        $input['otaCommissionRate'] = $this->weightedOtaCommissionRate($input);
 
         if ($input['roomCount'] <= 0) {
             throw new \InvalidArgumentException('房间数必须大于0');
@@ -539,6 +574,21 @@ class QuantSimulationService
         }
         if ($input['occupancyRate'] < 0 || $input['occupancyRate'] > 100) {
             throw new \InvalidArgumentException('入住率必须在0到100之间');
+        }
+        $totalOtaShare = 0.0;
+        foreach ($this->otaCommissionChannels() as $channel) {
+            $share = (float)$input[$channel['shareKey']];
+            $rate = (float)$input[$channel['rateKey']];
+            if ($share < 0 || $share > 100) {
+                throw new \InvalidArgumentException('渠道收入占比必须在0到100之间');
+            }
+            if ($rate < 0 || $rate > 100) {
+                throw new \InvalidArgumentException('渠道佣金率必须在0到100之间');
+            }
+            $totalOtaShare += $share;
+        }
+        if ($totalOtaShare > 100) {
+            throw new \InvalidArgumentException('渠道收入占比合计不能超过100%');
         }
         if ($input['otaCommissionRate'] < 0 || $input['otaCommissionRate'] > 100) {
             throw new \InvalidArgumentException('OTA佣金率必须在0到100之间');
@@ -776,6 +826,49 @@ class QuantSimulationService
         return $detailValues;
     }
 
+    private function costGroup(array $raw, string $totalCamel, string $totalSnake, array $detailFields): array
+    {
+        return $this->investmentGroup($raw, $totalCamel, $totalSnake, $detailFields);
+    }
+
+    private function otaCommissionGroup(array $raw, array $baseInput): array
+    {
+        $values = [];
+        $hasDetail = false;
+        foreach ($this->otaCommissionChannels() as $channel) {
+            foreach ([
+                $channel['shareKey'] => $channel['shareSnake'],
+                $channel['rateKey'] => $channel['rateSnake'],
+            ] as $camel => $snake) {
+                if (array_key_exists($camel, $raw) || array_key_exists($snake, $raw)) {
+                    $hasDetail = true;
+                }
+                $values[$camel] = $this->number($raw, (string)$camel, (string)$snake);
+            }
+        }
+
+        if (!$hasDetail) {
+            $legacyRate = (float)$baseInput['otaCommissionRate'];
+            foreach ($this->otaCommissionChannels() as $channel) {
+                $values[$channel['shareKey']] = $channel['key'] === 'otherOta' ? 100.0 : 0.0;
+                $values[$channel['rateKey']] = $legacyRate;
+            }
+        }
+
+        $values['otaCommissionRate'] = $this->weightedOtaCommissionRate($values);
+        return $values;
+    }
+
+    private function weightedOtaCommissionRate(array $input): float
+    {
+        $rate = 0.0;
+        foreach ($this->otaCommissionChannels() as $channel) {
+            $rate += (float)($input[$channel['shareKey']] ?? 0) * (float)($input[$channel['rateKey']] ?? 0) / 100;
+        }
+
+        return round($rate, 4);
+    }
+
     private function roomRevenueSegments(): array
     {
         return [
@@ -802,6 +895,33 @@ class QuantSimulationService
                 'adrSnake' => 'holiday_adr',
                 'occupancyKey' => 'holidayOccupancyRate',
                 'occupancySnake' => 'holiday_occupancy_rate',
+            ],
+        ];
+    }
+
+    private function otaCommissionChannels(): array
+    {
+        return [
+            [
+                'key' => 'ctrip',
+                'shareKey' => 'ctripRevenueShare',
+                'shareSnake' => 'ctrip_revenue_share',
+                'rateKey' => 'ctripCommissionRate',
+                'rateSnake' => 'ctrip_commission_rate',
+            ],
+            [
+                'key' => 'meituan',
+                'shareKey' => 'meituanRevenueShare',
+                'shareSnake' => 'meituan_revenue_share',
+                'rateKey' => 'meituanCommissionRate',
+                'rateSnake' => 'meituan_commission_rate',
+            ],
+            [
+                'key' => 'otherOta',
+                'shareKey' => 'otherOtaRevenueShare',
+                'shareSnake' => 'other_ota_revenue_share',
+                'rateKey' => 'otherOtaCommissionRate',
+                'rateSnake' => 'other_ota_commission_rate',
             ],
         ];
     }
