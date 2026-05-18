@@ -81,7 +81,12 @@ $checks[] = 'online_data';
 
 $macro = read_file('app/service/MacroSignalService.php');
 assert_true(str_contains($macro, 'ExternalSignalService'), 'MacroSignalService must use ExternalSignalService');
-assert_true(str_contains($macro, "source_text'] = 'AMap weather'"), 'Weather signal must expose external data source');
+assert_true(
+    str_contains($macro, "'source_text' => '高德天气自动获取'")
+    || str_contains($macro, "'source_text' => 'AMap weather'")
+    || str_contains($macro, "source_text'] = 'AMap weather'"),
+    'Weather signal must expose external data source'
+);
 $checks[] = 'external_signal';
 
 echo 'OK: ' . implode(', ', $checks) . PHP_EOL;

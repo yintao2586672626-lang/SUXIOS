@@ -272,6 +272,87 @@ final class OnlineDataTest extends TestCase
      * 覆盖 normalizeOnlineDataDate/extractCtripCommentScore：
      * 验证日期输入兼容、非法值兜底、点评分数字段别名。
      */
+    public function testOnlineDataQualityFlagsMissingAndAbnormalMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $quality = $this->invokeNonPublic($controller, 'buildOnlineDataQuality', [[
+            'id' => 11,
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'hotel_id' => 'ota-11',
+            'hotel_name' => 'Hotel A',
+            'data_date' => '2026-05-17',
+            'amount' => 800,
+            'quantity' => 0,
+            'book_order_num' => 2,
+            'comment_score' => 6.2,
+            'raw_data' => json_encode([
+                'hotelId' => 'ota-11',
+                'hotelName' => 'Hotel A',
+                'amount' => 800,
+                'bookOrderNum' => 2,
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        self::assertSame('warning', $quality['status']);
+        self::assertContains('quantity', array_column($quality['missing_metrics'], 'key'));
+        self::assertContains('adr_denominator_zero', array_column($quality['abnormal_metrics'], 'code'));
+        self::assertContains('comment_score_range', array_column($quality['abnormal_metrics'], 'code'));
+        self::assertStringContainsString('缺失', $quality['summary']);
+    }
+
+    public function testOnlineDataQualitySummaryCountsIssueRows(): void
+    {
+        $controller = $this->controller();
+
+        $rows = [
+            [
+                'id' => 1,
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'hotel_id' => 'ota-1',
+                'hotel_name' => 'Hotel A',
+                'data_date' => '2026-05-17',
+                'amount' => 1000,
+                'quantity' => 5,
+                'book_order_num' => 3,
+                'comment_score' => 4.8,
+                'raw_data' => json_encode([
+                    'hotelId' => 'ota-1',
+                    'hotelName' => 'Hotel A',
+                    'amount' => 1000,
+                    'quantity' => 5,
+                    'bookOrderNum' => 3,
+                    'commentScore' => 4.8,
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 2,
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'hotel_id' => '',
+                'hotel_name' => 'Hotel B',
+                'data_date' => '2026-05-17',
+                'amount' => 500,
+                'quantity' => 0,
+                'book_order_num' => 1,
+                'comment_score' => 4.6,
+                'raw_data' => json_encode(['hotelName' => 'Hotel B', 'amount' => 500], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        $summary = $this->invokeNonPublic($controller, 'buildOnlineDataQualitySummary', [$rows]);
+
+        self::assertSame(2, $summary['checked_records']);
+        self::assertSame(1, $summary['issue_records']);
+        self::assertSame(1, $summary['ok_records']);
+        self::assertGreaterThanOrEqual(2, $summary['missing_count']);
+        self::assertGreaterThanOrEqual(1, $summary['abnormal_count']);
+        self::assertSame('warning', $summary['status']);
+        self::assertNotEmpty($summary['top_prompts']);
+    }
+
     public function testOnlineDataDateAndCommentScoreNormalization(): void
     {
         $controller = $this->controller();
@@ -283,6 +364,33 @@ final class OnlineDataTest extends TestCase
 
         self::assertSame(4.8, $this->invokeNonPublic($controller, 'extractCtripCommentScore', [['rating' => '4.8']]));
         self::assertSame(0.0, $this->invokeNonPublic($controller, 'extractCtripCommentScore', [['rating' => 'bad']]));
+    }
+
+    public function testOnlineDailyDataValidationFieldsMarkAbnormalRows(): void
+    {
+        $controller = $this->controller();
+
+        $normal = $this->invokeNonPublic($controller, 'buildOnlineDailyDataValidationFields', [[
+            'source' => 'ctrip',
+            'hotel_id' => '1001',
+            'data_date' => '2026-05-17',
+            'amount' => 1000,
+            'quantity' => 5,
+        ]]);
+        self::assertSame('normal', $normal['validation_status']);
+        self::assertSame([], json_decode($normal['validation_flags'], true));
+
+        $abnormal = $this->invokeNonPublic($controller, 'buildOnlineDailyDataValidationFields', [[
+            'source' => 'ctrip',
+            'hotel_id' => '',
+            'data_date' => '2026-05-17',
+            'amount' => 1000,
+            'quantity' => -1,
+        ]]);
+        self::assertSame('abnormal', $abnormal['validation_status']);
+        $flags = json_decode($abnormal['validation_flags'], true);
+        self::assertContains('hotel_id', array_column($flags, 'field'));
+        self::assertContains('quantity', array_column($flags, 'field'));
     }
 }
 

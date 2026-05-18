@@ -256,8 +256,8 @@ class MacroSignalService
         }
 
         $metrics = [
-            $this->metric('曝光', $this->formatNumber($traffic['exposure'])),
-            $this->metric('点击/访客', $this->formatNumber(max($traffic['clicks'], $traffic['visitors']))),
+            $this->metric('曝光', $traffic['has_exposure'] ? $this->formatNumber($traffic['exposure']) : '待同步'),
+            $this->metric('点击/访客', ($traffic['has_clicks'] || $traffic['has_visitors']) ? $this->formatNumber(max($traffic['clicks'], $traffic['visitors'])) : '待同步'),
             $this->metric('订单', $this->formatNumber($traffic['orders']), '单'),
             $this->metric('转化率', $traffic['conversion'] !== null ? round($traffic['conversion'], 2) . '%' : '待同步'),
         ];
@@ -401,6 +401,9 @@ class MacroSignalService
         $today = date('Y-m-d');
         $range = trim($range) !== '' ? trim($range) : '30';
 
+        if (in_array($range, ['3', 'last_3_days'], true)) {
+            return [date('Y-m-d', strtotime('-2 days')), $today, '3', '近3日'];
+        }
         if (in_array($range, ['7', 'last_7_days'], true)) {
             return [date('Y-m-d', strtotime('-6 days')), $today, '7', '近7日'];
         }
@@ -1091,15 +1094,31 @@ class MacroSignalService
         $visitors = 0.0;
         $orders = 0.0;
         $conversionSamples = [];
+        $hasExposure = false;
+        $hasClicks = false;
+        $hasVisitors = false;
 
         foreach ($rows as $row) {
             $raw = $this->decodeJson($row['raw_data'] ?? null);
             $dimension = (string)($row['dimension'] ?? '');
-            $dataValue = $this->toFloat($row['data_value'] ?? null) ?? 0.0;
+            $rawDataValue = $this->toFloat($row['data_value'] ?? null);
+            $dataValue = $rawDataValue ?? 0.0;
 
-            $exposure += $this->firstNumber($raw, ['exposure', 'exposureNum', 'showCount', 'impression', 'displayNum']) ?? 0.0;
-            $clicks += $this->firstNumber($raw, ['clicks', 'clickNum', 'detailClickNum']) ?? 0.0;
-            $visitors += $this->firstNumber($raw, ['visitors', 'visitorNum', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors', 'uv']) ?? 0.0;
+            $exposureValue = $this->firstNumber($raw, ['exposure', 'exposureNum', 'showCount', 'impression', 'displayNum']);
+            if ($exposureValue !== null) {
+                $hasExposure = true;
+                $exposure += $exposureValue;
+            }
+            $clickValue = $this->firstNumber($raw, ['clicks', 'clickNum', 'detailClickNum']);
+            if ($clickValue !== null) {
+                $hasClicks = true;
+                $clicks += $clickValue;
+            }
+            $visitorValue = $this->firstNumber($raw, ['visitors', 'visitorNum', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors', 'uv']);
+            if ($visitorValue !== null) {
+                $hasVisitors = true;
+                $visitors += $visitorValue;
+            }
             $orders += $this->toFloat($row['book_order_num'] ?? null) ?? 0.0;
 
             $conversion = $this->firstNumber($raw, ['conversionRate', 'convertionRate', 'detailCR', 'qunarDetailCR', 'orderRate']);
@@ -1107,15 +1126,20 @@ class MacroSignalService
                 $conversionSamples[] = $conversion <= 1 ? $conversion * 100 : $conversion;
             }
 
-            if ($dataValue > 0) {
+            if ($rawDataValue !== null) {
                 if (str_contains($dimension, '曝光')) {
+                    $hasExposure = true;
                     $exposure += $dataValue;
                 } elseif (str_contains($dimension, '点击')) {
+                    $hasClicks = true;
                     $clicks += $dataValue;
                 } elseif (str_contains($dimension, '浏览') || str_contains($dimension, '访客')) {
+                    $hasVisitors = true;
                     $visitors += $dataValue;
                 } elseif (str_contains($dimension, '转化')) {
-                    $conversionSamples[] = $dataValue <= 1 ? $dataValue * 100 : $dataValue;
+                    if ($dataValue > 0) {
+                        $conversionSamples[] = $dataValue <= 1 ? $dataValue * 100 : $dataValue;
+                    }
                 }
             }
         }
@@ -1131,6 +1155,9 @@ class MacroSignalService
             'visitors' => $visitors,
             'orders' => $orders,
             'conversion' => $conversion,
+            'has_exposure' => $hasExposure,
+            'has_clicks' => $hasClicks,
+            'has_visitors' => $hasVisitors,
         ];
     }
 

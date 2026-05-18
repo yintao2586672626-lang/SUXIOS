@@ -741,6 +741,12 @@ class OperationManagementService
                 continue;
             }
 
+            $rawData = is_array($alert['raw_data'] ?? null) ? $alert['raw_data'] : [];
+            $actionSuggestion = $this->normalizeAlertSuggestion($alert);
+            if ($actionSuggestion !== '') {
+                $rawData['action_suggestion'] = $actionSuggestion;
+            }
+
             $payload = [
                 'hotel_id' => $hotelId,
                 'alert_type' => $type,
@@ -749,7 +755,7 @@ class OperationManagementService
                 'message' => (string)($alert['message'] ?? ''),
                 'source' => (string)($alert['source'] ?? 'rule'),
                 'related_date' => $date,
-                'raw_data' => json_encode($alert['raw_data'] ?? [], JSON_UNESCAPED_UNICODE),
+                'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE),
                 'updated_at' => $now,
             ];
 
@@ -825,10 +831,11 @@ class OperationManagementService
         $row['id'] = (int)$row['id'];
         $row['hotel_id'] = (int)$row['hotel_id'];
         $row['raw_data'] = $this->decodeJson((string)($row['raw_data'] ?? ''));
+        $row['action_suggestion'] = $this->normalizeAlertSuggestion($row);
         return $row;
     }
 
-    private function alert(int $id, int $hotelId, string $type, string $level, string $title, string $message, string $date): array
+    private function alert(int $id, int $hotelId, string $type, string $level, string $title, string $message, string $date, ?string $actionSuggestion = null): array
     {
         return [
             'id' => $id,
@@ -840,8 +847,35 @@ class OperationManagementService
             'source' => 'rule',
             'status' => 'unread',
             'related_date' => $date,
+            'action_suggestion' => $actionSuggestion ?? $this->operationAlertSuggestion($type, $message),
             'raw_data' => [],
         ];
+    }
+
+    private function normalizeAlertSuggestion(array $alert): string
+    {
+        $rawData = is_array($alert['raw_data'] ?? null) ? $alert['raw_data'] : [];
+        $suggestion = trim((string)($alert['action_suggestion'] ?? $rawData['action_suggestion'] ?? $rawData['suggestion'] ?? ''));
+        if ($suggestion !== '') {
+            return $suggestion;
+        }
+
+        return $this->operationAlertSuggestion((string)($alert['alert_type'] ?? ''), (string)($alert['message'] ?? ''));
+    }
+
+    private function operationAlertSuggestion(string $type, string $message): string
+    {
+        return match ($type) {
+            'data_abnormal' => '先复核OTA采集任务、Cookie状态和字段映射，确认异常日期后再补抓数据。',
+            'traffic_zero' => '先检查OTA后台是否仍有曝光，再核对采集账号、Cookie和渠道上下架状态。',
+            'conversion_low' => '优先复盘详情页首图、价格展示、可售房型和取消政策，必要时做小幅促销测试。',
+            'price_high' => '按房型对比竞对可订价，先对高差价房型做小幅跟价或活动补贴。',
+            'review_risk' => '拉取近7天差评关键词，优先处理高频服务问题并跟进可评价订单。',
+            'holiday_near' => '提前确认节假日库存、底价和活动节奏，避免临近日期低价或无房。',
+            default => $message !== ''
+                ? '先确认影响范围和责任模块，再安排负责人处理并在次日复盘数据变化。'
+                : '',
+        };
     }
 
     private function cause(string $type, string $title, int $priority, float $confidence, string $evidence, string $suggestion): array

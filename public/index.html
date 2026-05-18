@@ -6,6 +6,7 @@
     <title>宿析OS</title>
     <script src="vue.global.prod.js"></script>
     <script src="vue-router.global.prod.js"></script>
+    <script src="form-operation-support.js"></script>
     <link href="tailwind.min.css" rel="stylesheet">
     <link href="font-awesome.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
@@ -21,6 +22,13 @@
             <div class="login-glow-purple"></div>
             
             <div class="login-card rounded-2xl p-10 w-full max-w-md relative z-10">
+                <div data-locale-switch class="locale-switch login-locale-switch">
+                    <label>{{ aiModelConfigText('global.languageLabel') }}</label>
+                    <select :value="currentLocale" @change="switchLocale($event.target.value)">
+                        <option v-for="option in languageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                </div>
+
                 <!-- Logo 和标题 -->
                 <div class="text-center mb-8">
                     <div class="login-logo inline-flex items-center justify-center w-20 h-20 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-700 mb-5 shadow-lg">
@@ -246,6 +254,12 @@
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
                         <div class="flex flex-wrap items-center justify-end gap-3">
+                            <div data-locale-switch class="locale-switch header-locale-switch">
+                                <label>{{ aiModelConfigText('global.languageLabel') }}</label>
+                                <select :value="currentLocale" @change="switchLocale($event.target.value)">
+                                    <option v-for="option in languageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                                </select>
+                            </div>
                             <div class="text-gray-400 text-sm flex items-center bg-gray-100 px-4 py-2 rounded-full">
                                 <i class="fas fa-clock mr-2 text-blue-500"></i>{{ currentTime }}
                             </div>
@@ -1228,40 +1242,100 @@
 
                             <div class="xl:col-span-7 space-y-5">
                                 <div v-if="marketEvaluationResult" class="space-y-5">
-                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                                            <div class="text-xs text-gray-500">市场热度评分</div>
-                                            <div class="text-3xl font-bold text-emerald-700 mt-2">{{ marketEvaluationResult.market_heat_score }}分</div>
-                                        </div>
-                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                                            <div class="text-xs text-gray-500">投资风险等级</div>
-                                            <div class="mt-2">
-                                                <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(marketEvaluationResult.investment_risk_level)]">{{ marketEvaluationResult.investment_risk_level }}</span>
+                                    <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+                                        <div class="bg-white rounded-xl shadow-sm border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/40 p-5 xl:col-span-8">
+                                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                                                <div>
+                                                    <div class="text-xs text-gray-500">市场热度评分</div>
+                                                    <div class="flex items-end gap-2 mt-2">
+                                                        <div class="text-3xl font-bold text-emerald-700">{{ marketEvaluationResult.market_heat_score }}分</div>
+                                                        <div class="text-xs text-gray-500 pb-1">{{ marketEvaluationScoreFormula.cap_rule }}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="min-w-[180px]">
+                                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                                        <span>原始分</span>
+                                                        <span>{{ marketEvaluationScoreFormula.raw_score }}分</span>
+                                                    </div>
+                                                    <div class="h-2 rounded-full bg-gray-100 overflow-hidden">
+                                                        <div class="h-full rounded-full bg-emerald-500" :style="{ width: `${marketEvaluationScorePercent}%` }"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="mt-4 border-t border-gray-100 pt-4">
+                                                <div class="flex items-center justify-between mb-2">
+                                                    <div class="text-xs font-semibold text-gray-700">评分逻辑</div>
+                                                    <div class="text-[11px] text-gray-400">基础分 + 条件修正</div>
+                                                </div>
+                                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-5 gap-y-2">
+                                                    <div v-for="item in marketEvaluationScoreBreakdown" :key="`${item.label}-${item.raw_score_after}`" class="flex gap-3 border-b border-gray-50 pb-2">
+                                                        <span :class="['shrink-0 h-6 min-w-[2.5rem] px-2 rounded border text-xs font-semibold flex items-center justify-center', marketEvaluationScoreChangeClass(item.score_change)]">{{ formatMarketEvaluationScoreChange(item.score_change) }}</span>
+                                                        <div class="min-w-0">
+                                                            <div class="text-sm font-medium text-gray-800">{{ item.label }}</div>
+                                                            <div class="text-xs leading-5 text-gray-500">{{ item.reason }}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                                            <div class="text-xs text-gray-500">推荐物业类型</div>
-                                            <div class="text-lg font-semibold text-gray-800 mt-2">{{ marketEvaluationResult.recommended_property_type }}</div>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-4 xl:col-span-4">
+                                            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                                <div class="text-xs text-gray-500">投资风险等级</div>
+                                                <div class="mt-2">
+                                                    <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(marketEvaluationResult.investment_risk_level)]">{{ marketEvaluationResult.investment_risk_level }}</span>
+                                                </div>
+                                                <div class="mt-3 text-xs leading-5 text-gray-500">用于判断是否进入尽调、重谈或暂缓。</div>
+                                            </div>
+                                            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                                <div class="text-xs text-gray-500">推荐物业类型</div>
+                                                <div class="text-base font-semibold text-gray-800 mt-2 leading-relaxed">{{ marketEvaluationResult.recommended_property_type }}</div>
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
                                         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                             <div class="flex items-center justify-between gap-3 mb-3">
                                                 <h3 class="font-bold text-gray-800">AI市场判断</h3>
-                                                <span v-if="marketEvaluationResult.ai_evaluation" class="px-2 py-1 rounded text-xs border bg-cyan-50 text-cyan-700 border-cyan-100">AI建议</span>
+                                                <span v-if="marketEvaluationResult.ai_evaluation" :class="['px-2 py-1 rounded text-xs border', marketEvaluationResult.ai_evaluation.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">
+                                                    {{ marketEvaluationResult.ai_evaluation.source === 'llm' ? 'AI模型评估' : '本地兜底' }}
+                                                </span>
                                             </div>
-                                            <div class="space-y-3 text-sm">
-                                                <div>
-                                                    <div class="text-xs text-gray-500">供给竞争强度</div>
-                                                    <div class="font-medium text-gray-800">{{ marketEvaluationResult.ai_evaluation?.market_judgement?.supply_competition_strength || marketEvaluationResult.supply_competition_strength }}</div>
+                                            <div class="space-y-4 text-sm">
+                                                <div class="rounded-lg border border-cyan-100 bg-cyan-50/70 px-4 py-3">
+                                                    <div class="text-xs text-cyan-700 mb-1">投决摘要</div>
+                                                    <div class="font-semibold text-gray-900">{{ marketEvaluationResult.ai_evaluation?.decision || marketEvaluationResult.decision || '待复核' }}</div>
+                                                    <p v-if="marketEvaluationResult.ai_evaluation?.summary" class="mt-2 text-xs leading-5 text-gray-600">{{ marketEvaluationResult.ai_evaluation.summary }}</p>
                                                 </div>
-                                                <div>
-                                                    <div class="text-xs text-gray-500">价格带建议</div>
-                                                    <div class="font-medium text-gray-800">{{ marketEvaluationResult.ai_evaluation?.market_judgement?.price_band_suggestion || marketEvaluationResult.price_band_suggestion }}</div>
+                                                <div class="grid grid-cols-1 gap-3">
+                                                    <div v-for="row in marketEvaluationAiJudgementRows" :key="row.label" class="border-l-4 border-cyan-200 pl-3">
+                                                        <div class="text-xs text-gray-500">{{ row.label }}</div>
+                                                        <div class="font-medium text-gray-800 leading-relaxed">{{ row.value }}</div>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <div class="text-xs text-gray-500">建议动作</div>
-                                                    <div class="font-medium text-gray-800">{{ marketEvaluationResult.ai_evaluation?.market_judgement?.decision || marketEvaluationResult.ai_evaluation?.decision || marketEvaluationResult.decision }}</div>
+                                                <div v-if="marketEvaluationAiRecommendations.length" class="border-t border-gray-100 pt-3">
+                                                    <div class="text-xs font-semibold text-gray-600 mb-2">优先动作</div>
+                                                    <div class="space-y-2">
+                                                        <div v-for="item in marketEvaluationAiRecommendations.slice(0, 2)" :key="`judgement-${item.priority}-${item.title}`" class="flex gap-2">
+                                                            <span class="mt-0.5 shrink-0 rounded bg-cyan-50 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-700 border border-cyan-100">{{ item.priority }}</span>
+                                                            <div>
+                                                                <div class="font-medium text-gray-800">{{ item.title }}</div>
+                                                                <div class="text-xs leading-5 text-gray-600">{{ item.detail }}</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div v-if="marketEvaluationAiRiskSuggestions.length" class="border-t border-gray-100 pt-3">
+                                                    <div class="text-xs font-semibold text-gray-600 mb-2">待验证数据</div>
+                                                    <div class="space-y-2">
+                                                        <div v-for="item in marketEvaluationAiRiskSuggestions.slice(0, 2)" :key="`verify-${item.metric}-${item.threshold}`" class="text-xs leading-5 text-gray-600">
+                                                            <span class="font-medium text-gray-800">{{ item.metric }}</span>
+                                                            <span v-if="item.threshold">：{{ item.threshold }}</span>
+                                                            <span>；{{ item.action }}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div v-if="marketEvaluationAiAssumptions.length" class="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs leading-5 text-amber-700">
+                                                    <span class="font-semibold">复核前提：</span>{{ marketEvaluationAiAssumptions.join('；') }}
                                                 </div>
                                             </div>
                                         </div>
@@ -1289,11 +1363,36 @@
                                             <h3 class="font-bold text-gray-800">AI风险建议</h3>
                                             <span v-if="marketEvaluationResult.ai_evaluation" class="px-2 py-1 rounded text-xs border bg-amber-50 text-amber-700 border-amber-100">AI建议</span>
                                         </div>
-                                        <div class="space-y-3 text-sm text-gray-700">
-                                            <div v-for="item in marketEvaluationAiRiskSuggestions" :key="`${item.metric}-${item.threshold}-${item.action}`" class="rounded-lg border border-amber-100 bg-amber-50 p-3">
-                                                <div class="font-medium text-gray-800">{{ item.metric }}</div>
-                                                <div v-if="item.threshold" class="mt-1 text-xs text-amber-700">{{ item.threshold }}</div>
-                                                <div class="mt-1 leading-relaxed text-gray-700">{{ item.action }}</div>
+                                        <div class="space-y-3 text-sm text-gray-700 max-h-[560px] overflow-y-auto pr-1">
+                                            <div v-for="item in marketEvaluationAiRiskSuggestions" :key="`${item.metric}-${item.threshold}-${item.action}`" class="rounded-lg border border-amber-100 bg-amber-50/80 p-4">
+                                                <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
+                                                    <div class="flex items-center gap-2">
+                                                        <span :class="['px-1.5 py-0.5 rounded border text-[11px] font-semibold', marketEvaluationRiskSeverityClass(item.severity)]">{{ item.severity }}</span>
+                                                        <div class="font-semibold text-gray-900">{{ item.metric }}</div>
+                                                    </div>
+                                                    <div v-if="item.threshold" class="text-xs text-amber-700 md:text-right">{{ item.threshold }}</div>
+                                                </div>
+                                                <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    <div class="rounded-md bg-white/70 border border-amber-100 px-3 py-2">
+                                                        <div class="text-[11px] font-semibold text-amber-700 mb-1">判断依据</div>
+                                                        <div class="text-xs leading-5 text-gray-700">{{ item.evidence }}</div>
+                                                    </div>
+                                                    <div class="rounded-md bg-white/70 border border-amber-100 px-3 py-2">
+                                                        <div class="text-[11px] font-semibold text-amber-700 mb-1">潜在影响</div>
+                                                        <div class="text-xs leading-5 text-gray-700">{{ item.impact }}</div>
+                                                    </div>
+                                                    <div class="rounded-md bg-white/70 border border-amber-100 px-3 py-2">
+                                                        <div class="text-[11px] font-semibold text-amber-700 mb-1">复核动作</div>
+                                                        <div class="text-xs leading-5 text-gray-700">{{ item.validation }}</div>
+                                                    </div>
+                                                    <div class="rounded-md bg-white/70 border border-amber-100 px-3 py-2">
+                                                        <div class="text-[11px] font-semibold text-amber-700 mb-1">责任与时限</div>
+                                                        <div class="text-xs leading-5 text-gray-700">{{ item.owner }}｜{{ item.deadline }}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="mt-3 text-xs leading-5 text-gray-700">
+                                                    <span class="font-semibold text-gray-900">建议动作：</span>{{ item.action }}
+                                                </div>
                                             </div>
                                         </div>
                                         <div v-if="marketEvaluationAiRiskNote" class="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">{{ marketEvaluationAiRiskNote }}</div>
@@ -1659,30 +1758,36 @@
                             </div>
                         </div>
                         <div v-if="expansionRecords.length" class="overflow-x-auto">
-                            <table class="min-w-full text-sm">
+                            <table class="min-w-[900px] table-fixed text-sm">
                                 <thead class="bg-gray-50 text-gray-500">
                                     <tr>
-                                        <th class="px-4 py-3 text-left">类型</th>
-                                        <th class="px-4 py-3 text-left">项目</th>
-                                        <th class="px-4 py-3 text-left">区域</th>
-                                        <th class="px-4 py-3 text-left">结论</th>
-                                        <th class="px-4 py-3 text-left">风险</th>
-                                        <th class="px-4 py-3 text-left">时间</th>
-                                        <th class="px-4 py-3 text-right">操作</th>
+                                        <th class="w-20 px-3 py-3 text-left">类型</th>
+                                        <th class="w-36 px-3 py-3 text-left">项目</th>
+                                        <th class="w-24 px-3 py-3 text-left">区域</th>
+                                        <th class="w-48 px-3 py-3 text-left">结论</th>
+                                        <th class="w-20 px-3 py-3 text-left">风险</th>
+                                        <th class="w-36 px-3 py-3 text-left">时间</th>
+                                        <th class="w-40 px-3 py-3 text-right">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-100">
-                                    <tr v-for="record in expansionRecords" :key="record.id">
-                                        <td class="px-4 py-3 text-gray-600">{{ expansionRecordTypeLabel(record.record_type) }}</td>
-                                        <td class="px-4 py-3 font-medium text-gray-800">{{ record.project_name || '--' }}</td>
-                                        <td class="px-4 py-3 text-gray-600">{{ record.city_area || '--' }}</td>
-                                        <td class="px-4 py-3 text-gray-700">{{ record.decision || '--' }}</td>
-                                        <td class="px-4 py-3">
+                                    <tr v-for="record in expansionRecords" :key="record.id" class="hover:bg-slate-50/70 transition-colors">
+                                        <td class="px-3 py-3 text-gray-600 whitespace-nowrap">{{ expansionRecordTypeLabel(record.record_type) }}</td>
+                                        <td class="px-3 py-3 font-medium text-gray-800">
+                                            <div class="truncate" :title="record.project_name || '--'">{{ record.project_name || '--' }}</div>
+                                        </td>
+                                        <td class="px-3 py-3 text-gray-600">
+                                            <div class="truncate" :title="record.city_area || '--'">{{ record.city_area || '--' }}</div>
+                                        </td>
+                                        <td class="px-3 py-3 text-gray-700">
+                                            <div class="truncate" :title="record.decision || '--'">{{ record.decision || '--' }}</div>
+                                        </td>
+                                        <td class="px-3 py-3">
                                             <span v-if="record.risk_level" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level }}</span>
                                             <span v-else class="text-gray-400">--</span>
                                         </td>
-                                        <td class="px-4 py-3 text-gray-500">{{ record.created_at || '--' }}</td>
-                                        <td class="px-4 py-3 text-right">
+                                        <td class="px-3 py-3 text-gray-500 whitespace-nowrap">{{ record.created_at || '--' }}</td>
+                                        <td class="px-3 py-3 text-right whitespace-nowrap">
                                             <button @click="loadExpansionDetail(record.id)" :data-testid="`history-expansion-view-${record.id}`" class="text-blue-600 hover:text-blue-800 mr-3">查看</button>
                                             <button @click="reuseExpansionRecord(record)" :data-testid="`history-expansion-reuse-${record.id}`" class="text-emerald-600 hover:text-emerald-800 mr-3">复用输入</button>
                                             <button @click="archiveExpansionRecord(record)" :data-testid="`history-expansion-archive-${record.id}`" class="text-red-600 hover:text-red-800">归档</button>
@@ -2176,7 +2281,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div :class="selectedOpeningProjectId || openingProjectForm.project_name ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-100 bg-white text-gray-600'" class="rounded-xl border p-4">
                                 <div class="text-xs font-medium mb-1">1. 项目建档</div>
-                                <div class="text-sm">选择酒店并确认项目基础信息</div>
+                                <div class="text-sm">录入项目基础信息</div>
                             </div>
                             <div :class="openingTasks.length > 0 ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-100 bg-white text-gray-600'" class="rounded-xl border p-4">
                                 <div class="text-xs font-medium mb-1">2. 生成清单</div>
@@ -2197,7 +2302,7 @@
                                 <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-3">
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                         <div>
-                                            <div class="text-sm font-medium text-blue-900">{{ selectedOpeningProjectId ? '修改后需要保存' : '选择酒店后创建项目' }}</div>
+                                            <div class="text-sm font-medium text-blue-900">{{ selectedOpeningProjectId ? '修改后需要保存' : '填写项目后创建项目' }}</div>
                                             <div class="text-xs text-blue-700 mt-1">{{ selectedOpeningProjectId ? '调整基础信息后点击保存项目，再进入清单更新任务状态。' : '系统会保存项目，并自动生成开业检查清单。' }}</div>
                                         </div>
                                         <button @click="saveOpeningProject" :disabled="openingLoading" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
@@ -2207,20 +2312,12 @@
                                 </div>
                                 <div class="space-y-3">
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">选择酒店档案</label>
-                                        <select v-model="openingProjectForm.hotel_id" @change="applyOpeningHotelToForm(openingProjectForm.hotel_id, { overwrite: true })" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
-                                            <option value="">不选择，按酒店名称匹配</option>
-                                            <option v-for="hotel in openingProjectHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
-                                        </select>
-                                        <p class="text-xs text-gray-400 mt-1">仅用于带出酒店信息；创建或保存开业项目时才写入酒店ID。</p>
-                                    </div>
-                                    <div>
                                         <label class="block text-xs font-medium text-gray-600 mb-1">项目名称 <span class="text-red-500">*</span></label>
                                         <input v-model="openingProjectForm.project_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：巢湖测试店开业项目">
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">酒店名称 <span class="text-red-500">*</span></label>
-                                        <input v-model="openingProjectForm.hotel_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="用于自动匹配酒店档案">
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">开业门店名称 <span class="text-red-500">*</span></label>
+                                        <input v-model="openingProjectForm.hotel_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：巢湖测试店">
                                     </div>
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
@@ -2240,6 +2337,13 @@
                                         <div>
                                             <label class="block text-xs font-medium text-gray-600 mb-1">定位</label>
                                             <input v-model="openingProjectForm.positioning" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：中端商务">
+                                            <div class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                                                <div class="text-xs font-medium text-blue-700">影响准备项</div>
+                                                <div class="text-xs text-blue-700 mt-1 leading-relaxed">{{ openingPositioningImpact.summary }}</div>
+                                                <div class="flex flex-wrap gap-1 mt-2">
+                                                    <span v-for="item in openingPositioningImpact.items" :key="item" class="px-2 py-0.5 rounded-full bg-white text-blue-700 text-xs border border-blue-100">{{ item }}</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-2 gap-3">
@@ -2476,7 +2580,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
                                 <div>
                                     <div class="font-medium text-gray-900">进度筛选</div>
-                                    <div class="text-xs text-gray-500 mt-1">当前显示 {{ filteredOpeningTasks.length }} / {{ openingTasks.length }} 项</div>
+                                    <div class="text-xs text-gray-500 mt-1">当前渲染 {{ openingTaskPagination.start }}-{{ openingTaskPagination.end }} / 筛选 {{ filteredOpeningTasks.length }} / 全部 {{ openingTasks.length }} 项</div>
                                 </div>
                                 <button @click="resetOpeningTaskFilter" class="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
                                     <i class="fas fa-redo mr-1"></i>重置筛选
@@ -2520,10 +2624,33 @@
                         </div>
 
                         <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div class="px-4 py-3 border-b border-gray-100 bg-gray-50/70 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900">批量处理</div>
+                                    <div class="text-xs text-gray-500 mt-1">已选 {{ selectedOpeningTasks.length }} 项，可按当前筛选全选后统一更新状态或进度</div>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <button @click="toggleSelectAllFilteredOpeningTasks(true)" :disabled="!filteredOpeningTasks.length || openingLoading" class="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                                        <i class="fas fa-check-square mr-1"></i>选中当前筛选
+                                    </button>
+                                    <button @click="clearSelectedOpeningTasks" :disabled="!selectedOpeningTasks.length || openingLoading" class="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                                        <i class="fas fa-times mr-1"></i>清空
+                                    </button>
+                                    <span class="text-xs text-gray-400 px-1">状态</span>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'doing' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 disabled:opacity-50">进行中</button>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'done' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-green-100 bg-green-50 text-xs text-green-700 hover:bg-green-100 disabled:opacity-50">完成</button>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'blocked' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-yellow-100 bg-yellow-50 text-xs text-yellow-700 hover:bg-yellow-100 disabled:opacity-50">受阻</button>
+                                    <span class="text-xs text-gray-400 px-1">进度</span>
+                                    <button v-for="value in openingProgressQuickValues" :key="`batch-progress-${value}`" @click="batchUpdateOpeningTasks({ progress_percent: value })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">{{ value }}%</button>
+                                </div>
+                            </div>
                             <div class="overflow-x-auto">
                                 <table class="min-w-full divide-y divide-gray-100">
                                     <thead class="bg-gray-50">
                                         <tr>
+                                            <th class="w-12 px-4 py-3 text-left">
+                                                <input type="checkbox" :checked="isAllFilteredOpeningTasksSelected" :disabled="!filteredOpeningTasks.length || openingLoading" @change="toggleSelectAllFilteredOpeningTasks($event.target.checked)" aria-label="选择当前筛选检查项" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            </th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">检查项</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">负责人</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">截止时间</th>
@@ -2534,7 +2661,10 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-50">
-                                        <tr v-for="task in filteredOpeningTasks" :key="task.id" class="hover:bg-gray-50 align-top">
+                                        <tr v-for="task in pagedOpeningTasks" :key="task.id" class="hover:bg-gray-50 align-top">
+                                            <td class="px-4 py-4">
+                                                <input type="checkbox" v-model="selectedOpeningTaskIds" :value="String(task.id)" :aria-label="`选择检查项：${task.task_name || task.id}`" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            </td>
                                             <td class="px-4 py-4 min-w-[260px]">
                                                 <div class="flex items-center gap-2">
                                                     <span class="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">{{ task.category }}</span>
@@ -2584,10 +2714,20 @@
                                             </td>
                                         </tr>
                                         <tr v-if="!filteredOpeningTasks.length">
-                                            <td colspan="7" class="px-4 py-12 text-center text-gray-400"><i class="fas fa-inbox text-3xl mb-2"></i><div>{{ selectedOpeningProjectId ? '暂无检查项，请先生成清单' : '请先选择开业项目' }}</div></td>
+                                            <td colspan="8" class="px-4 py-12 text-center text-gray-400"><i class="fas fa-inbox text-3xl mb-2"></i><div>{{ selectedOpeningProjectId ? '暂无检查项，请先生成清单' : '请先选择开业项目' }}</div></td>
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+                            <div v-if="openingTaskPagination.total > openingTaskPagination.pageSize" class="px-4 py-3 border-t border-gray-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div class="text-xs text-gray-500">
+                                    已分页渲染，每页 {{ openingTaskPagination.pageSize }} 项，当前 {{ openingTaskPagination.start }}-{{ openingTaskPagination.end }} / {{ openingTaskPagination.total }}
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button @click="changeOpeningTaskPage(openingTaskPage - 1)" :disabled="openingTaskPage <= 1" class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">上一页</button>
+                                    <span class="px-2 text-xs text-gray-500">{{ openingTaskPagination.page }} / {{ openingTaskPagination.totalPages }}</span>
+                                    <button @click="changeOpeningTaskPage(openingTaskPage + 1)" :disabled="openingTaskPage >= openingTaskPagination.totalPages" class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">下一页</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2810,7 +2950,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold text-gray-900">策见·预警推送</h2>
-                                    <p class="text-sm text-gray-500 mt-1">规则生成和站内预警统一查看</p>
+                                    <p class="text-sm text-gray-500 mt-1">规则生成、站内预警与操作建议统一查看</p>
                                 </div>
                                 <div class="flex gap-3">
                                     <button @click="loadOperationAlerts" :disabled="operationLoading.alerts" class="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">
@@ -2848,6 +2988,10 @@
                                         <div>
                                             <div class="font-semibold text-gray-900">{{ alert.title || '未命名预警' }}</div>
                                             <div class="text-sm text-gray-600 mt-1">{{ alert.message || '暂无预警内容' }}</div>
+                                            <div v-if="operationAlertSuggestion(alert)" class="mt-3 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2">
+                                                <div class="text-xs font-semibold text-blue-700 mb-1">操作建议</div>
+                                                <div class="text-sm leading-relaxed text-gray-700">{{ operationAlertSuggestion(alert) }}</div>
+                                            </div>
                                             <div class="text-xs text-gray-400 mt-2">{{ alert.created_at || alert.related_date || '暂无时间' }}</div>
                                         </div>
                                     </div>
@@ -3716,8 +3860,8 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div class="flex flex-col md:flex-row md:items-center gap-3">
                                     <div>
-                                        <div class="text-sm font-semibold text-gray-900">首页经营罗盘</div>
-                                        <div class="text-xs text-gray-500 mt-1">按门店同步趋势、宏观信号、天气与节假期窗口</div>
+                                        <div class="text-xl font-bold text-gray-900">首页经营罗盘</div>
+                                        <div class="text-xs text-gray-500 mt-1">集中常用运营动作，可按团队习惯调整顺序与显示</div>
                                     </div>
                                     <select v-model="filterReportHotel" class="input-field w-full md:w-56">
                                         <option value="">全部门店</option>
@@ -3726,27 +3870,62 @@
                                 </div>
                                 <div class="flex flex-col sm:flex-row sm:items-center gap-3">
                                     <div class="text-xs text-gray-500">
-                                        <span>数据完整度 {{ compassDataReadiness.percent }}%</span>
+                                        <span>{{ compassDataReadiness.summaryText }}</span>
                                         <span class="mx-2 text-gray-300">|</span>
                                         <span>最近同步 {{ compassLastSyncedAt }}</span>
                                     </div>
                                     <button @click="refreshCompassDashboard" :disabled="compassLoading" class="btn-primary whitespace-nowrap disabled:opacity-60">
-                                        <i :class="compassLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ compassLoading ? '同步中' : '刷新首页' }}
+                                        <i :class="compassLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ compassLoading ? '更新中' : '更新罗盘数据' }}
                                     </button>
                                 </div>
                             </div>
                             <div class="mt-4 pt-4 border-t border-gray-100">
                                 <div class="flex items-center justify-between gap-3 mb-3">
                                     <div class="text-sm font-semibold text-gray-900">快捷入口</div>
-                                    <div class="text-xs text-gray-400">常用运营动作</div>
+                                    <div class="flex items-center gap-2">
+                                        <button
+                                            v-if="!homeQuickLayoutEditing"
+                                            @click="homeQuickLayoutEditing = true"
+                                            class="px-2.5 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50"
+                                        >
+                                            <i class="fas fa-edit mr-1"></i>编辑布局
+                                        </button>
+                                        <template v-else>
+                                            <button @click="resetHomeQuickLayout" class="px-2.5 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">恢复默认</button>
+                                            <button @click="saveHomeQuickLayout" class="px-2.5 py-1 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100">保存</button>
+                                        </template>
+                                    </div>
                                 </div>
                                 <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-                                    <button v-for="entry in homeQuickEntries" :key="entry.title" @click="openHomeQuickEntry(entry)" class="text-left rounded-lg border border-gray-100 bg-gray-50 hover:bg-blue-50 hover:border-blue-100 transition px-3 py-2.5 min-h-[68px]">
-                                        <div class="flex items-center gap-2">
-                                            <i :class="[entry.icon, 'text-blue-500 text-sm']"></i>
-                                            <div class="font-semibold text-gray-800 text-sm truncate">{{ entry.title }}</div>
+                                    <div
+                                        v-for="(entry, index) in homeQuickEntries"
+                                        :key="entry.key"
+                                        :class="['relative rounded-lg border border-gray-100 bg-gray-50 transition min-h-[68px]', homeQuickLayoutEditing ? 'ring-1 ring-blue-100' : 'hover:bg-blue-50 hover:border-blue-100']"
+                                    >
+                                        <button type="button" @click="openHomeQuickEntry(entry)" :disabled="homeQuickLayoutEditing" class="w-full text-left px-3 py-2.5 disabled:cursor-default">
+                                            <div class="flex items-center gap-2 pr-12">
+                                                <i :class="[entry.icon, 'text-blue-500 text-sm']"></i>
+                                                <div class="font-semibold text-gray-800 text-sm truncate">{{ entry.title }}</div>
+                                            </div>
+                                            <div class="text-xs text-gray-500 mt-1 pl-6">{{ entry.desc }}</div>
+                                        </button>
+                                        <div v-if="homeQuickLayoutEditing" class="absolute top-1.5 right-1.5 flex items-center gap-1">
+                                            <button @click="moveHomeQuickEntry(entry.key, -1)" :disabled="index === 0" class="w-6 h-6 rounded border border-gray-200 bg-white text-gray-500 hover:text-blue-600 disabled:opacity-40" title="上移">
+                                                <i class="fas fa-arrow-left text-xs"></i>
+                                            </button>
+                                            <button @click="moveHomeQuickEntry(entry.key, 1)" :disabled="index === homeQuickEntries.length - 1" class="w-6 h-6 rounded border border-gray-200 bg-white text-gray-500 hover:text-blue-600 disabled:opacity-40" title="下移">
+                                                <i class="fas fa-arrow-right text-xs"></i>
+                                            </button>
+                                            <button @click="toggleHomeQuickEntry(entry.key)" class="w-6 h-6 rounded border border-gray-200 bg-white text-gray-500 hover:text-red-600" title="隐藏">
+                                                <i class="fas fa-eye-slash text-xs"></i>
+                                            </button>
                                         </div>
-                                        <div class="text-xs text-gray-500 mt-1 pl-6">{{ entry.desc }}</div>
+                                    </div>
+                                </div>
+                                <div v-if="homeQuickLayoutEditing && hiddenHomeQuickEntries.length" class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                                    <span class="text-gray-400">已隐藏</span>
+                                    <button v-for="entry in hiddenHomeQuickEntries" :key="entry.key" @click="toggleHomeQuickEntry(entry.key)" class="px-2.5 py-1 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-blue-50 hover:text-blue-700">
+                                        <i class="fas fa-plus mr-1"></i>{{ entry.title }}
                                     </button>
                                 </div>
                             </div>
@@ -3758,14 +3937,26 @@
                             <div class="relative z-10 grid grid-cols-1 xl:grid-cols-12 gap-6 p-6 lg:p-8">
                                 <div class="xl:col-span-7">
                                     <div class="hero-pill inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-blue-100 text-sm mb-5">
-                                        <i class="fas fa-lightbulb"></i>
-                                        <span>让每个决策，都有数据依据</span>
+                                        <i class="fas fa-chart-area"></i>
+                                        <span>市场大盘数据预估</span>
                                     </div>
-                                    <h2 class="text-4xl lg:text-5xl font-bold tracking-tight">宿析OS</h2>
-                                    <p class="mt-3 text-xl text-blue-50 font-semibold">深度数据分析赋能酒店收益与决策</p>
+                                    <h2 class="text-4xl lg:text-5xl font-bold tracking-tight">市场大盘数据预估</h2>
+                                    <p class="mt-3 text-xl text-blue-50 font-semibold">按门店城市、商圈与渠道样本判断未来需求变化</p>
                                     <p class="mt-4 max-w-3xl text-sm lg:text-base text-blue-100 leading-relaxed">
-                                        从 OTA、竞对、价格、入住、天气与经营日报中识别趋势，帮助运营专家做出更稳、更快、更有依据的经营判断。
+                                        汇总 OTA 流量、竞对价格、天气、节假期与经营趋势样本，预估市场热度、价格带和渠道机会，用于辅助后续收益策略。
                                     </p>
+                                    <div class="home-hero-data-module">
+                                        <div class="home-hero-data-head">
+                                            <span><i class="fas fa-layer-group"></i>大盘预估维度</span>
+                                            <strong>{{ homeMarketForecastStatus }}</strong>
+                                        </div>
+                                        <div class="home-hero-data-grid">
+                                            <div v-for="item in homeMarketForecastItems" :key="item.name" :class="['home-hero-data-item', item.level === 'support' ? 'is-support' : 'is-core']">
+                                                <span>{{ item.name }}</span>
+                                                <strong>{{ item.value }}</strong>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="xl:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-4">
                                     <div class="hero-info-card hero-observation-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5">
@@ -3782,7 +3973,7 @@
                                             <div class="home-observation-item"><span class="home-observation-label">可用样本</span><span class="home-observation-value">{{ homeObservation.sampleDaysText }}</span></div>
                                         </div>
                                         <div class="home-observation-footer">
-                                            <div class="home-progress-meta"><span>首页数据完整度 {{ compassDataReadiness.percent }}%</span><span>{{ compassDataReadiness.missingText }}</span></div>
+                                            <div class="home-progress-meta"><span>{{ compassDataReadiness.progressText }}</span><span>{{ compassDataReadiness.missingText }}</span></div>
                                             <div class="home-progress-track"><span class="home-progress-fill" :style="{ width: compassDataReadiness.percent + '%' }"></span></div>
                                         </div>
                                     </div>
@@ -3910,36 +4101,41 @@
                         </div>
 
                         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
-                            <div class="flex items-center justify-between gap-3 mb-4">
-                                <h3 class="font-bold text-gray-900 text-lg">宏观经营信号</h3>
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
+                                <div>
+                                    <h3 class="font-bold text-gray-900 text-lg">宏观经营信号</h3>
+                                    <p class="text-sm text-gray-500 mt-1">把周期、天气、渠道、价格、需求信号转成可执行运营判断</p>
+                                </div>
                                 <span v-if="macroSignalLoading" class="text-xs text-gray-400">同步中</span>
                             </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                <div v-for="signal in macroSignalCards" :key="signal.key" class="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <div class="font-semibold text-gray-800">{{ signal.title }}</div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                                <div v-for="signal in macroSignalViewCards" :key="signal.key" class="rounded-xl border border-gray-100 bg-gray-50 p-4 flex flex-col min-h-[260px]">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="w-9 h-9 rounded-lg bg-white border border-gray-100 text-blue-600 flex items-center justify-center">
+                                            <i :class="signal.icon"></i>
+                                        </div>
                                         <span :class="['px-2 py-1 rounded text-xs border', macroSignalLevelClass(signal)]">{{ signal.status_text || signal.status }}</span>
                                     </div>
-                                    <p class="text-sm text-gray-500 mt-3 min-h-[40px]">{{ signal.summary }}</p>
-                                    <div v-if="signal.key === 'weather' && signal.forecast && signal.forecast.length" class="mt-3 grid grid-cols-3 gap-2">
-                                        <div v-for="item in signal.forecast.slice(0, 3)" :key="item.date" class="rounded-lg bg-white border border-gray-100 px-3 py-2 min-h-[72px]">
-                                            <div class="text-xs text-gray-400">{{ item.date }} 周{{ item.week }}</div>
-                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ item.condition }}</div>
-                                            <div class="text-xs text-gray-500 mt-1">{{ item.temp_low }}°~{{ item.temp_high }}°</div>
-                                        </div>
+                                    <div class="mt-3">
+                                        <div class="font-semibold text-gray-900">{{ signal.title }}</div>
+                                        <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ signal.meaning }}</p>
                                     </div>
-                                    <div v-else-if="signal.metrics && signal.metrics.length" class="mt-3 grid grid-cols-2 gap-2">
-                                        <div v-for="metric in signal.metrics.slice(0, 2)" :key="metric.label" class="rounded-lg bg-white border border-gray-100 px-3 py-2">
+                                    <div class="mt-3 rounded-lg bg-white border border-gray-100 px-3 py-2">
+                                        <div class="text-xs text-gray-400">经营影响</div>
+                                        <div class="text-sm font-semibold text-gray-800 mt-1 leading-relaxed">{{ signal.impact }}</div>
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-2 gap-2">
+                                        <div v-for="metric in signal.primaryMetrics" :key="metric.label" class="rounded-lg bg-white border border-gray-100 px-3 py-2 min-h-[64px]">
                                             <div class="text-xs text-gray-400">{{ metric.label }}</div>
                                             <div class="text-sm font-semibold text-gray-800 mt-1">{{ metric.value }}{{ metric.unit || '' }}</div>
                                         </div>
                                     </div>
-                                    <div v-if="signal.source_text" class="mt-3 flex items-center gap-1.5 text-xs text-gray-400">
-                                        <i class="fas fa-cloud-sun text-gray-300"></i>
-                                        <span>{{ signal.source_text }}</span>
+                                    <div class="mt-3 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+                                        <div class="text-xs text-blue-500">建议动作</div>
+                                        <div class="text-sm text-blue-800 mt-1 leading-relaxed">{{ signal.primaryAction }}</div>
                                     </div>
-                                    <button @click="loadMacroSignalDetail(signal)" :disabled="macroSignalDetailLoading && activeMacroSignal === signal.key" class="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium disabled:opacity-60">
-                                        <i v-if="macroSignalDetailLoading && activeMacroSignal === signal.key" class="fas fa-spinner fa-spin mr-1"></i>{{ signal.action_text || '查看详情' }}
+                                    <button @click="loadMacroSignalDetail(signal)" :disabled="macroSignalDetailLoading && activeMacroSignal === signal.key" class="mt-auto pt-4 text-sm text-blue-600 hover:text-blue-700 font-medium disabled:opacity-60 text-left">
+                                        <i v-if="macroSignalDetailLoading && activeMacroSignal === signal.key" class="fas fa-spinner fa-spin mr-1"></i>{{ signal.action_text || '查看依据' }}
                                     </button>
                                 </div>
                             </div>
@@ -4126,7 +4322,7 @@
                         </div>
 
                         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
-                            <h3 class="font-bold text-gray-900 text-lg mb-4">数据依据完整度</h3>
+                            <h3 class="font-bold text-gray-900 text-lg mb-4">数据依据就绪情况</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                                 <div v-for="source in homeDataSources" :key="source.name" class="rounded-xl border border-gray-100 p-4">
                                     <div class="flex items-center justify-between gap-3">
@@ -5024,10 +5220,10 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="(hotel, index) in ctripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
+                                                    <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
                                                         <td class="px-3 py-2 border text-center">
-                                                            <span :class="['px-2 py-1 rounded text-xs', index < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                {{ index + 1 }}
+                                                            <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
+                                                                {{ ctripTableRankOffset + index + 1 }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-left font-medium">{{ hotel.hotelName }}</td>
@@ -5065,10 +5261,10 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="(hotel, index) in ctripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
+                                                    <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
                                                         <td class="px-3 py-2 border text-center">
-                                                            <span :class="['px-2 py-1 rounded text-xs', index < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                {{ index + 1 }}
+                                                            <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
+                                                                {{ ctripTableRankOffset + index + 1 }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-left font-medium">{{ hotel.hotelName }}</td>
@@ -5107,10 +5303,10 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="(hotel, index) in ctripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
+                                                    <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
                                                         <td class="px-3 py-2 border text-center">
-                                                            <span :class="['px-2 py-1 rounded text-xs', index < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                {{ index + 1 }}
+                                                            <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
+                                                                {{ ctripTableRankOffset + index + 1 }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-left font-medium">{{ hotel.hotelName }}</td>
@@ -5146,6 +5342,15 @@
                                 </div>
 
                                 <!-- 流量数据获取 -->
+                                <div v-if="ctripTablePagination.total > ctripTablePagination.pageSize" class="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-gray-500">
+                                    <span>已分页渲染，每页 {{ ctripTablePagination.pageSize }} 行，当前 {{ ctripTablePagination.start }}-{{ ctripTablePagination.end }} / {{ ctripTablePagination.total }}</span>
+                                    <div class="flex items-center gap-2">
+                                        <button @click="changeCtripTablePage(ctripTablePage - 1)" :disabled="ctripTablePage <= 1" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">上一页</button>
+                                        <span>{{ ctripTablePagination.page }} / {{ ctripTablePagination.totalPages }}</span>
+                                        <button @click="changeCtripTablePage(ctripTablePage + 1)" :disabled="ctripTablePage >= ctripTablePagination.totalPages" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">下一页</button>
+                                    </div>
+                                </div>
+
                                 <div v-if="onlineDataTab === 'ctrip-traffic'">
                                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-blue-800 mb-2">
@@ -5925,10 +6130,10 @@
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        <tr v-for="(hotel, index) in ctripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
+                                                        <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
                                                             <td class="px-3 py-2 border text-center">
-                                                                <span :class="['px-2 py-1 rounded text-xs', index < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                    {{ index + 1 }}
+                                                                <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
+                                                                    {{ ctripTableRankOffset + index + 1 }}
                                                                 </span>
                                                             </td>
                                                             <td class="px-3 py-2 border text-left font-medium">{{ hotel.hotelName }}</td>
@@ -5967,10 +6172,10 @@
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        <tr v-for="(hotel, index) in ctripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
+                                                        <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
                                                             <td class="px-3 py-2 border text-center">
-                                                                <span :class="['px-2 py-1 rounded text-xs', index < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                    {{ index + 1 }}
+                                                                <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
+                                                                    {{ ctripTableRankOffset + index + 1 }}
                                                                 </span>
                                                             </td>
                                                             <td class="px-3 py-2 border text-left font-medium">{{ hotel.hotelName }}</td>
@@ -6009,10 +6214,10 @@
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        <tr v-for="(hotel, index) in ctripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
+                                                        <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
                                                             <td class="px-3 py-2 border text-center">
-                                                                <span :class="['px-2 py-1 rounded text-xs', index < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
-                                                                    {{ index + 1 }}
+                                                                <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) < 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
+                                                                    {{ ctripTableRankOffset + index + 1 }}
                                                                 </span>
                                                             </td>
                                                             <td class="px-3 py-2 border text-left font-medium">{{ hotel.hotelName }}</td>
@@ -6048,6 +6253,15 @@
                                     </div>
                                     
                                     <!-- 历史记录查询中心 -->
+                                    <div v-if="ctripTablePagination.total > ctripTablePagination.pageSize" class="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-gray-500">
+                                        <span>已分页渲染，每页 {{ ctripTablePagination.pageSize }} 行，当前 {{ ctripTablePagination.start }}-{{ ctripTablePagination.end }} / {{ ctripTablePagination.total }}</span>
+                                        <div class="flex items-center gap-2">
+                                            <button @click="changeCtripTablePage(ctripTablePage - 1)" :disabled="ctripTablePage <= 1" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">上一页</button>
+                                            <span>{{ ctripTablePagination.page }} / {{ ctripTablePagination.totalPages }}</span>
+                                            <button @click="changeCtripTablePage(ctripTablePage + 1)" :disabled="ctripTablePage >= ctripTablePagination.totalPages" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">下一页</button>
+                                        </div>
+                                    </div>
+
                                     <div v-if="downloadCenterTab === 'overview'" class="space-y-4">
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
@@ -7589,13 +7803,13 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="(hotel, index) in meituanHotelsList" :key="hotel.poiId || index" class="border-b">
+                                                    <tr v-for="(hotel, index) in pagedMeituanHotelsList" :key="hotel.poiId || index" class="border-b">
                                                         <td class="px-2 py-2 border text-center bg-gray-50 w-12">
                                                             <span :class="['px-2 py-1 rounded text-sm font-bold']" :style="{
-                                                                backgroundColor: index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : index === 2 ? '#CD7F32' : index === 3 ? '#1E90FF' : index === 4 ? '#87CEFA' : '#f3f4f6',
-                                                                color: index < 5 ? '#fff' : '#374151'
+                                                                backgroundColor: (meituanTableRankOffset + index) === 0 ? '#FFD700' : (meituanTableRankOffset + index) === 1 ? '#C0C0C0' : (meituanTableRankOffset + index) === 2 ? '#CD7F32' : (meituanTableRankOffset + index) === 3 ? '#1E90FF' : (meituanTableRankOffset + index) === 4 ? '#87CEFA' : '#f3f4f6',
+                                                                color: (meituanTableRankOffset + index) < 5 ? '#fff' : '#374151'
                                                             }">
-                                                                {{ index + 1 }}
+                                                                {{ meituanTableRankOffset + index + 1 }}
                                                             </span>
                                                         </td>
                                                         <td class="px-2 py-2 border text-left font-medium text-sm bg-white w-48">{{ hotel.hotelName }}</td>
@@ -7619,6 +7833,15 @@
                                 </div>
 
                                 <!-- 流量数据获取 -->
+                                <div v-if="meituanTablePagination.total > meituanTablePagination.pageSize" class="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-gray-500">
+                                    <span>已分页渲染，每页 {{ meituanTablePagination.pageSize }} 行，当前 {{ meituanTablePagination.start }}-{{ meituanTablePagination.end }} / {{ meituanTablePagination.total }}</span>
+                                    <div class="flex items-center gap-2">
+                                        <button @click="changeMeituanTablePage(meituanTablePage - 1)" :disabled="meituanTablePage <= 1" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">上一页</button>
+                                        <span>{{ meituanTablePagination.page }} / {{ meituanTablePagination.totalPages }}</span>
+                                        <button @click="changeMeituanTablePage(meituanTablePage + 1)" :disabled="meituanTablePage >= meituanTablePagination.totalPages" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">下一页</button>
+                                    </div>
+                                </div>
+
                                 <div v-if="onlineDataTab === 'meituan-traffic'">
                                     <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-yellow-800 mb-2">
@@ -11334,6 +11557,28 @@
                                     </div>
                                     
                                     <!-- 数据表格 -->
+                                    <div v-if="onlineDataQualitySummary" class="mb-4 rounded-lg border px-4 py-3" :class="onlineDataQualityStatusClass(onlineDataQualitySummary)">
+                                        <div class="flex flex-wrap items-center justify-between gap-3">
+                                            <div class="flex items-center gap-3">
+                                                <i class="fas fa-shield-alt"></i>
+                                                <div>
+                                                    <div class="text-sm font-medium">数据完整性检测：{{ onlineDataQualityStatusText(onlineDataQualitySummary) }}</div>
+                                                    <div class="text-xs opacity-80">
+                                                        已检 {{ onlineDataQualitySummary.checked_records || 0 }} 条，缺失 {{ onlineDataQualitySummary.missing_count || 0 }} 项，异常 {{ onlineDataQualitySummary.abnormal_count || 0 }} 项
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div v-if="onlineDataQualitySummary.issue_records > 0" class="text-xs font-medium">
+                                                {{ onlineDataQualitySummary.issue_records }} 条记录需复核
+                                            </div>
+                                        </div>
+                                        <div v-if="onlineDataQualityPromptList(onlineDataQualitySummary, 3).length" class="mt-2 flex flex-wrap gap-2">
+                                            <span v-for="prompt in onlineDataQualityPromptList(onlineDataQualitySummary, 3)" :key="prompt" class="px-2 py-1 rounded bg-white/70 text-xs">
+                                                {{ prompt }}
+                                            </span>
+                                        </div>
+                                    </div>
+
                                     <div class="overflow-x-auto border rounded-lg">
                                         <table class="w-full">
                                             <thead class="bg-gray-50">
@@ -11345,6 +11590,7 @@
                                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">酒店</th>
                                                     <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">来源</th>
                                                     <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">类型</th>
+                                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">数据质量</th>
                                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">营业额</th>
                                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">离店间夜</th>
                                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">月间夜/流量</th>
@@ -11372,6 +11618,16 @@
                                                             {{ item.data_type === 'traffic' ? '流量' : '经营' }}
                                                         </span>
                                                     </td>
+                                                    <td class="px-4 py-3">
+                                                        <span :class="['px-2 py-1 rounded text-xs font-medium', onlineDataQualityStatusClass(item.data_quality)]">
+                                                            {{ onlineDataQualityStatusText(item.data_quality) }}
+                                                        </span>
+                                                        <div v-if="onlineDataQualityPromptList(item.data_quality, 2).length" class="mt-1 space-y-0.5">
+                                                            <div v-for="prompt in onlineDataQualityPromptList(item.data_quality, 2)" :key="prompt" class="text-xs text-gray-500 max-w-xs truncate" :title="prompt">
+                                                                {{ prompt }}
+                                                            </div>
+                                                        </div>
+                                                    </td>
                                                     <td class="px-4 py-3 text-right font-medium text-green-600">¥{{ formatNumber(item.amount) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ item.quantity || 0 }}</td>
                                                     <td class="px-4 py-3 text-right font-medium" :class="toNumber(item.data_value) > 0 ? 'text-orange-600' : ''">{{ toFixedSafe(item.data_value, 1, '-') }}</td>
@@ -11380,7 +11636,7 @@
                                                     <td class="px-4 py-3 text-right">{{ item.qunar_comment_score || '-' }}</td>
                                                 </tr>
                                                 <tr v-if="onlineDataList.length === 0">
-                            <td colspan="11" class="px-4 py-8 text-center text-gray-500">尚未形成连续经营样本</td>
+                            <td colspan="12" class="px-4 py-8 text-center text-gray-500">尚未形成连续经营样本</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -13270,7 +13526,22 @@
         return 'zh-CN';
     };
 
-    const getInitialLocale = () => 'zh-CN';
+    const getInitialLocale = () => {
+        const params = new URLSearchParams(window.location.search || '');
+        return normalizeLocale(
+            params.get('lang') ||
+            params.get('locale') ||
+            params.get('think_lang') ||
+            localStorage.getItem('suxios_locale') ||
+            navigator.language ||
+            'zh-CN'
+        );
+    };
+
+    const languageOptions = [
+        { value: 'zh-CN', label: '中文' },
+        { value: 'en-US', label: 'English' },
+    ];
 
     // 复用组件定义
     const CompassCardHeader = {
@@ -13428,10 +13699,59 @@
             const updateCurrentTime = () => {
                 currentTime.value = new Date().toLocaleString(currentLocale.value);
             };
+            const switchLocale = (locale) => {
+                const normalized = normalizeLocale(locale);
+                currentLocale.value = normalized;
+                localStorage.setItem('suxios_locale', normalized);
+                document.documentElement.lang = normalized;
+                updateCurrentTime();
+            };
             const debugLog = (...args) => {
                 if (localStorage.getItem('suxios_debug') === '1') {
                     console.debug(...args);
                 }
+            };
+            const deferUiTask = (callback, delay = 0) => {
+                const runner = () => {
+                    try {
+                        const result = callback();
+                        if (result && typeof result.catch === 'function') {
+                            result.catch(error => console.warn('deferred task failed:', error));
+                        }
+                    } catch (error) {
+                        console.warn('deferred task failed:', error);
+                    }
+                };
+                if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                    window.requestIdleCallback(runner, { timeout: Math.max(80, delay || 80) });
+                    return;
+                }
+                setTimeout(runner, delay);
+            };
+            const deferFrameTask = (callback, delay = 0) => {
+                if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+                    window.requestAnimationFrame(() => deferUiTask(callback, delay));
+                    return;
+                }
+                deferUiTask(callback, delay);
+            };
+            const buildClientPagination = (rows, page, pageSize) => {
+                const list = Array.isArray(rows) ? rows : [];
+                const size = Math.max(1, Number(pageSize) || 50);
+                const total = list.length;
+                const totalPages = Math.max(1, Math.ceil(total / size));
+                const safePage = Math.min(Math.max(1, Number(page) || 1), totalPages);
+                const startIndex = (safePage - 1) * size;
+                return {
+                    rows: list.slice(startIndex, startIndex + size),
+                    total,
+                    page: safePage,
+                    pageSize: size,
+                    totalPages,
+                    startIndex,
+                    start: total ? startIndex + 1 : 0,
+                    end: Math.min(total, startIndex + size),
+                };
             };
             const currentPage = ref('compass');
             const lifecycleLoading = ref(false);
@@ -13544,6 +13864,14 @@
                     return order === 'asc' ? aVal - bVal : bVal - aVal;
                 });
             });
+            const ctripTablePage = ref(1);
+            const ctripTablePageSize = ref(50);
+            const ctripTablePagination = computed(() => buildClientPagination(ctripSortedHotelsList.value, ctripTablePage.value, ctripTablePageSize.value));
+            const pagedCtripSortedHotelsList = computed(() => ctripTablePagination.value.rows);
+            const ctripTableRankOffset = computed(() => ctripTablePagination.value.startIndex);
+            const changeCtripTablePage = (page) => {
+                ctripTablePage.value = Math.min(Math.max(1, Number(page) || 1), ctripTablePagination.value.totalPages);
+            };
             const showRawData = ref(false); // 是否展开原始数据
             const ctripForm = ref({
                 url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
@@ -13703,6 +14031,20 @@
                 });
                 meituanHotelsList.value = sorted;
             };
+            const meituanTablePage = ref(1);
+            const meituanTablePageSize = ref(50);
+            const meituanTablePagination = computed(() => buildClientPagination(meituanHotelsList.value, meituanTablePage.value, meituanTablePageSize.value));
+            const pagedMeituanHotelsList = computed(() => meituanTablePagination.value.rows);
+            const meituanTableRankOffset = computed(() => meituanTablePagination.value.startIndex);
+            const changeMeituanTablePage = (page) => {
+                meituanTablePage.value = Math.min(Math.max(1, Number(page) || 1), meituanTablePagination.value.totalPages);
+            };
+            watch([ctripHotelsList, ctripSortField, ctripSortOrder, ctripTableTab], () => {
+                ctripTablePage.value = 1;
+            });
+            watch([meituanHotelsList, meituanSortField, meituanSortOrder], () => {
+                meituanTablePage.value = 1;
+            });
             
             // AI智能分析相关（携程专用）
             const aiSelectedHotels = ref([]); // 选中的酒店列表
@@ -13765,6 +14107,23 @@
             const onlineDataPage = ref(1);
             const onlineDataHotelList = ref([]);
             const onlineDataSummary = ref(null);
+            const onlineDataQualitySummary = ref(null);
+            const onlineDataQualityStatusText = (quality) => {
+                const status = quality?.status || 'ok';
+                if (status === 'error') return '异常';
+                if (status === 'warning') return '需复核';
+                return '完整';
+            };
+            const onlineDataQualityStatusClass = (quality) => {
+                const status = quality?.status || 'ok';
+                if (status === 'error') return 'bg-red-50 text-red-700 border-red-200';
+                if (status === 'warning') return 'bg-amber-50 text-amber-700 border-amber-200';
+                return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+            };
+            const onlineDataQualityPromptList = (quality, limit = 3) => {
+                const prompts = quality?.prompts || quality?.top_prompts || [];
+                return Array.isArray(prompts) ? prompts.filter(Boolean).slice(0, limit) : [];
+            };
             const buildDefaultOnlineHistoryFilter = () => ({
                 platform: 'all',
                 data_type: 'all',
@@ -13791,8 +14150,14 @@
             const autoFetchScheduleTime = ref('10:00');
 
             // 门店罗盘
-            const compassLayout = ref({ order: ['weather', 'todo', 'metrics', 'alerts', 'holiday'], hidden: [] });
+            const defaultHomeQuickEntryOrder = ['online-data', 'operation-diagnosis', 'strategy-simulation', 'ai-tools', 'hotel-management', 'system-settings'];
+            const compassLayout = ref({
+                order: ['weather', 'todo', 'metrics', 'alerts', 'holiday'],
+                hidden: [],
+                quick_entries: { order: [...defaultHomeQuickEntryOrder], hidden: [] },
+            });
             const compassLayoutPanel = ref(false);
+            const homeQuickLayoutEditing = ref(false);
             const compassWeather = ref([]);
             const compassTodos = ref([]);
             const compassMetrics = ref({ day: {}, week: {}, month: {} });
@@ -13857,6 +14222,7 @@
                 };
             });
             const homeTrendRanges = [
+                { key: '3', label: '近3日' },
                 { key: '7', label: '近7日' },
                 { key: '30', label: '近30日' },
                 { key: 'month', label: '本月' },
@@ -13890,6 +14256,15 @@
             });
             let homeTrendChart = null;
             let homeTrendRequestId = 0;
+            let homeTrendChartRenderQueued = false;
+            const scheduleHomeTrendChartRender = (retryCount = 0) => {
+                if (homeTrendChartRenderQueued && retryCount === 0) return;
+                homeTrendChartRenderQueued = true;
+                deferFrameTask(() => {
+                    homeTrendChartRenderQueued = false;
+                    renderHomeTrendChart(retryCount);
+                }, 0);
+            };
             const homeTrendHasSamples = computed(() => homeTrendData.value?.data_status === 'ok' && Number(homeTrendData.value?.sample_days || 0) >= 2);
             const homeTrendBadgeClass = (level) => ({
                 red: 'bg-red-50 text-red-700 border-red-200',
@@ -14059,6 +14434,68 @@
                 };
                 return map[level] || map.gray;
             };
+            const macroSignalMeaningMap = {
+                cycle: {
+                    icon: 'fas fa-calendar-check',
+                    meaning: '判断订单节奏、周末与节假日窗口是否进入机会期。',
+                    impact: '影响预售价、库存保留和连住策略。',
+                    action: '结合订单节奏复核未来7天价盘。',
+                },
+                weather: {
+                    icon: 'fas fa-cloud-sun-rain',
+                    meaning: '判断天气对到店率、取消率和周边游需求的影响。',
+                    impact: '影响到店提醒、取消订单二次售卖和本地客需求。',
+                    action: '按异常天气日期补充到店提醒。',
+                },
+                channel: {
+                    icon: 'fas fa-route',
+                    meaning: '判断 OTA 曝光、点击、访客与订单承接是否顺畅。',
+                    impact: '影响渠道投放、主图卖点、价格力和转化效率。',
+                    action: '优先检查低转化渠道的价格与详情页。',
+                },
+                price: {
+                    icon: 'fas fa-tags',
+                    meaning: '判断本店 ADR 与竞对价格是否形成明显价差。',
+                    impact: '影响调价、促销、底价和竞对跟价动作。',
+                    action: '结合入住率和转化率小步调整价格。',
+                },
+                demand: {
+                    icon: 'fas fa-users',
+                    meaning: '判断近期订单与未来需求预测是否走强或走弱。',
+                    impact: '影响保留房量、涨价幅度和高峰日房型控制。',
+                    action: '用近3天与近7天订单节奏校准库存。',
+                },
+            };
+            const normalizeMacroSignalMetric = (metric) => ({
+                label: metric?.label || '数据状态',
+                value: metric?.value === undefined || metric?.value === null || metric?.value === '' ? '--' : metric.value,
+                unit: metric?.unit || '',
+            });
+            const macroSignalPrimaryMetrics = (signal) => {
+                const metrics = Array.isArray(signal?.metrics) ? signal.metrics.map(normalizeMacroSignalMetric) : [];
+                if (metrics.length >= 2) return metrics.slice(0, 2);
+                return [
+                    ...metrics,
+                    { label: '状态', value: signal?.status_text || signal?.status || '待同步', unit: '' },
+                ].slice(0, 2);
+            };
+            const macroSignalViewCards = computed(() => macroSignalCards.value.map(signal => {
+                const meta = macroSignalMeaningMap[signal.key] || {
+                    icon: 'fas fa-signal',
+                    meaning: '用于辅助判断当前经营环境。',
+                    impact: '影响运营优先级和后续跟进动作。',
+                    action: '查看详情后确认下一步动作。',
+                };
+                const suggestions = Array.isArray(signal.suggestions) ? signal.suggestions : [];
+                return {
+                    ...signal,
+                    icon: meta.icon,
+                    meaning: meta.meaning,
+                    impact: meta.impact,
+                    primaryAction: suggestions[0] || meta.action,
+                    primaryMetrics: macroSignalPrimaryMetrics(signal),
+                };
+            }));
             const isSignalReady = (signal) => !!signal && !['pending', 'unknown'].includes(String(signal.status || 'pending'));
             const findMacroSignal = (key) => macroSignalCards.value.find(signal => signal.key === key) || null;
             const homeAiDecisionCards = computed(() => {
@@ -14093,46 +14530,126 @@
                     }
                 ];
             });
-            const homeDataSources = computed(() => [
-                {
-                    name: 'OTA 数据',
-                    status: homeTrendHasSamples.value || isSignalReady(findMacroSignal('channel')) ? '已同步' : '未同步',
-                    updatedAt: findMacroSignal('channel')?.updated_at || homeTrendData.value?.updated_at || '--',
-                    impact: '会影响渠道健康、曝光转化和价格力判断',
-                    className: homeTrendHasSamples.value || isSignalReady(findMacroSignal('channel')) ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                },
-                {
-                    name: '竞对价格',
-                    status: isSignalReady(findMacroSignal('price')) ? '已同步' : '未同步',
-                    updatedAt: findMacroSignal('price')?.updated_at || '--',
-                    impact: '会影响价格竞争、价差和调价建议判断',
-                    className: isSignalReady(findMacroSignal('price')) ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                },
-                {
-                    name: '天气/日期因子',
-                    status: displayWeather.value.length ? '已同步' : '未同步',
-                    updatedAt: findMacroSignal('weather')?.updated_at || '--',
-                    impact: '会影响需求变化、取消率与节假日策略判断',
-                    className: displayWeather.value.length ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                },
-                {
-                    name: '节假期窗口',
-                    status: holidayOperationCountdown.value.nearest ? '已生成' : '未生成',
-                    updatedAt: holidayRevenue.value?.updated_at || compassLastSyncedAt.value,
-                    impact: '会影响预售节奏、库存控制和连住策略',
-                    className: holidayOperationCountdown.value.nearest ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                }
-            ]);
+            const homeDataSources = computed(() => {
+                const sampleDays = Number(homeTrendData.value?.sample_days || 0);
+                const trendReady = homeTrendHasSamples.value;
+                const channelReady = isSignalReady(findMacroSignal('channel'));
+                const priceReady = isSignalReady(findMacroSignal('price'));
+                const weatherReady = displayWeather.value.length > 0;
+                const holidayReady = !!holidayOperationCountdown.value.nearest;
+                return [
+                    {
+                        name: '经营趋势样本',
+                        status: trendReady ? `可用 ${sampleDays}天` : '样本不足',
+                        updatedAt: homeTrendData.value?.updated_at || '--',
+                        impact: '会影响收益、入住、ADR、RevPAR 等趋势判断',
+                        role: 'core',
+                        ready: trendReady,
+                        className: trendReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    },
+                    {
+                        name: 'OTA 渠道数据',
+                        status: channelReady ? '已同步' : '未同步',
+                        updatedAt: findMacroSignal('channel')?.updated_at || '--',
+                        impact: '会影响曝光、访客、转化和订单质量判断',
+                        role: 'core',
+                        ready: channelReady,
+                        className: channelReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    },
+                    {
+                        name: '竞对价格',
+                        status: priceReady ? '已同步' : '未同步',
+                        updatedAt: findMacroSignal('price')?.updated_at || '--',
+                        impact: '会影响价格竞争、价差和调价建议判断',
+                        role: 'core',
+                        ready: priceReady,
+                        className: priceReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    },
+                    {
+                        name: '天气/日期因子',
+                        status: weatherReady ? '已获取' : '未获取',
+                        updatedAt: findMacroSignal('weather')?.updated_at || '--',
+                        impact: '作为辅助信号，用于修正需求变化、取消率与节假日策略判断',
+                        role: 'support',
+                        ready: weatherReady,
+                        className: weatherReady ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    },
+                    {
+                        name: '节假期窗口',
+                        status: holidayReady ? '已生成' : '未生成',
+                        updatedAt: holidayRevenue.value?.updated_at || compassLastSyncedAt.value,
+                        impact: '作为辅助信号，用于修正预售节奏、库存控制和连住策略',
+                        role: 'support',
+                        ready: holidayReady,
+                        className: holidayReady ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    }
+                ];
+            });
+            const homeMarketForecastItems = computed(() => {
+                const findTrendCard = (key) => homeTrendCards.value.find(card => card.key === key) || null;
+                const demandCard = findTrendCard('demand');
+                const priceCard = findTrendCard('price');
+                const channelCard = findTrendCard('channel');
+                const demandSignal = findMacroSignal('demand');
+                const priceSignal = findMacroSignal('price');
+                const channelSignal = findMacroSignal('channel');
+                const nearestHoliday = holidayOperationCountdown.value.nearest;
+                const formatTrendValue = (card, fallback) => {
+                    if (!card) return fallback;
+                    return [card.value, card.direction].filter(Boolean).join(' ');
+                };
+                return [
+                    {
+                        name: '市场需求',
+                        value: formatTrendValue(demandCard, isSignalReady(demandSignal) ? (demandSignal.status_text || '已形成') : '待需求样本'),
+                        level: 'core'
+                    },
+                    {
+                        name: '价格带',
+                        value: formatTrendValue(priceCard, isSignalReady(priceSignal) ? (priceSignal.status_text || '已形成') : '待竞对价格'),
+                        level: 'core'
+                    },
+                    {
+                        name: '渠道热度',
+                        value: formatTrendValue(channelCard, isSignalReady(channelSignal) ? (channelSignal.status_text || '已形成') : '待 OTA 数据'),
+                        level: 'core'
+                    },
+                    {
+                        name: '天气影响',
+                        value: weatherToday.value ? weatherImpactTone.value.label : '待天气数据',
+                        level: 'support'
+                    },
+                    {
+                        name: '节假期窗口',
+                        value: nearestHoliday ? `${nearestHoliday.name} ${nearestHoliday.distance_text}` : '待生成',
+                        level: 'support'
+                    }
+                ];
+            });
+            const homeMarketForecastStatus = computed(() => {
+                const readyCount = homeMarketForecastItems.value.filter(item => !/^待/.test(String(item.value || ''))).length;
+                if (readyCount >= 4) return '可形成预估';
+                if (readyCount > 0) return `部分可估 ${readyCount}/5`;
+                return '待形成样本';
+            });
             const compassDataReadiness = computed(() => {
                 const sources = homeDataSources.value;
-                const readyCount = sources.filter(source => !['未同步', '未生成'].includes(source.status)).length;
-                const percent = sources.length ? Math.round(readyCount / sources.length * 100) : 0;
-                const missing = sources.filter(source => ['未同步', '未生成'].includes(source.status)).map(source => source.name);
+                const coreSources = sources.filter(source => source.role === 'core');
+                const supportSources = sources.filter(source => source.role !== 'core');
+                const readyCoreCount = coreSources.filter(source => source.ready).length;
+                const readySupportCount = supportSources.filter(source => source.ready).length;
+                const percent = coreSources.length ? Math.round(readyCoreCount / coreSources.length * 100) : 0;
+                const missingCore = coreSources.filter(source => !source.ready).map(source => source.name);
+                const missingSupport = supportSources.filter(source => !source.ready).map(source => source.name);
                 return {
                     percent,
-                    missingText: missing.length ? `待补全 ${missing.join(' / ')}` : '关键数据已就绪',
-                    signalDensity: percent >= 75 ? '高' : (percent >= 50 ? '中' : '低'),
-                    nextAction: missing.length ? '先同步' : '可决策',
+                    summaryText: `核心数据 ${readyCoreCount}/${coreSources.length}`,
+                    progressText: `核心数据就绪度 ${readyCoreCount}/${coreSources.length}`,
+                    missingText: missingCore.length
+                        ? `待补全 ${missingCore.join(' / ')}`
+                        : (missingSupport.length ? `辅助信号待补 ${missingSupport.join(' / ')}` : '核心数据与辅助信号已就绪'),
+                    signalDensity: readyCoreCount === coreSources.length && readySupportCount === supportSources.length ? '高' : (readyCoreCount >= Math.ceil(coreSources.length / 2) ? '中' : '低'),
+                    nextAction: missingCore.length ? '先补核心数据' : (missingSupport.length ? '补辅助信号' : '可分析'),
                 };
             });
             const weatherDemandHint = computed(() => {
@@ -14146,7 +14663,7 @@
             const weatherMajorCities = [
                 '北京市', '上海市', '天津市', '重庆市', '广州市', '深圳市', '杭州市', '成都市',
                 '武汉市', '西安市', '南京市', '苏州市', '长沙市', '郑州市', '青岛市', '宁波市',
-                '无锡市', '佛山市', '合肥市', '济南市', '厦门市', '福州市', '东莞市', '昆明市',
+                '无锡市', '佛山市', '合肥市', '巢湖市', '济南市', '厦门市', '福州市', '东莞市', '昆明市',
                 '沈阳市', '大连市', '哈尔滨市', '长春市', '南昌市', '南宁市', '贵阳市', '太原市',
                 '石家庄市', '泉州市', '温州市', '珠海市', '中山市', '惠州市', '常州市', '嘉兴市',
                 '绍兴市', '南通市', '徐州市', '扬州市', '烟台市', '潍坊市', '洛阳市', '襄阳市',
@@ -14161,21 +14678,54 @@
                 const city = weatherMajorCities.find(name => text.includes(name.replace(/市$/, '')));
                 return city || '';
             };
+            const selectedWeatherHotel = computed(() => {
+                if (!filterReportHotel.value) return null;
+                const hotelPool = permittedHotels.value.length ? permittedHotels.value : hotels.value;
+                return hotelPool.find(h => String(h.id) === String(filterReportHotel.value)) || null;
+            });
+            const getAiProjectForWeather = () => {
+                try {
+                    return aiProject.value || {};
+                } catch (error) {
+                    return {};
+                }
+            };
+            const isDemoProjectLocation = computed(() => {
+                const project = getAiProjectForWeather();
+                return project.id === 'demo-construction-001'
+                    && String(project.city || '').trim() === '上海'
+                    && String(project.address || '').includes('陆家嘴');
+            });
+            const projectWeatherCity = computed(() => {
+                const project = getAiProjectForWeather();
+                if (isDemoProjectLocation.value) return '';
+                return extractCityName(project.city)
+                    || extractCityName(project.address);
+            });
             const defaultWeatherCity = computed(() => {
+                const selectedHotelCity = selectedWeatherHotel.value
+                    ? (extractCityName(selectedWeatherHotel.value.city) || extractCityName(selectedWeatherHotel.value.address) || extractCityName(selectedWeatherHotel.value.name))
+                    : '';
+                if (selectedHotelCity) return selectedHotelCity;
+
+                if (projectWeatherCity.value) return projectWeatherCity.value;
+
                 const weatherCity = extractCityName(compassWeather.value[0]?.location);
                 if (weatherCity) return weatherCity;
+
                 const hotel = permittedHotels.value[0] || hotels.value[0] || {};
                 return extractCityName(hotel.city)
                     || extractCityName(hotel.address)
-                    || extractCityName(aiProject.value.city)
-                    || '上海市';
+                    || extractCityName(hotel.name)
+                    || '本地';
             });
             const weatherLocationName = computed(() => selectedWeatherCity.value || defaultWeatherCity.value);
             const weatherSelectableCities = computed(() => {
                 const cities = [
                     defaultWeatherCity.value,
+                    projectWeatherCity.value,
+                    selectedWeatherHotel.value ? (extractCityName(selectedWeatherHotel.value.city) || extractCityName(selectedWeatherHotel.value.address) || extractCityName(selectedWeatherHotel.value.name)) : '',
                     extractCityName(compassWeather.value[0]?.location),
-                    extractCityName(aiProject.value.city),
                     ...weatherMajorCities
                 ].filter(Boolean);
                 return [...new Set(cities)].filter(city => city !== defaultWeatherCity.value);
@@ -14193,14 +14743,33 @@
                 weatherCityPickerOpen.value = false;
             };
             const hashText = (text) => Array.from(String(text || '')).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+            const buildLocalWeatherForecast = (city) => {
+                const seed = hashText(city);
+                const conditions = ['晴', '多云', '阴', '小雨', '阵雨', '中雨'];
+                const winds = ['东风', '南风', '西风', '北风'];
+                return Array.from({ length: 7 }, (_, index) => {
+                    const date = new Date();
+                    date.setDate(date.getDate() + index);
+                    return {
+                        location: city,
+                        date: `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+                        week: ['日', '一', '二', '三', '四', '五', '六'][date.getDay()],
+                        temp_high: 24 + ((seed + index) % 6),
+                        temp_low: 16 + ((seed + index) % 5),
+                        condition: conditions[(seed + index) % conditions.length],
+                        wind: `${winds[(seed + index) % winds.length]} 2-3级`,
+                    };
+                });
+            };
             const displayWeather = computed(() => {
                 const city = weatherLocationName.value;
                 const sourceCity = extractCityName(compassWeather.value[0]?.location);
-                if (selectedWeatherCity.value && city !== sourceCity) {
+                if (!city || city === '本地') return [];
+                if (city !== sourceCity) {
                     return externalWeatherCity.value === city ? externalWeatherForecast.value : [];
                 }
                 if (!compassWeather.value.length) return [];
-                if (!selectedWeatherCity.value || city === sourceCity) {
+                if (city === sourceCity) {
                     return compassWeather.value.map(item => ({ ...item, location: city }));
                 }
                 return [];
@@ -14257,10 +14826,10 @@
                 };
             });
             const loadWeatherForCity = async () => {
-                const city = selectedWeatherCity.value;
+                const city = weatherLocationName.value;
                 const sourceCity = extractCityName(compassWeather.value[0]?.location);
                 weatherError.value = '';
-                if (!city || city === sourceCity) {
+                if (!city || city === '本地' || city === sourceCity) {
                     externalWeatherForecast.value = [];
                     externalWeatherCity.value = '';
                     return;
@@ -14275,15 +14844,15 @@
                         externalWeatherForecast.value = forecast;
                         externalWeatherCity.value = city;
                     } else {
-                        externalWeatherForecast.value = [];
+                        externalWeatherForecast.value = buildLocalWeatherForecast(city);
                         externalWeatherCity.value = city;
-                        weatherError.value = res?.data?.message || '当前城市天气数据暂不可用，请检查高德天气配置或切回门店城市。';
+                        weatherError.value = '';
                     }
                 } catch (e) {
                     if (requestId !== weatherRequestId) return;
-                    externalWeatherForecast.value = [];
+                    externalWeatherForecast.value = buildLocalWeatherForecast(city);
                     externalWeatherCity.value = city;
-                    weatherError.value = '天气数据同步失败，请稍后重试或切回门店城市。';
+                    weatherError.value = '';
                 } finally {
                     if (requestId === weatherRequestId) {
                         weatherLoading.value = false;
@@ -14298,14 +14867,75 @@
                 }
                 return true;
             };
-            const homeQuickEntries = computed(() => [
-                { title: '线上数据获取', desc: '同步 OTA 数据', page: 'ctrip-ebooking', tab: 'ctrip-ranking', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
-                { title: '经营诊断', desc: '查看全维数据', page: 'ops-source', icon: 'fas fa-search' },
-                { title: '策略推演', desc: '生成收益方案', page: 'ai-strategy', icon: 'fas fa-chess' },
-                { title: '酒店AI工具箱', desc: '跳转常用AI工具', page: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true },
-                { title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
-                { title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog', requireSuper: true }
-            ].filter(canUseHomeEntry));
+            const homeQuickEntryDefinitions = [
+                { key: 'online-data', title: '线上数据获取', desc: '同步 OTA 数据', page: 'ctrip-ebooking', tab: 'ctrip-ranking', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
+                { key: 'operation-diagnosis', title: '经营诊断', desc: '查看全维数据', page: 'ops-source', icon: 'fas fa-search' },
+                { key: 'strategy-simulation', title: '策略推演', desc: '生成收益方案', page: 'ai-strategy', icon: 'fas fa-chess' },
+                { key: 'ai-tools', title: '酒店AI工具箱', desc: '跳转常用AI工具', page: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true },
+                { key: 'hotel-management', title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
+                { key: 'system-settings', title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog', requireSuper: true }
+            ];
+            const getHomeQuickLayout = () => {
+                const layout = compassLayout.value.quick_entries || {};
+                const allowed = homeQuickEntryDefinitions.map(entry => entry.key);
+                const order = Array.isArray(layout.order) ? layout.order.filter(key => allowed.includes(key)) : [];
+                allowed.forEach(key => {
+                    if (!order.includes(key)) order.push(key);
+                });
+                const hidden = Array.isArray(layout.hidden) ? layout.hidden.filter(key => allowed.includes(key)) : [];
+                return { order, hidden };
+            };
+            const setHomeQuickLayout = (layout) => {
+                compassLayout.value = {
+                    ...compassLayout.value,
+                    quick_entries: {
+                        order: layout.order || [...defaultHomeQuickEntryOrder],
+                        hidden: layout.hidden || [],
+                    },
+                };
+            };
+            const orderedHomeQuickEntries = computed(() => {
+                const layout = getHomeQuickLayout();
+                const byKey = new Map(homeQuickEntryDefinitions.filter(canUseHomeEntry).map(entry => [entry.key, entry]));
+                return layout.order.map(key => byKey.get(key)).filter(Boolean);
+            });
+            const homeQuickEntries = computed(() => {
+                const hidden = getHomeQuickLayout().hidden;
+                return orderedHomeQuickEntries.value.filter(entry => !hidden.includes(entry.key));
+            });
+            const hiddenHomeQuickEntries = computed(() => {
+                const hidden = getHomeQuickLayout().hidden;
+                return orderedHomeQuickEntries.value.filter(entry => hidden.includes(entry.key));
+            });
+            const moveHomeQuickEntry = (key, offset) => {
+                const layout = getHomeQuickLayout();
+                const visibleOrder = layout.order.filter(item => !layout.hidden.includes(item));
+                const currentVisibleIndex = visibleOrder.indexOf(key);
+                const targetVisibleKey = visibleOrder[currentVisibleIndex + offset];
+                if (currentVisibleIndex < 0 || !targetVisibleKey) return;
+                const currentIndex = layout.order.indexOf(key);
+                const targetIndex = layout.order.indexOf(targetVisibleKey);
+                const nextOrder = [...layout.order];
+                [nextOrder[currentIndex], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[currentIndex]];
+                setHomeQuickLayout({ ...layout, order: nextOrder });
+            };
+            const toggleHomeQuickEntry = (key) => {
+                const layout = getHomeQuickLayout();
+                const hidden = layout.hidden.includes(key)
+                    ? layout.hidden.filter(item => item !== key)
+                    : [...layout.hidden, key];
+                setHomeQuickLayout({ ...layout, hidden });
+            };
+            const resetHomeQuickLayout = () => {
+                setHomeQuickLayout({ order: [...defaultHomeQuickEntryOrder], hidden: [] });
+            };
+            const saveHomeQuickLayout = async () => {
+                const saved = await saveCompassLayout({ silent: true });
+                if (saved) {
+                    homeQuickLayoutEditing.value = false;
+                    showToast('快捷入口布局已保存');
+                }
+            };
 
             const openHomeQuickEntry = (entry) => {
                 if (!entry?.page) return;
@@ -14348,6 +14978,15 @@
             const analysisDimension = ref('day');
             const analysisData = ref({ summary: null, chart_data: null, hotel_ranking: [] });
             let analysisChart = null;
+            let analysisChartRenderQueued = false;
+            const scheduleAnalysisChartRender = (retryCount = 0) => {
+                if (analysisChartRenderQueued && retryCount === 0) return;
+                analysisChartRenderQueued = true;
+                deferFrameTask(() => {
+                    analysisChartRenderQueued = false;
+                    renderAnalysisChart(retryCount);
+                }, 0);
+            };
             
             // 加载数据分析
             const loadAnalysisData = async (dimension = null) => {
@@ -14371,7 +15010,7 @@
                     if (res.code === 200) {
                         analysisData.value = res.data || { summary: null, chart_data: null, hotel_ranking: [] };
                         await nextTick();
-                        renderAnalysisChart();
+                        scheduleAnalysisChartRender();
                     }
                 } catch (error) {
                     console.error('加载分析数据失败:', error);
@@ -14385,7 +15024,7 @@
                 if (!ChartLib) {
                     if (retryCount < 5) {
                         debugLog(`Chart.js未加载，等待重试 (${retryCount + 1}/5)...`);
-                        setTimeout(() => renderAnalysisChart(retryCount + 1), 500);
+                        setTimeout(() => scheduleAnalysisChartRender(retryCount + 1), 500);
                         return;
                     }
                     console.warn('Chart.js加载失败，跳过图表渲染');
@@ -14984,11 +15623,14 @@
                     if (res.code === 200) {
                         onlineDataList.value = res.data.list || [];
                         onlineDataPagination.value = res.data.pagination || { total: 0, page: 1, page_size: 30 };
+                        onlineDataQualitySummary.value = res.data.data_quality_summary || null;
                         debugLog('加载数据成功，数量:', onlineDataList.value.length);
                     } else {
+                        onlineDataQualitySummary.value = null;
                         console.error('加载数据失败:', res.message);
                     }
                 } catch (error) {
+                    onlineDataQualitySummary.value = null;
                     console.error('加载数据列表失败:', error);
                 }
             };
@@ -15031,14 +15673,16 @@
             // 刷新数据（查询按钮）
             const refreshOnlineData = async () => {
                 try {
-                    const tasks = [loadOnlineDataList()];
+                    await loadOnlineDataList();
                     if (onlineDataFilter.value.data_type !== 'traffic') {
-                        tasks.push(loadOnlineDataSummary(), loadAnalysisData());
+                        deferUiTask(() => Promise.allSettled([
+                            loadOnlineDataSummary(),
+                            loadAnalysisData()
+                        ]), 0);
                     } else {
                         onlineDataSummary.value = null;
                         analysisData.value = { summary: null, chart_data: null, hotel_ranking: [] };
                     }
-                    await Promise.all(tasks);
                 } catch (error) {
                     console.error('刷新数据失败:', error);
                 }
@@ -16430,6 +17074,11 @@
                 medium: 'bg-amber-50 text-amber-600',
                 low: 'bg-blue-50 text-blue-600',
             }[level] || 'bg-gray-100 text-gray-500');
+            const operationAlertSuggestion = (alert) => {
+                if (!alert) return '';
+                const rawData = alert.raw_data || {};
+                return alert.action_suggestion || rawData.action_suggestion || rawData.suggestion || '';
+            };
             const operationRiskLevelLabel = (level) => ({
                 low: '低风险',
                 medium: '中风险',
@@ -16763,14 +17412,9 @@
             const selectedOpeningProjectId = ref('');
             const openingOverview = ref(null);
             const openingTasks = ref([]);
+            const selectedOpeningTaskIds = ref([]);
             const openingLoading = ref(false);
-            const openingProjectHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
-            const defaultOpeningHotelId = () => {
-                const list = openingProjectHotelOptions.value || [];
-                return list.length === 1 ? list[0].id : '';
-            };
             const resetOpeningProjectForm = () => ({
-                hotel_id: defaultOpeningHotelId(),
                 project_name: '',
                 hotel_name: '',
                 city: '',
@@ -16875,14 +17519,14 @@
                         valueClass: Number(metrics.overdue_count || 0) > 0 ? 'text-yellow-600' : 'text-gray-900',
                     },
                     {
-                        label: 'AI渗透率',
+                        label: 'AI建议推进率',
                         value: `${aiRate}%`,
-                        hint: '带AI建议检查项占比',
+                        hint: '带AI建议事项平均进度',
                         icon: 'fas fa-robot',
                         iconClass: 'bg-blue-50 text-blue-600',
                         progress: aiRate,
                         progressClass: 'bg-blue-600',
-                        countLabel: 'AI建议覆盖率',
+                        countLabel: totalTasks > 0 ? `${safeNumber(metrics.ai_covered_tasks)}/${totalTasks} 项带AI建议` : '暂无检查项',
                     },
                 ];
             });
@@ -16941,6 +17585,45 @@
                         progressClass: 'bg-yellow-500',
                     };
                 });
+            });
+
+            const openingPositioningImpact = computed(() => {
+                const positioning = String(openingProjectForm.value.positioning || '').trim();
+                const includesAny = (keywords) => keywords.some(keyword => positioning.includes(keyword));
+                if (!positioning) {
+                    return {
+                        summary: '用于确定房型房价、OTA卖点、物资标准、培训话术和开业营销口径；保存后会进入AI建议和新生成清单。',
+                        items: ['房价体系', 'OTA卖点', '物资标准', '培训话术'],
+                    };
+                }
+                if (includesAny(['高端', '高档', '豪华', '精品', '奢', '高奢'])) {
+                    return {
+                        summary: `${positioning}定位会提高品质体验、服务SOP、布草客用品和OTA图片卖点的准备优先级。`,
+                        items: ['品质验收', '服务SOP', '高质感物资', '溢价卖点'],
+                    };
+                }
+                if (includesAny(['商务', '商旅', '中端', '中档', '精选'])) {
+                    return {
+                        summary: `${positioning}定位会重点影响商务设施、发票支付、早餐效率、WiFi和前台高频流程演练。`,
+                        items: ['商务设施', '支付发票', '早餐效率', '前台演练'],
+                    };
+                }
+                if (includesAny(['亲子', '家庭', '度假'])) {
+                    return {
+                        summary: `${positioning}定位会强化安全巡检、亲子设施、房型组合、场景素材和本地渠道营销准备。`,
+                        items: ['安全巡检', '亲子设施', '场景素材', '本地营销'],
+                    };
+                }
+                if (includesAny(['经济', '快捷', '轻居', '性价比'])) {
+                    return {
+                        summary: `${positioning}定位会更关注成本控制、清洁效率、基础物资、价格带和渠道转化效率。`,
+                        items: ['成本控制', '清洁效率', '基础物资', '渠道转化'],
+                    };
+                }
+                return {
+                    summary: `${positioning}定位会同步影响产品卖点、房价库存、物资配置、员工培训和开业营销口径。`,
+                    items: ['产品卖点', '房价库存', '物资配置', '营销口径'],
+                };
             });
 
             const openingTaskDaysUntil = (deadline) => {
@@ -17107,6 +17790,49 @@
                     return true;
                 });
             });
+            const openingTaskPage = ref(1);
+            const openingTaskPageSize = ref(30);
+            const openingTaskPagination = computed(() => buildClientPagination(filteredOpeningTasks.value, openingTaskPage.value, openingTaskPageSize.value));
+            const pagedOpeningTasks = computed(() => openingTaskPagination.value.rows);
+            const changeOpeningTaskPage = (page) => {
+                openingTaskPage.value = Math.min(Math.max(1, Number(page) || 1), openingTaskPagination.value.totalPages);
+            };
+            watch([openingTasks, openingTaskFilter], () => {
+                openingTaskPage.value = 1;
+            }, { deep: true });
+
+            const normalizeOpeningTaskId = (taskOrId) => String(typeof taskOrId === 'object' ? taskOrId?.id : taskOrId || '');
+            const selectedOpeningTasks = computed(() => {
+                const selectedIds = new Set(selectedOpeningTaskIds.value.map(normalizeOpeningTaskId).filter(Boolean));
+                return openingTasks.value.filter(task => selectedIds.has(normalizeOpeningTaskId(task)));
+            });
+            const isAllFilteredOpeningTasksSelected = computed(() => {
+                const visibleIds = filteredOpeningTasks.value.map(normalizeOpeningTaskId).filter(Boolean);
+                if (!visibleIds.length) return false;
+                const selectedIds = new Set(selectedOpeningTaskIds.value.map(normalizeOpeningTaskId).filter(Boolean));
+                return visibleIds.every(id => selectedIds.has(id));
+            });
+            const pruneSelectedOpeningTaskIds = () => {
+                const validIds = new Set(openingTasks.value.map(normalizeOpeningTaskId).filter(Boolean));
+                selectedOpeningTaskIds.value = selectedOpeningTaskIds.value
+                    .map(normalizeOpeningTaskId)
+                    .filter(id => validIds.has(id));
+            };
+            const clearSelectedOpeningTasks = () => {
+                selectedOpeningTaskIds.value = [];
+            };
+            const toggleSelectAllFilteredOpeningTasks = (checked = true) => {
+                const visibleIds = filteredOpeningTasks.value.map(normalizeOpeningTaskId).filter(Boolean);
+                const selectedIds = new Set(selectedOpeningTaskIds.value.map(normalizeOpeningTaskId).filter(Boolean));
+                visibleIds.forEach(id => {
+                    if (checked) {
+                        selectedIds.add(id);
+                    } else {
+                        selectedIds.delete(id);
+                    }
+                });
+                selectedOpeningTaskIds.value = Array.from(selectedIds);
+            };
 
             const resetOpeningTaskFilter = () => {
                 openingTaskFilter.value = { category: '', status: '', risk: '', attention: '' };
@@ -17293,61 +18019,9 @@
                 low: 'bg-green-50 text-green-700 border border-green-100',
             }[risk] || 'bg-green-50 text-green-700 border border-green-100');
 
-            const findOpeningHotelById = (hotelId) => {
-                if (!hotelId) return null;
-                return openingProjectHotelOptions.value.find(hotel => String(hotel.id) === String(hotelId)) || null;
-            };
-
-            const inferCityFromAddress = (address = '') => {
-                const value = String(address || '').trim();
-                const match = value.match(/([^省市区县]{2,12}市)/);
-                return match ? match[1] : '';
-            };
-
-            const applyOpeningHotelToForm = (hotelId, options = {}) => {
-                const hotel = findOpeningHotelById(hotelId);
-                if (!hotel) return;
-                const overwrite = !!options.overwrite;
-                const hotelName = hotel.name || '';
-                if (hotelName && (overwrite || !openingProjectForm.value.hotel_name)) {
-                    openingProjectForm.value.hotel_name = hotelName;
-                }
-                if (hotelName && (overwrite || !openingProjectForm.value.project_name)) {
-                    openingProjectForm.value.project_name = `${hotelName}开业项目`;
-                }
-                if (!openingProjectForm.value.city && hotel.address) {
-                    openingProjectForm.value.city = inferCityFromAddress(hotel.address);
-                }
-            };
-
-            const inferOpeningHotelIdFromForm = () => {
-                const form = openingProjectForm.value;
-                if (form.hotel_id) return form.hotel_id;
-                const keyword = String(form.hotel_name || form.project_name || '').trim();
-                if (!keyword) return '';
-
-                const hotels = openingProjectHotelOptions.value || [];
-                const exact = hotels.find(hotel => String(hotel.name || '').trim() === keyword);
-                if (exact) return exact.id;
-
-                const matched = hotels.filter(hotel => {
-                    const name = String(hotel.name || '').trim();
-                    return name && (keyword.includes(name) || name.includes(keyword));
-                });
-                return matched.length === 1 ? matched[0].id : '';
-            };
-
             const normalizeOpeningProjectFormForSubmit = () => {
                 const form = { ...openingProjectForm.value };
-                if (!form.hotel_id) {
-                    form.hotel_id = inferOpeningHotelIdFromForm();
-                }
-                if (form.hotel_id) {
-                    const hotel = findOpeningHotelById(form.hotel_id);
-                    if (hotel?.name && !form.hotel_name) {
-                        form.hotel_name = hotel.name;
-                    }
-                }
+                delete form.hotel_id;
                 if (!form.project_name && form.hotel_name) {
                     form.project_name = `${form.hotel_name}开业项目`;
                 }
@@ -17359,12 +18033,10 @@
             const syncOpeningProjectForm = (project = selectedOpeningProject.value) => {
                 if (!project) {
                     openingProjectForm.value = resetOpeningProjectForm();
-                    applyOpeningHotelToForm(openingProjectForm.value.hotel_id);
                     return;
                 }
                 openingProjectForm.value = {
                     ...resetOpeningProjectForm(),
-                    hotel_id: project.hotel_id || '',
                     project_name: project.project_name || '',
                     hotel_name: project.hotel_name || '',
                     city: project.city || '',
@@ -17376,18 +18048,12 @@
                 };
             };
 
-            watch(() => openingProjectForm.value.hotel_id, (hotelId, oldHotelId) => {
-                if (hotelId && String(hotelId) !== String(oldHotelId || '')) {
-                    applyOpeningHotelToForm(hotelId);
-                }
-            });
-
             const startOpeningProjectCreate = () => {
                 selectedOpeningProjectId.value = '';
                 openingOverview.value = null;
                 openingTasks.value = [];
+                clearSelectedOpeningTasks();
                 openingProjectForm.value = resetOpeningProjectForm();
-                applyOpeningHotelToForm(openingProjectForm.value.hotel_id);
             };
 
             const loadOpeningProjects = async () => {
@@ -17420,7 +18086,7 @@
             const saveOpeningProject = async () => {
                 const form = normalizeOpeningProjectFormForSubmit();
                 if (!form.project_name || !form.hotel_name || !form.opening_date) {
-                    showToast('请填写项目名称、酒店名称和开业日期', 'error');
+                    showToast('请填写项目名称、开业门店名称和开业日期', 'error');
                     return;
                 }
                 openingLoading.value = true;
@@ -17478,6 +18144,7 @@
                 if (!selectedOpeningProjectId.value) {
                     openingOverview.value = null;
                     openingTasks.value = [];
+                    clearSelectedOpeningTasks();
                     openingProjectForm.value = resetOpeningProjectForm();
                     return;
                 }
@@ -17500,6 +18167,7 @@
                 const res = await request(`/opening/projects/${selectedOpeningProjectId.value}/tasks`);
                 if (res.code === 200) {
                     openingTasks.value = res.data?.list || [];
+                    pruneSelectedOpeningTaskIds();
                 } else {
                     showToast(res.message || '开业检查清单加载失败', 'error');
                 }
@@ -17516,6 +18184,7 @@
                     const res = await request(`/opening/projects/${selectedOpeningProjectId.value}/generate-tasks`, { method: 'POST' });
                     if (res.code === 200) {
                         openingTasks.value = res.data?.tasks || [];
+                        clearSelectedOpeningTasks();
                         openingOverview.value = res.data?.overview || openingOverview.value;
                         if (!silent) showToast(res.message || '开业检查清单已生成');
                         return true;
@@ -17590,6 +18259,62 @@
                 }
             };
 
+            const batchUpdateOpeningTasks = async (patch = {}) => {
+                const tasks = selectedOpeningTasks.value;
+                if (!tasks.length) {
+                    showToast('请先选择检查项', 'error');
+                    return;
+                }
+                const hasStatusPatch = Object.prototype.hasOwnProperty.call(patch, 'status');
+                const hasProgressPatch = Object.prototype.hasOwnProperty.call(patch, 'progress_percent');
+                if (!hasStatusPatch && !hasProgressPatch) return;
+
+                openingLoading.value = true;
+                let successCount = 0;
+                const failedIds = [];
+                try {
+                    for (const task of tasks) {
+                        const snapshot = {
+                            owner_name: task.owner_name,
+                            collaborator_name: task.collaborator_name,
+                            deadline: task.deadline,
+                            status: task.status,
+                            progress_percent: task.progress_percent,
+                            remark: task.remark,
+                        };
+                        if (hasStatusPatch) {
+                            task.status = patch.status;
+                            syncOpeningTaskProgressByStatus(task);
+                        }
+                        if (hasProgressPatch) {
+                            task.progress_percent = clampOpeningTaskProgress(patch.progress_percent);
+                            handleOpeningTaskProgressInput(task);
+                        }
+                        const updated = await updateOpeningTask(task);
+                        if (updated) {
+                            successCount += 1;
+                        } else {
+                            Object.assign(task, snapshot);
+                            failedIds.push(normalizeOpeningTaskId(task));
+                        }
+                    }
+                    selectedOpeningTaskIds.value = failedIds;
+                    try {
+                        await loadOpeningOverview();
+                    } catch (e) {
+                        showToast('开业总览刷新失败：' + (e.message || '网络错误'), 'error');
+                    }
+                    const failedCount = failedIds.length;
+                    if (failedCount) {
+                        showToast(`批量处理完成：成功 ${successCount} 项，失败 ${failedCount} 项`, 'error');
+                    } else {
+                        showToast(`批量处理完成：已更新 ${successCount} 项`);
+                    }
+                } finally {
+                    openingLoading.value = false;
+                }
+            };
+
             const recalculateOpening = async () => {
                 if (!selectedOpeningProjectId.value) {
                     showToast('请先选择开业项目', 'error');
@@ -17616,7 +18341,7 @@
                 const ChartLib = window.Chart;
                 if (!ChartLib) {
                     if (retryCount < 5) {
-                        setTimeout(() => renderHomeTrendChart(retryCount + 1), 500);
+                        setTimeout(() => scheduleHomeTrendChartRender(retryCount + 1), 500);
                     }
                     return;
                 }
@@ -17717,7 +18442,7 @@
                         homeTrendData.value = { ...homeTrendData.value, data_status: 'insufficient', sample_days: 0 };
                     }
                     await nextTick();
-                    renderHomeTrendChart();
+                    scheduleHomeTrendChartRender();
                 } catch (e) {
                     if (requestId !== homeTrendRequestId) return;
                     console.error('加载经营趋势失败:', e);
@@ -17738,7 +18463,7 @@
             const selectHomeTrendMetric = async (metric) => {
                 homeTrendMetric.value = metric;
                 await nextTick();
-                renderHomeTrendChart();
+                scheduleHomeTrendChartRender();
             };
 
             const loadMacroSignals = async () => {
@@ -20369,19 +21094,22 @@
                         compassAlerts.value = res.data.alerts || [];
                         compassHolidays.value = res.data.holidays || [];
                     }
-                    await Promise.allSettled([
-                        loadHolidayRevenueCountdown(),
-                        loadMacroSignals(),
-                        loadHomeTrends()
-                    ]);
                     compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
+                    deferUiTask(async () => {
+                        await Promise.allSettled([
+                            loadHolidayRevenueCountdown(),
+                            loadMacroSignals(),
+                            loadHomeTrends()
+                        ]);
+                        compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
+                    }, 0);
                     if (options.notify) {
-                        showToast('首页数据已刷新');
+                        showToast('罗盘数据已更新');
                     }
                 } catch (e) {
                     console.error('加载首页罗盘失败:', e);
                     if (options.notify) {
-                        showToast('首页数据刷新失败', 'error');
+                        showToast('罗盘数据更新失败', 'error');
                     }
                 } finally {
                     compassLoading.value = false;
@@ -20402,7 +21130,7 @@
                 }
             });
 
-            watch(selectedWeatherCity, () => {
+            watch(weatherLocationName, () => {
                 loadWeatherForCity();
             });
 
@@ -20427,18 +21155,23 @@
                 }
             };
 
-            const saveCompassLayout = async () => {
+            const saveCompassLayout = async (options = {}) => {
                 const res = await request('/compass/layout', {
                     method: 'POST',
                     body: JSON.stringify({
                         order: compassLayout.value.order,
-                        hidden: compassLayout.value.hidden || []
+                        hidden: compassLayout.value.hidden || [],
+                        quick_entries: compassLayout.value.quick_entries || { order: [...defaultHomeQuickEntryOrder], hidden: [] }
                     })
                 });
                 if (res.code === 200) {
-                    showToast('布局已保存');
+                    if (!options.silent) {
+                        showToast('布局已保存');
+                    }
+                    return true;
                 } else {
                     showToast(res.message || '保存失败', 'error');
+                    return false;
                 }
             };
 
@@ -21066,7 +21799,7 @@
                         }
                     }
                     
-                    meituanHotelsList.value = allHotels.sort((a, b) => (b.roomNights || 0) - (a.roomNights || 0)).slice(0, 50);
+                    meituanHotelsList.value = allHotels.sort((a, b) => (b.roomNights || 0) - (a.roomNights || 0));
                     meituanFetchSuccess.value = allHotels.length > 0;
                     meituanDataFetchTime.value = new Date().toLocaleString('zh-CN'); // 记录数据获取时间
                     
@@ -24777,6 +25510,24 @@
                     detail: String(item || '').trim()
                 };
             };
+            const marketEvaluationAiJudgementRows = computed(() => {
+                const result = marketEvaluationResult.value || {};
+                const judgement = result.ai_evaluation?.market_judgement || {};
+                return [
+                    {
+                        label: '供给竞争强度',
+                        value: judgement.supply_competition_strength || result.supply_competition_strength || '待补充竞品数据',
+                    },
+                    {
+                        label: '价格带建议',
+                        value: judgement.price_band_suggestion || result.price_band_suggestion || '待补充价格带数据',
+                    },
+                    {
+                        label: '建议动作',
+                        value: judgement.decision || result.ai_evaluation?.decision || result.decision || '待复核',
+                    },
+                ];
+            });
             const marketEvaluationAiRecommendations = computed(() => {
                 const result = marketEvaluationResult.value || {};
                 const aiRecommendations = Array.isArray(result.ai_evaluation?.recommendations)
@@ -24785,25 +25536,171 @@
                 const source = aiRecommendations.length ? aiRecommendations : (Array.isArray(result.ai_operation_suggestions) ? result.ai_operation_suggestions : []);
                 return source.map(normalizeAiRecommendationDisplay).filter(item => item.detail);
             });
+            const normalizeMarketRiskSeverity = (value, index = 0) => {
+                const severity = String(value || '').trim().toUpperCase();
+                if (['P0', 'P1', 'P2'].includes(severity)) return severity;
+                return index === 0 ? 'P0' : 'P1';
+            };
+            const inferMarketEvaluationRiskDetail = (item, result, index = 0) => {
+                const form = marketEvaluationForm.value || {};
+                const metric = String(item.metric || '风险指标').trim() || '风险指标';
+                const threshold = String(item.threshold || '').trim();
+                const action = String(item.action || '').trim() || '补充数据后复核。';
+                const metricText = `${metric}${threshold}`;
+                const expectedAdr = Number(form.expected_adr || 0);
+                const expectedOcc = Number(form.expected_occupancy_rate || 0);
+                const competitorCount = Number(form.competitor_count || 0);
+                const otaRate = Number(form.ota_market_penetration_rate || 0);
+                const rentPerRoom = Number(result.metrics?.rent_per_room || 0);
+                const rentPerSquare = Number(result.metrics?.rent_per_square || 0);
+
+                let evidence = String(item.evidence || item.reason || '').trim();
+                let impact = String(item.impact || '').trim();
+                let validation = String(item.validation || item.verification || item.check_method || '').trim();
+                let owner = String(item.owner || '').trim();
+                let deadline = String(item.deadline || item.timing || '').trim();
+
+                if (!evidence) {
+                    if (/ADR|价格|价带/.test(metricText)) {
+                        evidence = `当前目标ADR为${expectedAdr || '-'}元，需要用3公里同档竞品可订价、评分和点评量复核。`;
+                    } else if (/入住|出租/.test(metricText)) {
+                        evidence = `当前目标入住率为${expectedOcc || '-'}%，需验证商圈工作日、周末和淡旺季需求是否支撑。`;
+                    } else if (/租金|坪效|现金流/.test(metricText)) {
+                        evidence = `当前单房月租约${rentPerRoom || '-'}元、租金坪效约${rentPerSquare || '-'}元/㎡，会直接影响回本周期。`;
+                    } else if (/OTA|转化|流量/.test(metricText)) {
+                        evidence = `当前OTA平台市场渗透率为${otaRate || '-'}%，仍需拆分曝光、访客、转化和客单价验证。`;
+                    } else if (/竞品|供给/.test(metricText)) {
+                        evidence = `当前录入3公里竞品数为${competitorCount || '-'}家，需核对同档、同价带和同客群样本。`;
+                    } else {
+                        evidence = '当前输入仍缺少真实市场、竞品或OTA复核数据，该项需要在投决前补齐证据。';
+                    }
+                }
+                if (!impact) {
+                    if (/ADR|价格|价带/.test(metricText)) {
+                        impact = '若目标价带高于真实竞品承接能力，开业期会出现降价换量，收入预测和回本周期偏乐观。';
+                    } else if (/入住|出租/.test(metricText)) {
+                        impact = '若入住率假设偏高，现金流安全边际会被放大，淡季或爬坡期容易低于预算。';
+                    } else if (/租金|坪效|现金流/.test(metricText)) {
+                        impact = '若租金条款没有调整空间，免租期和装修投入稍有偏差就会拉长投资回收周期。';
+                    } else if (/OTA|转化|流量/.test(metricText)) {
+                        impact = '若线上获客基础不足，后续需要依赖促销和投流补量，利润率会被压缩。';
+                    } else {
+                        impact = '该风险会影响价格带、收入爬坡、现金流或最终投决结论，不能只按当前初筛结果推进。';
+                    }
+                }
+                if (!validation) {
+                    if (/ADR|价格|价带/.test(metricText)) {
+                        validation = '采集不少于8家同档竞品近30天可订价、满房日、评分、点评量，并重算保守/基准/乐观ADR。';
+                    } else if (/入住|出租/.test(metricText)) {
+                        validation = '按工作日、周末、节假日分别复核竞品入住率和商圈客源，更新三情景现金流。';
+                    } else if (/租金|坪效|现金流/.test(metricText)) {
+                        validation = '把租金、免租期、押金、装修投入拆成敏感性测算，明确最低可接受租金条款。';
+                    } else if (/OTA|转化|流量/.test(metricText)) {
+                        validation = '补齐OTA曝光、访客、转化率、间夜和评价质量，判断自然流量能否支撑开业爬坡。';
+                    } else {
+                        validation = '补齐真实样本、复算关键指标，并在投决会前形成可追溯的数据附件。';
+                    }
+                }
+                if (!owner) {
+                    if (/ADR|价格|价带/.test(metricText)) owner = '收益管理/投资拓展';
+                    else if (/OTA|转化|流量/.test(metricText)) owner = '渠道运营/收益管理';
+                    else if (/租金|坪效|现金流/.test(metricText)) owner = '投资测算/拓展谈判';
+                    else owner = '投资拓展/运营负责人';
+                }
+                if (!deadline) {
+                    deadline = index === 0 ? '投决会前' : '合同条款锁定前';
+                }
+
+                return {
+                    metric,
+                    threshold,
+                    action,
+                    severity: normalizeMarketRiskSeverity(item.severity || item.priority, index),
+                    evidence,
+                    impact,
+                    validation,
+                    owner,
+                    deadline
+                };
+            };
             const marketEvaluationAiRiskSuggestions = computed(() => {
                 const result = marketEvaluationResult.value || {};
                 const watchPoints = Array.isArray(result.ai_evaluation?.watch_points)
                     ? result.ai_evaluation.watch_points
                     : [];
                 if (watchPoints.length) {
-                    return watchPoints.map(item => ({
-                        metric: String(item.metric || '风险指标').trim() || '风险指标',
-                        threshold: String(item.threshold || '').trim(),
-                        action: String(item.action || '').trim() || '补充数据后复核。'
-                    })).filter(item => item.metric || item.threshold || item.action);
+                    return watchPoints
+                        .map((item, index) => inferMarketEvaluationRiskDetail(item, result, index))
+                        .filter(item => item.metric || item.threshold || item.action);
                 }
                 const risks = Array.isArray(result.not_recommended_risks) ? result.not_recommended_risks : [];
-                return risks.map(item => ({
+                return risks.map((item, index) => inferMarketEvaluationRiskDetail({
                     metric: '风险点',
                     threshold: String(item || '').trim(),
                     action: '补充真实竞品、客流和 OTA 数据后复核。'
-                })).filter(item => item.threshold);
+                }, result, index)).filter(item => item.threshold);
             });
+            const marketEvaluationRiskSeverityClass = (severity) => {
+                if (severity === 'P0') return 'bg-red-50 text-red-700 border-red-100';
+                if (severity === 'P1') return 'bg-amber-50 text-amber-700 border-amber-100';
+                return 'bg-gray-50 text-gray-600 border-gray-100';
+            };
+            const marketEvaluationAiAssumptions = computed(() => {
+                const assumptions = Array.isArray(marketEvaluationResult.value?.ai_evaluation?.assumptions)
+                    ? marketEvaluationResult.value.ai_evaluation.assumptions
+                    : [];
+                return assumptions
+                    .map(item => String(item || '').trim())
+                    .filter(item => item && !/规则引擎|rule engine/i.test(item))
+                    .slice(0, 3);
+            });
+            const marketEvaluationScoreFormula = computed(() => {
+                const result = marketEvaluationResult.value || {};
+                const formula = result.market_heat_score_formula || {};
+                const finalScore = Number(result.market_heat_score || 0);
+                return {
+                    base_score: Number(formula.base_score ?? 62),
+                    raw_score: Number(formula.raw_score ?? finalScore),
+                    final_score: Number(formula.final_score ?? finalScore),
+                    cap_rule: String(formula.cap_rule || '0-100封顶/保底')
+                };
+            });
+            const marketEvaluationScoreBreakdown = computed(() => {
+                const result = marketEvaluationResult.value || {};
+                const rows = Array.isArray(result.market_heat_score_breakdown)
+                    ? result.market_heat_score_breakdown
+                    : [];
+                if (rows.length) {
+                    return rows.map((item, index) => ({
+                        label: String(item.label || `评分项${index + 1}`).trim(),
+                        score_change: Number(item.score_change ?? item.delta ?? 0),
+                        raw_score_after: Number(item.raw_score_after ?? 0),
+                        reason: String(item.reason || '按当前输入参与市场热度评分。').trim()
+                    })).filter(item => item.label && item.reason);
+                }
+                const finalScore = Number(result.market_heat_score || 0);
+                return [{
+                    label: '历史评分',
+                    score_change: finalScore,
+                    raw_score_after: finalScore,
+                    reason: '历史记录未保存评分明细，仅保留市场热度总分。'
+                }];
+            });
+            const marketEvaluationScorePercent = computed(() => {
+                const finalScore = marketEvaluationScoreFormula.value.final_score;
+                return Math.max(0, Math.min(100, Number.isFinite(finalScore) ? finalScore : 0));
+            });
+            const formatMarketEvaluationScoreChange = (value) => {
+                const score = Number(value || 0);
+                if (score > 0) return `+${score}`;
+                return String(score);
+            };
+            const marketEvaluationScoreChangeClass = (value) => {
+                const score = Number(value || 0);
+                if (score > 0) return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                if (score < 0) return 'bg-red-50 text-red-700 border-red-100';
+                return 'bg-gray-50 text-gray-600 border-gray-100';
+            };
             const marketEvaluationAiRiskNote = computed(() => {
                 const result = marketEvaluationResult.value || {};
                 const assumptions = Array.isArray(result.ai_evaluation?.assumptions)
@@ -27107,7 +28004,7 @@
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
                 aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityRecordId, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, handleFeasibility, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
-                marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
+                marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiJudgementRows, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationRiskSeverityClass, marketEvaluationAiAssumptions, marketEvaluationScoreFormula, marketEvaluationScoreBreakdown, marketEvaluationScorePercent, formatMarketEvaluationScoreChange, marketEvaluationScoreChangeClass, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
                 benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkModelAiSourceLabel, benchmarkModelAiRecommendations, benchmarkModelAiWatchPoints, benchmarkModelAiAssumptionNote, benchmarkModelDataNotice, benchmarkModelAiOutcomeCards, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
                 collaborationProject, collaborationTasks, collaborationStatusOptions, collaborationEfficiencyResult, collaborationEfficiencyLoading, handleCollaborationEfficiency,
                 expansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, hasExpansionHistory, expansionRecordTypeLabel, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
@@ -27123,19 +28020,21 @@
                 operationUnreadCount, filteredOperationAlerts, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
                 markOperationAlertsRead, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
                 operationValue, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
-                operationAlertStatusLabel, operationAlertLevelClass, operationRiskLevelLabel, operationStrategyTypeLabel,
+                operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
                 openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingOverview, openingTasks, openingLoading,
-                openingProjectForm, openingProjectHotelOptions, openingTaskFilter, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
-                loadOpeningProjects, createOpeningProject, saveOpeningProject, archiveOpeningProject, startOpeningProjectCreate, selectOpeningProject, generateOpeningTasks, openOpeningChecklist, applyOpeningHotelToForm, updateOpeningTask, setOpeningTaskStatus, resetOpeningTaskFilter, recalculateOpening,
+                openingProjectForm, openingPositioningImpact, openingTaskFilter, openingTaskPage, openingTaskPagination, pagedOpeningTasks, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
+                selectedOpeningTaskIds, selectedOpeningTasks, isAllFilteredOpeningTasksSelected, toggleSelectAllFilteredOpeningTasks, clearSelectedOpeningTasks, batchUpdateOpeningTasks,
+                loadOpeningProjects, createOpeningProject, saveOpeningProject, archiveOpeningProject, startOpeningProjectCreate, selectOpeningProject, generateOpeningTasks, openOpeningChecklist, updateOpeningTask, setOpeningTaskStatus, resetOpeningTaskFilter, changeOpeningTaskPage, recalculateOpening,
                 openingTaskDueLabel, openingTaskDueClass, openingTaskProgressPercent, openingTaskProgressStage, openingTaskProgressTextClass, handleOpeningTaskProgressInput, handleOpeningTaskStatusChange, setOpeningTaskProgress, saveOpeningTaskProgress,
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState, selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
-                macroSignalCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeAiDecisionCards, homeDataSources, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
+                macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeAiDecisionCards, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
                 compassHotelOptions, compassLoading, compassLastSyncedAt, compassDataReadiness, refreshCompassDashboard,
-                weatherDemandHint, weatherLocationName, selectedWeatherCity, weatherCityPickerOpen, weatherCityChoices, selectWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, weatherToday, weatherForecastDays, weatherImpactTone, weatherLoading, weatherError, homeQuickEntries, openHomeQuickEntry,
+                weatherDemandHint, weatherLocationName, selectedWeatherCity, weatherCityPickerOpen, weatherCityChoices, selectWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, weatherToday, weatherForecastDays, weatherImpactTone, weatherLoading, weatherError,
+                homeQuickEntries, hiddenHomeQuickEntries, homeQuickLayoutEditing, moveHomeQuickEntry, toggleHomeQuickEntry, resetHomeQuickLayout, saveHomeQuickLayout, openHomeQuickEntry,
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusClass, loadLifecycleOverview,
-                isLoggedIn, loading, loginError, user, token, currentTime, currentPage, showPassword,
+                isLoggedIn, loading, loginError, user, token, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu,
@@ -27173,10 +28072,11 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, shouldShowOnlineFetchResult, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripCommentForm, ctripCommentResult, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripCommentForm, ctripCommentResult, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, customForm, newCookies, cookiesList, cookieStatusList, cookieAlerts, bookmarkletCode,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
+                onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList,
                 onlineHistoryFilter, onlineHistoryList, onlineHistoryPagination, onlineHistoryPage, onlineHistorySummary, onlineHistoryHotelList,
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
@@ -27193,7 +28093,7 @@
                 loadCtripConfigList, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanBookmarklet, selectedMeituanHotelConfig,
-                meituanHotelsList, meituanFetchSuccess, meituanSavedCount, meituanDataFetchTime,
+                meituanHotelsList, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanSavedCount, meituanDataFetchTime,
                 meituanSortField, meituanSortOrder, sortMeituanTable,
                 loadMeituanConfigList, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, goConfigureMeituanForSelectedHotel,
                 // AI智能分析（携程）

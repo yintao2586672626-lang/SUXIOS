@@ -38,14 +38,11 @@ class Lifecycle extends Base
 
     private function openingStage(array $hotelIds): array
     {
-        $projectQuery = fn() => $this->withHotelIds(Db::name('opening_projects'), $hotelIds, 'hotel_id');
+        $projectQuery = fn() => Db::name('opening_projects');
         $projectIds = $this->safeArray(fn() => $projectQuery()->column('id'));
-        $taskQuery = function () use ($projectIds, $hotelIds) {
+        $taskQuery = function () use ($projectIds) {
             $query = Db::name('opening_tasks');
-            if (!empty($hotelIds)) {
-                return empty($projectIds) ? $query->whereRaw('1=0') : $query->whereIn('project_id', array_map('intval', $projectIds));
-            }
-            return $query;
+            return empty($projectIds) ? $query->whereRaw('1=0') : $query->whereIn('project_id', array_map('intval', $projectIds));
         };
         $projectCount = $this->safeInt(fn() => $projectQuery()->count());
         $openTaskCount = $this->safeInt(fn() => $taskQuery()->whereIn('status', ['todo', 'doing', 'blocked'])->count());

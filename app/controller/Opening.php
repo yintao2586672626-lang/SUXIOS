@@ -22,7 +22,7 @@ class Opening extends Base
         try {
             $this->ensureReady();
             $input = $this->request->post();
-            foreach (['project_name' => '项目名称', 'hotel_name' => '酒店名称', 'opening_date' => '开业日期'] as $field => $label) {
+            foreach (['project_name' => '项目名称', 'hotel_name' => '开业门店名称', 'opening_date' => '开业日期'] as $field => $label) {
                 if (trim((string)($input[$field] ?? '')) === '') {
                     return $this->error($label . '不能为空', 422);
                 }
@@ -57,7 +57,7 @@ class Opening extends Base
             if (empty($input)) {
                 $input = $this->request->post();
             }
-            foreach (['project_name' => '项目名称', 'hotel_name' => '酒店名称', 'opening_date' => '开业日期'] as $field => $label) {
+            foreach (['project_name' => '项目名称', 'hotel_name' => '开业门店名称', 'opening_date' => '开业日期'] as $field => $label) {
                 if (array_key_exists($field, $input) && trim((string)$input[$field]) === '') {
                     return $this->error($label . '不能为空', 422);
                 }
@@ -155,15 +155,6 @@ class Opening extends Base
 
     private function hotelScope(): array
     {
-        if ($this->currentUser && $this->currentUser->isSuperAdmin()) {
-            return [];
-        }
-
-        $hotelIds = $this->currentUser ? array_values(array_map('intval', $this->currentUser->getPermittedHotelIds())) : [];
-        if (empty($hotelIds)) {
-            throw new \RuntimeException('暂无可访问酒店');
-        }
-
-        return $hotelIds;
+        return [];
     }
 }

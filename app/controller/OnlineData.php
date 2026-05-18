@@ -1040,6 +1040,7 @@ class OnlineData extends Base
                     'create_time' => date('Y-m-d H:i:s'),
                     'update_time' => date('Y-m-d H:i:s'),
                 ];
+                $insertData = $this->applyOnlineDailyDataValidationFields($insertData);
 
                 $inserted = Db::name('online_daily_data')->insertGetId($insertData);
                 if ($inserted) {
@@ -1429,6 +1430,7 @@ class OnlineData extends Base
                     'data_type' => 'business',
                     'raw_data' => json_encode(['poiName' => $hotelName, 'dataValue' => $dataValue, 'rankType' => $rankType], JSON_UNESCAPED_UNICODE),
                 ];
+                $data = $this->applyOnlineDailyDataValidationFields($data);
                 
                 if ($exists) {
                     Db::name('online_daily_data')
@@ -1532,6 +1534,7 @@ class OnlineData extends Base
             if (isset($columns['update_time'])) {
                 $data['update_time'] = $now;
             }
+            $data = $this->applyOnlineDailyDataValidationFields($data, $columns);
             
             if ($exists) {
                 Db::name('online_daily_data')
@@ -3219,6 +3222,68 @@ JAVASCRIPT;
         return array_intersect_key($data, $columns);
     }
 
+    private function buildOnlineDailyDataValidationFields(array $data): array
+    {
+        $flags = [];
+        foreach (['source', 'hotel_id', 'data_date'] as $field) {
+            if (!isset($data[$field]) || trim((string)$data[$field]) === '') {
+                $flags[] = [
+                    'level' => 'error',
+                    'field' => $field,
+                    'message' => $field . ' is missing',
+                ];
+            }
+        }
+
+        foreach (['amount', 'quantity', 'book_order_num', 'data_value'] as $field) {
+            if (!array_key_exists($field, $data) || $data[$field] === '' || $data[$field] === null) {
+                continue;
+            }
+            if (!is_numeric($data[$field])) {
+                $flags[] = [
+                    'level' => 'error',
+                    'field' => $field,
+                    'message' => $field . ' must be numeric',
+                ];
+                continue;
+            }
+            if ((float)$data[$field] < 0) {
+                $flags[] = [
+                    'level' => 'error',
+                    'field' => $field,
+                    'message' => $field . ' must not be negative',
+                ];
+            }
+        }
+
+        $amount = isset($data['amount']) && is_numeric($data['amount']) ? (float)$data['amount'] : 0.0;
+        $quantity = isset($data['quantity']) && is_numeric($data['quantity']) ? (float)$data['quantity'] : null;
+        if ($amount > 0 && $quantity === 0.0) {
+            $flags[] = [
+                'level' => 'warning',
+                'field' => 'quantity',
+                'message' => 'amount exists but quantity is zero',
+            ];
+        }
+
+        $hasError = array_reduce($flags, static fn(bool $carry, array $flag): bool => $carry || ($flag['level'] ?? '') === 'error', false);
+        return [
+            'validation_status' => $hasError ? 'abnormal' : (empty($flags) ? 'normal' : 'warning'),
+            'validation_flags' => json_encode($flags, JSON_UNESCAPED_UNICODE),
+        ];
+    }
+
+    private function applyOnlineDailyDataValidationFields(array $data, ?array $columns = null): array
+    {
+        $columns = $columns ?? $this->getOnlineDailyDataColumns();
+        foreach ($this->buildOnlineDailyDataValidationFields($data) as $field => $value) {
+            if (isset($columns[$field])) {
+                $data[$field] = $value;
+            }
+        }
+        return $data;
+    }
+
     private function resolveOnlineDataSystemHotelId($input): ?int
     {
         if ($this->currentUser && !$this->currentUser->isSuperAdmin() && !empty($this->currentUser->hotel_id)) {
@@ -3473,6 +3538,7 @@ JAVASCRIPT;
                     }
                 }
                 $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
+                $item['data_quality'] = $this->buildOnlineDataQuality($item);
             }
             
             return $this->success([
@@ -3482,11 +3548,310 @@ JAVASCRIPT;
                     'page' => $page,
                     'page_size' => $pageSize,
                 ],
+                'data_quality_summary' => $this->buildOnlineDataQualitySummary($list),
             ]);
         } catch (\Throwable $e) {
             \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取数据列表失败', 500);
         }
+    }
+
+    private function buildOnlineDataQualitySummary(array $rows): array
+    {
+        $checkedRecords = count($rows);
+        $issueRecords = 0;
+        $missingCount = 0;
+        $abnormalCount = 0;
+        $errorCount = 0;
+        $warningCount = 0;
+        $prompts = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $quality = isset($row['data_quality']) && is_array($row['data_quality'])
+                ? $row['data_quality']
+                : $this->buildOnlineDataQuality($row);
+
+            if (($quality['status'] ?? 'ok') !== 'ok') {
+                $issueRecords++;
+            }
+            $missingCount += count($quality['missing_metrics'] ?? []);
+            $abnormalCount += count($quality['abnormal_metrics'] ?? []);
+            $errorCount += (int)($quality['error_count'] ?? 0);
+            $warningCount += (int)($quality['warning_count'] ?? 0);
+            foreach (($quality['prompts'] ?? []) as $prompt) {
+                $prompt = trim((string)$prompt);
+                if ($prompt !== '' && !in_array($prompt, $prompts, true)) {
+                    $prompts[] = $prompt;
+                }
+            }
+        }
+
+        $status = 'ok';
+        if ($errorCount > 0) {
+            $status = 'error';
+        } elseif ($issueRecords > 0) {
+            $status = 'warning';
+        }
+
+        return [
+            'status' => $status,
+            'checked_records' => $checkedRecords,
+            'ok_records' => max(0, $checkedRecords - $issueRecords),
+            'issue_records' => $issueRecords,
+            'missing_count' => $missingCount,
+            'abnormal_count' => $abnormalCount,
+            'error_count' => $errorCount,
+            'warning_count' => $warningCount,
+            'top_prompts' => array_slice($prompts, 0, 6),
+        ];
+    }
+
+    private function buildOnlineDataQuality(array $row): array
+    {
+        [$raw, $rawError] = $this->decodeOnlineDataQualityRaw($row['raw_data'] ?? null);
+        $source = strtolower(trim((string)($row['source'] ?? '')));
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if ($dataType === '') {
+            $dataType = 'business';
+        }
+
+        $missing = [];
+        $abnormal = [];
+
+        $this->addOnlineDataMissingMetric($missing, $row, $raw, 'hotel_id', '酒店ID', ['hotel_id'], ['hotelId', 'hotel_id', 'poiId', 'poi_id']);
+        $this->addOnlineDataMissingMetric($missing, $row, $raw, 'hotel_name', '酒店名称', ['hotel_name'], ['hotelName', 'hotel_name', 'poiName', 'poi_name']);
+        $this->addOnlineDataMissingMetric($missing, $row, $raw, 'data_date', '数据日期', ['data_date'], ['dataDate', 'data_date', 'date', 'statDate']);
+        $this->addOnlineDataMissingMetric($missing, $row, $raw, 'source', '数据来源', ['source'], []);
+
+        if ($source === 'meituan') {
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'data_value', '指标值', ['data_value'], ['dataValue', 'data_value', 'monthRoomNights']);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'dimension', '榜单维度', ['dimension'], ['dimension', 'dimName', '_dimName']);
+        } elseif ($dataType === 'traffic') {
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'exposure', '曝光', ['list_exposure', 'exposure_count', 'exposure', 'data_value'], ['listExposure', 'exposure', 'exposure_count']);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'detail_visitors', '浏览/访客', ['detail_exposure', 'click_count', 'total_detail_num'], ['detailExposure', 'totalDetailNum', 'views', 'visitorCount']);
+        } else {
+            $requireRaw = !empty($raw);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'amount', '营业额', ['amount'], ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount'], $requireRaw);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'quantity', '间夜', ['quantity'], ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity'], $requireRaw);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'book_order_num', '订单数', ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count'], $requireRaw);
+        }
+
+        if ($rawError !== null) {
+            $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'raw_data_json', 'raw_data', '原始JSON', null, '原始数据无法解析');
+        }
+
+        foreach ([
+            'amount' => '营业额',
+            'quantity' => '间夜',
+            'book_order_num' => '订单数',
+            'data_value' => '指标值',
+        ] as $key => $label) {
+            $value = $this->onlineDataQualityNumber($row[$key] ?? null);
+            if ($value !== null && $value < 0) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('error', $key . '_negative', $key, $label, $value, $label . '不能为负数');
+            }
+        }
+
+        $amount = $this->onlineDataQualityFirstNumber($row, $raw, ['amount'], ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']);
+        $quantity = $this->onlineDataQualityFirstNumber($row, $raw, ['quantity'], ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity']);
+        $orders = $this->onlineDataQualityFirstNumber($row, $raw, ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']);
+
+        if ($source !== 'meituan' && $dataType !== 'traffic') {
+            if ($amount !== null && $amount > 0 && ($quantity === null || $quantity <= 0)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_denominator_zero', 'quantity', '间夜', $quantity, '营业额存在但间夜为0，ADR无法计算');
+            }
+            if ($quantity !== null && $quantity > 0 && ($amount === null || $amount <= 0)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'amount_missing_for_quantity', 'amount', '营业额', $amount, '间夜存在但营业额为0');
+            }
+            if ($orders !== null && $orders > 0 && ($quantity === null || $quantity <= 0)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'orders_without_room_nights', 'book_order_num', '订单数', $orders, '订单数存在但间夜为0');
+            }
+            if ($amount !== null && $quantity !== null && $quantity > 0) {
+                $adr = round($amount / $quantity, 2);
+                if ($adr > 5000) {
+                    $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_high', 'adr', 'ADR', $adr, 'ADR高于常规阈值');
+                }
+            }
+        }
+
+        foreach ([
+            'comment_score' => '点评分',
+            'qunar_comment_score' => '去哪儿评分',
+        ] as $key => $label) {
+            $score = $this->onlineDataQualityNumber($row[$key] ?? null);
+            if ($score !== null && ($score < 0 || $score > 5)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'comment_score_range', $key, $label, $score, $label . '应在0到5之间');
+            }
+        }
+
+        foreach ([
+            ['convertion_rate', '浏览转化率', ['convertion_rate'], ['convertionRate', 'conversionRate']],
+            ['qunar_detail_cr', '去哪儿转化率', ['qunar_detail_cr'], ['qunarDetailCR', 'qunarDetailConversionRate']],
+        ] as [$key, $label, $rowKeys, $rawKeys]) {
+            $rate = $this->onlineDataQualityFirstNumber($row, $raw, $rowKeys, $rawKeys);
+            if ($rate !== null && ($rate < 0 || $rate > 100)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', $key . '_range', $key, $label, $rate, $label . '应在0到100之间');
+            }
+        }
+
+        $this->appendOnlineDataTrafficAnomalies($abnormal, $row, $raw);
+
+        $errorCount = count(array_filter([...$missing, ...$abnormal], static fn($issue): bool => ($issue['level'] ?? '') === 'error'));
+        $warningCount = count($missing) + count($abnormal) - $errorCount;
+        $status = $errorCount > 0 ? 'error' : ($warningCount > 0 ? 'warning' : 'ok');
+        $prompts = $this->buildOnlineDataQualityPrompts($missing, $abnormal);
+
+        return [
+            'status' => $status,
+            'status_label' => $status === 'ok' ? '完整' : ($status === 'error' ? '异常' : '需复核'),
+            'score' => max(0, 100 - count($missing) * 12 - count($abnormal) * 18),
+            'missing_metrics' => $missing,
+            'abnormal_metrics' => $abnormal,
+            'missing_count' => count($missing),
+            'abnormal_count' => count($abnormal),
+            'error_count' => $errorCount,
+            'warning_count' => $warningCount,
+            'prompts' => $prompts,
+            'summary' => empty($prompts) ? '数据完整' : implode('；', $prompts),
+        ];
+    }
+
+    private function decodeOnlineDataQualityRaw($rawData): array
+    {
+        if (is_array($rawData)) {
+            return [$rawData, null];
+        }
+        if ($rawData === null || $rawData === '') {
+            return [[], null];
+        }
+        if (!is_string($rawData)) {
+            return [[], 'raw_data is not string'];
+        }
+        $decoded = json_decode($rawData, true);
+        if (!is_array($decoded)) {
+            return [[], json_last_error_msg()];
+        }
+        return [$decoded, null];
+    }
+
+    private function addOnlineDataMissingMetric(array &$missing, array $row, array $raw, string $key, string $label, array $rowKeys, array $rawKeys, bool $requireRaw = false): void
+    {
+        if ($this->onlineDataQualityMetricPresent($row, $raw, $rowKeys, $rawKeys, $requireRaw)) {
+            return;
+        }
+        $missing[] = [
+            'level' => 'warning',
+            'key' => $key,
+            'label' => $label,
+            'message' => '缺失' . $label,
+        ];
+    }
+
+    private function onlineDataQualityMetricPresent(array $row, array $raw, array $rowKeys, array $rawKeys, bool $requireRaw = false): bool
+    {
+        if (!$requireRaw) {
+            foreach ($rowKeys as $key) {
+                if (array_key_exists($key, $row) && !$this->onlineDataQualityBlank($row[$key])) {
+                    return true;
+                }
+            }
+        }
+        foreach ($rawKeys as $key) {
+            if (array_key_exists($key, $raw) && !$this->onlineDataQualityBlank($raw[$key])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function onlineDataQualityBlank($value): bool
+    {
+        return $value === null || $value === '';
+    }
+
+    private function onlineDataQualityNumber($value): ?float
+    {
+        if (is_int($value) || is_float($value)) {
+            return is_finite((float)$value) ? (float)$value : null;
+        }
+        if (is_string($value)) {
+            $normalized = trim(str_replace([',', '%'], '', $value));
+            if ($normalized === '' || !is_numeric($normalized)) {
+                return null;
+            }
+            return (float)$normalized;
+        }
+        return null;
+    }
+
+    private function onlineDataQualityFirstNumber(array $row, array $raw, array $rowKeys, array $rawKeys): ?float
+    {
+        foreach ($rowKeys as $key) {
+            if (array_key_exists($key, $row)) {
+                $value = $this->onlineDataQualityNumber($row[$key]);
+                if ($value !== null) {
+                    return $value;
+                }
+            }
+        }
+        foreach ($rawKeys as $key) {
+            if (array_key_exists($key, $raw)) {
+                $value = $this->onlineDataQualityNumber($raw[$key]);
+                if ($value !== null) {
+                    return $value;
+                }
+            }
+        }
+        return null;
+    }
+
+    private function makeOnlineDataAbnormalIssue(string $level, string $code, string $key, string $label, $value, string $message): array
+    {
+        return [
+            'level' => $level,
+            'code' => $code,
+            'key' => $key,
+            'label' => $label,
+            'value' => $value,
+            'message' => $message,
+        ];
+    }
+
+    private function appendOnlineDataTrafficAnomalies(array &$abnormal, array $row, array $raw): void
+    {
+        $exposure = $this->onlineDataQualityFirstNumber($row, $raw, ['list_exposure', 'exposure_count', 'exposure', 'data_value'], ['listExposure', 'exposure', 'exposure_count']);
+        $views = $this->onlineDataQualityFirstNumber($row, $raw, ['detail_exposure', 'click_count', 'total_detail_num'], ['detailExposure', 'totalDetailNum', 'views', 'visitorCount']);
+        $orderVisitors = $this->onlineDataQualityFirstNumber($row, $raw, ['order_filling_num', 'order_visitors'], ['orderFillingNum', 'order_visitors']);
+        $submitUsers = $this->onlineDataQualityFirstNumber($row, $raw, ['order_submit_num', 'submit_users'], ['orderSubmitNum', 'submit_users']);
+
+        if ($exposure !== null && $views !== null && $exposure > 0 && $views > $exposure) {
+            $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'views_gt_exposure', 'detail_visitors', '浏览/访客', $views, '浏览/访客大于曝光');
+        }
+        if ($views !== null && $orderVisitors !== null && $views > 0 && $orderVisitors > $views) {
+            $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'orders_gt_views', 'order_visitors', '订单页访客', $orderVisitors, '订单页访客大于浏览/访客');
+        }
+        if ($orderVisitors !== null && $submitUsers !== null && $orderVisitors > 0 && $submitUsers > $orderVisitors) {
+            $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'submit_gt_orders', 'submit_users', '提交用户', $submitUsers, '提交用户大于订单页访客');
+        }
+    }
+
+    private function buildOnlineDataQualityPrompts(array $missing, array $abnormal): array
+    {
+        $prompts = [];
+        if (!empty($missing)) {
+            $labels = array_values(array_unique(array_map(static fn($issue): string => (string)($issue['label'] ?? $issue['key'] ?? ''), $missing)));
+            $labels = array_filter($labels, static fn($label): bool => $label !== '');
+            $prompts[] = '缺失：' . implode('、', array_slice($labels, 0, 6));
+        }
+        if (!empty($abnormal)) {
+            $messages = array_values(array_unique(array_map(static fn($issue): string => (string)($issue['message'] ?? $issue['label'] ?? ''), $abnormal)));
+            $messages = array_filter($messages, static fn($message): bool => $message !== '');
+            $prompts[] = '异常：' . implode('、', array_slice($messages, 0, 6));
+        }
+        return $prompts;
     }
 
     private function applyOnlineDailyDataHotelFilter($query, string $hotelId): void
@@ -5131,7 +5496,6 @@ JAVASCRIPT;
             $status['schedule_time'] = '10:00';
         }
         $status['schedule_time'] = $this->normalizeFetchScheduleTime((string)$status['schedule_time']) ?? '10:00';
-        
         // 计算下次运行时间
         if ($status['enabled']) {
             $scheduleTime = $status['schedule_time'];
@@ -5581,7 +5945,7 @@ JAVASCRIPT;
                     }
 
                     $exists = $query->find();
-                    $data = $this->filterOnlineDailyDataFields([
+                    $data = $this->filterOnlineDailyDataFields($this->applyOnlineDailyDataValidationFields([
                         'hotel_id' => (string)$hotelId,
                         'hotel_name' => $hotelName,
                         'system_hotel_id' => $systemHotelId,
@@ -5603,7 +5967,7 @@ JAVASCRIPT;
                         'order_filling_num' => $orderFillingNum,
                         'order_submit_num' => $orderSubmitNum,
                         'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-                    ]);
+                    ]));
 
                     if ($exists) {
                         Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
@@ -5672,7 +6036,7 @@ JAVASCRIPT;
 
                 $exists = $query->find();
 
-                $data = $this->filterOnlineDailyDataFields([
+                $data = $this->filterOnlineDailyDataFields($this->applyOnlineDailyDataValidationFields([
                     'hotel_id' => $hotelId ? (string)$hotelId : '',
                     'hotel_name' => $hotelName,
                     'system_hotel_id' => $systemHotelId,
@@ -5687,7 +6051,7 @@ JAVASCRIPT;
                     'data_type' => 'traffic',
                     'dimension' => $dimension ?: 'traffic',
                     'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-                ]);
+                ]));
 
                 if ($exists) {
                     Db::name('online_daily_data')
@@ -5784,7 +6148,7 @@ JAVASCRIPT;
     /**
      * 清除opcache缓存（开发调试用）
      */
-    public function clearCache(): Response
+    private function clearCache(): Response
     {
         $result = [];
         
@@ -7112,7 +7476,7 @@ HTML;
             }
             $exists = $query->find();
 
-            $data = $this->filterOnlineDailyDataFields([
+            $data = $this->filterOnlineDailyDataFields($this->applyOnlineDailyDataValidationFields([
                 'hotel_id' => $commentHotelId,
                 'hotel_name' => (string)($comment['hotelName'] ?? $comment['hotel_name'] ?? ''),
                 'system_hotel_id' => $systemHotelId,
@@ -7129,7 +7493,7 @@ HTML;
                 'platform' => 'Ctrip',
                 'compare_type' => 'self',
                 'raw_data' => json_encode($comment, JSON_UNESCAPED_UNICODE),
-            ]);
+            ]));
 
             if ($exists) {
                 Db::name('online_daily_data')->where('id', $exists['id'])->update($data);

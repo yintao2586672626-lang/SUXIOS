@@ -1,0 +1,57 @@
+name: PHP Composer
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, openssl
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Validate Composer metadata
+        run: composer validate --strict
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run backend tests
+        run: composer test
+
+      - name: Run project guards
+        run: npm run verify:p0-guards
+
+      - name: Run contract checks
+        run: |
+          php scripts/verify_missing_modules.php
+          php scripts/verify_route_coverage.php
+          node scripts/verify_ai_model_config_i18n.mjs
+          npm run verify:ota-data-batch
+          npm run verify:opening-batch-actions

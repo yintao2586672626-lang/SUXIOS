@@ -74,6 +74,21 @@ class ExpansionService
         }
 
         $score = 62;
+        $scoreBreakdown = [[
+            'label' => '基础分',
+            'score_change' => 62,
+            'raw_score_after' => 62,
+            'reason' => '按城市酒店扩张初筛模型给出基础可评估分。',
+        ]];
+        $addScore = static function (string $label, int $change, string $reason) use (&$score, &$scoreBreakdown): void {
+            $score += $change;
+            $scoreBreakdown[] = [
+                'label' => $label,
+                'score_change' => $change,
+                'raw_score_after' => (int)round($score),
+                'reason' => $reason,
+            ];
+        };
         $riskPoints = [];
         $reasons = [];
         $missing = [];
@@ -82,126 +97,142 @@ class ExpansionService
         $rentPerSquare = $estimatedRent / max(1, $propertyArea);
 
         if ($businessArea === '') {
-            $score -= 8;
+            $addScore('商圈信息', -8, '商圈信息为空，无法判断客源半径和竞品密度。');
             $missing[] = '商圈/区域';
             $riskPoints[] = '商圈信息为空，无法判断客源半径和竞品密度';
         } else {
-            $score += 8;
-            $reasons[] = "已录入{$city}{$businessArea}，可进入实地商圈复核";
+            $reason = "已录入{$city}{$businessArea}，可进入实地商圈复核";
+            $addScore('商圈信息', 8, $reason);
+            $reasons[] = $reason;
         }
 
         if ($targetRoomCount >= 60 && $rentPerRoom <= 2600) {
-            $score += 16;
-            $reasons[] = '房量大于60且单房月租处于可控区间';
+            $reason = '房量大于60且单房月租处于可控区间';
+            $addScore('房量与单房租金', 16, $reason);
+            $reasons[] = $reason;
         } elseif ($targetRoomCount < 40) {
-            $score -= 18;
+            $addScore('房量与单房租金', -18, '目标房量低于40间，规模效率和人员摊薄压力较高。');
             $riskPoints[] = '目标房量低于40间，规模效率和人员摊薄压力较高';
         } else {
-            $score += 4;
-            $reasons[] = '房量处于可评估区间，需结合平面落位复核';
+            $reason = '房量处于可评估区间，需结合平面落位复核';
+            $addScore('房量与单房租金', 4, $reason);
+            $reasons[] = $reason;
         }
 
         if ($propertyArea < 1000 || $areaPerRoom < 18) {
-            $score -= 16;
+            $addScore('面积与房型效率', -16, '物业面积或单房面积偏小，可能影响房型落位和公共区配置。');
             $riskPoints[] = '物业面积或单房面积偏小，可能影响房型落位和公共区配置';
         } elseif ($areaPerRoom <= 48) {
-            $score += 8;
-            $reasons[] = '单房建筑面积匹配常规中端酒店模型';
+            $reason = '单房建筑面积匹配常规中端酒店模型';
+            $addScore('面积与房型效率', 8, $reason);
+            $reasons[] = $reason;
         } else {
-            $score -= 4;
+            $addScore('面积与房型效率', -4, '单房建筑面积偏大，需关注坪效损耗。');
             $riskPoints[] = '单房建筑面积偏大，需关注坪效损耗';
         }
 
         if ($rentPerRoom > 3200 || $rentPerSquare > 85) {
-            $score -= 22;
+            $addScore('租金压力', -22, '租金压力偏高，开业爬坡期现金流安全边际不足。');
             $riskPoints[] = '租金压力偏高，开业爬坡期现金流安全边际不足';
         } elseif ($rentPerRoom > 2600 || $rentPerSquare > 65) {
-            $score -= 10;
+            $addScore('租金压力', -10, '租金略高，建议争取免租期、递增上限或装修补贴。');
             $riskPoints[] = '租金略高，建议争取免租期、递增上限或装修补贴';
         } else {
-            $score += 10;
-            $reasons[] = '租金水平未触发高压阈值';
+            $reason = '租金水平未触发高压阈值';
+            $addScore('租金压力', 10, $reason);
+            $reasons[] = $reason;
         }
 
         if (str_contains($targetCustomer, '商务') || str_contains($targetCustomer, '差旅')) {
-            $score += 4;
-            $reasons[] = '目标客群适合城市商旅型价格带';
+            $reason = '目标客群适合城市商旅型价格带';
+            $addScore('目标客群', 4, $reason);
+            $reasons[] = $reason;
         }
         if (str_contains($decorationLevel, '高端')) {
-            $score -= 4;
+            $addScore('装修定位', -4, '装修档次偏高时需控制单房投入，避免回收周期拉长。');
             $riskPoints[] = '装修档次偏高时需控制单房投入，避免回收周期拉长';
         }
         if ($leaseYears !== null && $leaseYears < 6) {
-            $score -= 8;
+            $addScore('租期条件', -8, '租期低于6年，装修摊销和回收周期存在压力。');
             $riskPoints[] = '租期低于6年，装修摊销和回收周期存在压力';
         } elseif ($leaseYears !== null && $leaseYears >= 8) {
-            $score += 4;
-            $reasons[] = '租期具备中长期经营稳定性';
+            $reason = '租期具备中长期经营稳定性';
+            $addScore('租期条件', 4, $reason);
+            $reasons[] = $reason;
         }
         if ($rentFreeMonths !== null && $rentFreeMonths < 3) {
-            $score -= 5;
+            $addScore('免租期', -5, '免租期偏短，筹建期现金流缓冲不足。');
             $riskPoints[] = '免租期偏短，筹建期现金流缓冲不足';
         } elseif ($rentFreeMonths !== null && $rentFreeMonths >= 4) {
-            $score += 4;
-            $reasons[] = '免租期可覆盖部分筹建爬坡压力';
+            $reason = '免租期可覆盖部分筹建爬坡压力';
+            $addScore('免租期', 4, $reason);
+            $reasons[] = $reason;
         }
         if ($fitoutBudget !== null && $targetRoomCount > 0) {
             $fitoutPerRoom = $fitoutBudget * 10000 / max(1, $targetRoomCount);
             if ($fitoutPerRoom > 90000) {
-                $score -= 6;
+                $addScore('装修投入', -6, '单房装修投入偏高，需压缩非必要配置。');
                 $riskPoints[] = '单房装修投入偏高，需压缩非必要配置';
             } elseif ($fitoutPerRoom > 0 && $fitoutPerRoom <= 65000) {
-                $score += 3;
-                $reasons[] = '单房装修投入处于较可控区间';
+                $reason = '单房装修投入处于较可控区间';
+                $addScore('装修投入', 3, $reason);
+                $reasons[] = $reason;
             }
         }
         if ($depositMonths !== null && $depositMonths > 6) {
-            $score -= 4;
+            $addScore('押金条件', -4, '押金月数偏高，会抬升前期资金占用。');
             $riskPoints[] = '押金月数偏高，会抬升前期资金占用';
         }
         if ($transferFee !== null && $transferFee > 0 && $targetRoomCount > 0 && ($transferFee * 10000 / max(1, $targetRoomCount)) > 50000) {
-            $score -= 5;
+            $addScore('转让费', -5, '转让费摊到单房后偏高，需重新核算回本周期。');
             $riskPoints[] = '转让费摊到单房后偏高，需重新核算回本周期';
         }
         if ($expectedAdr !== null && $expectedAdr > 0) {
             if ($expectedAdr >= $rentPerRoom / 9) {
-                $score += 4;
-                $reasons[] = '目标ADR对租金承压具备一定覆盖能力';
+                $reason = '目标ADR对租金承压具备一定覆盖能力';
+                $addScore('ADR承压能力', 4, $reason);
+                $reasons[] = $reason;
             } else {
-                $score -= 4;
+                $addScore('ADR承压能力', -4, '目标ADR偏低，需复核价格带与租金匹配度。');
                 $riskPoints[] = '目标ADR偏低，需复核价格带与租金匹配度';
             }
         }
         if ($expectedOccupancyRate !== null && $expectedOccupancyRate > 0) {
             if ($expectedOccupancyRate < 65) {
-                $score -= 5;
+                $addScore('入住率假设', -5, '目标入住率低于65%，项目爬坡安全边际不足。');
                 $riskPoints[] = '目标入住率低于65%，项目爬坡安全边际不足';
             } elseif ($expectedOccupancyRate >= 78) {
-                $score += 3;
-                $reasons[] = '目标入住率达到成熟门店经营区间';
+                $reason = '目标入住率达到成熟门店经营区间';
+                $addScore('入住率假设', 3, $reason);
+                $reasons[] = $reason;
             }
         }
         if ($competitorCount !== null && $competitorCount > 25) {
-            $score -= 5;
+            $addScore('竞品压力', -5, '周边竞品数量偏多，需强化差异化和价格带验证。');
             $riskPoints[] = '周边竞品数量偏多，需强化差异化和价格带验证';
         }
         if ($otaMarketPenetrationRate === null) {
+            $addScore('OTA渗透率', 0, '未提供OTA平台市场渗透率，本项暂不加分。');
             $missing[] = 'OTA平台市场渗透率';
         } elseif ($otaMarketPenetrationRate < 35) {
-            $score -= 6;
+            $addScore('OTA渗透率', -6, 'OTA平台市场渗透率偏低，线上自然流量和转化基础不足。');
             $riskPoints[] = 'OTA平台市场渗透率偏低，线上自然流量和转化基础不足';
         } elseif ($otaMarketPenetrationRate >= 60) {
-            $score += 5;
-            $reasons[] = 'OTA平台市场渗透率较高，线上获客基础具备验证价值';
+            $reason = 'OTA平台市场渗透率较高，线上获客基础具备验证价值';
+            $addScore('OTA渗透率', 5, $reason);
+            $reasons[] = $reason;
         } else {
-            $score += 2;
-            $reasons[] = 'OTA平台市场渗透率处于可验证区间，需结合竞品价格带复核';
+            $reason = 'OTA平台市场渗透率处于可验证区间，需结合竞品价格带复核';
+            $addScore('OTA渗透率', 2, $reason);
+            $reasons[] = $reason;
         }
         if ($parkingSpaces !== null && $parkingSpaces > 0 && $targetRoomCount > 0 && $parkingSpaces / $targetRoomCount >= 0.25) {
-            $score += 2;
-            $reasons[] = '停车配比可增强自驾及商务客群承接';
+            $reason = '停车配比可增强自驾及商务客群承接';
+            $addScore('停车配比', 2, $reason);
+            $reasons[] = $reason;
         }
 
+        $rawScore = (int)round($score);
         $score = $this->score($score);
         $riskLevel = $this->riskLevel($score, $riskPoints);
         $priceBand = $this->priceBand($decorationLevel, $rentPerRoom);
@@ -209,6 +240,13 @@ class ExpansionService
 
         $result = [
             'market_heat_score' => $score,
+            'market_heat_score_formula' => [
+                'base_score' => 62,
+                'raw_score' => $rawScore,
+                'final_score' => $score,
+                'cap_rule' => '0-100封顶/保底',
+            ],
+            'market_heat_score_breakdown' => $scoreBreakdown,
             'supply_competition_strength' => $competition,
             'price_band_suggestion' => $priceBand,
             'investment_risk_level' => $riskLevel,
@@ -698,7 +736,7 @@ class ExpansionService
         $messages = [
             [
                 'role' => 'system',
-                'content' => '你是酒店投资市场评估分析师。只输出符合 schema 的 JSON。必须基于用户输入和市场评估结果生成投决复核意见；不得改写或发明财务数字；缺少真实市场、竞品或 OTA 数据时写入 assumptions；建议必须可执行、克制、面向投资决策。',
+                'content' => '你是酒店投资市场评估分析师。只输出符合 schema 的 JSON。必须基于用户输入和市场评估结果生成投决复核意见；不得改写或发明财务数字；缺少真实市场、竞品或 OTA 数据时写入 assumptions；watch_points 必须给出风险严重度、判断依据、潜在影响、复核动作、责任角色和完成时限；建议必须可执行、克制、面向投资决策。',
             ],
             [
                 'role' => 'user',
@@ -749,11 +787,23 @@ class ExpansionService
                 [
                     'metric' => '真实竞品价格带',
                     'threshold' => '补齐3公里同档竞品ADR、评分、点评量',
+                    'severity' => 'P0',
+                    'evidence' => '当前缺少真实竞品价格、评分和点评样本，价格带仍以初筛模型为主。',
+                    'impact' => '若目标ADR高于真实竞品承接能力，开业爬坡期入住率和现金流会被高估。',
+                    'validation' => '实采不少于8家同档竞品，记录门市价、可订价、评分、点评量、近期入住表现后再校准目标ADR。',
+                    'owner' => '投资拓展/收益管理',
+                    'deadline' => '投决会前',
                     'action' => '未补齐前仅作为初筛结论，不进入最终投决。',
                 ],
                 [
                     'metric' => '租金承压',
                     'threshold' => '单房月租与租金坪效高于模型阈值',
+                    'severity' => 'P1',
+                    'evidence' => '租金、免租期和装修投入会共同决定项目现金流安全边际。',
+                    'impact' => '租金条件未重谈时，回本周期可能被拉长，且淡季现金流缓冲不足。',
+                    'validation' => '拆分保守、基准、乐观三套现金流，并分别测试租金下调、免租期延长和房量调整方案。',
+                    'owner' => '投资测算/拓展谈判',
+                    'deadline' => '合同条款锁定前',
                     'action' => '优先重谈租金、免租期或调整房量模型。',
                 ],
             ],
@@ -840,13 +890,23 @@ class ExpansionService
             $metric = trim((string)($item['metric'] ?? ''));
             $threshold = trim((string)($item['threshold'] ?? ''));
             $action = trim((string)($item['action'] ?? ''));
+            $severity = strtoupper(trim((string)($item['severity'] ?? $item['priority'] ?? 'P1')));
             if ($metric === '' && $threshold === '' && $action === '') {
                 continue;
+            }
+            if (!in_array($severity, ['P0', 'P1', 'P2'], true)) {
+                $severity = 'P1';
             }
             $normalized[] = [
                 'metric' => $metric !== '' ? $this->cleanAiText($metric, 80) : '关键指标',
                 'threshold' => $this->cleanAiText($threshold, 160),
                 'action' => $this->cleanAiText($action, 220),
+                'severity' => $severity,
+                'evidence' => $this->cleanAiText((string)($item['evidence'] ?? $item['reason'] ?? ''), 220),
+                'impact' => $this->cleanAiText((string)($item['impact'] ?? ''), 220),
+                'validation' => $this->cleanAiText((string)($item['validation'] ?? $item['verification'] ?? $item['check_method'] ?? ''), 220),
+                'owner' => $this->cleanAiText((string)($item['owner'] ?? ''), 80),
+                'deadline' => $this->cleanAiText((string)($item['deadline'] ?? $item['timing'] ?? ''), 80),
             ];
         }
 
@@ -913,10 +973,16 @@ class ExpansionService
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['metric', 'threshold', 'action'],
+                        'required' => ['severity', 'metric', 'threshold', 'evidence', 'impact', 'validation', 'owner', 'deadline', 'action'],
                         'properties' => [
+                            'severity' => ['type' => 'string', 'enum' => ['P0', 'P1', 'P2']],
                             'metric' => ['type' => 'string'],
                             'threshold' => ['type' => 'string'],
+                            'evidence' => ['type' => 'string'],
+                            'impact' => ['type' => 'string'],
+                            'validation' => ['type' => 'string'],
+                            'owner' => ['type' => 'string'],
+                            'deadline' => ['type' => 'string'],
                             'action' => ['type' => 'string'],
                         ],
                     ],

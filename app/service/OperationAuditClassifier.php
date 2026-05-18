@@ -6,6 +6,21 @@ namespace app\service;
 class OperationAuditClassifier
 {
     private const AUDITED_PREFIXES = [
+        'api/admin/competitor-wechat-robot' => ['module' => 'competitor', 'label' => 'competitor wechat robot'],
+        'api/admin/competitor-hotels' => ['module' => 'competitor', 'label' => 'competitor hotels'],
+        'admin/competitor-wechat-robot' => ['module' => 'competitor', 'label' => 'competitor wechat robot'],
+        'api/hotel-field-templates' => ['module' => 'field_template', 'label' => 'hotel field templates'],
+        'api/daily-reports' => ['module' => 'daily_report', 'label' => 'daily reports'],
+        'api/monthly-tasks' => ['module' => 'monthly_task', 'label' => 'monthly tasks'],
+        'api/report-configs' => ['module' => 'report_config', 'label' => 'report configs'],
+        'api/system-config' => ['module' => 'system_config', 'label' => 'system config'],
+        'api/ai-config' => ['module' => 'ai_config', 'label' => 'ai config'],
+        'api/hotels' => ['module' => 'hotel', 'label' => 'hotels'],
+        'api/users' => ['module' => 'user', 'label' => 'users'],
+        'api/roles' => ['module' => 'role', 'label' => 'roles'],
+        'api/knowledge' => ['module' => 'knowledge', 'label' => 'knowledge'],
+        'api/compass' => ['module' => 'compass', 'label' => 'compass'],
+        'compass' => ['module' => 'compass', 'label' => 'compass'],
         'api/admin/competitor-price-logs' => ['module' => 'competitor', 'label' => '竞对价格'],
         'api/admin/competitor-devices' => ['module' => 'competitor', 'label' => '竞对设备'],
         'api/online-data' => ['module' => 'online_data', 'label' => '线上数据'],
@@ -46,6 +61,41 @@ class OperationAuditClassifier
 
     private const MANUAL_LOGGED_PREFIXES = [
         'api/agent/feasibility-report/regenerate',
+    ];
+
+    private const MANUAL_LOGGED_WRITE_PREFIXES = [
+        'api/hotels',
+        'api/users',
+        'api/roles',
+        'api/hotel-field-templates',
+        'api/monthly-tasks',
+        'api/report-configs',
+        'api/admin/competitor-hotels',
+        'api/ai-config/models',
+        'admin/competitor-wechat-robot',
+    ];
+
+    private const MANUAL_LOGGED_WRITE_PATHS = [
+        'api/daily-reports',
+        'api/daily-reports/view-mapping',
+        'api/system-config',
+        'api/system-config/import',
+        'api/system-config/reset',
+        'api/ai-config/providers/quick-setup',
+        'api/compass/layout',
+        'compass/save-layout',
+        'api/online-data/save-cookies',
+        'api/online-data/save-meituan-config-item',
+        'api/online-data/delete-meituan-config',
+        'api/online-data/save-meituan-comment-config',
+        'api/online-data/delete-ctrip-config',
+        'api/online-data/save-daily-data',
+        'api/online-data/update-data',
+        'api/online-data/delete-data',
+        'api/online-data/toggle-auto-fetch',
+        'api/online-data/set-fetch-schedule',
+        'api/online-data/batch-delete',
+        'api/online-data/save-ctrip-comment-config',
     ];
 
     private const ANALYSIS_KEYWORDS = [
@@ -121,7 +171,7 @@ class OperationAuditClassifier
         }
 
         $method = strtoupper($method);
-        if ($method === 'POST' && $this->isManualLoggedPath($path)) {
+        if ($this->isManuallyLoggedOperation($method, $path)) {
             return null;
         }
 
@@ -136,7 +186,7 @@ class OperationAuditClassifier
             }
 
             $label = $this->buildLabel($path, $prefix, $meta['label']);
-            $category = $action === 'analyze_data' ? 'analysis' : 'acquisition';
+            $category = $this->resolveCategory($action);
 
             return [
                 'module' => $meta['module'],
@@ -152,8 +202,16 @@ class OperationAuditClassifier
 
     private function resolveAction(string $method, string $path): ?string
     {
+        if ($this->isArchiveOperation($method, $path)) {
+            return 'archive_form';
+        }
+
         if ($this->containsAnalysisKeyword($path)) {
             return 'analyze_data';
+        }
+
+        if ($this->isSaveOperation($method, $path)) {
+            return 'save_form';
         }
 
         if ($method === 'GET') {
@@ -161,6 +219,43 @@ class OperationAuditClassifier
         }
 
         return null;
+    }
+
+    private function resolveCategory(string $action): string
+    {
+        return match ($action) {
+            'analyze_data' => 'analysis',
+            'save_form', 'archive_form' => 'operation',
+            default => 'acquisition',
+        };
+    }
+
+    private function isSaveOperation(string $method, string $path): bool
+    {
+        if (str_contains($path, '/plain-save')) {
+            return false;
+        }
+
+        if (in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
+            return true;
+        }
+
+        return str_contains($path, '/save') || str_contains($path, '/update');
+    }
+
+    private function isArchiveOperation(string $method, string $path): bool
+    {
+        if ($method === 'DELETE') {
+            return true;
+        }
+
+        foreach (['/archive', '/delete', '/disable', '/clear', '/reset'] as $keyword) {
+            if (str_contains($path, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function normalizePath(string $uri): string
@@ -194,6 +289,42 @@ class OperationAuditClassifier
         }
 
         return false;
+    }
+
+    private function isManuallyLoggedOperation(string $method, string $path): bool
+    {
+        if (!in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+            return false;
+        }
+
+        if ($this->isManualLoggedPath($path)) {
+            return true;
+        }
+
+        if (in_array($path, self::MANUAL_LOGGED_WRITE_PATHS, true)) {
+            return true;
+        }
+
+        if ($this->isManualDailyReportRecordWrite($method, $path)) {
+            return true;
+        }
+
+        foreach (self::MANUAL_LOGGED_WRITE_PREFIXES as $prefix) {
+            if ($this->pathMatchesPrefix($path, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isManualDailyReportRecordWrite(string $method, string $path): bool
+    {
+        if (!in_array($method, ['PUT', 'DELETE'], true)) {
+            return false;
+        }
+
+        return preg_match('#^api/daily-reports/\d+$#', $path) === 1;
     }
 
     private function containsAnalysisKeyword(string $path): bool

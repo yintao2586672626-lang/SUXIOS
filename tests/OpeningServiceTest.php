@@ -48,6 +48,7 @@ final class OpeningServiceTest extends TestCase
         self::assertStringContainsString('high_risk_tasks', $payload);
         self::assertStringContainsString('progress_percent', $payload);
         self::assertStringContainsString('progress_rate', $payload);
+        self::assertStringContainsString('positioning_impact', $payload);
     }
 
     public function testOpeningSuggestionsFallbackWhenLlmUnavailable(): void
@@ -69,6 +70,26 @@ final class OpeningServiceTest extends TestCase
 
         self::assertContains('存在逾期未完成事项，建议今日完成责任人复盘并重新确认截止时间。', $suggestions);
         self::assertContains('高风险事项需要进入开业日会，优先处理PMS、OTA、支付、消防、安全和库存相关任务。', $suggestions);
+        self::assertNotEmpty(array_filter($suggestions, static fn(string $suggestion): bool => str_contains($suggestion, '中端商务定位会重点影响')));
+    }
+
+    public function testTaskTemplatesUsePositioningImpact(): void
+    {
+        $service = new OpeningService();
+        $templates = $this->invokeNonPublic($service, 'taskTemplates', [
+            array_merge($this->project(), ['positioning' => '高端商务']),
+        ]);
+
+        $taskByName = [];
+        foreach ($templates as $task) {
+            $taskByName[$task['task_name']] = $task;
+        }
+
+        self::assertStringContainsString('高端商务定位', $taskByName['OTA门店资料上线']['ai_suggestion']);
+        self::assertStringContainsString('高端商务定位', $taskByName['房型标准与价格体系确认']['ai_suggestion']);
+        self::assertStringContainsString('高端商务定位', $taskByName['布草与客用品盘点']['ai_suggestion']);
+        self::assertStringContainsString('高端商务定位', $taskByName['前台全流程演练']['ai_suggestion']);
+        self::assertStringContainsString('高端商务定位', $taskByName['开业营销素材发布']['ai_suggestion']);
     }
 
     public function testTaskProgressDefaultsFromExistingStatus(): void
@@ -114,14 +135,32 @@ final class OpeningServiceTest extends TestCase
         $metrics = $this->invokeNonPublic($service, 'calculateMetrics', [
             $this->project(),
             [
-                ['category' => 'PMS系统配置', 'status' => 'doing', 'progress_percent' => 50, 'is_core' => 1, 'risk_level' => 'medium', 'ai_suggestion' => '', 'deadline' => '2026-07-01'],
-                ['category' => 'OTA上线配置', 'status' => 'done', 'progress_percent' => 100, 'is_core' => 1, 'risk_level' => 'low', 'ai_suggestion' => '', 'deadline' => '2026-07-01'],
+                ['category' => 'PMS系统配置', 'status' => 'doing', 'progress_percent' => 50, 'is_core' => 1, 'risk_level' => 'medium', 'ai_suggestion' => '先跑通配置流程', 'deadline' => '2026-07-01'],
+                ['category' => 'OTA上线配置', 'status' => 'done', 'progress_percent' => 100, 'is_core' => 1, 'risk_level' => 'low', 'ai_suggestion' => '先闭环渠道页面', 'deadline' => '2026-07-01'],
             ],
             false,
         ]);
 
         self::assertSame(75.0, $metrics['metrics']['progress_rate']);
         self::assertSame(50.0, $metrics['category_progress'][0]['progress_rate']);
+        self::assertSame(75.0, $metrics['metrics']['ai_penetration_rate']);
+        self::assertSame(2, $metrics['metrics']['ai_covered_tasks']);
+    }
+
+    public function testAiPenetrationRateIsZeroBeforeProgressStarts(): void
+    {
+        $service = new OpeningService();
+        $metrics = $this->invokeNonPublic($service, 'calculateMetrics', [
+            $this->project(),
+            [
+                ['category' => 'PMS系统配置', 'status' => 'todo', 'progress_percent' => 0, 'is_core' => 1, 'risk_level' => 'high', 'ai_suggestion' => '先跑通配置流程', 'deadline' => '2026-07-01'],
+                ['category' => 'OTA上线配置', 'status' => 'todo', 'progress_percent' => 0, 'is_core' => 1, 'risk_level' => 'high', 'ai_suggestion' => '先闭环渠道页面', 'deadline' => '2026-07-01'],
+            ],
+            false,
+        ]);
+
+        self::assertSame(0.0, $metrics['metrics']['ai_penetration_rate']);
+        self::assertSame(2, $metrics['metrics']['ai_covered_tasks']);
     }
 
     private function project(): array

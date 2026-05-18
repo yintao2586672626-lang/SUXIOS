@@ -369,6 +369,13 @@ export function validateMetricFormulas(inputRows) {
 
     errors.push(...rowErrors);
     warnings.push(...rowWarnings);
+    const abnormalReasons = [...rowErrors, ...rowWarnings].map((issue) => ({
+      level: issue.level,
+      scope: issue.scope,
+      field: issue.field ?? '',
+      metric: issue.metric ?? '',
+      message: issue.message,
+    }));
     recordResults.push({
       index: index + 1,
       row: rowLabel(row, index),
@@ -377,6 +384,9 @@ export function validateMetricFormulas(inputRows) {
       hotel_name: row.hotel_name ?? '',
       data_date: row.data_date ?? '',
       status: rowErrors.length > 0 ? 'fail' : 'pass',
+      abnormal: abnormalReasons.length > 0,
+      abnormal_level: rowErrors.length > 0 ? 'error' : (rowWarnings.length > 0 ? 'warning' : 'normal'),
+      abnormal_reasons: abnormalReasons,
       errors: rowErrors,
       warnings: rowWarnings,
       calculated_metrics: calculatedMetrics,
@@ -385,6 +395,7 @@ export function validateMetricFormulas(inputRows) {
 
   const failedRecords = recordResults.filter((record) => record.status === 'fail').length;
   const warningRecords = recordResults.filter((record) => record.status === 'pass' && record.warnings.length > 0).length;
+  const abnormalRecords = recordResults.filter((record) => record.abnormal).length;
 
   return {
     checkedRows: rows.length,
@@ -393,6 +404,7 @@ export function validateMetricFormulas(inputRows) {
       passed_records: rows.length - failedRecords,
       failed_records: failedRecords,
       warning_records: warningRecords,
+      abnormal_records: abnormalRecords,
     },
     record_results: recordResults,
     errors,

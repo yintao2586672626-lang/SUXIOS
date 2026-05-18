@@ -141,6 +141,8 @@ class InitDatabase extends Command
                 book_order_num INT DEFAULT 0,
                 comment_score DECIMAL(3,1) DEFAULT 0,
                 qunar_comment_score DECIMAL(3,1) DEFAULT 0,
+                validation_status VARCHAR(20) DEFAULT 'normal',
+                validation_flags TEXT,
                 raw_data TEXT,
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -358,6 +360,8 @@ class InitDatabase extends Command
                 book_order_num INTEGER DEFAULT 0,
                 comment_score DECIMAL(3,1) DEFAULT 0,
                 qunar_comment_score DECIMAL(3,1) DEFAULT 0,
+                validation_status VARCHAR(20) DEFAULT 'normal',
+                validation_flags TEXT,
                 raw_data TEXT,
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT CURRENT_TIMESTAMP

@@ -34,6 +34,11 @@ final class OperationAuditClassifierTest extends TestCase
         self::assertNull($this->classifier->classify('GET', '/api/health'));
         self::assertNull($this->classifier->classify('POST', '/api/online-data/fetch-ctrip'));
         self::assertNull($this->classifier->classify('POST', '/api/agent/feasibility-report/regenerate/15'));
+        self::assertNull($this->classifier->classify('POST', '/api/hotels'));
+        self::assertNull($this->classifier->classify('PUT', '/api/users/12'));
+        self::assertNull($this->classifier->classify('DELETE', '/api/roles/3'));
+        self::assertNull($this->classifier->classify('POST', '/api/online-data/save-cookies'));
+        self::assertNull($this->classifier->classify('DELETE', '/api/online-data/delete-ctrip-config?id=8'));
     }
 
     public function testSkipsUnsupportedPathsAndMethods(): void
@@ -41,6 +46,17 @@ final class OperationAuditClassifierTest extends TestCase
         self::assertNull($this->classifier->classify('GET', '/api/not-a-module'));
         self::assertNull($this->classifier->classify('POST', '/api/operation/plain-save'));
         self::assertNull($this->classifier->classify('GET', ''));
+    }
+
+    #[DataProvider('formOperationPathProvider')]
+    public function testClassifiesFormSaveAndArchiveOperations(string $method, string $uri, string $module, string $action): void
+    {
+        $result = $this->classifier->classify($method, $uri);
+
+        self::assertIsArray($result);
+        self::assertSame($module, $result['module']);
+        self::assertSame($action, $result['action']);
+        self::assertSame('operation', $result['category']);
     }
 
     public static function auditedPathProvider(): array
@@ -51,6 +67,16 @@ final class OperationAuditClassifierTest extends TestCase
             'strategy simulation post' => ['POST', '/api/strategy/simulate', 'strategy', 'analyze_data', 'analysis'],
             'admin competitor nested path' => ['GET', '/api/admin/competitor-price-logs/12/detail', 'competitor', 'view_data', 'acquisition'],
             'transfer dashboard path' => ['GET', '/api/transfer/dashboard', 'transfer', 'analyze_data', 'analysis'],
+        ];
+    }
+
+    public static function formOperationPathProvider(): array
+    {
+        return [
+            'wechat robot api save form' => ['POST', '/api/admin/competitor-wechat-robot/save', 'competitor', 'save_form'],
+            'opening project archive form' => ['DELETE', '/api/opening/projects/8', 'opening', 'archive_form'],
+            'opening task update form' => ['PUT', '/api/opening/tasks/18', 'opening', 'save_form'],
+            'operation action create form' => ['POST', '/api/operation/actions', 'operation', 'save_form'],
         ];
     }
 }

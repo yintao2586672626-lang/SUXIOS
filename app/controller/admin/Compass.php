@@ -48,7 +48,8 @@ class Compass extends Base
         $data = $this->request->post();
         $order = $data['order'] ?? [];
         $hidden = $data['hidden'] ?? [];
-        if (!is_array($order) || !is_array($hidden)) {
+        $quickEntries = $data['quick_entries'] ?? [];
+        if (!is_array($order) || !is_array($hidden) || !is_array($quickEntries)) {
             return json(['code' => 400, 'message' => '参数错误']);
         }
 
@@ -58,10 +59,31 @@ class Compass extends Base
         if (empty($order)) {
             $order = $allowed;
         }
+        $defaultQuickEntries = $this->getDefaultQuickEntries();
+        $quickAllowed = $defaultQuickEntries['order'];
+        $quickOrder = $quickEntries['order'] ?? $quickAllowed;
+        $quickHidden = $quickEntries['hidden'] ?? [];
+        if (!is_array($quickOrder)) {
+            $quickOrder = $quickAllowed;
+        }
+        if (!is_array($quickHidden)) {
+            $quickHidden = [];
+        }
+        $quickOrder = array_values(array_filter($quickOrder, fn($key) => in_array($key, $quickAllowed, true)));
+        $quickHidden = array_values(array_filter($quickHidden, fn($key) => in_array($key, $quickAllowed, true)));
+        foreach ($quickAllowed as $key) {
+            if (!in_array($key, $quickOrder, true)) {
+                $quickOrder[] = $key;
+            }
+        }
 
         SystemConfig::setValue(self::LAYOUT_KEY, json_encode([
             'order' => $order,
             'hidden' => $hidden,
+            'quick_entries' => [
+                'order' => $quickOrder,
+                'hidden' => $quickHidden,
+            ],
         ], JSON_UNESCAPED_UNICODE), '门店罗盘板块布局');
 
         OperationLog::record('compass', 'update_layout', '更新门店罗盘板块排序', $this->currentUser->id);
@@ -87,15 +109,30 @@ class Compass extends Base
         }
         $order = isset($data['order']) && is_array($data['order']) ? $data['order'] : $default['order'];
         $hidden = isset($data['hidden']) && is_array($data['hidden']) ? $data['hidden'] : [];
+        $quickEntries = isset($data['quick_entries']) && is_array($data['quick_entries']) ? $data['quick_entries'] : $default['quick_entries'];
         $allowed = $default['order'];
         $order = array_values(array_filter($order, fn($key) => in_array($key, $allowed, true)));
         $hidden = array_values(array_filter($hidden, fn($key) => in_array($key, $allowed, true)));
         if (empty($order)) {
             $order = $default['order'];
         }
+        $quickAllowed = $default['quick_entries']['order'];
+        $quickOrder = isset($quickEntries['order']) && is_array($quickEntries['order']) ? $quickEntries['order'] : $quickAllowed;
+        $quickHidden = isset($quickEntries['hidden']) && is_array($quickEntries['hidden']) ? $quickEntries['hidden'] : [];
+        $quickOrder = array_values(array_filter($quickOrder, fn($key) => in_array($key, $quickAllowed, true)));
+        $quickHidden = array_values(array_filter($quickHidden, fn($key) => in_array($key, $quickAllowed, true)));
+        foreach ($quickAllowed as $key) {
+            if (!in_array($key, $quickOrder, true)) {
+                $quickOrder[] = $key;
+            }
+        }
         return [
             'order' => $order,
             'hidden' => $hidden,
+            'quick_entries' => [
+                'order' => $quickOrder,
+                'hidden' => $quickHidden,
+            ],
         ];
     }
 
@@ -103,6 +140,15 @@ class Compass extends Base
     {
         return [
             'order' => ['weather'],
+            'hidden' => [],
+            'quick_entries' => $this->getDefaultQuickEntries(),
+        ];
+    }
+
+    private function getDefaultQuickEntries(): array
+    {
+        return [
+            'order' => ['online-data', 'operation-diagnosis', 'strategy-simulation', 'ai-tools', 'hotel-management', 'system-settings'],
             'hidden' => [],
         ];
     }

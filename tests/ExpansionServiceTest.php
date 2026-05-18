@@ -42,6 +42,47 @@ final class ExpansionServiceTest extends TestCase
         self::assertSame('fallback', $result['ai_evaluation']['source']);
     }
 
+    public function testEvaluateMarketReturnsDetailedHeatScoreBreakdown(): void
+    {
+        $result = $this->fallbackService()->evaluateMarket([
+            'city' => '上海',
+            'business_area' => '虹桥',
+            'property_area' => 3200,
+            'estimated_rent' => 120000,
+            'target_room_count' => 80,
+            'city_tier' => '一线',
+            'decoration_level' => '中端精选',
+            'primary_customer' => '商务差旅',
+            'lease_years' => 10,
+            'rent_free_months' => 4,
+            'fitout_budget' => 420,
+            'expected_adr' => 320,
+            'expected_occupancy_rate' => 82,
+            'ota_market_penetration_rate' => 65,
+            'parking_spaces' => 30,
+        ]);
+
+        self::assertArrayHasKey('market_heat_score_breakdown', $result);
+        self::assertArrayHasKey('market_heat_score_formula', $result);
+        self::assertNotEmpty($result['market_heat_score_breakdown']);
+        self::assertSame('基础分', $result['market_heat_score_breakdown'][0]['label']);
+        self::assertSame(62, $result['market_heat_score_breakdown'][0]['score_change']);
+
+        foreach ($result['market_heat_score_breakdown'] as $item) {
+            self::assertArrayHasKey('label', $item);
+            self::assertArrayHasKey('score_change', $item);
+            self::assertArrayHasKey('raw_score_after', $item);
+            self::assertArrayHasKey('reason', $item);
+            self::assertNotSame('', $item['label']);
+            self::assertNotSame('', $item['reason']);
+        }
+
+        $rawScore = array_sum(array_column($result['market_heat_score_breakdown'], 'score_change'));
+        self::assertSame($rawScore, $result['market_heat_score_formula']['raw_score']);
+        self::assertSame($result['market_heat_score'], $result['market_heat_score_formula']['final_score']);
+        self::assertSame('0-100封顶/保底', $result['market_heat_score_formula']['cap_rule']);
+    }
+
     public function testEvaluateMarketUsesLlmEvaluationWhenConfigured(): void
     {
         $client = new class extends LlmClient {
@@ -62,7 +103,17 @@ final class ExpansionServiceTest extends TestCase
                         ['priority' => 'P0', 'title' => '补齐竞品', 'detail' => '采集3公里竞品ADR、评分和点评量后校准价格带。'],
                     ],
                     'watch_points' => [
-                        ['metric' => '竞品ADR', 'threshold' => '低于目标ADR时', 'action' => '下调收益假设或重谈租金。'],
+                        [
+                            'severity' => 'P0',
+                            'metric' => '竞品ADR',
+                            'threshold' => '低于目标ADR时',
+                            'evidence' => '当前未接入真实竞品ADR样本。',
+                            'impact' => '目标价带可能高估开业爬坡收入。',
+                            'validation' => '采集3公里同档竞品可订价后复核目标ADR。',
+                            'owner' => '收益管理',
+                            'deadline' => '投决会前',
+                            'action' => '下调收益假设或重谈租金。',
+                        ],
                     ],
                     'assumptions' => ['未接入真实竞品样本。'],
                 ];
@@ -83,6 +134,9 @@ final class ExpansionServiceTest extends TestCase
         self::assertSame('deepseek_chat', $result['ai_evaluation']['model_key']);
         self::assertSame('AI建议先按260-320元测试。', $result['ai_evaluation']['market_judgement']['price_band_suggestion']);
         self::assertSame('采集3公里竞品ADR、评分和点评量后校准价格带。', $result['ai_operation_suggestions'][0]);
+        self::assertSame('P0', $result['ai_evaluation']['watch_points'][0]['severity']);
+        self::assertSame('当前未接入真实竞品ADR样本。', $result['ai_evaluation']['watch_points'][0]['evidence']);
+        self::assertSame('投决会前', $result['ai_evaluation']['watch_points'][0]['deadline']);
         self::assertStringContainsString('rule_result', (string)($client->messages[1]['content'] ?? ''));
     }
 

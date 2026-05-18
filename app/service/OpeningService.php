@@ -50,10 +50,9 @@ class OpeningService
     {
         $now = $this->now();
         $hotelName = trim((string)$input['hotel_name']);
-        $hotelId = $this->resolveHotelId((int)($input['hotel_id'] ?? 0), $hotelName, $hotelIds);
 
         return (int)Db::name('opening_projects')->insertGetId([
-            'hotel_id' => $hotelId,
+            'hotel_id' => 0,
             'project_name' => trim((string)$input['project_name']),
             'hotel_name' => $hotelName,
             'city' => trim((string)($input['city'] ?? '')),
@@ -77,9 +76,6 @@ class OpeningService
         $query = Db::name('opening_projects')
             ->where('status', '<>', 'archived')
             ->order('id', 'desc');
-        if (!empty($hotelIds)) {
-            $query->whereIn('hotel_id', $hotelIds);
-        }
 
         return array_map([$this, 'normalizeProject'], $query->select()->toArray());
     }
@@ -99,12 +95,6 @@ class OpeningService
         }
         if (array_key_exists('opening_date', $input)) {
             $data['opening_date'] = $this->normalizeDate((string)$input['opening_date']);
-        }
-        if (array_key_exists('hotel_id', $input)) {
-            $hotelName = array_key_exists('hotel_name', $input)
-                ? trim((string)$input['hotel_name'])
-                : (string)($project['hotel_name'] ?? '');
-            $data['hotel_id'] = $this->resolveHotelId((int)$input['hotel_id'], $hotelName, $hotelIds);
         }
         if (array_key_exists('status', $input)) {
             $status = trim((string)$input['status']);
@@ -295,9 +285,6 @@ class OpeningService
         if (!$project) {
             throw new \RuntimeException('开业项目不存在');
         }
-        if (!empty($hotelIds) && !in_array((int)$project['hotel_id'], $hotelIds, true)) {
-            throw new \RuntimeException('无权访问该开业项目');
-        }
 
         return $this->normalizeProject($project);
     }
@@ -311,7 +298,8 @@ class OpeningService
         $coreDone = count(array_filter($core, static fn(array $task): bool => $task['status'] === self::STATUS_DONE));
         $highRisk = count(array_filter($tasks, static fn(array $task): bool => $task['risk_level'] === self::RISK_HIGH));
         $overdue = count(array_filter($tasks, static fn(array $task): bool => !empty($task['is_overdue'])));
-        $aiCovered = count(array_filter($tasks, static fn(array $task): bool => trim((string)$task['ai_suggestion']) !== ''));
+        $aiTasks = array_values(array_filter($tasks, static fn(array $task): bool => trim((string)$task['ai_suggestion']) !== ''));
+        $aiProgressTotal = array_sum(array_map(fn(array $task): int => $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO)), $aiTasks));
         $categoryProgress = $this->categoryProgress($tasks);
 
         $score = 0.0;
@@ -328,7 +316,7 @@ class OpeningService
 
         $project['overall_score'] = round($score, 1);
         $project['risk_level'] = $riskLevel;
-        $project['ai_penetration_rate'] = $total > 0 ? round($aiCovered / $total * 100, 1) : 0;
+        $project['ai_penetration_rate'] = count($aiTasks) > 0 ? round($aiProgressTotal / count($aiTasks), 1) : 0;
 
         return [
             'project' => $project,
@@ -343,6 +331,7 @@ class OpeningService
                 'core_completion_rate' => count($core) > 0 ? round($coreDone / count($core) * 100, 1) : 0,
                 'high_risk_count' => $highRisk,
                 'overdue_count' => $overdue,
+                'ai_covered_tasks' => count($aiTasks),
                 'ai_penetration_rate' => $project['ai_penetration_rate'],
             ],
             'category_progress' => array_values($categoryProgress),
@@ -447,65 +436,114 @@ class OpeningService
         $openingDate = (string)$project['opening_date'];
         $days = [-45, -40, -35, -30, -25, -20, -18, -15, -12, -10, -7, -5, -3, -2, -1];
         $deadline = fn(int $i): string => date('Y-m-d', strtotime($openingDate . ' ' . $days[$i] . ' days'));
+        $positioningImpact = $this->positioningPreparationImpact($project);
 
         return [
             ['category' => '证照合规', 'task_name' => '营业证照办理确认', 'task_desc' => '确认营业执照、特种行业许可、卫生许可等开业必要证照状态。', 'is_core' => true, 'deadline' => $deadline(0), 'acceptance_standard' => '证照清单完整，缺口项有责任人和补齐日期。', 'ai_suggestion' => '优先建立证照缺口台账，开业前7天仍未闭环的事项升级到店总。'],
             ['category' => '证照合规', 'task_name' => '消防与安全验收资料归档', 'task_desc' => '整理消防验收、安全巡检与应急预案资料。', 'is_core' => true, 'deadline' => $deadline(1), 'acceptance_standard' => '消防、安全资料可追溯，现场抽查无重大缺陷。', 'ai_suggestion' => '消防、安全关键词属于高优先级风险，建议提前做一次全员应急演练。'],
             ['category' => 'PMS系统配置', 'task_name' => 'PMS基础档案配置', 'task_desc' => '完成酒店、楼栋、楼层、房间、账号、权限和夜审规则配置。', 'is_core' => true, 'deadline' => $deadline(2), 'acceptance_standard' => 'PMS可完成入住、续住、换房、退房、夜审全流程。', 'ai_suggestion' => '先用测试订单跑通前台高频流程，再开放正式账号。'],
             ['category' => 'PMS系统配置', 'task_name' => 'PMS支付与发票联调', 'task_desc' => '确认支付、押金、退款、发票、交班报表配置。', 'is_core' => true, 'deadline' => $deadline(3), 'acceptance_standard' => '支付与账务闭环无阻断，异常交易有处理口径。', 'ai_suggestion' => '支付相关未完成默认高风险，建议安排财务和前台联合验收。'],
-            ['category' => 'OTA上线配置', 'task_name' => 'OTA门店资料上线', 'task_desc' => '配置携程、美团等渠道门店资料、图片、政策与设施标签。', 'is_core' => true, 'deadline' => $deadline(4), 'acceptance_standard' => '主流OTA页面可搜索、可浏览、信息一致。', 'ai_suggestion' => '上线前检查首图、卖点、取消政策和到店指引，减少低转化风险。'],
+            ['category' => 'OTA上线配置', 'task_name' => 'OTA门店资料上线', 'task_desc' => '配置携程、美团等渠道门店资料、图片、政策与设施标签。', 'is_core' => true, 'deadline' => $deadline(4), 'acceptance_standard' => '主流OTA页面可搜索、可浏览、信息一致。', 'ai_suggestion' => $positioningImpact['ota']],
             ['category' => 'OTA上线配置', 'task_name' => 'OTA房价库存联通校验', 'task_desc' => '校验渠道房型、价格、库存、保留房和关房规则。', 'is_core' => true, 'deadline' => $deadline(5), 'acceptance_standard' => '各渠道测试预订成功，库存扣减一致。', 'ai_suggestion' => 'OTA和库存相关事项未完成会直接影响开业订单，应每日复核。'],
-            ['category' => '房型房价库存', 'task_name' => '房型标准与价格体系确认', 'task_desc' => '确认房型命名、面积、床型、早餐、会员价和开业价。', 'is_core' => true, 'deadline' => $deadline(6), 'acceptance_standard' => '房型房价在PMS与OTA保持一致。', 'ai_suggestion' => '建议用低中高三档价格带覆盖试营业、平日和周末。'],
+            ['category' => '房型房价库存', 'task_name' => '房型标准与价格体系确认', 'task_desc' => '确认房型命名、面积、床型、早餐、会员价和开业价。', 'is_core' => true, 'deadline' => $deadline(6), 'acceptance_standard' => '房型房价在PMS与OTA保持一致。', 'ai_suggestion' => $positioningImpact['pricing']],
             ['category' => '房型房价库存', 'task_name' => '首周库存策略设置', 'task_desc' => '配置首周可售库存、保留房和满房保护规则。', 'is_core' => true, 'deadline' => $deadline(7), 'acceptance_standard' => '首周库存可控，无超售和误关房风险。', 'ai_suggestion' => '库存相关事项未完成优先标记高风险，建议与店长每日确认。'],
             ['category' => '客房工程验收', 'task_name' => '客房工程逐房验收', 'task_desc' => '按房间检查门锁、空调、热水、网络、照明、卫浴和安全设施。', 'is_core' => true, 'deadline' => $deadline(8), 'acceptance_standard' => '可售房达到开业标准，维修遗留项有闭环记录。', 'ai_suggestion' => '先验收可售房，再处理非关键尾项，避免开业房量被动缩水。'],
-            ['category' => '物资布草备品', 'task_name' => '布草与客用品盘点', 'task_desc' => '确认布草周转量、客用品、清洁工具和仓库摆放。', 'is_core' => false, 'deadline' => $deadline(9), 'acceptance_standard' => '首周运营物资满足满房周转需求。', 'ai_suggestion' => '按满房率80%测算首周消耗，低于安全库存时提前补货。'],
+            ['category' => '物资布草备品', 'task_name' => '布草与客用品盘点', 'task_desc' => '确认布草周转量、客用品、清洁工具和仓库摆放。', 'is_core' => false, 'deadline' => $deadline(9), 'acceptance_standard' => '首周运营物资满足满房周转需求。', 'ai_suggestion' => $positioningImpact['material']],
             ['category' => '员工招聘排班', 'task_name' => '开业班表与岗位补齐', 'task_desc' => '确认前厅、客房、工程、保洁、值班经理排班。', 'is_core' => true, 'deadline' => $deadline(10), 'acceptance_standard' => '关键岗位有人到岗，首周班表已发布。', 'ai_suggestion' => '核心岗位缺口会放大开业期服务风险，建议提前准备机动班。'],
-            ['category' => '员工培训演练', 'task_name' => '前台全流程演练', 'task_desc' => '演练预订、入住、换房、投诉、退房、夜审和交班。', 'is_core' => true, 'deadline' => $deadline(11), 'acceptance_standard' => '员工能独立完成关键场景，异常场景有SOP。', 'ai_suggestion' => '用真实订单脚本做演练，记录卡点并在开业前复训。'],
+            ['category' => '员工培训演练', 'task_name' => '前台全流程演练', 'task_desc' => '演练预订、入住、换房、投诉、退房、夜审和交班。', 'is_core' => true, 'deadline' => $deadline(11), 'acceptance_standard' => '员工能独立完成关键场景，异常场景有SOP。', 'ai_suggestion' => $positioningImpact['training']],
             ['category' => '员工培训演练', 'task_name' => '客房与安全联动演练', 'task_desc' => '演练查房、报修、遗留物、消防、安全和突发事件处理。', 'is_core' => true, 'deadline' => $deadline(12), 'acceptance_standard' => '跨岗位联动流程明确，责任边界清晰。', 'ai_suggestion' => '安全相关演练未完成时建议限制开业房量。'],
-            ['category' => '开业营销推广', 'task_name' => '开业营销素材发布', 'task_desc' => '完成开业海报、OTA促销、会员触达和本地渠道宣发。', 'is_core' => false, 'deadline' => $deadline(13), 'acceptance_standard' => '开业促销可见，渠道权益和价格口径一致。', 'ai_suggestion' => '开业前3天集中检查图片、标题和优惠口径，避免转化损失。'],
+            ['category' => '开业营销推广', 'task_name' => '开业营销素材发布', 'task_desc' => '完成开业海报、OTA促销、会员触达和本地渠道宣发。', 'is_core' => false, 'deadline' => $deadline(13), 'acceptance_standard' => '开业促销可见，渠道权益和价格口径一致。', 'ai_suggestion' => $positioningImpact['marketing']],
             ['category' => '财务收银风控', 'task_name' => '收银权限与风控检查', 'task_desc' => '确认收银权限、备用金、退款审批、交班稽核和异常账处理。', 'is_core' => true, 'deadline' => $deadline(14), 'acceptance_standard' => '支付、收银、退款、交班均可追溯。', 'ai_suggestion' => '支付和财务风控事项未完成默认高风险，需在试营业前闭环。'],
         ];
     }
 
-    private function resolveHotelId(int $hotelId, string $hotelName, array $hotelIds): int
+    private function positioningPreparationImpact(array $project): array
     {
-        if ($hotelId <= 0 && count($hotelIds) === 1) {
-            $hotelId = (int)$hotelIds[0];
-        }
-
-        if ($hotelId <= 0 && $hotelName !== '') {
-            $hotelId = $this->matchHotelIdByName($hotelName, $hotelIds);
-        }
-
-        if ($hotelId > 0 && !empty($hotelIds) && !in_array($hotelId, $hotelIds, true)) {
-            throw new \RuntimeException('无权操作该酒店的开业项目');
-        }
-
-        return max(0, $hotelId);
-    }
-
-    private function matchHotelIdByName(string $hotelName, array $hotelIds): int
-    {
-        $baseQuery = function () use ($hotelIds) {
-            $query = Db::name('hotels')->where('status', 1);
-            if (!empty($hotelIds)) {
-                $query->whereIn('id', $hotelIds);
+        $positioning = trim((string)($project['positioning'] ?? ''));
+        $hasAny = static function (array $keywords) use ($positioning): bool {
+            foreach ($keywords as $keyword) {
+                if ($keyword !== '' && mb_stripos($positioning, $keyword) !== false) {
+                    return true;
+                }
             }
-            return $query;
+            return false;
         };
 
-        $exact = $baseQuery()->where('name', $hotelName)->find();
-        if ($exact) {
-            return (int)$exact['id'];
+        if ($positioning === '') {
+            return [
+                'profile' => '未填写定位',
+                'summary' => '定位会影响房型房价、OTA卖点、物资标准、培训话术和开业营销口径。',
+                'items' => ['房价体系', 'OTA卖点', '物资标准', '培训话术', '营销口径'],
+                'ota' => '按项目定位补齐OTA首图、卖点、设施标签和到店指引，确保页面承接目标客群。',
+                'pricing' => '围绕项目定位设置房型命名、早餐权益、会员价和开业价，避免价格口径与产品不匹配。',
+                'material' => '按项目定位校准布草、客用品和清洁物资标准，先保障首周满房周转。',
+                'training' => '围绕项目定位设计前台话术、投诉处理和高频场景演练，确保服务口径一致。',
+                'marketing' => '开业素材需对齐项目定位、目标客群和渠道价格权益，避免卖点分散。',
+            ];
         }
 
-        $candidates = $baseQuery()
-            ->whereLike('name', '%' . $hotelName . '%')
-            ->limit(2)
-            ->select()
-            ->toArray();
+        if ($hasAny(['高端', '高档', '豪华', '精品', '奢', '高奢'])) {
+            return [
+                'profile' => $positioning,
+                'summary' => "{$positioning}定位会提高品质体验、服务SOP、布草客用品和OTA图片卖点的准备优先级。",
+                'items' => ['品质验收', '服务SOP', '高质感物资', '溢价卖点'],
+                'ota' => "{$positioning}定位需优先核对高质感首图、核心设施、服务亮点和取消政策，支撑溢价转化。",
+                'pricing' => "{$positioning}定位的房价体系要区分基础房、升级房和权益包，避免低价促销稀释定位。",
+                'material' => "{$positioning}定位应优先验收布草克重、客用品质感、房间气味和细节陈列。",
+                'training' => "{$positioning}定位要强化迎送、投诉补救、会员识别和夜间服务SOP演练。",
+                'marketing' => "{$positioning}定位营销素材优先呈现空间质感、服务细节和差异化权益。",
+            ];
+        }
 
-        return count($candidates) === 1 ? (int)$candidates[0]['id'] : 0;
+        if ($hasAny(['商务', '商旅', '中端', '中档', '精选'])) {
+            return [
+                'profile' => $positioning,
+                'summary' => "{$positioning}定位会重点影响商务设施、发票支付、早餐效率、WiFi和前台高频流程演练。",
+                'items' => ['商务设施', '支付发票', '早餐效率', '前台演练'],
+                'ota' => "{$positioning}定位需突出商务设施、交通、发票、早餐和网络稳定性，提升商旅转化。",
+                'pricing' => "{$positioning}定位要区分协议价、会员价、含早价和周中周末价，保证商务客价格口径清晰。",
+                'material' => "{$positioning}定位优先保障办公、洗衣、早餐和高频消耗物资，减少试营业投诉点。",
+                'training' => "{$positioning}定位要重点演练发票、续住、快速退房、投诉响应和夜审交班。",
+                'marketing' => "{$positioning}定位营销素材优先覆盖商务出行、交通效率、会员权益和企业客户触达。",
+            ];
+        }
+
+        if ($hasAny(['亲子', '家庭', '度假'])) {
+            return [
+                'profile' => $positioning,
+                'summary' => "{$positioning}定位会强化安全巡检、亲子设施、房型组合、场景素材和本地渠道营销准备。",
+                'items' => ['安全巡检', '亲子设施', '场景素材', '本地营销'],
+                'ota' => "{$positioning}定位需补齐家庭房、亲子设施、安全提示和周边游玩标签，降低咨询成本。",
+                'pricing' => "{$positioning}定位要设置家庭房、连住、套餐和节假日价格，避免库存与客群需求错配。",
+                'material' => "{$positioning}定位应优先核对亲子备品、安全防护、加床和家庭客高频消耗物资。",
+                'training' => "{$positioning}定位要演练儿童安全、家庭客投诉、加床加备品和节假日高峰接待。",
+                'marketing' => "{$positioning}定位营销素材优先呈现家庭场景、亲子设施、周边玩法和本地渠道权益。",
+            ];
+        }
+
+        if ($hasAny(['经济', '快捷', '轻居', '性价比'])) {
+            return [
+                'profile' => $positioning,
+                'summary' => "{$positioning}定位会更关注成本控制、清洁效率、基础物资、价格带和渠道转化效率。",
+                'items' => ['成本控制', '清洁效率', '基础物资', '渠道转化'],
+                'ota' => "{$positioning}定位需突出性价比、交通、干净安全和基础设施，避免卖点过度承诺。",
+                'pricing' => "{$positioning}定位要锁定价格带、会员价和促销底线，避免开业期价格失控。",
+                'material' => "{$positioning}定位应优先保障基础物资、安全库存和清洁效率，控制非必要采购。",
+                'training' => "{$positioning}定位要重点演练快速入住、客房周转、问题房处理和渠道咨询响应。",
+                'marketing' => "{$positioning}定位营销素材优先突出价格优势、位置便利和基础体验稳定性。",
+            ];
+        }
+
+        return [
+            'profile' => $positioning,
+            'summary' => "{$positioning}定位会同步影响产品卖点、房价库存、物资配置、员工培训和开业营销口径。",
+            'items' => ['产品卖点', '房价库存', '物资配置', '营销口径'],
+            'ota' => "{$positioning}定位需映射到OTA首图、卖点、设施标签和到店指引，确保渠道页面承接目标客群。",
+            'pricing' => "{$positioning}定位要同步到房型命名、权益配置、开业价和库存策略，避免价格与产品不匹配。",
+            'material' => "{$positioning}定位应转成布草、客用品、清洁工具和安全库存标准，支撑首周运营。",
+            'training' => "{$positioning}定位要进入前台话术、投诉处理、会员识别和高频场景演练。",
+            'marketing' => "{$positioning}定位营销素材需统一目标客群、核心卖点、渠道权益和价格口径。",
+        ];
     }
 
     private function buildOpeningSuggestions(array $project, array $tasks, int $highRisk, int $overdue): array
@@ -555,6 +593,7 @@ class OpeningService
                         'risk_level' => $project['risk_level'] ?? '',
                         'days_left' => $this->daysLeft((string)($project['opening_date'] ?? '')),
                     ],
+                    'positioning_impact' => $this->positioningPreparationImpact($project),
                     'metrics' => [
                         'total_tasks' => count($tasks),
                         'done_tasks' => count(array_filter($tasks, static fn(array $task): bool => ($task['status'] ?? '') === self::STATUS_DONE)),
@@ -640,6 +679,10 @@ class OpeningService
         if ((float)($project['overall_score'] ?? 0) < 70) {
             $suggestions[] = '开业准备评分低于70，建议先收敛到核心事项闭环，再推进普通事项。';
         }
+        if (trim((string)($project['positioning'] ?? '')) !== '') {
+            $impact = $this->positioningPreparationImpact($project);
+            $suggestions[] = $impact['summary'] . ' 请同步校准清单、责任人和验收口径。';
+        }
         if (empty($suggestions)) {
             $suggestions[] = '当前开业准备节奏稳定，建议保持每日复盘并锁定开业前3天最终验收。';
         }
@@ -650,9 +693,6 @@ class OpeningService
     private function recentProjects(array $hotelIds, int $currentProjectId): array
     {
         $query = Db::name('opening_projects')->where('id', '<>', $currentProjectId)->order('updated_at', 'desc')->limit(10);
-        if (!empty($hotelIds)) {
-            $query->whereIn('hotel_id', $hotelIds);
-        }
 
         return array_map([$this, 'normalizeProject'], $query->select()->toArray());
     }
