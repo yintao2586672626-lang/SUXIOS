@@ -37,9 +37,9 @@ const checks = [
     pass: source.includes("url: '/online-data/fetch-meituan-traffic'"),
   },
   {
-    name: 'auto-fetch excludes Ctrip comments data',
-    pass: !/pushOtaDiagnosisFetchTask\([\s\S]*?label:\s*'ctrip-comments'/.test(source)
-      && !/label'\s*=>\s*'ctrip-comments'/.test(controllerSource),
+    name: 'auto-fetch includes Ctrip comments data',
+    pass: /label'\s*=>\s*'ctrip-comments'/.test(controllerSource)
+      && /executeCtripCommentsAutoFetchTask/.test(controllerSource),
   },
   {
     name: 'auto-fetch includes Meituan comments data',

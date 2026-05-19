@@ -10223,6 +10223,32 @@ JAVASCRIPT;
             ]);
         }
 
+        $ctripCommentConfig = is_array($savedConfigs['ctrip-comments'] ?? null) ? $savedConfigs['ctrip-comments'] : [];
+        if ($this->isAutoFetchDataConfigUsable($ctripCommentConfig, $hotelId)) {
+            $ctripCommentPayload = $this->firstAutoFetchConfigValue($ctripCommentConfig, ['payload_json', 'payloadJson', 'extra_params', 'extraParams'], []);
+            if (!empty($this->configValueToArray($ctripCommentPayload))) {
+                $this->pushAutoFetchTask($tasks, [
+                    'platform' => 'ctrip',
+                    'module' => 'comments',
+                    'label' => 'ctrip-comments',
+                    'required' => ['request_url', 'cookies', 'spidertoken'],
+                    'body' => [
+                        'request_url' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['request_url', 'requestUrl'], ''),
+                        'hotel_id' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['hotel_id', 'hotelId', 'ota_hotel_id'], ''),
+                        'cookies' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['cookies', 'cookie'], $ctripCookies),
+                        'spidertoken' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['spidertoken', 'token'], ''),
+                        'payload_json' => $ctripCommentPayload,
+                        '_fxpcqlniredt' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['_fxpcqlniredt'], ''),
+                        'x_trace_id' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['x_trace_id', 'xTraceId'], ''),
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                        'auto_save' => true,
+                        'system_hotel_id' => $hotelId,
+                    ],
+                ]);
+            }
+        }
+
         $meituanCookies = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['cookies', 'cookie'], ''));
         $meituanPartnerId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['partner_id', 'partnerId'], ''));
         $meituanPoiId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['poi_id', 'poiId'], ''));

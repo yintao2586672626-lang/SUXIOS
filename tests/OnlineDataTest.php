@@ -332,7 +332,7 @@ final class OnlineDataTest extends TestCase
         $labels = array_column($tasks, 'label');
         self::assertContains('ctrip-business', $labels);
         self::assertContains('ctrip-traffic', $labels);
-        self::assertNotContains('ctrip-comments', $labels);
+        self::assertContains('ctrip-comments', $labels);
         self::assertContains('meituan-P_RZ', $labels);
         self::assertContains('meituan-P_XS', $labels);
         self::assertContains('meituan-P_ZH', $labels);

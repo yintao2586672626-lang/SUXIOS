@@ -315,22 +315,27 @@ async function currentPagePath(page) {
 }
 
 async function waitForStablePagePath(page, settleMs = 500, timeoutMs = 2500) {
-  const deadline = Date.now() + timeoutMs;
-  let lastPath = await currentPagePath(page);
-  let stableSince = Date.now();
+  await page.evaluate(() => {
+    window.__suxiE2EStablePath = null;
+  }).catch(() => {});
 
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(100);
-    const nextPath = await currentPagePath(page);
-    if (nextPath !== lastPath) {
-      lastPath = nextPath;
-      stableSince = Date.now();
-      continue;
-    }
-    if (Date.now() - stableSince >= settleMs) return lastPath;
-  }
+  const handle = await page.waitForFunction(
+    ({ requiredStableMs }) => {
+      const path = document.querySelector('main')?.getAttribute('data-current-page') || '';
+      const now = Date.now();
+      const state = window.__suxiE2EStablePath || { path, stableSince: now };
+      if (state.path !== path) {
+        state.path = path;
+        state.stableSince = now;
+      }
+      window.__suxiE2EStablePath = state;
+      return now - state.stableSince >= requiredStableMs ? state.path : false;
+    },
+    { requiredStableMs: settleMs },
+    { timeout: timeoutMs, polling: 100 },
+  ).catch(() => null);
 
-  return lastPath;
+  return handle ? handle.jsonValue() : currentPagePath(page);
 }
 
 async function ensureModulePage(page, mod) {
@@ -349,7 +354,7 @@ async function ensureModulePage(page, mod) {
       } catch (error) {
         lastError = error;
       }
-      await page.waitForTimeout(500 * attempt);
+      await waitForStablePagePath(page, 200, 500 * attempt).catch(() => currentPagePath(page));
     }
     if (lastError) throw lastError;
     return { restored: true, from: actualPath, to: expectedPath, attempts: 3 };
@@ -500,8 +505,7 @@ async function clickVisibleButtons(page, loop, mod) {
       const expectedPath = modulePath(mod);
       let afterClickPath = await currentPagePath(page);
       if ((!afterClickPath || afterClickPath === expectedPath) && isPageSwitchButton(target)) {
-        await page.waitForTimeout(600);
-        afterClickPath = await currentPagePath(page);
+        afterClickPath = await waitForStablePagePath(page, 300, 1000);
       }
       if (afterClickPath && afterClickPath !== expectedPath) {
         afterClickPath = await waitForStablePagePath(page);
