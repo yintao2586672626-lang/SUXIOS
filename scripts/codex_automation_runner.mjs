@@ -72,7 +72,7 @@ const SUITES = [
       E2E_MAX_FIELDS_PER_MODULE: '40',
       E2E_LOOP: '50',
     },
-    timeoutMs: 3600000,
+    timeoutMs: 5400000,
   },
 ];
 

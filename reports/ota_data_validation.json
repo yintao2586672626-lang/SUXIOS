@@ -1,11 +1,32 @@
 {
-  "checkedRows": 0,
+  "checkedRows": 1,
   "errors": [],
   "warnings": [],
-  "record_results": [],
+  "record_results": [
+    {
+      "index": 1,
+      "row": "1001",
+      "source": "ctrip",
+      "hotel_id": "1001",
+      "hotel_name": "Test Hotel",
+      "data_date": "2026-05-17",
+      "status": "pass",
+      "abnormal": false,
+      "abnormal_level": "normal",
+      "abnormal_reasons": [],
+      "errors": [],
+      "warnings": [],
+      "calculated_metrics": {
+        "ADR": 200,
+        "ARI": 80,
+        "SCI": 120,
+        "MPI": 93.75
+      }
+    }
+  ],
   "summary": {
-    "checked_rows": 0,
-    "passed_records": 0,
+    "checked_rows": 1,
+    "passed_records": 1,
     "failed_records": 0,
     "warning_records": 0,
     "error_count": 0,
@@ -42,6 +63,14 @@
       "command": {
         "path": "app/command/AutoFetchOnlineData.php",
         "missing_tokens": []
+      }
+    },
+    "metric_summary": {
+      "metric_counts": {
+        "ADR": 1,
+        "ARI": 1,
+        "SCI": 1,
+        "MPI": 1
       }
     }
   }

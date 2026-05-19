@@ -11,6 +11,8 @@ const {
   goModule,
   installDiagnostics,
   login,
+  modulePath,
+  pageTestIdForModule,
   safeFileName,
   semanticInputValue,
   shortError,
@@ -303,11 +305,91 @@ async function collectVisibleButtons(page) {
   });
 }
 
-async function clickButton(page, target) {
-  if (target.testId) {
-    return page.getByTestId(target.testId).first().click({ timeout: 4000 });
+async function currentPagePath(page) {
+  return page.locator('main').first().getAttribute('data-current-page').catch(() => '');
+}
+
+async function ensureModulePage(page, mod) {
+  const expectedPath = modulePath(mod);
+  const actualPath = await currentPagePath(page);
+  if (actualPath && actualPath !== expectedPath) {
+    await goModule(page, mod);
+    await page.getByTestId(pageTestIdForModule(mod)).or(page.locator('main')).first().waitFor({ state: 'visible', timeout: 5000 });
+    return { restored: true, from: actualPath, to: expectedPath };
   }
-  return page.locator(`[data-suxi-e2e-button-id="${target.id}"]`).click({ timeout: 4000 });
+  return { restored: false, from: actualPath || expectedPath, to: expectedPath };
+}
+
+async function buttonUsable(locator) {
+  return locator.evaluate((button) => {
+    const style = window.getComputedStyle(button);
+    return !button.disabled
+      && style.visibility !== 'hidden'
+      && style.display !== 'none'
+      && !!(button.offsetWidth || button.offsetHeight || button.getClientRects().length);
+  }).catch(() => false);
+}
+
+async function firstUsableButton(locator) {
+  const count = await locator.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (await buttonUsable(candidate)) return candidate;
+  }
+  return null;
+}
+
+async function relocateButton(page, target) {
+  if (target.testId) {
+    const byTestId = await firstUsableButton(page.getByTestId(target.testId));
+    if (byTestId) return byTestId;
+  }
+  if (target.id) {
+    const byGeneratedId = await firstUsableButton(page.locator(`[data-suxi-e2e-button-id="${target.id}"]`));
+    if (byGeneratedId) return byGeneratedId;
+  }
+
+  const relocated = await page.evaluate((buttonTarget) => {
+    window.__suxiE2EButtonSeq = window.__suxiE2EButtonSeq || 0;
+    const isVisible = (button) => {
+      const style = window.getComputedStyle(button);
+      return !button.disabled
+        && style.visibility !== 'hidden'
+        && style.display !== 'none'
+        && !!(button.offsetWidth || button.offsetHeight || button.getClientRects().length);
+    };
+    const makeSignature = (button) => {
+      const text = (button.innerText || button.textContent || button.getAttribute('aria-label') || button.title || '').trim().replace(/\s+/g, ' ');
+      const classPart = String(button.className || '').replace(/\s+/g, ' ').slice(0, 120);
+      return {
+        text,
+        signature: [button.dataset.testid || '', text, button.type || '', button.title || '', button.getAttribute('aria-label') || '', classPart].join('|'),
+      };
+    };
+    const buttons = Array.from(document.querySelectorAll('#app button')).filter((button) => {
+      if (button.closest('aside')) return false;
+      return isVisible(button);
+    });
+    const match = buttons.find((button) => {
+      const meta = makeSignature(button);
+      return (buttonTarget.testId && button.dataset.testid === buttonTarget.testId)
+        || (buttonTarget.signature && meta.signature === buttonTarget.signature)
+        || (buttonTarget.text && meta.text === buttonTarget.text);
+    });
+    if (!match) return null;
+    if (!match.dataset.suxiE2eButtonId) {
+      window.__suxiE2EButtonSeq += 1;
+      match.dataset.suxiE2eButtonId = String(window.__suxiE2EButtonSeq);
+    }
+    return {
+      id: match.dataset.suxiE2eButtonId,
+      testId: match.dataset.testid || '',
+      ...makeSignature(match),
+    };
+  }, target).catch(() => null);
+
+  if (!relocated?.id) return null;
+  return firstUsableButton(page.locator(`[data-suxi-e2e-button-id="${relocated.id}"]`));
 }
 
 async function clickVisibleButtons(page, loop, mod) {
@@ -318,6 +400,18 @@ async function clickVisibleButtons(page, loop, mod) {
   let passWithoutNewButton = 0;
 
   while (passWithoutNewButton < 2) {
+    const restoreState = await ensureModulePage(page, mod);
+    if (restoreState.restored) {
+      pageEvents.push({
+        type: 'module-page-restored',
+        category: 'selector-or-dom-state',
+        loop,
+        module: mod,
+        from: restoreState.from,
+        to: restoreState.to,
+        timestamp: new Date().toISOString(),
+      });
+    }
     const buttons = await collectVisibleButtons(page);
     if (clicked.size >= maxButtonsPerModule) break;
 
@@ -347,9 +441,27 @@ async function clickVisibleButtons(page, loop, mod) {
 
     const apiStart = apiEvents.length;
     try {
-      const waitResult = await waitForApiOrState(page, () => clickButton(page, target), {
+      const buttonLocator = await relocateButton(page, target);
+      if (!buttonLocator) {
+        skippedCount += 1;
+        buttonResults.push({
+          loop,
+          module: mod,
+          button: buttonText,
+          testId: target.testId,
+          status: 'skipped',
+          category: 'selector-or-dom-state',
+          signature: target.signature,
+          reason: 'button-unavailable-after-rerender',
+          timestamp: new Date().toISOString(),
+        });
+        continue;
+      }
+      const waitResult = await waitForApiOrState(page, () => buttonLocator.click({ timeout: 4000 }), {
         stateLocator: page.locator('main'),
       });
+      const afterClickPath = await currentPagePath(page);
+      const expectedPath = modulePath(mod);
       clickedCount += 1;
       buttonResults.push({
         loop,
@@ -358,10 +470,14 @@ async function clickVisibleButtons(page, loop, mod) {
         testId: target.testId,
         status: 'clicked',
         signature: target.signature,
+        pageChangedTo: afterClickPath && afterClickPath !== expectedPath ? afterClickPath : null,
         apiEvents: apiEvents.length - apiStart,
         responseStatus: waitResult.response ? waitResult.response.status() : null,
         timestamp: new Date().toISOString(),
       });
+      if (afterClickPath && afterClickPath !== expectedPath) {
+        await ensureModulePage(page, mod);
+      }
     } catch (error) {
       failedCount += 1;
       buttonResults.push({

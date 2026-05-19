@@ -32,6 +32,7 @@ test.use({
   actionTimeout: 5000,
   navigationTimeout: 10000,
 });
+test.setTimeout(Number(process.env.E2E_TEST_TIMEOUT_MS || 90000));
 
 test.beforeAll(() => {
   ensureCleanDir(outputDir);

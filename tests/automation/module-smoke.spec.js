@@ -76,6 +76,12 @@ async function fillSemanticValue(input) {
   }
 
   const type = await input.evaluate((element) => element.type || 'text');
+  if (type === 'checkbox' || type === 'radio') {
+    await input.setChecked(true);
+    return;
+  }
+  if (type === 'file') return;
+
   await input.fill(semanticInputValue({
     ariaLabel: await input.getAttribute('aria-label'),
     name: await input.getAttribute('name'),

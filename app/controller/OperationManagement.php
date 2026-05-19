@@ -39,7 +39,7 @@ class OperationManagement extends Base
 
             return $this->success($this->service->rootCause($hotelIds, $hotelId, $date, $problemType));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '根因定位失败'), 400);
+            return $this->error($this->safeErrorMessage($e, '根因定位失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -87,7 +87,7 @@ class OperationManagement extends Base
 
             return $this->success($this->service->strategySimulation($hotelIds, $hotelId, $input));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '策略模拟失败'), 500);
+            return $this->error($this->safeErrorMessage($e, '策略模拟失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -113,7 +113,7 @@ class OperationManagement extends Base
 
             return $this->success(['id' => $this->service->createAction($hotelIds, $hotelId, $input)]);
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '创建策略动作失败'), 500);
+            return $this->error($this->safeErrorMessage($e, '创建策略动作失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -176,6 +176,22 @@ class OperationManagement extends Base
         }
 
         return date('Y-m-d', $timestamp);
+    }
+
+    private function operationThrowableStatus(Throwable $e): int
+    {
+        $message = trim($e->getMessage());
+        if ($message === '未登录') {
+            return 401;
+        }
+        if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据'], true)) {
+            return 403;
+        }
+        if ($e instanceof \InvalidArgumentException) {
+            return 400;
+        }
+
+        return 500;
     }
 
     private function safeErrorMessage(Throwable $e, string $fallback): string

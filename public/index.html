@@ -2743,9 +2743,8 @@
                                 <div class="flex flex-col sm:flex-row gap-3">
                                     <select v-model="operationFilters.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm min-w-[160px]">
                                         <option value="">全部可见酒店</option>
-                                        <option v-for="hotel in permittedHotels" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
                                     </select>
-                                    <input v-model="operationFilters.hotel_id" placeholder="酒店ID" class="px-3 py-2 border border-gray-200 rounded-lg text-sm w-full sm:w-32">
                                     <input v-model="operationFilters.date" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                     <button @click="loadOperationFullData" :disabled="operationLoading.fullData" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
                                         <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': operationLoading.fullData }"></i>刷新
@@ -2860,7 +2859,7 @@
                                 <div class="flex flex-col sm:flex-row gap-3">
                                     <select v-model="operationFilters.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[160px]">
                                         <option value="">全部可见酒店</option>
-                                        <option v-for="hotel in permittedHotels" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
                                     </select>
                                     <input v-model="operationFilters.date" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                     <button @click="analyzeOperationRootCause" :disabled="operationLoading.rootCause" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-60">
@@ -3015,7 +3014,10 @@
                             <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm xl:col-span-1">
                                 <h3 class="font-bold text-gray-900 mb-4">策略表单</h3>
                                 <div class="space-y-3">
-                                    <input v-model="strategyForm.hotel_id" placeholder="酒店ID" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                    <select v-model="strategyForm.hotel_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                        <option value="">自动选择可见酒店</option>
+                                        <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                    </select>
                                     <select v-model="strategyForm.strategy_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                         <option v-for="item in operationStrategyTypes" :key="item.key" :value="item.key">{{ item.label }}</option>
                                     </select>
@@ -3077,7 +3079,10 @@
                                 <select v-model="actionForm.action_type" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                     <option v-for="item in operationStrategyTypes" :key="item.key" :value="item.key">{{ item.label }}</option>
                                 </select>
-                                <input v-model="actionForm.hotel_id" placeholder="酒店ID" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                <select v-model="actionForm.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                    <option value="">自动选择可见酒店</option>
+                                    <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                </select>
                                 <input v-model="actionForm.start_date" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                 <input v-model="actionForm.end_date" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                 <select v-model="actionForm.target_metric" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
@@ -16073,7 +16078,8 @@
                             path: 'ai-transfer',
                             children: [
                                 { name: '智算·资产定价', path: 'asset-pricing', icon: 'fas fa-calculator' },
-                                { name: '智略·时机推演', path: 'timing-strategy', icon: 'fas fa-chess-knight' }
+                                { name: '智略·时机推演', path: 'timing-strategy', icon: 'fas fa-chess-knight' },
+                                { name: '智决·数据看板', path: 'decision-board', icon: 'fas fa-chart-pie' }
                             ]
                         }
                     ]
@@ -17126,6 +17132,51 @@
                 const message = error?.message || '';
                 return /[\u4e00-\u9fa5]/.test(message) ? message : fallback;
             };
+            const operationHotelOptions = computed(() => {
+                const source = permittedHotels.value.length ? permittedHotels.value : hotels.value;
+                return (source || []).filter(hotel => hotel && hotel.id);
+            });
+            const firstOperationHotelId = () => {
+                const first = operationHotelOptions.value[0];
+                return first?.id ? String(first.id) : '';
+            };
+            const isOperationHotelPermitted = (hotelId) => {
+                const value = String(hotelId || '').trim();
+                if (!value) return true;
+                return operationHotelOptions.value.some(hotel => String(hotel.id) === value);
+            };
+            const normalizeOperationHotelSelection = (formRef, options = {}) => {
+                const {
+                    requireHotel = false,
+                    errorKey = '',
+                    fallbackMessage = '请选择有权限的酒店',
+                } = options;
+                const form = formRef.value || {};
+                const raw = String(form.hotel_id || '').trim();
+                if (raw && isOperationHotelPermitted(raw)) {
+                    form.hotel_id = raw;
+                    return raw;
+                }
+
+                const fallbackId = firstOperationHotelId();
+                if (!raw) {
+                    if (!requireHotel) return '';
+                    if (fallbackId) {
+                        form.hotel_id = fallbackId;
+                        return fallbackId;
+                    }
+                }
+
+                if (raw && fallbackId) {
+                    form.hotel_id = requireHotel ? fallbackId : '';
+                    showToast('已重置为可见酒店范围', 'warning');
+                    return requireHotel ? fallbackId : '';
+                }
+
+                if (errorKey) operationError.value[errorKey] = fallbackMessage;
+                showToast(fallbackMessage, 'error');
+                return null;
+            };
 
             const operationSummaryCards = computed(() => {
                 const summary = operationFullData.value?.summary || {};
@@ -17246,7 +17297,12 @@
 
             const operationParams = () => {
                 const params = new URLSearchParams();
-                if (operationFilters.value.hotel_id) params.append('hotel_id', operationFilters.value.hotel_id);
+                const hotelId = normalizeOperationHotelSelection(operationFilters, {
+                    errorKey: 'fullData',
+                    fallbackMessage: '请选择有权限的酒店',
+                });
+                if (hotelId === null) return null;
+                if (hotelId) params.append('hotel_id', hotelId);
                 if (operationFilters.value.date) params.append('date', operationFilters.value.date);
                 return params.toString();
             };
@@ -17256,6 +17312,7 @@
                 operationError.value.fullData = '';
                 try {
                     const query = operationParams();
+                    if (query === null) return;
                     const res = await apiRequest(`/operation/full-data${query ? '?' + query : ''}`);
                     if (res.code !== 200) throw new Error(res.message || '全维数据加载失败');
                     operationFullData.value = res.data || null;
@@ -17271,10 +17328,15 @@
                 operationLoading.value.rootCause = true;
                 operationError.value.rootCause = '';
                 try {
+                    const hotelId = normalizeOperationHotelSelection(operationFilters, {
+                        errorKey: 'rootCause',
+                        fallbackMessage: '请选择有权限的酒店',
+                    });
+                    if (hotelId === null) return;
                     const res = await apiRequest('/operation/root-cause', {
                         method: 'POST',
                         body: JSON.stringify({
-                            hotel_id: operationFilters.value.hotel_id,
+                            hotel_id: hotelId,
                             date: operationFilters.value.date,
                             problem_type: 'operation',
                         }),
@@ -17294,7 +17356,12 @@
                 operationError.value.alerts = '';
                 try {
                     const params = new URLSearchParams();
-                    if (operationFilters.value.hotel_id) params.append('hotel_id', operationFilters.value.hotel_id);
+                    const hotelId = normalizeOperationHotelSelection(operationFilters, {
+                        errorKey: 'alerts',
+                        fallbackMessage: '请选择有权限的酒店',
+                    });
+                    if (hotelId === null) return;
+                    if (hotelId) params.append('hotel_id', hotelId);
                     const res = await apiRequest(`/operation/alerts${params.toString() ? '?' + params.toString() : ''}`);
                     if (res.code !== 200) throw new Error(res.message || '预警加载失败');
                     operationAlerts.value = res.data || { list: [], unread_count: 0 };
@@ -17336,9 +17403,15 @@
                 operationLoading.value.strategy = true;
                 operationError.value.strategy = '';
                 try {
+                    const hotelId = normalizeOperationHotelSelection(strategyForm, {
+                        requireHotel: true,
+                        errorKey: 'strategy',
+                        fallbackMessage: '请选择有权限的酒店后再模拟',
+                    });
+                    if (hotelId === null) return;
                     const res = await apiRequest('/operation/strategy-simulation', {
                         method: 'POST',
-                        body: JSON.stringify(strategyForm.value),
+                        body: JSON.stringify({ ...strategyForm.value, hotel_id: hotelId }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '策略模拟失败');
                     operationStrategyResult.value = res.data || null;
@@ -17359,9 +17432,15 @@
                 operationLoading.value.actions = true;
                 operationError.value.actions = '';
                 try {
+                    const hotelId = normalizeOperationHotelSelection(actionForm, {
+                        requireHotel: true,
+                        errorKey: 'actions',
+                        fallbackMessage: '请选择有权限的酒店后再创建',
+                    });
+                    if (hotelId === null) return;
                     const res = await apiRequest('/operation/actions', {
                         method: 'POST',
-                        body: JSON.stringify(actionForm.value),
+                        body: JSON.stringify({ ...actionForm.value, hotel_id: hotelId }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '创建策略动作失败');
                     showToast('策略动作已创建');
@@ -17381,7 +17460,12 @@
                 operationError.value.actions = '';
                 try {
                     const params = new URLSearchParams();
-                    if (operationFilters.value.hotel_id) params.append('hotel_id', operationFilters.value.hotel_id);
+                    const hotelId = normalizeOperationHotelSelection(operationFilters, {
+                        errorKey: 'actions',
+                        fallbackMessage: '请选择有权限的酒店',
+                    });
+                    if (hotelId === null) return;
+                    if (hotelId) params.append('hotel_id', hotelId);
                     const res = await apiRequest(`/operation/action-tracking${params.toString() ? '?' + params.toString() : ''}`);
                     if (res.code !== 200) throw new Error(res.message || '策略追踪加载失败');
                     operationActions.value = res.data?.actions || [];
@@ -28015,7 +28099,7 @@
                 transferRecordTypeLabel, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, archiveTransferRecord,
                 operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
-                operationAlertFilter, operationAlertFilters, operationStrategyTypes, operationSummaryCards, operationOtaCards, operationCompetitorCards,
+                operationAlertFilter, operationAlertFilters, operationStrategyTypes, operationHotelOptions, operationSummaryCards, operationOtaCards, operationCompetitorCards,
                 operationSourceBrief, operationDecisionCards,
                 operationUnreadCount, filteredOperationAlerts, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
                 markOperationAlertsRead, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
