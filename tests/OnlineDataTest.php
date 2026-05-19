@@ -358,12 +358,214 @@ final class OnlineDataTest extends TestCase
         $controller = $this->controller();
 
         self::assertSame('', $this->invokeNonPublic($controller, 'normalizeOnlineDataDate', [null]));
+        self::assertSame('2026-05-18', $this->invokeNonPublic($controller, 'normalizeOnlineDataDate', ['20260518']));
         self::assertSame('2026-05-02', $this->invokeNonPublic($controller, 'normalizeOnlineDataDate', ['2026/5/2']));
         self::assertSame('2026-05-03', $this->invokeNonPublic($controller, 'normalizeOnlineDataDate', [strtotime('2026-05-03 00:00:00')]));
         self::assertSame('', $this->invokeNonPublic($controller, 'normalizeOnlineDataDate', ['not-a-date']));
 
         self::assertSame(4.8, $this->invokeNonPublic($controller, 'extractCtripCommentScore', [['rating' => '4.8']]));
+        self::assertSame(4.0, $this->invokeNonPublic($controller, 'extractCtripCommentScore', [['score' => 40]]));
+        self::assertSame(5.0, $this->invokeNonPublic($controller, 'extractCtripCommentScore', [['commentScore' => 100]]));
         self::assertSame(0.0, $this->invokeNonPublic($controller, 'extractCtripCommentScore', [['rating' => 'bad']]));
+    }
+
+    public function testCtripBrowserCapturePayloadExtractsGetCommentListRows(): void
+    {
+        $controller = $this->controller();
+
+        $comments = $this->invokeNonPublic($controller, 'extractCtripCapturedComments', [[
+            'reviews' => [[
+                'review_id' => 'local-1',
+                'content' => '本地浏览器归一化点评',
+            ]],
+            'responses' => [
+                [
+                    'url' => 'https://ebooking.ctrip.com/api/getCommentList',
+                    'section' => 'reviews',
+                    'data' => [
+                        'data' => [
+                            'commentList' => [[
+                                'commentId' => 'api-1',
+                                'score' => 40,
+                                'commentContent' => '接口点评',
+                            ]],
+                        ],
+                    ],
+                ],
+                [
+                    'url' => 'https://ebooking.ctrip.com/api/other',
+                    'data' => [
+                        'data' => [
+                            'commentList' => [[
+                                'commentId' => 'skip-1',
+                                'commentContent' => '非点评接口不应进入',
+                            ]],
+                        ],
+                    ],
+                ],
+            ],
+        ]]);
+
+        self::assertCount(2, $comments);
+        self::assertSame('local-1', $comments[0]['review_id']);
+        self::assertSame('api-1', $comments[1]['commentId']);
+    }
+
+    public function testCtripAdsPayloadMapsToAdvertisingRows(): void
+    {
+        $controller = $this->controller();
+
+        $ads = $this->invokeNonPublic($controller, 'extractCtripCapturedAds', [[
+            'responses' => [[
+                'url' => 'https://ebooking.ctrip.com/toolcenter/api/pyramidad/report',
+                'section' => 'ads',
+                'data' => [
+                    'data' => [
+                        'list' => [[
+                            'campaignId' => 'ad-1',
+                            'campaignName' => '金字塔计划',
+                            'impressions' => 1000,
+                            'clicks' => 50,
+                            'orderNum' => 3,
+                            'consume' => 188.5,
+                            'statDate' => '2026-05-18',
+                        ]],
+                    ],
+                ],
+            ]],
+        ]]);
+        $rows = $this->invokeNonPublic($controller, 'buildCtripCapturedAdRows', [$ads, [
+            'hotel_id' => 'ctrip-58',
+            'hotel_name' => 'Ctrip Hotel',
+        ], 58]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('advertising', $rows[0]['data_type']);
+        self::assertSame('ctrip', $rows[0]['source']);
+        self::assertSame('Ctrip', $rows[0]['platform']);
+        self::assertSame(1000, $rows[0]['list_exposure']);
+        self::assertSame(50, $rows[0]['detail_exposure']);
+        self::assertSame(3, $rows[0]['book_order_num']);
+        self::assertSame(188.5, $rows[0]['amount']);
+    }
+
+    public function testCtripAdsDirectPayloadAndChineseFieldsMapToMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripAdsDirectPayload', [[
+            'pageIndex' => 1,
+        ], '2026-05-18', '2026-05-18', 'campaign_report']);
+
+        self::assertSame('2026-05-18', $payload['startDate']);
+        self::assertSame('2026-05-18', $payload['endDate']);
+        self::assertSame('campaign_report', $payload['apiType']);
+
+        $ads = $this->invokeNonPublic($controller, 'extractCtripCapturedAds', [[
+            'responses' => [[
+                'url' => 'https://ebooking.ctrip.com/api/promotion/report',
+                'section' => 'ads',
+                'data' => [
+                    'data' => [
+                        'rows' => [[
+                            '计划名称' => '中文广告计划',
+                            '曝光量' => '1,200',
+                            '点击量' => '60',
+                            '成交数' => '4',
+                            '消耗金额' => '¥240.50',
+                            '统计日期' => '2026-05-18',
+                        ]],
+                    ],
+                ],
+            ]],
+        ]]);
+        $rows = $this->invokeNonPublic($controller, 'buildCtripCapturedAdRows', [$ads, [
+            'hotel_id' => 'ctrip-58',
+            'hotel_name' => 'Ctrip Hotel',
+        ], 58]);
+        $metrics = $this->invokeNonPublic($controller, 'summarizeCtripAdRows', [$rows]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(1200, $rows[0]['list_exposure']);
+        self::assertSame(60, $rows[0]['detail_exposure']);
+        self::assertSame(4, $rows[0]['book_order_num']);
+        self::assertSame(240.5, $rows[0]['amount']);
+        self::assertSame(1200, $metrics['exposure']);
+        self::assertSame(60, $metrics['clicks']);
+        self::assertSame(4, $metrics['orders']);
+        self::assertSame(240.5, $metrics['cost']);
+        self::assertSame(5.0, $metrics['click_rate']);
+    }
+
+    public function testMeituanCapturedRowsMapBrowserSectionsToOnlineDailyData(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'store_id' => 'store-7',
+            'poi_id' => 'poi-99',
+            'poi_name' => 'Meituan Hotel',
+            'reviews' => [[
+                'review_id' => 'review-1',
+                'score' => 40,
+                'content' => 'room issue',
+                'reply' => '',
+                'is_negative' => true,
+                'review_time' => '2026-05-18 09:30:00',
+            ]],
+            'traffic' => [[
+                'date' => '2026-05-18',
+                'exposure_count' => 1000,
+                'page_views' => 180,
+                'click_count' => 120,
+                'unique_visitors' => 80,
+                'conversion_rate' => '12.5%',
+                'search_rank' => 3,
+                'keyword_rank_data' => ['hotel' => 2],
+            ]],
+            'ads' => [[
+                'date' => '2026-05-18',
+                'exposure_count' => 500,
+                'click_count' => 50,
+                'conversion_rate' => 0.1,
+                'keyword_rank_data' => ['cureShops' => true],
+            ]],
+            'orders' => [[
+                'order_id' => 'order-1',
+                'order_status' => 'confirmed',
+                'room_count' => 2,
+                'nights' => 3,
+                'total_amount' => 688,
+                'avg_price' => 344,
+                'order_time' => '2026-05-17 20:00:00',
+            ]],
+        ], 99]);
+
+        self::assertCount(4, $rows);
+
+        self::assertSame('review', $rows[0]['data_type']);
+        self::assertSame('poi-99', $rows[0]['hotel_id']);
+        self::assertSame('2026-05-18', $rows[0]['data_date']);
+        self::assertSame(4.0, $rows[0]['comment_score']);
+        self::assertSame('review:negative:review-1', $rows[0]['dimension']);
+
+        self::assertSame('traffic', $rows[1]['data_type']);
+        self::assertSame(1000, $rows[1]['list_exposure']);
+        self::assertSame(180, $rows[1]['detail_exposure']);
+        self::assertSame(12.5, $rows[1]['flow_rate']);
+        self::assertSame(120, $rows[1]['order_filling_num']);
+        self::assertStringContainsString('"unique_visitors":80', $rows[1]['raw_data']);
+
+        self::assertSame('advertising', $rows[2]['data_type']);
+        self::assertSame(500, $rows[2]['list_exposure']);
+        self::assertSame(50, $rows[2]['detail_exposure']);
+        self::assertSame(10.0, $rows[2]['flow_rate']);
+
+        self::assertSame('order', $rows[3]['data_type']);
+        self::assertSame(688.0, $rows[3]['amount']);
+        self::assertSame(6, $rows[3]['quantity']);
+        self::assertSame(1, $rows[3]['book_order_num']);
+        self::assertSame('order:confirmed:order-1', $rows[3]['dimension']);
     }
 
     public function testOnlineDailyDataValidationFieldsMarkAbnormalRows(): void

@@ -73,7 +73,6 @@ class MacroSignalService
                 'labels' => array_column($series['rows'], 'label'),
                 'metrics' => [
                     'revenue' => ['label' => '营收', 'unit' => '¥', 'data' => array_column($series['rows'], 'revenue')],
-                    'occupancy' => ['label' => '入住率', 'unit' => '%', 'data' => array_column($series['rows'], 'occupancy')],
                     'adr' => ['label' => 'ADR', 'unit' => '¥', 'data' => array_column($series['rows'], 'adr')],
                     'revpar' => ['label' => 'RevPAR', 'unit' => '¥', 'data' => array_column($series['rows'], 'revpar')],
                     'room_nights' => ['label' => '间夜', 'unit' => '间', 'data' => array_column($series['rows'], 'room_nights')],
@@ -299,16 +298,26 @@ class MacroSignalService
         $conversion = $this->aggregateTraffic($online)['conversion'];
 
         if ($adr <= 0 && $competitorAvg <= 0) {
-            return $this->pending('price', '价格信号', '等待 ADR、竞对均价、价差、入住率和转化数据同步');
+            return $this->pending('price', '价格信号', '等待 ADR、竞对价格、入住率和转化数据同步');
         }
 
         $gap = ($adr > 0 && $competitorAvg > 0) ? $adr - $competitorAvg : null;
-        $metrics = [
-            $this->metric('ADR', $adr > 0 ? '¥' . round($adr, 0) : '待同步'),
-            $this->metric('竞对均价', $competitorAvg > 0 ? '¥' . round($competitorAvg, 0) : '待同步'),
-            $this->metric('价差', $gap !== null ? '¥' . round($gap, 0) : '待同步'),
-            $this->metric('入住率', $occupancy !== null ? round($occupancy, 1) . '%' : '待同步'),
-        ];
+        $metrics = [];
+        if ($adr > 0) {
+            $metrics[] = $this->metric('ADR', '¥' . round($adr, 0));
+        }
+        if ($competitorAvg > 0) {
+            $metrics[] = $this->metric('竞对均价', '¥' . round($competitorAvg, 0));
+        }
+        if ($gap !== null) {
+            $metrics[] = $this->metric('价差', '¥' . round($gap, 0));
+        }
+        if ($occupancy !== null) {
+            $metrics[] = $this->metric('入住率', round($occupancy, 1) . '%');
+        }
+        if ($conversion !== null) {
+            $metrics[] = $this->metric('转化率', round($conversion, 2) . '%');
+        }
 
         $status = 'stable';
         $statusText = '平稳';
@@ -317,7 +326,14 @@ class MacroSignalService
         $reasons = ['已有价格或竞对样本'];
         $suggestions = ['结合入住率和转化率小步调整价格'];
 
-        if ($gap !== null && $competitorAvg > 0) {
+        if ($adr > 0 && $competitorAvg <= 0) {
+            $status = 'attention';
+            $statusText = '待校准';
+            $level = 'yellow';
+            $summary = '已有本店 ADR，缺少竞对价格样本，暂不判断价差';
+            $reasons = ['近30天未读取到有效竞对价格样本'];
+            $suggestions = ['同步或录入竞对价格后再判断价差'];
+        } elseif ($gap !== null && $competitorAvg > 0) {
             $gapRate = $gap / $competitorAvg;
             if ($gapRate > 0.15 && (($occupancy !== null && $occupancy < 70) || ($conversion !== null && $conversion < 3))) {
                 $status = 'risk';
@@ -673,11 +689,12 @@ class MacroSignalService
             return $this->trendPendingCard('price', '价格竞争', '等待 ADR 或竞对价格同步后判断价格走势');
         }
 
+        $priceBand = $this->priceBandFromSamples($values, $competitorAvg);
         $trend = $this->compareSeries($values);
         $direction = $this->trendDirectionText($trend);
         $level = $trend['level'];
         $note = "{$rangeLabel}ADR{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']);
-        $badge = $direction;
+        $badge = $priceBand['label'];
 
         if ($competitorAvg > 0) {
             $gap = $avgAdr - $competitorAvg;
@@ -692,19 +709,23 @@ class MacroSignalService
                 $badge = '接近竞对';
                 $level = 'green';
             }
-            $note = '本店ADR较竞对均价' . ($gap >= 0 ? '高' : '低') . '¥' . abs((int)round($gap)) . '，需结合入住和转化判断';
+            $note = '本店ADR较竞对均价' . ($gap >= 0 ? '高' : '低') . '¥' . abs((int)round($gap)) . '，价格区间已纳入竞对均价校准';
         }
 
         return [
             'key' => 'price',
             'name' => '价格竞争',
-            'value' => '¥' . (int)round($avgAdr),
+            'value' => $priceBand['value'],
             'direction' => $badge,
             'level' => $level,
             'note' => $note,
             'source' => '来源：经营日报/OTA 推算 ADR，对比竞对价格',
             'spark' => $this->sparkline($values),
             'change_rate' => $trend['change_rate'],
+            'trend_direction' => $direction,
+            'adr_avg' => round($avgAdr, 2),
+            'competitor_avg' => $competitorAvg > 0 ? round($competitorAvg, 2) : null,
+            'price_sample_count' => $priceBand['sample_count'],
         ];
     }
 
@@ -877,6 +898,68 @@ class MacroSignalService
     {
         $values = array_values(array_filter($values, static fn ($value): bool => is_numeric($value) && (float)$value > 0));
         return empty($values) ? 0.0 : array_sum($values) / count($values);
+    }
+
+    private function priceBandFromSamples(array $values, float $competitorAvg = 0.0): array
+    {
+        $samples = array_values(array_filter($values, static fn ($value): bool => is_numeric($value) && (float)$value > 0 && (float)$value < 5000));
+        $sampleCount = count($samples);
+        if ($competitorAvg > 0 && $competitorAvg < 5000) {
+            $samples[] = $competitorAvg;
+        }
+
+        if (empty($samples)) {
+            return ['value' => '--', 'label' => '待同步', 'sample_count' => 0];
+        }
+
+        sort($samples, SORT_NUMERIC);
+        if (count($samples) < 3) {
+            $price = (int)round(array_sum($samples) / count($samples));
+            return [
+                'value' => '¥' . $price,
+                'label' => $competitorAvg > 0 ? '竞对参考' : '待竞对校准',
+                'sample_count' => $sampleCount,
+            ];
+        }
+
+        $low = $this->percentile($samples, 0.25);
+        $high = $this->percentile($samples, 0.75);
+        if ($high <= $low) {
+            $margin = max(10.0, $low * 0.05);
+            $low -= $margin;
+            $high += $margin;
+        }
+
+        $lowRounded = max(1, (int)(floor($low / 10) * 10));
+        $highRounded = max($lowRounded + 10, (int)(ceil($high / 10) * 10));
+
+        return [
+            'value' => '¥' . $lowRounded . '-' . $highRounded,
+            'label' => $competitorAvg > 0 ? '含竞对校准' : 'ADR区间',
+            'sample_count' => $sampleCount,
+        ];
+    }
+
+    private function percentile(array $values, float $percentile): float
+    {
+        $values = array_values($values);
+        $count = count($values);
+        if ($count === 0) {
+            return 0.0;
+        }
+        if ($count === 1) {
+            return (float)$values[0];
+        }
+
+        $position = ($count - 1) * min(1.0, max(0.0, $percentile));
+        $lower = (int)floor($position);
+        $upper = (int)ceil($position);
+        if ($lower === $upper) {
+            return (float)$values[$lower];
+        }
+
+        $weight = $position - $lower;
+        return ((float)$values[$lower] * (1 - $weight)) + ((float)$values[$upper] * $weight);
     }
 
     private function formatMoneyShort(float $value): string
@@ -1105,17 +1188,17 @@ class MacroSignalService
             $dataValue = $rawDataValue ?? 0.0;
 
             $exposureValue = $this->firstNumber($raw, ['exposure', 'exposureNum', 'showCount', 'impression', 'displayNum']);
-            if ($exposureValue !== null) {
+            if ($exposureValue !== null && $exposureValue > 0) {
                 $hasExposure = true;
                 $exposure += $exposureValue;
             }
             $clickValue = $this->firstNumber($raw, ['clicks', 'clickNum', 'detailClickNum']);
-            if ($clickValue !== null) {
+            if ($clickValue !== null && $clickValue > 0) {
                 $hasClicks = true;
                 $clicks += $clickValue;
             }
             $visitorValue = $this->firstNumber($raw, ['visitors', 'visitorNum', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors', 'uv']);
-            if ($visitorValue !== null) {
+            if ($visitorValue !== null && $visitorValue > 0) {
                 $hasVisitors = true;
                 $visitors += $visitorValue;
             }
@@ -1128,14 +1211,20 @@ class MacroSignalService
 
             if ($rawDataValue !== null) {
                 if (str_contains($dimension, '曝光')) {
-                    $hasExposure = true;
-                    $exposure += $dataValue;
+                    if ($dataValue > 0) {
+                        $hasExposure = true;
+                        $exposure += $dataValue;
+                    }
                 } elseif (str_contains($dimension, '点击')) {
-                    $hasClicks = true;
-                    $clicks += $dataValue;
+                    if ($dataValue > 0) {
+                        $hasClicks = true;
+                        $clicks += $dataValue;
+                    }
                 } elseif (str_contains($dimension, '浏览') || str_contains($dimension, '访客')) {
-                    $hasVisitors = true;
-                    $visitors += $dataValue;
+                    if ($dataValue > 0) {
+                        $hasVisitors = true;
+                        $visitors += $dataValue;
+                    }
                 } elseif (str_contains($dimension, '转化')) {
                     if ($dataValue > 0) {
                         $conversionSamples[] = $dataValue <= 1 ? $dataValue * 100 : $dataValue;

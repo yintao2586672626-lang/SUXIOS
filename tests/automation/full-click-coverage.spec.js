@@ -204,6 +204,11 @@ function isDangerousButton(text) {
   return /删除|清空|重置|退出|注销|归档|移除|禁用|停用|作废|撤销|解绑|取消授权/.test(text);
 }
 
+function isPageSwitchButton(target) {
+  const value = `${target?.testId || ''} ${target?.text || ''} ${target?.signature || ''}`.toLowerCase();
+  return /reuse|detail|history|enter|open|view|复用|详情|进入|查看|打开/.test(value);
+}
+
 async function fieldMeta(field) {
   return field.evaluate((element) => {
     const style = window.getComputedStyle(element);
@@ -309,13 +314,45 @@ async function currentPagePath(page) {
   return page.locator('main').first().getAttribute('data-current-page').catch(() => '');
 }
 
+async function waitForStablePagePath(page, settleMs = 500, timeoutMs = 2500) {
+  const deadline = Date.now() + timeoutMs;
+  let lastPath = await currentPagePath(page);
+  let stableSince = Date.now();
+
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(100);
+    const nextPath = await currentPagePath(page);
+    if (nextPath !== lastPath) {
+      lastPath = nextPath;
+      stableSince = Date.now();
+      continue;
+    }
+    if (Date.now() - stableSince >= settleMs) return lastPath;
+  }
+
+  return lastPath;
+}
+
 async function ensureModulePage(page, mod) {
   const expectedPath = modulePath(mod);
   const actualPath = await currentPagePath(page);
   if (actualPath && actualPath !== expectedPath) {
-    await goModule(page, mod);
-    await page.getByTestId(pageTestIdForModule(mod)).or(page.locator('main')).first().waitFor({ state: 'visible', timeout: 5000 });
-    return { restored: true, from: actualPath, to: expectedPath };
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await goModule(page, mod);
+        await page.getByTestId(pageTestIdForModule(mod)).or(page.locator('main')).first().waitFor({ state: 'visible', timeout: 5000 });
+        const settledPath = await waitForStablePagePath(page, 500, 2500);
+        if (!settledPath || settledPath === expectedPath) {
+          return { restored: true, from: actualPath, to: expectedPath, attempts: attempt };
+        }
+      } catch (error) {
+        lastError = error;
+      }
+      await page.waitForTimeout(500 * attempt);
+    }
+    if (lastError) throw lastError;
+    return { restored: true, from: actualPath, to: expectedPath, attempts: 3 };
   }
   return { restored: false, from: actualPath || expectedPath, to: expectedPath };
 }
@@ -460,8 +497,15 @@ async function clickVisibleButtons(page, loop, mod) {
       const waitResult = await waitForApiOrState(page, () => buttonLocator.click({ timeout: 4000 }), {
         stateLocator: page.locator('main'),
       });
-      const afterClickPath = await currentPagePath(page);
       const expectedPath = modulePath(mod);
+      let afterClickPath = await currentPagePath(page);
+      if ((!afterClickPath || afterClickPath === expectedPath) && isPageSwitchButton(target)) {
+        await page.waitForTimeout(600);
+        afterClickPath = await currentPagePath(page);
+      }
+      if (afterClickPath && afterClickPath !== expectedPath) {
+        afterClickPath = await waitForStablePagePath(page);
+      }
       clickedCount += 1;
       buttonResults.push({
         loop,

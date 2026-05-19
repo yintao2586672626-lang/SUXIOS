@@ -11,6 +11,8 @@ composer.phar
 
 # ThinkPHP runtime
 /runtime/
+/storage/meituan_profile_*/
+/storage/ctrip_profile_*/
 *.log
 debug.log
 

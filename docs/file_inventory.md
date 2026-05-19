@@ -238,6 +238,7 @@
 | `database/migrations/20260517_create_expansion_records.sql` | 扩张记录表 | 保留 |
 | `database/migrations/20260517_create_quant_simulation_records.sql` | 量化模拟记录表 | 保留 |
 | `database/migrations/20260517_create_transfer_records.sql` | 转让记录表 | 保留 |
+| `database/migrations/20260519_seed_ctrip_browser_capture_knowledge.sql` | 携程浏览器采集方法知识种子 | 保留 |
 
 ## 前端与公开资源
 
@@ -311,10 +312,11 @@
 | `.agents/skills/suxi-investment-calculation/agents/openai.yaml` | 投资测算 Skill agent 配置 | 保留 |
 | `.agents/skills/suxi-ota-ops/SKILL.md` | OTA 运营 Skill | 保留 |
 | `.agents/skills/suxi-ota-ops/agents/openai.yaml` | OTA 运营 Skill agent 配置 | 保留 |
+| `.agents/skills/suxi-ota-ops/references/ctrip-browser-capture.md` | 携程浏览器采集方法参考 | 保留 |
 | `.agents/skills/suxi-skill-installer/SKILL.md` | Skill 安装规则 | 保留 |
 | `.agents/skills/suxi-skill-installer/agents/openai.yaml` | Skill 安装 agent 配置 | 保留 |
 | `.agents/skills/suxi-test-guard/SKILL.md` | 测试守卫 Skill | 保留 |
 | `.agents/skills/suxi-test-guard/agents/openai.yaml` | 测试守卫 agent 配置 | 保留 |
 | `plugins/suxi-os-toolkit/.codex-plugin/plugin.json` | 本地插件定义 | 保留 |
 | `plugins/suxi-os-toolkit/skills/*` | 插件分发版 Skill 内容 | 保留，与 `.agents/skills` 同源但用途不同 |
-
+| `plugins/suxi-os-toolkit/skills/suxi-ota-ops/references/ctrip-browser-capture.md` | 插件分发版携程浏览器采集参考 | 保留 |

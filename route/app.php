@@ -118,6 +118,8 @@ Route::group('api/online-data', function () {
     Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');
     Route::post('/fetch-meituan-comments', 'OnlineData/fetchMeituanComments');
+    Route::post('/capture-meituan-browser', 'OnlineData/captureMeituanBrowserData');
+    Route::post('/save-meituan-captured-data', 'OnlineData/saveMeituanCapturedData');
     Route::get('/ctrip/latest', 'OnlineData/ctripLatest');
     Route::get('/ctrip/history', 'OnlineData/ctripHistory');
     Route::post('/fetch-custom', 'OnlineData/fetchCustom');
@@ -125,6 +127,7 @@ Route::group('api/online-data', function () {
     Route::get('/cookies-list', 'OnlineData/getCookiesList');
     Route::get('/cookies-detail', 'OnlineData/getCookiesDetail');
     Route::post('/delete-cookies', 'OnlineData/deleteCookies');
+    Route::post('/batch-delete-cookies', 'OnlineData/batchDeleteCookies');
     Route::get('/bookmarklet', 'OnlineData/bookmarklet');
     // 美团配置
     Route::post('/save-meituan-config', 'OnlineData/saveMeituanConfig');
@@ -139,6 +142,8 @@ Route::group('api/online-data', function () {
     Route::get('/get-meituan-comment-config-list', 'OnlineData/getMeituanCommentConfigList');
     // 携程点评配置
     Route::post('/fetch-ctrip-comments', 'OnlineData/fetchCtripComments');
+    Route::post('/capture-ctrip-comments-browser', 'OnlineData/captureCtripCommentsBrowserData');
+    Route::post('/fetch-ctrip-ads', 'OnlineData/fetchCtripAds');
     Route::post('/save-ctrip-comment-config', 'OnlineData/saveCtripCommentConfig');
     Route::get('/get-ctrip-comment-config-list', 'OnlineData/getCtripCommentConfigList');
     // 携程配置
@@ -162,6 +167,9 @@ Route::group('api/online-data', function () {
     Route::get('/hotel-list', 'OnlineData/hotelList');
     Route::post('/auto-fetch', 'OnlineData/autoFetch');
     Route::get('/auto-fetch-status', 'OnlineData/autoFetchStatus');
+    Route::get('/auto-fetch-records', 'OnlineData/autoFetchRecords');
+    Route::post('/batch-delete-auto-fetch-records', 'OnlineData/batchDeleteAutoFetchRecords');
+    Route::post('/clear-auto-fetch-records', 'OnlineData/clearAutoFetchRecords');
     Route::post('/toggle-auto-fetch', 'OnlineData/toggleAutoFetch');
     Route::post('/set-fetch-schedule', 'OnlineData/setFetchSchedule');
     Route::post('/retry-auto-fetch', 'OnlineData/retryAutoFetch');
