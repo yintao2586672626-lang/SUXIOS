@@ -187,6 +187,61 @@ final class OnlineDataTest extends TestCase
         self::assertFalse($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['https://ctrip.com.evil.test/api', $suffixes]));
     }
 
+    public function testCtripFlowPageTrafficAliasesAndRankRowsAreExtracted(): void
+    {
+        $controller = $this->controller();
+
+        $response = [
+            'data' => [
+                'categoryRankList' => [[
+                    'statDate' => '2026-05-18',
+                    'nodeId' => 1685042,
+                    'PV' => '1234',
+                    'UV' => '456',
+                    'clickCount' => '78',
+                    'orderCount' => '9',
+                    'conversionRate' => '12.5%',
+                    'competitionRank' => 3,
+                    'categoryRank' => 5,
+                    'rankJson' => ['category' => 5, 'competition' => 3],
+                ]],
+            ],
+        ];
+
+        $rows = $this->invokeNonPublic($controller, 'extractCtripTrafficRows', [$response]);
+        self::assertCount(1, $rows);
+        self::assertSame(5, $rows[0]['categoryRank']);
+
+        $normalized = $this->invokeNonPublic($controller, 'normalizeAppTrafficRow', [$rows[0]]);
+        self::assertSame('2026-05-18', $normalized['date']);
+        self::assertSame(1234.0, $normalized['metrics']['exposure']);
+        self::assertSame(456.0, $normalized['metrics']['detail_visitors']);
+        self::assertSame(78.0, $normalized['metrics']['order_visitors']);
+        self::assertSame(9.0, $normalized['metrics']['submit_users']);
+        self::assertSame(12.5, $normalized['metrics']['exposure_rate']);
+
+        $captured = $this->invokeNonPublic($controller, 'extractCtripCapturedSection', [[
+            'responses' => [[
+                'url' => 'https://ebooking.ctrip.com/datacenter/api/inland/businessreport/flowdata/getStatData',
+                'data' => [
+                    'data' => [
+                        'rankList' => [[
+                            'date' => '2026-05-18',
+                            'nodeId' => 1685042,
+                            'competitionRank' => 2,
+                            'categoryRank' => 4,
+                            'rankJson' => ['category' => 4, 'competition' => 2],
+                        ]],
+                    ],
+                ],
+            ]],
+        ], 'traffic']);
+
+        self::assertCount(1, $captured);
+        self::assertSame(4, $captured[0]['categoryRank']);
+        self::assertSame(['category' => 4, 'competition' => 2], $captured[0]['rankJson']);
+    }
+
     /**
      * 覆盖 mergeOnlineDataHotelList/onlineDataHotelKey/sanitizeSecretConfig/maskSecretValue：
      * 验证系统酒店优先合并、OTA ID 兜底、敏感字段脱敏。
@@ -221,6 +276,83 @@ final class OnlineDataTest extends TestCase
         self::assertSame('abcd...hijk', $sanitized['cookies_preview']);
         self::assertSame('********', $sanitized['token_preview']);
         self::assertFalse($sanitized['has_spidertoken']);
+    }
+
+    public function testAutoFetchConfigTaskPlanMirrorsAutomationMode(): void
+    {
+        $controller = $this->controller();
+
+        $tasks = $this->invokeNonPublic($controller, 'buildAutoFetchConfigTaskPlan', [
+            7,
+            '2026-05-18',
+            [
+                'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                'node_id' => 'node-7',
+                'cookies' => 'ctrip-cookie',
+                'auth_data' => ['xCtxLocale' => 'zh-CN'],
+            ],
+            [
+                'url' => 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
+                'partner_id' => 'partner-7',
+                'poi_id' => 'poi-7',
+                'cookies' => 'meituan-cookie',
+                'auth_data' => ['token' => 'token-7'],
+            ],
+            [
+                'ctrip-traffic' => [
+                    'system_hotel_id' => 7,
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1',
+                    'cookies' => 'ctrip-traffic-cookie',
+                    'spiderkey' => 'spider-7',
+                ],
+                'ctrip-comments' => [
+                    'system_hotel_id' => '7',
+                    'request_url' => 'https://ebooking.ctrip.com/api/getCommentList',
+                    'hotel_id' => 'ctrip-hotel-7',
+                    'cookies' => 'ctrip-comment-cookie',
+                    'spidertoken' => 'spider-token-7',
+                    'payload_json' => '{"hotelId":"ctrip-hotel-7"}',
+                ],
+                'meituan-traffic' => [
+                    'hotelId' => 7,
+                    'url' => 'https://eb.meituan.com/api/v1/ebooking/traffic',
+                    'partner_id' => 'partner-traffic-7',
+                    'poi_id' => 'poi-traffic-7',
+                    'cookies' => 'meituan-traffic-cookie',
+                ],
+                'meituan-comments' => [
+                    'system_hotel_id' => 8,
+                    'partner_id' => 'partner-8',
+                    'poi_id' => 'poi-8',
+                    'cookies' => 'meituan-comment-cookie',
+                ],
+            ],
+        ]);
+
+        $labels = array_column($tasks, 'label');
+        self::assertContains('ctrip-business', $labels);
+        self::assertContains('ctrip-traffic', $labels);
+        self::assertNotContains('ctrip-comments', $labels);
+        self::assertContains('meituan-P_RZ', $labels);
+        self::assertContains('meituan-P_XS', $labels);
+        self::assertContains('meituan-P_ZH', $labels);
+        self::assertContains('meituan-P_LL', $labels);
+        self::assertContains('meituan-traffic', $labels);
+        self::assertContains('meituan-comments', $labels);
+
+        foreach ($tasks as $task) {
+            self::assertSame(7, $task['body']['system_hotel_id']);
+            self::assertTrue($task['body']['auto_save']);
+            self::assertSame('2026-05-18', $task['body']['start_date']);
+            self::assertSame('2026-05-18', $task['body']['end_date']);
+        }
+
+        $rankTask = $tasks[array_search('meituan-P_RZ', $labels, true)];
+        self::assertSame('P_RZ', $rankTask['body']['rank_type']);
+
+        $commentTask = $tasks[array_search('meituan-comments', $labels, true)];
+        self::assertSame('partner-7', $commentTask['body']['partner_id']);
+        self::assertSame('poi-7', $commentTask['body']['poi_id']);
     }
 
     public function testCookieHealthMessagesAreActionableChinesePrompts(): void
@@ -437,6 +569,8 @@ final class OnlineDataTest extends TestCase
         $rows = $this->invokeNonPublic($controller, 'buildCtripCapturedAdRows', [$ads, [
             'hotel_id' => 'ctrip-58',
             'hotel_name' => 'Ctrip Hotel',
+            'request_start_date' => '2026-05-12',
+            'request_end_date' => '2026-05-18',
         ], 58]);
 
         self::assertCount(1, $rows);
@@ -447,6 +581,48 @@ final class OnlineDataTest extends TestCase
         self::assertSame(50, $rows[0]['detail_exposure']);
         self::assertSame(3, $rows[0]['book_order_num']);
         self::assertSame(188.5, $rows[0]['amount']);
+    }
+
+    public function testCtripAdsApiUrlOnlyAllowsPyramidadOrPromotion(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [
+            'https://ebooking.ctrip.com/toolcenter/api/pyramidad/report',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [
+            'https://ebooking.ctrip.com/api/promotion/report',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [
+            'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE&v=0.8021101893559687',
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [
+            'https://ebooking.ctrip.com/toolcenter/cpc/pyramid',
+        ]));
+    }
+
+    public function testCtripAdsLastSevenDaysUsesSettledReportEndDate(): void
+    {
+        $controller = $this->controller();
+
+        $beforeUpdate = $this->invokeNonPublic($controller, 'buildCtripAdsDateRange', [
+            'last_7_days',
+            '',
+            '',
+            strtotime('2026-05-20 02:44:00'),
+        ]);
+        self::assertSame(['2026-05-12', '2026-05-18'], $beforeUpdate);
+
+        $afterUpdate = $this->invokeNonPublic($controller, 'buildCtripAdsDateRange', [
+            'last_7_days',
+            '',
+            '',
+            strtotime('2026-05-20 08:00:00'),
+        ]);
+        self::assertSame(['2026-05-13', '2026-05-19'], $afterUpdate);
     }
 
     public function testCtripAdsDirectPayloadAndChineseFieldsMapToMetrics(): void
@@ -482,6 +658,8 @@ final class OnlineDataTest extends TestCase
         $rows = $this->invokeNonPublic($controller, 'buildCtripCapturedAdRows', [$ads, [
             'hotel_id' => 'ctrip-58',
             'hotel_name' => 'Ctrip Hotel',
+            'request_start_date' => '2026-05-12',
+            'request_end_date' => '2026-05-18',
         ], 58]);
         $metrics = $this->invokeNonPublic($controller, 'summarizeCtripAdRows', [$rows]);
 
@@ -495,6 +673,391 @@ final class OnlineDataTest extends TestCase
         self::assertSame(4, $metrics['orders']);
         self::assertSame(240.5, $metrics['cost']);
         self::assertSame(5.0, $metrics['click_rate']);
+    }
+
+    public function testCtripCpcCampaignReportRecordsMapToAdMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $ads = $this->invokeNonPublic($controller, 'extractCtripCapturedAds', [[
+            'responses' => [[
+                'url' => 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE',
+                'data' => [
+                    'code' => 0,
+                    'message' => 'success',
+                    'data' => [
+                        'records' => [[
+                            'campaignId' => null,
+                            'impressions' => 16511,
+                            'clicks' => 748,
+                            'ctr' => 0.0453,
+                            'ctrStr' => '4.53%',
+                            'todayCost' => 1714.78,
+                            'bonusCost' => 856.09,
+                            'cashCost' => 858.69,
+                            'bookings' => 19,
+                            'nights' => 37,
+                            'orderAmount' => 29282,
+                            'roas' => 17.08,
+                            'effectTime' => '2026-05-12',
+                        ]],
+                        'totalRecords' => 1,
+                    ],
+                ],
+            ]],
+        ]]);
+        $rows = $this->invokeNonPublic($controller, 'buildCtripCapturedAdRows', [$ads, [
+            'hotel_id' => 'ctrip-58',
+            'hotel_name' => 'Ctrip Hotel',
+            'request_start_date' => '2026-05-12',
+            'request_end_date' => '2026-05-18',
+        ], 58]);
+        $metrics = $this->invokeNonPublic($controller, 'summarizeCtripAdRows', [$rows]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(16511, $rows[0]['list_exposure']);
+        self::assertSame(748, $rows[0]['detail_exposure']);
+        self::assertSame(19, $rows[0]['book_order_num']);
+        self::assertSame(37, $rows[0]['quantity']);
+        self::assertSame('2026-05-12', $rows[0]['data_date']);
+        self::assertSame(1714.78, $rows[0]['amount']);
+        self::assertSame(16511, $metrics['exposure']);
+        self::assertSame(748, $metrics['clicks']);
+        self::assertSame(19, $metrics['orders']);
+        self::assertSame(1714.78, $metrics['cost']);
+        self::assertSame(4.53, $metrics['click_rate']);
+
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertSame(29282, $raw['orderAmount']);
+        self::assertSame(17.08, $raw['roas']);
+        self::assertSame('2026-05-12', $raw['_capture_context']['request_start_date']);
+        self::assertSame('2026-05-18', $raw['_capture_context']['request_end_date']);
+    }
+
+    public function testCtripOverviewRowsPreserveRequestedMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'collectCtripOverviewRows', [[
+            'business' => [[
+                'hotelName' => 'Ctrip Hotel',
+                '昨日UV' => 23,
+                '订单数' => 9,
+                '成交收入' => '8,709',
+                '成交间夜' => 13,
+                '均价' => 669.92,
+                '成交率' => '92.86%',
+                '竞品UV' => 30,
+                '竞品订单数' => 12,
+                '竞品收入' => '10,000',
+                'PSI' => 81,
+                '回复率' => '98.5%',
+                '收藏数' => 7,
+                '访客排名' => 12,
+            ]],
+        ], 'ctrip-58', '2026-05-18']);
+        $metrics = $this->invokeNonPublic($controller, 'summarizeCtripOverviewRows', [$rows]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('ctrip-58', $rows[0]['hotelId']);
+        self::assertSame('2026-05-18', $rows[0]['dataDate']);
+        self::assertSame(23, $metrics['yesterday_uv']);
+        self::assertSame(9, $metrics['order_count']);
+        self::assertSame(8709.0, $metrics['amount']);
+        self::assertSame(13, $metrics['room_nights']);
+        self::assertSame(669.92, $metrics['avg_price']);
+        self::assertSame(92.86, $metrics['conversion_rate']);
+        self::assertSame(30, $metrics['competitor_uv']);
+        self::assertSame(12, $metrics['competitor_orders']);
+        self::assertSame(10000.0, $metrics['competitor_amount']);
+        self::assertSame(81.0, $metrics['psi']);
+        self::assertSame(98.5, $metrics['reply_rate']);
+        self::assertSame(7, $metrics['favorite_count']);
+        self::assertSame(12, $metrics['visitor_rank']);
+    }
+
+    public function testCtripOverviewRowsMapMarketFlowServiceAndFunnelResponses(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'collectCtripOverviewRows', [[
+            'responses' => [
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/sale/fetchMarketOverViewV2',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            'amount' => 8709.00,
+                            'quantity' => 13,
+                            'closeRate' => 92.86,
+                            'averagePrice' => 669.92,
+                            'bookOrderNum' => 0,
+                        ],
+                    ],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportFlowCompete',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            'masterhotelid' => 134396668,
+                            'ordquantity' => 819,
+                            'comhtluv' => 15275,
+                            'ordamount' => 752689.08,
+                        ],
+                    ],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportServerQuantity',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            'serviceScore' => 4.92,
+                            'ctripRatingall' => 5.0,
+                            'replyrate5m' => 87.5,
+                            'hotelCollect' => 247,
+                        ],
+                    ],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+                    'data' => [
+                        [
+                            'date' => '2026-05-18',
+                            'listExposure' => 701,
+                            'detailExposure' => 151,
+                            'flowRate' => 21.54,
+                            'orderFillingNum' => 2,
+                            'orderSubmitNum' => 0,
+                            'hotelId' => 134396668,
+                        ],
+                        [
+                            'date' => '2026-05-18',
+                            'listExposure' => 318,
+                            'detailExposure' => 67,
+                            'flowRate' => 22.12,
+                            'orderFillingNum' => 5,
+                            'orderSubmitNum' => 2,
+                            'hotelId' => -1,
+                        ],
+                    ],
+                ],
+            ],
+        ], '134396668', '2026-05-18']);
+        $metrics = $this->invokeNonPublic($controller, 'summarizeCtripOverviewRows', [$rows]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('134396668', $rows[0]['hotelId']);
+        self::assertSame(8709.0, $metrics['amount']);
+        self::assertSame(13, $metrics['room_nights']);
+        self::assertSame(669.92, $metrics['avg_price']);
+        self::assertSame(92.86, $metrics['conversion_rate']);
+        self::assertSame(15275, $metrics['competitor_uv']);
+        self::assertSame(819, $metrics['competitor_orders']);
+        self::assertSame(752689.08, $metrics['competitor_amount']);
+        self::assertSame(4.92, $metrics['psi']);
+        self::assertSame(5.0, $metrics['hotel_score']);
+        self::assertSame(87.5, $metrics['reply_rate']);
+        self::assertSame(247, $metrics['favorite_count']);
+        self::assertSame(701, $metrics['self_list_exposure']);
+        self::assertSame(151, $metrics['self_detail_exposure']);
+        self::assertSame(2, $metrics['self_order_filling_num']);
+        self::assertSame(0, $metrics['self_order_submit_num']);
+        self::assertSame(21.54, $metrics['self_flow_rate']);
+        self::assertSame(1.32, $metrics['self_order_fill_rate']);
+        self::assertSame(0.0, $metrics['self_deal_rate']);
+        self::assertSame(318, $metrics['competitor_list_exposure']);
+        self::assertSame(67, $metrics['competitor_detail_exposure']);
+        self::assertSame(5, $metrics['competitor_order_filling_num']);
+        self::assertSame(2, $metrics['competitor_order_submit_num']);
+        self::assertSame(21.07, $metrics['competitor_flow_rate']);
+        self::assertSame(7.46, $metrics['competitor_order_fill_rate']);
+        self::assertSame(40.0, $metrics['competitor_deal_rate']);
+    }
+
+    public function testCtripOverviewRowsMapRankingHotListsWeeklyAndTrafficReports(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'collectCtripOverviewRows', [[
+            'responses' => [
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getCompeteHotelReportV1',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            ['hotelId' => 664563, 'hotelName' => '竞品A', 'amount' => 6, 'quantity' => 2, 'bookOrderNum' => 3, 'commentScore' => 14, 'totalDetailNum' => 8, 'convertionRate' => 1],
+                            ['hotelId' => 134396668, 'hotelName' => '我的酒店', 'amount' => 8, 'quantity' => 8, 'bookOrderNum' => 6, 'commentScore' => 1, 'totalDetailNum' => 7, 'convertionRate' => 11],
+                        ],
+                    ],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getHotWordsV1',
+                    'data' => ['rcode' => 0, 'data' => ['敦煌夜市', '5钻/星|豪华']],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getHotHotelsV1',
+                    'data' => ['rcode' => 0, 'data' => ['敦煌中洲国际酒店(敦煌夜市店)', '敦煌福朋喜来登酒店']],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getFlowHotelsV1',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            'flowHotelItemVos' => [
+                                ['hotelName' => '敦煌山庄', 'proportion' => '31.08%', 'orderPro' => '2.51%', 'masterHotelId' => 439474],
+                            ],
+                            'lossOrderVo' => ['ordernum' => 535, 'ordquantity' => 1035.0, 'ordamount' => 784911.01],
+                        ],
+                    ],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getHotRoomsV1',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            'hotRooms' => [
+                                ['roomName' => '景观大床房', 'roomShortName' => '景观大床房', 'saleRoomNights' => 27, 'salePercent' => '42.19%'],
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getUserBehaviorV1',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            'lastWeekCommentScore' => 5.0,
+                            'lastWeekGoodAdd' => 0,
+                            'lastWeekBadAdd' => 0,
+                            'lastWeekPriceScore' => 0.28,
+                        ],
+                    ],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getTrafficReportV1',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            'myHotel' => ['totalListExposure' => 11192, 'listTransforDetailRate' => '17%', 'totalDetailExposure' => 1893, 'detailTransforOrderFillRate' => '2%', 'orderFillingNum' => 38, 'orderFillTransforOrderSubmitRate' => '53%', 'orderSubmitNum' => 20],
+                            'competeHotelAvg' => ['totalListExposure' => 6040, 'listTransforDetailRate' => '23%', 'totalDetailExposure' => 1390, 'detailTransforOrderFillRate' => '5%', 'orderFillingNum' => 71, 'orderFillTransforOrderSubmitRate' => '59%', 'orderSubmitNum' => 42],
+                            'topCompeteHotel' => ['totalListExposure' => 10440, 'listTransforDetailRate' => '19%', 'totalDetailExposure' => 2014, 'detailTransforOrderFillRate' => '8%', 'orderFillingNum' => 168, 'orderFillTransforOrderSubmitRate' => '76%', 'orderSubmitNum' => 128],
+                        ],
+                    ],
+                ],
+                [
+                    'section' => 'business',
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getLastWeekReportV1',
+                    'data' => [
+                        'rcode' => 0,
+                        'data' => [
+                            'lastWeekCheckoutRoomNights' => 44,
+                            'lastWeekCheckoutSales' => 31132.82,
+                            'lastWeekCheckoutRoomPrice' => 707.56,
+                            'lastWeekBookQuantity' => 98,
+                            'lastWeekBookRoomNights' => 144,
+                            'lastWeekBookSales' => 103008.94,
+                        ],
+                    ],
+                ],
+            ],
+        ], '134396668', '2026-05-18']);
+        $metrics = $this->invokeNonPublic($controller, 'summarizeCtripOverviewRows', [$rows]);
+        $rawRows = $rows[0]['_overview_rows'] ?? [];
+
+        self::assertCount(1, $rows);
+        self::assertSame('134396668', $rows[0]['hotelId']);
+        self::assertSame(2, $metrics['compete_hotel_count']);
+        self::assertSame(8, $metrics['amount_rank']);
+        self::assertSame(8, $metrics['quantity_rank']);
+        self::assertSame(6, $metrics['book_order_num_rank']);
+        self::assertSame(1, $metrics['comment_score_rank']);
+        self::assertSame(7, $metrics['visitor_rank']);
+        self::assertSame(11, $metrics['conversion_rank']);
+        self::assertSame('敦煌夜市', $metrics['top_hot_word']);
+        self::assertSame('敦煌中洲国际酒店(敦煌夜市店)', $metrics['top_hot_hotel']);
+        self::assertSame(535, $metrics['flow_lost_order_num']);
+        self::assertSame(1035, $metrics['flow_lost_room_nights']);
+        self::assertSame(784911.01, $metrics['flow_lost_amount']);
+        self::assertSame('敦煌山庄', $metrics['top_flow_hotel']);
+        self::assertSame(31.08, $metrics['top_flow_hotel_browse_rate']);
+        self::assertSame('景观大床房', $metrics['top_hot_room']);
+        self::assertSame(27, $metrics['top_hot_room_nights']);
+        self::assertSame(42.19, $metrics['top_hot_room_sale_percent']);
+        self::assertSame(5.0, $metrics['last_week_comment_score']);
+        self::assertSame(0.28, $metrics['last_week_price_score']);
+        self::assertSame(44, $metrics['last_week_checkout_room_nights']);
+        self::assertSame(31132.82, $metrics['last_week_checkout_sales']);
+        self::assertSame(98, $metrics['last_week_book_quantity']);
+        self::assertSame(103008.94, $metrics['last_week_book_sales']);
+        self::assertSame(11192, $metrics['weekly_self_list_exposure']);
+        self::assertSame(17.0, $metrics['weekly_self_flow_rate']);
+        self::assertSame(6040, $metrics['weekly_competitor_list_exposure']);
+        self::assertSame(10440, $metrics['top_competitor_list_exposure']);
+        self::assertSame(76.0, $metrics['top_competitor_deal_rate']);
+        self::assertCount(8, $rawRows);
+    }
+
+    public function testCtripOverviewDirectApiValidationAndPayloadDefaults(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/api/fetchMarketOverViewV2',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getCompeteHotelReportV1',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getHotWordsV1',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getTrafficReportV1',
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true',
+        ]));
+
+        $urls = $this->invokeNonPublic($controller, 'normalizeCtripOverviewRequestUrls', [
+            " https://ebooking.ctrip.com/api/getDayReportRealTimeDate\nhttps://ebooking.ctrip.com/api/fetchCapacityOverViewV4 ",
+        ]);
+        self::assertCount(2, $urls);
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripOverviewRequestPayload', [[
+            'pageIndex' => 1,
+        ], 'ctrip-58', '2026-05-18']);
+        self::assertSame('2026-05-18', $payload['dataDate']);
+        self::assertSame('2026-05-18', $payload['startDate']);
+        self::assertSame('2026-05-18', $payload['endDate']);
+        self::assertSame('ctrip-58', $payload['hotelId']);
+        self::assertSame('ctrip-58', $payload['nodeId']);
+
+        $inferred = $this->invokeNonPublic($controller, 'inferCtripOverviewHotelIdFromResponses', [[
+            ['data' => ['data' => ['masterhotelid' => 134396668]]],
+        ], '7']);
+        self::assertSame('134396668', $inferred);
+
+        $fallback = $this->invokeNonPublic($controller, 'inferCtripOverviewHotelIdFromResponses', [[
+            ['data' => ['data' => ['敦煌夜市', '5钻/星|豪华']]],
+        ], '7']);
+        self::assertSame('7', $fallback);
     }
 
     public function testMeituanCapturedRowsMapBrowserSectionsToOnlineDailyData(): void
@@ -593,6 +1156,31 @@ final class OnlineDataTest extends TestCase
         $flags = json_decode($abnormal['validation_flags'], true);
         self::assertContains('hotel_id', array_column($flags, 'field'));
         self::assertContains('quantity', array_column($flags, 'field'));
+    }
+
+    public function testCtripProfilePrefersExistingSystemHotelProfileOverNodeId(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $profileId = '987654321';
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId;
+
+        if (!is_dir($profileDir)) {
+            mkdir($profileDir, 0775, true);
+        }
+
+        try {
+            $resolved = $this->invokeNonPublic($controller, 'ctripProfileStoreIdFromConfig', [[
+                'node_id' => 'node-should-not-win',
+                'system_hotel_id' => $profileId,
+            ], (int)$profileId]);
+
+            self::assertSame($profileId, $resolved);
+        } finally {
+            if (is_dir($profileDir)) {
+                rmdir($profileDir);
+            }
+        }
     }
 }
 

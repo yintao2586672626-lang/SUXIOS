@@ -213,7 +213,7 @@ function classifyResponse(url) {
   if (value.includes('querygeneralcommentinfo') || value.includes('commentsinfo') || value.includes('comments/statistics')) {
     return 'reviews';
   }
-  if (value.includes('businessdata') || value.includes('traffic') || value.includes('peertrends')) {
+  if (value.includes('businessdata') || value.includes('weighttraffic') || value.includes('traffic') || value.includes('peertrends')) {
     return 'traffic';
   }
   if (value.includes('cureshops')) {
@@ -250,8 +250,8 @@ function normalizeCapturedList(value, section) {
       ['data', 'commentList'], ['data', 'comments'], ['data', 'list'], ['commentList'], ['comments'], ['list'], ['data'],
     ],
     traffic: [
-      ['data', 'businessData'], ['data', 'traffic'], ['data', 'peerTrends'], ['data', 'list'], ['data', 'rows'],
-      ['businessData'], ['traffic'], ['peerTrends'], ['list'], ['rows'], ['data'],
+      ['data', 'businessData'], ['data', 'weightTraffic'], ['data', 'weight_traffic'], ['data', 'traffic'], ['data', 'peerTrends'], ['data', 'list'], ['data', 'rows'],
+      ['businessData'], ['weightTraffic'], ['weight_traffic'], ['traffic'], ['peerTrends'], ['list'], ['rows'], ['data'],
     ],
     ads: [
       ['data', 'cureShops'], ['data', 'list'], ['data', 'rows'], ['cureShops'], ['list'], ['rows'], ['data'],

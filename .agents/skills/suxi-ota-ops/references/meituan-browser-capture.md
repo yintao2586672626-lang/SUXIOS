@@ -2,9 +2,9 @@
 
 ## 定位
 
-美团 eBooking 数据采集以浏览器 Profile + response 监听为主。手动采集路径只负责让运营人员登录后台、进入指定页面并取得 Cookie、Session、门店 ID、Payload、动态签名等必要抓取上下文，再由宿析OS系统调用对应接口完成数据抓取、清洗和入库。
+美团 eBooking 数据采集以浏览器 Profile + response 监听为主。手动采集路径默认用户已提供 Cookie、Session、门店 ID、Payload、动态签名等必要抓取上下文，宿析OS系统只负责校验字段、调用对应接口完成数据抓取、清洗和入库。
 
-目标是在酒店已有合法账号和授权范围内，模拟运营人员打开美团 eBooking 后台，优先监听页面自动返回的经营 JSON；手动路径则复用同一套字段上下文，由系统端抓取并按宿析 OS 现有字段入库。
+目标是在酒店已有合法账号和授权范围内，自动路径模拟运营人员打开美团 eBooking 后台并监听页面返回的经营 JSON；手动路径使用用户提交的字段上下文，由系统端抓取并按宿析 OS 现有字段入库。
 
 ## 合规边界
 
@@ -40,12 +40,12 @@
 
 ## 手动采集路线
 
-手动采集不是手工复制经营数据，而是人工取得系统抓取所需上下文字段。
+手动采集不是手工复制经营数据，也不要求系统登录 OTA 后台；它默认用户已经提供系统抓取所需上下文字段。
 
-1. 人工登录美团商家后台。
-2. 进入目标数据页面，如点评、流量 iframe、newhb 排名页、订单页或推广通广告页。
-3. 从浏览器、书签脚本或抓包中取得必要字段：Cookie/Session、`partner_id`、`poi_id`、`store_id`、原始 Payload、日期范围、iframe URL、必要时的 `mtgsig` 或其他动态字段。
-4. 在宿析OS页面或接口中提交这些字段，由系统调用 `/api/online-data/fetch-meituan`、`/fetch-meituan-traffic`、`/fetch-meituan-comments` 或浏览器采集接口抓取。
+1. 用户在宿析OS选择平台、酒店、数据模块和日期范围。
+2. 用户提交已取得的必要字段：Cookie/Session、`partner_id`、`poi_id`、`store_id`、原始 Payload、iframe URL、必要时的 `mtgsig` 或其他动态字段。
+3. 系统校验必填字段；字段缺失时只提示用户补充对应字段和参考页面入口，不在手动流程内自动登录后台。
+4. 系统调用 `/api/online-data/fetch-meituan`、`/fetch-meituan-traffic`、`/fetch-meituan-comments` 或浏览器采集接口抓取。
 5. 系统完成 JSON 解析、空值兜底、去重、脱敏和入库；人工页面文本、iframe 文本或 OCR 仅用于接口缺失时的兜底线索。
 
 ## 自动采集路线
@@ -61,7 +61,7 @@
 
 | 数据模块 | 页面入口 | 请求 URL / 关键字 | 手动必须字段 | 可取字段与兜底 |
 | --- | --- | --- | --- | --- |
-| 登录态 | `https://me.meituan.com/ebooking/` | Cookie / Session | Cookie/Session、账号可见门店 | 登录态检查；每门店独立 Profile |
+| 登录态 | `https://me.meituan.com/ebooking/` | Cookie / Session | 用户已提供的 Cookie/Session、账号可见门店 | 手动模式只校验已提交 Cookie/Session；自动模式才检查 Profile 登录态 |
 | 点评数据 | `https://me.meituan.com/ebooking/merchant/comment-manage-react#/home` | `queryGeneralCommentInfo`、`commentsInfo`、`comments/statistics` | Cookie/Session、`poi_id` / `store_id`、点评 Payload、日期/分页条件 | 评分、评价总数、好评数、差评数、新增差评、未回复数、含图数、评价内容、房型、入住日期、评价时间、商家回复、标签；页面文本/iframe/OCR 兜底 |
 | 流量数据 | `https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Fdata-center%2Findex.html` | `businessData`、`weightTraffic`、`traffic`、`peerTrends` | Cookie/Session、`partner_id`、`poi_id` / `store_id`、iframe URL、日期 Payload | 曝光量、浏览人数/UV、页面浏览量、点击量、支付转化率；iframe DOM/HTML/OCR 兜底 |
 | 排名数据 | `https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html` | 页面文案：`同行排名`、`订单量`、`曝光量`、`浏览人数`、`入住间夜` | Cookie/Session、`poi_id` / `store_id`、页面上下文 | 订单量排名、曝光排名、访客排名、入住间夜排名、综合排名、分类排名；DOM 文本正则优先，OCR 兜底 |

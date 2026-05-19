@@ -2,9 +2,9 @@
 
 ## 定位
 
-携程数据采集以浏览器 Profile + response 监听为主。手动采集路径只负责让运营人员登录后台、进入指定页面并取得 Cookie、Token、酒店 ID、Payload 等必要抓取上下文，再由宿析OS系统调用对应接口完成数据抓取、清洗和入库。
+携程数据采集以浏览器 Profile + response 监听为主。手动采集路径默认用户已提供 Cookie、Token、酒店 ID、Payload 等必要抓取上下文，宿析OS系统只负责校验字段、调用对应接口完成数据抓取、清洗和入库。
 
-目标是在酒店已有合法账号和授权范围内，模拟运营人员打开携程商家后台，优先监听页面自动返回的经营 JSON；手动路径则复用同一套字段上下文，由系统端抓取并按宿析OS现有字段入库。
+目标是在酒店已有合法账号和授权范围内，自动路径模拟运营人员打开携程商家后台并监听页面返回的经营 JSON；手动路径使用用户提交的字段上下文，由系统端抓取并按宿析OS现有字段入库。
 
 ## 合规边界
 
@@ -40,12 +40,12 @@
 
 ## 手动采集路线
 
-手动采集不是手工复制经营数据，而是人工取得系统抓取所需上下文字段。
+手动采集不是手工复制经营数据，也不要求系统登录 OTA 后台；它默认用户已经提供系统抓取所需上下文字段。
 
-1. 人工登录携程商家后台。
-2. 进入目标数据页面，如点评、流量、订单、金字塔广告或昨日概况。
-3. 从浏览器、书签脚本或抓包中取得必要字段：`Cookie`、`spidertoken`、`node_id`、平台 `hotel_id`、原始 Payload、日期范围、渠道 Tab。
-4. 在宿析OS页面或接口中提交这些字段，由系统调用 `/api/online-data/fetch-ctrip`、`/fetch-ctrip-traffic`、`/fetch-ctrip-comments` 等接口抓取。
+1. 用户在宿析OS选择平台、酒店、数据模块和日期范围。
+2. 用户提交已取得的必要字段：`Cookie`、`spidertoken`、`node_id`、平台 `hotel_id`、原始 Payload、渠道 Tab。
+3. 系统校验必填字段；字段缺失时只提示用户补充对应字段和参考页面入口，不在手动流程内自动登录后台。
+4. 系统调用 `/api/online-data/fetch-ctrip`、`/fetch-ctrip-traffic`、`/fetch-ctrip-comments` 等接口抓取。
 5. 系统完成 JSON 解析、空值兜底、去重、脱敏和入库；人工页面文本仅用于核对或接口缺失时的兜底线索。
 
 ## 自动采集路线
@@ -63,7 +63,7 @@
 
 | 数据模块 | 页面入口 | 请求 URL / 关键字 | 手动必须字段 | 可取字段与兜底 |
 | --- | --- | --- | --- | --- |
-| 登录态 | `https://ebooking.ctrip.com/login?...` | 登录页表单、Cookie | `Cookie`、登录状态、账号可见酒店 | 登录态检查；失效后重新登录 |
+| 登录态 | `https://ebooking.ctrip.com/login?...` | 登录页表单、Cookie | 用户已提供的 `Cookie`、账号可见酒店 | 手动模式只校验已提交 Cookie；自动模式才检查 Profile 登录态 |
 | 点评明细 | `https://ebooking.ctrip.com/comment/commentList?microJump=true` | `getCommentList` | `Cookie`、`spidertoken`、Payload、日期/分页条件、渠道 Tab | 评价 ID、评分、内容、回复、是否回复、是否差评、评价人、房型、入住日期、评价时间、标签；DOM 兜底 |
 | 流量数据 | `https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true` | `queryScanFlowDetailsV2`、`queryFlowTransforNew`、`queryHomePageRealTimeData`、`getFlowData`、`getTrafficData`、`getStatData` | `Cookie`、`node_id` / `hotel_id`、Payload、日期范围 | PV、UV、订单/点击数、转化率、竞争圈排名、品类排名、原始排名 JSON；DOM 兜底排名 |
 | 订单数据 | `https://ebooking.ctrip.com/ebkorderv3/domestic` | `unprocessOrderList`、`queryOrderList`、`getOrderList`、`getDomesticOrder` | `Cookie`、订单筛选 Payload、日期范围 | 订单号、状态、房型、间数、入住/离店日期、晚数、金额、均价、客人姓名、电话、下单时间；订单表格 DOM 兜底 |

@@ -3890,8 +3890,8 @@
                     </div>
 
                     <!-- 首页驾驶舱 -->
-                    <div v-if="currentPage === 'compass'">
-                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6">
+                    <div v-if="currentPage === 'compass'" class="compass-dashboard">
+                        <div class="compass-shell-card bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div class="flex flex-col md:flex-row md:items-center gap-3">
                                     <div>
@@ -3981,7 +3981,7 @@
                             </div>
                         </div>
 
-                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+                        <div class="compass-shell-card compass-weather-card bg-white rounded-xl border border-gray-100 shadow-sm p-6 lg:p-7 mb-6">
                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
                                 <div>
                                     <h3 class="font-bold text-gray-900 text-lg">天气与需求影响</h3>
@@ -4018,7 +4018,7 @@
                                 {{ weatherError }}
                             </div>
                             <div v-if="displayWeather.length" class="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                                <div class="xl:col-span-4 rounded-xl border border-blue-100 bg-blue-50 p-5">
+                                <div class="compass-weather-current xl:col-span-4 rounded-xl border border-gray-100 bg-white p-6">
                                     <div class="flex items-center justify-between gap-3">
                                         <div>
                                             <div class="text-xs text-blue-600">当前城市</div>
@@ -4036,13 +4036,13 @@
                                             <div class="mt-2 font-semibold text-gray-800">{{ weatherToday?.condition || '--' }}</div>
                                         </div>
                                     </div>
-                                    <div class="mt-4 rounded-lg bg-white/70 border border-blue-100 px-3 py-2 text-sm text-gray-600">
+                                    <div class="mt-5 rounded-lg bg-gray-50 border border-gray-100 px-4 py-3 text-sm text-gray-600">
                                         {{ weatherToday?.wind || '暂无风力数据' }}
                                     </div>
                                 </div>
                                 <div class="xl:col-span-8">
                                     <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-                                        <div v-for="item in weatherForecastDays" :key="weatherLocationName + item.date" class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 min-h-[104px]">
+                                        <div v-for="item in weatherForecastDays" :key="weatherLocationName + item.date" class="compass-weather-day rounded-lg border border-gray-100 bg-white px-4 py-4 min-h-[112px]">
                                             <div class="flex items-center justify-between gap-2">
                                                 <span class="text-xs font-medium text-gray-500">{{ item.date }}</span>
                                                 <span class="text-xs text-gray-400">周{{ item.week }}</span>
@@ -4051,7 +4051,7 @@
                                             <div class="mt-2 text-sm text-gray-600">{{ item.temp_low }}°~{{ item.temp_high }}°</div>
                                         </div>
                                     </div>
-                                    <div :class="['mt-4 rounded-lg border p-3 text-sm leading-relaxed', weatherImpactTone.panelClass]">
+                                    <div :class="['compass-weather-strategy mt-4 rounded-lg border p-5 text-sm leading-relaxed', weatherImpactTone.panelClass]">
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                                             <div>
                                                 <div class="font-semibold mb-1">{{ weatherImpactTone.title }}</div>
@@ -4064,7 +4064,7 @@
                                             </div>
                                         </div>
                                         <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
-                                            <div v-for="item in weatherDecisionInsights" :key="item.title" class="rounded-md bg-white/70 border border-current/10 p-2.5">
+                                            <div v-for="item in weatherDecisionInsights" :key="item.title" class="compass-weather-insight rounded-md bg-white border border-gray-100 p-4">
                                                 <div class="flex items-center gap-2 font-semibold mb-1">
                                                     <i :class="[item.icon, 'text-xs']"></i>
                                                     <span>{{ item.title }}</span>
@@ -4080,19 +4080,16 @@
                             </div>
                         </div>
 
-                        <div class="home-hero-panel relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-blue-950 to-indigo-800 text-white mb-6 min-h-[220px] shadow-sm">
-                            <div class="absolute inset-0 opacity-20" style="background-image: linear-gradient(rgba(255,255,255,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.12) 1px, transparent 1px); background-size: 32px 32px;"></div>
-                            <div class="absolute -top-20 right-20 w-72 h-72 bg-blue-400/20 rounded-full blur-3xl"></div>
-                            <div class="absolute -bottom-24 left-24 w-80 h-80 bg-purple-400/20 rounded-full blur-3xl"></div>
+                        <div class="home-hero-panel compass-market-card relative overflow-hidden rounded-2xl bg-white text-gray-900 mb-6 min-h-[220px] shadow-sm">
                             <div class="relative z-10 grid grid-cols-1 xl:grid-cols-12 gap-6 p-6 lg:p-8">
                                 <div class="xl:col-span-7">
                                     <div class="hero-pill inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-blue-100 text-sm mb-5">
                                         <i class="fas fa-chart-area"></i>
                                         <span>市场大盘数据预估</span>
                                     </div>
-                                    <h2 class="text-4xl lg:text-5xl font-bold tracking-tight">市场大盘数据预估</h2>
-                                    <p class="mt-3 text-xl text-blue-50 font-semibold">按门店城市、商圈与渠道样本判断未来需求变化</p>
-                                    <p class="mt-4 max-w-3xl text-sm lg:text-base text-blue-100 leading-relaxed">
+                                    <h2 class="text-3xl lg:text-4xl font-bold tracking-tight">市场大盘数据预估</h2>
+                                    <p class="mt-3 text-lg text-gray-700 font-semibold">按门店城市、商圈与渠道样本判断未来需求变化</p>
+                                    <p class="mt-4 max-w-3xl text-sm lg:text-base text-gray-500 leading-relaxed">
                                         汇总 OTA 流量、竞对价格、天气、节假期与经营趋势样本，预估市场热度、价格带和渠道机会，用于辅助后续收益策略。
                                     </p>
                                     <div class="home-hero-data-module">
@@ -4109,7 +4106,7 @@
                                     </div>
                                 </div>
                                 <div class="xl:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-4">
-                                    <div class="hero-info-card hero-observation-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5">
+                                    <div class="hero-info-card hero-observation-card rounded-2xl bg-white border border-gray-100 p-6">
                                         <div class="hero-card-head">
                                             <div>
                                                 <div class="hero-card-title"><i class="fas fa-database"></i>数据准备情况</div>
@@ -4127,7 +4124,7 @@
                                             <div class="home-progress-track"><span class="home-progress-fill" :style="{ width: compassDataReadiness.percent + '%' }"></span></div>
                                         </div>
                                     </div>
-                                    <div class="hero-info-card hero-summary-card rounded-2xl bg-white/10 border border-white/15 backdrop-blur p-5 min-h-[150px]">
+                                    <div class="hero-info-card hero-summary-card rounded-2xl bg-white border border-gray-100 p-6 min-h-[150px]">
                                         <div class="hero-card-head">
                                             <div>
                                                 <div class="hero-card-title"><i class="fas fa-clipboard-check"></i>大盘预估摘要</div>
@@ -4199,12 +4196,12 @@
                                     <input type="date" v-model="homeTrendCustomRange.end_date" @change="loadHomeTrends" class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700">
                                     <span v-if="homeTrendLoading" class="text-xs text-gray-400">趋势同步中</span>
                                 </div>
-                                <div class="flex flex-wrap gap-2 mb-5">
+                                <div class="home-trend-tabs flex flex-wrap gap-5 mb-5">
                                     <button
                                         v-for="metric in homeTrendMetrics"
                                         :key="metric.key"
                                         @click="selectHomeTrendMetric(metric.key)"
-                                        :class="homeTrendMetric === metric.key ? 'px-3 py-1.5 rounded-lg text-sm bg-blue-50 text-blue-700 border border-blue-100' : 'px-3 py-1.5 rounded-lg text-sm bg-gray-50 text-gray-600 border border-gray-200 hover:bg-white'"
+                                        :class="['home-trend-tab', homeTrendMetric === metric.key ? 'is-active' : '']"
                                     >{{ metric.label }}</button>
                                 </div>
                                 <div class="relative rounded-xl border border-dashed border-gray-200 bg-gradient-to-br from-gray-50 to-blue-50/40 h-72 overflow-hidden">
@@ -4228,15 +4225,15 @@
                             <div v-if="homeTrendHasSamples" class="xl:col-span-4 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                                 <h3 class="font-bold text-gray-900 text-lg mb-5">趋势解读</h3>
                                 <div class="space-y-4">
-                                    <div class="rounded-lg bg-blue-50 border border-blue-100 p-4">
+                                    <div class="home-trend-insight-card rounded-lg bg-white border border-gray-100 p-4">
                                         <div class="text-sm font-semibold text-blue-900">当前判断</div>
                                         <p class="text-sm text-blue-700 mt-2">{{ homeTrendInterpretation.judgement }}</p>
                                     </div>
-                                    <div class="rounded-lg bg-gray-50 border border-gray-100 p-4">
+                                    <div class="home-trend-insight-card rounded-lg bg-white border border-gray-100 p-4">
                                         <div class="text-sm font-semibold text-gray-800">关键变化</div>
                                         <p class="text-sm text-gray-500 mt-2">{{ homeTrendInterpretation.change }}</p>
                                     </div>
-                                    <div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4">
+                                    <div class="home-trend-insight-card rounded-lg bg-white border border-gray-100 p-4">
                                         <div class="text-sm font-semibold text-indigo-900">建议动作</div>
                                         <p class="text-sm text-indigo-700 mt-2">{{ homeTrendInterpretation.action }}</p>
                                     </div>
@@ -4253,9 +4250,9 @@
                                 <span v-if="macroSignalLoading" class="text-xs text-gray-400">同步中</span>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-                                <div v-for="signal in macroSignalViewCards" :key="signal.key" class="rounded-xl border border-gray-100 bg-gray-50 p-4 flex flex-col min-h-[260px]">
+                                <div v-for="signal in macroSignalViewCards" :key="signal.key" class="macro-signal-card rounded-xl border border-gray-100 bg-white p-5 flex flex-col min-h-[260px]">
                                     <div class="flex items-start justify-between gap-3">
-                                        <div class="w-9 h-9 rounded-lg bg-white border border-gray-100 text-blue-600 flex items-center justify-center">
+                                        <div class="macro-signal-icon w-9 h-9 rounded-lg text-blue-600 flex items-center justify-center">
                                             <i :class="signal.icon"></i>
                                         </div>
                                         <span :class="['px-2 py-1 rounded text-xs border', macroSignalLevelClass(signal)]">{{ signal.status_text || signal.status }}</span>
@@ -4264,17 +4261,17 @@
                                         <div class="font-semibold text-gray-900">{{ signal.title }}</div>
                                         <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ signal.meaning }}</p>
                                     </div>
-                                    <div class="mt-3 rounded-lg bg-white border border-gray-100 px-3 py-2">
+                                    <div class="macro-signal-section mt-4">
                                         <div class="text-xs text-gray-400">经营影响</div>
                                         <div class="text-sm font-semibold text-gray-800 mt-1 leading-relaxed">{{ signal.impact }}</div>
                                     </div>
-                                    <div class="mt-3 grid grid-cols-2 gap-2">
-                                        <div v-for="metric in signal.primaryMetrics" :key="metric.label" class="rounded-lg bg-white border border-gray-100 px-3 py-2 min-h-[64px]">
+                                    <div class="macro-signal-metrics mt-4 grid grid-cols-2 gap-x-5 gap-y-3">
+                                        <div v-for="metric in signal.primaryMetrics" :key="metric.label" class="macro-signal-metric min-h-[52px]">
                                             <div class="text-xs text-gray-400">{{ metric.label }}</div>
                                             <div class="text-sm font-semibold text-gray-800 mt-1">{{ metric.value }}{{ metric.unit || '' }}</div>
                                         </div>
                                     </div>
-                                    <div class="mt-3 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+                                    <div class="macro-signal-action mt-4">
                                         <div class="text-xs text-blue-500">建议动作</div>
                                         <div class="text-sm text-blue-800 mt-1 leading-relaxed">{{ signal.primaryAction }}</div>
                                     </div>
@@ -4403,6 +4400,10 @@
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         广告数据
                                     </button>
+                                    <button @click="onlineDataTab = 'ctrip-overview'; loadCtripConfigList(); loadLatestCtripData({ silent: true })"
+                                        :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                        今日概况
+                                    </button>
                                     <button @click="switchToDownloadCenter"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         下载中心
@@ -4453,13 +4454,13 @@
                                         </p>
                                     </div>
                                     
-                                    <!-- 数据归属酒店 -->
+                                    <!-- 目标酒店 -->
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店</label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
                                         <div class="flex gap-2">
                                             <select v-model="selectedCtripHotelId" @change="applyCtripHotelConfig"
                                                 class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                <option value="">请选择要归属数据的酒店</option>
+                                                <option value="">请选择目标酒店</option>
                                                 <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">
                                                     {{ hotel.name }}
                                                 </option>
@@ -5405,11 +5406,11 @@
                                     </div>
 
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店</label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
                                         <div class="flex gap-2">
                                             <select v-model="selectedCtripHotelId" @change="applyCtripHotelConfig"
                                                 class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                <option value="">请选择要归属数据的酒店</option>
+                                                <option value="">请选择目标酒店</option>
                                                 <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">
                                                     {{ hotel.name }}
                                                 </option>
@@ -5646,7 +5647,7 @@
                                             <i class="fas fa-bullhorn mr-2"></i>携程金字塔广告数据
                                         </h4>
                                         <p class="text-sm text-indigo-700">
-                                            使用已保存 Cookie 和金字塔广告接口 URL 直接请求广告数据，不再打开携程页面。接口 URL 来源于 Network 中 pyramidad / promotion 的 XHR 或 fetch 请求。
+                                            使用已保存 Cookie 和携程 CPC 广告接口 URL 直接请求广告数据，不再打开携程页面。接口 URL 来源于 Network 中 queryCampaignReportList 等 CPC XHR 或 fetch 请求。
                                         </p>
                                         <p class="text-xs text-indigo-600 mt-2">
                                             采集字段：曝光、点击、预订/成交数、消耗/费用、原始广告数据（raw_data）。
@@ -5655,10 +5656,10 @@
                                     <div class="bg-white border border-indigo-200 rounded-lg p-4 mb-4">
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店 <span class="text-red-500">*</span></label>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
                                                 <select v-model="selectedCtripHotelId" @change="applyCtripHotelConfig"
                                                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                                    <option value="">请选择要归属数据的酒店</option>
+                                                    <option value="">请选择目标酒店</option>
                                                     <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                             </div>
@@ -5673,10 +5674,10 @@
                                                 </select>
                                             </div>
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">金字塔广告接口 URL <span class="text-red-500">*</span></label>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">携程 CPC 广告接口 URL <span class="text-red-500">*</span></label>
                                                 <input v-model="ctripAdsBrowserCaptureForm.url" type="text"
                                                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                                                    placeholder="粘贴 Network 中 pyramidad / promotion 的 Request URL">
+                                                    placeholder="粘贴 Network 中 queryCampaignReportList 的 Request URL">
                                             </div>
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">日期范围</label>
@@ -5704,12 +5705,6 @@
                                                 <textarea v-model="ctripAdsBrowserCaptureForm.cookies" rows="2"
                                                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
                                                     placeholder="默认读取该酒店已保存的携程 Cookie，也可手动粘贴"></textarea>
-                                            </div>
-                                            <div class="md:col-span-2">
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（可选）</label>
-                                                <textarea v-model="ctripAdsBrowserCaptureForm.payloadJson" rows="3"
-                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                                                    placeholder="如接口需要请求体，可粘贴 Network 中的 Payload；系统会自动补 startDate/endDate"></textarea>
                                             </div>
                                         </div>
                                         <div class="flex flex-wrap items-center gap-3">
@@ -5766,6 +5761,182 @@
                                     </div>
                                 </div>
 
+                                <div v-if="onlineDataTab === 'ctrip-overview'">
+                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-blue-800 mb-2">
+                                            <i class="fas fa-chart-pie mr-2"></i>携程今日概况
+                                        </h4>
+                                        <p class="text-sm text-blue-700">
+                                            使用已保存或手动填写的 Cookie 与 Network JSON 接口直接请求概况数据，不打开携程页面或浏览器 Profile。
+                                        </p>
+                                        <p class="text-xs text-blue-600 mt-2">
+                                            目标页面：https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true
+                                        </p>
+                                    </div>
+
+                                    <div class="bg-white border border-blue-200 rounded-lg p-4 mb-4">
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="selectedCtripHotelId" @change="applyCtripHotelConfig"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">数据日期</label>
+                                                <input v-model="ctripOverviewForm.dataDate" type="date"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                <p class="text-xs text-gray-500 mt-1">页面通常展示昨日完整数据；为空时后端按昨日保存。</p>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">今日概况接口 URL <span class="text-red-500">*</span></label>
+                                                <textarea v-model="ctripOverviewForm.requestUrls" rows="3"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                                                    placeholder="每行粘贴一个 Network 中命中下方接口名的完整 Request URL；系统使用 Cookie 直接请求，不要填概况页面 URL"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie <span class="text-red-500">*</span></label>
+                                                <textarea v-model="ctripOverviewForm.cookies" rows="2"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                                                    placeholder="默认读取该酒店已保存的携程 Cookie，也可手动粘贴"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="mb-4">
+                                            <div class="text-sm font-medium text-gray-700 mb-2">监听接口</div>
+                                            <div class="flex flex-wrap gap-2">
+                                                <span v-for="keyword in ctripOverviewApiKeywords" :key="keyword" class="px-2 py-1 rounded bg-blue-50 border border-blue-100 text-xs text-blue-700 font-mono">{{ keyword }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-3">
+                                            <button type="button" @click="fetchCtripOverviewData"
+                                                :disabled="ctripOverviewFetching"
+                                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
+                                                <i :class="ctripOverviewFetching ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-play mr-2'"></i>
+                                                {{ ctripOverviewFetching ? '获取中...' : '获取今日概况' }}
+                                            </button>
+                                        </div>
+                                        <div v-if="ctripOverviewFetching" class="mt-3 text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded px-3 py-2">
+                                            正在根据 Cookie 和接口 URL 直接请求携程今日概况接口。
+                                        </div>
+                                        <div v-if="ctripOverviewResult" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
+                                            <div v-if="ctripOverviewResult.error" class="text-sm text-red-700 mb-2">
+                                                {{ ctripOverviewResult.error }}
+                                            </div>
+                                            <div class="text-sm text-green-800">
+                                                已保存 {{ ctripOverviewResult.saved_count || 0 }} 条，命中 {{ ctripOverviewResult.total || ctripOverviewResult.row_count || 0 }} 条概况数据。
+                                            </div>
+                                            <div v-if="ctripOverviewMetricCards.length" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3 mt-3">
+                                                <div v-for="card in ctripOverviewMetricCards" :key="card.key" class="bg-white border border-green-100 rounded p-3">
+                                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                                    <div :class="card.type === 'text' ? 'text-sm font-semibold text-gray-900 break-words leading-snug' : 'text-lg font-semibold text-gray-900'">
+                                                        <template v-if="card.type === 'currency'">{{ formatCurrency(card.value) }}</template>
+                                                        <template v-else-if="card.type === 'currency2'">¥{{ toFixedSafe(card.value, 2, '0.00') }}</template>
+                                                        <template v-else-if="card.type === 'percent'">{{ toFixedSafe(card.value, 2, '0.00') }}%</template>
+                                                        <template v-else-if="card.type === 'text'">{{ card.value }}</template>
+                                                        <template v-else>{{ formatNumber(card.value) }}</template>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div v-if="ctripOverviewResult.payload_counts" class="text-xs text-green-700 mt-3">
+                                                接口响应：XHR {{ ctripOverviewResult.payload_counts.xhr_urls || 0 }} 条，responses {{ ctripOverviewResult.payload_counts.responses || 0 }} 条。
+                                            </div>
+                                            <div v-if="ctripOverviewResult.errors && ctripOverviewResult.errors.length" class="text-xs text-red-700 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
+                                                <div v-for="item in ctripOverviewResult.errors.slice(0, 6)" :key="item" class="truncate">
+                                                    {{ item }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+                                        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+                                            <div>
+                                                <h4 class="font-medium text-gray-800 mb-1">
+                                                    <i class="fas fa-window-restore text-gray-500 mr-2"></i>浏览器 Profile 自动采集
+                                                </h4>
+                                                <p class="text-sm text-gray-500">
+                                                    复用本机独立 Profile 打开携程概况、流量页面，监听 XHR/fetch JSON 后写入现有线上数据表。
+                                                </p>
+                                            </div>
+                                            <button type="button"
+                                                @click="openTargetSite('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true')"
+                                                class="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm">
+                                                <i class="fas fa-external-link-alt mr-2"></i>打开携程
+                                            </button>
+                                        </div>
+
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="selectedCtripHotelId" @change="applyCtripHotelConfig"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">浏览器 Profile ID</label>
+                                                <input v-model="ctripBrowserCaptureForm.profileId" type="text"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+                                                    placeholder="默认使用 OTA酒店ID 或系统酒店ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">OTA酒店ID / Node ID</label>
+                                                <input v-model="ctripBrowserCaptureForm.hotelId" type="text"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+                                                    placeholder="默认读取携程酒店配置">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">数据日期</label>
+                                                <input v-model="ctripOverviewForm.dataDate" type="date"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500">
+                                                <p class="text-xs text-gray-500 mt-1">为空时后端按昨日入库。</p>
+                                            </div>
+                                        </div>
+
+                                        <div class="flex flex-wrap items-center gap-3">
+                                            <button type="button" @click="runCtripBrowserCapture"
+                                                :disabled="ctripBrowserCaptureRunning"
+                                                class="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:bg-gray-400">
+                                                <i :class="ctripBrowserCaptureRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-play mr-2'"></i>
+                                                {{ ctripBrowserCaptureRunning ? '采集中...' : '启动 Profile 采集并入库' }}
+                                            </button>
+                                            <span class="text-xs text-gray-500">采集范围：概况 / 流量</span>
+                                        </div>
+
+                                        <div v-if="ctripBrowserCaptureRunning" class="mt-3 text-sm text-slate-700 bg-slate-50 border border-slate-100 rounded px-3 py-2">
+                                            正在启动本机携程 Profile。首次使用需要在弹出的浏览器窗口完成登录，系统会监听业务接口响应并自动解析入库。
+                                        </div>
+                                        <div v-if="ctripBrowserCaptureResult" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
+                                            <div v-if="ctripBrowserCaptureResult.error" class="text-sm text-red-700 mb-2">
+                                                {{ ctripBrowserCaptureResult.error }}
+                                            </div>
+                                            <div class="text-sm text-green-800">
+                                                已保存 {{ ctripBrowserCaptureResult.saved_count || 0 }} 条，解析 {{ ctripBrowserCaptureResult.row_count || 0 }} 条。
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.counts" class="flex flex-wrap gap-2 mt-3 text-xs">
+                                                <span v-for="(count, type) in ctripBrowserCaptureResult.counts" :key="type" class="px-2 py-1 rounded bg-white border text-green-700">{{ type }}：{{ count }}</span>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.captured_counts" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                <span v-for="(count, type) in ctripBrowserCaptureResult.captured_counts" :key="type" class="px-2 py-1 rounded bg-white border text-gray-600">{{ type }} 命中 {{ count }}</span>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.pages && ctripBrowserCaptureResult.pages.length" class="text-xs text-gray-600 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
+                                                <div v-for="page in ctripBrowserCaptureResult.pages" :key="page.name + page.url" class="truncate">
+                                                    {{ page.name }}：{{ page.url }}
+                                                </div>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.xhr_urls && ctripBrowserCaptureResult.xhr_urls.length" class="text-xs text-gray-600 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
+                                                <div v-for="url in ctripBrowserCaptureResult.xhr_urls.slice(0, 10)" :key="url" class="truncate">
+                                                    {{ url }}
+                                                </div>
+                                            </div>
+                                            <pre v-if="showRawData" class="text-xs text-green-900 bg-white border rounded p-3 mt-3 whitespace-pre-wrap max-h-80 overflow-auto">{{ JSON.stringify(ctripBrowserCaptureResult, null, 2) }}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- 点评数据获取 -->
                                 <div v-if="false && onlineDataTab === 'ctrip-review'">
                                     <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
@@ -5777,7 +5948,7 @@
                                                 推荐按“独立浏览器 Profile 登录携程商家后台 → 打开点评页触发 <span class="font-semibold">getCommentList</span> → 监听 XHR/fetch JSON 响应 → 清洗入库”的方式获取点评数据。
                                             </p>
                                             <p>
-                                                正常使用只需选择数据归属酒店并启动浏览器抓取；系统会直接监听浏览器中的点评接口响应并按现有 <code class="px-1 py-0.5 rounded bg-purple-100 text-purple-800">online_daily_data</code> 字段保存。
+                                                正常使用只需选择目标酒店并启动浏览器抓取；系统会直接监听浏览器中的点评接口响应并按现有 <code class="px-1 py-0.5 rounded bg-purple-100 text-purple-800">online_daily_data</code> 字段保存。
                                             </p>
                                         </div>
                                     </div>
@@ -5785,10 +5956,10 @@
                                         <div class="flex flex-col lg:flex-row lg:items-end gap-4">
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
                                                 <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店 <span class="text-red-500">*</span></label>
+                                                    <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
                                                     <select v-model="selectedCtripHotelId" @change="applyCtripHotelConfig"
                                                         class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                                        <option value="">请选择要归属数据的酒店</option>
+                                                        <option value="">请选择目标酒店</option>
                                                         <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                     </select>
                                                 </div>
@@ -7170,10 +7341,10 @@
                             <div class="border rounded-lg p-4">
                                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店</label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
                                         <select v-model="autoFetchHotelId" @change="loadAutoFetchStatus"
                                             class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                            <option value="">请选择要归属数据的酒店</option>
+                                            <option value="">请选择目标酒店</option>
                                             <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                         </select>
                                         <div class="text-xs text-gray-500 mt-1">
@@ -7194,7 +7365,7 @@
                                             </button>
                                             <button @click="triggerAutoFetch" :disabled="fetchingData || !autoFetchHotelId || !hasCtripFetchConfigByHotelId(autoFetchHotelId)"
                                                 class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
-                                                <i :class="['fas mr-2', fetchingData ? 'fa-spinner fa-spin' : 'fa-play']"></i>立即抓取
+                                                <i :class="['fas mr-2', fetchingData ? 'fa-spinner fa-spin' : 'fa-play']"></i>{{ fetchingData ? '抓取中...' : '立即抓取' }}
                                             </button>
                                         </div>
                                     </div>
@@ -7318,6 +7489,14 @@
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         流量数据获取
                                     </button>
+                                    <button @click="onlineDataTab = 'meituan-orders'; loadMeituanConfigList(); syncMeituanOrderConfigFromSelectedConfig()"
+                                        :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-orders' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                        订单数据获取
+                                    </button>
+                                    <button @click="onlineDataTab = 'meituan-ads'; loadMeituanConfigList(); syncMeituanAdsConfigFromSelectedConfig()"
+                                        :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                        推广通广告
+                                    </button>
                                     <button @click="switchToMeituanDownloadCenter"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         下载中心
@@ -7340,10 +7519,10 @@
                                     </div>
 
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店</label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
                                         <select v-model="meituanForm.hotelId" @change="applyMeituanHotelConfig"
                                             class="w-full px-3 py-2 border rounded-lg">
-                                            <option value="">请选择要归属数据的酒店</option>
+                                            <option value="">请选择目标酒店</option>
                                             <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                         </select>
                                         <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
@@ -8100,73 +8279,276 @@
                                 <div v-if="onlineDataTab === 'meituan-traffic'">
                                     <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-yellow-800 mb-2">
-                                            <i class="fas fa-signal mr-2"></i>美团流量获取（Cookies + 必要字段）
+                                            <i class="fas fa-signal mr-2"></i>美团流量数据获取
                                         </h4>
-                                        <p class="text-sm text-yellow-700">
-                                            按当前美团流量接口地址，携带 Cookies、Partner ID、POI ID 和日期范围请求并入库；选择酒店后会优先读取已保存的美团配置。
-                                        </p>
-                                    </div>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店</label>
-                                            <select v-model="meituanForm.hotelId" @change="syncMeituanTrafficConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
-                                                <option value="">请选择要归属数据的酒店</option>
-                                                <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                            </select>
-                                            <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
-                                                {{ getHotelNameById(meituanForm.hotelId) }}｜已读取美团配置
+                                        <div class="space-y-2 text-sm text-yellow-700">
+                                            <p>不启动浏览器 Profile。运营人员登录美团后台后，从 Network 中复制流量接口 Request URL、Cookie、Partner ID、POI ID 和日期参数，由系统后端直连接口抓取并入库。</p>
+                                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs">
+                                                <div class="bg-white/70 border border-yellow-100 rounded px-3 py-2">
+                                                    <div class="font-medium text-yellow-800">人工进入页面</div>
+                                                    <div class="break-all">me.meituan.com/ebooking/merchant/ebIframe?iUrl=/ebooking/data-center/index.html</div>
+                                                </div>
+                                                <div class="bg-white/70 border border-yellow-100 rounded px-3 py-2">
+                                                    <div class="font-medium text-yellow-800">复制接口</div>
+                                                    <div>businessData / weightTraffic / traffic / peerTrends</div>
+                                                </div>
+                                                <div class="bg-white/70 border border-yellow-100 rounded px-3 py-2">
+                                                    <div class="font-medium text-yellow-800">系统抓取</div>
+                                                    <div>填写下方字段后调用 /fetch-meituan-traffic</div>
+                                                </div>
                                             </div>
-                                            <div v-if="meituanForm.hotelId && !selectedMeituanHotelConfig" class="text-xs text-yellow-700 mt-1">
-                                                未读取到该酒店美团配置，请补充 Partner ID、POI ID 和 Cookies。
+                                        </div>
+                                    </div>
+
+                                    <div class="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-800 mb-3">
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>手动抓包接口抓取
+                                        </h4>
+                                        <p class="text-sm text-gray-500 mb-4">接口地址应填写 Network 中 businessData / weightTraffic / traffic 的真实 Request URL，不是页面 URL。</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanForm.hotelId" @change="syncMeituanTrafficConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                                <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
+                                                    {{ getHotelNameById(meituanForm.hotelId) }}｜已读取美团配置
+                                                </div>
+                                                <div v-if="meituanForm.hotelId && !selectedMeituanHotelConfig" class="text-xs text-yellow-700 mt-1">
+                                                    未读取到该酒店美团配置，请手动补充 Partner ID、POI ID 和 Cookies。
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">接口 Request URL <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanTrafficForm.url" type="text"
+                                                    class="w-full px-3 py-2 border rounded-lg text-sm"
+                                                    placeholder="Network 中 businessData / weightTraffic / traffic 的 Request URL">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Partner ID <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanTrafficForm.partnerId" type="text"
+                                                    class="w-full px-3 py-2 border rounded-lg"
+                                                    placeholder="商家 Partner ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">POI ID <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanTrafficForm.poiId" type="text"
+                                                    class="w-full px-3 py-2 border rounded-lg"
+                                                    placeholder="门店 POI ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies <span class="text-red-500">*</span></label>
+                                                <textarea v-model="meituanTrafficForm.cookies" rows="2"
+                                                    class="w-full px-3 py-2 border rounded-lg"
+                                                    placeholder="请粘贴登录后的 Cookies"></textarea>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                                <input v-model="meituanTrafficForm.startDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                                <input v-model="meituanTrafficForm.endDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数（JSON，可选）</label>
+                                                <textarea v-model="meituanTrafficForm.extraParams" rows="2"
+                                                    class="w-full px-3 py-2 border rounded-lg text-sm"
+                                                    placeholder='例如：{"metric":"pv","channel":"app"}'></textarea>
                                             </div>
                                         </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">接口地址 <span class="text-red-500">*</span></label>
-                                            <input v-model="meituanTrafficForm.url" type="text"
-                                                class="w-full px-3 py-2 border rounded-lg text-sm"
-                                                placeholder="粘贴美团流量接口地址">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">Partner ID <span class="text-red-500">*</span></label>
-                                            <input v-model="meituanTrafficForm.partnerId" type="text"
-                                                class="w-full px-3 py-2 border rounded-lg"
-                                                placeholder="商家 Partner ID">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">POI ID <span class="text-red-500">*</span></label>
-                                            <input v-model="meituanTrafficForm.poiId" type="text"
-                                                class="w-full px-3 py-2 border rounded-lg"
-                                                placeholder="门店 POI ID">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
-                                            <input v-model="meituanTrafficForm.startDate" type="date"
-                                                class="w-full px-3 py-2 border rounded-lg">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
-                                            <input v-model="meituanTrafficForm.endDate" type="date"
-                                                class="w-full px-3 py-2 border rounded-lg">
-                                        </div>
-                                    </div>
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Cookies <span class="text-red-500">*</span></label>
-                                        <textarea v-model="meituanTrafficForm.cookies" rows="3"
-                                            class="w-full px-3 py-2 border rounded-lg"
-                                            placeholder="请粘贴登录后的Cookies..."></textarea>
-                                    </div>
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">额外参数（JSON，可选）</label>
-                                        <textarea v-model="meituanTrafficForm.extraParams" rows="2"
-                                            class="w-full px-3 py-2 border rounded-lg text-sm"
-                                            placeholder='例如：{"metric":"pv","channel":"app"}'></textarea>
-                                    </div>
-                                    <div class="flex gap-3">
-                                        <button @click="fetchMeituanTrafficData" 
+                                        <button @click="fetchMeituanTrafficData"
                                             :disabled="fetchingData"
-                                            class="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-gray-400">
-                                            <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '获取流量' }}
+                                            class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:bg-gray-400">
+                                            <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '手动请求流量接口' }}
                                         </button>
+                                    </div>
+                                </div>
+
+                                <div v-if="onlineDataTab === 'meituan-orders'">
+                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-blue-800 mb-2">
+                                            <i class="fas fa-receipt mr-2"></i>美团订单数据获取
+                                        </h4>
+                                        <p class="text-sm text-blue-700 mb-3">不启动浏览器 Profile。运营人员登录美团后台后，从 Network 中复制订单接口 Request URL、Cookie、Partner ID、POI ID 和日期参数，由系统后端直连接口抓取并入库。</p>
+                                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs text-blue-700">
+                                            <div class="bg-white/70 border border-blue-100 rounded px-3 py-2">
+                                                <div class="font-medium text-blue-800">人工进入页面</div>
+                                                <div class="break-all">me.meituan.com/ebooking/merchant/ebIframe?iUrl=/ebooking/order-eb/index.html#/checkin</div>
+                                            </div>
+                                            <div class="bg-white/70 border border-blue-100 rounded px-3 py-2">
+                                                <div class="font-medium text-blue-800">复制接口</div>
+                                                <div>/orders/list / /order/unhandled/count</div>
+                                            </div>
+                                            <div class="bg-white/70 border border-blue-100 rounded px-3 py-2">
+                                                <div class="font-medium text-blue-800">系统抓取</div>
+                                                <div>填写下方字段后调用 /fetch-meituan-orders</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white border border-blue-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-800 mb-3">
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>手动抓包接口抓取
+                                        </h4>
+                                        <p class="text-sm text-gray-500 mb-4">接口地址应填写 Network 中 /orders/list 的真实 Request URL，不是订单页面 URL。</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanForm.hotelId" @change="syncMeituanOrderConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                                <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
+                                                    {{ getHotelNameById(meituanForm.hotelId) }}：已读取美团配置
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">接口 Request URL <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanOrderForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Network 中 /orders/list 的 Request URL">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">请求方式</label>
+                                                <select v-model="meituanOrderForm.method" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="GET">GET</option>
+                                                    <option value="POST">POST</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Partner ID <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanOrderForm.partnerId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="商家 Partner ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">POI ID <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanOrderForm.poiId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="门店 POI ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                                <input v-model="meituanOrderForm.startDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                                <input v-model="meituanOrderForm.endDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies <span class="text-red-500">*</span></label>
+                                                <textarea v-model="meituanOrderForm.cookies" rows="2" class="w-full px-3 py-2 border rounded-lg" placeholder="请粘贴登录后的 Cookies"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（可选）</label>
+                                                <textarea v-model="meituanOrderForm.payloadJson" rows="2" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="如接口为 POST，可粘贴 Network Payload JSON"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数（JSON，可选）</label>
+                                                <textarea v-model="meituanOrderForm.extraParams" rows="2" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder='例如：{"pageNo":1,"pageSize":50}'></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-wrap gap-3 mt-4">
+                                            <button type="button" @click="fetchMeituanOrdersData" :disabled="fetchingData" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
+                                                <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '手动请求订单接口' }}
+                                            </button>
+                                            <button type="button" @click="openTargetSite('https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Forder-eb%2Findex.html%23%2Fcheckin')" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                                                <i class="fas fa-external-link-alt mr-2"></i>打开订单页
+                                            </button>
+                                        </div>
+                                        <div v-if="meituanOrderResult" class="mt-4 bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+                                            已保存 {{ meituanOrderResult.saved_count || 0 }} 条，解析 {{ meituanOrderResult.row_count || 0 }} 条。
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="onlineDataTab === 'meituan-ads'">
+                                    <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-red-800 mb-2">
+                                            <i class="fas fa-bullhorn mr-2"></i>美团推广通广告数据获取
+                                        </h4>
+                                        <p class="text-sm text-red-700 mb-3">不启动浏览器 Profile。运营人员登录推广通后，从 Network 中复制 cureShops 等广告接口 Request URL、Cookie、Shop ID/POI ID 和日期参数，由系统后端直连接口抓取并入库。</p>
+                                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs text-red-700">
+                                            <div class="bg-white/70 border border-red-100 rounded px-3 py-2">
+                                                <div class="font-medium text-red-800">人工进入页面</div>
+                                                <div class="break-all">ebmidas.dianping.com/shopdiy/account/pcCpcEntry</div>
+                                            </div>
+                                            <div class="bg-white/70 border border-red-100 rounded px-3 py-2">
+                                                <div class="font-medium text-red-800">复制接口</div>
+                                                <div>cureShops</div>
+                                            </div>
+                                            <div class="bg-white/70 border border-red-100 rounded px-3 py-2">
+                                                <div class="font-medium text-red-800">入库映射</div>
+                                                <div>曝光、点击、转化率入现有 online_daily_data；广告明细进 raw_data</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white border border-red-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-800 mb-3">
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>手动抓包接口抓取
+                                        </h4>
+                                        <p class="text-sm text-gray-500 mb-4">接口地址应填写 Network 中 cureShops 的真实 Request URL，不是推广通入口页面 URL。</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanForm.hotelId" @change="syncMeituanAdsConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                                <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
+                                                    {{ getHotelNameById(meituanForm.hotelId) }}：已读取美团配置
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">接口 Request URL <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanAdsForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Network 中 cureShops 的 Request URL">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">请求方式</label>
+                                                <select v-model="meituanAdsForm.method" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="GET">GET</option>
+                                                    <option value="POST">POST</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Partner ID（可选）</label>
+                                                <input v-model="meituanAdsForm.partnerId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="接口需要时填写">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Shop ID / POI ID <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanAdsForm.shopId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="推广通店铺 ID 或门店 POI ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">POI ID（可选）</label>
+                                                <input v-model="meituanAdsForm.poiId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="为空时使用 Shop ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                                <input v-model="meituanAdsForm.startDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                                <input v-model="meituanAdsForm.endDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies <span class="text-red-500">*</span></label>
+                                                <textarea v-model="meituanAdsForm.cookies" rows="2" class="w-full px-3 py-2 border rounded-lg" placeholder="请粘贴登录后的 Cookies"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（可选）</label>
+                                                <textarea v-model="meituanAdsForm.payloadJson" rows="2" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="如接口为 POST，可粘贴 Network Payload JSON"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数（JSON，可选）</label>
+                                                <textarea v-model="meituanAdsForm.extraParams" rows="2" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder='例如：{"timeUnit":"day"}'></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-wrap gap-3 mt-4">
+                                            <button type="button" @click="fetchMeituanAdsData" :disabled="fetchingData" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400">
+                                                <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '手动请求广告接口' }}
+                                            </button>
+                                            <button type="button" @click="openTargetSite(defaultMeituanAdsUrl)" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                                                <i class="fas fa-external-link-alt mr-2"></i>打开推广通
+                                            </button>
+                                        </div>
+                                        <div v-if="meituanAdsResult" class="mt-4 bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+                                            已保存 {{ meituanAdsResult.saved_count || 0 }} 条，解析 {{ meituanAdsResult.row_count || 0 }} 条。
+                                        </div>
                                     </div>
                                 </div>
 
@@ -8184,9 +8566,9 @@
                                     <!-- 配置输入 -->
                                     <div class="bg-white border rounded-lg p-4 mb-4">
                                         <div class="mb-4">
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店</label>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
                                             <select v-model="meituanForm.hotelId" @change="syncMeituanCommentConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
-                                                <option value="">请选择要归属数据的酒店</option>
+                                                <option value="">请选择目标酒店</option>
                                                 <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                             </select>
                                             <div v-if="meituanForm.hotelId && selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
@@ -8350,6 +8732,14 @@
                                             :class="['px-6 py-3 font-medium', downloadCenterTab === 'traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                             <i class="fas fa-chart-bar mr-2"></i>流量分析
                                         </button>
+                                        <button @click="switchDownloadTab('orders')"
+                                            :class="['px-6 py-3 font-medium', downloadCenterTab === 'orders' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                            <i class="fas fa-receipt mr-2"></i>订单数据
+                                        </button>
+                                        <button @click="switchDownloadTab('ads')"
+                                            :class="['px-6 py-3 font-medium', downloadCenterTab === 'ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                            <i class="fas fa-bullhorn mr-2"></i>广告数据
+                                        </button>
                                     </div>
 
                                     <!-- 筛选条件 -->
@@ -8409,6 +8799,8 @@
                                                         <td class="px-4 py-2 border">
                                                             <span v-if="item.data_type === 'ranking'" class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">榜单</span>
                                                             <span v-else-if="item.data_type === 'traffic'" class="px-2 py-1 bg-teal-100 text-teal-800 rounded text-xs">流量</span>
+                                                            <span v-else-if="item.data_type === 'order'" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">订单</span>
+                                                            <span v-else-if="item.data_type === 'advertising'" class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">广告</span>
                                                             <span v-else-if="item.data_type === 'review'" class="px-2 py-1 bg-pink-100 text-pink-800 rounded text-xs">点评</span>
                                                             <span v-else class="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">{{ item.data_type }}</span>
                                                         </td>
@@ -8433,26 +8825,26 @@
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">总曝光量</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineDataList.filter(i => i.source === 'meituan').reduce((sum, i) => sum + (i.exposure_count || 0), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineDataList.filter(isMeituanTrafficDataRow).reduce((sum, i) => sum + getMeituanExposureMetric(i), 0)) }}</div>
                                             </div>
                                             <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">平均浏览转化率</div>
                                                 <div class="text-2xl font-bold text-purple-600">{{
                                                     (() => {
-                                                        const mtData = onlineDataList.filter(i => i.source === 'meituan' && i.exposure_count > 0);
+                                                        const mtData = onlineDataList.filter(i => isMeituanTrafficDataRow(i) && getMeituanExposureMetric(i) > 0);
                                                         if (mtData.length === 0) return '0.00%';
-                                                        const avgRate = mtData.reduce((sum, i) => sum + (safeDivide(i.click_count, i.exposure_count) * 100 || 0), 0) / mtData.length;
+                                                        const avgRate = mtData.reduce((sum, i) => sum + getMeituanFlowRateMetric(i), 0) / mtData.length;
                                                         return toFixedSafe(avgRate, 2) + '%';
                                                     })()
                                                 }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">总点击量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(onlineDataList.filter(i => i.source === 'meituan').reduce((sum, i) => sum + (i.click_count || 0), 0)) }}</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(onlineDataList.filter(isMeituanTrafficDataRow).reduce((sum, i) => sum + getMeituanClickMetric(i), 0)) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击转化率</div>
-                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(safeDivide(onlineDataList.filter(i => i.source === 'meituan').reduce((sum, i) => sum + (i.click_count || 0), 0), onlineDataList.filter(i => i.source === 'meituan').reduce((sum, i) => sum + (i.exposure_count || 0), 0)) * 100, 2) }}%</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(safeDivide(onlineDataList.filter(isMeituanTrafficDataRow).reduce((sum, i) => sum + getMeituanClickMetric(i), 0), onlineDataList.filter(isMeituanTrafficDataRow).reduce((sum, i) => sum + getMeituanExposureMetric(i), 0)) * 100, 2) }}%</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -8470,13 +8862,13 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="item in onlineDataList.filter(i => i.source === 'meituan' && (i.data_type === 'traffic' || i.exposure_count))" :key="item.id" class="border-b hover:bg-gray-50">
+                                                    <tr v-for="item in onlineDataList.filter(isMeituanTrafficDataRow)" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.exposure_count || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.click_count || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ toFixedSafe(safeDivide(item.click_count, item.exposure_count) * 100, 2) }}%</td>
-                                                        <td class="px-4 py-2 border">{{ item.visitor_count || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ getMeituanExposureMetric(item) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ getMeituanClickMetric(item) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ toFixedSafe(getMeituanFlowRateMetric(item), 2) }}%</td>
+                                                        <td class="px-4 py-2 border">{{ getMeituanVisitorMetric(item) || '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.create_time }}</td>
                                                         <td class="px-4 py-2 border">
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
@@ -8486,6 +8878,127 @@
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+
+                                    <!-- 订单数据模块 -->
+                                    <div v-if="downloadCenterTab === 'orders'">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">订单记录数</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ onlineDataList.filter(isMeituanOrderDataRow).length }}</div>
+                                            </div>
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">订单量</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(onlineDataList.filter(isMeituanOrderDataRow).reduce((sum, i) => sum + (i.book_order_num || 0), 0)) }}</div>
+                                            </div>
+                                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">间夜量</div>
+                                                <div class="text-2xl font-bold text-indigo-600">{{ formatNumber(onlineDataList.filter(isMeituanOrderDataRow).reduce((sum, i) => sum + (i.quantity || 0), 0)) }}</div>
+                                            </div>
+                                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">订单金额</div>
+                                                <div class="text-2xl font-bold text-orange-600">¥{{ formatNumber(onlineDataList.filter(isMeituanOrderDataRow).reduce((sum, i) => sum + (i.amount || 0), 0)) }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left border">酒店</th>
+                                                        <th class="px-4 py-2 text-left border">日期</th>
+                                                        <th class="px-4 py-2 text-left border">订单数</th>
+                                                        <th class="px-4 py-2 text-left border">间夜</th>
+                                                        <th class="px-4 py-2 text-left border">金额</th>
+                                                        <th class="px-4 py-2 text-left border">均价</th>
+                                                        <th class="px-4 py-2 text-left border">维度</th>
+                                                        <th class="px-4 py-2 text-left border">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="item in onlineDataList.filter(isMeituanOrderDataRow)" :key="item.id" class="border-b hover:bg-gray-50">
+                                                        <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_date }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.book_order_num || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.quantity || '-' }}</td>
+                                                        <td class="px-4 py-2 border">¥{{ item.amount || 0 }}</td>
+                                                        <td class="px-4 py-2 border">¥{{ item.data_value || toFixedSafe(safeDivide(item.amount, item.quantity), 2) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
+                                                                <i class="fas fa-eye"></i>
+                                                            </button>
+                                                            <button @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="onlineDataList.filter(isMeituanOrderDataRow).length === 0">
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无美团订单数据</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- 广告数据模块 -->
+                                    <div v-if="downloadCenterTab === 'ads'">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">广告记录数</div>
+                                                <div class="text-2xl font-bold text-red-600">{{ onlineDataList.filter(isMeituanAdsDataRow).length }}</div>
+                                            </div>
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">曝光量</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineDataList.filter(isMeituanAdsDataRow).reduce((sum, i) => sum + getMeituanExposureMetric(i), 0)) }}</div>
+                                            </div>
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点击量</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(onlineDataList.filter(isMeituanAdsDataRow).reduce((sum, i) => sum + getMeituanClickMetric(i), 0)) }}</div>
+                                            </div>
+                                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点击率</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(safeDivide(onlineDataList.filter(isMeituanAdsDataRow).reduce((sum, i) => sum + getMeituanClickMetric(i), 0), onlineDataList.filter(isMeituanAdsDataRow).reduce((sum, i) => sum + getMeituanExposureMetric(i), 0)) * 100, 2) }}%</div>
+                                            </div>
+                                        </div>
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left border">酒店</th>
+                                                        <th class="px-4 py-2 text-left border">日期</th>
+                                                        <th class="px-4 py-2 text-left border">曝光</th>
+                                                        <th class="px-4 py-2 text-left border">点击</th>
+                                                        <th class="px-4 py-2 text-left border">转化率</th>
+                                                        <th class="px-4 py-2 text-left border">维度</th>
+                                                        <th class="px-4 py-2 text-left border">创建时间</th>
+                                                        <th class="px-4 py-2 text-left border">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="item in onlineDataList.filter(isMeituanAdsDataRow)" :key="item.id" class="border-b hover:bg-gray-50">
+                                                        <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_date }}</td>
+                                                        <td class="px-4 py-2 border">{{ getMeituanExposureMetric(item) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ getMeituanClickMetric(item) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ toFixedSafe(getMeituanFlowRateMetric(item), 2) }}%</td>
+                                                        <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.create_time }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
+                                                                <i class="fas fa-eye"></i>
+                                                            </button>
+                                                            <button @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="onlineDataList.filter(isMeituanAdsDataRow).length === 0">
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无美团广告数据</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -11269,8 +11782,8 @@
                                         <h4 class="font-semibold text-gray-800 mb-1">美团广告</h4>
                                         <p class="text-sm text-gray-500">曝光、点击、转化</p>
                                         <div class="mt-4 space-y-1 text-xs text-gray-600">
-                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">Cookie / 日期 / mtgsig</span></div>
-                                            <div class="flex justify-between gap-3"><span>粒度</span><span class="text-gray-800">日 / 周 / 月</span></div>
+                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口URL / Cookie / Shop ID</span></div>
+                                            <div class="flex justify-between gap-3"><span>接口</span><span class="text-gray-800">cureShops</span></div>
                                         </div>
                                         <div class="mt-3 text-xs text-red-600">
                                             <i class="fas fa-cog mr-1"></i>点击配置
@@ -11618,9 +12131,9 @@
                                     </div>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                         <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">数据归属酒店</label>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
                                             <select v-model="meituanForm.hotelId" @change="syncMeituanTrafficConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
-                                                <option value="">请选择要归属数据的酒店</option>
+                                                <option value="">请选择目标酒店</option>
                                                 <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                             </select>
                                         </div>
@@ -11726,9 +12239,9 @@
                                                 </div>
                                                 <div class="flex flex-wrap items-end gap-3">
                                                     <div>
-                                                        <label class="block text-xs text-gray-500 mb-1">数据归属酒店</label>
+                                                        <label class="block text-xs text-gray-500 mb-1">目标酒店</label>
                                                         <select v-model="autoFetchHotelId" @change="loadAutoFetchStatus" class="min-w-[190px] px-3 py-2 border rounded-lg bg-white text-sm">
-                                                            <option value="">请选择酒店</option>
+                                                            <option value="">请选择目标酒店</option>
                                                             <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                         </select>
                                                     </div>
@@ -11740,7 +12253,7 @@
                                                         <i class="fas fa-sync-alt"></i>
                                                     </button>
                                                     <button @click="triggerAutoFetch" :disabled="fetchingData || !autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                                                        <i :class="['fas mr-2', fetchingData ? 'fa-spinner fa-spin' : 'fa-play']"></i>立即抓取
+                                                        <i :class="['fas mr-2', fetchingData ? 'fa-spinner fa-spin' : 'fa-play']"></i>{{ fetchingData ? '抓取中...' : '立即抓取' }}
                                                     </button>
                                                 </div>
                                             </div>
@@ -11769,8 +12282,84 @@
                                                 </div>
                                             </div>
 
+                                            <div class="mb-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
+                                                <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 mb-4">
+                                                    <div>
+                                                        <h5 class="font-semibold text-gray-900">
+                                                            <i class="fas fa-window-restore mr-2 text-slate-600"></i>携程 Profile 真实采集
+                                                        </h5>
+                                                        <p class="text-sm text-gray-500 mt-1">
+                                                            复用 CQXM 的浏览器 Profile + XHR/fetch 监听方式，打开携程概况、流量页面后解析 JSON 并入库。
+                                                        </p>
+                                                    </div>
+                                                    <button type="button"
+                                                        @click="openTargetSite('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true')"
+                                                        class="px-3 py-2 bg-white border text-gray-700 rounded-lg hover:bg-gray-50 text-sm">
+                                                        <i class="fas fa-external-link-alt mr-2"></i>打开携程
+                                                    </button>
+                                                </div>
+
+                                                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                                    <div>
+                                                        <label class="block text-xs text-gray-500 mb-1">浏览器 Profile ID</label>
+                                                        <input v-model="ctripBrowserCaptureForm.profileId" type="text"
+                                                            class="w-full px-3 py-2 border rounded-lg bg-white text-sm"
+                                                            placeholder="默认使用 OTA酒店ID 或系统酒店ID">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-gray-500 mb-1">OTA酒店ID / Node ID</label>
+                                                        <input v-model="ctripBrowserCaptureForm.hotelId" type="text"
+                                                            class="w-full px-3 py-2 border rounded-lg bg-white text-sm"
+                                                            placeholder="默认读取携程配置">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-gray-500 mb-1">数据日期</label>
+                                                        <input v-model="ctripOverviewForm.dataDate" type="date"
+                                                            class="w-full px-3 py-2 border rounded-lg bg-white text-sm">
+                                                    </div>
+                                                </div>
+
+                                                <div class="flex flex-wrap items-center gap-3">
+                                                    <button type="button" @click="runCtripBrowserCapture"
+                                                        :disabled="ctripBrowserCaptureRunning || !autoFetchHotelId"
+                                                        class="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:bg-gray-400">
+                                                        <i :class="ctripBrowserCaptureRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-play mr-2'"></i>
+                                                        {{ ctripBrowserCaptureRunning ? '采集中...' : '启动携程 Profile 采集' }}
+                                                    </button>
+                                                    <span class="text-xs text-gray-500">使用上方目标酒店；范围：概况 / 流量</span>
+                                                </div>
+
+                                                <div v-if="ctripBrowserCaptureResult" class="mt-4 rounded-lg border border-green-200 bg-green-50 p-3">
+                                                    <div v-if="ctripBrowserCaptureResult.error" class="text-sm text-red-700 mb-2">
+                                                        {{ ctripBrowserCaptureResult.error }}
+                                                    </div>
+                                                    <div class="text-sm text-green-800">
+                                                        已保存 {{ ctripBrowserCaptureResult.saved_count || 0 }} 条，解析 {{ ctripBrowserCaptureResult.row_count || 0 }} 条。
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.counts" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                        <span v-for="(count, type) in ctripBrowserCaptureResult.counts" :key="type" class="px-2 py-1 rounded bg-white border text-green-700">{{ type }}：{{ count }}</span>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.captured_counts" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                        <span v-for="(count, type) in ctripBrowserCaptureResult.captured_counts" :key="type" class="px-2 py-1 rounded bg-white border text-gray-600">{{ type }} 命中 {{ count }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
                                             <div v-if="autoFetchHotelId && !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)" class="mb-5 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm">
                                                 请先在“酒店管理”中为该酒店保存并关联携程或美团平台配置。
+                                            </div>
+
+                                            <div v-if="autoFetchRunState.active || autoFetchRunState.message" class="mb-5 rounded-lg border px-4 py-3 text-sm" :class="autoFetchRunState.active ? 'bg-blue-50 border-blue-200 text-blue-800' : (autoFetchRunState.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800')">
+                                                <div class="flex items-start gap-3">
+                                                    <i :class="['fas mt-0.5', autoFetchRunState.active ? 'fa-spinner fa-spin' : (autoFetchRunState.type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle')]"></i>
+                                                    <div class="min-w-0">
+                                                        <div class="font-medium">{{ autoFetchRunState.active ? '正在执行平台抓取' : '本次抓取已返回' }}</div>
+                                                        <div class="mt-1 leading-relaxed">{{ autoFetchRunState.message }}</div>
+                                                        <div v-if="autoFetchRunState.started_at" class="mt-1 text-xs opacity-75">
+                                                            开始时间：{{ autoFetchRunState.started_at }}<span v-if="autoFetchRunState.finished_at"> ｜ 完成时间：{{ autoFetchRunState.finished_at }}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
 
                                             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
@@ -13579,12 +14168,12 @@
                     <!-- 携程广告配置 -->
                     <div v-if="currentDataConfigType === 'ctrip-ads'">
                         <div class="bg-indigo-50 p-3 rounded text-sm text-indigo-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置携程广告数据直接获取参数；接口 URL 取自金字塔广告页 Network 中 pyramidad / promotion 请求。
+                            <i class="fas fa-info-circle mr-2"></i>配置携程广告数据直接获取参数；接口 URL 取自金字塔广告页 Network 中 queryCampaignReportList 等 CPC 请求。
                         </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div class="col-span-2">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">广告接口URL</label>
-                                <input v-model="dataConfigForm.url" type="text" placeholder="Network 中 pyramidad / promotion 的 Request URL" class="input-field w-full">
+                                <input v-model="dataConfigForm.url" type="text" placeholder="Network 中 queryCampaignReportList 的 Request URL" class="input-field w-full">
                             </div>
                             <div class="col-span-2">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">API类型</label>
@@ -13620,9 +14209,32 @@
                     <!-- 美团广告配置 -->
                     <div v-if="currentDataConfigType === 'meituan-ads'">
                         <div class="bg-red-50 p-3 rounded text-sm text-red-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置美团广告数据获取参数
+                            <i class="fas fa-info-circle mr-2"></i>配置美团推广通广告接口参数，URL 应为 Network 中 cureShops 等 JSON Request URL
                         </div>
                         <div class="grid grid-cols-2 gap-4">
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">接口 Request URL</label>
+                                <input v-model="dataConfigForm.url" type="text" placeholder="Network 中 cureShops 的 Request URL" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">请求方式</label>
+                                <select v-model="dataConfigForm.method" class="input-field w-full">
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Partner ID（可选）</label>
+                                <input v-model="dataConfigForm.partner_id" type="text" placeholder="接口需要时填写" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Shop ID / POI ID</label>
+                                <input v-model="dataConfigForm.shop_id" type="text" placeholder="推广通店铺 ID 或门店 POI ID" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">POI ID（可选）</label>
+                                <input v-model="dataConfigForm.poi_id" type="text" placeholder="为空时使用 Shop ID" class="input-field w-full">
+                            </div>
                             <div class="col-span-2">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Cookie</label>
                                 <textarea v-model="dataConfigForm.cookie" rows="3" placeholder="请输入美团Cookie" class="input-field w-full"></textarea>
@@ -13646,6 +14258,14 @@
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">mtgsig</label>
                                 <input v-model="dataConfigForm.mtgsig" type="text" placeholder="可选" class="input-field w-full">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（可选）</label>
+                                <textarea v-model="dataConfigForm.payload_json" rows="3" placeholder="如接口为 POST，可粘贴 Network Payload" class="input-field w-full"></textarea>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数 JSON（可选）</label>
+                                <textarea v-model="dataConfigForm.extra_params" rows="2" placeholder='例如：{"timeUnit":"day"}' class="input-field w-full"></textarea>
                             </div>
                         </div>
                     </div>
@@ -14221,6 +14841,114 @@
             });
             const ctripAdsBrowserCaptureResult = ref(null);
             const ctripAdsBrowserCaptureRunning = ref(false);
+            const ctripOverviewApiKeywords = [
+                'getDayReportRealTimeDate',
+                'fetchMarketOverViewV2',
+                'getDayReportFlowCompete',
+                'getDayReportServerQuantity',
+                'fetchVisitorTitleV2',
+                'fetchCapacityOverViewV4',
+                'queryFlowTransforNewV1',
+                'getCompeteHotelReportV1',
+                'getHotWordsV1',
+                'getHotHotelsV1',
+                'getFlowHotelsV1',
+                'getHotRoomsV1',
+                'getUserBehaviorV1',
+                'getTrafficReportV1',
+                'getLastWeekReportV1',
+            ];
+            const ctripOverviewForm = ref({
+                requestUrls: '',
+                cookies: '',
+                spidertoken: '',
+                payloadJson: '',
+                hotelId: '',
+                method: 'GET',
+                dataDate: '',
+            });
+            const ctripOverviewResult = ref(null);
+            const ctripOverviewFetching = ref(false);
+            const ctripOverviewMetricCards = computed(() => {
+                const metrics = ctripOverviewResult.value?.metrics || {};
+                return [
+                    { key: 'yesterday_uv', label: '昨日UV', value: metrics.yesterday_uv },
+                    { key: 'order_count', label: '订单数', value: metrics.order_count },
+                    { key: 'amount', label: '成交收入', value: metrics.amount, type: 'currency2' },
+                    { key: 'room_nights', label: '成交间夜', value: metrics.room_nights },
+                    { key: 'avg_price', label: '均价', value: metrics.avg_price, type: 'currency2' },
+                    { key: 'conversion_rate', label: '成交率', value: metrics.conversion_rate, type: 'percent' },
+                    { key: 'competitor_uv', label: '竞品UV', value: metrics.competitor_uv },
+                    { key: 'competitor_orders', label: '竞品订单', value: metrics.competitor_orders },
+                    { key: 'competitor_amount', label: '竞品收入', value: metrics.competitor_amount, type: 'currency2' },
+                    { key: 'psi', label: 'PSI', value: metrics.psi },
+                    { key: 'hotel_score', label: '酒店评分', value: metrics.hotel_score },
+                    { key: 'reply_rate', label: '回复率', value: metrics.reply_rate, type: 'percent' },
+                    { key: 'favorite_count', label: '收藏数', value: metrics.favorite_count },
+                    { key: 'visitor_rank', label: '访客排名', value: metrics.visitor_rank },
+                    { key: 'self_list_exposure', label: '列表曝光', value: metrics.self_list_exposure },
+                    { key: 'self_detail_exposure', label: '详情访客', value: metrics.self_detail_exposure },
+                    { key: 'self_flow_rate', label: '曝光转化率', value: metrics.self_flow_rate, type: 'percent' },
+                    { key: 'self_order_filling_num', label: '订单页访客', value: metrics.self_order_filling_num },
+                    { key: 'self_order_submit_num', label: '订单提交人数', value: metrics.self_order_submit_num },
+                    { key: 'self_order_fill_rate', label: '下单转化率', value: metrics.self_order_fill_rate, type: 'percent' },
+                    { key: 'self_deal_rate', label: '成交转化率', value: metrics.self_deal_rate, type: 'percent' },
+                    { key: 'competitor_list_exposure', label: '竞圈列表曝光', value: metrics.competitor_list_exposure },
+                    { key: 'competitor_detail_exposure', label: '竞圈详情访客', value: metrics.competitor_detail_exposure },
+                    { key: 'competitor_order_filling_num', label: '竞圈订单页访客', value: metrics.competitor_order_filling_num },
+                    { key: 'competitor_order_submit_num', label: '竞圈订单提交', value: metrics.competitor_order_submit_num },
+                    { key: 'competitor_order_fill_rate', label: '竞圈下单转化率', value: metrics.competitor_order_fill_rate, type: 'percent' },
+                    { key: 'competitor_deal_rate', label: '竞圈成交转化率', value: metrics.competitor_deal_rate, type: 'percent' },
+                    { key: 'compete_hotel_count', label: '竞争圈酒店数', value: metrics.compete_hotel_count },
+                    { key: 'amount_rank', label: '销售额排名', value: metrics.amount_rank },
+                    { key: 'quantity_rank', label: '在店间夜排名', value: metrics.quantity_rank },
+                    { key: 'book_order_num_rank', label: '预订订单排名', value: metrics.book_order_num_rank },
+                    { key: 'comment_score_rank', label: '点评排名', value: metrics.comment_score_rank },
+                    { key: 'conversion_rank', label: 'APP转化排名', value: metrics.conversion_rank },
+                    { key: 'top_hot_word', label: '热门关键词TOP1', value: metrics.top_hot_word, type: 'text' },
+                    { key: 'top_hot_hotel', label: '热门酒店TOP1', value: metrics.top_hot_hotel, type: 'text' },
+                    { key: 'flow_lost_order_num', label: '流失订单', value: metrics.flow_lost_order_num },
+                    { key: 'flow_lost_room_nights', label: '流失间夜', value: metrics.flow_lost_room_nights },
+                    { key: 'flow_lost_amount', label: '流失收入', value: metrics.flow_lost_amount, type: 'currency2' },
+                    { key: 'top_flow_hotel', label: '流失访客TOP1', value: metrics.top_flow_hotel, type: 'text' },
+                    { key: 'top_flow_hotel_browse_rate', label: 'TOP浏览率', value: metrics.top_flow_hotel_browse_rate, type: 'percent' },
+                    { key: 'top_flow_hotel_order_rate', label: 'TOP下单率', value: metrics.top_flow_hotel_order_rate, type: 'percent' },
+                    { key: 'top_hot_room', label: '热售房型TOP1', value: metrics.top_hot_room, type: 'text' },
+                    { key: 'top_hot_room_nights', label: '热售房型间夜', value: metrics.top_hot_room_nights },
+                    { key: 'top_hot_room_sale_percent', label: '热售房型占比', value: metrics.top_hot_room_sale_percent, type: 'percent' },
+                    { key: 'last_week_comment_score', label: '上周点评分', value: metrics.last_week_comment_score },
+                    { key: 'last_week_good_add', label: '新增好评数', value: metrics.last_week_good_add },
+                    { key: 'last_week_bad_add', label: '新增差评数', value: metrics.last_week_bad_add },
+                    { key: 'last_week_price_score', label: '起价竞争分', value: metrics.last_week_price_score },
+                    { key: 'last_week_checkout_room_nights', label: '上周离店间夜', value: metrics.last_week_checkout_room_nights },
+                    { key: 'last_week_checkout_sales', label: '上周离店销售额', value: metrics.last_week_checkout_sales, type: 'currency2' },
+                    { key: 'last_week_checkout_room_price', label: '上周离店均价', value: metrics.last_week_checkout_room_price, type: 'currency2' },
+                    { key: 'last_week_book_quantity', label: '上周预订订单', value: metrics.last_week_book_quantity },
+                    { key: 'last_week_book_room_nights', label: '上周预订间夜', value: metrics.last_week_book_room_nights },
+                    { key: 'last_week_book_sales', label: '上周预订销售额', value: metrics.last_week_book_sales, type: 'currency2' },
+                    { key: 'weekly_self_list_exposure', label: '周列表曝光', value: metrics.weekly_self_list_exposure },
+                    { key: 'weekly_self_detail_exposure', label: '周详情访客', value: metrics.weekly_self_detail_exposure },
+                    { key: 'weekly_self_order_filling_num', label: '周订单页访客', value: metrics.weekly_self_order_filling_num },
+                    { key: 'weekly_self_order_submit_num', label: '周订单提交', value: metrics.weekly_self_order_submit_num },
+                    { key: 'weekly_self_flow_rate', label: '周曝光转化率', value: metrics.weekly_self_flow_rate, type: 'percent' },
+                    { key: 'weekly_self_order_fill_rate', label: '周下单转化率', value: metrics.weekly_self_order_fill_rate, type: 'percent' },
+                    { key: 'weekly_self_deal_rate', label: '周成交转化率', value: metrics.weekly_self_deal_rate, type: 'percent' },
+                    { key: 'top_competitor_list_exposure', label: '标杆列表曝光', value: metrics.top_competitor_list_exposure },
+                    { key: 'top_competitor_detail_exposure', label: '标杆详情访客', value: metrics.top_competitor_detail_exposure },
+                    { key: 'top_competitor_order_filling_num', label: '标杆订单页访客', value: metrics.top_competitor_order_filling_num },
+                    { key: 'top_competitor_order_submit_num', label: '标杆订单提交', value: metrics.top_competitor_order_submit_num },
+                    { key: 'top_competitor_flow_rate', label: '标杆曝光转化率', value: metrics.top_competitor_flow_rate, type: 'percent' },
+                    { key: 'top_competitor_order_fill_rate', label: '标杆下单转化率', value: metrics.top_competitor_order_fill_rate, type: 'percent' },
+                    { key: 'top_competitor_deal_rate', label: '标杆成交转化率', value: metrics.top_competitor_deal_rate, type: 'percent' },
+                ].filter(card => card.value !== undefined && card.value !== null && card.value !== '');
+            });
+            const ctripBrowserCaptureForm = ref({
+                profileId: '',
+                hotelId: '',
+                sections: ['business', 'traffic'],
+            });
+            const ctripBrowserCaptureResult = ref(null);
+            const ctripBrowserCaptureRunning = ref(false);
             const ctripCommentForm = ref({
                 requestUrl: '',
                 hotelId: '',
@@ -14266,20 +14994,67 @@
                 cookies: '',
                 extraParams: '',
             });
+            const meituanOrderForm = ref({
+                url: '',
+                method: 'GET',
+                partnerId: '',
+                poiId: '',
+                startDate: '',
+                endDate: '',
+                cookies: '',
+                payloadJson: '',
+                extraParams: '',
+            });
+            const meituanOrderResult = ref(null);
+            const meituanAdsForm = ref({
+                url: '',
+                method: 'GET',
+                partnerId: '',
+                poiId: '',
+                shopId: '',
+                startDate: '',
+                endDate: '',
+                cookies: '',
+                payloadJson: '',
+                extraParams: '',
+            });
+            const meituanAdsResult = ref(null);
+            const defaultMeituanAdsUrl = 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
             const meituanBrowserCaptureForm = ref({
                 storeId: '',
                 poiId: '',
                 poiName: '',
-                adsUrl: '',
+                adsUrl: defaultMeituanAdsUrl,
+                captureSections: ['traffic'],
                 payloadJson: '',
             });
             const meituanBrowserCaptureResult = ref(null);
             const meituanBrowserCaptureRunning = ref(false);
+            const normalizeMeituanCaptureSections = (sections) => {
+                const aliases = {
+                    review: 'reviews',
+                    reviews: 'reviews',
+                    comment: 'reviews',
+                    comments: 'reviews',
+                    traffic: 'traffic',
+                    flow: 'traffic',
+                    ads: 'ads',
+                    ad: 'ads',
+                    advertising: 'ads',
+                    orders: 'orders',
+                    order: 'orders',
+                };
+                const raw = Array.isArray(sections) ? sections : String(sections || '').split(/[,\s]+/);
+                const normalized = raw
+                    .map(item => aliases[String(item || '').trim().toLowerCase()] || '')
+                    .filter(Boolean);
+                return Array.from(new Set(normalized));
+            };
             const meituanBrowserCaptureCommand = computed(() => {
                 const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanForm.value.poiId || '').trim();
                 const hotelId = String(meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
                 if (!storeId || !hotelId) {
-                    return '请先选择数据归属酒店并填写 Store ID';
+                    return '请先选择目标酒店并填写 Store ID';
                 }
                 const poiId = String(meituanBrowserCaptureForm.value.poiId || storeId || '').trim();
                 const poiName = String(meituanBrowserCaptureForm.value.poiName || getHotelNameById(meituanForm.value.hotelId) || '').trim();
@@ -14291,7 +15066,9 @@
                 ];
                 if (poiId && poiId !== storeId) args.push(`--poi-id=${poiId}`);
                 if (poiName) args.push(`--poi-name="${poiName.replace(/"/g, '\\"')}"`);
-                if (adsUrl) args.push(`--ads-url="${adsUrl.replace(/"/g, '\\"')}"`);
+                const sections = normalizeMeituanCaptureSections(meituanBrowserCaptureForm.value.captureSections);
+                if (sections.length) args.push(`--sections=${sections.join(',')}`);
+                if ((sections.includes('ads') || sections.length === 0) && adsUrl) args.push(`--ads-url="${adsUrl.replace(/"/g, '\\"')}"`);
                 return args.join(' ');
             });
             // 美团差评获取表单
@@ -14340,7 +15117,7 @@
             const ctripBookmarklet = ref('');
             const showCtripCookieGuide = ref(true);
             const selectedCtripConfigId = ref(''); // 选中的携程配置ID
-            const selectedCtripHotelId = ref(''); // 抓取页选择的数据归属酒店ID
+            const selectedCtripHotelId = ref(''); // 抓取页选择的目标酒店ID
             const ctripFetchSuccess = ref(false); // 携程获取成功标志
             const ctripSavedCount = ref(0); // 携程保存的数据条数
             const ctripLatestMeta = ref(null);
@@ -15681,6 +16458,13 @@
             });
             const autoFetchBackfillDate = ref('');
             const autoFetchBackfillingDate = ref('');
+            const autoFetchRunState = ref({
+                active: false,
+                type: '',
+                message: '',
+                started_at: '',
+                finished_at: '',
+            });
             const autoFetchMaxBackfillDate = computed(() => formatDate(new Date(Date.now() - 24 * 60 * 60 * 1000)));
             const autoFetchMissedDates = computed(() => Array.isArray(autoFetchStatus.value?.missed_dates) ? autoFetchStatus.value.missed_dates : []);
             const autoFetchFailedRecords = computed(() => Array.isArray(autoFetchStatus.value?.failed_records) ? autoFetchStatus.value.failed_records : []);
@@ -15699,7 +16483,8 @@
                     mode: autoFetchPlatformStatus.value?.ctrip?.mode || 'ebooking API',
                     configured: !!autoFetchPlatformStatus.value?.ctrip?.configured || hasCtripFetchConfigByHotelId(autoFetchHotelId.value),
                     configName: autoFetchPlatformStatus.value?.ctrip?.name || getCtripConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
-                    modules: ['昨日概况', '榜单数据', 'Profile 点评采集', '流量按配置补充'],
+                    entryUrl: autoFetchPlatformStatus.value?.ctrip?.entry_url || 'https://ebooking.ctrip.com',
+                    modules: ['昨日概况', '榜单数据', 'Profile 概况/流量采集', '流量按配置补充'],
                 },
                 {
                     key: 'meituan',
@@ -15709,7 +16494,8 @@
                     mode: autoFetchPlatformStatus.value?.meituan?.mode || 'API',
                     configured: !!autoFetchPlatformStatus.value?.meituan?.configured || hasMeituanFetchConfigByHotelId(autoFetchHotelId.value),
                     configName: autoFetchPlatformStatus.value?.meituan?.name || getMeituanConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
-                    modules: ['排名数据', '流量/点评/订单 Profile 采集', '推广通按登录态补充'],
+                    entryUrl: autoFetchPlatformStatus.value?.meituan?.entry_url || 'https://eb.meituan.com',
+                    modules: ['排名数据', '流量/订单 Profile 采集', '推广通按登录态补充'],
                 },
             ]);
             const autoFetchLegacyItems = computed(() => {
@@ -15817,7 +16603,7 @@
             const openTargetSite = (url) => {
                 window.open(url, '_blank');
             };
-            
+
             // 快速保存 Cookies
             const saveQuickCookies = async () => {
                 if (!quickCookiesName.value || !quickCookiesValue.value) {
@@ -15988,12 +16774,42 @@
             // 切换到美团下载中心（自动加载数据）
             const switchToMeituanDownloadCenter = async () => {
                 onlineDataTab.value = 'meituan-download';
+                if (!['overview', 'traffic', 'orders', 'ads'].includes(downloadCenterTab.value)) {
+                    downloadCenterTab.value = 'overview';
+                }
                 // 设置数据来源为美团
                 onlineDataFilter.value.source = 'meituan';
                 // 自动加载数据
                 await loadOnlineDataList();
                 await loadOnlineDataHotelList();
             };
+
+            const getOnlineDataMetricNumber = (item, keys) => {
+                for (const key of keys) {
+                    const value = item?.[key];
+                    if (value !== undefined && value !== null && value !== '') {
+                        const number = Number(String(value).replace(/[,，%￥¥元\s]/g, ''));
+                        if (Number.isFinite(number)) {
+                            return number;
+                        }
+                    }
+                }
+                return 0;
+            };
+            const getMeituanExposureMetric = (item) => getOnlineDataMetricNumber(item, ['list_exposure', 'exposure_count', 'exposure', 'data_value']);
+            const getMeituanClickMetric = (item) => getOnlineDataMetricNumber(item, ['detail_exposure', 'click_count', 'clicks', 'order_filling_num']);
+            const getMeituanVisitorMetric = (item) => getOnlineDataMetricNumber(item, ['order_filling_num', 'visitor_count', 'unique_visitors', 'detail_exposure']);
+            const getMeituanSubmitMetric = (item) => getOnlineDataMetricNumber(item, ['order_submit_num', 'submit_users', 'book_order_num']);
+            const getMeituanFlowRateMetric = (item) => {
+                const explicit = getOnlineDataMetricNumber(item, ['flow_rate', 'conversion_rate', 'conversionRate']);
+                if (explicit > 0) {
+                    return explicit;
+                }
+                return safeDivide(getMeituanClickMetric(item), getMeituanExposureMetric(item)) * 100;
+            };
+            const isMeituanTrafficDataRow = (item) => item?.source === 'meituan' && (item?.data_type === 'traffic' || getMeituanExposureMetric(item) > 0);
+            const isMeituanOrderDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'order';
+            const isMeituanAdsDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'advertising';
 
             const applyOnlineHistoryDatePreset = () => {
                 const now = new Date();
@@ -16350,24 +17166,58 @@
                     return;
                 }
                 fetchingData.value = true;
-                showToast('正在获取数据...', 'info');
+                const startedAt = new Date().toLocaleString('zh-CN', { hour12: false });
+                autoFetchRunState.value = {
+                    active: true,
+                    type: 'running',
+                    message: '已提交后端执行。系统会优先使用已保存配置和本地浏览器 Profile，若弹出 OTA 登录窗口，请完成登录后等待结果返回。',
+                    started_at: startedAt,
+                    finished_at: '',
+                };
+                showToast('正在启动平台抓取，浏览器 Profile 会由后端自动打开...', 'info');
                 try {
-                    const body = { system_hotel_id: hotelId };
+                    const body = { system_hotel_id: hotelId, interactive_browser: true };
                     const res = await request('/online-data/auto-fetch', {
                         method: 'POST',
                         body: JSON.stringify(body)
                     });
+                    const finishedAt = new Date().toLocaleString('zh-CN', { hour12: false });
                     if (res.code === 200) {
-                        showToast(`获取成功，保存了 ${res.data?.saved_count || 0} 条数据`);
+                        const message = `获取成功，保存了 ${res.data?.saved_count || 0} 条数据`;
+                        autoFetchRunState.value = {
+                            active: false,
+                            type: 'success',
+                            message,
+                            started_at: startedAt,
+                            finished_at: finishedAt,
+                        };
+                        showToast(message);
                         await refreshOnlineData();
                         await refreshOnlineHistory();
                         await loadLatestCtripData({ silent: true });
                         await loadAutoFetchStatus();
                     } else {
-                        showToast(res.message || '获取失败', 'error');
+                        const message = res.message || '获取失败';
+                        autoFetchRunState.value = {
+                            active: false,
+                            type: 'error',
+                            message,
+                            started_at: startedAt,
+                            finished_at: finishedAt,
+                        };
+                        showToast(message, 'error');
                     }
                 } catch (error) {
-                    showToast('获取失败: ' + error.message, 'error');
+                    const finishedAt = new Date().toLocaleString('zh-CN', { hour12: false });
+                    const message = '获取失败: ' + error.message;
+                    autoFetchRunState.value = {
+                        active: false,
+                        type: 'error',
+                        message,
+                        started_at: startedAt,
+                        finished_at: finishedAt,
+                    };
+                    showToast(message, 'error');
                 } finally {
                     fetchingData.value = false;
                 }
@@ -16542,7 +17392,7 @@
                     loadCookiesList();
                 }
                 // 加载携程配置列表
-                if (newTab === 'ctrip-config' || newTab === 'ctrip-traffic') {
+                if (newTab === 'ctrip-config' || newTab === 'ctrip-traffic' || newTab === 'ctrip-overview') {
                     loadCtripConfigList();
                 }
                 // 加载美团配置列表
@@ -17161,8 +18011,8 @@
                     outputText: '曝光、点击、成交、费用'
                 },
                 'meituan-ads': {
-                    description: '用于美团广告投放数据抓取，按日期范围和时间粒度获取广告指标。',
-                    requiredText: 'Cookie / 日期 / mtgsig',
+                    description: '用于美团推广通广告接口抓取，支持 cureShops Request URL、Cookie、Shop ID/POI ID、日期范围和 Payload。',
+                    requiredText: '接口URL / Cookie / Shop ID或POI ID',
                     outputText: '曝光、点击、转化'
                 },
             };
@@ -17207,6 +18057,8 @@
                 rank_type: 'P_RZ',
                 rank_types: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'],
                 data_scope: 'vpoi',
+                method: 'GET',
+                shop_id: '',
                 hotel_room_count: '',
                 competitor_room_count: '',
                 // 携程点评
@@ -17284,6 +18136,7 @@
                     date_range: '1',
                 },
                 'meituan-ads': {
+                    method: 'GET',
                     time_unit: 'day',
                 },
             }[type] || {});
@@ -18991,6 +19844,18 @@
                 }
             };
 
+            const formatHomeTrendAxisTick = (value) => {
+                const numeric = Number(value);
+                if (!Number.isFinite(numeric)) return String(value ?? '');
+                const absValue = Math.abs(numeric);
+                if (absValue >= 10000) {
+                    const wanValue = numeric / 10000;
+                    const maxDigits = Math.abs(wanValue) >= 100 || Number.isInteger(wanValue) ? 0 : 1;
+                    return `${wanValue.toLocaleString('zh-CN', { maximumFractionDigits: maxDigits })}万`;
+                }
+                return numeric.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+            };
+
             const renderHomeTrendChart = (retryCount = 0) => {
                 const ChartLib = window.Chart;
                 if (!ChartLib) {
@@ -19063,7 +19928,11 @@
                             },
                             scales: {
                                 x: { grid: { display: false }, ticks: { color: '#64748b', maxTicksLimit: 8 } },
-                                y: { beginAtZero: true, grid: { color: 'rgba(148, 163, 184, 0.18)' }, ticks: { color: '#64748b' } },
+                                y: {
+                                    beginAtZero: true,
+                                    grid: { color: 'rgba(148, 163, 184, 0.18)' },
+                                    ticks: { color: '#64748b', callback: formatHomeTrendAxisTick },
+                                },
                             },
                         },
                     });
@@ -20610,29 +21479,6 @@
                     });
                 }
 
-                if (isSavedOtaDataConfigUsable(ctripCommentConfig, systemHotelId)) {
-                    pushOtaDiagnosisFetchTask(tasks, {
-                        label: 'ctrip-comments',
-                        url: '/online-data/fetch-ctrip-comments',
-                        required: ['request_url', 'cookies', 'spidertoken', 'payload_json'],
-                        body: {
-                            request_url: firstDataConfigValue(ctripCommentConfig.request_url, ctripCommentConfig.url),
-                            hotel_id: firstDataConfigValue(ctripCommentConfig.hotel_id, ctripCommentConfig.hotelId),
-                            master_hotel_id: ctripCommentConfig.master_hotel_id,
-                            cookies: firstDataConfigValue(ctripCommentConfig.cookies, ctripCommentConfig.cookie),
-                            spidertoken: ctripCommentConfig.spidertoken,
-                            token: ctripCommentConfig.spidertoken,
-                            page_index: Number(ctripCommentConfig.page_index || 1),
-                            page_size: Number(ctripCommentConfig.page_size || 50),
-                            payload_json: firstDataConfigValue(ctripCommentConfig.payload_json, ctripCommentConfig.payloadJson),
-                            start_date: startDate,
-                            end_date: endDate,
-                            auto_save: true,
-                            system_hotel_id: systemHotelId,
-                        },
-                    });
-                }
-
                 const meituanCommentBody = {
                     partner_id: firstDataConfigValue(meituanCommentConfig.partner_id, meituanCommentConfig.partnerId, meituanConfig?.partner_id, meituanConfig?.partnerId),
                     poi_id: firstDataConfigValue(meituanCommentConfig.poi_id, meituanCommentConfig.poiId, meituanConfig?.poi_id, meituanConfig?.poiId),
@@ -21466,6 +22312,16 @@
                 return value === undefined ? '' : value;
             };
 
+            const isCtripAdsApiUrl = (url = '') => {
+                const text = String(url || '').trim().toLowerCase();
+                return text.includes('pyramidad')
+                    || text.includes('promotion')
+                    || text.includes('/toolcenter/api/cpc/')
+                    || text.includes('querycampaignreportlist');
+            };
+
+            const ctripAdsApiUrlHint = '请填写 Network 中 CPC 广告 JSON 接口 URL，如 queryCampaignReportList，不是金字塔广告页面或竞品日报接口';
+
             const parseDataConfigValue = (value) => {
                 if (!value) return {};
                 if (typeof value === 'string') {
@@ -21631,11 +22487,16 @@
                         break;
                     case 'meituan-ads':
                         Object.assign(body, {
+                            url: form.url,
+                            method: form.method || 'GET',
+                            partner_id: firstDataConfigValue(form.partner_id, form.partnerId),
+                            poi_id: firstDataConfigValue(form.poi_id, form.poiId, form.shop_id),
+                            shop_id: firstDataConfigValue(form.shop_id, form.shopId, form.poi_id),
                             cookies: firstDataConfigValue(form.cookies, form.cookie),
-                            begin_date: firstDataConfigValue(form.begin_date, startDate),
+                            start_date: firstDataConfigValue(form.begin_date, startDate),
                             end_date: endDate,
-                            time_unit: form.time_unit,
-                            mtgsig: form.mtgsig,
+                            payload_json: firstDataConfigValue(form.payload_json, form.payloadJson),
+                            extra_params: firstDataConfigValue(form.extra_params, form.extraParams),
                             system_hotel_id: systemHotelId,
                         });
                         break;
@@ -21740,6 +22601,20 @@
                     showToast('只有超级管理员才能保存配置', 'error');
                     return;
                 }
+                if (currentDataConfigType.value === 'ctrip-ads') {
+                    const url = String(firstDataConfigValue(dataConfigForm.value.url, dataConfigForm.value.request_url, dataConfigForm.value.requestUrl)).trim();
+                    if (!isCtripAdsApiUrl(url)) {
+                        showToast(ctripAdsApiUrlHint, 'error');
+                        return;
+                    }
+                }
+                if (currentDataConfigType.value === 'meituan-ads') {
+                    const url = String(firstDataConfigValue(dataConfigForm.value.url, dataConfigForm.value.request_url, dataConfigForm.value.requestUrl)).trim();
+                    if (url.includes('/shopdiy/account/pcCpcEntry')) {
+                        showToast('请填写 Network 中 cureShops 的接口 URL，不是推广通入口页面 URL', 'error');
+                        return;
+                    }
+                }
                 savingConfig.value = true;
                 try {
                     const configKey = `data_config_${currentDataConfigType.value.replace('-', '_')}`;
@@ -21800,11 +22675,19 @@
                             apiUrl = '/online-data/fetch-meituan-comments';
                             break;
                         case 'meituan-ads':
-                            showToast('广告配置当前支持保存，连接测试接口尚未接入', 'info');
-                            return;
+                            apiUrl = '/online-data/fetch-meituan-ads';
+                            break;
                         default:
                             showToast('未知配置类型', 'error');
                             return;
+                    }
+
+                    if (type === 'ctrip-ads') {
+                        const url = String(firstDataConfigValue(dataConfigForm.value.url, dataConfigForm.value.request_url, dataConfigForm.value.requestUrl)).trim();
+                        if (!isCtripAdsApiUrl(url)) {
+                            showToast(ctripAdsApiUrlHint, 'error');
+                            return;
+                        }
                     }
                     
                     const body = buildDataConfigRequestBody(type);
@@ -22154,7 +23037,7 @@
                 }
 
                 if (!selectedCtripHotelId.value) {
-                    showToast('请选择要归属数据的酒店', 'error');
+                    showToast('请选择目标酒店', 'error');
                     return;
                 }
                 const selectedConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
@@ -22278,7 +23161,7 @@
             // 美团ebooking数据获取 - 支持批量获取多个榜单和时间维度
             const fetchMeituanData = async () => {
                 if (!meituanForm.value.hotelId) {
-                    showToast('请选择要归属数据的酒店', 'error');
+                    showToast('请选择目标酒店', 'error');
                     return;
                 }
                 const selectedMeituanConfig = await ensureMeituanConfigSecret(selectedMeituanHotelConfig.value);
@@ -22825,7 +23708,7 @@
             const fetchCtripTrafficData = async () => {
                 const form = ctripTrafficForm.value;
                 if (!selectedCtripHotelId.value) {
-                    showToast('请选择要归属数据的酒店', 'error');
+                    showToast('请选择目标酒店', 'error');
                     return;
                 }
                 const selectedConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
@@ -22962,7 +23845,7 @@
                 const hotelId = String(ctripCommentForm.value.hotelId || '').trim();
                 const profileId = String(ctripCommentBrowserCaptureForm.value.profileId || hotelId || systemHotelId || '').trim();
                 if (!systemHotelId) {
-                    showToast('请选择数据归属酒店', 'error');
+                    showToast('请选择目标酒店', 'error');
                     return;
                 }
                 if (!profileId) {
@@ -23006,6 +23889,156 @@
                 }
             };
 
+            const fetchCtripOverviewData = async () => {
+                const systemHotelId = selectedCtripHotelId.value || user.value?.hotel_id || null;
+                if (!systemHotelId) {
+                    showToast('请选择目标酒店', 'error');
+                    return;
+                }
+
+                const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
+                if (!activeConfig) {
+                    showToast('当前酒店未配置携程数据源', 'warning');
+                    return;
+                }
+                applyCtripConfigObject(activeConfig, false);
+
+                const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.node_id || activeConfig?.nodeId || activeConfig?.hotel_id || ctripForm.value.nodeId || '').trim();
+                const form = ctripOverviewForm.value;
+                form.hotelId = String(form.hotelId || hotelId || '').trim();
+                form.cookies = String(form.cookies || ctripForm.value.cookies || activeConfig.cookies || '').trim();
+                form.requestUrls = String(form.requestUrls || '').trim();
+                form.payloadJson = String(form.payloadJson || '').trim();
+                form.spidertoken = String(form.spidertoken || '').trim();
+                if (!form.requestUrls) {
+                    showToast('请填写今日概况接口 Request URL', 'error');
+                    return;
+                }
+                if (form.requestUrls.includes('/datacenter/inland/businessreport/outline')) {
+                    showToast('请填写 Network 中的 JSON 接口 URL，不是今日概况页面地址', 'error');
+                    return;
+                }
+                if (!form.cookies) {
+                    showToast('请提供携程 Cookie', 'error');
+                    return;
+                }
+
+                ctripOverviewFetching.value = true;
+                fetchingData.value = true;
+                ctripOverviewResult.value = null;
+                try {
+                    const res = await request('/online-data/fetch-ctrip-overview', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            system_hotel_id: systemHotelId,
+                            hotel_id: form.hotelId,
+                            hotel_name: getHotelNameById(systemHotelId),
+                            cookies: form.cookies,
+                            request_urls: form.requestUrls,
+                            payload_json: form.payloadJson,
+                            spidertoken: form.spidertoken,
+                            method: form.method || 'POST',
+                            data_date: form.dataDate,
+                        }),
+                    });
+                    if (res.code === 200) {
+                        ctripOverviewResult.value = res.data || {};
+                        onlineDataResult.value = res.data || {};
+                        showRawData.value = false;
+                        showToast(res.message || `今日概况获取完成，已入库 ${res.data?.saved_count || 0} 条`);
+                        await loadLatestCtripData({ silent: true });
+                        await refreshOnlineHistory();
+                    } else {
+                        showToast(res.message || '今日概况抓取失败', 'error');
+                    }
+                } catch (e) {
+                    const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
+                    showToast('今日概况获取失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
+                    ctripOverviewResult.value = e?.data?.data || { error: e.message };
+                } finally {
+                    ctripOverviewFetching.value = false;
+                    fetchingData.value = false;
+                }
+            };
+
+            const runCtripBrowserCapture = async () => {
+                const systemHotelId = selectedCtripHotelId.value || autoFetchHotelId.value || user.value?.hotel_id || null;
+                if (!systemHotelId) {
+                    showToast('请选择目标酒店', 'error');
+                    return;
+                }
+
+                if (!selectedCtripHotelId.value) {
+                    selectedCtripHotelId.value = String(systemHotelId);
+                }
+                if (!ctripConfigList.value.length) {
+                    await loadCtripConfigList();
+                }
+                let activeConfig = getActiveCtripConfig();
+                if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
+                    activeConfig = findCtripConfigByHotelId(systemHotelId);
+                }
+                activeConfig = await ensureCtripConfigSecret(activeConfig);
+                if (activeConfig) {
+                    applyCtripConfigObject(activeConfig, false);
+                }
+
+                const form = ctripBrowserCaptureForm.value;
+                const hotelId = String(
+                    form.hotelId
+                    || activeConfig?.ota_hotel_id
+                    || activeConfig?.ctrip_hotel_id
+                    || activeConfig?.node_id
+                    || activeConfig?.nodeId
+                    || ctripOverviewForm.value.hotelId
+                    || ctripForm.value.nodeId
+                    || ''
+                ).trim();
+                const profileId = String(form.profileId || hotelId || systemHotelId || '').trim();
+                const sections = (Array.isArray(form.sections) && form.sections.length
+                    ? form.sections
+                    : ['business', 'traffic'])
+                    .map(item => String(item || '').trim())
+                    .filter(item => ['business', 'traffic'].includes(item));
+                if (sections.length === 0) {
+                    sections.push('business', 'traffic');
+                }
+
+                ctripBrowserCaptureRunning.value = true;
+                fetchingData.value = true;
+                ctripBrowserCaptureResult.value = null;
+                try {
+                    const res = await request('/online-data/capture-ctrip-browser', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            system_hotel_id: systemHotelId,
+                            hotel_id: hotelId,
+                            hotel_name: getHotelNameById(systemHotelId),
+                            profile_id: profileId,
+                            data_date: ctripOverviewForm.value.dataDate,
+                            sections,
+                        }),
+                    });
+                    if (res.code === 200) {
+                        ctripBrowserCaptureResult.value = res.data || {};
+                        onlineDataResult.value = res.data || {};
+                        showRawData.value = false;
+                        showToast(res.message || `携程 Profile 采集完成，已入库 ${res.data?.saved_count || 0} 条`);
+                        await loadLatestCtripData({ silent: true });
+                        await refreshOnlineHistory();
+                    } else {
+                        showToast(res.message || '携程 Profile 采集失败', 'error');
+                    }
+                } catch (e) {
+                    const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
+                    showToast('携程 Profile 采集失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
+                    ctripBrowserCaptureResult.value = e?.data?.data || { error: e.message };
+                } finally {
+                    ctripBrowserCaptureRunning.value = false;
+                    fetchingData.value = false;
+                }
+            };
+
             const applyCtripAdsDirectConfig = (config = {}, options = {}) => {
                 const form = ctripAdsBrowserCaptureForm.value;
                 const fillOnlyEmpty = options.fillOnlyEmpty === true;
@@ -23018,9 +24051,11 @@
                 };
 
                 let applied = false;
-                applied = setField('url', firstDataConfigValue(config.url, config.request_url, config.requestUrl)) || applied;
+                const adsUrl = firstDataConfigValue(config.url, config.request_url, config.requestUrl);
+                if (isCtripAdsApiUrl(adsUrl)) {
+                    applied = setField('url', adsUrl) || applied;
+                }
                 applied = setField('cookies', firstDataConfigValue(config.cookies, config.cookie)) || applied;
-                applied = setField('payloadJson', firstDataConfigValue(config.payload_json, config.payloadJson, config.extra_params, config.extraParams)) || applied;
                 applied = setField('apiType', firstDataConfigValue(config.api_type, config.apiType)) || applied;
                 applied = setField('dateRange', firstDataConfigValue(config.date_range, config.dateRange)) || applied;
                 applied = setField('startDate', firstDataConfigValue(config.start_date, config.startDate)) || applied;
@@ -23054,7 +24089,7 @@
             const fetchCtripAdsData = async () => {
                 const systemHotelId = selectedCtripHotelId.value || user.value?.hotel_id || null;
                 if (!systemHotelId) {
-                    showToast('请选择数据归属酒店', 'error');
+                    showToast('请选择目标酒店', 'error');
                     return;
                 }
 
@@ -23071,11 +24106,15 @@
                 const url = String(form.url || '').trim();
                 const cookies = String(form.cookies || ctripForm.value.cookies || activeConfig.cookies || '').trim();
                 if (!url) {
-                    showToast('请先在广告配置中填写金字塔广告接口 URL', 'error');
+                    showToast('请先在广告配置中填写携程 CPC 广告接口 URL', 'error');
                     return;
                 }
                 if (url.includes('/toolcenter/cpc/pyramid')) {
-                    showToast('请填写 Network 中 pyramidad / promotion 的 JSON 接口 URL，不是广告页面地址', 'error');
+                    showToast('请填写 Network 中 queryCampaignReportList 的 JSON 接口 URL，不是广告页面地址', 'error');
+                    return;
+                }
+                if (!isCtripAdsApiUrl(url)) {
+                    showToast(ctripAdsApiUrlHint, 'error');
                     return;
                 }
                 if (!cookies) {
@@ -23099,7 +24138,6 @@
                             hotel_name: getHotelNameById(systemHotelId),
                             url,
                             cookies,
-                            payload_json: form.payloadJson,
                             api_type: form.apiType,
                             date_range: form.dateRange,
                             start_date: form.startDate,
@@ -23184,6 +24222,142 @@
                     }
                 } catch (e) {
                     showToast('请求失败: ' + e.message, 'error');
+                } finally {
+                    fetchingData.value = false;
+                }
+            };
+
+            const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
+
+            const fetchMeituanOrdersData = async () => {
+                const form = meituanOrderForm.value;
+                form.url = String(form.url || '').trim();
+                form.method = String(form.method || 'GET').toUpperCase();
+                form.partnerId = String(form.partnerId || '').trim();
+                form.poiId = String(form.poiId || '').trim();
+                form.cookies = normalizeMeituanCookieText(form.cookies);
+                form.payloadJson = String(form.payloadJson || '').trim();
+                form.extraParams = String(form.extraParams || '').trim();
+                if (!form.url) {
+                    showToast('请填写订单接口 Request URL', 'error');
+                    return;
+                }
+                if (form.url.includes('/order-eb/index.html')) {
+                    showToast('请填写 Network 中 /orders/list 的接口 URL，不是订单页面 URL', 'error');
+                    return;
+                }
+                if (!form.partnerId) {
+                    showToast('请输入 Partner ID', 'error');
+                    return;
+                }
+                if (!form.poiId) {
+                    showToast('请输入 POI ID', 'error');
+                    return;
+                }
+                if (!form.cookies) {
+                    showToast('请输入 Cookies', 'error');
+                    return;
+                }
+
+                fetchingData.value = true;
+                meituanOrderResult.value = null;
+                onlineDataResult.value = null;
+                try {
+                    const systemHotelId = meituanForm.value.hotelId || user.value?.hotel_id || null;
+                    const res = await request('/online-data/fetch-meituan-orders', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            url: form.url,
+                            method: form.method,
+                            partner_id: form.partnerId,
+                            poi_id: form.poiId,
+                            cookies: form.cookies,
+                            start_date: form.startDate,
+                            end_date: form.endDate,
+                            payload_json: form.payloadJson,
+                            extra_params: form.extraParams,
+                            auto_save: true,
+                            system_hotel_id: systemHotelId,
+                            hotel_name: getHotelNameById(systemHotelId),
+                        }),
+                    });
+                    if (res.code === 200) {
+                        meituanOrderResult.value = res.data || {};
+                        onlineDataResult.value = res.data || {};
+                        const savedCount = res.data?.saved_count || 0;
+                        showToast(savedCount > 0 ? `订单数据获取成功，已入库 ${savedCount} 条` : '订单接口请求成功，但未解析到可入库数据', savedCount > 0 ? 'success' : 'warning');
+                        await refreshOnlineHistory();
+                    } else {
+                        showToast(res.message || '订单数据获取失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('订单数据获取失败: ' + e.message, 'error');
+                } finally {
+                    fetchingData.value = false;
+                }
+            };
+
+            const fetchMeituanAdsData = async () => {
+                const form = meituanAdsForm.value;
+                form.url = String(form.url || '').trim();
+                form.method = String(form.method || 'GET').toUpperCase();
+                form.partnerId = String(form.partnerId || '').trim();
+                form.poiId = String(form.poiId || '').trim();
+                form.shopId = String(form.shopId || '').trim();
+                form.cookies = normalizeMeituanCookieText(form.cookies);
+                form.payloadJson = String(form.payloadJson || '').trim();
+                form.extraParams = String(form.extraParams || '').trim();
+                if (!form.url) {
+                    showToast('请填写广告接口 Request URL', 'error');
+                    return;
+                }
+                if (form.url.includes('/shopdiy/account/pcCpcEntry')) {
+                    showToast('请填写 Network 中 cureShops 的接口 URL，不是推广通入口页面 URL', 'error');
+                    return;
+                }
+                if (!form.shopId && !form.poiId) {
+                    showToast('请输入 Shop ID 或 POI ID', 'error');
+                    return;
+                }
+                if (!form.cookies) {
+                    showToast('请输入 Cookies', 'error');
+                    return;
+                }
+
+                fetchingData.value = true;
+                meituanAdsResult.value = null;
+                onlineDataResult.value = null;
+                try {
+                    const systemHotelId = meituanForm.value.hotelId || user.value?.hotel_id || null;
+                    const res = await request('/online-data/fetch-meituan-ads', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            url: form.url,
+                            method: form.method,
+                            partner_id: form.partnerId,
+                            poi_id: form.poiId || form.shopId,
+                            shop_id: form.shopId || form.poiId,
+                            cookies: form.cookies,
+                            start_date: form.startDate,
+                            end_date: form.endDate,
+                            payload_json: form.payloadJson,
+                            extra_params: form.extraParams,
+                            auto_save: true,
+                            system_hotel_id: systemHotelId,
+                            hotel_name: getHotelNameById(systemHotelId),
+                        }),
+                    });
+                    if (res.code === 200) {
+                        meituanAdsResult.value = res.data || {};
+                        onlineDataResult.value = res.data || {};
+                        const savedCount = res.data?.saved_count || 0;
+                        showToast(savedCount > 0 ? `广告数据获取成功，已入库 ${savedCount} 条` : '广告接口请求成功，但未解析到可入库数据', savedCount > 0 ? 'success' : 'warning');
+                        await refreshOnlineHistory();
+                    } else {
+                        showToast(res.message || '广告数据获取失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('广告数据获取失败: ' + e.message, 'error');
                 } finally {
                     fetchingData.value = false;
                 }
@@ -23401,6 +24575,9 @@
                 ctripTrafficForm.value.cookies = '';
                 ctripCommentForm.value.cookies = '';
                 ctripAdsBrowserCaptureForm.value.cookies = '';
+                ctripBrowserCaptureForm.value.profileId = '';
+                ctripBrowserCaptureForm.value.hotelId = '';
+                ctripBrowserCaptureResult.value = null;
                 ctripCommentBrowserCaptureForm.value.profileId = '';
             };
 
@@ -23457,6 +24634,14 @@
                 ctripForm.value.auth_data = config.auth_data || {};
                 ctripTrafficForm.value.cookies = config.cookies || '';
                 ctripAdsBrowserCaptureForm.value.cookies = config.cookies || ctripAdsBrowserCaptureForm.value.cookies || '';
+                const ctripProfileId = String(config.ota_hotel_id || config.ctrip_hotel_id || config.hotel_id || config.system_hotel_id || '');
+                const ctripHotelId = String(config.ota_hotel_id || config.ctrip_hotel_id || config.node_id || config.nodeId || '');
+                if (!ctripBrowserCaptureForm.value.profileId) {
+                    ctripBrowserCaptureForm.value.profileId = ctripProfileId;
+                }
+                if (!ctripBrowserCaptureForm.value.hotelId) {
+                    ctripBrowserCaptureForm.value.hotelId = ctripHotelId;
+                }
                 if (!ctripCommentBrowserCaptureForm.value.profileId) {
                     ctripCommentBrowserCaptureForm.value.profileId = String(config.ota_hotel_id || config.ctrip_hotel_id || config.hotel_id || config.system_hotel_id || '');
                 }
@@ -23549,6 +24734,79 @@
                 }
             };
 
+            const syncMeituanOrderConfigFromSelectedConfig = async (showMessage = false) => {
+                const hotelId = meituanForm.value.hotelId || user.value?.hotel_id || '';
+                const orderConfig = await readSavedOtaDataConfig('meituan-orders');
+                const appliedOrderConfig = isSavedOtaDataConfigUsable(orderConfig, hotelId);
+
+                if (appliedOrderConfig) {
+                    meituanOrderForm.value.url = firstDataConfigValue(orderConfig.url, orderConfig.request_url, meituanOrderForm.value.url);
+                    meituanOrderForm.value.method = String(firstDataConfigValue(orderConfig.method, meituanOrderForm.value.method, 'GET')).toUpperCase();
+                    meituanOrderForm.value.partnerId = firstDataConfigValue(orderConfig.partner_id, orderConfig.partnerId, meituanOrderForm.value.partnerId);
+                    meituanOrderForm.value.poiId = firstDataConfigValue(orderConfig.poi_id, orderConfig.poiId, meituanOrderForm.value.poiId);
+                    meituanOrderForm.value.cookies = firstDataConfigValue(orderConfig.cookies, orderConfig.cookie, meituanOrderForm.value.cookies);
+                    meituanOrderForm.value.payloadJson = firstDataConfigValue(orderConfig.payload_json, orderConfig.payloadJson, meituanOrderForm.value.payloadJson);
+                    meituanOrderForm.value.extraParams = firstDataConfigValue(orderConfig.extra_params, orderConfig.extraParams, meituanOrderForm.value.extraParams);
+                }
+
+                if (!hotelId) {
+                    return;
+                }
+
+                const config = await ensureMeituanConfigSecret(selectedMeituanHotelConfig.value);
+                if (config) {
+                    meituanOrderForm.value.partnerId = firstDataConfigValue(config.partner_id, config.partnerId, meituanOrderForm.value.partnerId);
+                    meituanOrderForm.value.poiId = firstDataConfigValue(config.poi_id, config.poiId, meituanOrderForm.value.poiId);
+                    meituanOrderForm.value.cookies = firstDataConfigValue(config.cookies, meituanOrderForm.value.cookies);
+                } else if (!appliedOrderConfig) {
+                    meituanOrderForm.value.partnerId = '';
+                    meituanOrderForm.value.poiId = '';
+                    meituanOrderForm.value.cookies = '';
+                }
+
+                if (showMessage === true && (meituanOrderForm.value.partnerId || meituanOrderForm.value.poiId || meituanOrderForm.value.cookies)) {
+                    showToast('已同步美团订单抓取配置');
+                }
+            };
+
+            const syncMeituanAdsConfigFromSelectedConfig = async (showMessage = false) => {
+                const hotelId = meituanForm.value.hotelId || user.value?.hotel_id || '';
+                const adsConfig = await readSavedOtaDataConfig('meituan-ads');
+                const appliedAdsConfig = isSavedOtaDataConfigUsable(adsConfig, hotelId);
+
+                if (appliedAdsConfig) {
+                    meituanAdsForm.value.url = firstDataConfigValue(adsConfig.url, adsConfig.request_url, meituanAdsForm.value.url);
+                    meituanAdsForm.value.method = String(firstDataConfigValue(adsConfig.method, meituanAdsForm.value.method, 'GET')).toUpperCase();
+                    meituanAdsForm.value.partnerId = firstDataConfigValue(adsConfig.partner_id, adsConfig.partnerId, meituanAdsForm.value.partnerId);
+                    meituanAdsForm.value.poiId = firstDataConfigValue(adsConfig.poi_id, adsConfig.poiId, meituanAdsForm.value.poiId);
+                    meituanAdsForm.value.shopId = firstDataConfigValue(adsConfig.shop_id, adsConfig.shopId, adsConfig.poi_id, adsConfig.poiId, meituanAdsForm.value.shopId);
+                    meituanAdsForm.value.cookies = firstDataConfigValue(adsConfig.cookies, adsConfig.cookie, meituanAdsForm.value.cookies);
+                    meituanAdsForm.value.payloadJson = firstDataConfigValue(adsConfig.payload_json, adsConfig.payloadJson, meituanAdsForm.value.payloadJson);
+                    meituanAdsForm.value.extraParams = firstDataConfigValue(adsConfig.extra_params, adsConfig.extraParams, meituanAdsForm.value.extraParams);
+                }
+
+                if (!hotelId) {
+                    return;
+                }
+
+                const config = await ensureMeituanConfigSecret(selectedMeituanHotelConfig.value);
+                if (config) {
+                    meituanAdsForm.value.partnerId = firstDataConfigValue(config.partner_id, config.partnerId, meituanAdsForm.value.partnerId);
+                    meituanAdsForm.value.poiId = firstDataConfigValue(config.poi_id, config.poiId, meituanAdsForm.value.poiId);
+                    meituanAdsForm.value.shopId = firstDataConfigValue(config.shop_id, config.shopId, config.poi_id, config.poiId, meituanAdsForm.value.shopId);
+                    meituanAdsForm.value.cookies = firstDataConfigValue(config.cookies, meituanAdsForm.value.cookies);
+                } else if (!appliedAdsConfig) {
+                    meituanAdsForm.value.partnerId = '';
+                    meituanAdsForm.value.poiId = '';
+                    meituanAdsForm.value.shopId = '';
+                    meituanAdsForm.value.cookies = '';
+                }
+
+                if (showMessage === true && (meituanAdsForm.value.shopId || meituanAdsForm.value.poiId || meituanAdsForm.value.cookies)) {
+                    showToast('已同步美团广告抓取配置');
+                }
+            };
+
             const syncMeituanBrowserCaptureFromSelectedConfig = async (showMessage = false) => {
                 const hotelId = meituanForm.value.hotelId || user.value?.hotel_id || '';
                 const hotelName = getHotelNameById(hotelId);
@@ -23572,6 +24830,22 @@
                 }
             };
 
+            const switchMeituanCaptureTab = async (tab, sections = []) => {
+                onlineDataTab.value = tab;
+                meituanBrowserCaptureForm.value.captureSections = normalizeMeituanCaptureSections(sections);
+                meituanBrowserCaptureResult.value = null;
+                await loadMeituanConfigList();
+                await syncMeituanBrowserCaptureFromSelectedConfig(false);
+                if (tab === 'meituan-traffic') {
+                    await syncMeituanTrafficConfigFromSelectedConfig(false);
+                }
+            };
+
+            const runMeituanBrowserCaptureForSections = async (sections = []) => {
+                meituanBrowserCaptureForm.value.captureSections = normalizeMeituanCaptureSections(sections);
+                await runMeituanBrowserCapture();
+            };
+
             const copyMeituanBrowserCaptureCommand = () => {
                 if (!meituanBrowserCaptureForm.value.storeId || !(meituanForm.value.hotelId || user.value?.hotel_id)) {
                     showToast('请先选择酒店并填写 Store ID', 'warning');
@@ -23588,12 +24862,17 @@
             const runMeituanBrowserCapture = async () => {
                 const systemHotelId = meituanForm.value.hotelId || user.value?.hotel_id || null;
                 const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanBrowserCaptureForm.value.poiId || meituanForm.value.poiId || '').trim();
+                const sections = normalizeMeituanCaptureSections(meituanBrowserCaptureForm.value.captureSections);
                 if (!systemHotelId) {
-                    showToast('请选择数据归属酒店', 'error');
+                    showToast('请选择目标酒店', 'error');
                     return;
                 }
                 if (!storeId) {
                     showToast('请填写 Store ID / 门店 ID', 'error');
+                    return;
+                }
+                if (sections.includes('ads') && !String(meituanBrowserCaptureForm.value.adsUrl || '').trim()) {
+                    showToast('请填写推广通广告入口 URL', 'error');
                     return;
                 }
 
@@ -23608,7 +24887,8 @@
                             store_id: storeId,
                             poi_id: meituanBrowserCaptureForm.value.poiId || storeId,
                             poi_name: meituanBrowserCaptureForm.value.poiName || getHotelNameById(systemHotelId),
-                            ads_url: meituanBrowserCaptureForm.value.adsUrl || '',
+                            ads_url: sections.includes('ads') ? (meituanBrowserCaptureForm.value.adsUrl || '') : '',
+                            sections,
                         }),
                     });
                     if (res.code === 200) {
@@ -23632,7 +24912,7 @@
             const saveMeituanCapturedPayload = async () => {
                 const systemHotelId = meituanForm.value.hotelId || user.value?.hotel_id || null;
                 if (!systemHotelId) {
-                    showToast('请选择数据归属酒店', 'error');
+                    showToast('请选择目标酒店', 'error');
                     return;
                 }
                 const rawJson = String(meituanBrowserCaptureForm.value.payloadJson || '').trim();
@@ -29293,7 +30573,7 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, shouldShowOnlineFetchResult, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripOverviewForm, ctripOverviewResult, ctripOverviewFetching, ctripOverviewMetricCards, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
@@ -29302,13 +30582,14 @@
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
                 selectedOnlineDataIds, toggleSelectAllOnlineData, isAllOnlineDataSelected, batchDeleteOnlineData, clearAutoFetchRecordHistory,
-                autoFetchScheduleTime, saveFetchSchedule, autoFetchHotelId, loadAutoFetchPanel,
+                autoFetchScheduleTime, saveFetchSchedule, autoFetchHotelId, autoFetchRunState, loadAutoFetchPanel,
                 autoFetchPlatformCards, autoFetchPlatformResultRows,
                 autoFetchBackfillDate, autoFetchBackfillingDate, autoFetchMaxBackfillDate, autoFetchLegacyItems, autoFetchRecentRuns, retryAutoFetchDate,
                 loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter,
+                getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, ctripBookingRate, formatCtripBookingRate, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
-                fetchCtripData, fetchCtripTrafficData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
+                fetchCtripData, fetchCtripTrafficData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig,
                 ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount,

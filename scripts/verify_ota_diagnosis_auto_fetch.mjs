@@ -1,9 +1,14 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const source = readFileSync('public/index.html', 'utf8');
+const controllerSource = readFileSync('app/controller/OnlineData.php', 'utf8');
+const ctripBrowserScriptPath = 'scripts/ctrip_browser_capture.mjs';
+const ctripBrowserScript = existsSync(ctripBrowserScriptPath) ? readFileSync(ctripBrowserScriptPath, 'utf8') : '';
 
 const functionMatch = source.match(/const generateOtaDiagnosis = async \(\) => \{[\s\S]*?\n            \};/);
 const generateBody = functionMatch ? functionMatch[0] : '';
+const triggerMatch = source.match(/const triggerAutoFetch = async \(\) => \{[\s\S]*?\n            \};/);
+const triggerBody = triggerMatch ? triggerMatch[0] : '';
 
 const checks = [
   {
@@ -32,8 +37,9 @@ const checks = [
     pass: source.includes("url: '/online-data/fetch-meituan-traffic'"),
   },
   {
-    name: 'auto-fetch includes Ctrip comments data',
-    pass: source.includes("url: '/online-data/fetch-ctrip-comments'"),
+    name: 'auto-fetch excludes Ctrip comments data',
+    pass: !/pushOtaDiagnosisFetchTask\([\s\S]*?label:\s*'ctrip-comments'/.test(source)
+      && !/label'\s*=>\s*'ctrip-comments'/.test(controllerSource),
   },
   {
     name: 'auto-fetch includes Meituan comments data',
@@ -42,6 +48,64 @@ const checks = [
   {
     name: 'auto-fetch writes fetched rows to selected system hotel',
     pass: /system_hotel_id:\s*systemHotelId/.test(source) && /auto_save:\s*true/.test(source),
+  },
+  {
+    name: 'manual auto-fetch stays in app while backend browser capture runs',
+    pass: triggerBody.includes("request('/online-data/auto-fetch'")
+      && triggerBody.includes('await request')
+      && !triggerBody.includes('window.location.assign')
+      && !triggerBody.includes('window.open(')
+      && !triggerBody.includes('keepalive'),
+  },
+  {
+    name: 'manual auto-fetch requests interactive browser capture',
+    pass: /interactive_browser:\s*true/.test(triggerBody)
+      && /interactive_browser/.test(controllerSource)
+      && /--headless=false/.test(controllerSource),
+  },
+  {
+    name: 'Ctrip auto-fetch uses full browser capture script',
+    pass: controllerSource.includes('ctrip_browser_capture.mjs')
+      && controllerSource.includes('browser_profile')
+      && !/executeCtripBrowserProfileAutoFetch[\s\S]*ctrip_comment_browser_capture\.mjs[\s\S]*private function executeMeituanAutoFetch/.test(controllerSource),
+  },
+  {
+    name: 'Ctrip browser capture defaults to overview and traffic only',
+    pass: ctripBrowserScript.includes('businessreport/outline')
+      && ctripBrowserScript.includes('businessreport/flowdata')
+      && ctripBrowserScript.includes("args.sections || 'business,traffic'")
+      && ctripBrowserScript.includes('requestedSections.includes(section)')
+      && ctripBrowserScript.includes('target.business.push')
+      && ctripBrowserScript.includes('target.traffic.push')
+      && !ctripBrowserScript.includes("args.sections || 'business,traffic,reviews'")
+      && controllerSource.includes('--sections=business,traffic'),
+  },
+  {
+    name: 'Ctrip overview tab is placed between ads and download center',
+    pass: source.indexOf("onlineDataTab = 'ctrip-ads'") > -1
+      && source.indexOf("onlineDataTab = 'ctrip-overview'") > source.indexOf("onlineDataTab = 'ctrip-ads'")
+      && source.indexOf('switchToDownloadCenter') > source.indexOf("onlineDataTab = 'ctrip-overview'")
+      && source.includes("request('/online-data/fetch-ctrip-overview'"),
+  },
+  {
+    name: 'Ctrip overview manual fetch uses cookies and API URLs without browser capture',
+    pass: controllerSource.includes('fetchCtripOverviewData')
+      && controllerSource.includes('sendCtripOverviewRequest')
+      && controllerSource.includes('queryFlowTransforNewV1')
+      && controllerSource.includes('getCompeteHotelReportV1')
+      && controllerSource.includes('getLastWeekReportV1')
+      && source.includes('ctripOverviewForm.requestUrls')
+      && source.includes('ctripOverviewForm.cookies')
+      && source.includes('queryFlowTransforNewV1')
+      && source.includes('getTrafficReportV1')
+      && !source.includes("request('/online-data/capture-ctrip-overview-browser'")
+      && !controllerSource.includes('captureCtripOverviewBrowserData'),
+  },
+  {
+    name: 'manual auto-fetch shows persistent in-panel progress and result',
+    pass: /const autoFetchRunState = ref\(\{/.test(source)
+      && /autoFetchRunState\.value = \{[\s\S]*active:\s*true/.test(triggerBody)
+      && source.includes("autoFetchRunState.active ? '正在执行平台抓取' : '本次抓取已返回'"),
   },
 ];
 

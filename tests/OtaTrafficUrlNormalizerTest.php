@@ -40,6 +40,26 @@ final class OtaTrafficUrlNormalizerTest extends TestCase
         self::assertMatchesRegularExpression('/[?&]v=[0-9.]+/', $url);
     }
 
+    public function testAllowsKnownCtripFlowPageTrafficEndpoints(): void
+    {
+        foreach ([
+            'queryScanFlowDetailsV2',
+            'queryFlowTransforNew',
+            'queryHomePageRealTimeData',
+            'getFlowData',
+            'getTrafficData',
+            'getStatData',
+        ] as $endpoint) {
+            $url = OtaTrafficUrlNormalizer::normalizeCtripTrafficUrl(
+                'https://ebooking.ctrip.com/datacenter/api/inland/businessreport/flowdata/' . $endpoint
+            );
+
+            self::assertStringContainsString($endpoint, $url);
+            self::assertStringContainsString('hostType=Ebooking', $url);
+            self::assertMatchesRegularExpression('/[?&]v=[0-9.]+/', $url);
+        }
+    }
+
     public function testRejectsNonCtripTrafficEndpoint(): void
     {
         $this->expectException(\InvalidArgumentException::class);

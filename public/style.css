@@ -1490,7 +1490,7 @@ select {
    Global visual unification layer
    ============================================ */
 :root {
-    --sx-bg: #f4f7fb;
+    --sx-bg: #f5f7fa;
     --sx-bg-soft: #eef3f8;
     --sx-sidebar: #102a4c;
     --sx-sidebar-deep: #0b1f3a;
@@ -5899,4 +5899,314 @@ main[data-current-page="compass"] .home-hero-panel.home-hero-panel .home-observa
 main[data-current-page="compass"] .home-hero-panel.home-hero-panel .home-forecast-summary-action {
     margin-top: 0.55rem !important;
     padding-top: 0.55rem !important;
+}
+
+/* Compass dashboard visual de-noise */
+:root {
+    --sx-dashboard-bg: #edf2f7;
+    --sx-dashboard-card: #f8fbff;
+    --sx-dashboard-panel: #eef4fb;
+    --sx-dashboard-panel-strong: #ffffff;
+    --sx-dashboard-border: #cbd8e6;
+    --sx-dashboard-soft: #eef4fb;
+    --sx-dashboard-title: #111827;
+    --sx-dashboard-text: #334155;
+    --sx-dashboard-muted: #64748b;
+    --sx-dashboard-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+    --sx-dashboard-shadow-sm: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+main[data-current-page="compass"],
+main[data-current-page="compass"] > .page-enter,
+main[data-current-page="compass"] .compass-dashboard {
+    background: var(--sx-dashboard-bg) !important;
+}
+
+main[data-current-page="compass"] .compass-shell-card,
+main[data-current-page="compass"] .compass-market-card {
+    background: var(--sx-dashboard-card) !important;
+    background-image: none !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    box-shadow: var(--sx-dashboard-shadow) !important;
+    color: var(--sx-dashboard-text) !important;
+}
+
+main[data-current-page="compass"] .compass-weather-card {
+    padding: 1.75rem !important;
+}
+
+main[data-current-page="compass"] .compass-weather-current,
+main[data-current-page="compass"] .compass-weather-day,
+main[data-current-page="compass"] .compass-weather-strategy,
+main[data-current-page="compass"] .compass-weather-insight {
+    background: var(--sx-dashboard-panel) !important;
+    border-color: var(--sx-dashboard-border) !important;
+    box-shadow: var(--sx-dashboard-shadow-sm) !important;
+    color: var(--sx-dashboard-text) !important;
+}
+
+main[data-current-page="compass"] .compass-weather-current {
+    padding: 1.65rem !important;
+}
+
+main[data-current-page="compass"] .compass-weather-day {
+    padding: 1rem !important;
+}
+
+main[data-current-page="compass"] .compass-weather-strategy {
+    padding: 1.35rem !important;
+}
+
+main[data-current-page="compass"] .compass-weather-strategy .rounded-md,
+main[data-current-page="compass"] .compass-weather-strategy span {
+    border-color: var(--sx-dashboard-border) !important;
+}
+
+main[data-current-page="compass"] .compass-weather-strategy,
+main[data-current-page="compass"] .compass-weather-strategy div,
+main[data-current-page="compass"] .compass-weather-strategy span {
+    color: var(--sx-dashboard-text) !important;
+}
+
+main[data-current-page="compass"] .compass-weather-insight {
+    padding: 1rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card.home-hero-panel {
+    min-height: 0 !important;
+    padding: 0 !important;
+    background: var(--sx-dashboard-card) !important;
+    background-image: none !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    border-radius: 1rem !important;
+    box-shadow: var(--sx-dashboard-shadow) !important;
+    color: var(--sx-dashboard-text) !important;
+    text-shadow: none !important;
+}
+
+main[data-current-page="compass"] .compass-market-card.home-hero-panel::before,
+main[data-current-page="compass"] .compass-market-card.home-hero-panel > .absolute {
+    display: none !important;
+}
+
+main[data-current-page="compass"] .compass-market-card.home-hero-panel,
+main[data-current-page="compass"] .compass-market-card.home-hero-panel * {
+    color: var(--sx-dashboard-text) !important;
+    text-shadow: none !important;
+}
+
+main[data-current-page="compass"] .compass-market-card.home-hero-panel > .relative.z-10.grid {
+    padding: 1.75rem !important;
+    gap: 1.5rem !important;
+    align-items: stretch !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .hero-pill {
+    background: #eff6ff !important;
+    border-color: #dbeafe !important;
+    color: #1d4ed8 !important;
+    margin-bottom: 1rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card h2 {
+    color: var(--sx-dashboard-title) !important;
+    font-size: clamp(2rem, 2.7vw, 2.65rem) !important;
+    line-height: 1.12 !important;
+}
+
+main[data-current-page="compass"] .compass-market-card p {
+    color: var(--sx-dashboard-muted) !important;
+}
+
+main[data-current-page="compass"] .compass-market-card p.mt-3 {
+    color: var(--sx-dashboard-text) !important;
+    font-size: 1rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-hero-data-module {
+    margin-top: 1.25rem !important;
+    padding: 1.25rem !important;
+    background: var(--sx-dashboard-panel) !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    border-radius: 0.9rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-hero-data-head {
+    margin-bottom: 0.9rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-hero-data-head span {
+    color: var(--sx-dashboard-title) !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-hero-data-head strong,
+main[data-current-page="compass"] .compass-market-card .hero-status-chip {
+    background: #eef2f7 !important;
+    border: 1px solid #dce5ef !important;
+    color: var(--sx-dashboard-text) !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-hero-data-grid {
+    gap: 0.75rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-hero-data-item {
+    min-height: 4.25rem !important;
+    padding: 1rem !important;
+    background: var(--sx-dashboard-panel-strong) !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    border-radius: 0.8rem !important;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.035) !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-hero-data-item span,
+main[data-current-page="compass"] .compass-market-card .home-observation-label,
+main[data-current-page="compass"] .compass-market-card .home-forecast-summary-item span,
+main[data-current-page="compass"] .compass-market-card .home-forecast-summary-action span {
+    color: var(--sx-dashboard-muted) !important;
+    font-size: 0.78rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-hero-data-item strong,
+main[data-current-page="compass"] .compass-market-card .home-observation-value,
+main[data-current-page="compass"] .compass-market-card .home-forecast-summary-item strong {
+    color: var(--sx-dashboard-title) !important;
+    font-size: 1.15rem !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .hero-info-card {
+    padding: 1.25rem !important;
+    background: var(--sx-dashboard-panel) !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    box-shadow: var(--sx-dashboard-shadow-sm) !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .hero-info-card::before {
+    display: none !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .hero-card-head {
+    margin-bottom: 1rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .hero-card-title {
+    color: var(--sx-dashboard-title) !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .hero-card-subtitle {
+    color: var(--sx-dashboard-muted) !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-observation-grid,
+main[data-current-page="compass"] .compass-market-card .home-forecast-summary-list {
+    gap: 0.75rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-observation-item,
+main[data-current-page="compass"] .compass-market-card .home-forecast-summary-item {
+    padding: 0.9rem !important;
+    background: var(--sx-dashboard-panel-strong) !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    border-radius: 0.8rem !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-forecast-summary-item p {
+    color: var(--sx-dashboard-muted) !important;
+    font-size: 0.8rem !important;
+    line-height: 1.55 !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-progress-track {
+    background: #e8eef6 !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-progress-fill {
+    background: #2563eb !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-forecast-summary-action {
+    margin-top: 1rem !important;
+    padding-top: 1rem !important;
+    border-top-color: var(--sx-dashboard-border) !important;
+}
+
+main[data-current-page="compass"] .compass-market-card .home-forecast-summary-action strong {
+    color: var(--sx-dashboard-title) !important;
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+}
+
+/* Compass trend and macro signal flattening */
+main[data-current-page="compass"] .home-trend-tabs {
+    border-bottom: 1px solid var(--sx-dashboard-border) !important;
+}
+
+main[data-current-page="compass"] .home-trend-tab {
+    appearance: none;
+    background: transparent !important;
+    border: 0 !important;
+    border-bottom: 2px solid transparent !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: var(--sx-dashboard-muted) !important;
+    cursor: pointer;
+    font-size: 0.95rem !important;
+    font-weight: 600;
+    margin-bottom: -1px;
+    padding: 0 0 0.65rem !important;
+}
+
+main[data-current-page="compass"] .home-trend-tab:hover {
+    color: var(--sx-dashboard-title) !important;
+}
+
+main[data-current-page="compass"] .home-trend-tab.is-active {
+    border-bottom-color: #2563eb !important;
+    color: #1d4ed8 !important;
+}
+
+main[data-current-page="compass"] .home-trend-insight-card {
+    background: var(--sx-dashboard-card) !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    box-shadow: none !important;
+}
+
+main[data-current-page="compass"] .home-trend-insight-card div {
+    color: var(--sx-dashboard-title) !important;
+}
+
+main[data-current-page="compass"] .home-trend-insight-card p {
+    color: var(--sx-dashboard-text) !important;
+}
+
+main[data-current-page="compass"] .macro-signal-card {
+    background: var(--sx-dashboard-card) !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    box-shadow: var(--sx-dashboard-shadow-sm) !important;
+}
+
+main[data-current-page="compass"] .macro-signal-card .macro-signal-icon {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+main[data-current-page="compass"] .macro-signal-card .macro-signal-section,
+main[data-current-page="compass"] .macro-signal-card .macro-signal-action,
+main[data-current-page="compass"] .macro-signal-card .macro-signal-metric {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+main[data-current-page="compass"] .macro-signal-card .macro-signal-metrics {
+    border: 0 !important;
+}
+
+main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
+    margin-top: 1.1rem !important;
 }

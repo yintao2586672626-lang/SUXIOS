@@ -117,6 +117,8 @@ Route::group('api/online-data', function () {
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');
+    Route::post('/fetch-meituan-orders', 'OnlineData/fetchMeituanOrders');
+    Route::post('/fetch-meituan-ads', 'OnlineData/fetchMeituanAds');
     Route::post('/fetch-meituan-comments', 'OnlineData/fetchMeituanComments');
     Route::post('/capture-meituan-browser', 'OnlineData/captureMeituanBrowserData');
     Route::post('/save-meituan-captured-data', 'OnlineData/saveMeituanCapturedData');
@@ -143,6 +145,8 @@ Route::group('api/online-data', function () {
     // 携程点评配置
     Route::post('/fetch-ctrip-comments', 'OnlineData/fetchCtripComments');
     Route::post('/capture-ctrip-comments-browser', 'OnlineData/captureCtripCommentsBrowserData');
+    Route::post('/capture-ctrip-browser', 'OnlineData/captureCtripBrowserData');
+    Route::post('/fetch-ctrip-overview', 'OnlineData/fetchCtripOverviewData');
     Route::post('/fetch-ctrip-ads', 'OnlineData/fetchCtripAds');
     Route::post('/save-ctrip-comment-config', 'OnlineData/saveCtripCommentConfig');
     Route::get('/get-ctrip-comment-config-list', 'OnlineData/getCtripCommentConfigList');

@@ -14,7 +14,7 @@ description: Handle宿析OS OTA运营、携程/美团数据抓取、浏览器采
 5. Prefer small fixes around the failing channel path.
 6. Do not add `reviews`, `orders`, or `traffic_data` tables for OTA capture unless a concrete product feature requires structured detail queries.
 7. When recording endpoints, keep external platform endpoints, local system ports, and browser debugging ports separate. Do not hard-code `443`; record the observed protocol, host, explicit port if present, and whether any port is inferred from the protocol.
-8. Manual capture means the operator logs in, opens the target OTA page, and obtains required fetch context such as Cookie, token, hotel/store id, request payload, date range, or channel tab. The system still performs the business data fetch and parsing.
+8. Manual capture means the user already provides required fetch context such as Cookie, token, hotel/store id, request payload, date range, or channel tab. Do not require a backend login step in manual mode; the system validates the supplied fields, then performs the business data fetch and parsing.
 
 ## Ctrip Browser Capture
 
@@ -22,7 +22,7 @@ description: Handle宿析OS OTA运营、携程/美团数据抓取、浏览器采
 - Use authorized hotel accounts only. Do not bypass platform permissions or collect data outside the current hotel's visible account scope.
 - Keep one browser Profile per store, such as `storage/ctrip_profile_{store_id}`. Never commit Profile directories, cookies, tokens, screenshots with credentials, or captured secrets.
 - Prefer real browser login reuse, page navigation, XHR/fetch JSON response listening, and targeted business URL matching over hand-written backend requests.
-- Manual Ctrip flow captures required fetch context only: Cookie, `spidertoken` when needed, `node_id` / platform hotel id, payload JSON, date range, and channel tab. Business data should then be fetched by the existing system endpoint.
+- Manual Ctrip flow accepts user-provided fetch context only: Cookie, `spidertoken` when needed, `node_id` / platform hotel id, payload JSON, date range, and channel tab. Business data should then be fetched by the existing system endpoint.
 - JSON responses are the primary data source. DOM parsing is only a fallback for ranks or visible summary metrics that are not present in matched responses.
 - Field mapping must use existing project fields first:
   - Overview: `amount`, `quantity`, `book_order_num`, `comment_score`, `raw_data`.
@@ -35,7 +35,7 @@ description: Handle宿析OS OTA运营、携程/美团数据抓取、浏览器采
 
 - For Meituan eBooking browser/Profile capture work, read `references/meituan-browser-capture.md` before planning or editing.
 - Use the page-triggered flow first: `POST /api/online-data/capture-meituan-browser` starts `scripts/meituan_browser_capture.mjs`, reuses `storage/meituan_profile_{store_id}`, waits for manual login when needed, captures, then saves rows.
-- Manual Meituan flow captures required fetch context only: Cookie/session, `partner_id`, `poi_id` / `store_id`, request payload, date range, and `mtgsig` or other dynamic fields only when the compatibility endpoint requires them. Business data should then be fetched by the existing system endpoint.
+- Manual Meituan flow accepts user-provided fetch context only: Cookie/session, `partner_id`, `poi_id` / `store_id`, request payload, date range, and `mtgsig` or other dynamic fields only when the compatibility endpoint requires them. Business data should then be fetched by the existing system endpoint.
 - Keep the manual command and JSON import path only as a fallback for troubleshooting or offline replay.
 - Capture order: comments page, traffic iframe, new traffic SPA, optional ads URL, order/check-in page.
 - Response match keywords:
