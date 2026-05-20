@@ -11,7 +11,7 @@ mysql -u root hotelx < database/init_full.sql
 
 `database/init_full.sql` imports:
 
-- `hotelx_dump.sql`
+- `database/hotel_admin_mysql.sql`
 - `database/login_logs.sql`
 - `database/complaint_tables.sql`
 - `database/update_system_config.sql`

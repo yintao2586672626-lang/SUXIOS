@@ -49,7 +49,7 @@ C:\xampp\mysql\bin\mysql.exe -u root hotelx < database/init_full.sql
 
 如果 XAMPP 安装在 D 盘，请把命令中的 `C:\xampp` 改为 `D:\xampp`。
 
-`hotelx_dump.sql` 是基础 dump；完整初始化必须使用 `database/init_full.sql`，它会补齐当前代码使用的迁移表和字段。
+`database/hotel_admin_mysql.sql` 是可提交的基础 dump；完整初始化必须使用 `database/init_full.sql`，它会补齐当前代码使用的迁移表和字段。
 
 ## 环境变量
 

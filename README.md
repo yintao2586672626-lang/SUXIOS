@@ -55,7 +55,7 @@ C:\xampp\mysql\bin\mysql.exe -u root hotelx < database/init_full.sql
 
 如果 XAMPP 安装在 D 盘，请把命令中的 `C:\xampp` 改为 `D:\xampp`。
 
-`hotelx_dump.sql` 是基础 dump；`database/init_full.sql` 会继续加载登录日志、投诉表和所有迁移，覆盖当前代码使用的表与字段。
+`database/hotel_admin_mysql.sql` 是可提交的基础 dump；`database/init_full.sql` 会继续加载登录日志、投诉表和所有迁移，覆盖当前代码使用的表与字段。
 
 ## 配置
 
@@ -75,7 +75,7 @@ config/           项目配置
 route/            路由配置
 public/           Web 根目录和前端页面
 database/         SQL 资源和迁移脚本
-hotelx_dump.sql   基础数据库备份
+database/hotel_admin_mysql.sql 基础数据库备份
 database/init_full.sql 完整数据库初始化入口
 start-hotel.bat   Windows 一键启动脚本
 QUICK_START.md    下载后运行说明

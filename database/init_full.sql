@@ -5,7 +5,7 @@
 SET NAMES utf8mb4;
 SET time_zone = '+08:00';
 
-SOURCE ./hotelx_dump.sql;
+SOURCE ./database/hotel_admin_mysql.sql;
 SOURCE ./database/login_logs.sql;
 SOURCE ./database/complaint_tables.sql;
 SOURCE ./database/update_system_config.sql;
