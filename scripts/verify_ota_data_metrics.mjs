@@ -119,7 +119,7 @@ function runSelfTest() {
           dataDate: '2026-05-17',
           totalAmount: 1000,
           roomNights: 5,
-          orderCount: 3,
+          orderNum: 3,
         },
       ],
     },

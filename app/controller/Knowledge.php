@@ -5,6 +5,8 @@ namespace app\controller;
 
 use app\model\KnowledgeChunk;
 use app\model\KnowledgeUnit;
+use app\service\KnowledgeDistillationService;
+use InvalidArgumentException;
 use think\exception\ValidateException;
 use think\facade\Db;
 use think\Response;
@@ -188,6 +190,74 @@ class Knowledge extends Base
         } catch (\Throwable $e) {
             return $this->fail('Failed to delete knowledge unit: ' . $e->getMessage(), 500);
         }
+    }
+
+    public function distillationOptions(): Response
+    {
+        try {
+            return $this->ok(['options' => (new KnowledgeDistillationService())->options()]);
+        } catch (\Throwable $e) {
+            return $this->fail('Failed to load distillation options: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function runDistillation(): Response
+    {
+        try {
+            $data = $this->requestData();
+            $mode = trim((string)($data['mode'] ?? 'kd'));
+            $maxBatches = (int)($data['max_batches'] ?? 1);
+            $result = (new KnowledgeDistillationService())->run($mode, $maxBatches);
+
+            if (($result['ok'] ?? false) !== true) {
+                return $this->fail('Knowledge distillation training failed', 500, $result);
+            }
+
+            $result['knowledge_unit'] = $this->persistDistillationKnowledge($result);
+
+            return $this->ok($result, 'training completed');
+        } catch (InvalidArgumentException $e) {
+            return $this->fail($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            return $this->fail('Failed to run knowledge distillation: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function persistDistillationKnowledge(array $result): array
+    {
+        $content = is_array($result['distilled_content'] ?? null) ? $result['distilled_content'] : [];
+        $mode = (string)($result['mode'] ?? 'kd');
+        $label = (string)($result['label'] ?? $mode);
+        $summary = (string)($content['summary'] ?? '知识蒸馏训练结果');
+        $method = (string)($content['method'] ?? ($mode === 'kd' ? 'vanilla_kd' : 'baseline_ce'));
+        $name = '知识蒸馏训练结果 - ' . $label . ' - ' . date('Y-m-d H:i');
+
+        $unit = null;
+        $chunk = null;
+        Db::transaction(function () use (&$unit, &$chunk, $name, $summary, $method, $content): void {
+            $unit = KnowledgeUnit::create([
+                'name' => $name,
+                'source' => 'ml_distillation',
+                'status' => 'done',
+                'description' => $summary,
+                'tags' => ['知识蒸馏', '模型训练', $method],
+            ]);
+
+            $chunk = KnowledgeChunk::create([
+                'unit_id' => (int)$unit->unit_id,
+                'type' => '模型蒸馏训练结果',
+                'content' => $content,
+            ]);
+        });
+
+        if (!$unit || !$chunk) {
+            throw new \RuntimeException('Failed to persist distillation knowledge content');
+        }
+
+        return [
+            'unit' => $this->formatUnitRow($unit->toArray(), 1),
+            'chunk' => $this->formatChunkRow($chunk->toArray()),
+        ];
     }
 
     private function normalizeUnitData(array $input, bool $creating): array

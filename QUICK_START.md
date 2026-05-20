@@ -125,6 +125,53 @@ http://127.0.0.1:8080/api/health
 {"status":"ok","time":"2026-05-08 07:23:11"}
 ```
 
+## Windows 验证命令
+
+在 PowerShell 中如果 `npm run ...` 被执行策略拦截，使用 `npm.cmd run ...`：
+
+```powershell
+npm.cmd run verify:p0-guards
+npm.cmd run test:e2e:quick
+```
+
+`test:e2e:edge` 是边界输入深度扫描，耗时明显高于 quick 回归，按需单独运行。
+
+如果 `composer` 不在 PATH，但 XAMPP PHP 可用，可直接运行本地 PHPUnit：
+
+```powershell
+C:\xampp\php\php.exe vendor\bin\phpunit --colors=never
+```
+
+当前 `type-check` 仅在仓库存在 `.ts` 或 `.d.ts` 输入时执行 TypeScript 编译；没有 TypeScript 输入时会显示 skipped，不能替代 `test:e2e:quick` 或 PHP 单元测试。
+
+## 进程排查
+
+如果多个端口都启动过开发服务，先确认当前项目的 PHP 进程：
+
+```powershell
+Get-CimInstance Win32_Process -Filter "name = 'php.exe'" | Select-Object ProcessId,CommandLine
+```
+
+只停止确认属于当前项目且不再使用的进程：
+
+```powershell
+Stop-Process -Id <ProcessId> -Force
+```
+
+## AI 与外部数据源配置
+
+`.env` 只保存本机配置，不提交到 GitHub。启用 AI 或外部数据源前，至少确认：
+
+```text
+AI_CONFIG_SECRET
+DEEPSEEK_API_KEY 或数据库中的 AI 模型密钥
+OPENAI_API_KEY 或数据库中的 OpenAI 兼容模型密钥
+AMAP_KEY / AMAP_WEB_API_KEY（需要外部地图和信号数据时）
+CRON_TOKEN（需要定时抓取入口时）
+```
+
+`config/llm.php` 默认读取 DeepSeek 配置；如果没有 `DEEPSEEK_API_KEY`，相关 LLM 能力会依赖数据库中的 AI 模型配置或显式报配置缺失。
+
 ## 常见问题
 
 ### 未找到 PHP

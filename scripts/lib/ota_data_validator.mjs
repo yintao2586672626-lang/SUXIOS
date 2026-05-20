@@ -12,7 +12,7 @@ export const SOURCE_FIELD_MAPPINGS = {
       data_date: ['dataDate', 'date', 'data_date', 'statDate', 'stat_date', 'bizDate', 'businessDate', 'reportDate'],
       amount: ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount'],
       quantity: ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity'],
-      book_order_num: ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count'],
+      book_order_num: ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings'],
       comment_score: ['commentScore', 'comment_score', 'score', 'avgScore'],
       qunar_comment_score: ['qunarCommentScore', 'qunar_comment_score', 'qunarScore'],
       conversion_rate: ['convertionRate', 'convertion_rate', 'conversionRate'],

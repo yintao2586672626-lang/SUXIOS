@@ -434,6 +434,33 @@ final class OnlineDataTest extends TestCase
         self::assertStringContainsString('缺失', $quality['summary']);
     }
 
+    public function testOnlineDataQualityAcceptsCtripOrderNumAlias(): void
+    {
+        $controller = $this->controller();
+
+        $quality = $this->invokeNonPublic($controller, 'buildOnlineDataQuality', [[
+            'id' => 12,
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'hotel_id' => 'ota-12',
+            'hotel_name' => 'Hotel Alias',
+            'data_date' => '2026-05-17',
+            'amount' => 900,
+            'quantity' => 3,
+            'comment_score' => 4.7,
+            'raw_data' => json_encode([
+                'hotelId' => 'ota-12',
+                'hotelName' => 'Hotel Alias',
+                'amount' => 900,
+                'quantity' => 3,
+                'orderNum' => 2,
+                'commentScore' => 4.7,
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        self::assertNotContains('book_order_num', array_column($quality['missing_metrics'], 'key'));
+    }
+
     public function testOnlineDataQualitySummaryCountsIssueRows(): void
     {
         $controller = $this->controller();
@@ -1181,6 +1208,43 @@ final class OnlineDataTest extends TestCase
                 rmdir($profileDir);
             }
         }
+    }
+
+    public function testAutoFetchModeNormalizationSupportsExplicitStrategies(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame('hybrid_auto', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['']));
+        self::assertSame('hybrid_auto', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['hybrid']));
+        self::assertSame('cookie_config', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['api']));
+        self::assertSame('cookie_config', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['cookie-config']));
+        self::assertSame('profile_browser', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['browser_profile']));
+    }
+
+    public function testAutoFetchResultMetaKeepsFailureActionExplicit(): void
+    {
+        $controller = $this->controller();
+
+        $cookieResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
+            'module' => 'day_report_api',
+            'saved_count' => 0,
+            'success' => false,
+            'skipped' => true,
+            'message' => '未配置携程 Cookie',
+        ], 'cookie_config']);
+        self::assertSame('cookie_config', $cookieResult['strategy']);
+        self::assertSame('needs_cookie', $cookieResult['status_code']);
+        self::assertSame('更新 Cookie 或重新登录 OTA 后台', $cookieResult['next_action']);
+
+        $profileResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
+            'module' => 'browser_profile',
+            'saved_count' => 0,
+            'success' => false,
+            'skipped' => true,
+            'message' => '未发现本地美团浏览器 Profile',
+        ], 'profile_browser']);
+        self::assertSame('needs_profile', $profileResult['status_code']);
+        self::assertSame('建立或重新登录浏览器 Profile', $profileResult['next_action']);
     }
 }
 

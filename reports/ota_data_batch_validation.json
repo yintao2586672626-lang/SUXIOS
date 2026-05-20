@@ -1,20 +1,20 @@
 {
-  "input_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\suxi-ota-data-batch-contract",
+  "input_dir": "tests\\fixtures\\ota-data-batch",
   "strict": false,
   "summary": {
-    "file_count": 2,
-    "failed_file_count": 1,
+    "file_count": 1,
+    "failed_file_count": 0,
     "warning_file_count": 0,
-    "checked_rows": 2,
-    "failed_records": 1,
+    "checked_rows": 1,
+    "failed_records": 0,
     "warning_records": 0,
-    "abnormal_record_count": 1,
-    "error_count": 1,
-    "warning_count": 1
+    "abnormal_record_count": 0,
+    "error_count": 0,
+    "warning_count": 0
   },
   "results": [
     {
-      "file": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\suxi-ota-data-batch-contract\\hotel-a\\ota_rows.json",
+      "file": "tests\\fixtures\\ota-data-batch\\valid\\ota_rows.json",
       "source_name": "ota_rows.json",
       "status": "pass",
       "checked_rows": 1,
@@ -49,112 +49,6 @@
       ],
       "errors": [],
       "warnings": []
-    },
-    {
-      "file": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\suxi-ota-data-batch-contract\\hotel-b\\rows.json",
-      "source_name": "rows.json",
-      "status": "fail",
-      "checked_rows": 1,
-      "abnormal_records": 1,
-      "error_count": 1,
-      "warning_count": 1,
-      "summary": {
-        "checked_rows": 1,
-        "passed_records": 0,
-        "failed_records": 1,
-        "warning_records": 0,
-        "abnormal_records": 1
-      },
-      "record_results": [
-        {
-          "index": 1,
-          "row": "1002",
-          "source": "ctrip",
-          "hotel_id": "1002",
-          "hotel_name": "Invalid Hotel",
-          "data_date": "2026-05-17",
-          "status": "fail",
-          "abnormal": true,
-          "abnormal_level": "error",
-          "abnormal_reasons": [
-            {
-              "level": "error",
-              "scope": "formula",
-              "field": "",
-              "metric": "ADR",
-              "message": "ADR mismatch"
-            },
-            {
-              "level": "warning",
-              "scope": "source_mapping",
-              "field": "book_order_num",
-              "metric": "",
-              "message": "Ctrip business report raw_data misses book_order_num aliases"
-            }
-          ],
-          "errors": [
-            {
-              "level": "error",
-              "scope": "formula",
-              "message": "ADR mismatch",
-              "row": "1002",
-              "metric": "ADR",
-              "expected": 300,
-              "actual": 200,
-              "tolerance": 0.01,
-              "numerator": "amount",
-              "denominator": "quantity"
-            }
-          ],
-          "warnings": [
-            {
-              "level": "warning",
-              "scope": "source_mapping",
-              "message": "Ctrip business report raw_data misses book_order_num aliases",
-              "row": "1002",
-              "field": "book_order_num",
-              "aliases": [
-                "bookOrderNum",
-                "book_order_num",
-                "orderCount",
-                "order_count"
-              ]
-            }
-          ],
-          "calculated_metrics": {
-            "ADR": 300
-          }
-        }
-      ],
-      "errors": [
-        {
-          "level": "error",
-          "scope": "formula",
-          "message": "ADR mismatch",
-          "row": "1002",
-          "metric": "ADR",
-          "expected": 300,
-          "actual": 200,
-          "tolerance": 0.01,
-          "numerator": "amount",
-          "denominator": "quantity"
-        }
-      ],
-      "warnings": [
-        {
-          "level": "warning",
-          "scope": "source_mapping",
-          "message": "Ctrip business report raw_data misses book_order_num aliases",
-          "row": "1002",
-          "field": "book_order_num",
-          "aliases": [
-            "bookOrderNum",
-            "book_order_num",
-            "orderCount",
-            "order_count"
-          ]
-        }
-      ]
     }
   ]
 }

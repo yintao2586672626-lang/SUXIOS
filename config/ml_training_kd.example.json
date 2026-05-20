@@ -1,0 +1,33 @@
+{
+  "seed": 42,
+  "device": "cpu",
+  "model": {
+    "type": "mlp",
+    "input_dim": 8,
+    "hidden_dim": 32,
+    "num_classes": 3
+  },
+  "data": {
+    "type": "synthetic",
+    "num_samples": 64,
+    "input_dim": 8,
+    "num_classes": 3,
+    "batch_size": 8,
+    "shuffle": true
+  },
+  "train": {
+    "epochs": 1,
+    "lr": 0.001,
+    "checkpoint_dir": "runtime/ml_checkpoints",
+    "checkpoint_name": "student_kd.pt",
+    "resume_checkpoint": ""
+  },
+  "distill": {
+    "enabled": true,
+    "teacher_checkpoint": "runtime/ml_checkpoints/student.pt",
+    "temperature": 4.0,
+    "ce_weight": 0.5,
+    "kd_weight": 0.5,
+    "method": "vanilla_kd"
+  }
+}

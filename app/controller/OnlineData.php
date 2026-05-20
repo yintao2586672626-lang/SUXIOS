@@ -3458,6 +3458,35 @@ class OnlineData extends Base
         return substr($safe, 0, 80);
     }
 
+    private function createAutoFetchCookieFile(string $projectRoot, string $platform, int $hotelId, string $cookies): string
+    {
+        $cookies = trim($cookies);
+        if ($cookies === '') {
+            return '';
+        }
+
+        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ota_cookie_injection';
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return '';
+        }
+
+        try {
+            $suffix = bin2hex(random_bytes(6));
+        } catch (\Throwable $e) {
+            $suffix = str_replace('.', '', uniqid('', true));
+        }
+
+        $path = $dir . DIRECTORY_SEPARATOR . $this->safeMeituanCaptureFilePart($platform . '_' . $hotelId . '_' . $suffix) . '.txt';
+        return file_put_contents($path, $cookies, LOCK_EX) === false ? '' : $path;
+    }
+
+    private function removeAutoFetchCookieFile(string $path): void
+    {
+        if ($path !== '' && is_file($path)) {
+            @unlink($path);
+        }
+    }
+
     private function trimMeituanCaptureLog(string $value): string
     {
         $value = trim($value);
@@ -7027,7 +7056,7 @@ JAVASCRIPT;
             $requireRaw = !empty($raw);
             $this->addOnlineDataMissingMetric($missing, $row, $raw, 'amount', '营业额', ['amount'], ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount'], $requireRaw);
             $this->addOnlineDataMissingMetric($missing, $row, $raw, 'quantity', '间夜', ['quantity'], ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity'], $requireRaw);
-            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'book_order_num', '订单数', ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count'], $requireRaw);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'book_order_num', '订单数', ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings'], $requireRaw);
         }
 
         if ($rawError !== null) {
@@ -7048,7 +7077,7 @@ JAVASCRIPT;
 
         $amount = $this->onlineDataQualityFirstNumber($row, $raw, ['amount'], ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']);
         $quantity = $this->onlineDataQualityFirstNumber($row, $raw, ['quantity'], ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity']);
-        $orders = $this->onlineDataQualityFirstNumber($row, $raw, ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']);
+        $orders = $this->onlineDataQualityFirstNumber($row, $raw, ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings']);
 
         if ($source !== 'meituan' && $dataType !== 'traffic') {
             if ($amount !== null && $amount > 0 && ($quantity === null || $quantity <= 0)) {
@@ -8383,32 +8412,6 @@ JAVASCRIPT;
         return empty($metrics) ? '-' : implode(' / ', $metrics);
     }
 
-    private function onlineHistoryMatchesKeyword(array $item, string $keyword): bool
-    {
-        $needle = mb_strtolower(trim($keyword));
-        if ($needle === '') {
-            return true;
-        }
-
-        $haystack = [
-            $item['hotel_name'] ?? '',
-            $item['original_hotel_name'] ?? '',
-            $item['ota_hotel_id'] ?? '',
-            $item['batch_no'] ?? '',
-            $item['platform'] ?? '',
-            $item['platform_label'] ?? '',
-            $item['data_type'] ?? '',
-            $item['data_type_label'] ?? '',
-            $item['fetch_time'] ?? '',
-        ];
-
-        foreach ($haystack as $value) {
-            if ($value !== '' && mb_strpos(mb_strtolower((string)$value), $needle) !== false) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private function buildOnlineHistorySummary(array $historyList): array
     {
@@ -8621,13 +8624,17 @@ JAVASCRIPT;
             $this->request->post('interactive_browser', $this->request->post('interactiveBrowser', false)),
             FILTER_VALIDATE_BOOLEAN
         );
+        $autoFetchModeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', null));
+        $fetchOptions = ['interactive_browser' => $interactiveBrowser];
+        if ($autoFetchModeRaw !== null && trim((string)$autoFetchModeRaw) !== '') {
+            $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
+        }
         
         try {
-            $result = $this->executeAutoFetch((int)$systemHotelId, $yesterday, [
-                'interactive_browser' => $interactiveBrowser,
-            ]);
+            $result = $this->executeAutoFetch((int)$systemHotelId, $yesterday, $fetchOptions);
             $this->updateFetchStatus((int)$systemHotelId, (bool)$result['success'], (string)$result['message'], $yesterday, [
                 'saved_count' => (int)($result['saved_count'] ?? 0),
+                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
                 'platform_results' => $result['platform_results'] ?? [],
             ]);
 
@@ -8635,12 +8642,16 @@ JAVASCRIPT;
                 OperationLog::record('online_data', 'auto_fetch', "平台数据自动获取: {$result['saved_count']}条 (门店ID: {$systemHotelId})", $this->currentUser->id);
                 return $this->success([
                     'saved_count' => (int)($result['saved_count'] ?? 0),
+                    'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
+                    'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '混合自动',
                     'platform_results' => $result['platform_results'] ?? [],
                 ], '自动获取成功');
             }
 
             return $this->error('自动获取失败: ' . $result['message'], 400, [
                 'saved_count' => (int)($result['saved_count'] ?? 0),
+                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
+                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '混合自动',
                 'platform_results' => $result['platform_results'] ?? [],
             ]);
 
@@ -8679,6 +8690,10 @@ JAVASCRIPT;
         if (array_key_exists('saved_count', $details)) {
             $runRecord['saved_count'] = (int)$details['saved_count'];
         }
+        if (!empty($details['auto_fetch_mode'])) {
+            $runRecord['auto_fetch_mode'] = $this->normalizeAutoFetchMode($details['auto_fetch_mode']);
+            $runRecord['auto_fetch_mode_label'] = $this->autoFetchModeLabel($runRecord['auto_fetch_mode']);
+        }
         if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
             $runRecord['platform_results'] = $details['platform_results'];
         }
@@ -8691,6 +8706,11 @@ JAVASCRIPT;
         ];
         if (array_key_exists('saved_count', $details)) {
             $status['last_result']['saved_count'] = (int)$details['saved_count'];
+        }
+        if (!empty($details['auto_fetch_mode'])) {
+            $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($details['auto_fetch_mode']);
+            $status['last_result']['auto_fetch_mode'] = $status['auto_fetch_mode'];
+            $status['last_result']['auto_fetch_mode_label'] = $this->autoFetchModeLabel($status['auto_fetch_mode']);
         }
         if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
             $status['last_result']['platform_results'] = $details['platform_results'];
@@ -8750,6 +8770,9 @@ JAVASCRIPT;
         if (trim((string)($fetchConfig['cookies'] ?? '')) !== '') {
             return true;
         }
+        if (!empty($fetchConfig) && $this->ctripProfileStoreIdFromConfig($fetchConfig, $hotelId) !== '') {
+            return true;
+        }
         if ($this->ctripProfileExistsForConfig($fetchConfig, $hotelId)) {
             return true;
         }
@@ -8764,7 +8787,7 @@ JAVASCRIPT;
         $hasApiConfig = trim((string)($fetchConfig['cookies'] ?? '')) !== ''
             && trim((string)($fetchConfig['partner_id'] ?? $fetchConfig['partnerId'] ?? '')) !== ''
             && trim((string)($fetchConfig['poi_id'] ?? $fetchConfig['poiId'] ?? '')) !== '';
-        if ($hasApiConfig || $this->meituanProfileExistsForConfig($fetchConfig)) {
+        if ($hasApiConfig || $this->meituanProfileStoreIdFromConfig($fetchConfig) !== '' || $this->meituanProfileExistsForConfig($fetchConfig)) {
             return true;
         }
 
@@ -8781,24 +8804,71 @@ JAVASCRIPT;
     {
         $ctripConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
         $meituanConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
+        $savedConfigs = $this->getAutoFetchSavedDataConfigs();
+        $runMode = $this->resolveAutoFetchRunMode($hotelId);
         $ctripHasProfile = $this->ctripProfileExistsForConfig($ctripConfig, $hotelId);
+        $meituanHasProfile = $this->meituanProfileExistsForConfig($meituanConfig);
+        $ctripMode = $this->resolvePlatformAutoFetchMode($ctripConfig, ['auto_fetch_mode' => $runMode], 'ctrip');
+        $meituanMode = $this->resolvePlatformAutoFetchMode($meituanConfig, ['auto_fetch_mode' => $runMode], 'meituan');
+        $ctripTasks = array_values(array_filter(
+            $this->buildAutoFetchConfigTaskPlan($hotelId, date('Y-m-d', strtotime('-1 day')), $ctripConfig, [], $savedConfigs),
+            static fn(array $task): bool => ($task['platform'] ?? '') === 'ctrip'
+        ));
+        $meituanTasks = array_values(array_filter(
+            $this->buildAutoFetchConfigTaskPlan($hotelId, date('Y-m-d', strtotime('-1 day')), [], $meituanConfig, $savedConfigs),
+            static fn(array $task): bool => ($task['platform'] ?? '') === 'meituan'
+        ));
 
         return [
             'ctrip' => [
                 'configured' => $this->hasCtripFetchConfigForHotel($hotelId),
                 'name' => (string)($ctripConfig['name'] ?? $ctripConfig['hotel_name'] ?? ''),
-                'mode' => $ctripHasProfile ? 'Profile + API' : 'ebooking API',
+                'mode' => $this->autoFetchModeLabel($ctripMode),
+                'auto_fetch_mode' => $ctripMode,
+                'cookie_configured' => trim((string)($ctripConfig['cookies'] ?? $ctripConfig['cookie'] ?? '')) !== '',
+                'profile_configured' => $ctripHasProfile,
                 'has_profile' => $ctripHasProfile,
+                'task_count' => count($ctripTasks),
+                'task_modules' => array_values(array_unique(array_map(static fn(array $task): string => (string)($task['module'] ?? ''), $ctripTasks))),
+                'next_action' => $this->autoFetchPlatformNextAction($ctripMode, trim((string)($ctripConfig['cookies'] ?? $ctripConfig['cookie'] ?? '')) !== '', $ctripHasProfile, count($ctripTasks)),
                 'entry_url' => 'https://ebooking.ctrip.com',
             ],
             'meituan' => [
                 'configured' => $this->hasMeituanFetchConfigForHotel($hotelId),
                 'name' => (string)($meituanConfig['name'] ?? $meituanConfig['hotel_name'] ?? ''),
-                'mode' => $this->meituanProfileExistsForConfig($meituanConfig) ? 'Profile + API' : 'API',
-                'has_profile' => $this->meituanProfileExistsForConfig($meituanConfig),
+                'mode' => $this->autoFetchModeLabel($meituanMode),
+                'auto_fetch_mode' => $meituanMode,
+                'cookie_configured' => trim((string)($meituanConfig['cookies'] ?? $meituanConfig['cookie'] ?? '')) !== '',
+                'profile_configured' => $meituanHasProfile,
+                'has_profile' => $meituanHasProfile,
+                'task_count' => count($meituanTasks),
+                'task_modules' => array_values(array_unique(array_map(static fn(array $task): string => (string)($task['module'] ?? ''), $meituanTasks))),
+                'next_action' => $this->autoFetchPlatformNextAction($meituanMode, trim((string)($meituanConfig['cookies'] ?? $meituanConfig['cookie'] ?? '')) !== '', $meituanHasProfile, count($meituanTasks)),
                 'entry_url' => 'https://eb.meituan.com',
             ],
         ];
+    }
+
+    private function autoFetchPlatformNextAction(string $mode, bool $hasCookie, bool $hasProfile, int $taskCount): string
+    {
+        $mode = $this->normalizeAutoFetchMode($mode);
+        if ($mode === 'cookie_config' && !$hasCookie && $taskCount === 0) {
+            return '补充 Cookie、Request URL、Payload 或平台 ID';
+        }
+        if ($mode === 'profile_browser' && !$hasProfile) {
+            return '先运行一次浏览器 Profile 登录采集';
+        }
+        if ($mode === 'hybrid_auto' && !$hasCookie && !$hasProfile && $taskCount === 0) {
+            return '至少配置 Cookie/接口参数或浏览器 Profile';
+        }
+        if ($mode === 'hybrid_auto' && !$hasProfile) {
+            return 'Cookie/配置可先跑；建议补建 Profile 处理动态页面';
+        }
+        if ($mode === 'hybrid_auto' && !$hasCookie && $taskCount === 0) {
+            return 'Profile 可先跑；建议补充 Cookie/接口配置提高稳定性';
+        }
+
+        return '配置可用';
     }
 
     private function autoFetchStatusKey(?int $hotelId): string
@@ -8902,6 +8972,8 @@ JAVASCRIPT;
             'module_summary' => $moduleSummary !== '' ? $moduleSummary : '-',
             'message' => (string)($platformResult['message'] ?? $run['message'] ?? '-'),
             'run_message' => (string)($run['message'] ?? ''),
+            'auto_fetch_mode' => (string)($platformResult['auto_fetch_mode'] ?? $run['auto_fetch_mode'] ?? ''),
+            'mode_label' => (string)($platformResult['mode_label'] ?? $run['auto_fetch_mode_label'] ?? ''),
         ];
     }
 
@@ -8917,7 +8989,10 @@ JAVASCRIPT;
                 continue;
             }
             $savedCount = (int)($module['saved_count'] ?? 0);
-            $parts[] = $name . '(' . $savedCount . ')';
+            $state = !empty($module['success']) ? 'ok' : (!empty($module['skipped']) ? 'skip' : 'fail');
+            $strategy = trim((string)($module['strategy'] ?? ''));
+            $strategyText = $strategy !== '' ? $strategy . ':' : '';
+            $parts[] = $name . '[' . $strategyText . $state . ':' . $savedCount . ']';
         }
 
         return implode(' / ', $parts);
@@ -9084,6 +9159,8 @@ JAVASCRIPT;
                     'next_run_time' => '-',
                     'last_result' => null,
                     'schedule_time' => '10:00',
+                    'auto_fetch_mode' => 'hybrid_auto',
+                    'auto_fetch_mode_label' => '混合自动',
                     'recent_runs' => [],
                     'failed_records' => [],
                     'missed_dates' => [],
@@ -9099,6 +9176,7 @@ JAVASCRIPT;
             'next_run_time' => null,
             'last_result' => null,
             'schedule_time' => '10:00',
+            'auto_fetch_mode' => 'hybrid_auto',
             'recent_runs' => [],
             'failed_records' => [],
             'missed_dates' => [],
@@ -9115,6 +9193,10 @@ JAVASCRIPT;
             $status['schedule_time'] = '10:00';
         }
         $status['schedule_time'] = $this->normalizeFetchScheduleTime((string)$status['schedule_time']) ?? '10:00';
+        $status['auto_fetch_mode'] = $hotelId
+            ? $this->resolveAutoFetchRunMode((int)$hotelId, ['auto_fetch_mode' => $status['auto_fetch_mode'] ?? ''])
+            : $this->normalizeAutoFetchMode($status['auto_fetch_mode'] ?? 'hybrid_auto');
+        $status['auto_fetch_mode_label'] = $this->autoFetchModeLabel((string)$status['auto_fetch_mode']);
         // 计算下次运行时间
         if ($status['enabled']) {
             $scheduleTime = $status['schedule_time'];
@@ -9135,8 +9217,8 @@ JAVASCRIPT;
         $status['missed_count'] = count($status['missed_dates']);
         $status['has_config'] = $hotelId ? $this->hasAnyPlatformFetchConfigForHotel((int)$hotelId) : false;
         $status['platforms'] = $hotelId ? $this->buildAutoFetchPlatformStatus((int)$hotelId) : [
-            'ctrip' => ['configured' => false, 'name' => '', 'mode' => 'ebooking API', 'entry_url' => 'https://ebooking.ctrip.com'],
-            'meituan' => ['configured' => false, 'name' => '', 'mode' => 'API', 'has_profile' => false, 'entry_url' => 'https://eb.meituan.com'],
+            'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com'],
+            'meituan' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://eb.meituan.com'],
         ];
         
         return $this->success($status);
@@ -9270,6 +9352,8 @@ JAVASCRIPT;
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
         $status = cache($statusKey) ?: [];
         $status['enabled'] = (bool)$enabled;
+        $modeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto'));
+        $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
         if (!isset($status['schedule_time'])) {
             $status['schedule_time'] = '10:00';
         }
@@ -9277,7 +9361,11 @@ JAVASCRIPT;
         
         OperationLog::record('online_data', 'toggle_auto_fetch', '切换自动获取状态: ' . ($enabled ? '开启' : '关闭') . " (门店ID: {$hotelId})", $this->currentUser->id);
         
-        return $this->success(['enabled' => $status['enabled']], $enabled ? '已开启自动获取' : '已关闭自动获取');
+        return $this->success([
+            'enabled' => $status['enabled'],
+            'auto_fetch_mode' => $status['auto_fetch_mode'],
+            'auto_fetch_mode_label' => $this->autoFetchModeLabel($status['auto_fetch_mode']),
+        ], $enabled ? '已开启自动获取' : '已关闭自动获取');
     }
     
     /**
@@ -9309,6 +9397,8 @@ JAVASCRIPT;
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
         $status = cache($statusKey) ?: [];
         $status['schedule_time'] = $scheduleTime;
+        $modeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto'));
+        $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
         if (!isset($status['enabled'])) {
             $status['enabled'] = false;
         }
@@ -9316,7 +9406,11 @@ JAVASCRIPT;
         
         OperationLog::record('online_data', 'set_schedule', "设置自动获取时间: {$scheduleTime} (门店ID: {$hotelId})", $this->currentUser->id);
         
-        return $this->success(['schedule_time' => $scheduleTime], "设置成功，将在每天 {$scheduleTime} 自动获取数据");
+        return $this->success([
+            'schedule_time' => $scheduleTime,
+            'auto_fetch_mode' => $status['auto_fetch_mode'],
+            'auto_fetch_mode_label' => $this->autoFetchModeLabel($status['auto_fetch_mode']),
+        ], "设置成功，将在每天 {$scheduleTime} 自动获取数据");
     }
 
     public function retryAutoFetch(): Response
@@ -9343,9 +9437,15 @@ JAVASCRIPT;
             return $this->error('补抓日期不能晚于今天');
         }
 
-        $result = $this->executeAutoFetch((int)$hotelId, $dataDate);
+        $autoFetchModeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', null));
+        $fetchOptions = [];
+        if ($autoFetchModeRaw !== null && trim((string)$autoFetchModeRaw) !== '') {
+            $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
+        }
+        $result = $this->executeAutoFetch((int)$hotelId, $dataDate, $fetchOptions);
         $this->updateFetchStatus((int)$hotelId, (bool)$result['success'], (string)$result['message'], $dataDate, [
             'saved_count' => (int)($result['saved_count'] ?? 0),
+            'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
             'platform_results' => $result['platform_results'] ?? [],
         ]);
 
@@ -9354,6 +9454,8 @@ JAVASCRIPT;
             return $this->success([
                 'data_date' => $dataDate,
                 'saved_count' => (int)($result['saved_count'] ?? 0),
+                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
+                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '混合自动',
                 'platform_results' => $result['platform_results'] ?? [],
             ], '补抓成功');
         }
@@ -9884,49 +9986,6 @@ JAVASCRIPT;
         $query->where('data_type', $dataType);
     }
 
-    /**
-     * 清除opcache缓存（开发调试用）
-     */
-    private function clearCache(): Response
-    {
-        $result = [];
-        
-        // 清除 opcache
-        if (function_exists('opcache_reset')) {
-            $result['opcache_reset'] = opcache_reset();
-        } else {
-            $result['opcache_reset'] = 'opcache not enabled';
-        }
-        
-        // 清除 ThinkPHP 缓存
-        try {
-            \think\facade\Cache::clear();
-            $result['think_cache_clear'] = true;
-        } catch (\Exception $e) {
-            $result['think_cache_clear'] = false;
-            $result['think_cache_error'] = $e->getMessage();
-        }
-        
-        // 删除运行时缓存文件
-        $runtimePath = root_path() . 'runtime/cache/';
-        if (is_dir($runtimePath)) {
-            $files = glob($runtimePath . '*');
-            $deleted = 0;
-            foreach ($files as $file) {
-                if (is_file($file) && unlink($file)) {
-                    $deleted++;
-                }
-            }
-            $result['runtime_cache_deleted'] = $deleted;
-        }
-        
-        return json([
-            'code' => 200,
-            'message' => '缓存已清除',
-            'data' => $result,
-            'time' => time()
-        ]);
-    }
 
     /**
      * 定时任务触发接口（供外部cron调用）
@@ -9987,6 +10046,7 @@ JAVASCRIPT;
             
             $this->updateFetchStatus($hotelId, (bool)$result['success'], (string)$result['message'], $yesterday, [
                 'saved_count' => (int)($result['saved_count'] ?? 0),
+                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
                 'platform_results' => $result['platform_results'] ?? [],
             ]);
             
@@ -10008,6 +10068,7 @@ JAVASCRIPT;
      */
     private function executeAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
+        $options['auto_fetch_mode'] = $this->resolveAutoFetchRunMode($hotelId, $options);
         $platformResults = [];
         $totalSaved = 0;
         $attempted = 0;
@@ -10032,6 +10093,8 @@ JAVASCRIPT;
                 'skipped' => true,
                 'message' => '未配置携程凭证',
                 'saved_count' => 0,
+                'auto_fetch_mode' => $options['auto_fetch_mode'],
+                'mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
             ];
         }
 
@@ -10054,6 +10117,8 @@ JAVASCRIPT;
                 'skipped' => true,
                 'message' => '未配置美团 Partner ID / POI ID / Cookies',
                 'saved_count' => 0,
+                'auto_fetch_mode' => $options['auto_fetch_mode'],
+                'mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
             ];
         }
 
@@ -10067,6 +10132,8 @@ JAVASCRIPT;
                 'success' => false,
                 'message' => '未配置任何平台抓取凭证',
                 'saved_count' => 0,
+                'auto_fetch_mode' => $options['auto_fetch_mode'],
+                'auto_fetch_mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
                 'platform_results' => $platformResults,
             ];
         }
@@ -10075,6 +10142,8 @@ JAVASCRIPT;
             'success' => $successCount > 0,
             'message' => implode('；', $messages),
             'saved_count' => $totalSaved,
+            'auto_fetch_mode' => $options['auto_fetch_mode'],
+            'auto_fetch_mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
             'platform_results' => $platformResults,
         ];
     }
@@ -10131,6 +10200,128 @@ JAVASCRIPT;
         return is_array($decoded) ? $decoded : [];
     }
 
+    private function normalizeAutoFetchMode($value): string
+    {
+        $mode = strtolower(str_replace(['-', ' '], '_', trim((string)$value)));
+        return match ($mode) {
+            'cookie', 'cookies', 'cookie_auto', 'cookie_config', 'config', 'api', 'direct_api' => 'cookie_config',
+            'profile', 'browser', 'browser_profile', 'profile_browser' => 'profile_browser',
+            default => 'hybrid_auto',
+        };
+    }
+
+    private function autoFetchModeLabel(string $mode): string
+    {
+        return match ($this->normalizeAutoFetchMode($mode)) {
+            'cookie_config' => 'Cookie/配置自动',
+            'profile_browser' => '浏览器 Profile 自动',
+            default => '混合自动',
+        };
+    }
+
+    private function resolveAutoFetchRunMode(int $hotelId, array $options = []): string
+    {
+        foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
+            if (array_key_exists($key, $options) && trim((string)$options[$key]) !== '') {
+                return $this->normalizeAutoFetchMode($options[$key]);
+            }
+        }
+
+        $status = cache($this->autoFetchStatusKey($hotelId));
+        if (is_array($status)) {
+            foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
+                if (array_key_exists($key, $status) && trim((string)$status[$key]) !== '') {
+                    return $this->normalizeAutoFetchMode($status[$key]);
+                }
+            }
+        }
+
+        return 'hybrid_auto';
+    }
+
+    private function resolvePlatformAutoFetchMode(array $config, array $options, string $platform): string
+    {
+        foreach ([
+            $platform . '_auto_fetch_mode',
+            $platform . '_auto_mode',
+            'auto_fetch_mode',
+            'autoMode',
+            'auto_mode',
+            'fetch_mode',
+        ] as $key) {
+            if (array_key_exists($key, $options) && trim((string)$options[$key]) !== '') {
+                return $this->normalizeAutoFetchMode($options[$key]);
+            }
+        }
+
+        foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
+            if (array_key_exists($key, $config) && trim((string)$config[$key]) !== '') {
+                return $this->normalizeAutoFetchMode($config[$key]);
+            }
+        }
+
+        return 'hybrid_auto';
+    }
+
+    private function shouldRunCookieConfigTasks(string $mode): bool
+    {
+        return $this->normalizeAutoFetchMode($mode) !== 'profile_browser';
+    }
+
+    private function shouldRunProfileBrowser(string $mode): bool
+    {
+        return $this->normalizeAutoFetchMode($mode) !== 'cookie_config';
+    }
+
+    private function autoFetchStatusCode(array $result): string
+    {
+        if (!empty($result['success'])) {
+            return 'ok';
+        }
+
+        $message = strtolower((string)($result['message'] ?? ''));
+        if (!empty($result['skipped']) && str_contains($message, '当前策略')) {
+            return 'skipped';
+        }
+        if (str_contains($message, 'cookie') || str_contains($message, '登录') || str_contains($message, '授权') || str_contains($message, '过期')) {
+            return 'needs_cookie';
+        }
+        if (str_contains($message, 'profile') || str_contains($message, '浏览器')) {
+            return 'needs_profile';
+        }
+        if (str_contains($message, 'payload') || str_contains($message, 'request_url') || str_contains($message, 'spidertoken')) {
+            return 'needs_payload';
+        }
+        if (!empty($result['skipped'])) {
+            return 'skipped';
+        }
+
+        return 'failed';
+    }
+
+    private function withAutoFetchResultMeta(array $result, string $strategy = '', string $module = ''): array
+    {
+        if ($module !== '' && empty($result['module'])) {
+            $result['module'] = $module;
+        }
+        if ($strategy !== '' && empty($result['strategy'])) {
+            $result['strategy'] = $strategy;
+        }
+        if (empty($result['status_code'])) {
+            $result['status_code'] = $this->autoFetchStatusCode($result);
+        }
+        if (empty($result['next_action'])) {
+            $result['next_action'] = match ($result['status_code']) {
+                'needs_cookie' => '更新 Cookie 或重新登录 OTA 后台',
+                'needs_profile' => '建立或重新登录浏览器 Profile',
+                'needs_payload' => '补充 Request URL / Payload / 动态令牌',
+                default => '',
+            };
+        }
+
+        return $result;
+    }
+
     private function isAutoFetchDataConfigUsable(array $config, int $hotelId): bool
     {
         if (empty($config)) {
@@ -10170,6 +10361,7 @@ JAVASCRIPT;
         }
         $task['body'] = $body;
         unset($task['required']);
+        $task['strategy'] = $task['strategy'] ?? 'cookie_config';
         $tasks[] = $task;
     }
 
@@ -10331,95 +10523,123 @@ JAVASCRIPT;
     private function executeCtripAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
         $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
-        $cookies = (string)($fetchConfig['cookies'] ?? '');
+        $cookies = trim((string)($fetchConfig['cookies'] ?? $fetchConfig['cookie'] ?? ''));
+        $mode = $this->resolvePlatformAutoFetchMode($fetchConfig, $options, 'ctrip');
+        $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
+        $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
         $taskPlanForConfig = $this->buildAutoFetchConfigTaskPlan($hotelId, $dataDate, $fetchConfig, [], $this->getAutoFetchSavedDataConfigs());
         $hasConfiguredTask = (bool)array_filter($taskPlanForConfig, static fn(array $task): bool => ($task['platform'] ?? '') === 'ctrip');
+        $hasProfile = $this->ctripProfileExistsForConfig($fetchConfig, $hotelId);
+        $hasProfileSeed = !empty($fetchConfig) && $this->ctripProfileStoreIdFromConfig($fetchConfig, $hotelId) !== '';
 
-        if (empty($cookies) && !$this->ctripProfileExistsForConfig($fetchConfig, $hotelId) && !$hasConfiguredTask) {
-            return ['platform' => 'ctrip', 'success' => false, 'message' => '未配置携程 Cookies', 'saved_count' => 0];
+        if ($cookies === '' && !$hasProfile && !$hasConfiguredTask && !($runProfileBrowser && $hasProfileSeed)) {
+            return [
+                'platform' => 'ctrip',
+                'success' => false,
+                'message' => '未配置携程 Cookie/接口配置或浏览器 Profile',
+                'saved_count' => 0,
+                'auto_fetch_mode' => $mode,
+                'mode_label' => $this->autoFetchModeLabel($mode),
+                'modules' => [
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少携程 Cookie/接口配置/Profile'], 'hybrid_auto'),
+                ],
+            ];
         }
         
         $savedCount = 0;
         $errors = [];
         $modules = [];
 
-        if (trim($cookies) !== '') {
-        try {
-            $result = $this->sendHttpRequest(
-                (string)($fetchConfig['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
-                ['nodeId' => (string)($fetchConfig['node_id'] ?? '24588'), 'startDate' => $dataDate, 'endDate' => $dataDate],
-                $cookies
-            );
-            
-            if (!empty($result['success'])) {
-                $responseData = $result['data'] ?? [];
-                $responseStatus = is_array($responseData) ? ($responseData['responseStatus'] ?? $responseData['status'] ?? $responseData['code'] ?? null) : null;
-                if ($responseStatus !== null && $responseStatus !== 0 && $responseStatus !== '0' && $responseStatus !== 200 && $responseStatus !== '200') {
-                    $errorMsg = is_array($responseData) ? ($responseData['message'] ?? $responseData['msg'] ?? $responseData['errorMessage'] ?? null) : null;
-                    $errors[] = $errorMsg ?: "API返回错误状态: {$responseStatus}";
-                    $modules[] = ['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)];
-                } else {
-                    $moduleSaved = is_array($responseData) ? $this->parseAndSaveData($responseData, $dataDate, $dataDate, $hotelId) : 0;
-                    $savedCount += $moduleSaved;
-                    $modules[] = ['module' => 'day_report_api', 'saved_count' => $moduleSaved, 'success' => $moduleSaved > 0];
-                    if ($moduleSaved === 0) {
-                        $errors[] = 'day_report_api 未解析到有效数据';
+        if ($runCookieConfig) {
+            if ($cookies !== '') {
+                try {
+                    $result = $this->sendHttpRequest(
+                        (string)($fetchConfig['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
+                        ['nodeId' => (string)($fetchConfig['node_id'] ?? '24588'), 'startDate' => $dataDate, 'endDate' => $dataDate],
+                        $cookies
+                    );
+
+                    if (!empty($result['success'])) {
+                        $responseData = $result['data'] ?? [];
+                        $responseStatus = is_array($responseData) ? ($responseData['responseStatus'] ?? $responseData['status'] ?? $responseData['code'] ?? null) : null;
+                        if ($responseStatus !== null && $responseStatus !== 0 && $responseStatus !== '0' && $responseStatus !== 200 && $responseStatus !== '200') {
+                            $errorMsg = is_array($responseData) ? ($responseData['message'] ?? $responseData['msg'] ?? $responseData['errorMessage'] ?? null) : null;
+                            $errors[] = $errorMsg ?: "API返回错误状态: {$responseStatus}";
+                            $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
+                        } else {
+                            $moduleSaved = is_array($responseData) ? $this->parseAndSaveData($responseData, $dataDate, $dataDate, $hotelId) : 0;
+                            $savedCount += $moduleSaved;
+                            $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => $moduleSaved, 'success' => $moduleSaved > 0, 'message' => $moduleSaved > 0 ? 'ok' : '未解析到有效数据'], 'cookie_config');
+                            if ($moduleSaved === 0) {
+                                $errors[] = 'day_report_api 未解析到有效数据';
+                            }
+                        }
+                    } else {
+                        $errors[] = '请求失败: ' . (string)($result['error'] ?? '未知错误');
+                        $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
                     }
+
+                } catch (\Exception $e) {
+                    \think\facade\Log::error("携程自动获取异常", ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
+                    $errors[] = '异常: ' . $e->getMessage();
+                    $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
                 }
             } else {
-                $errors[] = '请求失败: ' . (string)($result['error'] ?? '未知错误');
-                $modules[] = ['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)];
+                $message = '未配置携程 Cookie';
+                if ($mode === 'cookie_config') {
+                    $errors[] = $message;
+                }
+                $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'cookie_config');
             }
-            
-        } catch (\Exception $e) {
-            \think\facade\Log::error("携程自动获取异常", ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
-            $errors[] = '异常: ' . $e->getMessage();
-            $modules[] = ['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)];
-        }
-
         } else {
-            $modules[] = ['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '未配置携程 Cookies'];
+            $modules[] = $this->withAutoFetchResultMeta(['module' => 'cookie_config_tasks', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '当前策略仅使用浏览器 Profile'], 'cookie_config');
         }
 
-        foreach ($taskPlanForConfig as $task) {
-            if (($task['platform'] ?? '') !== 'ctrip' || ($task['module'] ?? '') === 'business') {
-                continue;
-            }
-            $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
-            $savedCount += (int)($taskResult['saved_count'] ?? 0);
-            $modules[] = $taskResult;
-            if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
-                $errors[] = (string)($taskResult['message'] ?? (($task['label'] ?? 'task') . ' failed'));
+        if ($runCookieConfig) {
+            foreach ($taskPlanForConfig as $task) {
+                if (($task['platform'] ?? '') !== 'ctrip' || ($task['module'] ?? '') === 'business') {
+                    continue;
+                }
+                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
+                $savedCount += (int)($taskResult['saved_count'] ?? 0);
+                $modules[] = $taskResult;
+                if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
+                    $errors[] = (string)($taskResult['message'] ?? (($task['label'] ?? 'task') . ' failed'));
+                }
             }
         }
 
-        $browserResult = $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']));
+        $browserResult = $runProfileBrowser
+            ? $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']))
+            : ['success' => false, 'skipped' => true, 'message' => '当前策略仅使用 Cookie/配置自动', 'saved_count' => 0];
         if (empty($browserResult['skipped'])) {
             $savedCount += (int)($browserResult['saved_count'] ?? 0);
         }
-        $modules[] = [
+        $modules[] = $this->withAutoFetchResultMeta([
             'module' => 'browser_profile',
             'saved_count' => (int)($browserResult['saved_count'] ?? 0),
             'success' => (bool)($browserResult['success'] ?? false),
             'message' => (string)($browserResult['message'] ?? ''),
             'skipped' => (bool)($browserResult['skipped'] ?? false),
-        ];
+        ], 'profile_browser');
 
         if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
             $errors[] = 'browser ' . $browserResult['message'];
+        } elseif (!empty($browserResult['skipped']) && $mode === 'profile_browser') {
+            $errors[] = (string)$browserResult['message'];
         }
 
         if ($savedCount > 0) {
             \think\facade\Log::info("携程自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
             $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
             
-            return ['platform' => 'ctrip', 'success' => true, 'message' => "成功获取 {$savedCount} 条数据", 'saved_count' => $savedCount, 'modules' => $modules];
+            return ['platform' => 'ctrip', 'success' => true, 'message' => "成功获取 {$savedCount} 条数据", 'saved_count' => $savedCount, 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules];
         }
 
         $message = empty($errors)
             ? '未获取到有效数据'
             : '未获取到有效数据：' . implode('；', array_slice($errors, 0, 3));
-        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'modules' => $modules];
+        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules];
     }
 
     private function executeAutoFetchTask(array $task, int $hotelId, string $dataDate): array
@@ -10427,9 +10647,10 @@ JAVASCRIPT;
         $body = is_array($task['body'] ?? null) ? $task['body'] : [];
         $module = (string)($task['module'] ?? '');
         $label = (string)($task['label'] ?? $module);
+        $strategy = (string)($task['strategy'] ?? 'cookie_config');
 
         try {
-            return match (($task['platform'] ?? '') . ':' . $module) {
+            $result = match (($task['platform'] ?? '') . ':' . $module) {
                 'ctrip:traffic' => $this->executeCtripTrafficAutoFetchTask($label, $body, $hotelId),
                 'ctrip:comments' => $this->executeCtripCommentsAutoFetchTask($label, $body, $hotelId, $dataDate),
                 'meituan:ranking' => $this->executeMeituanRankingAutoFetchTask($label, $body, $hotelId),
@@ -10437,8 +10658,9 @@ JAVASCRIPT;
                 'meituan:comments' => $this->executeMeituanCommentsAutoFetchTask($label, $body, $hotelId),
                 default => ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'unsupported task'],
             };
+            return $this->withAutoFetchResultMeta($result, $strategy, $label);
         } catch (\Throwable $e) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $e->getMessage()];
+            return $this->withAutoFetchResultMeta(['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $e->getMessage()], $strategy, $label);
         }
     }
 
@@ -10588,6 +10810,8 @@ JAVASCRIPT;
         }
 
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . $this->safeMeituanCaptureFilePart($profileId) . '_' . date('YmdHis') . '.json';
+        $sections = trim((string)($config['profile_sections'] ?? $config['capture_sections'] ?? 'business,traffic'));
+        $sections = $sections !== '' ? $sections : 'business,traffic';
         $args = [
             $nodeBinary,
             $scriptPath,
@@ -10598,6 +10822,9 @@ JAVASCRIPT;
             '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
             '--sections=business,traffic',
         ];
+        if ($sections !== 'business,traffic') {
+            $args[count($args) - 1] = '--sections=' . $sections;
+        }
         $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
 
         $ctripHotelId = trim((string)($config['ota_hotel_id'] ?? $config['ctrip_hotel_id'] ?? $config['hotelId'] ?? ''));
@@ -10613,7 +10840,16 @@ JAVASCRIPT;
             $args[] = '--chrome-path=' . $chromePath;
         }
 
-        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 120);
+        $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip', $hotelId, trim((string)($config['cookies'] ?? $config['cookie'] ?? '')));
+        if ($cookieFile !== '') {
+            $args[] = '--cookies-file=' . $cookieFile;
+        }
+
+        try {
+            $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 120);
+        } finally {
+            $this->removeAutoFetchCookieFile($cookieFile);
+        }
         if (!$runResult['success']) {
             return [
                 'success' => false,
@@ -10641,12 +10877,20 @@ JAVASCRIPT;
         $capturedCounts = [
             'business' => count($this->extractCtripCapturedSection($payload, 'business')),
             'traffic' => count($this->extractCtripCapturedSection($payload, 'traffic')),
+            'reviews' => count($this->extractCtripCapturedComments($payload)),
         ];
+        $detailParts = [
+            "概况 {$saveResult['business_saved']}",
+            "流量 {$saveResult['traffic_saved']}",
+        ];
+        if ((int)($saveResult['review_saved'] ?? 0) > 0) {
+            $detailParts[] = "点评 {$saveResult['review_saved']}";
+        }
 
         return [
             'success' => $savedCount > 0,
             'message' => $savedCount > 0
-                ? "Profile 真实采集入库 {$savedCount} 条（概况 {$saveResult['business_saved']}，流量 {$saveResult['traffic_saved']}）"
+                ? "Profile 真实采集入库 {$savedCount} 条（" . implode('，', $detailParts) . "）"
                 : 'Profile 真实采集未解析到可入库数据',
             'saved_count' => $savedCount,
             'row_count' => array_sum($capturedCounts),
@@ -10684,11 +10928,18 @@ JAVASCRIPT;
         }
         $modules[] = ['module' => 'browser_traffic', 'saved_count' => $trafficSaved, 'success' => $trafficSaved > 0];
 
+        $reviewRows = $this->extractCtripCapturedComments($payload);
+        $reviewSaved = 0;
+        if (!empty($reviewRows)) {
+            $reviewSaved = $this->parseAndSaveCtripComments($reviewRows, $payload, $requestHotelId, $dataDate, $hotelId);
+            $modules[] = ['module' => 'browser_reviews', 'saved_count' => $reviewSaved, 'success' => $reviewSaved > 0];
+        }
+
         return [
-            'saved_count' => $businessSaved + $trafficSaved,
+            'saved_count' => $businessSaved + $trafficSaved + $reviewSaved,
             'business_saved' => $businessSaved,
             'traffic_saved' => $trafficSaved,
-            'review_saved' => 0,
+            'review_saved' => $reviewSaved,
             'modules' => $modules,
         ];
     }
@@ -10711,88 +10962,118 @@ JAVASCRIPT;
     private function executeMeituanAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
         $config = $this->resolveMeituanFetchConfigForHotel($hotelId);
-        $cookies = trim((string)($config['cookies'] ?? ''));
+        $cookies = trim((string)($config['cookies'] ?? $config['cookie'] ?? ''));
         $partnerId = trim((string)($config['partner_id'] ?? $config['partnerId'] ?? ''));
         $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
+        $mode = $this->resolvePlatformAutoFetchMode($config, $options, 'meituan');
+        $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
+        $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
         $taskPlanForConfig = $this->buildAutoFetchConfigTaskPlan($hotelId, $dataDate, [], $config, $this->getAutoFetchSavedDataConfigs());
         $hasConfiguredTask = (bool)array_filter($taskPlanForConfig, static fn(array $task): bool => ($task['platform'] ?? '') === 'meituan');
+        $hasProfile = $this->meituanProfileExistsForConfig($config);
+        $hasProfileSeed = $this->meituanProfileStoreIdFromConfig($config) !== '';
 
-        if ($cookies === '' && !$this->meituanProfileExistsForConfig($config) && !$hasConfiguredTask) {
-            return ['platform' => 'meituan', 'success' => false, 'message' => '未配置美团 Partner ID / POI ID / Cookies', 'saved_count' => 0];
+        if ($cookies === '' && !$hasProfile && !$hasConfiguredTask && !($runProfileBrowser && $hasProfileSeed)) {
+            return [
+                'platform' => 'meituan',
+                'success' => false,
+                'message' => '未配置美团 Partner ID / POI ID / Cookie 或浏览器 Profile',
+                'saved_count' => 0,
+                'auto_fetch_mode' => $mode,
+                'mode_label' => $this->autoFetchModeLabel($mode),
+                'modules' => [
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 Cookie/Partner ID/POI ID/Profile'], 'hybrid_auto'),
+                ],
+            ];
         }
 
         $savedCount = 0;
         $errors = [];
         $modules = [];
-        if ($cookies !== '' && $partnerId !== '' && $poiId !== '') {
-        $url = trim((string)($config['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail';
-        $authDataRaw = $config['auth_data'] ?? [];
-        try {
-            $authData = is_array($authDataRaw) ? $authDataRaw : $this->parseJsonParams((string)$authDataRaw);
-        } catch (\Throwable $e) {
-            $authData = [];
-        }
-        $baseParams = [
-            'dataScope' => $config['data_scope'] ?? 'vpoi',
-            'deviceType' => 1,
-            'yodaReady' => 'h5',
-            'csecplatform' => 4,
-            'csecversion' => '4.2.0',
-            'partnerId' => $partnerId,
-            'poiId' => $poiId,
-            'startDate' => str_replace('-', '', $dataDate),
-            'endDate' => str_replace('-', '', $dataDate),
-            'dateRange' => 1,
-        ];
 
-        foreach (['P_RZ', 'P_XS', 'P_ZH', 'P_LL'] as $rankType) {
+        if ($runCookieConfig && $cookies !== '' && $partnerId !== '' && $poiId !== '') {
+            $url = trim((string)($config['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail';
+            $authDataRaw = $config['auth_data'] ?? [];
             try {
-                $params = $baseParams;
-                $params['rankType'] = $rankType;
-                $result = $this->sendMeituanRequest($url, $params, $cookies, $authData);
-                if (!$result['success']) {
-                    $errors[] = "{$rankType} " . (string)($result['error'] ?? '请求失败');
+                $authData = is_array($authDataRaw) ? $authDataRaw : $this->parseJsonParams((string)$authDataRaw);
+            } catch (\Throwable $e) {
+                $authData = [];
+            }
+            $baseParams = [
+                'dataScope' => $config['data_scope'] ?? 'vpoi',
+                'deviceType' => 1,
+                'yodaReady' => 'h5',
+                'csecplatform' => 4,
+                'csecversion' => '4.2.0',
+                'partnerId' => $partnerId,
+                'poiId' => $poiId,
+                'startDate' => str_replace('-', '', $dataDate),
+                'endDate' => str_replace('-', '', $dataDate),
+                'dateRange' => 1,
+            ];
+
+            foreach (['P_RZ', 'P_XS', 'P_ZH', 'P_LL'] as $rankType) {
+                try {
+                    $params = $baseParams;
+                    $params['rankType'] = $rankType;
+                    $result = $this->sendMeituanRequest($url, $params, $cookies, $authData);
+                    if (!$result['success']) {
+                        $errors[] = "{$rankType} " . (string)($result['error'] ?? '请求失败');
+                        $modules[] = $this->withAutoFetchResultMeta(['module' => $rankType, 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
+                        continue;
+                    }
+                    $moduleSaved = is_array($result['data'] ?? null)
+                        ? $this->parseAndSaveMeituanData($result['data'], $dataDate, $dataDate, $hotelId)
+                        : 0;
+                    $savedCount += $moduleSaved;
+                    $modules[] = $this->withAutoFetchResultMeta(['module' => $rankType, 'saved_count' => $moduleSaved, 'success' => $moduleSaved > 0, 'message' => $moduleSaved > 0 ? 'ok' : '未解析到有效数据'], 'cookie_config');
+                } catch (\Throwable $e) {
+                    $errors[] = "{$rankType} " . $e->getMessage();
+                    $modules[] = $this->withAutoFetchResultMeta(['module' => $rankType, 'saved_count' => 0, 'success' => false, 'message' => $e->getMessage()], 'cookie_config');
+                }
+            }
+        } elseif ($runCookieConfig) {
+            $message = '缺少美团 Cookie、Partner ID 或 POI ID';
+            if ($mode === 'cookie_config') {
+                $errors[] = $message;
+            }
+            $modules[] = $this->withAutoFetchResultMeta(['module' => 'ranking_api', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'cookie_config');
+        } else {
+            $modules[] = $this->withAutoFetchResultMeta(['module' => 'cookie_config_tasks', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '当前策略仅使用浏览器 Profile'], 'cookie_config');
+        }
+
+        if ($runCookieConfig) {
+            foreach ($taskPlanForConfig as $task) {
+                if (($task['platform'] ?? '') !== 'meituan' || ($task['module'] ?? '') === 'ranking') {
                     continue;
                 }
-                $moduleSaved = is_array($result['data'] ?? null)
-                    ? $this->parseAndSaveMeituanData($result['data'], $dataDate, $dataDate, $hotelId)
-                    : 0;
-                $savedCount += $moduleSaved;
-                $modules[] = ['module' => $rankType, 'saved_count' => $moduleSaved];
-            } catch (\Throwable $e) {
-                $errors[] = "{$rankType} " . $e->getMessage();
-            }
-        }
-        } else {
-            $modules[] = ['module' => 'ranking_api', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'missing meituan api config'];
-        }
-
-        foreach ($taskPlanForConfig as $task) {
-            if (($task['platform'] ?? '') !== 'meituan' || ($task['module'] ?? '') === 'ranking') {
-                continue;
-            }
-            $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
-            $savedCount += (int)($taskResult['saved_count'] ?? 0);
-            $modules[] = $taskResult;
-            if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
-                $errors[] = (string)($taskResult['message'] ?? (($task['label'] ?? 'task') . ' failed'));
+                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
+                $savedCount += (int)($taskResult['saved_count'] ?? 0);
+                $modules[] = $taskResult;
+                if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
+                    $errors[] = (string)($taskResult['message'] ?? (($task['label'] ?? 'task') . ' failed'));
+                }
             }
         }
 
-        $browserResult = $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']));
+        $browserResult = $runProfileBrowser
+            ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']))
+            : ['success' => false, 'skipped' => true, 'message' => '当前策略仅使用 Cookie/配置自动', 'saved_count' => 0];
         if (empty($browserResult['skipped'])) {
             $savedCount += (int)($browserResult['saved_count'] ?? 0);
         }
-        $modules[] = [
+        $modules[] = $this->withAutoFetchResultMeta([
             'module' => 'browser_profile',
             'saved_count' => (int)($browserResult['saved_count'] ?? 0),
             'success' => (bool)($browserResult['success'] ?? false),
             'message' => (string)($browserResult['message'] ?? ''),
             'skipped' => (bool)($browserResult['skipped'] ?? false),
-        ];
+        ], 'profile_browser');
 
         if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
             $errors[] = 'browser ' . $browserResult['message'];
+        } elseif (!empty($browserResult['skipped']) && $mode === 'profile_browser') {
+            $errors[] = (string)$browserResult['message'];
         }
 
         if ($savedCount > 0) {
@@ -10802,6 +11083,8 @@ JAVASCRIPT;
                 'success' => true,
                 'message' => "成功获取 {$savedCount} 条数据",
                 'saved_count' => $savedCount,
+                'auto_fetch_mode' => $mode,
+                'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => $modules,
             ];
         }
@@ -10814,6 +11097,8 @@ JAVASCRIPT;
             'success' => false,
             'message' => $message,
             'saved_count' => 0,
+            'auto_fetch_mode' => $mode,
+            'mode_label' => $this->autoFetchModeLabel($mode),
             'modules' => $modules,
         ];
     }
@@ -10986,7 +11271,7 @@ JAVASCRIPT;
         if ($storeId === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未配置 Store ID / POI ID', 'saved_count' => 0];
         }
-        if (!$this->meituanProfileExistsForConfig($config)) {
+        if (!$this->meituanProfileExistsForConfig($config) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => '未发现本地美团浏览器 Profile，跳过浏览器采集', 'saved_count' => 0];
         }
 
@@ -11015,6 +11300,8 @@ JAVASCRIPT;
             '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
         ];
         $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
+        $sections = trim((string)($config['profile_sections'] ?? $config['capture_sections'] ?? 'reviews,traffic,orders'));
+        $args[] = '--sections=' . ($sections !== '' ? $sections : 'reviews,traffic,orders');
         $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
         if ($poiId !== '') {
             $args[] = '--poi-id=' . $poiId;
@@ -11028,7 +11315,16 @@ JAVASCRIPT;
             $args[] = '--chrome-path=' . $chromePath;
         }
 
-        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 180);
+        $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'meituan', $hotelId, trim((string)($config['cookies'] ?? $config['cookie'] ?? '')));
+        if ($cookieFile !== '') {
+            $args[] = '--cookies-file=' . $cookieFile;
+        }
+
+        try {
+            $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 180);
+        } finally {
+            $this->removeAutoFetchCookieFile($cookieFile);
+        }
         if (!$runResult['success']) {
             return ['success' => false, 'message' => $runResult['message'], 'saved_count' => 0];
         }

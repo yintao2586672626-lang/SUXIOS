@@ -1787,7 +1787,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div v-if="expansionRecords.length" class="overflow-x-auto">
+                        <div v-if="visibleExpansionRecords.length" class="overflow-x-auto">
                             <table class="min-w-[900px] table-fixed text-sm">
                                 <thead class="bg-gray-50 text-gray-500">
                                     <tr>
@@ -1801,7 +1801,7 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-100">
-                                    <tr v-for="record in expansionRecords" :key="record.id" class="hover:bg-slate-50/70 transition-colors">
+                                    <tr v-for="record in visibleExpansionRecords" :key="record.id" class="hover:bg-slate-50/70 transition-colors">
                                         <td class="px-3 py-3 text-gray-600 whitespace-nowrap">{{ expansionRecordTypeLabel(record.record_type) }}</td>
                                         <td class="px-3 py-3 font-medium text-gray-800">
                                             <div class="truncate" :title="record.project_name || '--'">{{ record.project_name || '--' }}</div>
@@ -3173,71 +3173,6 @@
                         </div>
                     </div>
 
-                    <!-- 策行·效果追踪（旧静态占位） -->
-                    <div v-if="currentPage === 'ops-track-legacy'">
-                        <div class="track-header">
-                            <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
-                                <i class="fas fa-play text-xl"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-xl font-bold">策行·效果追踪</h2>
-                                <p class="text-white/80 text-sm">执行效果实时监控与策略自动化执行追踪</p>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            <div class="track-card">
-                                <div class="text-gray-500 text-sm mb-1">价格优化建议</div>
-                                <div class="text-2xl font-bold text-gray-800">正在执行</div>
-                                <div class="progress-bar-container">
-                                    <div class="progress-bar-fill" style="width: 75%"></div>
-                                </div>
-                            </div>
-                            <div class="track-card">
-                                <div class="text-gray-500 text-sm mb-1">OTA排名监控</div>
-                                <div class="text-2xl font-bold text-gray-800">分析中</div>
-                                <div class="progress-bar-container">
-                                    <div class="progress-bar-fill" style="width: 45%"></div>
-                                </div>
-                            </div>
-                            <div class="track-card">
-                                <div class="text-gray-500 text-sm mb-1">服务质量反馈</div>
-                                <div class="text-2xl font-bold text-gray-800">已生效</div>
-                                <div class="progress-bar-container">
-                                    <div class="progress-bar-fill" style="width: 90%"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                            <div class="p-4 border-b border-gray-100 flex justify-between items-center">
-                                <h3 class="font-bold text-gray-800">执行任务记录</h3>
-                                <button class="text-blue-500 text-sm hover:underline">查看全部日志</button>
-                            </div>
-                            <div class="divide-y divide-gray-50">
-                                <div v-for="i in 5" :key="i" class="task-item hover:bg-gray-50 transition-colors cursor-pointer">
-                                    <div class="flex items-center gap-4">
-                                        <div class="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center text-red-500">
-                                            <i class="fas fa-microchip"></i>
-                                        </div>
-                                        <div>
-                                            <div class="font-medium text-gray-800">AI策略执行单元 #{{ 20260401 + i }}</div>
-                                            <div class="text-xs text-gray-400">最后同步: 2026-04-11 21:30</div>
-                                        </div>
-                                    </div>
-                                    <div class="flex items-center gap-4">
-                                        <div class="text-right hidden sm:block">
-                                            <div class="text-sm font-medium text-gray-700">执行成功</div>
-                                            <div class="text-[10px] text-gray-400">耗时 1.2s</div>
-                                        </div>
-                                        <span class="px-2 py-1 bg-green-100 text-green-600 text-xs rounded-full">正常</span>
-                                        <i class="fas fa-chevron-right text-gray-300"></i>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- 酒店管理 -->
                     <div v-if="currentPage === 'hotels'">
                         <!-- 页面标题和操作按钮 -->
@@ -3404,6 +3339,257 @@
                         </div>
                     </div>
 
+                    <!-- 酒店收益管理研究中心 -->
+                    <div v-if="currentPage === 'revenue-research-center'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                                <div>
+                                    <div class="text-sm font-medium text-blue-600 mb-1">酒店收益管理研究中心</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">模型与算法建议</h2>
+                                    <p class="text-sm text-gray-500 mt-2 max-w-4xl leading-relaxed">
+                                        从算法角度看，真正应该追求的不是“模型最复杂”，而是“模型能嵌进运营动作”。酒店收益管理研究长期把需求预测、细分定价、动态价格、取消预测与净需求管理视为核心；在线实验和因果推断方法则适合评估活动、定价策略和流量分配的增量效果。
+                                    </p>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-sm">
+                                    <div class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+                                        <div class="text-blue-500 text-xs mb-1">覆盖范围</div>
+                                        <div class="font-semibold text-blue-900">进阶产品</div>
+                                    </div>
+                                    <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                                        <div class="text-gray-400 text-xs mb-1">评价口径</div>
+                                        <div class="font-semibold text-gray-800">OTA 场景指标</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 mb-5">
+                                <div>
+                                    <h3 class="font-semibold text-gray-900">经营预测工作台</h3>
+                                    <p class="text-xs text-gray-500 mt-1">点击产品方向后，系统自动读取本地经营数据和已有信息，默认调用 DeepSeek 生成酒店生意预测、风险信号和运营动作。</p>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <select v-model="revenueResearchHotelId" class="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 min-w-[180px]">
+                                        <option value="">全部可见酒店</option>
+                                        <option v-for="hotel in revenueResearchHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                    </select>
+                                    <span class="px-3 py-2 rounded-lg border border-blue-100 bg-blue-50 text-sm text-blue-700">
+                                        <i class="fas fa-bolt mr-1.5"></i>默认模型 DeepSeek
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                <div v-for="product in revenueResearchProducts" :key="product.key" class="rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+                                    <div class="flex items-start justify-between gap-3 mb-3">
+                                        <div>
+                                            <div class="font-semibold text-gray-900">{{ product.name }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ product.delivery }}</div>
+                                        </div>
+                                        <span :class="['inline-flex px-2.5 py-1 rounded-full text-xs whitespace-nowrap border', revenueResearchStatusClass(product.status)]">
+                                            {{ product.statusText }}
+                                        </span>
+                                    </div>
+
+                                    <div class="space-y-2 text-xs text-gray-600">
+                                        <div class="rounded-lg bg-white border border-gray-100 p-3">
+                                            <div class="font-medium text-gray-800 mb-1">预测参考</div>
+                                            <div class="leading-relaxed">{{ product.searchQuery }}</div>
+                                        </div>
+                                        <div class="rounded-lg bg-white border border-gray-100 p-3">
+                                            <div class="font-medium text-gray-800 mb-1">AI 任务</div>
+                                            <div class="leading-relaxed">{{ product.aiTask }}</div>
+                                        </div>
+                                        <div class="rounded-lg bg-white border border-gray-100 p-3">
+                                            <div class="font-medium text-gray-800 mb-1">系统落点</div>
+                                            <div class="leading-relaxed">{{ product.moduleLabel }}</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex flex-wrap gap-2 mt-4">
+                                        <button @click="runRevenueResearchProduct(product)" :disabled="revenueResearchRunFor(product.key).loading" :data-testid="'button-revenue-research-run-' + product.key"
+                                            :class="['px-3 py-2 rounded-lg text-sm text-white transition', revenueResearchRunFor(product.key).loading ? 'bg-blue-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700']">
+                                            <i :class="[revenueResearchRunFor(product.key).loading ? 'fas fa-spinner fa-spin' : 'fas fa-play', 'mr-1.5']"></i>{{ revenueResearchRunFor(product.key).loading ? '预测中...' : '开始预测' }}
+                                        </button>
+                                        <button v-if="revenueResearchRunFor(product.key).result" @click="openRevenueResearchModule(product)" :disabled="!product.module" :data-testid="'button-revenue-research-module-' + product.key"
+                                            :class="['px-3 py-2 rounded-lg text-sm border', product.module ? 'bg-green-50 border-green-100 text-green-700 hover:bg-green-100' : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed']">
+                                            <i class="fas fa-arrow-right mr-1.5"></i>{{ product.module ? '进入模块' : '待接入' }}
+                                        </button>
+                                    </div>
+
+                                    <div v-if="revenueResearchRunFor(product.key).loading || revenueResearchRunFor(product.key).result || revenueResearchRunFor(product.key).error" class="mt-4 rounded-xl border border-gray-100 bg-white p-4 space-y-4">
+                                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                            <div v-for="(step, index) in revenueResearchSteps" :key="step"
+                                                :class="['rounded-lg border px-3 py-2 text-xs', revenueResearchStepClass(revenueResearchRunFor(product.key), index)]">
+                                                <i :class="[revenueResearchStepIcon(revenueResearchRunFor(product.key), index), 'mr-1.5']"></i>{{ step }}
+                                            </div>
+                                        </div>
+                                        <div v-if="revenueResearchRunFor(product.key).error" class="rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+                                            {{ revenueResearchRunFor(product.key).error }}
+                                        </div>
+                                        <div v-if="revenueResearchRunFor(product.key).result" class="space-y-3">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', revenueResearchResultStatusClass(revenueResearchRunFor(product.key).result.status)]">
+                                                    {{ revenueResearchResultStatusLabel(revenueResearchRunFor(product.key).result.status) }}
+                                                </span>
+                                                <span class="text-xs text-gray-500">{{ revenueResearchRunFor(product.key).result.model_key || 'deepseek_chat' }}</span>
+                                            </div>
+                                            <p class="text-sm text-gray-700 leading-relaxed">{{ revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。' }}</p>
+                                            <div v-if="revenueResearchForecastCards(revenueResearchRunFor(product.key).result).length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                <div v-for="card in revenueResearchForecastCards(revenueResearchRunFor(product.key).result)" :key="card.label" class="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                                                    <div class="text-xs text-blue-700 mb-1">{{ card.label }}</div>
+                                                    <div class="text-lg font-semibold text-blue-950">{{ card.value }}</div>
+                                                    <div class="text-xs text-blue-700 mt-1">{{ card.note }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                    <div class="font-medium text-gray-800 text-xs mb-2">已有信息</div>
+                                                    <div class="space-y-1">
+                                                        <div v-for="source in (revenueResearchRunFor(product.key).result.local_sources || []).slice(0, 4)" :key="source.source" class="flex items-center justify-between gap-2 text-xs text-gray-600">
+                                                            <span class="truncate">{{ source.label }}</span>
+                                                            <span class="text-gray-400 whitespace-nowrap">{{ source.count || 0 }} 条</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="rounded-lg bg-amber-50 border border-amber-100 p-3">
+                                                    <div class="font-medium text-amber-900 text-xs mb-2">缺失信息</div>
+                                                    <div v-if="(revenueResearchRunFor(product.key).result.gaps || []).length === 0" class="text-xs text-amber-700">无关键缺口</div>
+                                                    <div v-for="gap in (revenueResearchRunFor(product.key).result.gaps || []).slice(0, 3)" :key="gap.table + gap.reason" class="text-xs text-amber-800 leading-relaxed mb-1">
+                                                        {{ gap.label || gap.table }}：{{ gap.reason }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div class="rounded-lg bg-rose-50 border border-rose-100 p-3">
+                                                    <div class="font-medium text-rose-900 text-xs mb-2">风险信号</div>
+                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.risk_signals || []).length" class="text-xs text-rose-700">暂无明显风险信号</div>
+                                                    <div v-for="risk in (revenueResearchRunFor(product.key).result.result?.risk_signals || []).slice(0, 4)" :key="risk" class="text-xs text-rose-800 leading-relaxed mb-1">
+                                                        {{ risk }}
+                                                    </div>
+                                                </div>
+                                                <div class="rounded-lg bg-green-50 border border-green-100 p-3">
+                                                    <div class="font-medium text-green-900 text-xs mb-2">建议动作</div>
+                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="text-xs text-green-700">等待模型生成建议动作</div>
+                                                    <div v-for="action in (revenueResearchRunFor(product.key).result.result?.recommended_actions || []).slice(0, 4)" :key="action" class="text-xs text-green-800 leading-relaxed mb-1">
+                                                        {{ action }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div v-if="(revenueResearchRunFor(product.key).result.web_sources || []).length" class="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                                                <div class="font-medium text-blue-900 text-xs mb-2">联网引用</div>
+                                                <div class="flex flex-col gap-1">
+                                                    <a v-for="source in (revenueResearchRunFor(product.key).result.web_sources || []).slice(0, 4)" :key="source.url" :href="source.url" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-700 hover:underline truncate">
+                                                        {{ source.title || source.url }}
+                                                    </a>
+                                                </div>
+                                            </div>
+                                            <div class="rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-700">
+                                                预测口径：{{ revenueResearchRunFor(product.key).result.business_forecast?.method || '本地经营数据 + AI 分析' }}；置信度：{{ revenueResearchRunFor(product.key).result.business_forecast?.confidence || '待补数据' }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div class="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+                                <div>
+                                    <h3 class="font-semibold text-gray-900">进阶产品算法清单</h3>
+                                    <p class="text-xs text-gray-500 mt-1">每一项都按酒店 OTA 场景给出输入特征、评价指标和优先采用条件。</p>
+                                </div>
+                                <span class="text-xs text-gray-400">8 个产品方向</span>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm table-fixed" style="min-width: 1420px;">
+                                    <colgroup>
+                                        <col style="width: 150px;">
+                                        <col style="width: 330px;">
+                                        <col style="width: 330px;">
+                                        <col style="width: 230px;">
+                                        <col style="width: 380px;">
+                                    </colgroup>
+                                    <thead class="bg-gray-50 text-gray-500">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left font-medium">进阶产品</th>
+                                            <th class="px-4 py-3 text-left font-medium">可选算法与方法</th>
+                                            <th class="px-4 py-3 text-left font-medium">关键输入特征</th>
+                                            <th class="px-4 py-3 text-left font-medium">推荐评价指标</th>
+                                            <th class="px-4 py-3 text-left font-medium">何时优先采用</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100 bg-white text-gray-600">
+                                        <tr class="hover:bg-blue-50/30">
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">需求预测</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">基线先做 Seasonal Naive、ETS/SARIMAX/Prophet；主力做 XGBoost/LightGBM；多酒店场景建议层级预测；高频大样本后再考虑 TFT/LSTM。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">stay_date、lead_time、预订节奏、房价、库存、限制条件、节假日、竞对调价、市场热度、点评分、取消修正。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">WAPE、sMAPE、RMSE、Bias、分提前期误差、分入住日误差。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当已经有连续 6-12 个月日级订单、价格和库存快照时。文献显示 ML、聚类 stay-date 思路和市场驱动框架都适合酒店需求预测。</td>
+                                        </tr>
+                                        <tr class="hover:bg-blue-50/30">
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">取消率预测</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">Logistic Regression 做可解释基线；XGBoost/LightGBM/CatBoost 做主力；若要预测“何时取消”，可加 Survival/Hazard 模型。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">提前预订天数、取消规则、是否可免费取消、房价、价型、房型、节假日、入住天数、历史取消率、设备/渠道、是否协议价。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">PR-AUC、ROC-AUC、Recall@TopK、Brier Score、预警命中率、可回收间夜。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当取消率高、免费取消较多、旺季错失收益明显时优先。研究已明确取消预测能直连净需求管理与超售控制。</td>
+                                        </tr>
+                                        <tr class="hover:bg-blue-50/30">
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">价格弹性与收益管理</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">先做对数需求回归和分客群弹性；样本稀疏时用层级贝叶斯；竞价和活动效果可加 Causal Forest；调价执行层可接约束优化或 contextual bandit。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">价格、竞对价格、历史销量、库存、节假日、入住提前期、房型容量、市场热度、点评质量。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">弹性稳定性、增量 RevPAR、增量毛利、约束违例率、策略 regret。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当价格日调、人治经验强、不同周末/节假日表现差异大时优先。文献显示酒店动态定价与弹性仿真、约束优化可直接服务收益管理。</td>
+                                        </tr>
+                                        <tr class="hover:bg-blue-50/30">
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">渠道归因与增量评估</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">站内先做规则归因；站外投放优先 A/B 测试；实验灵敏度用 CUPED；自然实验场景可用 DiD 或 BSTS。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">曝光、点击、访问、订单、活动开关、实验分组、历史协变量、广告成本。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">增量 lift、置信区间、MDE、CAC、ROI、因果估计稳定性。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当准备评估“活动到底有没有带来增量”而不是只看相关性时优先。CUPED 可降低方差，DiD 适合非随机策略评估。</td>
+                                        </tr>
+                                        <tr class="hover:bg-blue-50/30">
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">客群细分</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">RFM 打底；K-Means/GMM 做可运营聚类；分布不规则可用 HDBSCAN；若目标是预测响应，则加 propensity/model-based segmentation。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">订单频次、最近一次入住、客单价、提前期、房型偏好、城市、设备、点评、退改行为。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">Silhouette、Calinski-Harabasz、分群稳定性、分群价值差、运营可解释性。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当要做定向促销、差异化价格、复购运营时优先。客户价值研究普遍支持先分层、再做价值测量。</td>
+                                        </tr>
+                                        <tr class="hover:bg-blue-50/30">
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">LTV 预测</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">历史较短时可用 BG/NBD + Gamma-Gamma；行为维度丰富时以 Gradient Boosting/Survival Regression 为主；企业级可加分层贝叶斯。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">首单来源、订单频率、间隔、客单价、取消退款、点评质量、出行频率、设备/渠道、地区。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">MAE、RMSE、Decile Lift、Calibration、分群命中率。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当要反推获客上限、会员权益或高价值客群优先级时优先。GA 也把用户终身价值作为单独分析对象。</td>
+                                        </tr>
+                                        <tr class="hover:bg-blue-50/30">
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">异常检测</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">规则阈值 + STL/ESD 做第一层；多变量再上 Isolation Forest 或 One-Class SVM；根因分析配合 SHAP/贡献拆解。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">小时订单、库存、价格、转换率、点评异常、接口耗时、失败码。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">Precision、Recall、误报率、平均发现时间、平均恢复时间。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当先需要一个可运营预警系统，而不是一个“学术最优分类器”时优先。</td>
+                                        </tr>
+                                        <tr class="hover:bg-blue-50/30">
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">点评主题与服务缺口识别</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">中文分词 + 主题模型/BERT Embedding + 分类器；对回复场景可加排序或摘要模型。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">点评文本、评分、入住日期、房型、渠道、酒店标签、服务节点。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">Macro-F1、主题一致性、差评召回率、人工复核通过率。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当点评体量足够，且运营团队愿意基于主题做整改闭环时优先。</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                            <h3 class="font-semibold text-gray-900 mb-3">落地取向</h3>
+                            <p class="text-sm text-gray-600 leading-relaxed">
+                                更具体地说，需求预测不应只预测一个“总销量”，而要至少做入住日 × 提前期的二维预测；取消率预测不应只优化 AUC，而应优化“被预警订单能回收多少净间夜”；价格弹性模型不能只做静态回归，而要嵌入库存、竞对价格和日历限制；LTV 模型则需要和获客成本、复购触达一起使用，否则只是一个孤立分数。这个取向和酒店收益管理研究中“需求预测—取消修正—弹性定价—容量分配”的运营链条一致。
+                            </p>
+                        </div>
+                    </div>
+
                     <!-- 智能知识中枢 -->
                     <div v-if="currentPage === 'knowledge-center'" class="max-w-7xl mx-auto space-y-6">
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
@@ -3428,6 +3614,82 @@
                                     </button>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+                                <div class="space-y-3 min-w-0">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center">
+                                            <i class="fas fa-network-wired text-indigo-600"></i>
+                                        </div>
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-900">知识蒸馏训练</h3>
+                                            <p class="text-sm text-gray-500">PyTorch vanilla KD · {{ knowledgeDistillationResult?.checkpoint_path || '等待训练' }}</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-3 text-sm">
+                                        <label class="inline-flex items-center gap-2 text-gray-600">
+                                            <span>快速批次</span>
+                                            <input v-model.number="knowledgeDistillationMaxBatches" :disabled="knowledgeDistillationFullTrain || !!knowledgeDistillationRunning"
+                                                type="number" min="1" max="1000"
+                                                class="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
+                                        </label>
+                                        <label class="inline-flex items-center gap-2 text-gray-600">
+                                            <input v-model="knowledgeDistillationFullTrain" :disabled="!!knowledgeDistillationRunning" type="checkbox"
+                                                class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
+                                            <span>完整训练</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col sm:flex-row gap-3 xl:items-center">
+                                    <button @click="runKnowledgeDistillation('baseline')" :disabled="!!knowledgeDistillationRunning"
+                                        class="px-4 py-2.5 rounded-lg border border-gray-200 text-gray-700 hover:border-indigo-200 hover:bg-indigo-50 disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+                                        <i class="fas" :class="knowledgeDistillationRunning === 'baseline' ? 'fa-spinner fa-spin' : 'fa-play'"></i>
+                                        <span>{{ knowledgeDistillationRunning === 'baseline' ? 'Baseline训练中' : '运行Baseline' }}</span>
+                                    </button>
+                                    <button @click="runKnowledgeDistillation('kd')" :disabled="!!knowledgeDistillationRunning"
+                                        class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+                                        <i class="fas" :class="knowledgeDistillationRunning === 'kd' ? 'fa-spinner fa-spin' : 'fa-brain'"></i>
+                                        <span>{{ knowledgeDistillationRunning === 'kd' ? 'KD训练中' : '运行知识蒸馏' }}</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="knowledgeDistillationResult" class="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <div v-for="row in knowledgeDistillationMetricRows" :key="row.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                    <div class="text-xs text-gray-500 mb-1">{{ row.label }}</div>
+                                    <div class="text-sm font-semibold text-gray-900 truncate">{{ row.value }}</div>
+                                </div>
+                            </div>
+                            <div v-if="knowledgeDistillationResult?.distilled_content" class="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-4">
+                                <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                                    <div>
+                                        <div class="text-sm font-semibold text-indigo-900">蒸馏内容</div>
+                                        <div class="text-xs text-indigo-700 mt-1">{{ knowledgeDistillationResult.distilled_content.formula }}</div>
+                                    </div>
+                                    <button v-if="knowledgeDistillationResult?.knowledge_unit?.unit?.unit_id"
+                                        @click="openKnowledgeChunks(knowledgeDistillationResult.knowledge_unit.unit)"
+                                        class="px-3 py-1.5 rounded-lg bg-white border border-indigo-100 text-indigo-700 text-xs hover:bg-indigo-50">
+                                        查看知识片段 #{{ knowledgeDistillationResult.knowledge_unit.unit.unit_id }}
+                                    </button>
+                                </div>
+                                <p class="text-sm text-gray-700 leading-relaxed">{{ knowledgeDistillationResult.distilled_content.summary }}</p>
+                                <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-600">
+                                    <div class="rounded-lg bg-white border border-indigo-100 p-3">
+                                        <div class="text-gray-400 mb-1">Teacher</div>
+                                        <div class="font-medium truncate">{{ knowledgeDistillationResult.distilled_content.teacher_checkpoint || 'Baseline CE' }}</div>
+                                    </div>
+                                    <div class="rounded-lg bg-white border border-indigo-100 p-3">
+                                        <div class="text-gray-400 mb-1">Student</div>
+                                        <div class="font-medium truncate">{{ knowledgeDistillationResult.distilled_content.checkpoint_path }}</div>
+                                    </div>
+                                    <div class="rounded-lg bg-white border border-indigo-100 p-3">
+                                        <div class="text-gray-400 mb-1">方法</div>
+                                        <div class="font-medium truncate">{{ knowledgeDistillationResult.distilled_content.method }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <pre v-if="knowledgeDistillationResult?.stderr" class="mt-3 rounded-lg bg-red-50 border border-red-100 p-3 text-xs text-red-700 overflow-x-auto whitespace-pre-wrap">{{ knowledgeDistillationResult.stderr }}</pre>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
@@ -3977,6 +4239,57 @@
                                     <button v-for="entry in hiddenHomeQuickEntries" :key="entry.key" @click="toggleHomeQuickEntry(entry.key)" class="px-2.5 py-1 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-blue-50 hover:text-blue-700">
                                         <i class="fas fa-plus mr-1"></i>{{ entry.title }}
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="compass-shell-card bg-white rounded-xl border border-gray-100 shadow-sm p-6 lg:p-7 mb-6" data-testid="daily-ops-monitor-card">
+                            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-5">
+                                <div>
+                                    <h3 class="font-bold text-gray-900 text-lg">每日运营关注数据</h3>
+                                    <p class="text-sm text-gray-500 mt-1">把日报截图字段拆成可同步、需配置和暂未接入口径，供早班复盘使用</p>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <button v-for="action in dailyOpsPrimaryActions" :key="action.label" @click="openHomeQuickEntry(action)" class="px-3 py-2 rounded-lg border border-blue-100 bg-blue-50 text-blue-700 text-sm hover:bg-blue-100">
+                                        <i :class="[action.icon, 'mr-1.5']"></i>{{ action.label }}
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                                <div v-for="card in dailyOpsStatusCards" :key="card.label" class="rounded-lg border px-4 py-3" :class="card.className">
+                                    <div class="text-xs opacity-80">{{ card.label }}</div>
+                                    <div class="mt-1 text-xl font-bold">{{ card.value }}</div>
+                                    <div class="mt-1 text-xs leading-relaxed">{{ card.note }}</div>
+                                </div>
+                            </div>
+                            <div class="rounded-lg border border-gray-100 bg-gray-50/70 p-4 mb-4">
+                                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 mb-3">
+                                    <div class="text-sm font-semibold text-gray-900">复盘后执行顺序</div>
+                                    <div class="text-xs text-blue-700 bg-white border border-blue-100 rounded-lg px-3 py-1.5 leading-relaxed">{{ dailyOpsMonitorConclusion }}</div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                                    <div v-for="step in dailyOpsReviewSteps" :key="step.title" class="rounded-lg border border-gray-100 bg-white px-3 py-3 min-h-[96px]">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <span class="w-6 h-6 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center flex-shrink-0">{{ step.index }}</span>
+                                            <div class="text-sm font-semibold text-gray-900">{{ step.title }}</div>
+                                        </div>
+                                        <div class="text-xs text-gray-500 leading-relaxed">{{ step.detail }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="rounded-lg border border-gray-100 overflow-hidden">
+                                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 px-4 py-3 bg-gray-50 border-b border-gray-100">
+                                    <div>
+                                        <div class="text-sm font-semibold text-gray-900">数据简报</div>
+                                        <div class="text-xs text-gray-500 mt-0.5">按日报复盘字段展示，缺口不使用推算值填补</div>
+                                    </div>
+                                    <div class="text-xs text-gray-400">{{ dailyOpsMetricRows.length }}项数据项</div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 p-4 bg-white">
+                                    <div v-for="row in dailyOpsMetricRows" :key="row.metric" class="rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3 min-h-[88px]">
+                                        <div class="text-xs text-gray-400 mb-2">{{ row.category }}</div>
+                                        <div class="font-semibold text-gray-900 leading-snug">{{ row.metric }}</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -12235,7 +12548,7 @@
                                                     <h4 class="font-semibold text-gray-900 text-lg">
                                                         <i class="fas fa-robot mr-2 text-blue-600"></i>平台数据自动获取
                                                     </h4>
-                                                    <p class="text-sm text-gray-500 mt-1">按门店聚合执行携程与美团抓取，优先使用已保存配置和本地浏览器 Profile。</p>
+                                                    <p class="text-sm text-gray-500 mt-1">按门店执行携程与美团抓取，可选择 Cookie/配置自动、浏览器 Profile 自动或混合自动。</p>
                                                 </div>
                                                 <div class="flex flex-wrap items-end gap-3">
                                                     <div>
@@ -12248,6 +12561,12 @@
                                                     <div>
                                                         <label class="block text-xs text-gray-500 mb-1">每日运行时间</label>
                                                         <input type="time" v-model="autoFetchScheduleTime" @change="saveFetchSchedule" :disabled="!autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)" class="px-3 py-2 border rounded-lg text-sm disabled:bg-gray-100 disabled:text-gray-400">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-gray-500 mb-1">获取策略</label>
+                                                        <select v-model="autoFetchMode" @change="saveFetchSchedule" :disabled="!autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)" class="min-w-[150px] px-3 py-2 border rounded-lg bg-white text-sm disabled:bg-gray-100 disabled:text-gray-400">
+                                                            <option v-for="option in autoFetchModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                                                        </select>
                                                     </div>
                                                     <button @click="loadAutoFetchPanel" class="px-3 py-2 bg-white border text-gray-700 rounded-lg hover:bg-gray-50" title="刷新">
                                                         <i class="fas fa-sync-alt"></i>
@@ -12275,7 +12594,22 @@
                                                             {{ platform.configured ? '可抓取' : '未配置' }}
                                                         </span>
                                                     </div>
-                                                    <div class="mt-3 text-xs text-gray-500">方式：{{ platform.mode }}</div>
+                                                    <div class="mt-3 text-xs text-gray-500">策略：{{ platform.mode }}</div>
+                                                    <div class="mt-2 grid grid-cols-3 gap-2 text-xs">
+                                                        <div class="rounded bg-white border px-2 py-1">
+                                                            <div class="text-gray-400">Cookie/配置</div>
+                                                            <div :class="platform.cookieConfigured || platform.taskCount > 0 ? 'text-green-700' : 'text-gray-500'">{{ platform.cookieConfigured || platform.taskCount > 0 ? '已配置' : '缺失' }}</div>
+                                                        </div>
+                                                        <div class="rounded bg-white border px-2 py-1">
+                                                            <div class="text-gray-400">Profile</div>
+                                                            <div :class="platform.profileConfigured ? 'text-green-700' : 'text-gray-500'">{{ platform.profileConfigured ? '可用' : '未建立' }}</div>
+                                                        </div>
+                                                        <div class="rounded bg-white border px-2 py-1">
+                                                            <div class="text-gray-400">配置任务</div>
+                                                            <div class="text-gray-700">{{ platform.taskCount || 0 }} 个</div>
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="platform.nextAction" class="mt-2 text-xs text-gray-500">{{ platform.nextAction }}</div>
                                                     <div class="mt-3 flex flex-wrap gap-1.5">
                                                         <span v-for="item in platform.modules" :key="item" class="px-2 py-1 rounded bg-white border text-xs text-gray-600">{{ item }}</span>
                                                     </div>
@@ -12404,7 +12738,13 @@
                                                             <span class="font-medium text-gray-800">{{ row.platform === 'meituan' ? '美团' : '携程' }}</span>
                                                             <span :class="row.success ? 'text-green-600' : (row.skipped ? 'text-gray-500' : 'text-red-600')">{{ row.success ? '成功' : (row.skipped ? '跳过' : '失败') }}</span>
                                                         </div>
+                                                        <div v-if="row.mode_label || row.auto_fetch_mode" class="text-xs text-gray-500 mt-1">策略：{{ row.mode_label || autoFetchModeLabel(row.auto_fetch_mode) }}</div>
                                                         <div class="text-xs text-gray-500 mt-1">{{ row.message || '-' }}</div>
+                                                        <div v-if="Array.isArray(row.modules) && row.modules.length" class="mt-2 flex flex-wrap gap-1">
+                                                            <span v-for="(module, index) in row.modules" :key="(module.module || 'module') + '-' + (module.strategy || 'strategy') + '-' + index" class="px-2 py-1 rounded bg-white border text-xs text-gray-600">
+                                                                {{ module.module }} · {{ module.strategy || '-' }} · {{ module.status_code || (module.success ? 'ok' : (module.skipped ? 'skipped' : 'failed')) }}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -15792,6 +16132,154 @@
                     nextAction: missingCore.length ? '先补核心数据' : (missingSupport.length ? '补辅助信号' : '可分析'),
                 };
             });
+            const dailyOpsPrimaryActions = [
+                { label: '携程概况', page: 'ctrip-ebooking', tab: 'ctrip-overview', icon: 'fas fa-chart-line' },
+                { label: '携程/去哪流量', page: 'ctrip-ebooking', tab: 'ctrip-traffic', icon: 'fas fa-route' },
+                { label: '美团排名', page: 'meituan-ebooking', tab: 'meituan-ranking', icon: 'fas fa-chart-bar' },
+                { label: '广告数据', page: 'ctrip-ebooking', tab: 'ctrip-ads', icon: 'fas fa-bullhorn' },
+            ];
+            const dailyOpsMetricRows = computed(() => [
+                {
+                    category: '基础口径',
+                    metric: '日期 / 星期',
+                    source: '系统按指标日期直接计算，不依赖 OTA 接口。',
+                    field: 'data_date；星期由前端/后端按日期计算',
+                    status: 'ready',
+                    statusText: '已具备',
+                    action: '日报自动带出，人工只需确认统计日期。',
+                },
+                {
+                    category: '市场位置',
+                    metric: '城市排名 / 榜单排名',
+                    source: '携程昨日概况和榜单 raw_data 内已有 amountRank、quantityRank、bookOrderNumRank；美团支持 P_RZ/P_XS/P_ZH/P_LL 排名接口。',
+                    field: 'online_daily_data.raw_data；美团维度写入 dimension/data_value',
+                    status: 'partial',
+                    statusText: '部分具备',
+                    action: '早班先同步 OTA 榜单；城市总榜口径需要确认平台页面是否可见。',
+                },
+                {
+                    category: '流量入口',
+                    metric: 'APP 访客 / 详情访客',
+                    source: '携程概况可取昨日 UV；携程/去哪流量页、美团流量页可取 UV/浏览人数。',
+                    field: 'detail_exposure、raw_data.totalDetailNum、raw_data.qunarDetailVisitors',
+                    status: 'ready',
+                    statusText: '已具备',
+                    action: '每日对比昨日和近7日，识别曝光不足还是点击不足。',
+                },
+                {
+                    category: '服务质量',
+                    metric: '实时 PSI 服务质量分',
+                    source: '携程浏览器概况采集已识别 PSI/psiScore，当前以 raw_data 保留。',
+                    field: 'online_daily_data.raw_data.psi / PSI / psiScore',
+                    status: 'partial',
+                    statusText: '需概况采集',
+                    action: '优先从携程概况同步；未命中时不生成替代分值。',
+                },
+                {
+                    category: '订单结果',
+                    metric: '携程订单数 / 携程间夜量',
+                    source: '携程榜单、昨日概况、订单采集均按现有字段入库。',
+                    field: 'book_order_num、quantity、amount',
+                    status: 'ready',
+                    statusText: '已具备',
+                    action: '作为当日收入复盘的结果指标。',
+                },
+                {
+                    category: '订单结果',
+                    metric: '同程订单数 / 同程间夜量',
+                    source: '当前代码未发现同程订单独立采集链路；携程点评可按渠道 Tab 获取评分，不等同订单。',
+                    field: '暂无专用字段；不写入推算值',
+                    status: 'blocked',
+                    statusText: '未接入',
+                    action: '保留人工填报或后续新增授权采集方案。',
+                },
+                {
+                    category: '订单结果',
+                    metric: '去哪订单数 / 去哪间夜量',
+                    source: '现有携程流量支持 Qunar 平台访客和转化；订单/间夜独立口径需看平台返回字段。',
+                    field: 'qunar_detail_visitors、qunar_detail_cr；订单量仍需 raw_data 佐证',
+                    status: 'partial',
+                    statusText: '部分具备',
+                    action: '先看去哪流量漏斗；订单结果不得用转化率倒推。',
+                },
+                {
+                    category: '携程漏斗',
+                    metric: '携程列表页 / 详情页 / 订单页 / 转化率',
+                    source: '携程流量接口和浏览器 Profile 可获取本酒店与竞争圈平均。',
+                    field: 'list_exposure、detail_exposure、flow_rate、order_filling_num、order_submit_num、compare_type',
+                    status: 'ready',
+                    statusText: '已具备',
+                    action: '用本店与商圈差距判断主图、价格或库存问题。',
+                },
+                {
+                    category: '去哪漏斗',
+                    metric: '去哪列表页 / 详情页 / 订单访客 / 转化率',
+                    source: '携程流量模块支持平台切换到 Qunar，保存同一套流量字段。',
+                    field: 'platform=Qunar + list_exposure/detail_exposure/flow_rate/order_*',
+                    status: 'ready',
+                    statusText: '已具备',
+                    action: '与携程漏斗并列复盘，找渠道差异。',
+                },
+                {
+                    category: '投放',
+                    metric: '云梯 / 金字塔',
+                    source: '金字塔 CPC 广告已有接口和浏览器采集路径；未发现云梯独立采集路径。',
+                    field: 'data_type=advertising；曝光/点击/转化进流量字段，费用与计划进 raw_data',
+                    status: 'partial',
+                    statusText: '金字塔已具备',
+                    action: '金字塔每日同步；云梯先人工备注，待确认入口后再接入。',
+                },
+                {
+                    category: '人工补充',
+                    metric: '备注',
+                    source: '运营人工记录异常事件、活动、竞对动作和采集口径变化。',
+                    field: '当前板块仅提示，不新增备注表',
+                    status: 'manual',
+                    statusText: '人工维护',
+                    action: '写明原因，不用空数据覆盖真实缺口。',
+                },
+            ]);
+            const dailyOpsStatusCards = computed(() => {
+                const count = (status) => dailyOpsMetricRows.value.filter(row => row.status === status).length;
+                return [
+                    {
+                        label: '已具备获取',
+                        value: `${count('ready')}项`,
+                        note: '日期、访客、携程订单、双渠道流量漏斗',
+                        className: 'bg-green-50 text-green-800 border-green-100',
+                    },
+                    {
+                        label: '部分具备',
+                        value: `${count('partial')}项`,
+                        note: '排名、PSI、去哪订单、广告云梯口径',
+                        className: 'bg-yellow-50 text-yellow-800 border-yellow-100',
+                    },
+                    {
+                        label: '未接入',
+                        value: `${count('blocked')}项`,
+                        note: '同程订单/间夜暂未发现独立采集链路',
+                        className: 'bg-red-50 text-red-800 border-red-100',
+                    },
+                    {
+                        label: '人工维护',
+                        value: `${count('manual')}项`,
+                        note: '备注保留运营判断，不写假数据',
+                        className: 'bg-gray-50 text-gray-700 border-gray-100',
+                    },
+                ];
+            });
+            const dailyOpsReviewSteps = [
+                { index: 1, title: '先同步 OTA 概况', detail: '拿订单、间夜、APP访客、PSI和排名，先形成结果口径。' },
+                { index: 2, title: '再看流量漏斗', detail: '拆列表曝光、详情访客、订单页和下单转化，区分流量少还是转化差。' },
+                { index: 3, title: '补投放与商圈对比', detail: '同步金字塔/美团广告，结合本店和商圈均值判断投放效率。' },
+                { index: 4, title: '人工补缺口', detail: '同程、云梯和特殊事件先写备注，确认授权与页面后再做结构化接入。' },
+            ];
+            const dailyOpsMonitorConclusion = computed(() => {
+                const ready = dailyOpsMetricRows.value.filter(row => row.status === 'ready').length;
+                const partial = dailyOpsMetricRows.value.filter(row => row.status === 'partial').length;
+                const blocked = dailyOpsMetricRows.value.filter(row => row.status === 'blocked').length;
+                return `复盘结论：该组数据应作为独立日常运营板块放在天气信号前；当前${ready}项可直接复用现有采集，${partial}项需配置或人工上下文，${blocked}项暂不自动生成。`;
+            });
             const weatherDemandHint = computed(() => {
                 const weather = displayWeather.value;
                 if (!weather.length) return weatherError.value || '待校验数据源，暂不生成经营判断。';
@@ -16386,10 +16874,10 @@
                 try {
                     const res = await request('/online-data/set-fetch-schedule', {
                         method: 'POST',
-                        body: JSON.stringify({ hotel_id: hotelId, schedule_time: autoFetchScheduleTime.value })
+                        body: JSON.stringify({ hotel_id: hotelId, schedule_time: autoFetchScheduleTime.value, auto_fetch_mode: autoFetchMode.value })
                     });
                     if (res.code === 200) {
-                        showToast(`运行时间已设置为每天 ${autoFetchScheduleTime.value}`);
+                        showToast(`运行时间已设置为每天 ${autoFetchScheduleTime.value}，策略：${autoFetchModeLabel(autoFetchMode.value)}`);
                         loadAutoFetchStatus();
                     } else {
                         showToast(res.message || '设置失败', 'error');
@@ -16448,7 +16936,18 @@
             // 自动获取状态
             const autoFetchHotelId = ref('');
             const autoFetchEnabled = ref(false);
+            const autoFetchMode = ref('hybrid_auto');
+            const autoFetchModeOptions = [
+                { value: 'hybrid_auto', label: '混合自动' },
+                { value: 'cookie_config', label: 'Cookie/配置自动' },
+                { value: 'profile_browser', label: '浏览器 Profile 自动' },
+            ];
+            const autoFetchModeLabel = (mode) => {
+                const found = autoFetchModeOptions.find(item => item.value === mode);
+                return found ? found.label : '混合自动';
+            };
             const autoFetchStatus = ref({
+                auto_fetch_mode: 'hybrid_auto',
                 last_run_time: null,
                 next_run_time: null,
                 last_result: null,
@@ -16480,22 +16979,30 @@
                     name: '携程',
                     icon: 'fas fa-plane',
                     tone: 'blue',
-                    mode: autoFetchPlatformStatus.value?.ctrip?.mode || 'ebooking API',
+                    mode: autoFetchPlatformStatus.value?.ctrip?.mode || autoFetchModeLabel(autoFetchMode.value),
                     configured: !!autoFetchPlatformStatus.value?.ctrip?.configured || hasCtripFetchConfigByHotelId(autoFetchHotelId.value),
                     configName: autoFetchPlatformStatus.value?.ctrip?.name || getCtripConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
                     entryUrl: autoFetchPlatformStatus.value?.ctrip?.entry_url || 'https://ebooking.ctrip.com',
-                    modules: ['昨日概况', '榜单数据', 'Profile 概况/流量采集', '流量按配置补充'],
+                    cookieConfigured: !!autoFetchPlatformStatus.value?.ctrip?.cookie_configured,
+                    profileConfigured: !!autoFetchPlatformStatus.value?.ctrip?.profile_configured,
+                    taskCount: autoFetchPlatformStatus.value?.ctrip?.task_count || 0,
+                    nextAction: autoFetchPlatformStatus.value?.ctrip?.next_action || '',
+                    modules: autoFetchPlatformStatus.value?.ctrip?.task_modules?.length ? autoFetchPlatformStatus.value.ctrip.task_modules : ['business', 'traffic', 'browser_profile'],
                 },
                 {
                     key: 'meituan',
                     name: '美团',
                     icon: 'fas fa-store',
                     tone: 'orange',
-                    mode: autoFetchPlatformStatus.value?.meituan?.mode || 'API',
+                    mode: autoFetchPlatformStatus.value?.meituan?.mode || autoFetchModeLabel(autoFetchMode.value),
                     configured: !!autoFetchPlatformStatus.value?.meituan?.configured || hasMeituanFetchConfigByHotelId(autoFetchHotelId.value),
                     configName: autoFetchPlatformStatus.value?.meituan?.name || getMeituanConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
                     entryUrl: autoFetchPlatformStatus.value?.meituan?.entry_url || 'https://eb.meituan.com',
-                    modules: ['排名数据', '流量/订单 Profile 采集', '推广通按登录态补充'],
+                    cookieConfigured: !!autoFetchPlatformStatus.value?.meituan?.cookie_configured,
+                    profileConfigured: !!autoFetchPlatformStatus.value?.meituan?.profile_configured,
+                    taskCount: autoFetchPlatformStatus.value?.meituan?.task_count || 0,
+                    nextAction: autoFetchPlatformStatus.value?.meituan?.next_action || '',
+                    modules: autoFetchPlatformStatus.value?.meituan?.task_modules?.length ? autoFetchPlatformStatus.value.meituan.task_modules : ['ranking', 'traffic', 'comments', 'browser_profile'],
                 },
             ]);
             const autoFetchLegacyItems = computed(() => {
@@ -17085,7 +17592,7 @@
                     if (autoFetchEnabled.value) {
                         const scheduleRes = await request('/online-data/set-fetch-schedule', {
                             method: 'POST',
-                            body: JSON.stringify({ hotel_id: hotelId, schedule_time: autoFetchScheduleTime.value || '10:00' })
+                            body: JSON.stringify({ hotel_id: hotelId, schedule_time: autoFetchScheduleTime.value || '10:00', auto_fetch_mode: autoFetchMode.value })
                         });
                         if (scheduleRes.code !== 200) {
                             autoFetchEnabled.value = false;
@@ -17095,7 +17602,7 @@
                     }
                     const res = await request('/online-data/toggle-auto-fetch', {
                         method: 'POST',
-                        body: JSON.stringify({ enabled: autoFetchEnabled.value, hotel_id: hotelId })
+                        body: JSON.stringify({ enabled: autoFetchEnabled.value, hotel_id: hotelId, auto_fetch_mode: autoFetchMode.value })
                     });
                     if (res.code === 200) {
                         showToast(autoFetchEnabled.value ? '自动获取已开启' : '自动获取已关闭');
@@ -17145,6 +17652,7 @@
                         autoFetchEnabled.value = res.data?.enabled || false;
                         autoFetchStatus.value = res.data || {};
                         autoFetchScheduleTime.value = res.data?.schedule_time || '10:00';
+                        autoFetchMode.value = res.data?.auto_fetch_mode || 'hybrid_auto';
                         const missed = Array.isArray(res.data?.missed_dates) ? res.data.missed_dates : [];
                         const failed = Array.isArray(res.data?.failed_records) ? res.data.failed_records : [];
                         autoFetchBackfillDate.value = missed[0] || failed[0]?.data_date || autoFetchBackfillDate.value || autoFetchMaxBackfillDate.value;
@@ -17170,13 +17678,13 @@
                 autoFetchRunState.value = {
                     active: true,
                     type: 'running',
-                    message: '已提交后端执行。系统会优先使用已保存配置和本地浏览器 Profile，若弹出 OTA 登录窗口，请完成登录后等待结果返回。',
+                    message: `已提交后端执行。当前策略：${autoFetchModeLabel(autoFetchMode.value)}。混合自动会先跑 Cookie/配置任务，再用浏览器 Profile 补充动态页面。`,
                     started_at: startedAt,
                     finished_at: '',
                 };
-                showToast('正在启动平台抓取，浏览器 Profile 会由后端自动打开...', 'info');
+                showToast(`正在启动平台抓取：${autoFetchModeLabel(autoFetchMode.value)}`, 'info');
                 try {
-                    const body = { system_hotel_id: hotelId, interactive_browser: true };
+                    const body = { system_hotel_id: hotelId, interactive_browser: true, auto_fetch_mode: autoFetchMode.value };
                     const res = await request('/online-data/auto-fetch', {
                         method: 'POST',
                         body: JSON.stringify(body)
@@ -17245,7 +17753,7 @@
                 try {
                     const res = await request('/online-data/retry-auto-fetch', {
                         method: 'POST',
-                        body: JSON.stringify({ hotel_id: hotelId, data_date: targetDate })
+                        body: JSON.stringify({ hotel_id: hotelId, data_date: targetDate, auto_fetch_mode: autoFetchMode.value })
                     });
                     if (res.code === 200) {
                         showToast(`补抓成功，保存了 ${res.data?.saved_count || 0} 条数据`);
@@ -17510,6 +18018,7 @@
                 },
                 { name: '平台数据自动获取', path: 'online-data', tab: 'platform-auto', icon: 'fas fa-robot', testid: 'nav-platform-auto-fetch', requireSuper: false, permissions: ['can_view_online_data'] },
                 { name: '酒店AI工具箱', path: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true, permissions: [] },
+                { name: '酒店收益管理研究中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', requireManager: true, permissions: [] },
                 { name: '智能知识中枢', path: 'knowledge-center', icon: 'fas fa-brain', requireManager: true, permissions: [] },
                 { 
                     name: '团队管理', 
@@ -17838,6 +18347,10 @@
             const knowledgeCenterForm = ref({ unit_id: null, name: '', source: 'text', status: 'pending', description: '', tags: '' });
             const knowledgeCenterChunkForm = ref({ type: '经验片段', content: defaultKnowledgeExperienceChunk() });
             const knowledgeCenterImportForm = ref({ mode: 'link', source: 'link', tags: '', raw: '' });
+            const knowledgeDistillationRunning = ref('');
+            const knowledgeDistillationFullTrain = ref(false);
+            const knowledgeDistillationMaxBatches = ref(1);
+            const knowledgeDistillationResult = ref(null);
             
             // 表格列定义
             const hotelColumns = [
@@ -17873,7 +18386,7 @@
             const filterUserRoleId = ref('');
             const filterReportHotel = ref('');
             const compassHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
-            const knowledgeCenterBaseSourceOptions = ['video', 'link', 'text', 'strategy', 'manual', 'url', 'ota', 'ctrip', 'meituan', 'ai'];
+            const knowledgeCenterBaseSourceOptions = ['video', 'link', 'text', 'strategy', 'manual', 'url', 'ota', 'ctrip', 'meituan', 'ai', 'revenue_research', 'ml_distillation'];
             const knowledgeImportModeMeta = (mode) => ({
                 video: { label: '视频链接列表', placeholder: '每行一个视频链接，可填写培训视频、直播回放、案例讲解链接' },
                 link: { label: '链接列表', placeholder: '每行一个文章、案例、报表或资料链接' },
@@ -17903,6 +18416,23 @@
                     sources: stats.sourceSet.size,
                     avg_chunks: (stats.chunks / unitCount).toFixed(1),
                 };
+            });
+            const formatKnowledgeDistillationMetric = (value) => {
+                if (value === undefined || value === null || value === '') return '-';
+                const numberValue = Number(value);
+                if (!Number.isFinite(numberValue)) return String(value);
+                if (Math.abs(numberValue) > 0 && Math.abs(numberValue) < 0.0001) return numberValue.toExponential(2);
+                return numberValue.toFixed(4).replace(/\.?0+$/, '');
+            };
+            const knowledgeDistillationMetricRows = computed(() => {
+                const result = knowledgeDistillationResult.value || {};
+                const metrics = result.metrics || {};
+                return [
+                    { label: '模式', value: result.label || result.mode || '-' },
+                    { label: '批次', value: metrics.batches ?? result.max_batches ?? '-' },
+                    { label: 'CE Loss', value: formatKnowledgeDistillationMetric(metrics.ce_loss) },
+                    { label: 'KD Loss', value: formatKnowledgeDistillationMetric(metrics.kd_loss) },
+                ];
             });
             const knowledgeCenterSourceOptions = computed(() => {
                 const sources = new Set(knowledgeCenterBaseSourceOptions);
@@ -20502,6 +21032,8 @@
                 ctrip: '携程',
                 meituan: '美团',
                 ai: 'AI分析',
+                revenue_research: '收益研究',
+                ml_distillation: '模型蒸馏',
             }[source] || source || '');
 
             const formatKnowledgeJson = (value) => {
@@ -20647,6 +21179,31 @@
             const refreshKnowledgeUnit = async () => {
                 await loadKnowledgeCenter();
                 showToast('已刷新');
+            };
+
+            const runKnowledgeDistillation = async (mode = 'kd') => {
+                if (knowledgeDistillationRunning.value) return;
+                const maxBatches = knowledgeDistillationFullTrain.value
+                    ? 0
+                    : Math.max(1, Math.min(1000, Number(knowledgeDistillationMaxBatches.value) || 1));
+                knowledgeDistillationRunning.value = mode;
+                try {
+                    const res = await request('/knowledge/distillation/run', {
+                        method: 'POST',
+                        body: JSON.stringify({ mode, max_batches: maxBatches }),
+                    });
+                    knowledgeDistillationResult.value = res.data || null;
+                    if (res.code === 0) {
+                        showToast(mode === 'baseline' ? 'Baseline训练完成' : '知识蒸馏训练完成');
+                        await loadKnowledgeCenter();
+                    } else {
+                        showToast(res.msg || '知识蒸馏训练失败', 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message || '知识蒸馏训练失败', 'error');
+                } finally {
+                    knowledgeDistillationRunning.value = '';
+                }
             };
 
             const openKnowledgeChunks = async (unit) => {
@@ -21209,6 +21766,223 @@
                 { name: '文心一言', scene: '品牌', desc: '中文生成、品牌内容、经营问答。', url: 'https://yiyan.baidu.com/', icon: 'fas fa-feather-alt', iconBg: 'bg-red-50', iconColor: 'text-red-600' },
                 { name: '秘塔AI搜索', scene: '核验', desc: '联网搜索、资料核验、行业信息整理。', url: 'https://metaso.cn/', icon: 'fas fa-globe', iconBg: 'bg-slate-50', iconColor: 'text-slate-600' },
             ];
+            const revenueResearchProducts = [
+                {
+                    key: 'demand-forecast',
+                    name: '需求预测',
+                    status: 'connected',
+                    statusText: '已接入',
+                    delivery: '读取线上收入、间夜、订单和 ADR，预测未来 7/30 天需求和收入走势。',
+                    searchQuery: 'hotel demand forecasting stay date lead time WAPE sMAPE OTA revenue management',
+                    aiTask: '基于本地日级经营数据和预测基线，输出未来需求、收入、间夜、ADR、风险和运营动作。',
+                    moduleLabel: '酒店AI工具箱 / 收益管理 / 收益分析',
+                    module: { page: 'agent-center', agentTab: 'revenue', revenueTab: 'analysis', loader: 'revenue-analysis' },
+                },
+                {
+                    key: 'cancellation-risk',
+                    name: '取消率预测',
+                    status: 'gap',
+                    statusText: '需新增接口',
+                    delivery: '优先读取已有订单和取消字段，预测取消风险；字段不足时明确补数要求。',
+                    searchQuery: 'hotel booking cancellation prediction free cancellation recoverable room nights hazard model',
+                    aiTask: '预测取消对净间夜和收入的影响，输出高风险订单口径、可回收间夜和超售控制动作。',
+                    moduleLabel: '待新增：取消风险订单表、预警列表、净需求修正接口',
+                    module: null,
+                },
+                {
+                    key: 'price-elasticity',
+                    name: '价格弹性与收益管理',
+                    status: 'connected',
+                    statusText: '已接入',
+                    delivery: '读取价格、销量和竞对数据，预测调价对收入、间夜和 ADR 的影响。',
+                    searchQuery: 'hotel dynamic pricing price elasticity constrained optimization contextual bandit RevPAR',
+                    aiTask: '基于经营预测和竞对价格，输出调价区间、收益影响、执行约束和人工复核点。',
+                    moduleLabel: '酒店AI工具箱 / 收益管理 / 定价建议',
+                    module: { page: 'agent-center', agentTab: 'revenue', revenueTab: 'suggestions', loader: 'price-suggestions' },
+                },
+                {
+                    key: 'channel-attribution',
+                    name: '渠道归因与增量评估',
+                    status: 'orchestrated',
+                    statusText: '可编排',
+                    delivery: '读取曝光、点击、订单和活动数据，判断渠道动作是否带来增量收入。',
+                    searchQuery: 'CUPED A/B testing difference in differences hotel OTA channel attribution incrementality',
+                    aiTask: '预测渠道投放或活动对订单、收入和 ROI 的影响，并给出继续、收缩或调整建议。',
+                    moduleLabel: '酒店AI工具箱 / OTA诊断',
+                    module: { page: 'agent-center', agentTab: 'overview', loader: 'agent-overview' },
+                },
+                {
+                    key: 'customer-segmentation',
+                    name: '客群细分',
+                    status: 'gap',
+                    statusText: '需新增接口',
+                    delivery: '读取可用订单特征，预测不同客群的复购、客单价和触达优先级。',
+                    searchQuery: 'hotel customer segmentation RFM KMeans HDBSCAN propensity model OTA repeat customer',
+                    aiTask: '按可运营客群输出收入贡献、复购风险、促销触达和需要补齐的用户字段。',
+                    moduleLabel: '待新增：客群特征宽表、分群结果、运营触达动作',
+                    module: null,
+                },
+                {
+                    key: 'ltv',
+                    name: 'LTV 预测',
+                    status: 'gap',
+                    statusText: '需新增接口',
+                    delivery: '读取用户订单序列和收入数据，预测会员价值、获客上限和权益投入边界。',
+                    searchQuery: 'hotel customer lifetime value BG NBD Gamma Gamma gradient boosting survival regression',
+                    aiTask: '输出高价值客群、未来收入贡献、获客成本上限和需要补齐的退款/复购字段。',
+                    moduleLabel: '待新增：用户生命周期表、LTV 预测结果、CAC 联动配置',
+                    module: null,
+                },
+                {
+                    key: 'anomaly-detection',
+                    name: '异常检测',
+                    status: 'orchestrated',
+                    statusText: '可编排',
+                    delivery: '读取经营波动和预警记录，预测收入、间夜、转化或点评异常风险。',
+                    searchQuery: 'hotel OTA anomaly detection STL ESD isolation forest conversion rate alert root cause',
+                    aiTask: '识别最近趋势中的异常信号，输出影响判断、排查优先级和恢复动作。',
+                    moduleLabel: '项目AI管理 / 运营管理 / 策见·预警推送',
+                    module: { page: 'ops-insight', loader: 'operation-alerts' },
+                },
+                {
+                    key: 'review-topic',
+                    name: '点评主题与服务缺口识别',
+                    status: 'orchestrated',
+                    statusText: '可编排',
+                    delivery: '读取点评和评分数据，预测服务缺口对转化、评分和收入的影响。',
+                    searchQuery: 'hotel review topic modeling BERT embedding service gap detection negative review recall',
+                    aiTask: '输出高频差评主题、可能影响的经营指标、整改优先级和复核要求。',
+                    moduleLabel: '数据配置 / 携程点评 / 美团点评',
+                    module: { page: 'data-config' },
+                },
+            ];
+            const revenueResearchStatusClass = (status) => ({
+                connected: 'bg-green-50 text-green-700 border-green-100',
+                orchestrated: 'bg-blue-50 text-blue-700 border-blue-100',
+                gap: 'bg-amber-50 text-amber-700 border-amber-100',
+            }[status] || 'bg-gray-50 text-gray-600 border-gray-100');
+            const revenueResearchRuns = ref({});
+            const revenueResearchModelKey = ref('deepseek_chat');
+            const revenueResearchHotelId = ref('');
+            const revenueResearchHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
+            watch(revenueResearchHotelOptions, (options) => {
+                if (!revenueResearchHotelId.value && Array.isArray(options) && options.length === 1) {
+                    revenueResearchHotelId.value = options[0].id;
+                }
+            }, { immediate: true });
+            const revenueResearchSteps = ['读取经营数据', '计算预测基线', 'AI经营判断', '输出运营动作'];
+            const revenueResearchRunFor = (productKey) => revenueResearchRuns.value[productKey] || {};
+            const setRevenueResearchRun = (productKey, patch) => {
+                revenueResearchRuns.value = {
+                    ...revenueResearchRuns.value,
+                    [productKey]: {
+                        ...(revenueResearchRuns.value[productKey] || {}),
+                        ...patch,
+                    },
+                };
+            };
+            const revenueResearchStepClass = (run = {}, index) => {
+                if (run.error) return 'border-red-100 bg-red-50 text-red-600';
+                const stepIndex = Number(run.stepIndex || 0);
+                if (run.result || stepIndex > index) return 'border-green-100 bg-green-50 text-green-700';
+                if (run.loading && stepIndex === index) return 'border-blue-100 bg-blue-50 text-blue-700';
+                return 'border-gray-100 bg-gray-50 text-gray-400';
+            };
+            const revenueResearchStepIcon = (run = {}, index) => {
+                if (run.error) return 'fas fa-exclamation-circle';
+                const stepIndex = Number(run.stepIndex || 0);
+                if (run.result || stepIndex > index) return 'fas fa-check-circle';
+                if (run.loading && stepIndex === index) return 'fas fa-spinner fa-spin';
+                return 'far fa-circle';
+            };
+            const revenueResearchResultStatusLabel = (status) => ({
+                done: '已生成经营预测',
+                pending_data: '已预测，需补数据校准',
+            }[status] || status || '已完成');
+            const revenueResearchResultStatusClass = (status) => ({
+                done: 'bg-green-100 text-green-700',
+                pending_data: 'bg-amber-100 text-amber-700',
+            }[status] || 'bg-gray-100 text-gray-600');
+            const revenueResearchForecastCards = (result = {}) => {
+                const forecast = result.business_forecast || {};
+                const forecast7 = forecast.forecast_7d || {};
+                const forecast30 = forecast.forecast_30d || {};
+                if (!forecast.available || (!forecast7.revenue && !forecast30.revenue)) return [];
+                return [
+                    {
+                        label: '未来7天收入',
+                        value: formatCurrency(forecast7.revenue || 0),
+                        note: `间夜 ${Math.round(toNumber(forecast7.room_nights))} · ADR ${formatCurrency(forecast7.adr || 0)}`,
+                    },
+                    {
+                        label: '未来30天收入',
+                        value: formatCurrency(forecast30.revenue || 0),
+                        note: `间夜 ${Math.round(toNumber(forecast30.room_nights))} · ADR ${formatCurrency(forecast30.adr || 0)}`,
+                    },
+                    {
+                        label: '最近趋势',
+                        value: `${toFixedSafe(forecast.trend_percent || 0, 2, '0.00')}%`,
+                        note: `样本 ${forecast.sample_days || 0} 天 · ${forecast.date_range?.start || '-'} 至 ${forecast.date_range?.end || '-'}`,
+                    },
+                ];
+            };
+            const runRevenueResearchProduct = async (product) => {
+                if (!product || revenueResearchRunFor(product.key).loading) return;
+                let progressTimer = null;
+                setRevenueResearchRun(product.key, { loading: true, stepIndex: 0, error: '', result: null });
+                progressTimer = setInterval(() => {
+                    const run = revenueResearchRunFor(product.key);
+                    if (!run.loading) return;
+                    setRevenueResearchRun(product.key, { stepIndex: Math.min(Number(run.stepIndex || 0) + 1, revenueResearchSteps.length - 1) });
+                }, 900);
+                try {
+                    const res = await apiRequest('/revenue-research/run', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            product_key: product.key,
+                            model_key: revenueResearchModelKey.value || 'deepseek_chat',
+                            hotel_id: revenueResearchHotelId.value || '',
+                        }),
+                    });
+                    if (res.code === 200) {
+                        setRevenueResearchRun(product.key, { loading: false, stepIndex: revenueResearchSteps.length - 1, result: res.data, error: '' });
+                        showToast(res.data?.status === 'pending_data' ? '已生成预测，需补数据校准' : '经营预测已生成');
+                        return;
+                    }
+                    setRevenueResearchRun(product.key, { loading: false, error: res.message || '预测失败' });
+                    showToast(res.message || '预测失败', 'error');
+                } catch (error) {
+                    const message = error?.data?.message || error.message || '预测失败';
+                    setRevenueResearchRun(product.key, { loading: false, error: message });
+                    showToast(message, 'error');
+                } finally {
+                    if (progressTimer) clearInterval(progressTimer);
+                }
+            };
+            const openRevenueResearchModule = async (product) => {
+                if (!product.module) {
+                    showToast(`${product.name}需要新增数据表和接口后才能在系统内闭环`, 'error');
+                    return;
+                }
+                currentPage.value = product.module.page;
+                await nextTick();
+                if (product.module.page === 'agent-center') {
+                    agentTab.value = product.module.agentTab || agentTab.value;
+                    if (product.module.revenueTab) {
+                        revenueAgentTab.value = product.module.revenueTab;
+                    }
+                    if (product.module.loader === 'revenue-analysis') {
+                        await loadRevenueAnalysisBundle();
+                    } else if (product.module.loader === 'price-suggestions') {
+                        await loadPriceSuggestions();
+                    } else if (product.module.loader === 'agent-overview') {
+                        await loadAgentOverview();
+                    }
+                }
+                if (product.module.loader === 'operation-alerts') {
+                    await loadOperationAlerts();
+                }
+            };
 
             // Agent配置
             const agentConfigs = ref({
@@ -28383,6 +29157,19 @@
             const collaborationEfficiencyLoading = ref(false);
             const expansionRecords = ref([]);
             const expansionRecordsLoading = ref(false);
+            const expansionRecordPageTypes = {
+                'market-evaluation': 'market',
+                'market-eval': 'market',
+                'benchmark-model': 'benchmark',
+                'collaboration-efficiency': 'collaboration',
+                'sync-efficiency': 'collaboration'
+            };
+            const currentExpansionRecordType = computed(() => expansionRecordPageTypes[currentPage.value] || '');
+            const visibleExpansionRecords = computed(() => {
+                const recordType = currentExpansionRecordType.value;
+                if (!recordType) return expansionRecords.value;
+                return expansionRecords.value.filter(record => record.record_type === recordType);
+            });
             const hasMarketEvaluationHistory = computed(() => expansionRecords.value.some(record => record.record_type === 'market'));
             const hasExpansionHistory = computed(() => expansionRecords.value.length > 0);
 
@@ -29005,6 +29792,11 @@
                 }
             };
 
+            const isExpansionRecordVisibleOnPage = (record, page = currentPage.value) => {
+                const recordType = expansionRecordPageTypes[page] || '';
+                return !recordType || record?.record_type === recordType;
+            };
+
             const loadExpansionDetail = async (id, reuseInput = false) => {
                 if (!id) return;
                 const requestPage = currentPage.value;
@@ -29012,6 +29804,7 @@
                     const res = await request(`/expansion/records/${id}`);
                     if (res.code !== 200) throw new Error(res.message || '获取扩张记录详情失败');
                     if (!isStillOnRequestPage(requestPage)) return;
+                    if (!isExpansionRecordVisibleOnPage(res.data, requestPage)) return;
                     applyExpansionRecord(res.data, reuseInput);
                     showToast(reuseInput ? '历史输入已复用' : '历史记录已载入');
                 } catch (error) {
@@ -30507,7 +31300,7 @@
                 marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiJudgementRows, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationRiskSeverityClass, marketEvaluationAiAssumptions, marketEvaluationScoreFormula, marketEvaluationScoreBreakdown, marketEvaluationScorePercent, formatMarketEvaluationScoreChange, marketEvaluationScoreChangeClass, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
                 benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkModelAiSourceLabel, benchmarkModelAiRecommendations, benchmarkModelAiWatchPoints, benchmarkModelAiAssumptionNote, benchmarkModelDataNotice, benchmarkModelAiOutcomeCards, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
                 collaborationProject, collaborationTasks, collaborationStatusOptions, collaborationEfficiencyResult, collaborationEfficiencyLoading, handleCollaborationEfficiency,
-                expansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, hasExpansionHistory, expansionRecordTypeLabel, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
+                expansionRecords, visibleExpansionRecords, expansionRecordsLoading, hasMarketEvaluationHistory, hasExpansionHistory, expansionRecordTypeLabel, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
                 transferPricingForm, transferPricingFields, transferAiModelOptions, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, transferPricingAiEvaluation, transferPricingAiEvaluationVisible, transferPricingAiEvaluationSourceLabel, handleTransferPricing,
                 transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingDataCheck, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
@@ -30531,12 +31324,16 @@
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState, selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
                 compassHotelOptions, compassLoading, compassLastSyncedAt, compassDataReadiness, refreshCompassDashboard,
+                dailyOpsPrimaryActions, dailyOpsStatusCards, dailyOpsMetricRows, dailyOpsReviewSteps, dailyOpsMonitorConclusion,
                 weatherDemandHint, weatherDecisionTags, weatherDecisionInsights, weatherLocationName, selectedWeatherCity, weatherCityPickerOpen, weatherCityChoices, selectWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, weatherToday, weatherForecastDays, weatherImpactTone, weatherLoading, weatherError,
                 homeQuickEntries, hiddenHomeQuickEntries, homeQuickLayoutEditing, homeQuickLayoutSaving, homeQuickLayoutSaveHint, homeQuickDragKey, homeQuickDragOverKey, startHomeQuickDrag, enterHomeQuickDrag, dropHomeQuickDrag, endHomeQuickDrag, toggleHomeQuickEntry, resetHomeQuickLayout, saveHomeQuickLayout, openHomeQuickEntry,
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusClass, loadLifecycleOverview,
                 isLoggedIn, loading, loginError, user, token, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
                 directorEntryVisible, directorEntryAnswer, directorEntryError,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
+                revenueResearchProducts, revenueResearchStatusClass, revenueResearchRuns, revenueResearchHotelId, revenueResearchHotelOptions, revenueResearchSteps, revenueResearchRunFor,
+                revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass,
+                revenueResearchForecastCards, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu,
                 hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, formatConfigDate, secretPreview,
@@ -30544,12 +31341,13 @@
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
                 knowledgeCenterSourceOptions, knowledgeCenterIsFiltered, knowledgeImportCurrentMeta,
+                knowledgeDistillationRunning, knowledgeDistillationFullTrain, knowledgeDistillationMaxBatches, knowledgeDistillationResult, knowledgeDistillationMetricRows,
                 showKnowledgeCenterUnitModal, showKnowledgeCenterChunksModal, showKnowledgeCenterImportModal,
                 knowledgeCenterSelectedUnit, knowledgeCenterChunks, knowledgeCenterForm, knowledgeCenterChunkForm, knowledgeCenterImportForm, knowledgeCenterImporting,
                 loadKnowledgeCenter, reloadKnowledgeCenter, changeKnowledgeCenterPage, resetKnowledgeCenterFilter,
                 filterByKnowledgeStatus, updateKnowledgeUnitStatus,
                 knowledgeCenterStatusLabel, knowledgeCenterStatusClass, knowledgeCenterSourceLabel, formatKnowledgeJson,
-                openKnowledgeUnitModal, saveKnowledgeUnit, deleteKnowledgeUnit, refreshKnowledgeUnit, openKnowledgeChunks, saveKnowledgeChunk, openKnowledgeImportModal, setKnowledgeImportMode, importKnowledgeUnits,
+                openKnowledgeUnitModal, saveKnowledgeUnit, deleteKnowledgeUnit, refreshKnowledgeUnit, runKnowledgeDistillation, openKnowledgeChunks, saveKnowledgeChunk, openKnowledgeImportModal, setKnowledgeImportMode, importKnowledgeUnits,
                 systemConfig, systemConfigForm, showSystemConfigModal,
                 activeConfigGroup, configGroups, menuConfigItems, featureSwitches,
                 showImportConfigModal, importConfigFile, importConfigPreview,
@@ -30582,7 +31380,7 @@
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
                 selectedOnlineDataIds, toggleSelectAllOnlineData, isAllOnlineDataSelected, batchDeleteOnlineData, clearAutoFetchRecordHistory,
-                autoFetchScheduleTime, saveFetchSchedule, autoFetchHotelId, autoFetchRunState, loadAutoFetchPanel,
+                autoFetchScheduleTime, saveFetchSchedule, autoFetchHotelId, autoFetchMode, autoFetchModeOptions, autoFetchModeLabel, autoFetchRunState, loadAutoFetchPanel,
                 autoFetchPlatformCards, autoFetchPlatformResultRows,
                 autoFetchBackfillDate, autoFetchBackfillingDate, autoFetchMaxBackfillDate, autoFetchLegacyItems, autoFetchRecentRuns, retryAutoFetchDate,
                 loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter,

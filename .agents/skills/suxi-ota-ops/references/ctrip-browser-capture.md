@@ -1,136 +1,84 @@
-# 携程浏览器采集方法
+# 携程数据获取方案（手动 + 自动）
 
 ## 定位
 
-携程数据采集以浏览器 Profile + response 监听为主。手动采集路径默认用户已提供 Cookie、Token、酒店 ID、Payload 等必要抓取上下文，宿析OS系统只负责校验字段、调用对应接口完成数据抓取、清洗和入库。
+携程数据获取分两条路线：
 
-目标是在酒店已有合法账号和授权范围内，自动路径模拟运营人员打开携程商家后台并监听页面返回的经营 JSON；手动路径使用用户提交的字段上下文，由系统端抓取并按宿析OS现有字段入库。
+1. 手动获取：用户提供携程后台导出文件、Trip Connect 接口结果，或已取得的 Cookie、`spidertoken`、`node_id`、Payload 等上下文；宿析OS只负责校验、抓取/导入、清洗和入库。
+2. 自动获取：宿析OS使用每个门店独立 Profile 打开携程商家后台，在授权范围内监听页面业务 JSON，并按模块入库。
+
+手动不是自动登录；自动不是让用户每次复制 Cookie。两条路径服务同一个业务目标，但触发方式和依赖条件不同。
+
+## 当前优先业务
+
+| 优先级 | 数据模块 | 主要用途 | 推荐路径 |
+| --- | --- | --- | --- |
+| P0 | 经营概况、订单、间夜、收入 | OTA 经营日报、收益分析 | 手动导入/接口上下文 + 自动 Profile |
+| P0 | 流量、转化、排名 | 周月看板、漏斗诊断 | 手动报表或 Payload + 自动 Profile |
+| P0 | 点评、评分、回复 | 口碑看板、服务质量 | 手动 Payload + 自动 Profile |
+| P1 | 房态、房价、ARI、产品 | 房态价量日报、价格巡检 | Trip Connect/API/导出优先，自动补充 |
+| P1 | 竞对、市场热度 | 经营复盘、收益建议 | 仅采集后台可见或官方导出项 |
+| P2 | 广告投放 | 活动复盘、ROI | 有广告成本和账号权限时再接入 |
 
 ## 合规边界
 
-- 只采集当前酒店账号下可见的数据。
+- 只采集当前酒店账号可见的数据。
 - 不绕过登录、短信、滑块、人机验证或平台权限体系。
 - 不采集非授权门店、竞品后台或平台内部不可见数据。
-- 不把 Cookie、spidertoken、Profile、账号密码、手机号明文写入文档、日志或 Git。
-- 客人手机号等敏感字段进入 `raw_data` 前应脱敏或最小化保留。
+- Cookie、`spidertoken`、Profile、账号密码、手机号明文不得写入文档、日志或 Git。
+- 客人信息进入 `raw_data` 前应脱敏或最小化保留。
 
-## 端点记录规则
+## 手动获取
 
-“端口”只记录真实观察到的访问端点，不写死为固定值。
+手动路径适合临时补数、首次接入、平台改版排障、自动采集失效时补录。
 
-| 项 | 记录规则 |
-| --- | --- |
-| 页面 URL | 记录完整入口 URL，例如点评页、订单页、数据中心页 |
-| 请求 URL 关键词 | 记录可稳定匹配的接口片段，例如 `getCommentList` |
-| 协议与域名 | 从浏览器请求 URL 解析，如 `https` + `ebooking.ctrip.com` |
-| 端口来源 | URL 有显式端口时记录显式端口；无显式端口时只备注“按协议默认推断”，不作为代码常量 |
-| 端口分类 | 外部平台端点、本地系统端口、浏览器调试端口分开记录 |
-| 是否显式端口 | 用布尔值或说明字段记录，避免把默认推断值误当作平台固定规则 |
+| 手动方式 | 用户提供 | 系统处理 | 不做什么 |
+| --- | --- | --- | --- |
+| 报表/文件导入 | 携程后台导出的订单、流量、点评、房态价量报表 | 解析、校验、字段映射、入库 | 不启动浏览器，不自动登录 |
+| 请求上下文抓取 | Cookie、`spidertoken`、`node_id`/酒店 ID、Payload、日期范围、渠道 Tab | 调用现有 `/api/online-data/fetch-ctrip*` 兼容接口 | 不替用户补未知 token，不猜 Payload |
+| Trip Connect/API | 已授权接口返回或导出 | 按内容、ARI、预订、点评模块解析 | 不把未授权 API 当成已有能力 |
 
-## 登录态与 Profile
+字段缺失时只返回缺失项和获取入口，不在手动流程里自动打开后台。
 
-| 项 | 规则 |
-| --- | --- |
-| Profile 目录 | `storage/ctrip_profile_{store_id}` |
-| 隔离粒度 | 每个门店一个独立浏览器 Profile |
-| 登录优先级 | 复用 Profile Cookie -> 打开后台检查登录 -> 自动登录 -> 人工完成短信/滑块/人机验证 |
-| 保存策略 | 登录成功后继续复用同一 Profile，不提交到 Git |
+## 自动获取
 
-多门店采集必须带 `system_hotel_id` 或平台 `hotel_id`，入库前确认当前账号和目标门店匹配。
+自动路径用于日常日报、巡检、看板和预警。
 
-## 手动采集路线
+1. 使用 `storage/ctrip_profile_{store_id}`，每个门店独立 Profile。
+2. 复用已登录状态；失效时返回 `needs_login` 并打开登录页，等待人工完成短信、滑块或人机验证。
+3. 按模块打开页面：经营概况、流量、订单、点评、房态房价。
+4. 只监听 XHR/fetch、HTTP 200、可解析 JSON、命中 URL 规则的响应。
+5. DOM 只补页面已展示的排名、摘要或缺失指标；不抓菜单、按钮、导航文本作为业务数据。
+6. 清洗、脱敏、去重后写入 `online_daily_data`，关键原始结构进入 `raw_data`。
 
-手动采集不是手工复制经营数据，也不要求系统登录 OTA 后台；它默认用户已经提供系统抓取所需上下文字段。
+## 模块字段与入口
 
-1. 用户在宿析OS选择平台、酒店、数据模块和日期范围。
-2. 用户提交已取得的必要字段：`Cookie`、`spidertoken`、`node_id`、平台 `hotel_id`、原始 Payload、渠道 Tab。
-3. 系统校验必填字段；字段缺失时只提示用户补充对应字段和参考页面入口，不在手动流程内自动登录后台。
-4. 系统调用 `/api/online-data/fetch-ctrip`、`/fetch-ctrip-traffic`、`/fetch-ctrip-comments` 等接口抓取。
-5. 系统完成 JSON 解析、空值兜底、去重、脱敏和入库；人工页面文本仅用于核对或接口缺失时的兜底线索。
-
-## 自动采集路线
-
-1. Playwright 启动持久化 Profile：`storage/ctrip_profile_{store_id}`。
-2. 复用已登录状态；失效时打开携程登录页，等待人工完成短信、滑块或人机验证。
-3. 注册 `response` 监听，只处理 XHR/fetch、HTTP 200、JSON 响应。
-4. 按页面入口触发接口，使用 URL 关键词归入点评、流量、订单、广告、昨日概况等数据槽位。
-5. 接口未命中时只从 DOM 补排名、摘要或页面已展示指标；OCR 仅作为最后排障兜底。
-6. 清洗后写入 `online_daily_data`，保留脱敏原始结构到 `raw_data`。
-
-## 页面与接口监听
-
-按业务页面触发接口，不假设一个页面包含全部数据。
-
-| 数据模块 | 页面入口 | 请求 URL / 关键字 | 手动必须字段 | 可取字段与兜底 |
-| --- | --- | --- | --- | --- |
-| 登录态 | `https://ebooking.ctrip.com/login?...` | 登录页表单、Cookie | 用户已提供的 `Cookie`、账号可见酒店 | 手动模式只校验已提交 Cookie；自动模式才检查 Profile 登录态 |
-| 点评明细 | `https://ebooking.ctrip.com/comment/commentList?microJump=true` | `getCommentList` | `Cookie`、`spidertoken`、Payload、日期/分页条件、渠道 Tab | 评价 ID、评分、内容、回复、是否回复、是否差评、评价人、房型、入住日期、评价时间、标签；DOM 兜底 |
-| 流量数据 | `https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true` | `queryScanFlowDetailsV2`、`queryFlowTransforNew`、`queryHomePageRealTimeData`、`getFlowData`、`getTrafficData`、`getStatData` | `Cookie`、`node_id` / `hotel_id`、Payload、日期范围 | PV、UV、订单/点击数、转化率、竞争圈排名、品类排名、原始排名 JSON；DOM 兜底排名 |
-| 订单数据 | `https://ebooking.ctrip.com/ebkorderv3/domestic` | `unprocessOrderList`、`queryOrderList`、`getOrderList`、`getDomesticOrder` | `Cookie`、订单筛选 Payload、日期范围 | 订单号、状态、房型、间数、入住/离店日期、晚数、金额、均价、客人姓名、电话、下单时间；订单表格 DOM 兜底 |
-| 金字塔广告 | `https://ebooking.ctrip.com/toolcenter/cpc/pyramid` | `pyramidad`、`promotion` | `Cookie`、广告页 Payload、日期范围 | 曝光、点击、预订/成交数、消耗/费用、原始广告数据；DOM 兜底 |
-| 昨日概况 | `https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true` | `getDayReportRealTimeDate`、`fetchMarketOverViewV2`、`getDayReportFlowCompete`、`getDayReportServerQuantity`、`fetchVisitorTitleV2`、`fetchCapacityOverViewV4` | `Cookie`、`node_id` / `hotel_id`、昨日日期、页面 Payload | 昨日 UV、订单数、成交收入、成交间夜、均价、成交率、竞品 UV/订单/收入、PSI、回复率、收藏数、访客排名 |
-| 分渠道评分 | 点评页 + 渠道 Tab | `getCommentList` | `Cookie`、`spidertoken`、渠道 Tab、日期/分页 Payload | 携程/同程/去哪儿/智行等渠道评分、好评数、差评数 |
-
-响应处理只接收：
-
-- 资源类型为 XHR 或 fetch。
-- HTTP 状态码为 200。
-- 返回体可解析为 JSON。
-- URL 命中明确业务规则。
-
-未命中的响应如果包含 `pv`、`uv`、`order`、`score`、`amount` 等指标，应记录接口摘要和样例结构，后续再补规则；不要直接宽泛入库。
+| 数据模块 | 手动必须字段 | 自动入口/关键词 | 核心字段 |
+| --- | --- | --- | --- |
+| 经营概况 | Cookie 或导出报表、酒店 ID、日期 | 数据中心概况页、昨日概况接口 | 成交金额、订单数、间夜、均价、成交率、评分 |
+| 流量 | Cookie、`node_id`/酒店 ID、Payload、日期，或流量报表 | 数据中心流量页，`queryScanFlowDetailsV2`、`queryFlowTransforNew` 等 | PV、UV、曝光、点击、转化、排名 |
+| 订单 | Cookie、订单筛选 Payload、日期，或订单导出 | 订单页，`queryOrderList`、`getOrderList` 等 | 订单号、状态、房型、间数、入住离店、金额 |
+| 点评 | Cookie、`spidertoken`、Payload、日期、渠道 Tab | 点评页，`getCommentList` | 评分、内容、回复、差评、房型、入住日期 |
+| 房态房价/ARI | Trip Connect/API、导出表，或后台可见页面 | 房态房价页或官方接口 | 日历价、库存、关房、限制、取消规则 |
+| 广告 | 广告报表、成本、日期 | 广告页，仅明确需要时加入 | 曝光、点击、消耗、订单、ROI/ROAS |
 
 ## 入库映射
 
-项目实际使用 `online_daily_data`，不新增 `reviews`、`orders`、`traffic_data` 表。
-
-通用字段：
-
-| 字段 | 规则 |
-| --- | --- |
-| `source` | 固定 `ctrip` |
-| `platform` | 优先 `Ctrip` |
-| `system_hotel_id` | 宿析OS酒店 ID，能拿到时必须写入 |
-| `hotel_id` | 携程平台酒店 ID |
-| `hotel_name` | 平台或系统酒店名 |
-| `data_date` | 指标日期；日报优先昨日完整数据 |
-| `dimension` | 指标分组，如 `点评`、`流量`、`订单`、`广告` |
-| `raw_data` | 原始 JSON 或脱敏后的关键原始结构 |
-
-业务映射：
+统一优先写入 `online_daily_data`，不默认新增 `reviews`、`orders`、`traffic_data` 表。
 
 | 来源数据 | `data_type` | 核心映射 |
 | --- | --- | --- |
-| 昨日经营概况 | `overview` 或空值兼容旧数据 | `amount=成交金额`、`quantity=间夜数`、`book_order_num=订单数`、`comment_score=携程评分`、排名和 PSI 进 `raw_data` |
-| 点评 | `review` | `comment_score=评分`、`data_value=评分`、点评 ID/内容/回复/房型/入住日期/评价时间进 `raw_data` |
-| 流量 | `traffic` | `list_exposure=曝光/PV`、`detail_exposure=浏览/UV`、`flow_rate=转化率`、`order_filling_num=填单人数`、`order_submit_num=提交人数`、排名进 `raw_data` |
-| 订单 | `order` | `amount=订单金额`、`quantity=间夜数`、`book_order_num=订单数`、`data_value=平均房价`、订单明细进 `raw_data` |
-| 广告 | `advertising` | `list_exposure=曝光量`、`detail_exposure=点击量`、`flow_rate=点击到预订转化`、消耗/计划/ROI 进 `raw_data` |
+| 经营概况 | `overview` 或空值兼容旧数据 | `amount`、`quantity`、`book_order_num`、`comment_score`、`raw_data` |
+| 流量 | `traffic` | `list_exposure`、`detail_exposure`、`flow_rate`、`order_filling_num`、`order_submit_num`、排名进 `raw_data` |
+| 订单 | `order` | `amount`、`quantity`、`book_order_num`、`data_value`、订单明细进 `raw_data` |
+| 点评 | `review` | `comment_score`、`data_value`、点评详情进 `raw_data` |
+| 房态房价 | `price_inventory` | 日历价、库存、限制条件先进入 `raw_data` |
+| 广告 | `advertising` | 曝光、点击优先复用流量字段，成本和活动进 `raw_data` |
 
-新增结构化字段的条件：
+## 去重与质量
 
-- 现有字段和 `raw_data` 无法支持保存、回显、编辑、分析或去重。
-- 字段会被明确的页面、接口、报表、预警或 AI 分析读取。
-- 同时补迁移、旧数据兼容、空值兜底和验证。
-
-## 清洗与去重
-
-- 点评按平台评价 ID 去重；没有评价 ID 时按酒店、日期和原始内容摘要兜底。
-- 订单按平台订单号去重；无法获取订单号时只写汇总行，不写明细级订单。
-- 每日概况按 `system_hotel_id + source + data_type + data_date` 更新。
-- 流量与广告按 `system_hotel_id + source + data_type + dimension + data_date` 更新。
-- 评分如果是 10-50 口径，统一换算为 1.0-5.0。
-- 小于 4 分可在 `raw_data` 中标记 `is_negative=true`，不新增字段。
-
-## 兜底策略
-
-1. 接口 JSON 优先：结构化、可追溯，适合落库。
-2. 页面 DOM 兜底：只补排名、摘要或页面展示指标，避免抓取导航、菜单、按钮文字。
-3. 原始响应留存：关键接口保留脱敏 JSON，便于字段变化排查、对账和修复。
-
-## 稳定性
-
-- 不把所有接口都当目标接口，必须维护接口匹配规则。
-- 页面加载慢时允许重试；日报建议采集上午较晚的昨日数据。
-- 数据不完整时标记暂缺或异常，不写入错误数据冒充真实经营结果。
-- 采集后验证 OTA 列表、AI 诊断、收益分析、经营预警是否还能读取已保存行。
+- 订单按平台订单号去重；缺少订单号时只写汇总，不伪造明细订单。
+- 点评按评价 ID 去重；缺少评价 ID 时按酒店、日期、内容摘要兜底。
+- 汇总按 `system_hotel_id + source + data_type + dimension + data_date` 更新。
+- 金额、间夜、评分、日期必须做合法性校验。
+- 空数据、登录失效、字段缺失必须显式返回原因。

@@ -8,6 +8,9 @@
 /vendor/
 node_modules/
 composer.phar
+__pycache__/
+*.py[cod]
+*$py.class
 
 # ThinkPHP runtime
 /runtime/
@@ -20,6 +23,7 @@ debug.log
 tests/report/
 test-results/
 output/
+reports/ctrip_capture_assets/
 
 # Git / IDE / OS
 /.git/

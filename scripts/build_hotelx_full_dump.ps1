@@ -11,25 +11,23 @@ if (!(Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir | Out-Null
 }
 
-$sources = @(
-    "hotelx_dump.sql",
-    "database/login_logs.sql",
-    "database/complaint_tables.sql",
-    "database/update_system_config.sql",
-    "database/migrations/20250402_create_agent_tables.sql",
-    "database/migrations/20250402_enhance_agent_tables.sql",
-    "database/migrations/20260509_create_strategy_simulation_tables.sql",
-    "database/migrations/20260511_add_ota_traffic_fields.sql",
-    "database/migrations/20260511_create_ai_model_configs.sql",
-    "database/migrations/20260511_create_missing_business_tables.sql",
-    "database/migrations/20260516_create_opening_management_tables.sql",
-    "database/migrations/20260516_create_operation_management_tables.sql",
-    "database/migrations/20260517_create_quant_simulation_records.sql",
-    "database/migrations/20260517_create_expansion_records.sql",
-    "database/migrations/20260517_create_transfer_records.sql",
-    "database/migrations/20260517_add_international_ota_report_fields.sql",
-    "database/migrations/20260518_create_knowledge_center_tables.sql"
-)
+$initFullPath = Join-Path $root "database/init_full.sql"
+if (!(Test-Path $initFullPath)) {
+    throw "Missing SQL source manifest: database/init_full.sql"
+}
+
+$sources = @()
+foreach ($line in Get-Content -Path $initFullPath) {
+    if ($line -match "^\s*SOURCE\s+(.+?);") {
+        $source = $Matches[1].Trim().Replace("\", "/")
+        $source = $source -replace "^\./", ""
+        $sources += $source
+    }
+}
+
+if ($sources.Count -eq 0) {
+    throw "No SOURCE entries found in database/init_full.sql"
+}
 
 Set-Content -Path $resolvedOutput -Value "-- SuXi OS full dump generated at $(Get-Date -Format s)`r`nSET NAMES utf8mb4;`r`nSET time_zone = '+08:00';`r`n" -Encoding UTF8
 
@@ -38,8 +36,9 @@ foreach ($source in $sources) {
     if (!(Test-Path $sourcePath)) {
         throw "Missing SQL source: $source"
     }
-    Add-Content -Path $resolvedOutput -Value "`r`n-- SOURCE: $source`r`n" -Encoding UTF8
-    Get-Content -Path $sourcePath -Raw | Add-Content -Path $resolvedOutput -Encoding UTF8
+    Add-Content -LiteralPath $resolvedOutput -Value "`r`n-- SOURCE: $source`r`n" -Encoding UTF8
+    $sourceContent = Get-Content -LiteralPath $sourcePath -Raw
+    Add-Content -LiteralPath $resolvedOutput -Value $sourceContent -Encoding UTF8
 }
 
 Write-Host "Generated $resolvedOutput"

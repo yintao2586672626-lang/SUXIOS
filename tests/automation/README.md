@@ -1,5 +1,9 @@
 # Playwright 测试分层
 
+## Windows PowerShell 执行方式
+
+如果 PowerShell 报 `npm.ps1 cannot be loaded` 或脚本执行无权，使用 `npm.cmd run ...`，不要直接使用 `npm run ...`。
+
 ## 1. 日常快速回归
 
 用于每次改代码后的快速验证，覆盖登录、16 个模块导航、页面渲染、基础可交互元素统计、API 4xx/5xx 和页面异常。

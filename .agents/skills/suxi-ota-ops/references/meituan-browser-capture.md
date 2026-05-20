@@ -1,134 +1,88 @@
-# 美团浏览器采集方法
+# 美团数据获取方案（手动 + 自动）
 
 ## 定位
 
-美团 eBooking 数据采集以浏览器 Profile + response 监听为主。手动采集路径默认用户已提供 Cookie、Session、门店 ID、Payload、动态签名等必要抓取上下文，宿析OS系统只负责校验字段、调用对应接口完成数据抓取、清洗和入库。
+美团数据获取分两条路线：
 
-目标是在酒店已有合法账号和授权范围内，自动路径模拟运营人员打开美团 eBooking 后台并监听页面返回的经营 JSON；手动路径使用用户提交的字段上下文，由系统端抓取并按宿析 OS 现有字段入库。
+1. 手动获取：用户提供美团 TMC/直连平台导出、订单日志、监控数据，或已取得的 Cookie/Session、`partner_id`、`poi_id`、Payload、动态签名等上下文；宿析OS负责校验、抓取/导入、清洗和入库。
+2. 自动获取：宿析OS使用每个门店独立 Profile 打开美团 eBooking/直连相关页面，在授权范围内监听业务 JSON，并按模块入库。
+
+美团 iframe、SPA、动态签名和登录态变化较多，自动路径优先走真实浏览器响应监听；手动路径只处理用户已提供的上下文，不后台代登录。
+
+## 当前优先业务
+
+| 优先级 | 数据模块 | 主要用途 | 推荐路径 |
+| --- | --- | --- | --- |
+| P0 | 订单、订单日志、订单监控 | 经营日报、实时驾驶舱、失败归因 | 直连导出/上下文补数 + 自动 Profile |
+| P0 | 房型、产品、价格、库存 | 房态价量日报、价格库存巡检 | 直连平台导出/API 上下文优先 |
+| P0 | 点评、评分、回复 | 口碑看板、客服任务 | 手动 Payload + 自动 Profile |
+| P1 | 流量、排名、转化 | 周月看板、漏斗诊断 | 商家报表/自动 Profile |
+| P1 | 接口耗时、异常、SLA | 运营监控、告警 | 订单日志/监控页 |
+| P2 | 广告投放 | 活动复盘、ROI | 有广告账号、成本口径和复盘需求时再接入 |
 
 ## 合规边界
 
-- 只采集当前酒店账号下可见的数据。
+- 只采集当前酒店账号可见的数据。
 - 不绕过登录、短信、滑块、人机验证或平台权限体系。
 - 不采集非授权门店、竞品后台或平台内部不可见数据。
-- 不把 Cookie、Profile、账号密码、手机号明文写入文档、日志或 Git。
-- 客人手机号等敏感字段进入 `raw_data` 前应脱敏或最小化保留。
+- Cookie、Session、Profile、账号密码、手机号明文不得写入文档、日志或 Git。
+- 客人信息进入 `raw_data` 前应脱敏或最小化保留。
 
-## 端点记录规则
+## 手动获取
 
-“端口”只记录真实观察到的访问端点，不写死为固定值。
+手动路径适合直连平台补数、平台改版排障、订单日志核对、自动采集失败后的临时补录。
 
-| 项 | 记录规则 |
-| --- | --- |
-| 页面 URL | 记录完整入口 URL，例如点评页、流量 iframe、newhb SPA、订单页、广告页 |
-| 请求 URL 关键词 | 记录可稳定匹配的接口片段，例如 `queryGeneralCommentInfo` |
-| 协议与域名 | 从浏览器请求 URL 解析，如 `https` + `me.meituan.com`、`eb.meituan.com`、`ebmidas.dianping.com` |
-| 端口来源 | URL 有显式端口时记录显式端口；无显式端口时只备注“按协议默认推断”，不作为代码常量 |
-| 端口分类 | 外部平台端点、本地系统端口、浏览器调试端口分开记录 |
-| 是否显式端口 | 用布尔值或说明字段记录，避免把默认推断值误当作平台固定规则 |
+| 手动方式 | 用户提供 | 系统处理 | 不做什么 |
+| --- | --- | --- | --- |
+| 直连/TMC 导出导入 | 产品、库存、价格、订单日志、订单监控导出 | 解析、校验、字段映射、入库 | 不启动浏览器，不自动登录 |
+| 请求上下文抓取 | Cookie/Session、`partner_id`、`poi_id`/`store_id`、Payload、日期范围、必要动态签名 | 调用现有 `/api/online-data/fetch-meituan*` 兼容接口 | 不猜签名，不补未知 Payload |
+| JSON 离线导入 | 已脱敏的接口响应或排障样例 | 离线解析、对账、修复字段映射 | 不把样例当成实时经营数据 |
 
-## 登录态与 Profile
+字段缺失时只返回缺失项和参考入口，不在手动流程里打开美团后台。
 
-| 项目 | 规则 |
-| --- | --- |
-| Profile 目录 | `storage/meituan_profile_{store_id}` |
-| 隔离粒度 | 每个门店一个独立浏览器 Profile |
-| 登录流程 | 复用 Profile -> 打开登录入口检查登录态 -> 失效时人工登录 -> 登录成功后自动继续采集 |
-| 保存策略 | Profile 不进入 Git；`.gitignore` 必须忽略 `storage/meituan_profile_*` |
+## 自动获取
 
-多门店采集必须带 `system_hotel_id` 和美团 `store_id` / `poi_id`，入库前确认当前账号与目标门店匹配。
+自动路径用于日常采集、日报、巡检、实时监控和预警。
 
-## 手动采集路线
+1. 使用 `storage/meituan_profile_{store_id}`，每个门店独立 Profile。
+2. 页面触发入口优先走 `POST /api/online-data/capture-meituan-browser`，后端启动 `scripts/meituan_browser_capture.mjs`。
+3. 复用已登录状态；失效时返回 `needs_login` 并打开登录页，等待人工完成短信、滑块或人机验证。
+4. 按模块打开页面：点评、数据中心/流量、订单/入住、直连产品/价格库存。
+5. 只监听 XHR/fetch、HTTP 200、可解析 JSON、命中 URL 规则的响应。
+6. iframe DOM/HTML 只补页面已展示的摘要、排名或列表文本；截图仅排障，不作为常规数据源。
+7. 清洗、脱敏、去重后写入 `online_daily_data`，关键原始结构进入 `raw_data`。
 
-手动采集不是手工复制经营数据，也不要求系统登录 OTA 后台；它默认用户已经提供系统抓取所需上下文字段。
+## 模块字段与入口
 
-1. 用户在宿析OS选择平台、酒店、数据模块和日期范围。
-2. 用户提交已取得的必要字段：Cookie/Session、`partner_id`、`poi_id`、`store_id`、原始 Payload、iframe URL、必要时的 `mtgsig` 或其他动态字段。
-3. 系统校验必填字段；字段缺失时只提示用户补充对应字段和参考页面入口，不在手动流程内自动登录后台。
-4. 系统调用 `/api/online-data/fetch-meituan`、`/fetch-meituan-traffic`、`/fetch-meituan-comments` 或浏览器采集接口抓取。
-5. 系统完成 JSON 解析、空值兜底、去重、脱敏和入库；人工页面文本、iframe 文本或 OCR 仅用于接口缺失时的兜底线索。
-
-## 自动采集路线
-
-1. Playwright 启动持久化 Profile：`storage/meituan_profile_{store_id}`。
-2. 复用已登录状态；失效时打开美团登录页，等待人工完成短信、滑块或人机验证。
-3. 注册 `response` 监听，只处理 XHR/fetch、HTTP 200、JSON 响应。
-4. 按页面入口触发接口，使用 URL 关键词归入点评、流量、排名、订单、广告等数据槽位。
-5. 接口未命中时读取 iframe DOM、页面文本或 HTML 摘要；OCR 仅作为最后排障兜底。
-6. 清洗后写入 `online_daily_data`，保留脱敏原始结构到 `raw_data`。
-
-## 页面与接口监听
-
-| 数据模块 | 页面入口 | 请求 URL / 关键字 | 手动必须字段 | 可取字段与兜底 |
-| --- | --- | --- | --- | --- |
-| 登录态 | `https://me.meituan.com/ebooking/` | Cookie / Session | 用户已提供的 Cookie/Session、账号可见门店 | 手动模式只校验已提交 Cookie/Session；自动模式才检查 Profile 登录态 |
-| 点评数据 | `https://me.meituan.com/ebooking/merchant/comment-manage-react#/home` | `queryGeneralCommentInfo`、`commentsInfo`、`comments/statistics` | Cookie/Session、`poi_id` / `store_id`、点评 Payload、日期/分页条件 | 评分、评价总数、好评数、差评数、新增差评、未回复数、含图数、评价内容、房型、入住日期、评价时间、商家回复、标签；页面文本/iframe/OCR 兜底 |
-| 流量数据 | `https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Fdata-center%2Findex.html` | `businessData`、`weightTraffic`、`traffic`、`peerTrends` | Cookie/Session、`partner_id`、`poi_id` / `store_id`、iframe URL、日期 Payload | 曝光量、浏览人数/UV、页面浏览量、点击量、支付转化率；iframe DOM/HTML/OCR 兜底 |
-| 排名数据 | `https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html` | 页面文案：`同行排名`、`订单量`、`曝光量`、`浏览人数`、`入住间夜` | Cookie/Session、`poi_id` / `store_id`、页面上下文 | 订单量排名、曝光排名、访客排名、入住间夜排名、综合排名、分类排名；DOM 文本正则优先，OCR 兜底 |
-| 订单数据 | `https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Forder-eb%2Findex.html%23%2Fcheckin` | `/orders/list`、`/order/unhandled/count` | Cookie/Session、`partner_id`、`poi_id` / `store_id`、订单筛选 Payload、日期范围 | 订单号、状态、房型、间数、入住/离店日期、晚数、金额、均价、客人姓名、来源；iframe 表格 DOM 兜底 |
-| 推广通广告 | `https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html` | `cureShops` | Cookie/Session、店铺 ID、广告 Payload、日期范围 | 店铺 ID、店铺名、推广日期、曝光、点击、预订成交量、点击率、昨日消耗、去重说明；失败时截图留证并返回空数据 |
-
-响应处理只接收：
-
-- XHR 或 fetch 返回的数据。
-- HTTP 状态码为 200 的业务响应。
-- 可解析为 JSON 的响应体优先。
-- URL 命中明确业务规则。
-
-DOM、HTML 和截图只能作为兜底：DOM 用于页面已展示但接口未命中的摘要、排名或列表文本；截图只用于排障和人工复核。
-
-`mt_revenue`、`mt_rooms` 等美团收入/间夜口径通常来自 PMS 或经营报表，不默认视为美团商家平台页面直接提供的核心字段；只有实际接口或页面可见且可追溯时才映射。
+| 数据模块 | 手动必须字段 | 自动入口/关键词 | 核心字段 |
+| --- | --- | --- | --- |
+| 订单/入住 | Cookie/Session、`partner_id`、`poi_id`/`store_id`、订单筛选 Payload、日期 | 订单/入住管理页，`/orders/list`、`/order/unhandled/count` | 订单号、状态、房型、间数、入住离店、金额、均价 |
+| 订单日志/监控 | 导出表或监控页上下文 | 直连订单日志/监控页 | 步骤、结果、时间、耗时、成功/失败/异常、TP95 |
+| 产品/价格库存 | 直连产品导出、`poiId`、房型/产品上下文 | 直连产品/房态价页面 | 产品名、底价、卖价、佣金、库存、早餐、开关 |
+| 点评 | Cookie/Session、`poi_id`/`store_id`、点评 Payload、日期 | 点评页，`queryGeneralCommentInfo`、`commentsInfo` | 评分、评价数、差评、回复、房型、入住日期 |
+| 流量/排名 | Cookie/Session、`partner_id`、`poi_id`/`store_id`、iframe URL、日期 Payload | 数据中心 iframe/newhb SPA，`businessData`、`traffic`、`peerTrends` | 曝光、浏览、PV/UV、转化、排名 |
+| 广告 | 广告账号、成本、活动数据、日期 | 广告页，仅明确需要时加入 | 曝光、点击、消耗、订单、ROI/ROAS |
 
 ## 入库映射
 
-项目实际使用 `online_daily_data`，不新增 `reviews`、`orders`、`traffic_data` 表。
-
-通用字段：
-
-| 字段 | 规则 |
-| --- | --- |
-| `source` | 固定 `meituan` |
-| `platform` | 优先 `Meituan` |
-| `system_hotel_id` | 宿析 OS 酒店 ID，能拿到时必须写入 |
-| `hotel_id` | 美团 `poi_id` 或 `store_id` |
-| `hotel_name` | 平台或系统酒店名 |
-| `data_date` | 指标日期；无法识别时用采集日期 |
-| `dimension` | `点评`、`流量`、`广告`、`订单` |
-| `raw_data` | 脱敏后的原始 JSON、DOM 摘要和命中来源 |
-
-业务映射：
+统一优先写入 `online_daily_data`，不默认新增 `reviews`、`orders`、`traffic_data` 表。
 
 | 来源数据 | `data_type` | 核心映射 |
 | --- | --- | --- |
-| 点评 | `review` | `comment_score=score`，`data_value=score`，点评 ID、内容、回复、是否差评、点评人、房型、入住时间、标签进 `raw_data` |
-| 流量 | `traffic` | `list_exposure=exposure_count`，`detail_exposure=page_views/click_count`，`flow_rate=conversion_rate`，搜索/品类/关键词排名进 `raw_data` |
-| 广告 | `advertising` | `list_exposure=exposure_count`，`detail_exposure=click_count/page_views`，`flow_rate=conversion_rate`，广告计划、关键词、ROI 进 `raw_data` |
-| 订单 | `order` | `amount=total_amount`，`quantity=room_count*nights`，`book_order_num=order_count/1`，`data_value=avg_price`，订单状态、客人、房型、入住离店日期进 `raw_data` |
+| 订单 | `order` | `amount`、`quantity`、`book_order_num`、`data_value`、订单明细进 `raw_data` |
+| 订单监控 | `monitoring` | 成功率、失败率、异常、TP95、步骤明细先进 `raw_data` |
+| 产品/价格库存 | `price_inventory` | 产品、价格、库存、佣金、早餐、开关先进 `raw_data` |
+| 点评 | `review` | `comment_score`、`data_value`、点评详情进 `raw_data` |
+| 流量 | `traffic` | `list_exposure`、`detail_exposure`、`flow_rate`、排名和关键词进 `raw_data` |
+| 广告 | `advertising` | 有成本和活动口径时再写，成本、计划、ROI/ROAS 进 `raw_data` |
 
-新增结构化字段的条件：
+`mt_revenue`、`mt_rooms` 等收入/间夜口径不默认视为美团商家后台直接字段；只有实际接口、页面或导出可见且可追溯时才映射。
 
-- 现有字段和 `raw_data` 无法支持保存、回显、编辑、分析或去重。
-- 字段会被明确页面、接口、报表、预警或 AI 分析读取。
-- 同时补迁移、旧数据兼容、空值兜底和验证。
+## 去重与质量
 
-## 清洗与去重
-
+- 订单按美团订单号去重；缺少订单号时只写汇总，不伪造明细订单。
+- 产品优先按平台产品键去重；必要时用 `poiId + roomType + breakfastNum` 辅助去重。
 - 点评按平台点评 ID 去重；缺少 ID 时按酒店、日期、内容摘要兜底。
-- 订单按订单号去重；缺少订单号时只写汇总行，不伪造明细级订单。
-- 流量和广告按 `system_hotel_id + source + data_type + dimension + data_date` 更新。
-- 评分口径统一到 1.0-5.0。
-- 小于 4 分可在 `raw_data` 标记 `is_negative=true`，不新增字段。
-
-## 兜底策略
-
-1. 接口 JSON 优先：结构化、可追溯，适合落库。
-2. DOM/HTML 兜底：只补页面展示指标或摘要，必须标记 `_capture_source`。
-3. 原始响应留存：关键接口保留脱敏 JSON，便于字段变化排查、对账和修复。
-4. 失败显式返回：登录超时、接口未命中、空数据不写假数据。
-
-## 验证
-
-- 确认 `POST /api/online-data/capture-meituan-browser` 可启动脚本。
-- 确认首次登录、已登录 Profile、登录超时都有可解释结果。
-- 确认抓取结果写入 `online_daily_data` 后，OTA 历史、AI 诊断、收益分析和经营预警仍可读取。
-- 确认 `storage/meituan_profile_*`、截图和含敏感数据的输出不进入 Git。
+- 流量、监控和价格库存按 `system_hotel_id + source + data_type + dimension + data_date` 更新。
+- 金额、库存、耗时、状态、日期必须做合法性校验。
+- 空数据、登录失效、签名缺失、接口未命中必须显式返回原因。

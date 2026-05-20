@@ -4,6 +4,11 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import readline from 'node:readline/promises';
 import process from 'node:process';
+import {
+  classifyOtaResponse as classifyStandardOtaResponse,
+  injectBrowserCookies as injectStandardBrowserCookies,
+  normalizeCaptureSections as normalizeStandardCaptureSections,
+} from './lib/ota_capture_standard.mjs';
 
 const URLS = {
   login: 'https://me.meituan.com/ebooking/',
@@ -24,7 +29,7 @@ const reportDir = resolve(args.reportDir || 'reports');
 const assetDir = join(reportDir, 'meituan_capture_assets');
 const capturedAt = new Date().toISOString();
 const outputPath = resolve(args.output || join(reportDir, `meituan_capture_${safeName(storeId)}_${timestamp()}.json`));
-const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'all');
+const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'reviews,traffic,orders');
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -45,6 +50,7 @@ const payload = {
   ads: [],
   orders: [],
   screenshots: [],
+  cookie_injection: { attempted: false, injected_count: 0, domains: [] },
 };
 
 const launchOptions = {
@@ -57,6 +63,7 @@ if (args.chromePath) {
 }
 
 const browser = await chromium.launchPersistentContext(storageDir, launchOptions);
+payload.cookie_injection = await injectBrowserCookies(browser, args, 'meituan');
 
 const page = await browser.newPage();
 registerResponseCapture(page, payload);
@@ -157,7 +164,13 @@ async function capturePage(page, name, url) {
 function registerResponseCapture(page, target) {
   page.on('response', async response => {
     const url = response.url();
-    const section = classifyResponse(url);
+    const contentType = response.headers()['content-type'] || '';
+    const classified = classifyStandardOtaResponse('meituan', url, {
+      status: response.status(),
+      resourceType: response.request().resourceType(),
+      contentType,
+    });
+    const section = classified.capture ? classified.section : '';
     if (!section || !wantsSection(section)) {
       return;
     }
@@ -165,7 +178,6 @@ function registerResponseCapture(page, target) {
     const status = response.status();
     let body = null;
     try {
-      const contentType = response.headers()['content-type'] || '';
       const text = await response.text();
       body = parseResponseBody(text, contentType);
     } catch (error) {
@@ -180,49 +192,11 @@ function registerResponseCapture(page, target) {
 }
 
 function normalizeCaptureSections(value) {
-  const raw = String(value || 'all').trim();
-  if (!raw || raw === 'all' || raw === '*') {
-    return new Set(['reviews', 'traffic', 'ads', 'orders']);
-  }
-
-  const aliases = {
-    review: 'reviews',
-    reviews: 'reviews',
-    comment: 'reviews',
-    comments: 'reviews',
-    traffic: 'traffic',
-    flow: 'traffic',
-    ads: 'ads',
-    ad: 'ads',
-    advertising: 'ads',
-    orders: 'orders',
-    order: 'orders',
-  };
-  const selected = raw.split(/[,\s]+/)
-    .map(item => aliases[item.trim().toLowerCase()] || '')
-    .filter(Boolean);
-  return new Set(selected.length ? selected : ['reviews', 'traffic', 'ads', 'orders']);
+  return new Set(normalizeStandardCaptureSections('meituan', value));
 }
 
 function wantsSection(section) {
   return captureSections.has(section);
-}
-
-function classifyResponse(url) {
-  const value = url.toLowerCase();
-  if (value.includes('querygeneralcommentinfo') || value.includes('commentsinfo') || value.includes('comments/statistics')) {
-    return 'reviews';
-  }
-  if (value.includes('businessdata') || value.includes('weighttraffic') || value.includes('traffic') || value.includes('peertrends')) {
-    return 'traffic';
-  }
-  if (value.includes('cureshops')) {
-    return 'ads';
-  }
-  if (value.includes('/orders/list') || value.includes('/order/unhandled/count')) {
-    return 'orders';
-  }
-  return '';
 }
 
 function parseResponseBody(text, contentType) {
@@ -346,6 +320,10 @@ function readPath(value, path) {
     current = current[key];
   }
   return current;
+}
+
+async function injectBrowserCookies(context, parsedArgs, platform) {
+  return injectStandardBrowserCookies(context, parsedArgs, platform);
 }
 
 function parseArgs(argv) {

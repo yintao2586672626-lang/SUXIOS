@@ -212,26 +212,22 @@ composer update
 
 ## 六、测试命令
 
-> ⚠️ **当前项目没有测试框架。**
+> 当前项目已有 PHPUnit、Playwright 自动化和 Node/PHP 合同校验脚本。Windows PowerShell 下优先使用 `C:\xampp\php\php.exe` 和 `npm.cmd`。
 
-- 无 PHPUnit（`phpunit.xml` 不存在）
-- 无功能测试
-- 无单元测试
+**常用验证命令**：
 
-**如果需要添加测试**：
-
-```bash
-# 安装 PHPUnit
-composer require --dev phpunit/phpunit
-
-# 生成 phpunit.xml 配置
-php vendor/bin/phpunit --generate-configuration
+```powershell
+C:\xampp\php\php.exe vendor\bin\phpunit --colors=never
+npm.cmd run verify:p0-guards
+npm.cmd run review:non-security
+npm.cmd run verify:e2e-contracts
+C:\xampp\php\php.exe scripts\verify_route_coverage.php
 ```
 
-**当前测试方式**：
-- 手动测试 API：`curl` 或 Postman
-- 测试脚本：`test-api.ps1`、`test-login.ps1`
-- 健康检查：`GET /api/health`
+**按需补充**：
+- `npm.cmd run type-check`：当前无 TS 输入时会跳过。
+- `node --check <file>`：检查单个 JS/MJS 语法。
+- `C:\xampp\php\php.exe -l <file>`：检查单个 PHP 文件语法。
 
 ---
 

@@ -1646,7 +1646,6 @@ h1, h2, h3, h4 {
 .card,
 .bg-white.rounded-xl,
 .bg-white.rounded-2xl,
-.track-card,
 .table-container {
     background: var(--sx-card) !important;
     border: 1px solid var(--sx-border-soft) !important;
@@ -1687,8 +1686,7 @@ h1, h2, h3, h4 {
 }
 
 .home-hero-panel,
-.ai-page-hero,
-.track-header {
+.ai-page-hero {
     background: linear-gradient(135deg, #102a4c 0%, #123a63 100%) !important;
     border: 1px solid rgba(216, 226, 238, 0.18) !important;
     box-shadow: 0 16px 36px rgba(16, 42, 76, 0.16) !important;

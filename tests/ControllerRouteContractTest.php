@@ -40,6 +40,20 @@ final class ControllerRouteContractTest extends TestCase
         }
     }
 
+    public function testExpansionRecordDeleteRoutesKeepSpecificHandlersBeforeCollectionClear(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $marketClear = strpos($source, "Route::delete('/records/market-evaluation', 'Expansion/clearMarketEvaluation')");
+        $singleArchive = strpos($source, "Route::delete('/records/:id', 'Expansion/archive')");
+        $collectionClear = strpos($source, "Route::delete('/records', 'Expansion/clearRecords')");
+
+        self::assertNotFalse($marketClear, 'Missing expansion market-evaluation clear route');
+        self::assertNotFalse($singleArchive, 'Missing expansion single-record archive route');
+        self::assertNotFalse($collectionClear, 'Missing expansion collection clear route');
+        self::assertLessThan($singleArchive, $marketClear, 'Specific market clear route must be checked before :id route');
+        self::assertLessThan($collectionClear, $singleArchive, 'Single-record archive route must be checked before collection clear route');
+    }
+
     /**
      * @return array<int, array{0:string, 1:string}>
      */

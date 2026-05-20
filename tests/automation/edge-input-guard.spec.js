@@ -4,7 +4,7 @@ const path = require('path');
 
 // Edge Input Guard for SUXIOS.
 // Run with:
-//   BASE_URL=http://localhost:8080/ USERNAME=admin PASSWORD=admin123 E2E_EDGE_LIVE_API=0 npx playwright test tests/automation/edge-input-guard.spec.js
+//   E2E_BASE_URL=http://localhost:8080/ E2E_USERNAME=admin E2E_PASSWORD=admin123 E2E_EDGE_LIVE_API=0 npx playwright test tests/automation/edge-input-guard.spec.js
 
 const MODULES = [
   { name: '智略·战略推演', path: 'ai-strategy', group: '筹建管理', groupPath: 'ai-construction' },
@@ -25,9 +25,9 @@ const MODULES = [
 ];
 
 const config = {
-  baseURL: process.env.BASE_URL || process.env.E2E_BASE_URL || 'http://localhost:8080/',
-  username: process.env.USERNAME || process.env.E2E_USERNAME || 'admin',
-  password: process.env.PASSWORD || process.env.E2E_PASSWORD || 'admin123',
+  baseURL: process.env.E2E_BASE_URL || process.env.BASE_URL || 'http://localhost:8080/',
+  username: process.env.E2E_USERNAME || 'admin',
+  password: process.env.E2E_PASSWORD || 'admin123',
   liveApi: process.env.E2E_EDGE_LIVE_API === '1',
   allowLiveMutation: process.env.E2E_EDGE_ALLOW_MUTATION === '1',
   mutationStatus: clampInt(process.env.E2E_EDGE_MUTATION_STATUS, 422, 400, 599),

@@ -186,6 +186,8 @@ Route::group('api/online-data', function () {
 
 // ==================== 智能知识中枢 API ====================
 Route::group('api/knowledge', function () {
+    Route::get('/distillation/options', 'Knowledge/distillationOptions');
+    Route::post('/distillation/run', 'Knowledge/runDistillation');
     Route::get('/list', 'Knowledge/unitList');
     Route::post('/add', 'Knowledge/add');
     Route::post('/:unit_id/add-chunk', 'Knowledge/addChunk');
@@ -193,6 +195,21 @@ Route::group('api/knowledge', function () {
     Route::post('/:unit_id/status', 'Knowledge/status');
     Route::delete('/:unit_id', 'Knowledge/delete');
     Route::get('/:unit_id', 'Knowledge/detail');
+})->middleware(\app\middleware\Auth::class);
+
+// ==================== 酒店收益管理研究中心 API ====================
+Route::group('api/revenue-research', function () {
+    Route::post('/run', 'RevenueResearch/run');
+})->middleware(\app\middleware\Auth::class);
+
+// ==================== OTA 数据标准化 API ====================
+Route::group('api/ota-standard', function () {
+    Route::get('/etl', 'OtaStandard/dataset');
+    Route::post('/etl', 'OtaStandard/dataset');
+    Route::get('/revenue-metrics', 'OtaStandard/revenueMetrics');
+    Route::post('/revenue-metrics', 'OtaStandard/revenueMetrics');
+    Route::get('/analysis', 'OtaStandard/analysis');
+    Route::post('/analysis', 'OtaStandard/analysis');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== AI 筹建管理路由 ====================
@@ -277,8 +294,8 @@ Route::group('api/expansion', function () {
     Route::post('/benchmark-model', 'Expansion/benchmarkModel');
     Route::post('/collaboration-efficiency', 'Expansion/collaborationEfficiency');
     Route::delete('/records/market-evaluation', 'Expansion/clearMarketEvaluation');
-    Route::delete('/records', 'Expansion/clearRecords');
     Route::delete('/records/:id', 'Expansion/archive');
+    Route::delete('/records', 'Expansion/clearRecords');
     Route::get('/records/:id', 'Expansion/detail');
     Route::get('/records', 'Expansion/records');
 })->middleware(\app\middleware\Auth::class);

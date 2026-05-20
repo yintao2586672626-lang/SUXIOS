@@ -20,6 +20,7 @@ const config = getConfig();
 const suiteOutput = createSuiteOutput('business-chains');
 const { outputDir, screenshotDir } = suiteOutput;
 const apiRequestTimeout = Number(process.env.E2E_API_REQUEST_TIMEOUT_MS || 15000);
+const e2eFallbackModelKey = 'codex_missing_model_e2e';
 const results = [];
 const apiEvents = [];
 const pageEvents = [];
@@ -403,8 +404,10 @@ test('business chain: market evaluation to transfer decision dashboard', async (
         expected_occupancy_rate: 76,
         competitor_count: 12,
         ota_market_penetration_rate: 68,
+        model_key: e2eFallbackModelKey,
       }, { label: 'market evaluation' });
       expect(Number(market.record_id)).toBeGreaterThan(0);
+      expect(market.ai_evaluation?.source).toBe('fallback');
       cleanups.push(() => api.delete(`/api/expansion/records/${market.record_id}`, { label: 'archive market record' }).catch(() => null));
 
       const marketDetail = await api.get(`/api/expansion/records/${market.record_id}`, { label: 'market detail echo' });
@@ -418,8 +421,10 @@ test('business chain: market evaluation to transfer decision dashboard', async (
         target_price_band: market.price_band_suggestion || '300-400',
         hotel_type: '中端商务',
         target_room_count: marketDetail.input.target_room_count,
+        model_key: e2eFallbackModelKey,
       }, { label: 'benchmark model reads market input' });
       expect(Number(benchmark.record_id)).toBeGreaterThan(0);
+      expect(benchmark.ai_evaluation?.source).toBe('fallback');
       cleanups.push(() => api.delete(`/api/expansion/records/${benchmark.record_id}`, { label: 'archive benchmark record' }).catch(() => null));
       expect((benchmark.recommended_benchmarks || []).length).toBeGreaterThan(0);
 
@@ -565,7 +570,7 @@ test('business chain: strategy, quant simulation, feasibility report, and invest
         target_brand_level: '中端精选',
         target_customer: '商务差旅',
         notes: `读取战略记录 ${strategy.record_id} 与量化记录 ${simulation.id}`,
-        model_key: 'codex_missing_model_e2e',
+        model_key: e2eFallbackModelKey,
       }, { label: 'feasibility report generate with fallback' });
       expect(Number(feasibility.id)).toBeGreaterThan(0);
       cleanups.push(() => api.delete(`/api/agent/feasibility-report/${feasibility.id}`, { label: 'archive feasibility report' }).catch(() => null));

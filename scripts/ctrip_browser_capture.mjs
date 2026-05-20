@@ -1,5 +1,5 @@
 import { chromium } from '@playwright/test';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
@@ -66,6 +66,7 @@ const payload = {
   traffic: [],
   reviews: [],
   screenshots: [],
+  cookie_injection: { attempted: false, injected_count: 0, domains: [] },
 };
 
 const launchOptions = {
@@ -78,6 +79,7 @@ if (args.chromePath) {
 }
 
 const browser = await chromium.launchPersistentContext(storageDir, launchOptions);
+payload.cookie_injection = await injectBrowserCookies(browser, args, 'ctrip');
 const page = await browser.newPage();
 registerResponseCapture(page, payload);
 
@@ -673,6 +675,75 @@ function readPath(value, path) {
     current = current[key];
   }
   return current;
+}
+
+async function injectBrowserCookies(context, parsedArgs, platform) {
+  const raw = await readCookieSource(parsedArgs);
+  if (!raw) {
+    return { attempted: false, injected_count: 0, domains: [] };
+  }
+
+  const pairs = parseCookieHeader(raw);
+  if (!pairs.length) {
+    throw new Error('Cookie injection failed: empty or invalid Cookie header');
+  }
+
+  const domains = allowedCookieDomains(platform);
+  const cookies = [];
+  for (const domain of domains) {
+    for (const pair of pairs) {
+      cookies.push({
+        name: pair.name,
+        value: pair.value,
+        domain,
+        path: '/',
+        secure: true,
+        sameSite: 'Lax',
+      });
+    }
+  }
+
+  await context.addCookies(cookies);
+  return { attempted: true, injected_count: cookies.length, domains };
+}
+
+async function readCookieSource(parsedArgs) {
+  const inline = stringValue(parsedArgs.cookies || parsedArgs.cookie || '');
+  if (inline) {
+    return inline;
+  }
+  const filePath = stringValue(parsedArgs.cookiesFile || parsedArgs.cookieFile || '');
+  if (!filePath) {
+    return '';
+  }
+  return (await readFile(resolve(filePath), 'utf8')).trim();
+}
+
+function parseCookieHeader(raw) {
+  return String(raw || '')
+    .split(';')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => {
+      const index = part.indexOf('=');
+      if (index <= 0) {
+        return null;
+      }
+      const name = part.slice(0, index).trim();
+      const value = part.slice(index + 1).trim();
+      if (!name || /[\s;]/.test(name)) {
+        return null;
+      }
+      return { name, value };
+    })
+    .filter(Boolean);
+}
+
+function allowedCookieDomains(platform) {
+  if (platform === 'ctrip') {
+    return ['ebooking.ctrip.com', '.ctrip.com'];
+  }
+  return [];
 }
 
 function parseArgs(argv) {
