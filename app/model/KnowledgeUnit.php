@@ -16,6 +16,7 @@ class KnowledgeUnit extends Model
 
     protected $type = [
         'unit_id' => 'integer',
+        'created_by' => 'integer',
         'tags' => 'json',
     ];
 

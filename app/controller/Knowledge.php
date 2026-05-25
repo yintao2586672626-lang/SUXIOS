@@ -25,6 +25,7 @@ class Knowledge extends Base
             $tags = $this->normalizeTags($this->request->param('tags', $this->request->param('tag', [])));
 
             $query = KnowledgeUnit::order('unit_id', 'desc');
+            $this->applyOwnerScope($query);
 
             if ($status !== '') {
                 if (!in_array($status, self::STATUSES, true)) {
@@ -80,7 +81,7 @@ class Knowledge extends Base
     public function detail(int $unit_id): Response
     {
         try {
-            $unit = KnowledgeUnit::find($unit_id);
+            $unit = $this->findAccessibleUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
@@ -100,6 +101,7 @@ class Knowledge extends Base
     {
         try {
             $data = $this->normalizeUnitData($this->requestData(), true);
+            $data['created_by'] = $this->currentUserId();
             $unit = KnowledgeUnit::create($data);
 
             return $this->ok(['unit' => $this->formatUnitRow($unit->toArray(), 0)], 'created');
@@ -113,12 +115,13 @@ class Knowledge extends Base
     public function addChunk(int $unit_id): Response
     {
         try {
-            $unit = KnowledgeUnit::find($unit_id);
+            $unit = $this->findAccessibleUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
 
             $data = $this->normalizeChunkData($this->requestData(), $unit_id);
+            $data['created_by'] = $this->currentUserId();
             $chunk = KnowledgeChunk::create($data);
 
             return $this->ok(['chunk' => $this->formatChunkRow($chunk->toArray())], 'created');
@@ -132,7 +135,7 @@ class Knowledge extends Base
     public function update(int $unit_id): Response
     {
         try {
-            $unit = KnowledgeUnit::find($unit_id);
+            $unit = $this->findAccessibleUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
@@ -154,7 +157,7 @@ class Knowledge extends Base
     public function status(int $unit_id): Response
     {
         try {
-            $unit = KnowledgeUnit::find($unit_id);
+            $unit = $this->findAccessibleUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
@@ -176,7 +179,7 @@ class Knowledge extends Base
     public function delete(int $unit_id): Response
     {
         try {
-            $unit = KnowledgeUnit::find($unit_id);
+            $unit = $this->findAccessibleUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
@@ -213,7 +216,7 @@ class Knowledge extends Base
                 return $this->fail('Knowledge distillation training failed', 500, $result);
             }
 
-            $result['knowledge_unit'] = $this->persistDistillationKnowledge($result);
+            $result['knowledge_unit'] = $this->persistDistillationKnowledge($result, $this->currentUserId());
 
             return $this->ok($result, 'training completed');
         } catch (InvalidArgumentException $e) {
@@ -223,7 +226,7 @@ class Knowledge extends Base
         }
     }
 
-    private function persistDistillationKnowledge(array $result): array
+    private function persistDistillationKnowledge(array $result, int $userId): array
     {
         $content = is_array($result['distilled_content'] ?? null) ? $result['distilled_content'] : [];
         $mode = (string)($result['mode'] ?? 'kd');
@@ -234,19 +237,21 @@ class Knowledge extends Base
 
         $unit = null;
         $chunk = null;
-        Db::transaction(function () use (&$unit, &$chunk, $name, $summary, $method, $content): void {
+        Db::transaction(function () use (&$unit, &$chunk, $name, $summary, $method, $content, $userId): void {
             $unit = KnowledgeUnit::create([
                 'name' => $name,
                 'source' => 'ml_distillation',
                 'status' => 'done',
                 'description' => $summary,
                 'tags' => ['知识蒸馏', '模型训练', $method],
+                'created_by' => $userId,
             ]);
 
             $chunk = KnowledgeChunk::create([
                 'unit_id' => (int)$unit->unit_id,
                 'type' => '模型蒸馏训练结果',
                 'content' => $content,
+                'created_by' => $userId,
             ]);
         });
 
@@ -258,6 +263,45 @@ class Knowledge extends Base
             'unit' => $this->formatUnitRow($unit->toArray(), 1),
             'chunk' => $this->formatChunkRow($chunk->toArray()),
         ];
+    }
+
+    private function findAccessibleUnit(int $unitId): ?KnowledgeUnit
+    {
+        $unit = KnowledgeUnit::find($unitId);
+        if (!$unit || !$this->canAccessOwnedRow($unit->toArray())) {
+            return null;
+        }
+
+        return $unit;
+    }
+
+    private function applyOwnerScope($query): void
+    {
+        if ($this->isSuperAdmin()) {
+            return;
+        }
+
+        $query->where('created_by', $this->currentUserId());
+    }
+
+    private function canAccessOwnedRow(array $row): bool
+    {
+        return $this->isSuperAdmin() || (int)($row['created_by'] ?? 0) === $this->currentUserId();
+    }
+
+    private function currentUserId(): int
+    {
+        $userId = (int)($this->currentUser->id ?? 0);
+        if ($userId <= 0) {
+            throw new \RuntimeException('Please login');
+        }
+
+        return $userId;
+    }
+
+    private function isSuperAdmin(): bool
+    {
+        return $this->currentUser && $this->currentUser->isSuperAdmin();
     }
 
     private function normalizeUnitData(array $input, bool $creating): array
@@ -363,6 +407,7 @@ class Knowledge extends Base
             'description' => (string)($row['description'] ?? ''),
             'tags' => array_values(is_array($tags) ? $tags : []),
             'chunk_count' => $chunkCount ?? (int)($row['chunk_count'] ?? 0),
+            'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? ''),
             'updated_at' => (string)($row['updated_at'] ?? ''),
         ];
@@ -381,6 +426,7 @@ class Knowledge extends Base
             'unit_id' => (int)($row['unit_id'] ?? 0),
             'type' => (string)($row['type'] ?? ''),
             'content' => is_array($content) ? $content : [],
+            'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? ''),
         ];
     }

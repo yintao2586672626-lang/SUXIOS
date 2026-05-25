@@ -17,6 +17,7 @@ class KnowledgeChunk extends Model
     protected $type = [
         'chunk_id' => 'integer',
         'unit_id' => 'integer',
+        'created_by' => 'integer',
         'content' => 'json',
     ];
 
