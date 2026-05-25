@@ -164,6 +164,7 @@ Route::group('api/online-data', function () {
     Route::post('/delete-data', 'OnlineData/deleteData');
     Route::delete('/delete-data', 'OnlineData/deleteData');
     Route::get('/cookie-status', 'OnlineData/cookieStatus');
+    Route::get('/collection-reliability', 'OnlineData/collectionReliability');
     Route::get('/history/:id', 'OnlineData/historyDetail');
     Route::get('/history', 'OnlineData/history');
     Route::get('/daily-data-list', 'OnlineData/dailyDataList');
@@ -270,6 +271,12 @@ Route::group('api/operation', function () {
     Route::get('/alerts', 'OperationManagement/alerts');
     Route::post('/alerts/read', 'OperationManagement/alertsRead');
     Route::post('/strategy-simulation', 'OperationManagement/strategySimulation');
+    Route::post('/execution-intents/:id/approve', 'OperationManagement/approveExecutionIntent');
+    Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
+    Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
+    Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
+    Route::get('/execution-intents', 'OperationManagement/executionIntents');
+    Route::post('/execution-intents', 'OperationManagement/createExecutionIntent');
     Route::post('/actions/:id/finish', 'OperationManagement/finishAction');
     Route::post('/actions', 'OperationManagement/actions');
     Route::get('/action-tracking', 'OperationManagement/actionTracking');
@@ -431,6 +438,7 @@ Route::group('api/agent', function () {
     Route::post('/price-suggestions/generate', 'Agent/generatePriceSuggestions');
     Route::post('/price-suggestions/:id/approve', 'Agent/approvePrice');
     Route::post('/price-suggestions/:id/apply', 'Agent/applyPrice');
+    Route::post('/price-suggestions/:id/execution-intent', 'Agent/createPriceSuggestionExecutionIntent');
     Route::get('/price-suggestions/:id/review', 'Agent/priceSuggestionReview');
     Route::get('/revenue-analysis', 'Agent/revenueAnalysis');
     Route::get('/cookie-warnings', 'Agent/cookieWarnings');

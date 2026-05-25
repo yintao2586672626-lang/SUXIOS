@@ -3,15 +3,28 @@
 > 核对范围：`public/index.html`、`route/app.php`、五大板块 Controller / Service、相关 SQL 迁移。  
 > 目标：先固定页面、接口、字段、存储、公式和缺口，后续补代码按本清单逐项执行，避免扩大改动面。
 
+## 0. 产品边界
+
+第一阶段只交付一个主闭环：
+
+```text
+OTA 数据同步 -> 收益诊断 -> 运营建议 -> 动作追踪 -> 效果复盘
+```
+
+- OTA 数据和运营管理是 P0 主线。
+- AI 只作为诊断、解释和建议生成能力嵌入主线，不单独扩展为独立产品线。
+- 筹建、开业、扩张、转让、投资测算保留现有入口和记录能力，按二期辅助模块管理。
+- 未绑定真实 OTA 执行字段、授权和回写结果前，不宣称自动调价、自动房态或自动投放已闭环。
+
 ## 1. 总览
 
 | 板块 | 页面入口 | 后端入口 | 当前闭环状态 | 主要结论 |
 |---|---|---|---|---|
-| 筹建管理 | `ai-strategy` / `ai-simulation` / `ai-feasibility` | `/api/strategy`、`/api/agent/feasibility-report`、遗留 `/api/ai` | 部分闭环 | 战略推演和可行性报告有后端记录，量化模拟仍是前端本地计算。 |
-| 开业管理 | `opening-overview` / `opening-checklist` | `/api/opening` | 基本闭环 | 项目创建、清单生成、任务编辑、评分回显已闭环；缺少项目编辑、删除/归档。 |
-| 运营管理 | `ops-source` / `ops-analysis` / `ops-insight` / `ops-plan` / `ops-track` | `/api/operation` | 基本闭环 | 数据聚合、根因、预警、策略模拟、动作追踪已串通；需补强预警持久化和权限过滤。 |
-| 扩张管理 | `market-evaluation` / `benchmark-model` / `collaboration-efficiency` | `/api/expansion` | 计算闭环，业务未持久化 | 三个接口可计算返回，但无保存、历史、编辑、项目关联。 |
-| 转让管理 | `asset-pricing` / `timing-strategy` / `decision-board` | `/api/transfer` | 计算闭环，业务未持久化 | 定价、时机、看板可计算，但未绑定真实数据源，也无保存/回显。 |
+| 运营管理 | `ops-source` / `ops-analysis` / `ops-insight` / `ops-plan` / `ops-track` | `/api/operation` | P0 主闭环 | 数据聚合、根因、预警、策略模拟、动作追踪已串通；需补强预警持久化、权限过滤和建议到执行的复盘链。 |
+| 筹建管理 | `ai-strategy` / `ai-simulation` / `ai-feasibility` | `/api/strategy`、`/api/simulation`、`/api/agent/feasibility-report`、遗留 `/api/ai` | 二期辅助闭环 | 战略推演、量化模拟和可行性报告已有记录能力，但不作为第一阶段主闭环。 |
+| 开业管理 | `opening-overview` / `opening-checklist` | `/api/opening` | 二期运营准备 | 项目创建、清单生成、任务编辑、评分回显已闭环；缺少项目编辑、删除/归档。 |
+| 扩张管理 | `market-evaluation` / `benchmark-model` / `collaboration-efficiency` | `/api/expansion` | 二期测算/记录闭环 | 三个接口可计算、保存、回看和复用，但未形成投资项目主表、编辑和真实市场数据闭环。 |
+| 转让管理 | `asset-pricing` / `timing-strategy` / `decision-board` | `/api/transfer` | 二期测算/记录闭环 | 定价、时机、看板可计算、保存、回看和复用，但未绑定真实数据自动取数和交易决策闭环。 |
 
 ## 2. 筹建管理
 
@@ -180,7 +193,7 @@
 
 ### 缺口
 
-1. 没有扩张项目主表，市场评估、标杆选模、协同任务不能保存。
+1. 没有扩张项目主表，市场评估、标杆选模、协同任务虽可保存为记录，但不能形成完整项目生命周期。
 2. `data_status.real_data_used` 固定为 `false`，没有接入真实市场、竞品或客流数据。
 3. 标杆酒店是规则生成的 A/B/C 模型，不是来自 `competitor_hotel` 或外部 POI 数据。
 4. 协同任务只存在前端内存和接口返回中，刷新后回到默认任务。
@@ -221,21 +234,20 @@
 
 ### 缺口
 
-1. 没有转让项目/记录表，无法保存资产定价、时机推演和看板结果。
+1. 没有转让项目主表，资产定价、时机推演和看板结果虽可保存为记录，但不能形成完整交易项目生命周期。
 2. 前端字段为手填，未从 `daily_reports`、`online_daily_data`、`competitor_analysis` 自动取数。
 3. 看板 `metrics` 目前为空，无法承载额外交易质量指标。
-4. 无历史版本、编辑回显、删除/归档、审计日志。
+4. 缺少历史版本对比、编辑回显和审计日志。
 
 ## 7. 建议补码顺序
 
 | 优先级 | 改动 | 文件范围 | 验证方式 |
 |---|---|---|---|
-| P0 | 确认本清单为字段契约，避免继续新增同义字段 | 文档 | 人工确认 |
-| P1 | 开业管理补项目编辑、归档/删除、酒店选择 | `route/app.php`、`Opening.php`、`OpeningService.php`、`public/index.html` | 创建 -> 编辑 -> 生成任务 -> 更新任务 -> 归档 |
-| P1 | 运营预警持久化和标记已读权限过滤 | `OperationManagement.php`、`OperationManagementService.php` | 生成预警 -> 刷新仍存在 -> 非授权 ID 不可标记 |
-| P2 | 筹建量化模拟后端化并保存历史 | 新增迁移、Controller/Service、前端调用 | 计算 -> 保存 -> 列表 -> 详情 -> 复用输入 |
-| P2 | 扩张管理新增项目与三类结果记录 | 新增迁移、`ExpansionService.php`、前端 | 保存 -> 回显 -> 编辑 -> 历史 |
-| P2 | 转让管理新增记录表并绑定真实数据 | 新增迁移、`TransferDecisionService.php`、前端 | 自动取数 -> 计算 -> 保存 -> 看板复核 |
+| P0 | 固定运营收益主闭环，避免继续横向扩展同级模块 | 文档、导航、页面文案 | 人工确认主入口为 OTA 数据、收益诊断、运营动作、效果复盘 |
+| P0 | 运营预警持久化和标记已读权限过滤 | `OperationManagement.php`、`OperationManagementService.php` | 生成预警 -> 刷新仍存在 -> 非授权 ID 不可标记 |
+| P1 | 建议到执行的闭环补强 | `OperationManagement.php`、`OperationManagementService.php`、`public/index.html` | 建议 -> 执行意图 -> 审批/阻塞 -> 证据 -> 复盘 |
+| P1 | AI 能力嵌入收益诊断和运营建议 | `Agent.php`、`OperationManagementService.php`、`public/index.html` | 同一运营问题能看到证据、AI解释和建议动作 |
+| P2 | 筹建、开业、扩张、转让继续补项目级编辑和审计能力 | 对应 Controller/Service/前端 | 保存 -> 回显 -> 编辑 -> 归档 -> 权限过滤 |
 
 ## 8. 修改边界
 

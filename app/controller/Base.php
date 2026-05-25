@@ -158,7 +158,7 @@ abstract class Base
             abort(401, '未登录');
         }
         
-        if (!$this->currentUser->isSuperAdmin() && empty($this->currentUser->hotel_id)) {
+        if (!$this->currentUser->isSuperAdmin() && empty($this->currentUser->getPermittedHotelIds())) {
             abort(403, '您未关联酒店，请联系管理员');
         }
     }

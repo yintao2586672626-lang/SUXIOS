@@ -1144,7 +1144,8 @@ select {
 }
 
 .ota-diagnosis-hotel-menu {
-    min-width: min(32rem, calc(100vw - 3rem));
+    min-width: 0;
+    max-width: 100%;
 }
 
 @media (max-width: 640px) {

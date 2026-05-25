@@ -73,6 +73,69 @@ final class OtaStandardModuleTest extends TestCase
         self::assertContains('cancellation_fields_partial', array_column($partialCancel['data_gaps'], 'code'));
     }
 
+    public function testRevenueMetricsExposeTraceableTrustMetadataForEachMetric(): void
+    {
+        $rows = $this->sampleRows();
+        $rows[0]['update_time'] = '2026-05-18 12:30:00';
+        $rows[0]['validation_status'] = 'normal';
+        $rows[0]['validation_flags'] = '[]';
+        $rows[1]['update_time'] = '2026-05-18 12:35:00';
+        $rows[1]['validation_status'] = 'normal';
+        $rows[1]['validation_flags'] = '[]';
+        $rows[2]['update_time'] = '2026-05-18 12:40:00';
+        $rows[2]['validation_status'] = 'normal';
+        $rows[2]['validation_flags'] = '[]';
+
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset(
+            (new OtaStandardEtlService())->buildDatasetFromRows($rows)
+        );
+
+        self::assertArrayHasKey('metric_trust', $metrics);
+        foreach ([
+            'totals.revenue',
+            'totals.room_nights',
+            'totals.order_count',
+            'totals.adr',
+            'totals.cancellation_rate',
+            'totals.review_count',
+            'totals.avg_comment_score',
+            'traffic.avg_flow_rate',
+            'traffic.avg_submit_rate',
+            'competitor_price.avg_price_gap',
+        ] as $metricKey) {
+            self::assertArrayHasKey($metricKey, $metrics['metric_trust']);
+            self::assertArrayHasKey('source', $metrics['metric_trust'][$metricKey]);
+            self::assertArrayHasKey('caliber', $metrics['metric_trust'][$metricKey]);
+            self::assertArrayHasKey('updated_at', $metrics['metric_trust'][$metricKey]);
+            self::assertArrayHasKey('failure_reasons', $metrics['metric_trust'][$metricKey]);
+            self::assertArrayHasKey('saved_success', $metrics['metric_trust'][$metricKey]);
+        }
+
+        self::assertSame('online_daily_data', $metrics['metric_trust']['totals.revenue']['source']['table']);
+        self::assertSame([1], $metrics['metric_trust']['totals.revenue']['source']['row_ids']);
+        self::assertSame(['ctrip'], $metrics['metric_trust']['totals.revenue']['source']['platforms']);
+        self::assertSame(['business'], $metrics['metric_trust']['totals.revenue']['source']['data_types']);
+        self::assertSame('sum(fact_ota_daily.revenue)', $metrics['metric_trust']['totals.revenue']['caliber']);
+        self::assertSame('2026-05-18 12:30:00', $metrics['metric_trust']['totals.revenue']['updated_at']);
+        self::assertTrue($metrics['metric_trust']['totals.revenue']['saved_success']);
+        self::assertSame([], $metrics['metric_trust']['totals.revenue']['failure_reasons']);
+
+        self::assertSame('sum(fact_ota_daily.revenue) / sum(fact_ota_daily.room_nights)', $metrics['metric_trust']['totals.adr']['caliber']);
+        self::assertSame([2], $metrics['metric_trust']['traffic.avg_flow_rate']['source']['row_ids']);
+        self::assertSame('2026-05-18 12:35:00', $metrics['metric_trust']['traffic.avg_flow_rate']['updated_at']);
+
+        $missingCancel = (new OtaRevenueMetricService())->summarizeDataset(
+            (new OtaStandardEtlService())->buildDatasetFromRows([
+                array_replace($rows[0], [
+                    'raw_data' => json_encode(['our_price' => 200, 'competitor_price' => 220], JSON_UNESCAPED_UNICODE),
+                ]),
+            ])
+        );
+
+        self::assertFalse($missingCancel['metric_trust']['totals.cancellation_rate']['saved_success']);
+        self::assertContains('cancellation_fields_missing', $missingCancel['metric_trust']['totals.cancellation_rate']['failure_reasons']);
+    }
+
     public function testEtlUsesPlatformFallbackAndRecursivelySanitizesRawData(): void
     {
         $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([

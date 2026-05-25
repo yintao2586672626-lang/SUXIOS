@@ -85,7 +85,17 @@ class OperationManagement extends Base
                 return $this->error('策略类型不支持', 422);
             }
 
-            return $this->success($this->service->strategySimulation($hotelIds, $hotelId, $input));
+            $result = $this->service->strategySimulation($hotelIds, $hotelId, $input);
+            if (!empty($input['create_execution_order'])) {
+                $result['execution_intent'] = $this->service->createExecutionIntent(
+                    $hotelIds,
+                    $hotelId ?: ($hotelIds[0] ?? null),
+                    $this->buildStrategyExecutionIntentInput($input, $result, $strategyType, $hotelId ?: ($hotelIds[0] ?? 0)),
+                    (int)($this->currentUser->id ?? 0)
+                );
+            }
+
+            return $this->success($result);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '策略模拟失败'), $this->operationThrowableStatus($e));
         }
@@ -146,6 +156,94 @@ class OperationManagement extends Base
         }
     }
 
+    public function executionIntents(): Response
+    {
+        try {
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
+            return $this->success($this->service->executionIntents($hotelIds, $hotelId, $this->request->get()));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution intents query failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function createExecutionIntent(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
+            $userId = (int)($this->currentUser->id ?? 0);
+
+            return $this->success($this->service->createExecutionIntent($hotelIds, $hotelId, $input, $userId));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution intent create failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function approveExecutionIntent(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution intent id is invalid', 422);
+            }
+
+            $input = $this->requestData();
+            [$hotelIds] = $this->resolveHotelScope();
+            $approved = !array_key_exists('approved', $input) || filter_var($input['approved'], FILTER_VALIDATE_BOOL);
+            $remark = trim((string)($input['remark'] ?? ''));
+            $userId = (int)($this->currentUser->id ?? 0);
+
+            return $this->success($this->service->approveExecutionIntent($id, $approved, $remark, $userId, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution intent approval failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function executeExecutionTask(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution task id is invalid', 422);
+            }
+
+            [$hotelIds] = $this->resolveHotelScope();
+            $userId = (int)($this->currentUser->id ?? 0);
+
+            return $this->success($this->service->executeExecutionTask($id, $hotelIds, $this->requestData(), $userId));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution task update failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function executionTaskEvidence(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution task id is invalid', 422);
+            }
+
+            [$hotelIds] = $this->resolveHotelScope();
+            $userId = (int)($this->currentUser->id ?? 0);
+
+            return $this->success($this->service->addExecutionEvidence($id, $hotelIds, $this->requestData(), $userId));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution evidence save failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function reviewExecutionTask(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution task id is invalid', 422);
+            }
+
+            [$hotelIds] = $this->resolveHotelScope();
+            return $this->success($this->service->reviewExecutionTask($id, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution task review failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
     private function resolveHotelScope(int $inputHotelId = 0): array
     {
         if (!$this->currentUser) {
@@ -176,6 +274,49 @@ class OperationManagement extends Base
         }
 
         return date('Y-m-d', $timestamp);
+    }
+
+    private function buildStrategyExecutionIntentInput(array $input, array $result, string $strategyType, int $hotelId): array
+    {
+        $objectType = match ($strategyType) {
+            'price_adjust', 'competitor_follow', 'holiday_strategy' => 'price',
+            'room_inventory' => 'inventory',
+            'promotion' => 'campaign',
+            default => 'price',
+        };
+
+        $targetValue = [
+            'target_price' => (float)($input['target_price'] ?? $input['suggested_price'] ?? 0),
+            'adjust_amount' => (float)($input['adjust_amount'] ?? 0),
+            'room_type_key' => (string)($input['room_type_key'] ?? ''),
+            'rate_plan_key' => (string)($input['rate_plan_key'] ?? ''),
+            'target_inventory' => (int)($input['target_inventory'] ?? 0),
+            'sell_status' => (string)($input['sell_status'] ?? ''),
+            'campaign_type' => (string)($input['campaign_type'] ?? $strategyType),
+            'discount_rate' => (float)($input['discount_rate'] ?? 0),
+            'budget' => (float)($input['budget'] ?? 0),
+            'target_metric' => (string)($input['target_metric'] ?? 'orders'),
+        ];
+
+        return [
+            'source_module' => 'strategy_simulation',
+            'source_record_id' => (int)($input['source_record_id'] ?? 0),
+            'hotel_id' => $hotelId,
+            'platform' => (string)($input['platform'] ?? $input['channel'] ?? ''),
+            'object_type' => $objectType,
+            'action_type' => $strategyType,
+            'date_start' => (string)($input['start_date'] ?? date('Y-m-d')),
+            'date_end' => (string)($input['end_date'] ?? $input['start_date'] ?? date('Y-m-d')),
+            'current_value' => $result['baseline'] ?? [],
+            'target_value' => $targetValue,
+            'evidence' => [
+                'strategy_result' => $result,
+                'input' => $input,
+            ],
+            'expected_metric' => (string)($input['target_metric'] ?? 'orders'),
+            'expected_delta' => (float)($input['target_change_rate'] ?? 0),
+            'risk_level' => (string)($result['risk']['level'] ?? 'medium'),
+        ];
     }
 
     private function operationThrowableStatus(Throwable $e): int

@@ -19,6 +19,46 @@ final class OnlineDataTest extends TestCase
         return $reflection->newInstanceWithoutConstructor();
     }
 
+    public function testCollectionReliabilityDefinitionsAndQualitySnapshot(): void
+    {
+        $controller = $this->controller();
+
+        $definitions = $this->invokeNonPublic($controller, 'buildOtaCollectionFieldDefinitions');
+        $ctripTraffic = current(array_filter($definitions, static fn(array $item): bool => ($item['source'] ?? '') === 'ctrip' && ($item['module'] ?? '') === 'traffic'));
+
+        self::assertIsArray($ctripTraffic);
+        self::assertSame('online_daily_data', $ctripTraffic['storage_table']);
+        self::assertContains('list_exposure', array_column($ctripTraffic['fields'], 'field'));
+        self::assertContains('detail_exposure', array_column($ctripTraffic['fields'], 'field'));
+
+        $snapshot = $this->invokeNonPublic($controller, 'buildCollectionQualitySnapshot', [[
+            [
+                'hotel_id' => '1001',
+                'hotel_name' => 'Demo Hotel',
+                'source' => 'ctrip',
+                'data_type' => 'traffic',
+                'data_date' => '2026-05-24',
+                'list_exposure' => 100,
+                'detail_exposure' => 20,
+                'raw_data' => json_encode(['listExposure' => 100, 'detailExposure' => 20], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'hotel_id' => '',
+                'hotel_name' => '',
+                'source' => 'ctrip',
+                'data_type' => 'traffic',
+                'data_date' => '2026-05-24',
+                'raw_data' => '{bad-json',
+            ],
+        ]]);
+
+        self::assertSame(2, $snapshot['checked_records']);
+        self::assertSame(1, $snapshot['coverage_days']);
+        self::assertGreaterThan(0, $snapshot['issue_records']);
+        self::assertGreaterThan(0, $snapshot['score']);
+        self::assertNotEmpty($snapshot['source_breakdown']);
+    }
+
     /**
      * 覆盖 normalizeAppTrafficRow/readTrafficNumber/normalizeTrafficPercent/trafficRate：
      * 验证正常流量行、零分母边界值、非法日期异常输入兜底。

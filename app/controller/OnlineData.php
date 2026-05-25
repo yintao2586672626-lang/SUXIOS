@@ -6855,8 +6855,25 @@ JAVASCRIPT;
 
     private function resolveOnlineDataSystemHotelId($input): ?int
     {
-        if ($this->currentUser && !$this->currentUser->isSuperAdmin() && !empty($this->currentUser->hotel_id)) {
-            return (int)$this->currentUser->hotel_id;
+        if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds)) {
+                abort(403, '无可访问酒店');
+            }
+
+            if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
+                $hotelId = (int)$input;
+                if (!in_array($hotelId, $permittedHotelIds, true)) {
+                    abort(403, '无权访问该酒店');
+                }
+                return $hotelId;
+            }
+
+            if (count($permittedHotelIds) === 1) {
+                return $permittedHotelIds[0];
+            }
+
+            abort(400, '请选择酒店');
         }
 
         if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
@@ -11927,6 +11944,53 @@ JAVASCRIPT;
         ]);
     }
 
+    public function collectionReliability(): Response
+    {
+        $this->checkPermission();
+
+        $hotelIdRaw = $this->request->get('hotel_id', $this->request->get('system_hotel_id', ''));
+        $hotelId = $this->resolveOnlineDataSystemHotelId($hotelIdRaw);
+        $days = max(1, min(90, (int)$this->request->get('days', 30)));
+        $endDate = trim((string)$this->request->get('end_date', date('Y-m-d')));
+        $startDate = trim((string)$this->request->get('start_date', date('Y-m-d', strtotime($endDate . ' -' . ($days - 1) . ' days'))));
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate)) {
+            return $this->error('日期格式错误，请使用 YYYY-MM-DD');
+        }
+        if (strtotime($startDate) === false || strtotime($endDate) === false || $startDate > $endDate) {
+            return $this->error('日期范围无效');
+        }
+        $periodDays = (int)floor((strtotime($endDate) - strtotime($startDate)) / 86400) + 1;
+
+        try {
+            $authorizationRows = $this->filterCollectionAuthorizationRows($this->buildCookieStatusRows(), $hotelId);
+            $alerts = $this->filterCollectionAlertsByHotel($this->getCookieAlerts(), $hotelId);
+            $collectionLogs = $this->buildCollectionLogRows($hotelId, $startDate, $endDate, 30);
+            $qualityRows = $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, 2000);
+
+            return $this->success([
+                'period' => [
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'days' => $periodDays,
+                ],
+                'hotel_id' => $hotelId,
+                'authorization' => [
+                    'summary' => $this->buildCollectionAuthorizationSummary($authorizationRows),
+                    'list' => $authorizationRows,
+                    'reauthorize_entry' => $this->cookieReauthorizeEntry(),
+                ],
+                'failure_reasons' => $this->buildCollectionFailureReasons($alerts, $collectionLogs, 20),
+                'field_definitions' => $this->buildOtaCollectionFieldDefinitions(),
+                'collection_logs' => $collectionLogs,
+                'history_replay' => $this->buildCollectionHistoryReplayRows($hotelId, $startDate, $endDate, 30),
+                'data_quality' => $this->buildCollectionQualitySnapshot($qualityRows),
+            ]);
+        } catch (\Throwable $e) {
+            return $this->error('采集可靠性查询失败: ' . $e->getMessage());
+        }
+    }
+
     private function buildCookieStatusRows(): array
     {
         $rows = [];
@@ -12103,6 +12167,338 @@ JAVASCRIPT;
         $raw = SystemConfig::getValue('ota_cookie_alerts', '{}');
         $data = json_decode((string)$raw, true);
         return is_array($data) ? $data : [];
+    }
+
+    private function filterCollectionAuthorizationRows(array $rows, ?int $hotelId): array
+    {
+        if ($hotelId === null) {
+            return array_values($rows);
+        }
+
+        return array_values(array_filter($rows, static function (array $row) use ($hotelId): bool {
+            $rowHotelId = (int)($row['hotel_id'] ?? 0);
+            return $rowHotelId === 0 || $rowHotelId === $hotelId;
+        }));
+    }
+
+    private function buildCollectionAuthorizationSummary(array $rows): array
+    {
+        $counts = [
+            'ok' => 0,
+            'warning' => 0,
+            'expired' => 0,
+            'unknown' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            $status = (string)($row['status'] ?? 'unknown');
+            if (!array_key_exists($status, $counts)) {
+                $status = 'unknown';
+            }
+            $counts[$status]++;
+        }
+
+        $overall = 'empty';
+        if ($counts['expired'] > 0) {
+            $overall = 'risk';
+        } elseif ($counts['warning'] > 0 || $counts['unknown'] > 0) {
+            $overall = 'warning';
+        } elseif ($counts['ok'] > 0) {
+            $overall = 'ok';
+        }
+
+        return [
+            'overall_status' => $overall,
+            'total' => count($rows),
+            'ok' => $counts['ok'],
+            'warning' => $counts['warning'],
+            'expired' => $counts['expired'],
+            'unknown' => $counts['unknown'],
+        ];
+    }
+
+    private function filterCollectionAlertsByHotel(array $alerts, ?int $hotelId): array
+    {
+        return array_values(array_filter($alerts, function (array $alert) use ($hotelId): bool {
+            $alertHotelId = (int)($alert['hotel_id'] ?? 0);
+            if ($hotelId !== null) {
+                return $alertHotelId === 0 || $alertHotelId === $hotelId;
+            }
+            return $alertHotelId === 0 || $this->canSeeCookieHotel($alertHotelId);
+        }));
+    }
+
+    private function buildCollectionLogRows(?int $hotelId, string $startDate, string $endDate, int $limit): array
+    {
+        $hotelIds = $hotelId !== null ? [$hotelId] : $this->resolveAutoFetchRecordHotelIds('');
+        if (empty($hotelIds)) {
+            $hotelIds = $this->visibleCookieHotelIds();
+        }
+
+        $hotelMap = $this->getAutoFetchRecordHotelMap($hotelIds);
+        $filters = [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ];
+        $rows = [];
+        foreach ($hotelIds as $id) {
+            $status = cache($this->autoFetchStatusKey((int)$id));
+            if (!is_array($status)) {
+                continue;
+            }
+            $rows = array_merge($rows, $this->buildAutoFetchRecordRows($status, (int)$id, (string)($hotelMap[(int)$id] ?? ('Hotel ID ' . $id)), $filters));
+        }
+
+        usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['run_time'] ?? ''), (string)($a['run_time'] ?? '')));
+        return array_slice($rows, 0, max(1, $limit));
+    }
+
+    private function buildCollectionFailureReasons(array $alerts, array $collectionLogs, int $limit): array
+    {
+        $rows = [];
+        foreach ($alerts as $alert) {
+            $rows[] = [
+                'type' => 'authorization',
+                'platform' => (string)($alert['platform'] ?? ''),
+                'hotel_id' => $alert['hotel_id'] ?? null,
+                'occurred_at' => (string)($alert['created_at'] ?? ''),
+                'reason' => (string)($alert['message'] ?? ''),
+                'next_action' => (string)($alert['next_action'] ?? ''),
+                'source_ref' => 'SystemConfig.ota_cookie_alerts',
+            ];
+        }
+
+        foreach ($collectionLogs as $log) {
+            if (($log['status'] ?? '') !== 'failed') {
+                continue;
+            }
+            $rows[] = [
+                'type' => 'collection',
+                'platform' => (string)($log['platform'] ?? ''),
+                'hotel_id' => $log['hotel_id'] ?? null,
+                'occurred_at' => (string)($log['run_time'] ?? ''),
+                'data_date' => (string)($log['data_date'] ?? ''),
+                'reason' => (string)($log['message'] ?? ''),
+                'next_action' => '检查授权、字段结构和平台接口返回后重试采集',
+                'source_ref' => 'cache.online_data_auto_fetch_status',
+                'record_id' => (string)($log['id'] ?? ''),
+            ];
+        }
+
+        usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['occurred_at'] ?? ''), (string)($a['occurred_at'] ?? '')));
+        return array_slice($rows, 0, max(1, $limit));
+    }
+
+    private function buildOtaCollectionFieldDefinitions(): array
+    {
+        return [
+            [
+                'source' => 'ctrip',
+                'module' => 'traffic',
+                'storage_table' => 'online_daily_data',
+                'fields' => [
+                    ['field' => 'list_exposure', 'label' => '列表页曝光量', 'source_fields' => ['myHotel.totalListExposure', 'totalListExposure', 'listExposure'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'detail_exposure', 'label' => '详情页访客量', 'source_fields' => ['myHotel.totalDetailExposure', 'totalDetailExposure', 'detailExposure'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'flow_rate', 'label' => '曝光转化率', 'source_fields' => ['listTransforDetailRate', 'flowRate'], 'calculation' => '详情页访客量 / 列表页曝光量 * 100', 'required' => false],
+                    ['field' => 'order_filling_num', 'label' => '订单页访客量', 'source_fields' => ['orderFillingNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                    ['field' => 'order_submit_num', 'label' => '订单提交人数', 'source_fields' => ['orderSubmitNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                ],
+            ],
+            [
+                'source' => 'ctrip',
+                'module' => 'business',
+                'storage_table' => 'online_daily_data',
+                'fields' => [
+                    ['field' => 'amount', 'label' => '营业额', 'source_fields' => ['amount', 'totalAmount', 'saleAmount'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'quantity', 'label' => '间夜量', 'source_fields' => ['quantity', 'roomNights', 'checkOutQuantity'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'book_order_num', 'label' => '订单数', 'source_fields' => ['bookOrderNum', 'orderCount', 'orders'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'comment_score', 'label' => '点评分', 'source_fields' => ['commentScore', 'score'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                ],
+            ],
+            [
+                'source' => 'meituan',
+                'module' => 'business',
+                'storage_table' => 'online_daily_data',
+                'fields' => [
+                    ['field' => 'data_value', 'label' => '榜单指标值', 'source_fields' => ['dataValue', 'monthRoomNights'], 'calculation' => '按美团榜单维度保存原始指标值', 'required' => true],
+                    ['field' => 'dimension', 'label' => '榜单维度', 'source_fields' => ['dimension', 'dimName', '_dimName'], 'calculation' => '平台维度名称直接入库', 'required' => true],
+                    ['field' => 'amount', 'label' => '营业额', 'source_fields' => ['amount', 'saleAmount'], 'calculation' => '如接口返回则直接入库', 'required' => false],
+                    ['field' => 'quantity', 'label' => '间夜量', 'source_fields' => ['quantity', 'roomNights'], 'calculation' => '如接口返回则直接入库', 'required' => false],
+                ],
+            ],
+            [
+                'source' => 'meituan',
+                'module' => 'traffic',
+                'storage_table' => 'online_daily_data',
+                'fields' => [
+                    ['field' => 'list_exposure', 'label' => '列表页曝光量', 'source_fields' => ['self_list_exposure', 'totalListExposure', 'listExposure'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'detail_exposure', 'label' => '详情页访客量', 'source_fields' => ['self_detail_exposure', 'totalDetailExposure', 'detailExposure'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'flow_rate', 'label' => '曝光转化率', 'source_fields' => ['flowRate'], 'calculation' => '详情页访客量 / 列表页曝光量 * 100', 'required' => false],
+                    ['field' => 'order_filling_num', 'label' => '订单页访客量', 'source_fields' => ['self_order_filling_num', 'orderFillingNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                    ['field' => 'order_submit_num', 'label' => '订单提交人数', 'source_fields' => ['self_order_submit_num', 'orderSubmitNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                ],
+            ],
+        ];
+    }
+
+    private function loadCollectionQualityRows(?int $hotelId, string $startDate, string $endDate, int $limit): array
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        $fields = array_values(array_filter([
+            'id', 'system_hotel_id', 'hotel_id', 'hotel_name', 'source', 'data_type', 'data_date',
+            'amount', 'quantity', 'book_order_num', 'comment_score', 'qunar_comment_score', 'data_value',
+            'dimension', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+            'raw_data', 'validation_status', 'validation_flags', 'create_time', 'update_time',
+        ], static fn(string $field): bool => isset($columns[$field])));
+
+        if (empty($fields)) {
+            return [];
+        }
+
+        $query = Db::name('online_daily_data')
+            ->field($fields)
+            ->where('data_date', '>=', $startDate)
+            ->where('data_date', '<=', $endDate);
+
+        if (!$this->applyCollectionHotelScope($query, $hotelId, $columns)) {
+            return [];
+        }
+
+        return $query
+            ->order('data_date', 'desc')
+            ->order('id', 'desc')
+            ->limit(max(1, $limit))
+            ->select()
+            ->toArray();
+    }
+
+    private function buildCollectionHistoryReplayRows(?int $hotelId, string $startDate, string $endDate, int $limit): array
+    {
+        $rows = $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, $limit);
+        $result = [];
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            $quality = $this->buildOnlineDataQuality($row);
+            $result[] = [
+                'id' => $id,
+                'source_ref' => 'online_daily_data#' . $id,
+                'replay_api' => $id > 0 ? '/api/online-data/history/' . $id : '',
+                'data_date' => (string)($row['data_date'] ?? ''),
+                'source' => (string)($row['source'] ?? ''),
+                'data_type' => (string)($row['data_type'] ?? ''),
+                'system_hotel_id' => $row['system_hotel_id'] ?? null,
+                'hotel_id' => $row['hotel_id'] ?? null,
+                'hotel_name' => (string)($row['hotel_name'] ?? ''),
+                'quality_status' => (string)($quality['status'] ?? ''),
+                'quality_score' => (int)($quality['score'] ?? 0),
+                'metric_preview' => $this->buildCollectionMetricPreview($row),
+                'raw_data_available' => trim((string)($row['raw_data'] ?? '')) !== '',
+                'updated_at' => (string)($row['update_time'] ?? $row['create_time'] ?? ''),
+            ];
+        }
+        return $result;
+    }
+
+    private function applyCollectionHotelScope($query, ?int $hotelId, array $columns): bool
+    {
+        if ($hotelId !== null) {
+            if (isset($columns['system_hotel_id'])) {
+                $query->where('system_hotel_id', $hotelId);
+            } elseif (isset($columns['hotel_id'])) {
+                $query->where('hotel_id', (string)$hotelId);
+            }
+        }
+
+        if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
+            if (!isset($columns['system_hotel_id'])) {
+                return false;
+            }
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds)) {
+                return false;
+            }
+            $query->whereIn('system_hotel_id', $permittedHotelIds);
+        }
+
+        return true;
+    }
+
+    private function buildCollectionQualitySnapshot(array $rows): array
+    {
+        $summary = $this->buildOnlineDataQualitySummary($rows);
+        $checkedRecords = (int)($summary['checked_records'] ?? 0);
+        if ($checkedRecords === 0) {
+            return array_merge($summary, [
+                'status' => 'no_data',
+                'score' => 0,
+                'grade' => 'no_data',
+                'coverage_days' => 0,
+                'source_breakdown' => [],
+                'scoring_rule' => 'Average of per-record online_daily_data quality scores in the selected period.',
+            ]);
+        }
+
+        $scoreTotal = 0;
+        $dates = [];
+        $sourceBreakdown = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $quality = $this->buildOnlineDataQuality($row);
+            $scoreTotal += (int)($quality['score'] ?? 0);
+            $date = (string)($row['data_date'] ?? '');
+            if ($date !== '') {
+                $dates[$date] = true;
+            }
+            $source = (string)($row['source'] ?? 'unknown');
+            $type = (string)($row['data_type'] ?? 'business');
+            $key = $source . ':' . $type;
+            if (!isset($sourceBreakdown[$key])) {
+                $sourceBreakdown[$key] = [
+                    'source' => $source,
+                    'data_type' => $type,
+                    'records' => 0,
+                    'issue_records' => 0,
+                ];
+            }
+            $sourceBreakdown[$key]['records']++;
+            if (($quality['status'] ?? 'ok') !== 'ok') {
+                $sourceBreakdown[$key]['issue_records']++;
+            }
+        }
+
+        $score = round($scoreTotal / $checkedRecords, 1);
+        $status = (string)($summary['status'] ?? 'ok');
+        if ($score < 60 && $status !== 'error') {
+            $status = 'error';
+        } elseif ($score < 85 && $status === 'ok') {
+            $status = 'warning';
+        }
+
+        return array_merge($summary, [
+            'status' => $status,
+            'score' => $score,
+            'grade' => $score >= 90 ? 'A' : ($score >= 75 ? 'B' : ($score >= 60 ? 'C' : 'D')),
+            'coverage_days' => count($dates),
+            'source_breakdown' => array_values($sourceBreakdown),
+            'scoring_rule' => 'Average of per-record online_daily_data quality scores in the selected period.',
+        ]);
+    }
+
+    private function buildCollectionMetricPreview(array $row): array
+    {
+        $preview = [];
+        foreach ([
+            'amount', 'quantity', 'book_order_num', 'data_value', 'dimension',
+            'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+            'comment_score', 'qunar_comment_score',
+        ] as $field) {
+            if (array_key_exists($field, $row) && $row[$field] !== null && $row[$field] !== '') {
+                $preview[$field] = $row[$field];
+            }
+        }
+        return $preview;
     }
 
 

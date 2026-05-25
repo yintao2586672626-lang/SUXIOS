@@ -258,7 +258,16 @@ class OperationManagementService
     public function actionTracking(array $hotelIds, ?int $hotelId): array
     {
         if (!$this->tableExists('operation_action_tracks')) {
-            return ['actions' => [], 'data_status' => self::DATA_PENDING];
+            return [
+                'actions' => [],
+                'effect_validation' => $this->buildEffectValidationSummary(
+                    [],
+                    ['total' => 0, 'adopted' => 0, 'data_status' => self::DATA_PENDING],
+                    ['reviewed' => 0, 'accurate' => 0, 'data_status' => self::DATA_PENDING],
+                    [['code' => 'operation_action_tracks_missing', 'message' => '策略动作追踪表不存在']]
+                ),
+                'data_status' => self::DATA_PENDING,
+            ];
         }
 
         $query = Db::name('operation_action_tracks')->whereNull('deleted_at');
@@ -290,7 +299,10 @@ class OperationManagementService
             ];
         }
 
-        return ['actions' => $actions];
+        return [
+            'actions' => $actions,
+            'effect_validation' => $this->buildEffectValidation($hotelIds, $hotelId, $actions),
+        ];
     }
 
     public function finishAction(int $id, array $hotelIds): bool
@@ -320,6 +332,319 @@ class OperationManagementService
         return true;
     }
 
+    public function buildPriceSuggestionExecutionIntentInput(array $suggestion, array $overrides = []): array
+    {
+        $date = $this->normalizeExecutionDate((string)($suggestion['suggestion_date'] ?? date('Y-m-d')));
+
+        return [
+            'source_module' => 'price_suggestion',
+            'source_record_id' => (int)($suggestion['id'] ?? 0),
+            'hotel_id' => (int)($suggestion['hotel_id'] ?? 0),
+            'platform' => strtolower(trim((string)($overrides['platform'] ?? $overrides['channel'] ?? ''))),
+            'object_type' => 'price',
+            'action_type' => 'price_adjust',
+            'date_start' => $date,
+            'date_end' => $date,
+            'current_value' => [
+                'current_price' => (float)($suggestion['current_price'] ?? 0),
+                'room_type_id' => (int)($suggestion['room_type_id'] ?? 0),
+            ],
+            'target_value' => [
+                'target_price' => (float)($suggestion['suggested_price'] ?? 0),
+                'min_price' => (float)($suggestion['min_price'] ?? 0),
+                'max_price' => (float)($suggestion['max_price'] ?? 0),
+                'room_type_key' => trim((string)($overrides['room_type_key'] ?? '')),
+                'rate_plan_key' => trim((string)($overrides['rate_plan_key'] ?? '')),
+                'room_type_id' => (int)($suggestion['room_type_id'] ?? 0),
+            ],
+            'evidence' => [
+                'reason' => (string)($suggestion['reason'] ?? ''),
+                'factors' => $this->arrayValue($suggestion['factors'] ?? []),
+                'competitor_data' => $this->arrayValue($suggestion['competitor_data'] ?? []),
+            ],
+            'expected_metric' => trim((string)($overrides['expected_metric'] ?? 'orders')),
+            'expected_delta' => (float)($overrides['expected_delta'] ?? 0),
+            'risk_level' => trim((string)($overrides['risk_level'] ?? 'medium')),
+        ];
+    }
+
+    public function buildExecutionIntentPayload(array $hotelIds, ?int $hotelId, array $input, int $createdBy): array
+    {
+        $selectedHotelId = (int)($input['hotel_id'] ?? $hotelId ?? ($hotelIds[0] ?? 0));
+        if ($selectedHotelId <= 0 || !in_array($selectedHotelId, array_map('intval', $hotelIds), true)) {
+            throw new \InvalidArgumentException('hotel_id is not permitted');
+        }
+
+        $objectType = trim((string)($input['object_type'] ?? ''));
+        $targetValue = $this->arrayValue($input['target_value'] ?? []);
+        $currentValue = $this->arrayValue($input['current_value'] ?? []);
+        $evidence = $this->arrayValue($input['evidence'] ?? $input['evidence_json'] ?? []);
+        $blockedReasons = $this->executionIntentBlockedReasons($objectType, $input, $targetValue, $evidence);
+        $status = $blockedReasons ? 'blocked' : (in_array((string)($input['status'] ?? ''), ['draft', 'pending_approval'], true) ? (string)$input['status'] : 'pending_approval');
+
+        return [
+            'source_module' => trim((string)($input['source_module'] ?? 'manual')),
+            'source_record_id' => (int)($input['source_record_id'] ?? 0),
+            'hotel_id' => $selectedHotelId,
+            'platform' => strtolower(trim((string)($input['platform'] ?? ''))),
+            'object_type' => $objectType,
+            'action_type' => trim((string)($input['action_type'] ?? '')),
+            'date_start' => $this->normalizeExecutionDate((string)($input['date_start'] ?? $input['start_date'] ?? date('Y-m-d'))),
+            'date_end' => $this->normalizeExecutionDate((string)($input['date_end'] ?? $input['end_date'] ?? $input['date_start'] ?? $input['start_date'] ?? date('Y-m-d'))),
+            'current_value' => $currentValue,
+            'target_value' => $targetValue,
+            'evidence' => $evidence,
+            'expected_metric' => trim((string)($input['expected_metric'] ?? $targetValue['target_metric'] ?? '')),
+            'expected_delta' => (float)($input['expected_delta'] ?? 0),
+            'risk_level' => trim((string)($input['risk_level'] ?? 'medium')),
+            'status' => $status,
+            'blocked_reason' => implode('; ', $blockedReasons),
+            'created_by' => $createdBy,
+        ];
+    }
+
+    public function buildExecutionTaskUpdate(array $task, array $intent, array $input, int $operatorId): array
+    {
+        if (($intent['status'] ?? '') !== 'approved') {
+            throw new \InvalidArgumentException('intent must be approved before execution');
+        }
+
+        $status = trim((string)($input['status'] ?? 'executed'));
+        if (!in_array($status, ['executing', 'blocked', 'executed', 'failed'], true)) {
+            throw new \InvalidArgumentException('execution status is not supported');
+        }
+
+        $evidence = $this->arrayValue($input['evidence'] ?? []);
+        if ($status === 'executed' && empty($evidence)) {
+            throw new \InvalidArgumentException('execution evidence is required before marking task executed');
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $taskUpdate = [
+            'status' => $status,
+            'operator_id' => $operatorId,
+            'blocked_reason' => $status === 'blocked' ? trim((string)($input['blocked_reason'] ?? 'execution blocked')) : '',
+            'updated_at' => $now,
+        ];
+
+        if (in_array($status, ['blocked', 'executed', 'failed'], true)) {
+            $taskUpdate['executed_at'] = $now;
+        }
+        if (array_key_exists('current_value', $input)) {
+            $taskUpdate['current_value'] = $this->arrayValue($input['current_value']);
+        }
+        if (array_key_exists('target_value', $input)) {
+            $taskUpdate['target_value'] = $this->arrayValue($input['target_value']);
+        }
+
+        $evidencePayload = null;
+        if (!empty($evidence)) {
+            $evidencePayload = [
+                'task_id' => (int)($task['id'] ?? 0),
+                'evidence_type' => trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')),
+                'before' => $this->arrayValue($evidence['before'] ?? []),
+                'after' => $this->arrayValue($evidence['after'] ?? []),
+                'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
+                'platform_response' => $this->arrayValue($evidence['platform_response'] ?? []),
+                'remark' => trim((string)($evidence['remark'] ?? '')),
+                'created_by' => $operatorId,
+                'created_at' => $now,
+            ];
+        }
+
+        return ['task' => $taskUpdate, 'evidence' => $evidencePayload];
+    }
+
+    public function createExecutionIntent(array $hotelIds, ?int $hotelId, array $input, int $createdBy): array
+    {
+        $this->ensureExecutionTables();
+        $payload = $this->buildExecutionIntentPayload($hotelIds, $hotelId, $input, $createdBy);
+        $now = date('Y-m-d H:i:s');
+
+        $id = (int)Db::name('operation_execution_intents')->insertGetId([
+            'source_module' => $payload['source_module'],
+            'source_record_id' => $payload['source_record_id'],
+            'hotel_id' => $payload['hotel_id'],
+            'platform' => $payload['platform'],
+            'object_type' => $payload['object_type'],
+            'action_type' => $payload['action_type'],
+            'date_start' => $payload['date_start'],
+            'date_end' => $payload['date_end'],
+            'current_value_json' => json_encode($payload['current_value'], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode($payload['target_value'], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode($payload['evidence'], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => $payload['expected_metric'],
+            'expected_delta' => $payload['expected_delta'],
+            'risk_level' => $payload['risk_level'],
+            'blocked_reason' => $payload['blocked_reason'],
+            'status' => $payload['status'],
+            'created_by' => $createdBy,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return $this->executionIntentDetail($id, $hotelIds);
+    }
+
+    public function executionIntents(array $hotelIds, ?int $hotelId, array $filters = []): array
+    {
+        if (!$this->tableExists('operation_execution_intents')) {
+            return ['list' => [], 'data_status' => self::DATA_PENDING];
+        }
+
+        $query = Db::name('operation_execution_intents')->whereNull('deleted_at');
+        if ($hotelId !== null && $hotelId > 0) {
+            $query->where('hotel_id', $hotelId);
+        } elseif (!empty($hotelIds)) {
+            $query->whereIn('hotel_id', $hotelIds);
+        }
+        foreach (['platform', 'object_type', 'status'] as $field) {
+            $value = trim((string)($filters[$field] ?? ''));
+            if ($value !== '') {
+                $query->where($field, $value);
+            }
+        }
+
+        $rows = $query->order('id', 'desc')->limit(100)->select()->toArray();
+        return [
+            'list' => array_map([$this, 'normalizeExecutionIntentRow'], $rows),
+            'data_status' => self::DATA_OK,
+        ];
+    }
+
+    public function approveExecutionIntent(int $id, bool $approved, string $remark, int $userId, array $hotelIds): array
+    {
+        $this->ensureExecutionTables();
+        $intent = $this->executionIntentRow($id, $hotelIds);
+        if (!$intent) {
+            throw new \RuntimeException('execution intent not found');
+        }
+        if ($approved && ($intent['status'] ?? '') === 'blocked') {
+            throw new \InvalidArgumentException('blocked execution intent cannot be approved');
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $status = $approved ? 'approved' : 'rejected';
+        Db::name('operation_execution_intents')->where('id', $id)->update([
+            'status' => $status,
+            'approved_by' => $userId,
+            'approved_at' => $now,
+            'review_remark' => $remark,
+            'updated_at' => $now,
+        ]);
+
+        if ($approved) {
+            $taskExists = (int)Db::name('operation_execution_tasks')->where('intent_id', $id)->whereNull('deleted_at')->count();
+            if ($taskExists === 0) {
+                Db::name('operation_execution_tasks')->insert([
+                    'intent_id' => $id,
+                    'hotel_id' => (int)$intent['hotel_id'],
+                    'execution_mode' => 'manual',
+                    'target_value_json' => (string)($intent['target_value_json'] ?? '{}'),
+                    'current_value_json' => (string)($intent['current_value_json'] ?? '{}'),
+                    'status' => 'pending_execute',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+        }
+
+        return $this->executionIntentDetail($id, $hotelIds);
+    }
+
+    public function executeExecutionTask(int $taskId, array $hotelIds, array $input, int $operatorId): array
+    {
+        $this->ensureExecutionTables();
+        $task = $this->executionTaskRow($taskId, $hotelIds);
+        if (!$task) {
+            throw new \RuntimeException('execution task not found');
+        }
+
+        $intent = $this->executionIntentRow((int)$task['intent_id'], $hotelIds);
+        if (!$intent) {
+            throw new \RuntimeException('execution intent not found');
+        }
+
+        $built = $this->buildExecutionTaskUpdate($task, $intent, $input, $operatorId);
+        $taskUpdate = $built['task'];
+        $dbUpdate = $taskUpdate;
+        foreach (['current_value', 'target_value'] as $jsonField) {
+            if (array_key_exists($jsonField, $dbUpdate)) {
+                $dbUpdate[$jsonField . '_json'] = json_encode($dbUpdate[$jsonField], JSON_UNESCAPED_UNICODE);
+                unset($dbUpdate[$jsonField]);
+            }
+        }
+
+        Db::name('operation_execution_tasks')->where('id', $taskId)->update($dbUpdate);
+        if ($built['evidence'] !== null) {
+            $this->insertExecutionEvidence($built['evidence']);
+        }
+
+        if (($taskUpdate['status'] ?? '') === 'executed' && empty($task['action_track_id']) && $this->tableExists('operation_action_tracks')) {
+            $actionTrackId = $this->createActionTrackForExecution($intent, $taskId);
+            Db::name('operation_execution_tasks')->where('id', $taskId)->update(['action_track_id' => $actionTrackId]);
+        }
+
+        return $this->executionTaskDetail($taskId, $hotelIds);
+    }
+
+    public function addExecutionEvidence(int $taskId, array $hotelIds, array $input, int $userId): array
+    {
+        $this->ensureExecutionTables();
+        $task = $this->executionTaskRow($taskId, $hotelIds);
+        if (!$task) {
+            throw new \RuntimeException('execution task not found');
+        }
+
+        $evidence = $this->arrayValue($input['evidence'] ?? $input);
+        if (empty($evidence)) {
+            throw new \InvalidArgumentException('execution evidence is required');
+        }
+
+        $payload = [
+            'task_id' => $taskId,
+            'evidence_type' => trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')),
+            'before' => $this->arrayValue($evidence['before'] ?? []),
+            'after' => $this->arrayValue($evidence['after'] ?? []),
+            'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
+            'platform_response' => $this->arrayValue($evidence['platform_response'] ?? []),
+            'remark' => trim((string)($evidence['remark'] ?? '')),
+            'created_by' => $userId,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        $this->insertExecutionEvidence($payload);
+
+        return $this->executionTaskDetail($taskId, $hotelIds);
+    }
+
+    public function reviewExecutionTask(int $taskId, array $hotelIds): array
+    {
+        $this->ensureExecutionTables();
+        $task = $this->executionTaskRow($taskId, $hotelIds);
+        if (!$task) {
+            throw new \RuntimeException('execution task not found');
+        }
+
+        $summary = 'waiting for action tracking data';
+        $resultStatus = 'observing';
+        $actionTrackId = (int)($task['action_track_id'] ?? 0);
+        if ($actionTrackId > 0 && $this->finishAction($actionTrackId, [(int)$task['hotel_id']])) {
+            $action = Db::name('operation_action_tracks')->where('id', $actionTrackId)->find();
+            if ($action) {
+                $summary = (string)($action['result_summary'] ?? $summary);
+                $resultStatus = (string)($action['result_status'] ?? $resultStatus);
+            }
+        }
+
+        Db::name('operation_execution_tasks')->where('id', $taskId)->update([
+            'result_status' => $resultStatus,
+            'result_summary' => $summary,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        return $this->executionTaskDetail($taskId, $hotelIds);
+    }
+
     public function tableExists(string $table): bool
     {
         try {
@@ -328,6 +653,474 @@ class OperationManagementService
         } catch (Throwable $e) {
             return false;
         }
+    }
+
+    private function executionIntentBlockedReasons(string $objectType, array $input, array $targetValue, array $evidence): array
+    {
+        $reasons = [];
+        foreach (['platform', 'object_type', 'action_type'] as $field) {
+            if (trim((string)($input[$field] ?? '')) === '') {
+                $reasons[] = $field . ' missing';
+            }
+        }
+        if (empty($targetValue)) {
+            $reasons[] = 'target_value missing';
+        }
+        if (empty($evidence)) {
+            $reasons[] = 'evidence missing';
+        }
+
+        if ($objectType === 'price') {
+            foreach (['room_type_key', 'rate_plan_key', 'target_price'] as $field) {
+                if (!array_key_exists($field, $targetValue) || trim((string)$targetValue[$field]) === '') {
+                    $reasons[] = $field . ' missing';
+                }
+            }
+        } elseif ($objectType === 'inventory') {
+            if (trim((string)($targetValue['room_type_key'] ?? '')) === '') {
+                $reasons[] = 'room_type_key missing';
+            }
+            if (!array_key_exists('target_inventory', $targetValue) && trim((string)($targetValue['sell_status'] ?? '')) === '') {
+                $reasons[] = 'target_inventory or sell_status missing';
+            }
+        } elseif ($objectType === 'campaign') {
+            foreach (['campaign_type', 'target_metric'] as $field) {
+                if (trim((string)($targetValue[$field] ?? '')) === '') {
+                    $reasons[] = $field . ' missing';
+                }
+            }
+        } elseif ($objectType !== '') {
+            $reasons[] = 'object_type not supported';
+        }
+
+        return array_values(array_unique($reasons));
+    }
+
+    private function arrayValue(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (is_string($value) && trim($value) !== '') {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return [];
+    }
+
+    private function normalizeExecutionDate(string $date): string
+    {
+        $timestamp = strtotime($date);
+        if ($timestamp === false) {
+            throw new \InvalidArgumentException('execution date is invalid');
+        }
+
+        return date('Y-m-d', $timestamp);
+    }
+
+    private function ensureExecutionTables(): void
+    {
+        foreach (['operation_execution_intents', 'operation_execution_tasks', 'operation_execution_evidence'] as $table) {
+            if (!$this->tableExists($table)) {
+                throw new \RuntimeException($table . ' table does not exist, run database migration first');
+            }
+        }
+    }
+
+    private function executionIntentRow(int $id, array $hotelIds): ?array
+    {
+        if ($id <= 0 || empty($hotelIds)) {
+            return null;
+        }
+
+        $row = Db::name('operation_execution_intents')
+            ->where('id', $id)
+            ->whereIn('hotel_id', $hotelIds)
+            ->whereNull('deleted_at')
+            ->find();
+
+        return is_array($row) ? $row : null;
+    }
+
+    private function executionTaskRow(int $id, array $hotelIds): ?array
+    {
+        if ($id <= 0 || empty($hotelIds)) {
+            return null;
+        }
+
+        $row = Db::name('operation_execution_tasks')
+            ->where('id', $id)
+            ->whereIn('hotel_id', $hotelIds)
+            ->whereNull('deleted_at')
+            ->find();
+
+        return is_array($row) ? $row : null;
+    }
+
+    private function executionIntentDetail(int $id, array $hotelIds): array
+    {
+        $row = $this->executionIntentRow($id, $hotelIds);
+        if (!$row) {
+            throw new \RuntimeException('execution intent not found');
+        }
+
+        $intent = $this->normalizeExecutionIntentRow($row);
+        $tasks = Db::name('operation_execution_tasks')
+            ->where('intent_id', $id)
+            ->whereNull('deleted_at')
+            ->order('id', 'asc')
+            ->select()
+            ->toArray();
+        $intent['tasks'] = array_map([$this, 'normalizeExecutionTaskRow'], $tasks);
+
+        return $intent;
+    }
+
+    private function executionTaskDetail(int $id, array $hotelIds): array
+    {
+        $row = $this->executionTaskRow($id, $hotelIds);
+        if (!$row) {
+            throw new \RuntimeException('execution task not found');
+        }
+
+        $task = $this->normalizeExecutionTaskRow($row);
+        $evidenceRows = Db::name('operation_execution_evidence')
+            ->where('task_id', $id)
+            ->whereNull('deleted_at')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        $task['evidence'] = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
+
+        return $task;
+    }
+
+    private function normalizeExecutionIntentRow(array $row): array
+    {
+        $row['id'] = (int)$row['id'];
+        $row['hotel_id'] = (int)$row['hotel_id'];
+        $row['source_record_id'] = (int)($row['source_record_id'] ?? 0);
+        $row['expected_delta'] = (float)($row['expected_delta'] ?? 0);
+        $row['current_value'] = $this->decodeJson((string)($row['current_value_json'] ?? ''));
+        $row['target_value'] = $this->decodeJson((string)($row['target_value_json'] ?? ''));
+        $row['evidence'] = $this->decodeJson((string)($row['evidence_json'] ?? ''));
+        unset($row['current_value_json'], $row['target_value_json'], $row['evidence_json']);
+
+        return $row;
+    }
+
+    private function normalizeExecutionTaskRow(array $row): array
+    {
+        $row['id'] = (int)$row['id'];
+        $row['intent_id'] = (int)$row['intent_id'];
+        $row['hotel_id'] = (int)$row['hotel_id'];
+        $row['operator_id'] = (int)($row['operator_id'] ?? 0);
+        $row['action_track_id'] = (int)($row['action_track_id'] ?? 0);
+        $row['current_value'] = $this->decodeJson((string)($row['current_value_json'] ?? ''));
+        $row['target_value'] = $this->decodeJson((string)($row['target_value_json'] ?? ''));
+        unset($row['current_value_json'], $row['target_value_json']);
+
+        return $row;
+    }
+
+    private function normalizeExecutionEvidenceRow(array $row): array
+    {
+        $row['id'] = (int)$row['id'];
+        $row['task_id'] = (int)$row['task_id'];
+        $row['created_by'] = (int)($row['created_by'] ?? 0);
+        $row['before'] = $this->decodeJson((string)($row['before_json'] ?? ''));
+        $row['after'] = $this->decodeJson((string)($row['after_json'] ?? ''));
+        $row['platform_response'] = $this->decodeJson((string)($row['platform_response_json'] ?? ''));
+        unset($row['before_json'], $row['after_json'], $row['platform_response_json']);
+
+        return $row;
+    }
+
+    private function insertExecutionEvidence(array $payload): void
+    {
+        Db::name('operation_execution_evidence')->insert([
+            'task_id' => (int)$payload['task_id'],
+            'evidence_type' => (string)$payload['evidence_type'],
+            'before_json' => json_encode($payload['before'] ?? [], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode($payload['after'] ?? [], JSON_UNESCAPED_UNICODE),
+            'attachment_path' => (string)($payload['attachment_path'] ?? ''),
+            'platform_response_json' => json_encode($payload['platform_response'] ?? [], JSON_UNESCAPED_UNICODE),
+            'remark' => (string)($payload['remark'] ?? ''),
+            'created_by' => (int)($payload['created_by'] ?? 0),
+            'created_at' => (string)($payload['created_at'] ?? date('Y-m-d H:i:s')),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private function createActionTrackForExecution(array $intent, int $taskId): int
+    {
+        $target = $this->decodeJson((string)($intent['target_value_json'] ?? ''));
+        $dateStart = (string)($intent['date_start'] ?? date('Y-m-d'));
+        $hotelId = (int)$intent['hotel_id'];
+        $before = $this->baseline([$hotelId], 7, $dateStart);
+
+        return (int)Db::name('operation_action_tracks')->insertGetId([
+            'hotel_id' => $hotelId,
+            'action_type' => (string)($intent['action_type'] ?? ''),
+            'action_title' => 'execution_task_' . $taskId . '_' . (string)($intent['object_type'] ?? 'operation'),
+            'start_date' => $dateStart,
+            'end_date' => !empty($intent['date_end']) ? (string)$intent['date_end'] : null,
+            'target_metric' => (string)($intent['expected_metric'] ?? $target['target_metric'] ?? ''),
+            'target_change_rate' => (float)($intent['expected_delta'] ?? 0),
+            'before_data_json' => json_encode($before, JSON_UNESCAPED_UNICODE),
+            'after_data_json' => json_encode([], JSON_UNESCAPED_UNICODE),
+            'result_status' => 'observing',
+            'result_summary' => '',
+            'remark' => 'created from operation execution task',
+            'status' => 'active',
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private function buildEffectValidation(array $hotelIds, ?int $hotelId, array $actions): array
+    {
+        $dataGaps = [];
+        $priceSuggestionStats = $this->priceSuggestionAdoptionStats($hotelIds, $hotelId, 30, $dataGaps);
+        $alertAccuracyStats = $this->alertAccuracyStats($hotelIds, $hotelId, 30, $dataGaps);
+
+        return $this->buildEffectValidationSummary($actions, $priceSuggestionStats, $alertAccuracyStats, $dataGaps);
+    }
+
+    private function buildEffectValidationSummary(array $actions, array $priceSuggestionStats, array $alertAccuracyStats, array $dataGaps): array
+    {
+        $reviewedStatuses = ['success', 'near_success', 'failed'];
+        $hitStatuses = ['success', 'near_success'];
+        $counts = [
+            'total' => count($actions),
+            'reviewed' => 0,
+            'observing' => 0,
+            'success' => 0,
+            'near_success' => 0,
+            'failed' => 0,
+        ];
+        $revenue = ['before' => 0.0, 'after' => 0.0, 'sample_count' => 0];
+        $conversion = ['before' => 0.0, 'after' => 0.0, 'sample_count' => 0];
+        $pricing = ['reviewed' => 0, 'hit' => 0];
+
+        foreach ($actions as $action) {
+            $result = is_array($action['result'] ?? null) ? $action['result'] : [];
+            $status = (string)($result['status'] ?? $action['result_status'] ?? 'observing');
+            if (in_array($status, $reviewedStatuses, true)) {
+                $counts['reviewed']++;
+                $counts[$status]++;
+            } else {
+                $counts['observing']++;
+            }
+
+            if ((string)($action['action_type'] ?? '') === 'price_adjust' && in_array($status, $reviewedStatuses, true)) {
+                $pricing['reviewed']++;
+                if (in_array($status, $hitStatuses, true)) {
+                    $pricing['hit']++;
+                }
+            }
+
+            $before = is_array($action['before'] ?? null) ? $action['before'] : [];
+            $after = is_array($action['after'] ?? null) ? $action['after'] : [];
+            if (($before['data_status'] ?? '') === self::DATA_OK && ($after['data_status'] ?? '') === self::DATA_OK) {
+                $beforeRevenue = (float)($before['avg_revenue'] ?? 0);
+                $afterRevenue = (float)($after['avg_revenue'] ?? 0);
+                if ($beforeRevenue > 0) {
+                    $revenue['before'] += $beforeRevenue;
+                    $revenue['after'] += $afterRevenue;
+                    $revenue['sample_count']++;
+                }
+
+                $beforeConversion = (float)($before['avg_conversion'] ?? 0);
+                $afterConversion = (float)($after['avg_conversion'] ?? 0);
+                if ($beforeConversion > 0) {
+                    $conversion['before'] += $beforeConversion;
+                    $conversion['after'] += $afterConversion;
+                    $conversion['sample_count']++;
+                }
+            }
+        }
+
+        $metrics = [
+            $this->effectRateMetric(
+                'revenue_lift_rate',
+                '收益提升',
+                $revenue['after'] - $revenue['before'],
+                $revenue['before'],
+                (int)$revenue['sample_count'],
+                '(执行后日均收入 - 执行前日均收入) / 执行前日均收入'
+            ),
+            $this->effectRateMetric(
+                'conversion_lift_rate',
+                '转化提升',
+                $conversion['after'] - $conversion['before'],
+                $conversion['before'],
+                (int)$conversion['sample_count'],
+                '(执行后平均转化率 - 执行前平均转化率) / 执行前平均转化率'
+            ),
+            $this->effectRateMetric(
+                'pricing_hit_rate',
+                '调价命中率',
+                (float)$pricing['hit'],
+                (float)$pricing['reviewed'],
+                (int)$pricing['reviewed'],
+                '调价动作中复盘结果为有效或接近有效的数量 / 已复盘调价动作数量'
+            ),
+            $this->effectRateMetric(
+                'suggestion_adoption_rate',
+                '建议采纳率',
+                (float)($priceSuggestionStats['adopted'] ?? 0),
+                (float)($priceSuggestionStats['total'] ?? 0),
+                (int)($priceSuggestionStats['total'] ?? 0),
+                '已批准或已应用的定价建议数量 / 近30天定价建议总数'
+            ),
+            $this->effectRateMetric(
+                'alert_accuracy_rate',
+                '预警准确率',
+                (float)($alertAccuracyStats['accurate'] ?? 0),
+                (float)($alertAccuracyStats['reviewed'] ?? 0),
+                (int)($alertAccuracyStats['reviewed'] ?? 0),
+                '标记为准确的预警数量 / 已复盘准确性的预警数量'
+            ),
+        ];
+
+        $readyCount = count(array_filter($metrics, static fn(array $metric): bool => ($metric['status'] ?? '') === 'ready'));
+        $status = $readyCount === count($metrics) ? 'ready' : ($readyCount > 0 ? 'partial' : 'data_gap');
+
+        return [
+            'status' => $status,
+            'period' => [
+                'price_suggestion_days' => 30,
+                'alert_accuracy_days' => 30,
+            ],
+            'action_counts' => $counts,
+            'metrics' => $metrics,
+            'data_gaps' => array_values($dataGaps),
+        ];
+    }
+
+    private function effectRateMetric(string $key, string $label, float $numerator, float $denominator, int $sampleCount, string $formula): array
+    {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'value' => $denominator > 0 ? round($numerator / $denominator * 100, 2) : null,
+            'unit' => '%',
+            'status' => $denominator > 0 ? 'ready' : 'insufficient_data',
+            'sample_count' => $sampleCount,
+            'numerator' => round($numerator, 2),
+            'denominator' => round($denominator, 2),
+            'formula' => $formula,
+        ];
+    }
+
+    private function priceSuggestionAdoptionStats(array $hotelIds, ?int $hotelId, int $days, array &$dataGaps): array
+    {
+        if (!$this->tableExists('price_suggestions')) {
+            $dataGaps[] = ['code' => 'price_suggestions_missing', 'message' => '定价建议表不存在'];
+            return ['total' => 0, 'adopted' => 0, 'data_status' => self::DATA_PENDING];
+        }
+
+        $start = date('Y-m-d', strtotime('-' . max(0, $days - 1) . ' days'));
+        $end = date('Y-m-d');
+        try {
+            $query = Db::name('price_suggestions')->field('status')->whereBetween('suggestion_date', [$start, $end]);
+            if ($hotelId !== null && $hotelId > 0) {
+                $query->where('hotel_id', $hotelId);
+            } elseif (!empty($hotelIds)) {
+                $query->whereIn('hotel_id', $hotelIds);
+            }
+            $rows = $query->select()->toArray();
+        } catch (Throwable $e) {
+            $dataGaps[] = ['code' => 'price_suggestions_read_failed', 'message' => '定价建议统计读取失败'];
+            return ['total' => 0, 'adopted' => 0, 'data_status' => 'read_failed'];
+        }
+
+        $adopted = 0;
+        foreach ($rows as $row) {
+            if (in_array((int)($row['status'] ?? 0), [2, 4], true)) {
+                $adopted++;
+            }
+        }
+
+        if (empty($rows)) {
+            $dataGaps[] = ['code' => 'price_suggestions_no_samples', 'message' => '近30天没有定价建议样本'];
+        }
+
+        return ['total' => count($rows), 'adopted' => $adopted, 'data_status' => empty($rows) ? 'empty' : self::DATA_OK];
+    }
+
+    private function alertAccuracyStats(array $hotelIds, ?int $hotelId, int $days, array &$dataGaps): array
+    {
+        if (!$this->tableExists('operation_alerts')) {
+            $dataGaps[] = ['code' => 'operation_alerts_missing', 'message' => '运营预警表不存在'];
+            return ['reviewed' => 0, 'accurate' => 0, 'data_status' => self::DATA_PENDING];
+        }
+
+        $start = date('Y-m-d', strtotime('-' . max(0, $days - 1) . ' days'));
+        $end = date('Y-m-d');
+        try {
+            $query = Db::name('operation_alerts')
+                ->field('raw_data')
+                ->whereNull('deleted_at')
+                ->whereBetween('related_date', [$start, $end]);
+            if ($hotelId !== null && $hotelId > 0) {
+                $query->where('hotel_id', $hotelId);
+            } elseif (!empty($hotelIds)) {
+                $query->whereIn('hotel_id', $hotelIds);
+            }
+            $rows = $query->select()->toArray();
+        } catch (Throwable $e) {
+            $dataGaps[] = ['code' => 'operation_alerts_read_failed', 'message' => '预警准确率统计读取失败'];
+            return ['reviewed' => 0, 'accurate' => 0, 'data_status' => 'read_failed'];
+        }
+
+        $reviewed = 0;
+        $accurate = 0;
+        foreach ($rows as $row) {
+            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
+            $label = $this->alertAccuracyLabel($raw);
+            if ($label === null) {
+                continue;
+            }
+            $reviewed++;
+            if ($label) {
+                $accurate++;
+            }
+        }
+
+        if (empty($rows)) {
+            $dataGaps[] = ['code' => 'operation_alerts_no_samples', 'message' => '近30天没有预警样本'];
+        } elseif ($reviewed === 0) {
+            $dataGaps[] = ['code' => 'operation_alerts_accuracy_label_missing', 'message' => '预警缺少准确/误报复盘标签'];
+        }
+
+        return ['reviewed' => $reviewed, 'accurate' => $accurate, 'data_status' => $reviewed > 0 ? self::DATA_OK : 'unlabeled'];
+    }
+
+    private function alertAccuracyLabel(array $raw): ?bool
+    {
+        if (array_key_exists('is_accurate', $raw) && is_bool($raw['is_accurate'])) {
+            return $raw['is_accurate'];
+        }
+
+        foreach (['accuracy_status', 'review_status', 'accuracy', 'verification_result'] as $key) {
+            $value = strtolower(trim((string)($raw[$key] ?? '')));
+            if ($value === '') {
+                continue;
+            }
+            if (in_array($value, ['accurate', 'hit', 'true_positive', 'valid', '准确', '命中'], true)) {
+                return true;
+            }
+            if (in_array($value, ['false_positive', 'false_alarm', 'invalid', 'inaccurate', '误报', '不准确'], true)) {
+                return false;
+            }
+        }
+
+        return null;
     }
 
     private function buildSummary(array $hotelIds, ?int $hotelId, string $date): array

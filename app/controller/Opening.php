@@ -39,7 +39,7 @@ class Opening extends Base
     {
         try {
             $this->ensureReady();
-            return $this->success(['list' => $this->service->projects($this->hotelScope())]);
+            return $this->success(['list' => $this->service->projects($this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin())]);
         } catch (Throwable $e) {
             return $this->error('获取开业项目列表失败：' . $e->getMessage(), 400);
         }
@@ -63,7 +63,7 @@ class Opening extends Base
                 }
             }
 
-            return $this->success($this->service->updateProject($id, $input, $this->hotelScope()), '开业项目已更新');
+            return $this->success($this->service->updateProject($id, $input, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin()), '开业项目已更新');
         } catch (Throwable $e) {
             return $this->error('更新开业项目失败：' . $e->getMessage(), 400);
         }
@@ -77,7 +77,7 @@ class Opening extends Base
                 return $this->error('开业项目ID无效', 422);
             }
 
-            if (!$this->service->archiveProject($id, $this->hotelScope())) {
+            if (!$this->service->archiveProject($id, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin())) {
                 return $this->error('开业项目不存在或无权操作', 404);
             }
 
@@ -91,7 +91,7 @@ class Opening extends Base
     {
         try {
             $this->ensureReady();
-            return $this->success($this->service->overview($id, $this->hotelScope()));
+            return $this->success($this->service->overview($id, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin()));
         } catch (Throwable $e) {
             return $this->error('获取开业准备总览失败：' . $e->getMessage(), 400);
         }
@@ -101,7 +101,7 @@ class Opening extends Base
     {
         try {
             $this->ensureReady();
-            $result = $this->service->generateTasks($id, $this->hotelScope());
+            $result = $this->service->generateTasks($id, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin());
             return $this->success($result, $result['generated'] ? '开业检查清单已生成' : '已回显最近一次开业检查清单');
         } catch (Throwable $e) {
             return $this->error('生成开业检查清单失败：' . $e->getMessage(), 400);
@@ -112,7 +112,7 @@ class Opening extends Base
     {
         try {
             $this->ensureReady();
-            return $this->success(['list' => $this->service->tasks($id, $this->hotelScope())]);
+            return $this->success(['list' => $this->service->tasks($id, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin())]);
         } catch (Throwable $e) {
             return $this->error('获取开业检查清单失败：' . $e->getMessage(), 400);
         }
@@ -126,7 +126,7 @@ class Opening extends Base
             if (empty($input)) {
                 $input = $this->request->post();
             }
-            $task = $this->service->updateTask($id, $input, $this->hotelScope());
+            $task = $this->service->updateTask($id, $input, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin());
             return $this->success($task, '检查项已更新');
         } catch (Throwable $e) {
             return $this->error('更新检查项失败：' . $e->getMessage(), 400);
@@ -137,7 +137,7 @@ class Opening extends Base
     {
         try {
             $this->ensureReady();
-            return $this->success($this->service->recalculate($id, $this->hotelScope()), '开业准备评分已刷新');
+            return $this->success($this->service->recalculate($id, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin()), '开业准备评分已刷新');
         } catch (Throwable $e) {
             return $this->error('重新计算开业准备评分失败：' . $e->getMessage(), 400);
         }
@@ -156,5 +156,15 @@ class Opening extends Base
     private function hotelScope(): array
     {
         return [];
+    }
+
+    private function currentUserId(): int
+    {
+        return (int)($this->currentUser->id ?? 0);
+    }
+
+    private function isSuperAdmin(): bool
+    {
+        return $this->currentUser && $this->currentUser->isSuperAdmin();
     }
 }

@@ -40,7 +40,11 @@ class User extends Base
 
         // 非超级管理员只能看到自己酒店的用户
         if (!$this->currentUser->isSuperAdmin()) {
-            $query->where('hotel_id', $this->currentUser->hotel_id);
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds)) {
+                return $this->paginate([], 0, $pagination['page'], $pagination['page_size']);
+            }
+            $query->whereIn('hotel_id', $permittedHotelIds);
         }
 
         $total = $query->count();
@@ -59,7 +63,7 @@ class User extends Base
             return $this->error('用户不存在');
         }
 
-        if (!$this->currentUser->isSuperAdmin() && (int)$user->hotel_id !== (int)$this->currentUser->hotel_id) {
+        if (!$this->currentUser->isSuperAdmin() && !in_array((int)$user->hotel_id, array_map('intval', $this->currentUser->getPermittedHotelIds()), true)) {
             return $this->error('权限不足', 403);
         }
 
@@ -113,12 +117,17 @@ class User extends Base
             $hotelId = $data['hotel_id'] ?? null;
         } else {
             // 店长只能创建自己酒店的店员
-            $hotelId = $this->currentUser->hotel_id;
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            $hotelId = count($permittedHotelIds) === 1 ? $permittedHotelIds[0] : (int)($data['hotel_id'] ?? 0);
             if (empty($hotelId)) {
                 return $this->error('您未关联酒店，无法创建用户');
             }
             // 店长只能创建店员角色
-            if ($roleId != Role::HOTEL_STAFF) {
+            if (!in_array((int)$hotelId, $permittedHotelIds, true)) {
+                return $this->error('无权为该酒店创建用户', 403);
+            }
+            $targetRole = Role::find((int)$roleId);
+            if (!$targetRole || (int)$targetRole->level < 3) {
                 return $this->error('您只能创建店员账号');
             }
         }
@@ -156,10 +165,12 @@ class User extends Base
             // 超级管理员可以修改任意用户
         } elseif ($this->currentUser->isHotelManager()) {
             // 店长只能修改自己酒店的店员
-            if ($user->hotel_id != $this->currentUser->hotel_id) {
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (!in_array((int)$user->hotel_id, $permittedHotelIds, true)) {
                 return $this->error('只能修改自己酒店的用户');
             }
-            if ($user->role_id != Role::HOTEL_STAFF) {
+            $targetRole = Role::find((int)$user->role_id);
+            if (!$targetRole || (int)$targetRole->level < 3) {
                 return $this->error('只能修改店员账号');
             }
         } elseif ($this->currentUser->id == $id) {
@@ -230,10 +241,12 @@ class User extends Base
             // 超级管理员可以删除任意用户
         } elseif ($this->currentUser->isHotelManager()) {
             // 店长只能删除自己酒店的店员
-            if ($user->hotel_id != $this->currentUser->hotel_id) {
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (!in_array((int)$user->hotel_id, $permittedHotelIds, true)) {
                 return $this->error('只能删除自己酒店的用户');
             }
-            if ($user->role_id != Role::HOTEL_STAFF) {
+            $targetRole = Role::find((int)$user->role_id);
+            if (!$targetRole || (int)$targetRole->level < 3) {
                 return $this->error('只能删除店员账号');
             }
         } else {

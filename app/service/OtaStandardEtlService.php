@@ -133,6 +133,16 @@ class OtaStandardEtlService
             'flow_rate',
             'order_filling_num',
             'order_submit_num',
+            'update_time',
+            'create_time',
+            'created_at',
+            'status',
+            'save_status',
+            'validation_status',
+            'validation_flags',
+            'error_info',
+            'failure_reason',
+            'failed_reason',
         ], array_keys($columns)));
 
         $query = Db::name('online_daily_data')->field($fields ?: '*');
@@ -196,6 +206,7 @@ class OtaStandardEtlService
             'competitor_price' => $competitorPrice,
             'price_gap' => $ourPrice !== null && $competitorPrice !== null ? round($ourPrice - $competitorPrice, 2) : null,
             'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, $dataType, $date),
         ];
     }
 
@@ -221,6 +232,7 @@ class OtaStandardEtlService
             'order_submit_num' => (int)round($orderSubmit),
             'submit_rate' => $orderFilling > 0 ? round($orderSubmit / $orderFilling * 100, 2) : null,
             'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'traffic', $date),
         ];
     }
 
@@ -246,7 +258,86 @@ class OtaStandardEtlService
             'sentiment' => $sentiment,
             'content' => mb_substr((string)($raw['content'] ?? $raw['comment_text'] ?? $raw['review_text'] ?? ''), 0, 500),
             'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'review', $date),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function rowTrace(array $row, string $hotelKey, string $source, string $dataType, string $date): array
+    {
+        $failureReasons = [];
+        $status = strtolower(trim((string)($row['status'] ?? $row['save_status'] ?? '')));
+        if (in_array($status, ['failed', 'fail', 'error'], true)) {
+            $failureReasons[] = 'row_status_' . $status;
+        }
+
+        $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
+        if ($validationStatus === 'abnormal') {
+            $failureReasons[] = 'validation_status_abnormal';
+            foreach ($this->validationFlagReasons($row['validation_flags'] ?? []) as $reason) {
+                $failureReasons[] = $reason;
+            }
+        }
+
+        foreach (['error_info', 'failure_reason', 'failed_reason'] as $field) {
+            $reason = trim((string)($row[$field] ?? ''));
+            if ($reason !== '') {
+                $failureReasons[] = $field . ':' . mb_substr($reason, 0, 120);
+            }
+        }
+
+        return [
+            'table' => 'online_daily_data',
+            'row_id' => array_key_exists('id', $row) ? (is_numeric($row['id']) ? (int)$row['id'] : (string)$row['id']) : null,
+            'hotel_key' => $hotelKey,
+            'platform' => $source,
+            'data_type' => $dataType,
+            'date_key' => $date,
+            'updated_at' => $this->traceTimestamp($row),
+            'saved_success' => empty($failureReasons),
+            'failure_reasons' => array_values(array_unique($failureReasons)),
+        ];
+    }
+
+    /**
+     * @param mixed $flags
+     * @return array<int, string>
+     */
+    private function validationFlagReasons(mixed $flags): array
+    {
+        $decoded = is_string($flags) ? json_decode($flags, true) : $flags;
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $reasons = [];
+        foreach ($decoded as $flag) {
+            if (!is_array($flag)) {
+                continue;
+            }
+            $code = trim((string)($flag['code'] ?? $flag['field'] ?? ''));
+            if ($code !== '') {
+                $reasons[] = 'validation:' . $code;
+            }
+        }
+        return $reasons;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function traceTimestamp(array $row): ?string
+    {
+        foreach (['update_time', 'updated_at', 'create_time', 'created_at'] as $field) {
+            $value = trim((string)($row[$field] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return null;
     }
 
     private function platformKey(string $value): string

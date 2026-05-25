@@ -113,7 +113,7 @@
                 <!-- 🌟 Slogan 展示 -->
                 <div class="slogan-container text-center">
                     <p class="login-system-note">
-                        <i class="fas fa-chart-line"></i>AI 驱动的酒店全生命周期决策支持平台
+                        <i class="fas fa-chart-line"></i>OTA 数据驱动的运营收益闭环平台
                     </p>
                 </div>
                 
@@ -1199,7 +1199,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold">智投·市场评估</h2>
-                                    <p class="text-sm text-emerald-100 mt-1">判断城市、商圈与物业条件是否适合投资开店</p>
+                                    <p class="text-sm text-emerald-100 mt-1">二期测算能力：判断城市、商圈与物业条件是否适合投资开店</p>
                                 </div>
                                 <button @click="handleMarketEvaluation" :disabled="marketEvaluationLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
                                     <i :class="marketEvaluationLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chart-area'"></i>
@@ -1451,7 +1451,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold">智瞰·标杆选模</h2>
-                                    <p class="text-sm text-indigo-100 mt-1">从竞品与标杆模型中提炼可复制经营策略</p>
+                                    <p class="text-sm text-indigo-100 mt-1">二期测算能力：从竞品与标杆模型中提炼可复制经营策略</p>
                                 </div>
                                 <button @click="handleBenchmarkModel" :disabled="benchmarkModelLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
                                     <i :class="benchmarkModelLoading ? 'fas fa-spinner fa-spin' : 'fas fa-star'"></i>
@@ -1647,7 +1647,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold">智联·协同提效</h2>
-                                    <p class="text-sm text-cyan-100 mt-1">将扩张项目拆解为评估、签约、筹建、上线协同任务</p>
+                                    <p class="text-sm text-cyan-100 mt-1">二期协同能力：将扩张项目拆解为评估、签约、筹建、上线任务</p>
                                 </div>
                                 <button @click="handleCollaborationEfficiency" :disabled="collaborationEfficiencyLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
                                     <i :class="collaborationEfficiencyLoading ? 'fas fa-spinner fa-spin' : 'fas fa-link'"></i>
@@ -1878,7 +1878,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold">智算·资产定价</h2>
-                                    <p class="text-sm text-cyan-100 mt-1">测算合理转让价、利润、回收周期与接盘风险</p>
+                                    <p class="text-sm text-cyan-100 mt-1">二期测算能力：测算合理转让价、利润、回收周期与接盘风险</p>
                                 </div>
                                 <button @click="handleTransferPricing" :disabled="transferPricingLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
                                     <i :class="transferPricingLoading ? 'fas fa-spinner fa-spin' : 'fas fa-calculator'"></i>
@@ -2044,7 +2044,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold">智略·时机推演</h2>
-                                    <p class="text-sm text-blue-100 mt-1">判断当前是否适合转让，并给出下一步动作</p>
+                                    <p class="text-sm text-blue-100 mt-1">二期测算能力：判断当前是否适合转让，并给出下一步动作</p>
                                 </div>
                                 <button @click="handleTransferTiming" :disabled="transferTimingLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
                                     <i :class="transferTimingLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chess-knight'"></i>
@@ -2177,7 +2177,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold">智决·数据看板</h2>
-                                    <p class="text-sm text-indigo-100 mt-1">汇总估值、时机、风险项与最终建议动作</p>
+                                    <p class="text-sm text-indigo-100 mt-1">二期汇总能力：汇总估值、时机、风险项与最终建议动作</p>
                                 </div>
                                 <button @click="handleTransferDashboard" :disabled="transferDashboardLoading || !transferPricingResult || !transferTimingResult" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed">
                                     <i :class="transferDashboardLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chart-pie'"></i>
@@ -2768,7 +2768,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold text-gray-900">策源·全维数据</h2>
-                                    <p class="text-sm text-gray-500 mt-1">把经营结果、OTA漏斗和外部压力放在同一屏，判断收入/订单变化来自哪里</p>
+                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：把经营结果、OTA漏斗和外部压力放在同一屏，判断收入/订单变化来自哪里</p>
                                 </div>
                                 <div class="flex flex-col sm:flex-row gap-3">
                                     <select v-model="operationFilters.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm min-w-[160px]">
@@ -2884,7 +2884,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold text-gray-900">策析·根因定位</h2>
-                                    <p class="text-sm text-gray-500 mt-1">基于规则识别运营问题的主要根因</p>
+                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：基于经营、OTA、竞对与点评数据识别主要根因</p>
                                 </div>
                                 <div class="flex flex-col sm:flex-row gap-3">
                                     <select v-model="operationFilters.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[160px]">
@@ -2979,7 +2979,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold text-gray-900">策见·预警推送</h2>
-                                    <p class="text-sm text-gray-500 mt-1">规则生成、站内预警与操作建议统一查看</p>
+                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：统一查看规则预警、站内提醒与操作建议</p>
                                 </div>
                                 <div class="flex gap-3">
                                     <button @click="loadOperationAlerts" :disabled="operationLoading.alerts" class="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">
@@ -3038,7 +3038,7 @@
                     <div v-if="currentPage === 'ops-plan'" class="max-w-7xl mx-auto space-y-6">
                         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                             <h2 class="text-2xl font-bold text-gray-900">策案·策略模拟</h2>
-                            <p class="text-sm text-gray-500 mt-1">规则模拟结果，仅供运营参考，不代表真实预测。</p>
+                            <p class="text-sm text-gray-500 mt-1">P0主闭环：规则模拟结果用于生成运营动作参考，不代表真实预测。</p>
                         </div>
                         <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
                             <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm xl:col-span-1">
@@ -3100,7 +3100,7 @@
                     <div v-if="currentPage === 'ops-track'" class="max-w-7xl mx-auto space-y-6">
                         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                             <h2 class="text-2xl font-bold text-gray-900">策行·效果追踪</h2>
-                            <p class="text-sm text-gray-500 mt-1">创建策略动作并跟踪执行前后效果</p>
+                            <p class="text-sm text-gray-500 mt-1">P0主闭环：创建策略动作并跟踪执行前后效果</p>
                         </div>
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <h3 class="font-bold text-gray-900 mb-4">新增策略动作</h3>
@@ -3131,6 +3131,29 @@
 
                         <div v-if="operationLoading.actions" class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-500">正在加载策略追踪...</div>
                         <div v-if="operationError.actions" class="bg-red-50 border border-red-100 text-red-600 rounded-xl p-4 text-sm">{{ operationError.actions }}</div>
+                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="font-bold text-gray-900">产品级效果验证</h3>
+                                    <p class="text-sm text-gray-500 mt-1">汇总收益提升、转化提升、调价命中率、建议采纳率和预警准确率</p>
+                                </div>
+                                <span :class="operationEffectStatusClass(operationEffectValidation.status)" class="px-3 py-1 rounded-full text-xs font-medium">
+                                    {{ operationEffectStatusLabel(operationEffectValidation.status) }}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                                <div v-for="metric in operationEffectMetricCards" :key="metric.key" class="border border-gray-100 rounded-lg p-3 bg-gray-50">
+                                    <div class="text-xs text-gray-500">{{ metric.label }}</div>
+                                    <div class="text-xl font-bold text-gray-900 mt-1">{{ operationEffectMetricValue(metric) }}</div>
+                                    <div class="text-xs text-gray-400 mt-2">
+                                        样本 {{ metric.sample_count || 0 }} · {{ operationEffectMetricStatusLabel(metric.status) }}
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-if="operationEffectDataGapText" class="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                                {{ operationEffectDataGapText }}
+                            </div>
+                        </div>
                         <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                             <div class="overflow-x-auto">
                                 <table class="min-w-full text-sm">
@@ -9674,14 +9697,14 @@
                                                                     <i :class="otaDiagnosisHotelPickerOpen ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
                                                                 </span>
                                                             </button>
-                                                            <div v-if="otaDiagnosisHotelPickerOpen" class="ota-diagnosis-hotel-menu absolute left-0 z-40 mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                                                            <div v-if="otaDiagnosisHotelPickerOpen" class="ota-diagnosis-hotel-menu mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
                                                                 <div class="border-b border-gray-100 p-2">
                                                                     <div class="relative">
                                                                         <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></i>
                                                                         <input v-model.trim="otaDiagnosisHotelKeyword" @keydown.escape="otaDiagnosisHotelPickerOpen = false" type="text" class="w-full rounded-lg border border-gray-200 py-2 pl-8 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" placeholder="搜索酒店名称">
                                                                     </div>
                                                                 </div>
-                                                                <div class="max-h-64 overflow-y-auto p-1">
+                                                                <div class="max-h-56 overflow-y-auto p-1">
                                                                     <button v-for="hotel in otaDiagnosisFilteredHotelOptions" :key="hotel.key" type="button" @click="selectOtaDiagnosisHotel(hotel)"
                                                                         :class="['w-full rounded-lg px-3 py-2.5 text-left transition hover:bg-blue-50', otaDiagnosisForm.hotel_id === hotel.value ? 'bg-blue-50' : '']">
                                                                         <span class="flex items-start justify-between gap-3">
@@ -17941,14 +17964,27 @@
                 { name: '首页', path: 'compass', icon: 'fas fa-home', requireSuper: false, requireManager: true, permissions: [] },
                 { name: '全生命周期服务', path: 'lifecycle', icon: 'fas fa-share-alt', requireSuper: false, permissions: [], highlight: true },
                 { 
-                    name: '项目AI管理', 
+                    name: '运营收益闭环',
                     testid: 'nav-project-ai-management',
                     icon: 'fas fa-project-diagram', 
                     requireSuper: false, 
                     permissions: [],
                     children: [
                         { 
-                            name: '筹建管理', 
+                            name: '运营管理（P0）',
+                            testid: 'nav-ai-ops',
+                            icon: 'fas fa-cogs',
+                            path: 'ai-ops',
+                            children: [
+                                { name: '策源·全维数据', path: 'ops-source', icon: 'fas fa-search' },
+                                { name: '策析·根因定位', path: 'ops-analysis', icon: 'fas fa-microscope' },
+                                { name: '策见·预警推送', path: 'ops-insight', icon: 'fas fa-bell' },
+                                { name: '策案·策略模拟', path: 'ops-plan', icon: 'fas fa-lightbulb' },
+                                { name: '策行·效果追踪', path: 'ops-track', icon: 'fas fa-play-circle' }
+                            ]
+                        },
+                        {
+                            name: '筹建管理（二期）',
                             testid: 'nav-ai-construction',
                             icon: 'fas fa-hammer', 
                             path: 'ai-construction',
@@ -17959,7 +17995,7 @@
                             ]
                         },
                         { 
-                            name: '开业管理', 
+                            name: '开业管理（二期）',
                             testid: 'nav-ai-opening',
                             icon: 'fas fa-store', 
                             path: 'ai-opening',
@@ -17969,20 +18005,7 @@
                             ]
                         },
                         { 
-                            name: '运营管理', 
-                            testid: 'nav-ai-ops',
-                            icon: 'fas fa-cogs', 
-                            path: 'ai-ops',
-                            children: [
-                                { name: '策源·全维数据', path: 'ops-source', icon: 'fas fa-search' },
-                                { name: '策析·根因定位', path: 'ops-analysis', icon: 'fas fa-microscope' },
-                                { name: '策见·预警推送', path: 'ops-insight', icon: 'fas fa-bell' },
-                                { name: '策案·策略模拟', path: 'ops-plan', icon: 'fas fa-lightbulb' },
-                                { name: '策行·效果追踪', path: 'ops-track', icon: 'fas fa-play-circle' }
-                            ]
-                        },
-                        { 
-                            name: '扩张管理', 
+                            name: '扩张管理（二期）',
                             testid: 'nav-ai-expansion',
                             icon: 'fas fa-chart-line', 
                             path: 'ai-expansion',
@@ -17993,7 +18016,7 @@
                             ]
                         },
                         { 
-                            name: '转让管理', 
+                            name: '转让管理（二期）',
                             testid: 'nav-ai-transfer',
                             icon: 'fas fa-exchange-alt', 
                             path: 'ai-transfer',
@@ -18263,7 +18286,7 @@
             });
 
             // 展开的子菜单
-            const expandedMenus = ref(['线上数据手动获取']);
+            const expandedMenus = ref(['线上数据手动获取', '运营收益闭环', '运营管理（P0）']);
             
             // 切换子菜单展开状态
             const toggleSubmenu = (menuName) => {
@@ -18954,6 +18977,7 @@
             const operationAlerts = ref({ list: [], unread_count: 0, data_status: '' });
             const operationStrategyResult = ref(null);
             const operationActions = ref([]);
+            const operationEffectValidation = ref({ status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} });
             const operationLoading = ref({
                 fullData: false,
                 rootCause: false,
@@ -19081,6 +19105,29 @@
                 const rate = action?.target_change_rate ?? action?.result?.target_change_rate ?? '';
                 return `${label}提升${rate || '-'}%`;
             };
+            const operationEffectStatusLabel = (status) => ({
+                ready: '已形成闭环',
+                partial: '部分可验证',
+                data_gap: '待补齐数据',
+            }[status] || '待验证');
+            const operationEffectStatusClass = (status) => ({
+                ready: 'bg-green-50 text-green-700',
+                partial: 'bg-amber-50 text-amber-700',
+                data_gap: 'bg-gray-100 text-gray-500',
+            }[status] || 'bg-gray-100 text-gray-500');
+            const operationEffectMetricStatusLabel = (status) => status === 'ready' ? '可验证' : '数据不足';
+            const operationEffectMetricValue = (metric) => {
+                if (!metric || metric.value === null || metric.value === undefined) return '待验证';
+                const value = Number(metric.value);
+                if (!Number.isFinite(value)) return '待验证';
+                return `${value.toFixed(2)}${metric.unit || ''}`;
+            };
+            const operationEffectMetricCards = computed(() => operationEffectValidation.value?.metrics || []);
+            const operationEffectDataGapText = computed(() => {
+                const gaps = operationEffectValidation.value?.data_gaps || [];
+                if (!gaps.length) return '';
+                return gaps.slice(0, 2).map(item => item.message || item.code).filter(Boolean).join('；');
+            });
             const operationErrorMessage = (error, fallback) => {
                 const message = error?.message || '';
                 return /[\u4e00-\u9fa5]/.test(message) ? message : fallback;
@@ -19422,6 +19469,7 @@
                     const res = await apiRequest(`/operation/action-tracking${params.toString() ? '?' + params.toString() : ''}`);
                     if (res.code !== 200) throw new Error(res.message || '策略追踪加载失败');
                     operationActions.value = res.data?.actions || [];
+                    operationEffectValidation.value = res.data?.effect_validation || { status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} };
                 } catch (error) {
                     operationError.value.actions = operationErrorMessage(error, '策略追踪加载失败');
                     showToast(operationError.value.actions, 'error');
@@ -31352,7 +31400,7 @@
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
                 transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferHotelOptions,
                 transferRecordTypeLabel, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, archiveTransferRecord,
-                operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions,
+                operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationEffectValidation,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
                 operationAlertFilter, operationAlertFilters, operationStrategyTypes, operationHotelOptions, operationSummaryCards, operationOtaCards, operationCompetitorCards,
                 operationSourceBrief, operationDecisionCards,
@@ -31361,6 +31409,7 @@
                 operationValue, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
+                operationEffectMetricCards, operationEffectDataGapText, operationEffectStatusLabel, operationEffectStatusClass, operationEffectMetricStatusLabel, operationEffectMetricValue,
                 openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingOverview, openingTasks, openingLoading,
                 openingProjectForm, openingPositioningImpact, openingTaskFilter, openingTaskPage, openingTaskPagination, pagedOpeningTasks, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
                 selectedOpeningTaskIds, selectedOpeningTasks, isAllFilteredOpeningTasksSelected, toggleSelectAllFilteredOpeningTasks, clearSelectedOpeningTasks, batchUpdateOpeningTasks,

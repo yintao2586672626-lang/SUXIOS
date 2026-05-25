@@ -18,6 +18,57 @@ final class AgentTest extends TestCase
         return $reflection->newInstanceWithoutConstructor();
     }
 
+    public function testOtaDiagnosisEvidenceActionsAlwaysCarryReferences(): void
+    {
+        $controller = $this->controller();
+        $dataSet = [
+            'online_rows' => [[
+                'id' => 10,
+                'source' => 'ctrip',
+                'data_type' => 'traffic',
+                'compare_type' => 'self',
+                'data_date' => '2026-05-24',
+                'list_exposure' => 1000,
+                'detail_exposure' => 30,
+                'order_filling_num' => 2,
+            ]],
+            'competitor_prices' => [[
+                'id' => 20,
+                'platform' => 'ctrip',
+                'price' => 288,
+                'fetch_time' => '2026-05-24 10:00:00',
+            ]],
+            'price_suggestions' => [[
+                'id' => 30,
+                'suggestion_date' => '2026-05-24',
+                'current_price' => 260,
+                'suggested_price' => 278,
+            ]],
+            'sync_logs' => [[
+                'id' => 40,
+                'action' => 'auto_fetch',
+                'create_time' => '2026-05-24 10:05:00',
+            ]],
+        ];
+
+        $sources = $this->invokeNonPublic($controller, 'buildOtaDiagnosisEvidenceSources', [$dataSet, [
+            'detail_rate' => 3.0,
+            'order_rate' => 1.5,
+        ]]);
+        $items = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [[
+            '优化曝光到访问转化',
+            '对比竞对价格后人工确认调价',
+            '补齐缺失数据源后复盘',
+        ], $sources]);
+
+        self::assertSame('source_summary', $sources[0]['ref']);
+        self::assertCount(3, $items);
+        foreach ($items as $item) {
+            self::assertSame('pending_manual_review', $item['status']);
+            self::assertNotEmpty($item['evidence_refs']);
+        }
+    }
+
     /**
      * 覆盖 normalizeRequestedModelKey：
      * 验证默认模型、Pro 模式、历史别名和未知模型透传。

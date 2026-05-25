@@ -26,6 +26,7 @@ use app\model\SystemConfig;
 use app\model\AiModelConfig;
 use app\service\FeasibilityReportService;
 use app\service\LlmClient;
+use app\service\OperationManagementService;
 use think\Response;
 use think\facade\Db;
 use think\facade\Log;
@@ -354,6 +355,14 @@ class Agent extends Base
                     ],
                     'missing_sections' => ['OTA历史数据', 'OTA流量数据', '竞对数据', '点评数据', '价格/房态/订单相关数据', '日报经营数据'],
                     'core_conclusion' => '暂无该酒店在该日期范围内的OTA数据，请先同步/抓取数据。',
+                    'evidence_sources' => [],
+                    'action_items' => [],
+                    'evidence_report' => [
+                        'report_type' => 'daily_diagnosis_action_list',
+                        'source_policy' => 'database_only',
+                        'action_items' => [],
+                        'evidence_sources' => [],
+                    ],
                     'priority' => 'none',
                 ], '暂无 OTA 数据');
             }
@@ -405,6 +414,9 @@ class Agent extends Base
             $result['recommended_actions'] = $result['diagnosis']['actions'] ?? [];
             $result['data_anomalies_needing_confirmation'] = $result['missing_sections'];
             $result['priority'] = $result['diagnosis']['priority'] ?? $result['priority'];
+            $result['evidence_sources'] = $this->buildOtaDiagnosisEvidenceSources($dataSet, $result['metrics'] ?? []);
+            $result['action_items'] = $this->buildOtaDiagnosisActionItems($result['recommended_actions'], $result['evidence_sources']);
+            $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
 
             return $this->success($result, 'success');
         } catch (\Throwable $e) {
@@ -1655,6 +1667,240 @@ class Agent extends Base
             $actions[] = '先补齐缺失的数据源，再按曝光、访问、订单、点评顺序复盘。';
         }
         return $actions;
+    }
+
+    private function buildOtaDiagnosisEvidenceSources(array $dataSet, array $metrics = []): array
+    {
+        $sources = [[
+            'ref' => 'source_summary',
+            'table' => 'derived',
+            'record_id' => null,
+            'date' => '',
+            'tags' => ['summary'],
+            'label' => '本次诊断聚合指标',
+            'metrics' => $this->buildOtaEvidenceMetricPreview($metrics),
+        ]];
+
+        foreach (array_slice($dataSet['online_rows'] ?? [], 0, 20) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $sources[] = [
+                'ref' => 'online_daily_data#' . (string)($row['id'] ?? ''),
+                'table' => 'online_daily_data',
+                'record_id' => $row['id'] ?? null,
+                'date' => (string)($row['data_date'] ?? ''),
+                'tags' => $this->buildOtaEvidenceTags('online_daily_data', $row),
+                'label' => trim(implode(' ', array_filter([(string)($row['source'] ?? ''), (string)($row['data_type'] ?? ''), (string)($row['compare_type'] ?? '')]))),
+                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+            ];
+        }
+
+        foreach (array_slice($dataSet['daily_reports'] ?? [], 0, 10) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $sources[] = [
+                'ref' => 'daily_reports#' . (string)($row['id'] ?? ''),
+                'table' => 'daily_reports',
+                'record_id' => $row['id'] ?? null,
+                'date' => (string)($row['report_date'] ?? ''),
+                'tags' => ['daily', 'revenue'],
+                'label' => '日报经营数据',
+                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+            ];
+        }
+
+        foreach (array_slice($dataSet['competitor_prices'] ?? [], 0, 10) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $sources[] = [
+                'ref' => 'competitor_price_log#' . (string)($row['id'] ?? ''),
+                'table' => 'competitor_price_log',
+                'record_id' => $row['id'] ?? null,
+                'date' => (string)($row['fetch_time'] ?? $row['create_time'] ?? ''),
+                'tags' => ['competitor', 'price'],
+                'label' => (string)($row['platform'] ?? 'competitor_price'),
+                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+            ];
+        }
+
+        foreach (array_slice($dataSet['competitor_analyses'] ?? [], 0, 10) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $sources[] = [
+                'ref' => 'competitor_analysis#' . (string)($row['id'] ?? ''),
+                'table' => 'competitor_analysis',
+                'record_id' => $row['id'] ?? null,
+                'date' => (string)($row['analysis_date'] ?? ''),
+                'tags' => ['competitor', 'price'],
+                'label' => '竞对价格分析',
+                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+            ];
+        }
+
+        foreach (array_slice($dataSet['price_suggestions'] ?? [], 0, 10) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $sources[] = [
+                'ref' => 'price_suggestions#' . (string)($row['id'] ?? ''),
+                'table' => 'price_suggestions',
+                'record_id' => $row['id'] ?? null,
+                'date' => (string)($row['suggestion_date'] ?? $row['create_time'] ?? ''),
+                'tags' => ['price', 'suggestion'],
+                'label' => '收益价格建议',
+                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+            ];
+        }
+
+        foreach (array_slice($dataSet['sync_logs'] ?? [], 0, 10) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $sources[] = [
+                'ref' => 'operation_logs#' . (string)($row['id'] ?? ''),
+                'table' => 'operation_logs',
+                'record_id' => $row['id'] ?? null,
+                'date' => (string)($row['create_time'] ?? ''),
+                'tags' => ['sync_log', 'collection'],
+                'label' => (string)($row['action'] ?? 'online_data_log'),
+                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+            ];
+        }
+
+        return array_values(array_filter($sources, static fn(array $source): bool => (string)($source['ref'] ?? '') !== '#'));
+    }
+
+    private function buildOtaDiagnosisActionItems(array $actions, array $evidenceSources): array
+    {
+        $items = [];
+        foreach ($actions as $index => $action) {
+            $actionText = trim((string)$action);
+            if ($actionText === '') {
+                continue;
+            }
+            $refs = $this->selectOtaEvidenceRefsForAction($actionText, $evidenceSources);
+            $items[] = [
+                'id' => 'ota_action_' . ($index + 1),
+                'action' => $actionText,
+                'status' => 'pending_manual_review',
+                'evidence_refs' => $refs,
+                'source_policy' => 'must cite evidence_refs before execution',
+            ];
+        }
+        return $items;
+    }
+
+    private function buildOtaEvidenceReport(array $result): array
+    {
+        return [
+            'report_type' => 'daily_diagnosis_action_list',
+            'source_policy' => 'database_only',
+            'date_range' => $result['date_range'] ?? [],
+            'source_counts' => $result['data_summary']['source_counts'] ?? [],
+            'diagnosis' => [
+                'summary' => (string)($result['core_conclusion'] ?? ''),
+                'main_problems' => $result['main_problems'] ?? [],
+                'possible_reasons' => $result['possible_reasons'] ?? [],
+            ],
+            'action_items' => $result['action_items'] ?? [],
+            'evidence_sources' => $result['evidence_sources'] ?? [],
+        ];
+    }
+
+    private function buildOtaEvidenceTags(string $table, array $row): array
+    {
+        $tags = [$table];
+        $dataType = strtolower((string)($row['data_type'] ?? ''));
+        if ($dataType !== '') {
+            $tags[] = $dataType;
+        }
+        if (($row['compare_type'] ?? '') === 'competitor') {
+            $tags[] = 'competitor';
+        }
+        if ((float)($row['list_exposure'] ?? 0) > 0 || (float)($row['detail_exposure'] ?? 0) > 0) {
+            $tags[] = 'traffic';
+        }
+        if ((float)($row['amount'] ?? 0) > 0 || (float)($row['quantity'] ?? 0) > 0 || (float)($row['book_order_num'] ?? 0) > 0) {
+            $tags[] = 'revenue';
+            $tags[] = 'order';
+        }
+        if ((float)($row['comment_score'] ?? 0) > 0 || (float)($row['qunar_comment_score'] ?? 0) > 0) {
+            $tags[] = 'comment';
+        }
+        return array_values(array_unique($tags));
+    }
+
+    private function buildOtaEvidenceMetricPreview(array $row): array
+    {
+        $preview = [];
+        foreach ([
+            'amount', 'quantity', 'book_order_num', 'adr', 'revenue', 'price', 'our_price', 'competitor_price',
+            'current_price', 'suggested_price', 'list_exposure', 'detail_visitors', 'detail_exposure',
+            'order_visitors', 'submit_users', 'order_filling_num', 'order_submit_num',
+            'detail_rate', 'order_rate', 'submit_rate', 'comment_score', 'qunar_comment_score',
+            'occupancy_rate', 'room_count', 'guest_count',
+        ] as $field) {
+            if (array_key_exists($field, $row) && $row[$field] !== null && $row[$field] !== '') {
+                $preview[$field] = $row[$field];
+            }
+        }
+        return $preview;
+    }
+
+    private function selectOtaEvidenceRefsForAction(string $action, array $evidenceSources): array
+    {
+        $wantedTags = ['summary'];
+        if ($this->textContainsAny($action, ['曝光', '访问', '流量', '列表', '详情', 'traffic', 'exposure'])) {
+            $wantedTags[] = 'traffic';
+        }
+        if ($this->textContainsAny($action, ['价格', '竞对', 'ADR', '房型', '促销', 'price', 'competitor'])) {
+            $wantedTags[] = 'price';
+            $wantedTags[] = 'competitor';
+        }
+        if ($this->textContainsAny($action, ['点评', '评分', '口碑', 'comment', 'score'])) {
+            $wantedTags[] = 'comment';
+        }
+        if ($this->textContainsAny($action, ['订单', '下单', '转化', '间夜', 'order', 'conversion'])) {
+            $wantedTags[] = 'order';
+            $wantedTags[] = 'traffic';
+        }
+        if ($this->textContainsAny($action, ['补齐', '缺失', '同步', '抓取', '数据源', 'sync', 'missing'])) {
+            $wantedTags[] = 'sync_log';
+            $wantedTags[] = 'collection';
+        }
+
+        $refs = [];
+        foreach ($evidenceSources as $source) {
+            $sourceTags = is_array($source['tags'] ?? null) ? $source['tags'] : [];
+            if (empty(array_intersect($wantedTags, $sourceTags))) {
+                continue;
+            }
+            $ref = (string)($source['ref'] ?? '');
+            if ($ref !== '' && !in_array($ref, $refs, true)) {
+                $refs[] = $ref;
+            }
+            if (count($refs) >= 5) {
+                break;
+            }
+        }
+
+        if (empty($refs)) {
+            foreach ($evidenceSources as $source) {
+                $ref = (string)($source['ref'] ?? '');
+                if ($ref !== '' && !in_array($ref, $refs, true)) {
+                    $refs[] = $ref;
+                }
+                if (count($refs) >= 3) {
+                    break;
+                }
+            }
+        }
+
+        return $refs;
     }
 
     private function hasCompareRows(array $rows): bool
@@ -2978,14 +3224,59 @@ class Agent extends Base
     {
         $this->checkAdmin();
         $id = (int)$this->request->param('id', 0);
-        $result = $this->applyPriceSuggestionById($id);
+        $result = $this->applyPriceSuggestionById($id, [
+            'platform' => (string)$this->request->param('platform', $this->request->param('channel', '')),
+            'room_type_key' => (string)$this->request->param('room_type_key', ''),
+            'rate_plan_key' => (string)$this->request->param('rate_plan_key', ''),
+            'expected_metric' => (string)$this->request->param('expected_metric', 'orders'),
+            'expected_delta' => (float)$this->request->param('expected_delta', 0),
+        ]);
         if (($result['ok'] ?? false) !== true) {
             return $this->error((string)($result['message'] ?? 'apply failed'), (int)($result['code'] ?? 400));
         }
         return $this->success($result['data'] ?? null, 'success');
     }
 
-    private function applyPriceSuggestionById(int $id): array
+    public function createPriceSuggestionExecutionIntent(): Response
+    {
+        $this->checkAdmin();
+
+        $id = (int)$this->request->param('id', 0);
+        $suggestion = PriceSuggestion::find($id);
+        if (!$suggestion) {
+            return $this->error('price suggestion not found', 404);
+        }
+
+        $service = new OperationManagementService();
+        $input = $service->buildPriceSuggestionExecutionIntentInput($suggestion->toArray(), [
+            'platform' => (string)$this->request->param('platform', $this->request->param('channel', '')),
+            'room_type_key' => (string)$this->request->param('room_type_key', ''),
+            'rate_plan_key' => (string)$this->request->param('rate_plan_key', ''),
+            'expected_metric' => (string)$this->request->param('expected_metric', 'orders'),
+            'expected_delta' => (float)$this->request->param('expected_delta', 0),
+        ]);
+        $hotelIds = [(int)$suggestion->hotel_id];
+
+        try {
+            $intent = $service->createExecutionIntent($hotelIds, (int)$suggestion->hotel_id, $input, (int)($this->currentUser->id ?? 0));
+        } catch (\Throwable $e) {
+            return $this->error($e->getMessage() ?: 'create execution intent failed', $e instanceof \InvalidArgumentException ? 422 : 500);
+        }
+
+        AgentLog::record(
+            (int)$suggestion->hotel_id,
+            AgentLog::AGENT_TYPE_REVENUE,
+            'price_execution_intent_create',
+            'Create execution intent from price suggestion: ' . $id,
+            AgentLog::LEVEL_INFO,
+            ['suggestion_id' => $id, 'execution_intent_id' => (int)($intent['id'] ?? 0), 'platform' => $input['platform']],
+            (int)($this->currentUser->id ?? 0)
+        );
+
+        return $this->success($intent, '执行意图已创建');
+    }
+
+    private function applyPriceSuggestionById(int $id, array $executionIntentOverrides = []): array
     {
         $suggestion = PriceSuggestion::find($id);
         if (!$suggestion) {
@@ -2994,18 +3285,44 @@ class Agent extends Base
         if ((int)$suggestion->status === PriceSuggestion::STATUS_REJECTED) {
             return ['ok' => false, 'message' => 'rejected suggestion cannot be applied', 'code' => 422];
         }
-        if ((int)$suggestion->status === PriceSuggestion::STATUS_APPLIED) {
-            return ['ok' => true, 'data' => ['id' => $id, 'status' => PriceSuggestion::STATUS_APPLIED]];
-        }
 
         $roomType = RoomType::find((int)$suggestion->room_type_id);
         if (!$roomType) {
             return ['ok' => false, 'message' => 'room type not found', 'code' => 404];
         }
 
-        $roomType->base_price = (float)$suggestion->suggested_price;
-        $roomType->save();
-        $suggestion->apply((int)($this->currentUser->id ?? 0));
+        $service = new OperationManagementService();
+        $userId = (int)($this->currentUser->id ?? 0);
+        $alreadyApplied = (int)$suggestion->status === PriceSuggestion::STATUS_APPLIED;
+
+        try {
+            $result = Db::transaction(function () use ($suggestion, $roomType, $service, $userId, $executionIntentOverrides, $alreadyApplied): array {
+                if (!$alreadyApplied) {
+                    $roomType->base_price = (float)$suggestion->suggested_price;
+                    $roomType->save();
+                    $suggestion->apply($userId);
+                }
+
+                $intentInput = $service->buildPriceSuggestionExecutionIntentInput($suggestion->toArray(), $executionIntentOverrides);
+                $intent = $service->createExecutionIntent(
+                    [(int)$suggestion->hotel_id],
+                    (int)$suggestion->hotel_id,
+                    $intentInput,
+                    $userId
+                );
+
+                return [
+                    'id' => (int)$suggestion->id,
+                    'room_type_id' => (int)$suggestion->room_type_id,
+                    'base_price' => (float)$roomType->base_price,
+                    'local_price_updated' => !$alreadyApplied,
+                    'execution_intent' => $intent,
+                    'next_action' => 'Review the execution intent, approve it, then record manual OTA execution evidence before marking execution complete.',
+                ];
+            });
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'message' => $e->getMessage() ?: 'create execution intent failed', 'code' => $e instanceof \InvalidArgumentException ? 422 : 500];
+        }
 
         AgentLog::record(
             (int)$suggestion->hotel_id,
@@ -3013,11 +3330,17 @@ class Agent extends Base
             'price_apply',
             'Apply price suggestion: ' . $id,
             AgentLog::LEVEL_INFO,
-            ['suggestion_id' => $id, 'room_type_id' => (int)$suggestion->room_type_id, 'price' => (float)$suggestion->suggested_price],
-            (int)($this->currentUser->id ?? 0)
+            [
+                'suggestion_id' => $id,
+                'room_type_id' => (int)$suggestion->room_type_id,
+                'price' => (float)$suggestion->suggested_price,
+                'execution_intent_id' => (int)($result['execution_intent']['id'] ?? 0),
+                'execution_intent_status' => (string)($result['execution_intent']['status'] ?? ''),
+            ],
+            $userId
         );
 
-        return ['ok' => true, 'data' => ['id' => $id, 'room_type_id' => (int)$suggestion->room_type_id, 'base_price' => (float)$roomType->base_price]];
+        return ['ok' => true, 'data' => $result];
     }
 
     public function priceSuggestionReview(): Response

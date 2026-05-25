@@ -29,7 +29,28 @@ POST /api/agent/price-suggestions/{id}/approve?action=reject
 POST /api/agent/price-suggestions/{id}/apply
 ```
 
-This writes `price_suggestions.suggested_price` back to `room_types.base_price` and marks the suggestion as applied.
+This writes `price_suggestions.suggested_price` back to local `room_types.base_price`, marks the suggestion as applied, and creates an `operation_execution_intents` record for OTA platform execution tracking. The OTA platform is not written automatically; the execution intent must still be approved and completed with evidence.
+
+## Create execution intent
+
+```http
+POST /api/agent/price-suggestions/{id}/execution-intent?platform=ctrip
+```
+
+This creates an execution intent in `operation_execution_intents`. It does not write to OTA automatically; missing platform room/rate mappings keep the intent blocked with an explicit reason.
+
+## Execution lifecycle
+
+```http
+POST /api/operation/execution-intents
+GET /api/operation/execution-intents
+POST /api/operation/execution-intents/{id}/approve
+POST /api/operation/execution-tasks/{id}/execute
+POST /api/operation/execution-tasks/{id}/evidence
+POST /api/operation/execution-tasks/{id}/review
+```
+
+Supported `object_type`: `price`, `inventory`, `campaign`.
 
 ## Review effect
 
