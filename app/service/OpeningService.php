@@ -71,18 +71,19 @@ class OpeningService
         ]);
     }
 
-    public function projects(array $hotelIds): array
+    public function projects(array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
         $query = Db::name('opening_projects')
             ->where('status', '<>', 'archived')
             ->order('id', 'desc');
+        $this->applyOwnerScope($query, $userId, $isSuperAdmin);
 
         return array_map([$this, 'normalizeProject'], $query->select()->toArray());
     }
 
-    public function updateProject(int $projectId, array $input, array $hotelIds): array
+    public function updateProject(int $projectId, array $input, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
-        $project = $this->requireProject($projectId, $hotelIds);
+        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
         $data = [];
 
         foreach (['project_name', 'hotel_name', 'city', 'brand', 'positioning', 'manager_name'] as $field) {
@@ -112,12 +113,12 @@ class OpeningService
         $data['updated_at'] = $this->now();
         Db::name('opening_projects')->where('id', $project['id'])->update($data);
 
-        return $this->requireProject($projectId, $hotelIds);
+        return $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
     }
 
-    public function archiveProject(int $projectId, array $hotelIds): bool
+    public function archiveProject(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): bool
     {
-        $project = $this->requireProject($projectId, $hotelIds);
+        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
 
         return Db::name('opening_projects')
             ->where('id', $project['id'])
@@ -127,10 +128,10 @@ class OpeningService
             ]) > 0;
     }
 
-    public function overview(int $projectId, array $hotelIds): array
+    public function overview(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
-        $project = $this->requireProject($projectId, $hotelIds);
-        $tasks = $this->tasks($projectId, $hotelIds);
+        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
+        $tasks = $this->tasks($projectId, $hotelIds, $userId, $isSuperAdmin);
         $metrics = $this->calculateMetrics($project, $tasks);
 
         return [
@@ -145,16 +146,16 @@ class OpeningService
                 'risk_level' => $metrics['project']['risk_level'],
                 'updated_at' => $metrics['project']['updated_at'],
             ],
-            'history' => $this->recentProjects($hotelIds, $projectId),
+            'history' => $this->recentProjects($hotelIds, $projectId, $userId, $isSuperAdmin),
         ];
     }
 
-    public function generateTasks(int $projectId, array $hotelIds): array
+    public function generateTasks(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
-        $project = $this->requireProject($projectId, $hotelIds);
+        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
         $existing = (int)Db::name('opening_tasks')->where('project_id', $projectId)->count();
         if ($existing > 0) {
-            return ['generated' => false, 'tasks' => $this->tasks($projectId, $hotelIds), 'overview' => $this->overview($projectId, $hotelIds)];
+            return ['generated' => false, 'tasks' => $this->tasks($projectId, $hotelIds, $userId, $isSuperAdmin), 'overview' => $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin)];
         }
 
         $now = $this->now();
@@ -181,14 +182,14 @@ class OpeningService
         }
 
         Db::name('opening_tasks')->insertAll($rows);
-        $this->recalculate($projectId, $hotelIds);
+        $this->recalculate($projectId, $hotelIds, $userId, $isSuperAdmin);
 
-        return ['generated' => true, 'tasks' => $this->tasks($projectId, $hotelIds), 'overview' => $this->overview($projectId, $hotelIds)];
+        return ['generated' => true, 'tasks' => $this->tasks($projectId, $hotelIds, $userId, $isSuperAdmin), 'overview' => $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin)];
     }
 
-    public function tasks(int $projectId, array $hotelIds): array
+    public function tasks(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
-        $project = $this->requireProject($projectId, $hotelIds);
+        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
         $rows = Db::name('opening_tasks')
             ->where('project_id', $projectId)
             ->order('sort_order', 'asc')
@@ -199,13 +200,13 @@ class OpeningService
         return array_map(fn(array $row): array => $this->normalizeTask($row, $project), $rows);
     }
 
-    public function updateTask(int $taskId, array $input, array $hotelIds): array
+    public function updateTask(int $taskId, array $input, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
         $task = Db::name('opening_tasks')->where('id', $taskId)->find();
         if (!$task) {
             throw new \RuntimeException('检查项不存在');
         }
-        $this->requireProject((int)$task['project_id'], $hotelIds);
+        $this->requireProject((int)$task['project_id'], $hotelIds, $userId, $isSuperAdmin);
 
         $allowedStatus = [self::STATUS_TODO, self::STATUS_DOING, self::STATUS_DONE, self::STATUS_BLOCKED];
         $data = [];
@@ -248,16 +249,16 @@ class OpeningService
 
         $data['updated_at'] = $this->now();
         Db::name('opening_tasks')->where('id', $taskId)->update($data);
-        $this->recalculate((int)$task['project_id'], $hotelIds);
+        $this->recalculate((int)$task['project_id'], $hotelIds, $userId, $isSuperAdmin);
 
-        $project = $this->requireProject((int)$task['project_id'], $hotelIds);
+        $project = $this->requireProject((int)$task['project_id'], $hotelIds, $userId, $isSuperAdmin);
         $updated = Db::name('opening_tasks')->where('id', $taskId)->find();
         return $this->normalizeTask($updated, $project);
     }
 
-    public function recalculate(int $projectId, array $hotelIds): array
+    public function recalculate(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
-        $project = $this->requireProject($projectId, $hotelIds);
+        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
         $rows = Db::name('opening_tasks')->where('project_id', $projectId)->select()->toArray();
         $tasks = array_map(fn(array $row): array => $this->normalizeTask($row, $project), $rows);
 
@@ -276,13 +277,13 @@ class OpeningService
             'updated_at' => $this->now(),
         ]);
 
-        return $this->overview($projectId, $hotelIds);
+        return $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin);
     }
 
-    public function requireProject(int $projectId, array $hotelIds): array
+    public function requireProject(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
         $project = Db::name('opening_projects')->where('id', $projectId)->find();
-        if (!$project) {
+        if (!$project || !$this->canAccessOwnedProject($project, $userId, $isSuperAdmin)) {
             throw new \RuntimeException('开业项目不存在');
         }
 
@@ -690,11 +691,31 @@ class OpeningService
         return $suggestions;
     }
 
-    private function recentProjects(array $hotelIds, int $currentProjectId): array
+    private function recentProjects(array $hotelIds, int $currentProjectId, int $userId = 0, bool $isSuperAdmin = false): array
     {
         $query = Db::name('opening_projects')->where('id', '<>', $currentProjectId)->order('updated_at', 'desc')->limit(10);
+        $this->applyOwnerScope($query, $userId, $isSuperAdmin);
 
         return array_map([$this, 'normalizeProject'], $query->select()->toArray());
+    }
+
+    private function applyOwnerScope($query, int $userId, bool $isSuperAdmin): void
+    {
+        if ($isSuperAdmin) {
+            return;
+        }
+
+        if ($userId <= 0) {
+            $query->whereRaw('1 = 0');
+            return;
+        }
+
+        $query->where('created_by', $userId);
+    }
+
+    private function canAccessOwnedProject(array $project, int $userId, bool $isSuperAdmin): bool
+    {
+        return $isSuperAdmin || ($userId > 0 && (int)($project['created_by'] ?? 0) === $userId);
     }
 
     private function normalizeProject(array $row): array
