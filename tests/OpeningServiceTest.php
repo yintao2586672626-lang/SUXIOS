@@ -163,6 +163,27 @@ final class OpeningServiceTest extends TestCase
         self::assertSame(2, $metrics['metrics']['ai_covered_tasks']);
     }
 
+    public function testOpeningProjectScopeAllowsOnlyCreatorForNonSuperAdmin(): void
+    {
+        $service = new OpeningService();
+
+        self::assertTrue($this->invokeNonPublic($service, 'canAccessOwnedProject', [
+            ['created_by' => 12],
+            12,
+            false,
+        ]));
+        self::assertFalse($this->invokeNonPublic($service, 'canAccessOwnedProject', [
+            ['created_by' => 12],
+            13,
+            false,
+        ]));
+        self::assertTrue($this->invokeNonPublic($service, 'canAccessOwnedProject', [
+            ['created_by' => 12],
+            13,
+            true,
+        ]));
+    }
+
     private function project(): array
     {
         return [
