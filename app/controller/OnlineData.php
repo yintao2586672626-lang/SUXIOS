@@ -422,6 +422,7 @@ class OnlineData extends Base
                 ]);
             }
 
+            $trafficRows = is_array($responseData) ? $this->extractCtripTrafficRows($responseData) : [];
             $savedCount = 0;
             if ($autoSave && is_array($responseData)) {
                 $savedCount = $this->parseAndSaveTrafficData(
@@ -440,6 +441,7 @@ class OnlineData extends Base
             return $this->success([
                 'data' => $responseData,
                 'decoded_data' => $responseData,
+                'traffic_rows' => $trafficRows,
                 'raw_response' => $result['raw_response'],
                 'http_code' => $result['http_code'],
                 'saved_count' => $savedCount,
@@ -6515,9 +6517,11 @@ JAVASCRIPT;
         return OtaTrafficUrlNormalizer::normalizeCtripTrafficUrl($url);
     }
 
-    private function buildCtripTrafficDateRange(string $dateRange, string $startDate, string $endDate): array
+    private function buildCtripTrafficDateRange(string $dateRange, string $startDate, string $endDate, ?int $now = null): array
     {
-        $today = date('Y-m-d');
+        $baseTime = $now ?? time();
+        $today = date('Y-m-d', $baseTime);
+        $settledEndDate = date('Y-m-d', strtotime('-1 day', $baseTime));
         switch ($dateRange) {
             case 'today_realtime':
             case 'today':
@@ -6525,10 +6529,10 @@ JAVASCRIPT;
                 return [$today, $today];
             case 'last_7_days':
             case '7':
-                return [date('Y-m-d', strtotime('-6 days')), $today];
+                return [date('Y-m-d', strtotime($settledEndDate . ' -6 days')), $settledEndDate];
             case 'last_30_days':
             case '30':
-                return [date('Y-m-d', strtotime('-29 days')), $today];
+                return [date('Y-m-d', strtotime($settledEndDate . ' -29 days')), $settledEndDate];
             case 'custom':
                 if ($startDate === '' || $endDate === '') {
                     throw new \InvalidArgumentException('请选择自定义开始日期和结束日期');
@@ -6538,8 +6542,7 @@ JAVASCRIPT;
             case '1':
             default:
                 if ($startDate === '' || $endDate === '') {
-                    $yesterday = date('Y-m-d', strtotime('-1 day'));
-                    return [$yesterday, $yesterday];
+                    return [$settledEndDate, $settledEndDate];
                 }
                 break;
         }
@@ -6579,6 +6582,11 @@ JAVASCRIPT;
             return $rows;
         }
 
+        $expandedRows = $this->expandCtripTrafficDailySeries($value);
+        if (!empty($expandedRows)) {
+            return $expandedRows;
+        }
+
         if ($this->looksLikeCtripTrafficDataRow($value)) {
             return [$value];
         }
@@ -6600,6 +6608,147 @@ JAVASCRIPT;
             }
         }
         return $rows;
+    }
+
+    private function expandCtripTrafficDailySeries(array $value): array
+    {
+        $dates = $this->readCtripTrafficDateSeries($value);
+        if (empty($dates)) {
+            return [];
+        }
+
+        $groups = $this->collectCtripTrafficSeriesGroups($value);
+        if (empty($groups)) {
+            $groups = [[
+                'data' => $value,
+                'compare_type' => $this->resolveCtripTrafficCompareType($value),
+            ]];
+        }
+
+        $rows = [];
+        foreach ($groups as $group) {
+            $groupData = is_array($group['data'] ?? null) ? $group['data'] : [];
+            $compareType = (string)($group['compare_type'] ?? $this->resolveCtripTrafficCompareType($groupData));
+            $hotelId = $groupData['hotelId'] ?? $groupData['hotel_id'] ?? $groupData['nodeId'] ?? $groupData['node_id'] ?? null;
+
+            foreach ($dates as $index => $date) {
+                if (strtotime((string)$date) === false) {
+                    continue;
+                }
+
+                $row = [
+                    'date' => date('Y-m-d', strtotime((string)$date)),
+                    'compareType' => $compareType,
+                    'listExposure' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['listExposure'], ['list_exposure'], ['totalListExposure'], ['exposure'], ['exposureCount'], ['impressions'], ['showCount'], ['PV'], ['pv'], ['pageView'], ['pageViews'], ['page_view'],
+                    ]),
+                    'detailExposure' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['detailExposure'], ['detail_exposure'], ['totalDetailExposure'], ['detailVisitors'], ['detailUv'], ['visitorCount'], ['UV'], ['uv'], ['uniqueVisitors'], ['unique_visitors'], ['views'],
+                    ]),
+                    'flowRate' => round($this->normalizeTrafficPercent($this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['flowRate'], ['flow_rate'], ['listTransforDetailRate'], ['conversionRate'], ['conversion_rate'], ['convertionRate'], ['convertRate'], ['transforRate'], ['transferRate'], ['transRate'], ['cvr'],
+                    ], null)), 2),
+                    'orderFillingNum' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['orderFillingNum'], ['order_filling_num'], ['orderVisitors'], ['clickCount'], ['click_count'], ['clickNum'], ['clicks'],
+                    ]),
+                    'orderSubmitNum' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['orderSubmitNum'], ['order_submit_num'], ['submitUsers'], ['submitNum'], ['orderCount'], ['order_count'], ['orderNum'], ['bookOrderNum'], ['dealNum'], ['orders'],
+                    ]),
+                ];
+
+                if ($hotelId !== null && $hotelId !== '') {
+                    $row['hotelId'] = $hotelId;
+                } elseif ($compareType !== 'self') {
+                    $row['hotelId'] = -1;
+                }
+
+                if ($row['listExposure'] <= 0 && $row['detailExposure'] <= 0 && $row['orderFillingNum'] <= 0 && $row['orderSubmitNum'] <= 0) {
+                    continue;
+                }
+
+                $rows[] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function readCtripTrafficDateSeries(array $value): array
+    {
+        return $this->readCtripTrafficSeries($value, [
+            ['dateList'], ['date_list'], ['dates'], ['dataDates'], ['data_dates'], ['statDates'], ['stat_dates'],
+            ['xAxis', 'data'], ['xaxis', 'data'], ['xAxisData'], ['x_axis_data'], ['categories'], ['labels'],
+        ]);
+    }
+
+    private function collectCtripTrafficSeriesGroups(array $value): array
+    {
+        $groups = [];
+        foreach ([
+            'myHotel' => 'self',
+            'self' => 'self',
+            'currentHotel' => 'self',
+            'hotel' => 'self',
+            'mine' => 'self',
+            'competeHotelAvg' => 'competitor',
+            'competitorAvg' => 'competitor',
+            'competitorAverage' => 'competitor',
+            'competitor' => 'competitor',
+            'peerAvg' => 'competitor',
+            'competeAvg' => 'competitor',
+            'avg' => 'competitor',
+            'average' => 'competitor',
+        ] as $key => $compareType) {
+            if (isset($value[$key]) && is_array($value[$key])) {
+                $groups[] = ['data' => $value[$key], 'compare_type' => $compareType];
+            }
+        }
+        return $groups;
+    }
+
+    private function resolveCtripTrafficCompareType(array $value): string
+    {
+        $compareText = strtolower((string)($value['compareType'] ?? $value['compare_type'] ?? $value['type'] ?? $value['rankType'] ?? $value['name'] ?? $value['hotelName'] ?? ''));
+        $hotelId = $value['hotelId'] ?? $value['hotel_id'] ?? $value['nodeId'] ?? $value['node_id'] ?? null;
+        if (str_contains($compareText, 'self') || str_contains($compareText, 'my')) {
+            return 'self';
+        }
+        if (str_contains($compareText, 'competitor') || str_contains($compareText, 'peer') || str_contains($compareText, 'avg') || str_contains($compareText, 'average') || str_contains($compareText, 'compete')) {
+            return 'competitor';
+        }
+        return is_numeric($hotelId) && (int)$hotelId > 0 ? 'self' : 'competitor';
+    }
+
+    private function readCtripTrafficSeriesMetric(array $value, int $index, array $paths, ?float $default = 0.0): ?float
+    {
+        $series = $this->readCtripTrafficSeries($value, $paths);
+        if (isset($series[$index])) {
+            $number = $this->coerceTrafficNumber($series[$index]);
+            if ($number !== null) {
+                return $number;
+            }
+        }
+
+        return $default;
+    }
+
+    private function readCtripTrafficSeries(array $value, array $paths): array
+    {
+        foreach ($paths as $path) {
+            $series = $this->readNestedMeituanValue($value, $path);
+            if (is_array($series)) {
+                if ($this->isSequentialArray($series)) {
+                    return $series;
+                }
+                if (isset($series['data']) && is_array($series['data']) && $this->isSequentialArray($series['data'])) {
+                    return $series['data'];
+                }
+                if (isset($series['value']) && is_array($series['value']) && $this->isSequentialArray($series['value'])) {
+                    return $series['value'];
+                }
+            }
+        }
+        return [];
     }
 
     private function looksLikeCtripTrafficDataRow(array $value): bool

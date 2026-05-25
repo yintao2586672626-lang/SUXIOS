@@ -105,6 +105,65 @@ final class OnlineDataTest extends TestCase
         self::assertSame(0.0, $empty['summary']['self']['exposure']);
     }
 
+    public function testCtripTrafficDateRangeUsesSettledDailyRange(): void
+    {
+        $controller = $this->controller();
+        $now = strtotime('2026-05-26 00:30:00');
+
+        self::assertSame(['2026-05-25', '2026-05-25'], $this->invokeNonPublic($controller, 'buildCtripTrafficDateRange', [
+            'yesterday',
+            '',
+            '',
+            $now,
+        ]));
+        self::assertSame(['2026-05-19', '2026-05-25'], $this->invokeNonPublic($controller, 'buildCtripTrafficDateRange', [
+            'last_7_days',
+            '',
+            '',
+            $now,
+        ]));
+        self::assertSame(['2026-04-26', '2026-05-25'], $this->invokeNonPublic($controller, 'buildCtripTrafficDateRange', [
+            'last_30_days',
+            '',
+            '',
+            $now,
+        ]));
+    }
+
+    public function testExtractCtripTrafficRowsExpandsDailyMetricSeries(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'extractCtripTrafficRows', [[
+            'data' => [
+                'dateList' => ['2026-04-12', '2026-04-13'],
+                'myHotel' => [
+                    'totalListExposure' => [3146, 3941],
+                    'totalDetailExposure' => [526, 647],
+                    'listTransforDetailRate' => ['16.72%', '16.42%'],
+                    'orderFillingNum' => [32, 30],
+                    'orderSubmitNum' => [20, 19],
+                ],
+                'competeHotelAvg' => [
+                    'totalListExposure' => [2096, 2460],
+                    'totalDetailExposure' => [320, 380],
+                    'listTransforDetailRate' => ['15.29%', '15.45%'],
+                    'orderFillingNum' => [20, 20],
+                    'orderSubmitNum' => [11, 12],
+                ],
+            ],
+        ]]);
+
+        self::assertCount(4, $rows);
+        self::assertSame('2026-04-12', $rows[0]['date']);
+        self::assertSame('self', $rows[0]['compareType']);
+        self::assertSame(3146, $rows[0]['listExposure']);
+        self::assertSame(16.72, $rows[0]['flowRate']);
+        self::assertSame('competitor', $rows[2]['compareType']);
+        self::assertSame(2460, $rows[3]['listExposure']);
+        self::assertSame(12, $rows[3]['orderSubmitNum']);
+    }
+
     /**
      * 覆盖 extractCtripBusinessDataList/buildCtripBusinessFingerprint/extractCtripResponseDates/extractHotelData：
      * 验证多层响应解析、指纹稳定性、日期递归提取。
