@@ -32,3 +32,6 @@ SOURCE ./database/migrations/20260520_seed_ota_data_product_matrix_knowledge.sql
 SOURCE ./database/migrations/20260520_seed_ota_data_architecture_governance_knowledge.sql;
 SOURCE ./database/migrations/20260520_seed_ota_manual_auto_collection_strategy_knowledge.sql;
 SOURCE ./database/migrations/20260520_seed_ota_data_operation_reference_knowledge.sql;
+SOURCE ./database/migrations/20260526_seed_ota_operation_mindmap_knowledge.sql;
+SOURCE ./database/migrations/20260526_seed_hotel_ota_metric_professional_knowledge.sql;
+SOURCE ./database/migrations/20260526_seed_ota_knowledge_distillation_experience.sql;

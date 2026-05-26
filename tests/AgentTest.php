@@ -301,4 +301,66 @@ final class AgentTest extends TestCase
         self::assertSame('medium', $fallback['priority']);
         self::assertArrayHasKey('raw_text', $fallback);
     }
+
+    /**
+     * 覆盖 buildCapturedOtaPrompt：
+     * 验证当前抓取数据分析提示词会显式整合知识库摘要，而不只把知识库混在原始 JSON 中。
+     */
+    public function testCapturedOtaPromptIncludesExplicitKnowledgeContext(): void
+    {
+        $controller = $this->controller();
+
+        $prompt = $this->invokeNonPublic($controller, 'buildCapturedOtaPrompt', [[
+            'scope' => ['platform' => 'ctrip', 'data_source' => 'captured'],
+            'hotel_count' => 1,
+            'knowledge_context' => [
+                'status' => 'available',
+                'items' => [[
+                    'title' => '酒店OTA专业指标口径知识库',
+                    'summary' => '分母为 0 或缺失时返回不可计算，不返回 0。',
+                    'chunks' => ['诊断模板: 预订转化低先查房型、图片、退改、价格、点评和问答。'],
+                ]],
+            ],
+        ]]);
+
+        self::assertStringContainsString('知识库参考', $prompt);
+        self::assertStringContainsString('酒店OTA专业指标口径知识库', $prompt);
+        self::assertStringContainsString('分母为 0 或缺失时返回不可计算', $prompt);
+        self::assertStringContainsString('异常描述必须优先写成数据口径提示或需复核提示', $prompt);
+    }
+
+    /**
+     * 覆盖 applyCapturedOtaDataQualityGuard：
+     * 验证跨日统计窗口下不会把流量未更新写成严重采集异常。
+     */
+    public function testCapturedOtaDataQualityGuardRewritesProblemHotelAnomalyTone(): void
+    {
+        $controller = $this->controller();
+
+        $report = $this->invokeNonPublic($controller, 'applyCapturedOtaDataQualityGuard', [[
+            'overall_conclusion' => '存在严重采集异常，违反基本漏斗逻辑。',
+            'key_findings' => ['严重异常：访客为0但订单存在。'],
+            'competitor_insights' => [],
+            'problem_hotels' => [[
+                'hotel_name' => '测试酒店',
+                'problem' => '严重采集异常：访客为0但有订单。',
+                'key_metrics' => ['订单10', '访客0'],
+                'suggestion' => '立即联系携程 ebooking 支持团队。',
+            ]],
+            'recommended_actions' => ['立即联系携程ebooking支持团队。'],
+            'data_anomalies' => ['严重采集异常。'],
+            'priority' => 'high',
+            'data_quality' => [
+                'is_reliable' => true,
+                'is_cross_day_window' => true,
+                'warning' => '当前可能处于OTA跨日统计窗口，流量类指标可能尚未完成统计。',
+            ],
+        ]]);
+
+        $problemHotel = $report['problem_hotels'][0] ?? [];
+        self::assertStringContainsString('数据口径提示', (string)($problemHotel['problem'] ?? ''));
+        self::assertStringNotContainsString('严重采集异常', (string)($problemHotel['problem'] ?? ''));
+        self::assertStringNotContainsString('立即联系携程', (string)($problemHotel['suggestion'] ?? ''));
+        self::assertStringNotContainsString('严重采集异常', implode(' ', $report['data_anomalies']));
+    }
 }

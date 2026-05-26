@@ -8,28 +8,43 @@ Required runtime secret:
 AI_CONFIG_SECRET=change-me
 ```
 
-Create provider config through existing API:
+Create provider config through existing API. Direct quick-setup providers:
+
+- `deepseek`
+- `openai`
+- `anthropic`
+- `gemini`
+- `xai`
+- `mistral`
+- `cohere`
+- `perplexity`
+- `nvidia`
+
+Gateway-backed model families must provide an OpenAI-compatible `base_url`:
+
+- `meta_llama`
+- `amazon_nova`
+- `microsoft_phi`
+- `ibm_granite`
 
 ```http
 POST /api/ai-config/providers/quick-setup
 Content-Type: application/json
 
 {
-  "provider": "deepseek",
+  "provider": "anthropic",
+  "api_key": "sk-***"
+}
+```
+
+```http
+POST /api/ai-config/providers/quick-setup
+Content-Type: application/json
+
+{
+  "provider": "meta_llama",
   "api_key": "sk-***",
-  "base_url": "https://api.deepseek.com",
-  "models": [
-    {
-      "model_key": "deepseek_chat",
-      "model_name": "deepseek-chat",
-      "is_enabled": 1
-    },
-    {
-      "model_key": "deepseek_reasoner",
-      "model_name": "deepseek-reasoner",
-      "is_enabled": 1
-    }
-  ]
+  "base_url": "https://gateway.example.com/v1"
 }
 ```
 

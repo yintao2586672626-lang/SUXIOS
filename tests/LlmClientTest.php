@@ -32,4 +32,22 @@ final class LlmClientTest extends TestCase
         self::assertStringContainsString('Base URL', $issue['next_action']);
         self::assertSame('deepseek_chat', $issue['model_key']);
     }
+
+    public function testChatEndpointUrlSupportsProviderSpecificPathsAndQueryStrings(): void
+    {
+        $client = new LlmClient();
+
+        self::assertSame(
+            'https://api.mistral.ai/v1/chat/completions',
+            $this->invokeNonPublic($client, 'chatEndpointUrl', ['https://api.mistral.ai/v1', 'mistral'])
+        );
+        self::assertSame(
+            'https://api.perplexity.ai/v1/sonar',
+            $this->invokeNonPublic($client, 'chatEndpointUrl', ['https://api.perplexity.ai/v1', 'perplexity'])
+        );
+        self::assertSame(
+            'https://example.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview',
+            $this->invokeNonPublic($client, 'chatEndpointUrl', ['https://example.services.ai.azure.com/models?api-version=2024-05-01-preview', 'microsoft_phi'])
+        );
+    }
 }

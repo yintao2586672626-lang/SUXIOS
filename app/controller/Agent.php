@@ -371,6 +371,7 @@ class Agent extends Base
             $effectiveEndDate = (string) ($dataSet['effective_end_date'] ?? $endDate);
             $usedLatestAvailableData = !empty($dataSet['used_latest_available_data']);
             $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $hotelName, $platform, $effectiveStartDate, $effectiveEndDate, $analysisType);
+            $result['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $analysisType);
             if ($usedLatestAvailableData) {
                 $result['requested_date_range'] = ['start_date' => $startDate, 'end_date' => $endDate];
                 $result['data_summary']['used_latest_available_data'] = true;
@@ -462,6 +463,7 @@ class Agent extends Base
 
         try {
             $summary = $this->buildCapturedOtaSummary($hotels, $platform, $dataSource, $startDate, $endDate);
+            $summary['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $dataSource);
             if (empty($summary['hotels'])) {
                 return $this->error('暂无可分析的抓取数据', 422);
             }
@@ -479,6 +481,7 @@ class Agent extends Base
             }
             $report['data_quality'] = $summary['data_quality'];
             $report['data_collection_notice'] = $summary['data_collection_notice'];
+            $report['knowledge_context'] = $summary['knowledge_context'];
             $report = $this->applyCapturedOtaDataQualityGuard($report);
             $report['summary'] = [
                 'hotel_count' => $summary['hotel_count'],
@@ -553,6 +556,7 @@ class Agent extends Base
                 $failedHotelCount,
                 $modelKey
             );
+            $summary['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, 'captured_final');
             $process = $this->buildCapturedOtaProcess($summary);
             $summaryMeta = [
                 'group_count' => count($summary['groups']),
@@ -578,6 +582,7 @@ class Agent extends Base
             }
             $report['data_quality'] = $summary['data_quality'];
             $report['data_collection_notice'] = $summary['data_quality']['warning'] ?? '';
+            $report['knowledge_context'] = $summary['knowledge_context'];
             $report = $this->applyCapturedOtaDataQualityGuard($report);
             if ($debug !== null) {
                 $report['debug'] = $debug;
@@ -603,6 +608,7 @@ class Agent extends Base
             OperationLog::error('agent', 'summarize_captured_ota_analysis', '汇总当前抓取OTA分组报告失败', $this->sanitizeLlmErrorMessage($e->getMessage()), (int) ($this->currentUser->id ?? 0));
             if (is_array($summary) && !empty($summary['groups'])) {
                 $report = $this->buildCapturedOtaFallbackReport($summary, $e->getMessage());
+                $report['knowledge_context'] = $summary['knowledge_context'] ?? [];
                 $report = $this->applyCapturedOtaDataQualityGuard($report);
                 $report['summary'] = [
                     'group_count' => count($summary['groups']),
@@ -1081,6 +1087,191 @@ class Agent extends Base
         ];
     }
 
+    private function loadOtaKnowledgeContext(string $platform, string $scene = ''): array
+    {
+        $keywords = $this->buildOtaKnowledgeKeywords($platform, $scene);
+        $items = [];
+        $hasKnowledgeUnitTables = $this->tableExists('knowledge_units') && $this->tableExists('knowledge_chunks');
+        $hasKnowledgeBaseTable = $this->tableExists('knowledge_base');
+
+        if (!$hasKnowledgeUnitTables && !$hasKnowledgeBaseTable) {
+            return [
+                'status' => 'missing_table',
+                'keywords' => $keywords,
+                'items' => [],
+            ];
+        }
+
+        if ($hasKnowledgeUnitTables) {
+            $unitQuery = Db::name('knowledge_units')
+                ->field('unit_id,name,source,status,description')
+                ->where('status', 'done');
+            $this->applyOtaKnowledgeKeywordWhere($unitQuery, ['name', 'description', 'source'], $keywords, 'ku');
+            $unitRows = $unitQuery->order('unit_id', 'desc')->limit(6)->select()->toArray();
+            $unitIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['unit_id'] ?? 0), $unitRows)));
+            $chunksByUnit = [];
+
+            if ($unitIds) {
+                $chunkRows = Db::name('knowledge_chunks')
+                    ->field('unit_id,type,content')
+                    ->whereIn('unit_id', $unitIds)
+                    ->order('chunk_id', 'asc')
+                    ->limit(18)
+                    ->select()
+                    ->toArray();
+                foreach ($chunkRows as $chunkRow) {
+                    $unitId = (int)($chunkRow['unit_id'] ?? 0);
+                    if ($unitId <= 0 || count($chunksByUnit[$unitId] ?? []) >= 3) {
+                        continue;
+                    }
+                    $chunksByUnit[$unitId][] = trim($this->sanitizeOtaKnowledgeText(
+                        (string)($chunkRow['type'] ?? ''),
+                        40
+                    ) . ': ' . $this->sanitizeOtaKnowledgeText($chunkRow['content'] ?? '', 180), ': ');
+                }
+            }
+
+            foreach ($unitRows as $row) {
+                $unitId = (int)($row['unit_id'] ?? 0);
+                $items[] = [
+                    'source' => 'knowledge_units',
+                    'id' => $unitId,
+                    'title' => $this->sanitizeOtaKnowledgeText((string)($row['name'] ?? ''), 80),
+                    'summary' => $this->sanitizeOtaKnowledgeText($row['description'] ?? '', 220),
+                    'chunks' => $chunksByUnit[$unitId] ?? [],
+                ];
+            }
+        }
+
+        if ($hasKnowledgeBaseTable) {
+            $baseQuery = Db::name('knowledge_base')->field('id,title,content,keywords,hotel_id');
+            $columns = $this->tableColumns('knowledge_base');
+            if (isset($columns['is_enabled'])) {
+                $baseQuery->where('is_enabled', 1);
+            }
+            $this->applyOtaKnowledgeKeywordWhere($baseQuery, ['title', 'content', 'keywords'], $keywords, 'kb');
+            $baseRows = $baseQuery->order('id', 'desc')->limit(4)->select()->toArray();
+            foreach ($baseRows as $row) {
+                $items[] = [
+                    'source' => 'knowledge_base',
+                    'id' => (int)($row['id'] ?? 0),
+                    'title' => $this->sanitizeOtaKnowledgeText((string)($row['title'] ?? ''), 80),
+                    'summary' => $this->sanitizeOtaKnowledgeText($row['content'] ?? '', 260),
+                    'chunks' => [],
+                ];
+            }
+        }
+
+        $unique = [];
+        foreach ($items as $item) {
+            $key = (string)($item['source'] ?? '') . '#' . (string)($item['id'] ?? '') . '#' . (string)($item['title'] ?? '');
+            if (($item['title'] ?? '') === '' || isset($unique[$key])) {
+                continue;
+            }
+            $unique[$key] = $item;
+            if (count($unique) >= 8) {
+                break;
+            }
+        }
+
+        return [
+            'status' => $unique ? 'available' : 'empty',
+            'keywords' => $keywords,
+            'items' => array_values($unique),
+        ];
+    }
+
+    private function buildOtaKnowledgeKeywords(string $platform, string $scene = ''): array
+    {
+        $keywords = ['OTA', '酒店指标', '专业口径', '转化率', '流量', '平台评分', '收益管理', '知识库'];
+        $platform = strtolower(trim($platform));
+        $scene = strtolower(trim($scene));
+
+        if ($platform === 'ctrip') {
+            $keywords = array_merge($keywords, ['携程', '服务质量分', 'ebooking']);
+        } elseif ($platform === 'meituan') {
+            $keywords = array_merge($keywords, ['美团', 'HOS', '预留房']);
+        } elseif ($platform === 'qunar') {
+            $keywords = array_merge($keywords, ['去哪儿', '点评分', '转化']);
+        }
+
+        if (in_array($scene, ['traffic', 'rank'], true)) {
+            $keywords = array_merge($keywords, ['曝光', '访客', 'CTR', '搜索流量']);
+        } elseif (in_array($scene, ['business', 'captured', 'captured_final'], true)) {
+            $keywords = array_merge($keywords, ['订单', '间夜', 'ADR', 'RevPAR', '诊断模板']);
+        }
+
+        return array_values(array_unique(array_filter($keywords, static fn(string $keyword): bool => trim($keyword) !== '')));
+    }
+
+    private function applyOtaKnowledgeKeywordWhere($query, array $fields, array $keywords, string $prefix): void
+    {
+        $parts = [];
+        $bind = [];
+        foreach (array_values($keywords) as $index => $keyword) {
+            $fieldParts = [];
+            foreach ($fields as $field) {
+                if (!preg_match('/^[A-Za-z0-9_]+$/', $field)) {
+                    continue;
+                }
+                $name = $prefix . '_' . $field . '_' . $index;
+                $fieldParts[] = '`' . $field . '` LIKE :' . $name;
+                $bind[$name] = '%' . $keyword . '%';
+            }
+            if ($fieldParts) {
+                $parts[] = '(' . implode(' OR ', $fieldParts) . ')';
+            }
+        }
+
+        if ($parts) {
+            $query->whereRaw('(' . implode(' OR ', $parts) . ')', $bind);
+        }
+    }
+
+    private function sanitizeOtaKnowledgeText($value, int $limit): string
+    {
+        if (is_array($value)) {
+            $value = json_encode($value, JSON_UNESCAPED_UNICODE);
+        }
+        $text = trim((string)$value);
+        if ($text === '') {
+            return '';
+        }
+        $text = preg_replace('/\s+/u', ' ', $text);
+        return mb_substr((string)$text, 0, $limit);
+    }
+
+    private function formatOtaKnowledgeContextForPrompt(array $summary): string
+    {
+        $context = is_array($summary['knowledge_context'] ?? null) ? $summary['knowledge_context'] : [];
+        $items = is_array($context['items'] ?? null) ? $context['items'] : [];
+        if (empty($items)) {
+            return '';
+        }
+
+        $lines = ['知识库参考（只用于指标解释、诊断口径和行动拆解，不替代本次经营数据）：'];
+        foreach (array_slice($items, 0, 6) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $title = $this->sanitizeOtaKnowledgeText($item['title'] ?? '', 80);
+            $itemSummary = $this->sanitizeOtaKnowledgeText($item['summary'] ?? '', 220);
+            if ($title === '' && $itemSummary === '') {
+                continue;
+            }
+            $lines[] = '- ' . trim($title . ($itemSummary !== '' ? '：' . $itemSummary : ''));
+            foreach (array_slice((array)($item['chunks'] ?? []), 0, 2) as $chunk) {
+                $chunkText = $this->sanitizeOtaKnowledgeText($chunk, 180);
+                if ($chunkText !== '') {
+                    $lines[] = '  - ' . $chunkText;
+                }
+            }
+        }
+        $lines[] = '知识库使用规则：指标必须标注口径，分母缺失或为0时写不可计算；平台私有分值不反推权重；异常描述必须优先写成数据口径提示或需复核提示。';
+
+        return implode("\n", $lines) . "\n";
+    }
+
     private function applyCapturedOtaDataQualityGuard(array $report): array
     {
         $quality = is_array($report['data_quality'] ?? null) ? $report['data_quality'] : [];
@@ -1104,6 +1295,7 @@ class Agent extends Base
             '数据异常',
             '采集异常',
             '严重缺失',
+            '漏斗逻辑',
             '无法准确评估实际经营表现',
             '立即联系携程ebooking支持团队',
             '立即联系携程 ebooking 支持团队',
@@ -1122,6 +1314,13 @@ class Agent extends Base
             $report[$field] = $list;
         }
 
+        $report['problem_hotels'] = $this->rewriteProblemHotelDataQualityNotices(
+            $report['problem_hotels'] ?? [],
+            $blockedPhrases,
+            $isCrossDayWindow,
+            $warning
+        );
+
         $actions = $this->sanitizeReportList($report['recommended_actions'] ?? [], 10);
         $actions = array_values(array_filter($actions, fn($item) => !$this->textContainsAny($item, $blockedPhrases)));
         $practicalActions = [
@@ -1133,6 +1332,28 @@ class Agent extends Base
         $report['recommended_actions'] = array_values(array_slice(array_unique(array_merge($practicalActions, $actions)), 0, 10));
 
         return $report;
+    }
+
+    private function rewriteProblemHotelDataQualityNotices($value, array $blockedPhrases, bool $isCrossDayWindow, string $warning): array
+    {
+        $hotels = $this->sanitizeProblemHotels($value, 10);
+        foreach ($hotels as &$hotel) {
+            $problem = (string)($hotel['problem'] ?? '');
+            $suggestion = (string)($hotel['suggestion'] ?? '');
+            if (!$this->textContainsAny($problem . ' ' . $suggestion, $blockedPhrases)) {
+                continue;
+            }
+
+            $hotel['problem'] = $isCrossDayWindow
+                ? '数据口径提示：流量类指标可能尚未完成统计，暂不单独作为经营问题定性。'
+                : '数据口径提示：流量类指标需先复核采集口径，暂不单独作为经营问题定性。';
+            $hotel['suggestion'] = $isCrossDayWindow
+                ? '待平台流量数据更新后复查，先参考订单、间夜、收入、ADR、评分等已返回指标。'
+                : ($warning !== '' ? $warning : '先复核数据口径、字段映射和同步结果，再决定是否进入经营整改。');
+        }
+        unset($hotel);
+
+        return $hotels;
     }
 
     private function textContainsAny(string $text, array $needles): bool
@@ -2271,42 +2492,52 @@ class Agent extends Base
 
     private function buildOtaDiagnosisPrompt(array $summary): string
     {
+        $knowledgeContext = $this->formatOtaKnowledgeContextForPrompt($summary);
         return "你是宿析OS酒店OTA经营分析顾问。只基于以下系统已入库数据摘要输出诊断，不要实时抓取OTA后台，不要把Cookie状态作为历史诊断失败原因，不要编造未提供的数据。\n"
+            . "可使用知识库参考解释指标口径、诊断模板和行动拆解，但经营结论必须来自本次结构化摘要。\n"
             . "必须返回 JSON，字段为 summary、data_overview、abnormal_metrics、traffic_analysis、exposure_analysis、visit_conversion_analysis、order_conversion_analysis、price_analysis、competitor_analysis、comment_analysis、actions、priority。\n"
             . "data_overview、abnormal_metrics、actions 必须是数组；priority 只能是 high、medium、low。\n"
+            . "异常描述必须优先写成数据口径提示或需复核提示；除非历史日期多次同步仍异常，不输出严重异常、严重采集异常或违反基本漏斗逻辑。\n"
+            . $knowledgeContext
             . "结构化摘要：\n"
             . json_encode($summary, JSON_UNESCAPED_UNICODE);
     }
 
     private function buildCapturedOtaPrompt(array $summary): string
     {
-        return "你是宿析OS酒店OTA经营分析顾问。只基于以下前端当前抓取的携程ebooking结构化摘要输出一份批量分析报告，不要查询或假设数据库数据。\n"
+        $knowledgeContext = $this->formatOtaKnowledgeContextForPrompt($summary);
+        return "你是宿析OS酒店OTA经营分析顾问。经营结论只基于以下前端当前抓取的携程ebooking结构化摘要；知识库只用于解释指标口径、诊断模板和行动拆解，不要查询或假设其他经营数据。\n"
             . "必须返回 JSON，字段为 overall_conclusion、key_findings、competitor_insights、problem_hotels、recommended_actions、priority、data_anomalies。\n"
             . "key_findings、competitor_insights、recommended_actions、data_anomalies 必须是字符串数组；priority 只能是 high、medium、low。\n"
             . "problem_hotels 必须是对象数组，固定格式为 {\"hotel_name\":\"酒店名\",\"problem\":\"问题\",\"key_metrics\":[\"订单127\",\"间夜104\",\"ADR 387.60\",\"评分4.6\"],\"suggestion\":\"建议\"}，不允许返回字符串数组。\n"
             . "曝光、访客、浏览率、订单率、转化率为0时，必须先看 data_quality.is_cross_day_window；若处于OTA跨日统计窗口，不要判断为经营异常，统一表述为“流量类指标可能尚未完成统计”。\n"
             . "当天或刚过12点的数据，订单、间夜、收入、ADR、评分作为主要分析依据；流量漏斗类指标只作为数据完整性提示，不作为核心经营判断。\n"
             . "若 data_quality.warning 非空，必须把它归类为“数据口径提示”或“数据未完全更新”，不能写成“严重采集异常”或核心经营结论。\n"
+            . "字段名 data_anomalies 是兼容字段；当 data_quality.warning 非空或处于跨日统计窗口时，内容写数据口径提示、数据未完全更新或需复核提示，不写异常定性。\n"
             . "不要输出“违反基本漏斗逻辑”“严重异常”“严重采集异常”等绝对结论，除非是历史日期且确认多次采集仍异常。\n"
             . "建议动作优先为：等待平台数据更新后重新同步；先看订单、间夜、收入、ADR、评分；次日上午复查曝光、访客、转化率；历史日期长期为0再检查接口、字段映射或Cookie权限。\n"
             . "只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。不要输出 API Key、Cookie 或认证信息。\n"
+            . $knowledgeContext
             . "结构化摘要：\n"
             . json_encode($summary, JSON_UNESCAPED_UNICODE);
     }
 
     private function buildCapturedOtaFinalPrompt(array $summary): string
     {
+        $knowledgeContext = $this->formatOtaKnowledgeContextForPrompt($summary);
         return "你是酒店OTA经营分析顾问。请基于多个分组分析结果，输出一份面向酒店经营者的综合诊断报告。\n"
-            . "不要逐组复述，要综合归纳。只基于分组报告摘要，不要使用完整原始抓取数据或假设数据。\n"
+            . "不要逐组复述，要综合归纳。只基于分组报告摘要，不要使用完整原始抓取数据或假设数据；知识库只用于解释指标口径、诊断模板和行动拆解。\n"
             . "重点回答：1. 整体经营现状；2. 最大问题；3. 最值得关注的酒店；4. 竞对机会；5. 价格与订单表现、流量数据口径提示；6. 下一步最优先的运营动作。\n"
             . "返回 JSON：{\"overall_conclusion\":\"总体结论\",\"key_findings\":[],\"competitor_insights\":[],\"problem_hotels\":[{\"hotel_name\":\"酒店名\",\"problem\":\"问题\",\"key_metrics\":[],\"suggestion\":\"建议\"}],\"recommended_actions\":[],\"priority\":\"high/medium/low\",\"data_anomalies\":[]}\n"
             . "key_findings、competitor_insights、recommended_actions、data_anomalies 必须是字符串数组；problem_hotels 必须是对象数组，不允许返回字符串数组；priority 只能是 high、medium、low。\n"
             . "若 data_quality.is_cross_day_window 为 true，曝光、访客、浏览率、订单率、转化率为0只作为数据口径提示，不能作为核心经营异常或严重结论。\n"
             . "综合结论主要基于订单、间夜、收入、ADR、评分等已返回指标；流量漏斗类指标建议待平台更新后复查。\n"
             . "若 data_quality.warning 非空，必须把它归类为“数据口径提示”或“数据未完全更新”，不能写成“严重采集异常”或核心经营结论。\n"
+            . "字段名 data_anomalies 是兼容字段；当 data_quality.warning 非空或处于跨日统计窗口时，内容写数据口径提示、数据未完全更新或需复核提示，不写异常定性。\n"
             . "不要输出“违反基本漏斗逻辑”“严重异常”“严重采集异常”等绝对结论，除非是历史日期且确认多次采集仍异常。\n"
             . "建议动作优先为等待平台更新后重新同步、先看订单/间夜/收入/ADR/评分、次日上午复查流量指标，历史日期长期为0再检查接口、字段映射或Cookie权限。\n"
             . "只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。若存在失败组，请在 data_anomalies 中提示分析覆盖不足。不要输出 API Key、Cookie 或认证信息。\n"
+            . $knowledgeContext
             . "分组报告摘要：\n"
             . json_encode($summary, JSON_UNESCAPED_UNICODE);
     }

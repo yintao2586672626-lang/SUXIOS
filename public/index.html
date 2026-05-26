@@ -7261,8 +7261,7 @@
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">分析模型</label>
                                                     <select v-model="aiAnalysisModelKey" class="w-full px-3 py-2 border rounded-lg">
-                                                        <option value="deepseek_chat">经济模式</option>
-                                                        <option value="deepseek_reasoner">深度推理</option>
+                                                        <option v-for="model in availableAiModelOptions" :key="model.value" :value="model.value">{{ model.label }}</option>
                                                     </select>
                                                 </div>
                                                 <div class="flex items-end">
@@ -9743,8 +9742,7 @@
                                                     <div>
                                                         <label class="block text-xs font-medium text-gray-500 mb-1.5">模型</label>
                                                         <select v-model="otaDiagnosisForm.model_key" class="input-field w-full">
-                                                            <option value="deepseek_chat">经济模式</option>
-                                                            <option value="deepseek_reasoner">深度推理</option>
+                                                            <option v-for="model in availableAiModelOptions" :key="model.value" :value="model.value">{{ model.label }}</option>
                                                         </select>
                                                     </div>
                                                 </div>
@@ -11783,17 +11781,33 @@
                                                     <p class="text-sm text-gray-500">{{ aiModelConfigText('aiModelQuickSetup.quickDescription') }}</p>
                                                 </div>
                                             </div>
-                                            <form @submit.prevent="saveAiProviderQuickSetup" class="grid grid-cols-1 md:grid-cols-[220px_1fr_auto] gap-3">
+                                            <form @submit.prevent="saveAiProviderQuickSetup" class="grid grid-cols-1 lg:grid-cols-[220px_1fr_1fr_auto] gap-3">
                                                 <div>
                                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.providerLabel') }}</label>
                                                     <select v-model="aiQuickSetupForm.provider" class="input-field w-full">
                                                         <option value="deepseek">DeepSeek</option>
                                                         <option value="openai">OpenAI</option>
+                                                        <option value="anthropic">Anthropic Claude</option>
+                                                        <option value="gemini">Google Gemini</option>
+                                                        <option value="meta_llama">Meta Llama</option>
+                                                        <option value="xai">xAI Grok</option>
+                                                        <option value="mistral">Mistral AI</option>
+                                                        <option value="cohere">Cohere Command</option>
+                                                        <option value="perplexity">Perplexity Sonar</option>
+                                                        <option value="amazon_nova">Amazon Nova</option>
+                                                        <option value="microsoft_phi">Microsoft Phi</option>
+                                                        <option value="ibm_granite">IBM Granite</option>
+                                                        <option value="nvidia">NVIDIA Nemotron</option>
                                                     </select>
                                                 </div>
                                                 <div>
                                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.apiKeyLabel') }}</label>
                                                     <input v-model="aiQuickSetupForm.api_key" type="password" autocomplete="new-password" class="input-field w-full" :placeholder="aiModelConfigText('aiModelQuickSetup.apiKeyPlaceholder')">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.baseUrlLabel') }}</label>
+                                                    <input v-model="aiQuickSetupForm.base_url" class="input-field w-full" :placeholder="aiModelConfigText('aiModelQuickSetup.baseUrlPlaceholder')">
+                                                    <p class="text-xs text-gray-500 mt-1">{{ aiModelConfigText('aiModelQuickSetup.baseUrlHelp') }}</p>
                                                 </div>
                                                 <div class="flex items-end">
                                                     <button type="submit" :disabled="aiQuickSetupSaving" class="btn-primary w-full md:w-auto disabled:opacity-50">
@@ -11801,9 +11815,8 @@
                                                     </button>
                                                 </div>
                                             </form>
-                                            <div v-if="aiQuickSetupForm.provider === 'deepseek'" class="mt-3 flex flex-wrap gap-2 text-xs text-blue-700">
-                                                <span class="px-2 py-1 rounded bg-blue-50 border border-blue-100">deepseek-v4-flash</span>
-                                                <span class="px-2 py-1 rounded bg-blue-50 border border-blue-100">deepseek-v4-pro</span>
+                                            <div v-if="aiQuickSetupProviderModels.length" class="mt-3 flex flex-wrap gap-2 text-xs text-blue-700">
+                                                <span v-for="model in aiQuickSetupProviderModels" :key="model" class="px-2 py-1 rounded bg-blue-50 border border-blue-100">{{ model }}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -14733,6 +14746,9 @@
             'aiModelQuickSetup.providerLabel': '模型厂家',
             'aiModelQuickSetup.apiKeyLabel': 'API Key',
             'aiModelQuickSetup.apiKeyPlaceholder': '请输入 API Key',
+            'aiModelQuickSetup.baseUrlLabel': 'Base URL',
+            'aiModelQuickSetup.baseUrlPlaceholder': '留空则使用内置兼容地址',
+            'aiModelQuickSetup.baseUrlHelp': 'Meta、Amazon、Microsoft、IBM 等需填写 OpenAI 兼容网关地址。',
             'aiModelQuickSetup.saving': '配置中...',
             'aiModelQuickSetup.saveButton': '保存并自动配置',
             'aiModelQuickSetup.providerRequired': '请选择模型厂家',
@@ -14803,6 +14819,9 @@
             'aiModelQuickSetup.providerLabel': 'Model Provider',
             'aiModelQuickSetup.apiKeyLabel': 'API Key',
             'aiModelQuickSetup.apiKeyPlaceholder': 'Enter API Key',
+            'aiModelQuickSetup.baseUrlLabel': 'Base URL',
+            'aiModelQuickSetup.baseUrlPlaceholder': 'Leave blank to use the built-in compatible endpoint',
+            'aiModelQuickSetup.baseUrlHelp': 'Meta, Amazon, Microsoft, and IBM require an OpenAI-compatible gateway URL.',
             'aiModelQuickSetup.saving': 'Configuring...',
             'aiModelQuickSetup.saveButton': 'Save and Auto-configure',
             'aiModelQuickSetup.providerRequired': 'Please select a model provider',
@@ -17863,7 +17882,7 @@
                 if (newPage === 'operation-logs') {
                     loadOperationLogs();
                 }
-                if (newPage === 'ai-model-config') {
+                if (['ai-model-config', 'agent-center', 'asset-pricing'].includes(newPage)) {
                     loadAiModelConfigs();
                 }
                 if (newPage === 'knowledge-center') {
@@ -18492,6 +18511,41 @@
             const aiQuickSetupForm = ref({
                 provider: 'deepseek',
                 api_key: '',
+                base_url: '',
+            });
+            const aiQuickSetupProviderModelMap = {
+                deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+                openai: ['openai_gpt', 'openai_fast'],
+                anthropic: ['anthropic_claude'],
+                gemini: ['gemini_flash'],
+                meta_llama: ['meta_llama'],
+                xai: ['xai_grok'],
+                mistral: ['mistral_large'],
+                cohere: ['cohere_command'],
+                perplexity: ['perplexity_sonar'],
+                amazon_nova: ['amazon_nova'],
+                microsoft_phi: ['microsoft_phi'],
+                ibm_granite: ['ibm_granite'],
+                nvidia: ['nvidia_nemotron'],
+            };
+            const aiQuickSetupProviderModels = computed(() => aiQuickSetupProviderModelMap[aiQuickSetupForm.value.provider] || []);
+            const baseAiModelOptions = [
+                { value: 'deepseek_chat', label: 'DeepSeek Chat' },
+                { value: 'deepseek_reasoner', label: 'DeepSeek Reasoner' },
+                { value: 'openai_fast', label: 'OpenAI Fast' },
+            ];
+            const availableAiModelOptions = computed(() => {
+                const options = new Map(baseAiModelOptions.map(item => [item.value, item]));
+                for (const item of aiModelConfigs.value || []) {
+                    if (!item || !item.is_enabled || !item.model_key) continue;
+                    const labelParts = [item.name || item.model_key];
+                    if (item.provider) labelParts.push(item.provider);
+                    options.set(item.model_key, {
+                        value: item.model_key,
+                        label: labelParts.join(' · '),
+                    });
+                }
+                return Array.from(options.values());
             });
             const aiModelConfigForm = ref({
                 id: null,
@@ -20636,6 +20690,7 @@
                         body: JSON.stringify({
                             provider,
                             api_key: apiKey,
+                            base_url: aiQuickSetupForm.value.base_url,
                         }),
                     });
                     if (res.code === 200) {
@@ -20645,6 +20700,7 @@
                             updated: data.updated || 0,
                         }));
                         aiQuickSetupForm.value.api_key = '';
+                        aiQuickSetupForm.value.base_url = '';
                         await loadAiModelConfigs();
                     } else {
                         showToast(res.message || aiModelConfigText('aiModelQuickSetup.autoConfigureFailed'), 'error');
@@ -21717,8 +21773,8 @@
                 otaDiagnosisError.value = '';
             };
             const getSafeOtaDiagnosisModelKey = () => {
-                const allowed = ['deepseek_chat', 'deepseek_reasoner', 'openai_fast'];
-                return allowed.includes(otaDiagnosisForm.value.model_key) ? otaDiagnosisForm.value.model_key : 'deepseek_chat';
+                const modelKey = String(otaDiagnosisForm.value.model_key || '').trim();
+                return modelKey || 'deepseek_chat';
             };
             const otaDiagnosisSelectedHotel = computed(() => otaDiagnosisHotelOptions.value.find(item => item.value === otaDiagnosisForm.value.hotel_id) || null);
             const otaDiagnosisFilteredHotelOptions = computed(() => {
@@ -26623,8 +26679,8 @@
             };
 
             const getSafeAiAnalysisModelKey = () => {
-                const allowed = ['deepseek_chat', 'deepseek_reasoner', 'openai_fast'];
-                return allowed.includes(aiAnalysisModelKey.value) ? aiAnalysisModelKey.value : 'deepseek_chat';
+                const modelKey = String(aiAnalysisModelKey.value || '').trim();
+                return modelKey || 'deepseek_chat';
             };
 
             const isDeepSeekProAnalysisModel = () => getSafeAiAnalysisModelKey() === 'deepseek_reasoner';
@@ -29325,11 +29381,7 @@
             const transferRecords = ref([]);
             const transferRecordsLoading = ref(false);
             const transferHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
-            const transferAiModelOptions = [
-                { value: 'deepseek_chat', label: 'DeepSeek 经济模式' },
-                { value: 'deepseek_reasoner', label: 'DeepSeek 深度推理' },
-                { value: 'openai_fast', label: 'OpenAI 快速模式' },
-            ];
+            const transferAiModelOptions = availableAiModelOptions;
 
             const transferPricingFields = [
                 { key: 'hotel_name', label: '酒店名称', type: 'text', full: true },
@@ -31448,8 +31500,8 @@
                 showImportConfigModal, importConfigFile, importConfigPreview,
                 exportSystemConfig, handleConfigFileChange, importSystemConfig, resetSystemConfig,
                 // AI模型配置
-                aiModelConfigs, aiModelConfigLoading, showAiModelConfigModal, aiModelConfigForm, testingAiModelId,
-                showAiModelAdvanced, aiQuickSetupForm, aiQuickSetupSaving,
+                aiModelConfigs, availableAiModelOptions, aiModelConfigLoading, showAiModelConfigModal, aiModelConfigForm, testingAiModelId,
+                showAiModelAdvanced, aiQuickSetupForm, aiQuickSetupSaving, aiQuickSetupProviderModels,
                 aiModelConfigText, loadAiModelConfigs, openAiModelConfigModal, saveAiModelConfig, toggleAiModelConfigEnabled, testAiModelConfig, saveAiProviderQuickSetup,
                 // 数据配置
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, dataConfigMeta, testingConfig, savingConfig, dataConfigForm,
