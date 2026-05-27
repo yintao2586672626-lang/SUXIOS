@@ -8809,7 +8809,7 @@ JAVASCRIPT;
                 return $this->success([
                     'saved_count' => (int)($result['saved_count'] ?? 0),
                     'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
-                    'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '混合自动',
+                    'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '最低成本自动',
                     'platform_results' => $result['platform_results'] ?? [],
                 ], '自动获取成功');
             }
@@ -8817,7 +8817,7 @@ JAVASCRIPT;
             return $this->error('自动获取失败: ' . $result['message'], 400, [
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
-                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '混合自动',
+                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '最低成本自动',
                 'platform_results' => $result['platform_results'] ?? [],
             ]);
 
@@ -9330,7 +9330,7 @@ JAVASCRIPT;
                     'last_result' => null,
                     'schedule_time' => '10:00',
                     'auto_fetch_mode' => 'hybrid_auto',
-                    'auto_fetch_mode_label' => '混合自动',
+                    'auto_fetch_mode_label' => '最低成本自动',
                     'recent_runs' => [],
                     'failed_records' => [],
                     'missed_dates' => [],
@@ -9625,7 +9625,7 @@ JAVASCRIPT;
                 'data_date' => $dataDate,
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
-                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '混合自动',
+                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '最低成本自动',
                 'platform_results' => $result['platform_results'] ?? [],
             ], '补抓成功');
         }
@@ -10416,7 +10416,7 @@ JAVASCRIPT;
         return match ($this->normalizeAutoFetchMode($mode)) {
             'cookie_config' => 'Cookie/配置自动',
             'profile_browser' => '浏览器 Profile 自动',
-            default => '混合自动',
+            default => '最低成本自动',
         };
     }
 
@@ -10474,6 +10474,19 @@ JAVASCRIPT;
         return $this->normalizeAutoFetchMode($mode) !== 'cookie_config';
     }
 
+    private function shouldRunProfileBrowserForCost(string $mode, int $savedCount): bool
+    {
+        $mode = $this->normalizeAutoFetchMode($mode);
+        if ($mode === 'cookie_config') {
+            return false;
+        }
+        if ($mode === 'profile_browser') {
+            return true;
+        }
+
+        return $savedCount <= 0;
+    }
+
     private function autoFetchStatusCode(array $result): string
     {
         if (!empty($result['success'])) {
@@ -10481,7 +10494,7 @@ JAVASCRIPT;
         }
 
         $message = strtolower((string)($result['message'] ?? ''));
-        if (!empty($result['skipped']) && str_contains($message, '当前策略')) {
+        if (!empty($result['skipped']) && (str_contains($message, '当前策略') || str_contains($message, '最低成本'))) {
             return 'skipped';
         }
         if (str_contains($message, 'partner') || str_contains($message, 'poi')) {
@@ -10814,9 +10827,15 @@ JAVASCRIPT;
             }
         }
 
-        $browserResult = $runProfileBrowser
+        $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
+        $browserResult = $runProfileBrowser && $runProfileByCost
             ? $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']))
-            : ['success' => false, 'skipped' => true, 'message' => '当前策略仅使用 Cookie/配置自动', 'saved_count' => 0];
+            : [
+                'success' => false,
+                'skipped' => true,
+                'message' => $runProfileBrowser ? 'Cookie/配置已有入库，按最低成本跳过浏览器 Profile' : '当前策略仅使用 Cookie/配置自动',
+                'saved_count' => 0,
+            ];
         if (empty($browserResult['skipped'])) {
             $savedCount += (int)($browserResult['saved_count'] ?? 0);
         }
@@ -11264,9 +11283,15 @@ JAVASCRIPT;
             }
         }
 
-        $browserResult = $runProfileBrowser
+        $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
+        $browserResult = $runProfileBrowser && $runProfileByCost
             ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']))
-            : ['success' => false, 'skipped' => true, 'message' => '当前策略仅使用 Cookie/配置自动', 'saved_count' => 0];
+            : [
+                'success' => false,
+                'skipped' => true,
+                'message' => $runProfileBrowser ? 'Cookie/配置已有入库，按最低成本跳过浏览器 Profile' : '当前策略仅使用 Cookie/配置自动',
+                'saved_count' => 0,
+            ];
         if (empty($browserResult['skipped'])) {
             $savedCount += (int)($browserResult['saved_count'] ?? 0);
         }

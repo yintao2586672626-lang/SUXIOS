@@ -12672,7 +12672,7 @@
                                                     <h4 class="font-semibold text-gray-900 text-lg">
                                                         <i class="fas fa-robot mr-2 text-blue-600"></i>平台数据自动获取
                                                     </h4>
-                                                    <p class="text-sm text-gray-500 mt-1">按门店执行携程与美团抓取，可选择 Cookie/配置自动、浏览器 Profile 自动或混合自动。</p>
+                                                    <p class="text-sm text-gray-500 mt-1">按门店执行携程与美团抓取；默认最低成本自动，优先使用 Cookie/配置，未入库再回退浏览器 Profile。</p>
                                                 </div>
                                                 <div class="flex flex-wrap items-end gap-3">
                                                     <div>
@@ -17076,13 +17076,13 @@
             const autoFetchEnabled = ref(false);
             const autoFetchMode = ref('hybrid_auto');
             const autoFetchModeOptions = [
-                { value: 'hybrid_auto', label: '混合自动' },
+                { value: 'hybrid_auto', label: '最低成本自动' },
                 { value: 'cookie_config', label: 'Cookie/配置自动' },
                 { value: 'profile_browser', label: '浏览器 Profile 自动' },
             ];
             const autoFetchModeLabel = (mode) => {
                 const found = autoFetchModeOptions.find(item => item.value === mode);
-                return found ? found.label : '混合自动';
+                return found ? found.label : '最低成本自动';
             };
             const autoFetchStatus = ref({
                 auto_fetch_mode: 'hybrid_auto',
@@ -17822,7 +17822,7 @@
                 autoFetchRunState.value = {
                     active: true,
                     type: 'running',
-                    message: `已提交后端执行。当前策略：${autoFetchModeLabel(autoFetchMode.value)}。混合自动会先跑 Cookie/配置任务，再用浏览器 Profile 补充动态页面。`,
+                    message: `已提交后端执行。当前策略：${autoFetchModeLabel(autoFetchMode.value)}。最低成本自动会优先使用 Cookie/配置，未入库再回退浏览器 Profile。`,
                     started_at: startedAt,
                     finished_at: '',
                 };

@@ -1426,6 +1426,16 @@ final class OnlineDataTest extends TestCase
         self::assertSame('profile_browser', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['browser_profile']));
     }
 
+    public function testAutoFetchCostStrategyOnlyFallsBackToProfileWhenNeeded(): void
+    {
+        $controller = $this->controller();
+
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldRunProfileBrowserForCost', ['cookie_config', 0]));
+        self::assertTrue($this->invokeNonPublic($controller, 'shouldRunProfileBrowserForCost', ['profile_browser', 10]));
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldRunProfileBrowserForCost', ['hybrid_auto', 3]));
+        self::assertTrue($this->invokeNonPublic($controller, 'shouldRunProfileBrowserForCost', ['hybrid_auto', 0]));
+    }
+
     public function testAutoFetchResultMetaKeepsFailureActionExplicit(): void
     {
         $controller = $this->controller();
@@ -1450,6 +1460,16 @@ final class OnlineDataTest extends TestCase
         ], 'profile_browser']);
         self::assertSame('needs_profile', $profileResult['status_code']);
         self::assertSame('建立或重新登录浏览器 Profile', $profileResult['next_action']);
+
+        $costSkippedResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
+            'module' => 'browser_profile',
+            'saved_count' => 0,
+            'success' => false,
+            'skipped' => true,
+            'message' => 'Cookie/配置已有入库，按最低成本跳过浏览器 Profile',
+        ], 'profile_browser']);
+        self::assertSame('skipped', $costSkippedResult['status_code']);
+        self::assertSame('', $costSkippedResult['next_action']);
 
         $meituanMissingResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
             'module' => 'ranking_api',

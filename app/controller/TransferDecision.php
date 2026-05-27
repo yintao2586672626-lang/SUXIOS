@@ -47,7 +47,7 @@ class TransferDecision extends Base
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (Throwable $e) {
-            return $this->error('资产定价计算失败: ' . $e->getMessage(), 500);
+            return $this->error('资产定价计算失败: ' . $e->getMessage(), $this->pricingFailureStatusCode($e));
         }
     }
 
@@ -197,5 +197,15 @@ class TransferDecision extends Base
         }
 
         return $fallback;
+    }
+
+    private function pricingFailureStatusCode(Throwable $e): int
+    {
+        $message = $e->getMessage();
+        if (preg_match('/AI.*(调用失败|治理|配置|API|SECRET|LLM|模型)/u', $message) === 1) {
+            return 422;
+        }
+
+        return 500;
     }
 }

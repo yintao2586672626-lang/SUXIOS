@@ -118,6 +118,13 @@ const checks = [
       && source.includes('platform.missingText')
       && controllerSource.includes("'missing_fields' => $meituanApiStatus['missing_fields']"),
   },
+  {
+    name: 'hybrid auto-fetch uses lowest-cost fallback wording',
+    pass: source.includes('最低成本自动')
+      && source.includes('优先使用 Cookie/配置，未入库再回退浏览器 Profile')
+      && controllerSource.includes('shouldRunProfileBrowserForCost')
+      && controllerSource.includes('按最低成本跳过浏览器 Profile'),
+  },
 ];
 
 const failed = checks.filter(check => !check.pass);

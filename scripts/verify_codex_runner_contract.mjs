@@ -58,6 +58,14 @@ assert(packageJson.scripts?.['codex:runner'], 'package.json must expose codex:ru
 assert(packageJson.scripts?.['codex:runner:quick'], 'package.json must expose codex:runner:quick');
 assert(packageJson.scripts?.['verify:codex-runner-contract'], 'package.json must expose verify:codex-runner-contract');
 
+const runnerSource = fs.readFileSync(runnerPath, 'utf8');
+const fullClickBlock = runnerSource.match(/name:\s*'full-click'[\s\S]*?timeoutMs:\s*(\d+)/);
+assert(fullClickBlock, 'codex runner must define full-click suite timeout');
+if (fullClickBlock) {
+  const timeoutMs = Number(fullClickBlock[1]);
+  assert(timeoutMs >= 14400000, 'full-click timeout must allow the documented 50-loop run to finish');
+}
+
 const helpers = require(path.join(root, 'tests', 'automation', 'e2e-helpers.js'));
 const previousProfile = process.env.E2E_INPUT_PROFILE;
 const previousExtreme = process.env.E2E_EXTREME_INPUTS;

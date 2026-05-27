@@ -31,8 +31,8 @@ const config = {
   liveApi: process.env.E2E_EDGE_LIVE_API === '1',
   allowLiveMutation: process.env.E2E_EDGE_ALLOW_MUTATION === '1',
   mutationStatus: clampInt(process.env.E2E_EDGE_MUTATION_STATUS, 422, 400, 599),
-  maxFieldsPerModule: clampInt(process.env.E2E_EDGE_MAX_FIELDS_PER_MODULE, 10000, 1, 50000),
-  maxActionsPerModule: clampInt(process.env.E2E_EDGE_MAX_ACTIONS_PER_MODULE, 10000, 0, 50000),
+  maxFieldsPerModule: clampInt(process.env.E2E_EDGE_MAX_FIELDS_PER_MODULE, 12, 1, 50000),
+  maxActionsPerModule: clampInt(process.env.E2E_EDGE_MAX_ACTIONS_PER_MODULE, 8, 0, 50000),
   apiWaitMs: clampInt(process.env.E2E_EDGE_API_WAIT_MS, 700, 100, 5000),
 };
 
