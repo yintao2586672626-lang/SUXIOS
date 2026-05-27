@@ -73,6 +73,50 @@ final class AgentTest extends TestCase
      * 覆盖 normalizeRequestedModelKey：
      * 验证默认模型、Pro 模式、历史别名和未知模型透传。
      */
+    public function testOtaEvidenceReportPayloadKeepsTraceableActionReferences(): void
+    {
+        $controller = $this->controller();
+        $result = [
+            'date_range' => ['start_date' => '2026-05-01', 'end_date' => '2026-05-02'],
+            'data_summary' => ['source_counts' => ['online_daily_data' => 1]],
+            'core_conclusion' => 'Need action',
+            'main_problems' => ['traffic low'],
+            'possible_reasons' => ['price high'],
+            'action_items' => [[
+                'title' => 'Improve traffic conversion',
+                'evidence_refs' => ['online_daily_data#10'],
+            ]],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#10',
+                'tags' => ['traffic', 'order'],
+            ]],
+        ];
+
+        $report = $this->invokeNonPublic($controller, 'buildOtaEvidenceReport', [$result]);
+        self::assertSame('daily_diagnosis_action_list', $report['report_type']);
+        self::assertSame('database_only', $report['source_policy']);
+        self::assertSame(['online_daily_data' => 1], $report['source_counts']);
+        self::assertSame('Need action', $report['diagnosis']['summary']);
+        self::assertSame($result['action_items'], $report['action_items']);
+
+        $preview = $this->invokeNonPublic($controller, 'buildOtaEvidenceMetricPreview', [[
+            'amount' => 1200,
+            'quantity' => 5,
+            'list_exposure' => 1000,
+            'unsafe' => 'secret',
+        ]]);
+        self::assertSame(['amount' => 1200, 'quantity' => 5, 'list_exposure' => 1000], $preview);
+
+        $refs = $this->invokeNonPublic($controller, 'selectOtaEvidenceRefsForAction', [
+            'Improve traffic conversion',
+            [
+                ['ref' => 'online_daily_data#10', 'tags' => ['traffic']],
+                ['ref' => 'competitor_price_log#2', 'tags' => ['price']],
+            ],
+        ]);
+        self::assertSame(['online_daily_data#10'], $refs);
+    }
+
     public function testNormalizeRequestedModelKeyCoversDefaultAliasesAndFallback(): void
     {
         $controller = $this->controller();
@@ -333,6 +377,62 @@ final class AgentTest extends TestCase
      * 覆盖 applyCapturedOtaDataQualityGuard：
      * 验证跨日统计窗口下不会把流量未更新写成严重采集异常。
      */
+    public function testAiGovernancePayloadCitesKnowledgeAndRequiresManualReview(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'buildAiGovernancePayload', [
+            'ota_diagnosis',
+            [
+                'platform' => 'ctrip',
+                'date_range' => ['start_date' => '2026-05-24', 'end_date' => '2026-05-24'],
+                'missing_sections' => ['competitor_prices'],
+                'knowledge_context' => [
+                    'status' => 'available',
+                    'items' => [[
+                        'source' => 'knowledge_units',
+                        'id' => 7,
+                        'title' => 'OTA metric knowledge',
+                    ]],
+                ],
+                'evidence_sources' => [[
+                    'ref' => 'online_daily_data#10',
+                    'table' => 'online_daily_data',
+                    'record_id' => 10,
+                    'label' => 'ctrip traffic',
+                ]],
+                'action_items' => [[
+                    'id' => 'ota_action_1',
+                    'status' => 'pending_manual_review',
+                    'evidence_refs' => ['online_daily_data#10'],
+                ]],
+            ],
+            [
+                'ok' => true,
+                'provider' => 'deepseek',
+                'model_key' => 'deepseek_chat',
+                'model' => 'deepseek-chat',
+                'data' => [
+                    'governance' => [
+                        'call_id' => 'llm_abc',
+                        'prompt_version' => 'ota_diagnosis:v1',
+                    ],
+                ],
+            ],
+        ]);
+
+        self::assertSame('ota_diagnosis', $payload['scenario']);
+        self::assertSame('ota_diagnosis:v1', $payload['prompt_version']);
+        self::assertSame('ota_diagnosis_governance_v1', $payload['evaluation_set']);
+        self::assertSame('medium', $payload['confidence_level']);
+        self::assertTrue($payload['low_confidence']);
+        self::assertTrue($payload['human_confirmation_required']);
+        self::assertSame('knowledge_units#7', $payload['knowledge_citations'][0]['ref']);
+        self::assertSame('online_daily_data#10', $payload['evidence_refs'][0]);
+        self::assertSame('llm_abc', $payload['model_call']['call_id']);
+        self::assertSame('ai_model_call_logs', $payload['log_sink']);
+    }
+
     public function testCapturedOtaDataQualityGuardRewritesProblemHotelAnomalyTone(): void
     {
         $controller = $this->controller();

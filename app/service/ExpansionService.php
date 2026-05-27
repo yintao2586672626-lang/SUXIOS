@@ -939,6 +939,13 @@ class ExpansionService
     private function marketAiEvaluationSchema(): array
     {
         return [
+            'x-governance' => [
+                'module' => 'expansion',
+                'scenario' => 'market_evaluation',
+                'prompt_version' => 'expansion.market_evaluation.v1',
+                'decision_impact' => 'investment',
+                'knowledge_sources' => ['input', 'rule_result'],
+            ],
             'type' => 'object',
             'additionalProperties' => false,
             'required' => ['summary', 'decision', 'market_judgement', 'recommendations', 'watch_points', 'assumptions'],
@@ -1120,6 +1127,13 @@ class ExpansionService
     private function benchmarkAiEvaluationSchema(): array
     {
         return [
+            'x-governance' => [
+                'module' => 'expansion',
+                'scenario' => 'benchmark_model',
+                'prompt_version' => 'expansion.benchmark_model.v1',
+                'decision_impact' => 'investment',
+                'knowledge_sources' => ['input', 'benchmark_result'],
+            ],
             'type' => 'object',
             'additionalProperties' => false,
             'required' => ['summary', 'decision', 'model_judgement', 'recommendations', 'watch_points', 'assumptions'],

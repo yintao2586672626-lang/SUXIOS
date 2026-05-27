@@ -247,6 +247,7 @@ OTA 数据同步 -> 收益诊断 -> 运营建议 -> 动作追踪 -> 效果复盘
 | P0 | 运营预警持久化和标记已读权限过滤 | `OperationManagement.php`、`OperationManagementService.php` | 生成预警 -> 刷新仍存在 -> 非授权 ID 不可标记 |
 | P1 | 建议到执行的闭环补强 | `OperationManagement.php`、`OperationManagementService.php`、`public/index.html` | 建议 -> 执行意图 -> 审批/阻塞 -> 证据 -> 复盘 |
 | P1 | AI 能力嵌入收益诊断和运营建议 | `Agent.php`、`OperationManagementService.php`、`public/index.html` | 同一运营问题能看到证据、AI解释和建议动作 |
+| P2 | AI 治理：模型调用日志、Prompt 版本、知识来源引用、低置信度提示、人工确认、评估集 | `LlmClient.php`、`AiGovernance.php`、`database/migrations/20260527_create_ai_governance_tables.sql` | AI 结论可追溯到调用日志、Prompt 版本、来源、确认状态和评估用例 |
 | P2 | 筹建、开业、扩张、转让继续补项目级编辑和审计能力 | 对应 Controller/Service/前端 | 保存 -> 回显 -> 编辑 -> 归档 -> 权限过滤 |
 
 ## 8. 修改边界

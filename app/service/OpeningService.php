@@ -635,6 +635,13 @@ class OpeningService
     private function openingSuggestionSchema(): array
     {
         return [
+            'x-governance' => [
+                'module' => 'opening',
+                'scenario' => 'opening_suggestions',
+                'prompt_version' => 'opening.suggestions.v1',
+                'decision_impact' => 'operational',
+                'knowledge_sources' => ['project', 'metrics', 'category_progress', 'high_risk_tasks', 'overdue_tasks'],
+            ],
             'type' => 'object',
             'additionalProperties' => false,
             'required' => ['suggestions'],

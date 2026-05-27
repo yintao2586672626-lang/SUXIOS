@@ -230,6 +230,19 @@ Route::group('api/ai-config', function () {
     Route::delete('/models/<id>', 'AiConfig/deleteModel');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== AI治理 API ====================
+Route::group('api/ai-governance', function () {
+    Route::get('/summary', 'AiGovernance/summary');
+    Route::get('/logs/:id', 'AiGovernance/logDetail');
+    Route::post('/logs/:id/confirm', 'AiGovernance/confirmLog');
+    Route::get('/logs', 'AiGovernance/logs');
+    Route::get('/prompt-versions', 'AiGovernance/promptVersions');
+    Route::post('/prompt-versions', 'AiGovernance/savePromptVersion');
+    Route::delete('/evaluation-cases/:id', 'AiGovernance/archiveEvaluationCase');
+    Route::get('/evaluation-cases', 'AiGovernance/evaluationCases');
+    Route::post('/evaluation-cases', 'AiGovernance/saveEvaluationCase');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 节假期收益倒计时 API ====================
 Route::group('api/holiday-revenue', function () {
     Route::get('/countdown', 'HolidayRevenue/countdown');
@@ -275,6 +288,7 @@ Route::group('api/operation', function () {
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
     Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
     Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
+    Route::get('/execution-flow', 'OperationManagement/executionFlow');
     Route::get('/execution-intents', 'OperationManagement/executionIntents');
     Route::post('/execution-intents', 'OperationManagement/createExecutionIntent');
     Route::post('/actions/:id/finish', 'OperationManagement/finishAction');

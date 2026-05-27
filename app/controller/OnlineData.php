@@ -8950,10 +8950,8 @@ JAVASCRIPT;
     private function hasMeituanFetchConfigForHotel(int $hotelId): bool
     {
         $fetchConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
-        $hasApiConfig = trim((string)($fetchConfig['cookies'] ?? '')) !== ''
-            && trim((string)($fetchConfig['partner_id'] ?? $fetchConfig['partnerId'] ?? '')) !== ''
-            && trim((string)($fetchConfig['poi_id'] ?? $fetchConfig['poiId'] ?? '')) !== '';
-        if ($hasApiConfig || $this->meituanProfileStoreIdFromConfig($fetchConfig) !== '' || $this->meituanProfileExistsForConfig($fetchConfig)) {
+        $apiStatus = $this->meituanAutoFetchConfigStatus($fetchConfig);
+        if (!empty($apiStatus['api_configured']) || $this->meituanProfileExistsForConfig($fetchConfig)) {
             return true;
         }
 
@@ -8974,6 +8972,7 @@ JAVASCRIPT;
         $runMode = $this->resolveAutoFetchRunMode($hotelId);
         $ctripHasProfile = $this->ctripProfileExistsForConfig($ctripConfig, $hotelId);
         $meituanHasProfile = $this->meituanProfileExistsForConfig($meituanConfig);
+        $meituanApiStatus = $this->meituanAutoFetchConfigStatus($meituanConfig);
         $ctripMode = $this->resolvePlatformAutoFetchMode($ctripConfig, ['auto_fetch_mode' => $runMode], 'ctrip');
         $meituanMode = $this->resolvePlatformAutoFetchMode($meituanConfig, ['auto_fetch_mode' => $runMode], 'meituan');
         $ctripTasks = array_values(array_filter(
@@ -9004,12 +9003,17 @@ JAVASCRIPT;
                 'name' => (string)($meituanConfig['name'] ?? $meituanConfig['hotel_name'] ?? ''),
                 'mode' => $this->autoFetchModeLabel($meituanMode),
                 'auto_fetch_mode' => $meituanMode,
-                'cookie_configured' => trim((string)($meituanConfig['cookies'] ?? $meituanConfig['cookie'] ?? '')) !== '',
+                'api_configured' => (bool)$meituanApiStatus['api_configured'],
+                'cookie_configured' => (bool)$meituanApiStatus['has_cookies'],
+                'partner_id_configured' => (bool)$meituanApiStatus['has_partner_id'],
+                'poi_id_configured' => (bool)$meituanApiStatus['has_poi_id'],
                 'profile_configured' => $meituanHasProfile,
                 'has_profile' => $meituanHasProfile,
                 'task_count' => count($meituanTasks),
                 'task_modules' => array_values(array_unique(array_map(static fn(array $task): string => (string)($task['module'] ?? ''), $meituanTasks))),
-                'next_action' => $this->autoFetchPlatformNextAction($meituanMode, trim((string)($meituanConfig['cookies'] ?? $meituanConfig['cookie'] ?? '')) !== '', $meituanHasProfile, count($meituanTasks)),
+                'missing_fields' => $meituanApiStatus['missing_fields'],
+                'missing_text' => $meituanApiStatus['missing_text'],
+                'next_action' => $this->autoFetchPlatformNextAction($meituanMode, (bool)$meituanApiStatus['api_configured'], $meituanHasProfile, count($meituanTasks)),
                 'entry_url' => 'https://eb.meituan.com',
             ],
         ];
@@ -10277,14 +10281,18 @@ JAVASCRIPT;
                 $successCount++;
             }
         } else {
+            $message = '未配置美团 Partner ID / POI ID / Cookies';
             $platformResults[] = [
                 'platform' => 'meituan',
                 'success' => false,
                 'skipped' => true,
-                'message' => '未配置美团 Partner ID / POI ID / Cookies',
+                'message' => $message,
                 'saved_count' => 0,
                 'auto_fetch_mode' => $options['auto_fetch_mode'],
                 'mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
+                'modules' => [
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'cookie_config'),
+                ],
             ];
         }
 
@@ -10364,6 +10372,33 @@ JAVASCRIPT;
         }
         $decoded = json_decode((string)$value, true);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    private function meituanAutoFetchConfigStatus(array $config): array
+    {
+        $hasPartnerId = trim((string)$this->firstAutoFetchConfigValue($config, ['partner_id', 'partnerId'], '')) !== '';
+        $hasPoiId = trim((string)$this->firstAutoFetchConfigValue($config, ['poi_id', 'poiId'], '')) !== '';
+        $hasCookies = trim((string)$this->firstAutoFetchConfigValue($config, ['cookies', 'cookie'], '')) !== '';
+        $missingFields = [];
+
+        if (!$hasPartnerId) {
+            $missingFields[] = 'Partner ID';
+        }
+        if (!$hasPoiId) {
+            $missingFields[] = 'POI ID';
+        }
+        if (!$hasCookies) {
+            $missingFields[] = 'Cookies';
+        }
+
+        return [
+            'api_configured' => empty($missingFields),
+            'has_partner_id' => $hasPartnerId,
+            'has_poi_id' => $hasPoiId,
+            'has_cookies' => $hasCookies,
+            'missing_fields' => $missingFields,
+            'missing_text' => implode(' / ', $missingFields),
+        ];
     }
 
     private function normalizeAutoFetchMode($value): string
@@ -10449,6 +10484,9 @@ JAVASCRIPT;
         if (!empty($result['skipped']) && str_contains($message, '当前策略')) {
             return 'skipped';
         }
+        if (str_contains($message, 'partner') || str_contains($message, 'poi')) {
+            return 'needs_config';
+        }
         if (str_contains($message, 'cookie') || str_contains($message, '登录') || str_contains($message, '授权') || str_contains($message, '过期')) {
             return 'needs_cookie';
         }
@@ -10478,6 +10516,7 @@ JAVASCRIPT;
         }
         if (empty($result['next_action'])) {
             $result['next_action'] = match ($result['status_code']) {
+                'needs_config' => '补齐美团 Partner ID / POI ID / Cookies',
                 'needs_cookie' => '更新 Cookie 或重新登录 OTA 后台',
                 'needs_profile' => '建立或重新登录浏览器 Profile',
                 'needs_payload' => '补充 Request URL / Payload / 动态令牌',
@@ -11131,6 +11170,8 @@ JAVASCRIPT;
         $cookies = trim((string)($config['cookies'] ?? $config['cookie'] ?? ''));
         $partnerId = trim((string)($config['partner_id'] ?? $config['partnerId'] ?? ''));
         $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
+        $apiStatus = $this->meituanAutoFetchConfigStatus($config);
+        $missingText = (string)$apiStatus['missing_text'];
         $mode = $this->resolvePlatformAutoFetchMode($config, $options, 'meituan');
         $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
         $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
@@ -11140,15 +11181,16 @@ JAVASCRIPT;
         $hasProfileSeed = $this->meituanProfileStoreIdFromConfig($config) !== '';
 
         if ($cookies === '' && !$hasProfile && !$hasConfiguredTask && !($runProfileBrowser && $hasProfileSeed)) {
+            $message = $missingText !== '' ? '未配置美团 ' . $missingText : '未配置美团 Partner ID / POI ID / Cookies';
             return [
                 'platform' => 'meituan',
                 'success' => false,
-                'message' => '未配置美团 Partner ID / POI ID / Cookie 或浏览器 Profile',
+                'message' => $message,
                 'saved_count' => 0,
                 'auto_fetch_mode' => $mode,
                 'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => [
-                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 Cookie/Partner ID/POI ID/Profile'], 'hybrid_auto'),
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'hybrid_auto'),
                 ],
             ];
         }
@@ -11157,7 +11199,7 @@ JAVASCRIPT;
         $errors = [];
         $modules = [];
 
-        if ($runCookieConfig && $cookies !== '' && $partnerId !== '' && $poiId !== '') {
+        if ($runCookieConfig && !empty($apiStatus['api_configured'])) {
             $url = trim((string)($config['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail';
             $authDataRaw = $config['auth_data'] ?? [];
             try {
@@ -11199,7 +11241,7 @@ JAVASCRIPT;
                 }
             }
         } elseif ($runCookieConfig) {
-            $message = '缺少美团 Cookie、Partner ID 或 POI ID';
+            $message = $missingText !== '' ? '缺少美团 ' . $missingText : '缺少美团 Partner ID / POI ID / Cookies';
             if ($mode === 'cookie_config') {
                 $errors[] = $message;
             }
@@ -11274,8 +11316,9 @@ JAVASCRIPT;
         $cookies = trim((string)($body['cookies'] ?? ''));
         $partnerId = trim((string)($body['partner_id'] ?? ''));
         $poiId = trim((string)($body['poi_id'] ?? ''));
-        if ($cookies === '' || $partnerId === '' || $poiId === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'missing meituan rank config'];
+        $apiStatus = $this->meituanAutoFetchConfigStatus($body);
+        if (empty($apiStatus['api_configured'])) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . $apiStatus['missing_text']];
         }
 
         $params = [
@@ -11315,8 +11358,13 @@ JAVASCRIPT;
         $cookies = trim((string)($body['cookies'] ?? ''));
         $partnerId = trim((string)($body['partner_id'] ?? ''));
         $poiId = trim((string)($body['poi_id'] ?? ''));
-        if ($url === '' || $cookies === '' || $partnerId === '' || $poiId === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'missing meituan traffic config'];
+        $apiStatus = $this->meituanAutoFetchConfigStatus($body);
+        if ($url === '' || empty($apiStatus['api_configured'])) {
+            $missing = $apiStatus['missing_fields'];
+            if ($url === '') {
+                array_unshift($missing, 'Request URL');
+            }
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . implode(' / ', $missing)];
         }
 
         $extraParams = $this->configValueToArray($body['extra_params'] ?? []);
@@ -11353,8 +11401,9 @@ JAVASCRIPT;
         $cookies = trim((string)($body['cookies'] ?? ''));
         $partnerId = trim((string)($body['partner_id'] ?? ''));
         $poiId = trim((string)($body['poi_id'] ?? ''));
-        if ($cookies === '' || $partnerId === '' || $poiId === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'missing meituan comments config'];
+        $apiStatus = $this->meituanAutoFetchConfigStatus($body);
+        if (empty($apiStatus['api_configured'])) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . $apiStatus['missing_text']];
         }
 
         $requestUrl = trim((string)($body['request_url'] ?? ''));
@@ -12031,30 +12080,25 @@ JAVASCRIPT;
         $updatedAt = (string)($item['update_time'] ?? $item['updated_at'] ?? $item['created_at'] ?? '');
         $timestamp = $updatedAt !== '' ? strtotime($updatedAt) : false;
         $ageDays = $timestamp ? max(0, (int)floor((time() - $timestamp) / 86400)) : null;
-        $status = 'ok';
-        $message = $this->cookieHealthMessage($platform, 'ok', $ageDays);
-
-        if ($cookieValue === '') {
-            $status = 'expired';
-            $message = $this->cookieHealthMessage($platform, 'empty', $ageDays);
-        } elseif ($ageDays === null) {
-            $status = 'unknown';
-            $message = $this->cookieHealthMessage($platform, 'unknown', $ageDays);
-        } elseif ($ageDays >= $this->cookieExpireDays()) {
-            $status = 'expired';
-            $message = $this->cookieHealthMessage($platform, 'expired', $ageDays);
-        } elseif ($ageDays >= $this->cookieWarningDays()) {
-            $status = 'warning';
-            $message = $this->cookieHealthMessage($platform, 'warning', $ageDays);
-        }
-
+        $hasAlert = false;
+        $alertMessage = '';
         foreach ($this->getCookieAlerts() as $alert) {
             if (($alert['platform'] ?? '') === $platform && (string)($alert['name'] ?? '') === $name) {
-                $status = 'expired';
-                $message = (string)($alert['message'] ?? $message);
+                $hasAlert = true;
+                $alertMessage = (string)($alert['message'] ?? '');
                 break;
             }
         }
+        $status = $this->resolveCookieHealthState($cookieValue, $ageDays, $hasAlert, $this->cookieWarningDays(), $this->cookieExpireDays());
+        $reason = $status;
+        if ($cookieValue === '') {
+            $reason = 'empty';
+        } elseif ($ageDays === null && !$hasAlert) {
+            $reason = 'unknown';
+        }
+        $message = $hasAlert && $alertMessage !== ''
+            ? $alertMessage
+            : $this->cookieHealthMessage($platform, $reason, $ageDays);
 
         return [
             'platform' => $platform,
@@ -12069,6 +12113,23 @@ JAVASCRIPT;
             'has_cookie' => $cookieValue !== '',
             'reauthorize_entry' => $this->cookieReauthorizeEntry(),
         ];
+    }
+
+    private function resolveCookieHealthState(string $cookieValue, ?int $ageDays, bool $hasAlert, int $warningDays, int $expireDays): string
+    {
+        if ($hasAlert || $cookieValue === '') {
+            return 'expired';
+        }
+        if ($ageDays === null) {
+            return 'unknown';
+        }
+        if ($ageDays >= $expireDays) {
+            return 'expired';
+        }
+        if ($ageDays >= $warningDays) {
+            return 'warning';
+        }
+        return 'ok';
     }
 
     private function cookieHealthMessage(string $platform, string $reason, ?int $ageDays): string

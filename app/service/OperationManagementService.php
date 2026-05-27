@@ -51,13 +51,19 @@ class OperationManagementService
     public function rootCause(array $hotelIds, ?int $hotelId, string $date, string $problemType): array
     {
         $fullData = $this->fullData($hotelIds, $hotelId, $date);
-        $todayOta = $fullData['ota'];
-        $summary = $fullData['summary'];
-        $competitors = $fullData['competitors'];
-        $reviews = $fullData['reviews'];
-        $holiday = $fullData['holiday'];
         $avg7 = $this->averageOnlineMetrics($hotelIds, $date, 7);
         $avg30 = $this->averageOnlineMetrics($hotelIds, $date, 30);
+
+        return $this->buildRootCauseResult($fullData, $avg7, $avg30, $problemType);
+    }
+
+    private function buildRootCauseResult(array $fullData, array $avg7, array $avg30, string $problemType): array
+    {
+        $todayOta = $fullData['ota'] ?? [];
+        $summary = $fullData['summary'] ?? [];
+        $competitors = $fullData['competitors'] ?? [];
+        $reviews = $fullData['reviews'] ?? [];
+        $holiday = $fullData['holiday'] ?? [];
         $rootCauses = [];
 
         if (($todayOta['orders'] ?? 0) > 0 && ($todayOta['exposure'] ?? 0) <= 0 && ($todayOta['visitors'] ?? 0) <= 0) {
@@ -302,6 +308,256 @@ class OperationManagementService
         return [
             'actions' => $actions,
             'effect_validation' => $this->buildEffectValidation($hotelIds, $hotelId, $actions),
+        ];
+    }
+
+    public function executionFlow(array $hotelIds, ?int $hotelId, array $filters = []): array
+    {
+        if (!$this->tableExists('operation_execution_intents')) {
+            return [
+                'summary' => $this->buildExecutionFlowSummary([]),
+                'stages' => $this->buildExecutionFlowStages([]),
+                'list' => [],
+                'data_status' => self::DATA_PENDING,
+                'data_gaps' => [['code' => 'operation_execution_intents_missing', 'message' => 'execution intent table missing']],
+            ];
+        }
+
+        $query = Db::name('operation_execution_intents')->whereNull('deleted_at');
+        if ($hotelId !== null && $hotelId > 0) {
+            $query->where('hotel_id', $hotelId);
+        } elseif (!empty($hotelIds)) {
+            $query->whereIn('hotel_id', $hotelIds);
+        }
+        foreach (['platform', 'object_type', 'action_type', 'status'] as $field) {
+            $value = trim((string)($filters[$field] ?? ''));
+            if ($value !== '') {
+                $query->where($field, $value);
+            }
+        }
+
+        $intentRows = $query->order('id', 'desc')->limit(100)->select()->toArray();
+        if (empty($intentRows)) {
+            $summary = $this->buildExecutionFlowSummary([]);
+            return [
+                'summary' => $summary,
+                'stages' => $this->buildExecutionFlowStages($summary),
+                'list' => [],
+                'data_status' => self::DATA_OK,
+                'data_gaps' => [],
+            ];
+        }
+
+        $intentIds = array_map(static fn(array $row): int => (int)$row['id'], $intentRows);
+        $tasksByIntent = [];
+        $evidenceByIntent = [];
+        $dataGaps = [];
+
+        if ($this->tableExists('operation_execution_tasks')) {
+            $taskRows = Db::name('operation_execution_tasks')
+                ->whereIn('intent_id', $intentIds)
+                ->whereNull('deleted_at')
+                ->order('id', 'desc')
+                ->select()
+                ->toArray();
+            $taskIntentMap = [];
+            foreach ($taskRows as $taskRow) {
+                $intentId = (int)($taskRow['intent_id'] ?? 0);
+                $taskId = (int)($taskRow['id'] ?? 0);
+                $tasksByIntent[$intentId][] = $taskRow;
+                if ($taskId > 0) {
+                    $taskIntentMap[$taskId] = $intentId;
+                }
+            }
+
+            if (!empty($taskIntentMap)) {
+                if ($this->tableExists('operation_execution_evidence')) {
+                    $evidenceRows = Db::name('operation_execution_evidence')
+                        ->whereIn('task_id', array_keys($taskIntentMap))
+                        ->whereNull('deleted_at')
+                        ->order('id', 'desc')
+                        ->select()
+                        ->toArray();
+                    foreach ($evidenceRows as $evidenceRow) {
+                        $taskId = (int)($evidenceRow['task_id'] ?? 0);
+                        $intentId = $taskIntentMap[$taskId] ?? 0;
+                        if ($intentId > 0) {
+                            $evidenceByIntent[$intentId][] = $evidenceRow;
+                        }
+                    }
+                } else {
+                    $dataGaps[] = ['code' => 'operation_execution_evidence_missing', 'message' => 'execution evidence table missing'];
+                }
+            }
+        } else {
+            $dataGaps[] = ['code' => 'operation_execution_tasks_missing', 'message' => 'execution task table missing'];
+        }
+
+        $items = [];
+        foreach ($intentRows as $intentRow) {
+            $intentId = (int)$intentRow['id'];
+            $items[] = $this->buildExecutionFlowItem(
+                $intentRow,
+                $tasksByIntent[$intentId] ?? [],
+                $evidenceByIntent[$intentId] ?? []
+            );
+        }
+
+        $summary = $this->buildExecutionFlowSummary($items);
+
+        return [
+            'summary' => $summary,
+            'stages' => $this->buildExecutionFlowStages($summary),
+            'list' => $items,
+            'data_status' => self::DATA_OK,
+            'data_gaps' => $dataGaps,
+        ];
+    }
+
+    public function buildExecutionFlowItem(array $intentRow, array $taskRows = [], array $evidenceRows = []): array
+    {
+        $intent = $this->normalizeExecutionIntentRow($intentRow);
+        $tasks = array_map([$this, 'normalizeExecutionTaskRow'], $taskRows);
+        usort($tasks, static fn(array $a, array $b): int => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
+
+        $evidence = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
+        usort($evidence, static fn(array $a, array $b): int => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
+
+        $task = $this->latestExecutionTask($tasks);
+        $taskId = (int)($task['id'] ?? 0);
+        $taskEvidence = $taskId > 0
+            ? array_values(array_filter($evidence, static fn(array $row): bool => (int)($row['task_id'] ?? 0) === $taskId))
+            : $evidence;
+        $latestEvidence = $taskEvidence[0] ?? [];
+        $reviewStatus = (string)($task['result_status'] ?? 'observing');
+        $stage = $this->executionFlowStage($intent, $task, count($taskEvidence), $reviewStatus);
+        $sourceModule = (string)($intent['source_module'] ?? 'manual');
+        $sourceRecordId = (int)($intent['source_record_id'] ?? 0);
+
+        return [
+            'id' => (int)$intent['id'],
+            'hotel_id' => (int)$intent['hotel_id'],
+            'stage' => $stage,
+            'recommendation' => [
+                'source' => $sourceModule . '#' . $sourceRecordId,
+                'source_module' => $sourceModule,
+                'source_record_id' => $sourceRecordId,
+                'platform' => (string)($intent['platform'] ?? ''),
+                'object_type' => (string)($intent['object_type'] ?? ''),
+                'action_type' => (string)($intent['action_type'] ?? ''),
+                'date_start' => (string)($intent['date_start'] ?? ''),
+                'date_end' => (string)($intent['date_end'] ?? ''),
+                'expected_metric' => (string)($intent['expected_metric'] ?? ''),
+                'expected_delta' => (float)($intent['expected_delta'] ?? 0),
+                'risk_level' => (string)($intent['risk_level'] ?? ''),
+                'current_value' => $intent['current_value'] ?? [],
+                'target_value' => $intent['target_value'] ?? [],
+                'evidence' => $intent['evidence'] ?? [],
+                'created_at' => (string)($intent['created_at'] ?? ''),
+            ],
+            'approval' => [
+                'status' => (string)($intent['status'] ?? ''),
+                'approved_by' => (int)($intent['approved_by'] ?? 0),
+                'approved_at' => (string)($intent['approved_at'] ?? ''),
+                'remark' => (string)($intent['review_remark'] ?? ''),
+                'blocked_reason' => (string)($intent['blocked_reason'] ?? ''),
+            ],
+            'execution' => [
+                'task_id' => $taskId,
+                'mode' => (string)($task['execution_mode'] ?? ''),
+                'status' => (string)($task['status'] ?? 'pending_create'),
+                'operator_id' => (int)($task['operator_id'] ?? 0),
+                'executed_at' => (string)($task['executed_at'] ?? ''),
+                'blocked_reason' => (string)($task['blocked_reason'] ?? ''),
+                'target_value' => $task['target_value'] ?? [],
+                'current_value' => $task['current_value'] ?? [],
+            ],
+            'evidence' => [
+                'count' => count($taskEvidence),
+                'latest' => $latestEvidence,
+            ],
+            'review' => [
+                'status' => $reviewStatus,
+                'summary' => (string)($task['result_summary'] ?? ''),
+                'action_track_id' => (int)($task['action_track_id'] ?? 0),
+            ],
+            'roi' => $this->buildExecutionRoi($intent, $task, $latestEvidence),
+            'next_action' => $this->buildExecutionNextAction($stage, $intent, $task),
+        ];
+    }
+
+    public function buildExecutionFlowSummary(array $items): array
+    {
+        $stageCounts = [
+            'recommendation' => 0,
+            'approval' => 0,
+            'execution' => 0,
+            'evidence' => 0,
+            'review' => 0,
+            'reviewed' => 0,
+            'blocked' => 0,
+            'rejected' => 0,
+            'failed' => 0,
+        ];
+        $roiValues = [];
+        $profitable = 0;
+        $approved = 0;
+        $executed = 0;
+        $evidenceReady = 0;
+        $totalIncrementalRevenue = 0.0;
+        $totalCost = 0.0;
+        $totalProfit = 0.0;
+
+        foreach ($items as $item) {
+            $stage = (string)($item['stage'] ?? 'recommendation');
+            if (!array_key_exists($stage, $stageCounts)) {
+                $stageCounts[$stage] = 0;
+            }
+            $stageCounts[$stage]++;
+
+            if (($item['approval']['status'] ?? '') === 'approved') {
+                $approved++;
+            }
+            if (($item['execution']['status'] ?? '') === 'executed') {
+                $executed++;
+            }
+            if ((int)($item['evidence']['count'] ?? 0) > 0) {
+                $evidenceReady++;
+            }
+            if (($item['roi']['status'] ?? '') === 'ready') {
+                $value = (float)($item['roi']['value'] ?? 0);
+                $roiValues[] = $value;
+                $totalIncrementalRevenue += (float)($item['roi']['incremental_revenue'] ?? 0);
+                $totalCost += (float)($item['roi']['cost'] ?? 0);
+                $totalProfit += (float)($item['roi']['profit'] ?? 0);
+                if ((float)($item['roi']['profit'] ?? 0) > 0) {
+                    $profitable++;
+                }
+            }
+        }
+
+        $total = count($items);
+        $roiReady = count($roiValues);
+
+        return [
+            'total' => $total,
+            'stage_counts' => $stageCounts,
+            'bottleneck' => $this->buildExecutionBottleneck($stageCounts),
+            'approved' => $approved,
+            'executed' => $executed,
+            'evidence_ready' => $evidenceReady,
+            'roi_ready' => $roiReady,
+            'avg_roi' => $roiReady > 0 ? round(array_sum($roiValues) / $roiReady, 2) : null,
+            'approval_rate' => $total > 0 ? round($approved / $total * 100, 2) : null,
+            'execution_rate' => $total > 0 ? round($executed / $total * 100, 2) : null,
+            'evidence_rate' => $total > 0 ? round($evidenceReady / $total * 100, 2) : null,
+            'roi_ready_rate' => $total > 0 ? round($roiReady / $total * 100, 2) : null,
+            'profitable' => $profitable,
+            'profitable_rate' => $roiReady > 0 ? round($profitable / $roiReady * 100, 2) : null,
+            'total_incremental_revenue' => round($totalIncrementalRevenue, 2),
+            'total_cost' => round($totalCost, 2),
+            'total_profit' => round($totalProfit, 2),
+            'money_status' => $this->executionMoneyStatus($roiReady, $totalProfit),
         ];
     }
 
@@ -653,6 +909,228 @@ class OperationManagementService
         } catch (Throwable $e) {
             return false;
         }
+    }
+
+    private function buildExecutionFlowStages(array $summary): array
+    {
+        $counts = $summary['stage_counts'] ?? [];
+        return [
+            ['key' => 'recommendation', 'label' => '建议动作', 'count' => (int)($counts['recommendation'] ?? 0)],
+            ['key' => 'approval', 'label' => '审批', 'count' => (int)($counts['approval'] ?? 0)],
+            ['key' => 'execution', 'label' => '执行', 'count' => (int)($counts['execution'] ?? 0)],
+            ['key' => 'evidence', 'label' => '执行证据', 'count' => (int)($counts['evidence'] ?? 0)],
+            ['key' => 'review', 'label' => '效果复盘', 'count' => (int)($counts['review'] ?? 0)],
+            ['key' => 'reviewed', 'label' => 'ROI确认', 'count' => (int)($counts['reviewed'] ?? 0)],
+        ];
+    }
+
+    private function buildExecutionNextAction(string $stage, array $intent, array $task): array
+    {
+        return match ($stage) {
+            'approval' => [
+                'key' => 'approve_intent',
+                'label' => '审批执行意图',
+                'priority' => 'high',
+                'target_id' => (int)($intent['id'] ?? 0),
+            ],
+            'execution' => [
+                'key' => empty($task) ? 'wait_task_create' : 'record_execution',
+                'label' => empty($task) ? '等待生成执行任务' : '记录执行结果',
+                'priority' => empty($task) ? 'medium' : 'high',
+                'target_id' => (int)($task['id'] ?? 0),
+            ],
+            'evidence' => [
+                'key' => 'record_evidence',
+                'label' => '补充执行证据',
+                'priority' => 'high',
+                'target_id' => (int)($task['id'] ?? 0),
+            ],
+            'review' => [
+                'key' => 'review_effect',
+                'label' => '触发效果复盘',
+                'priority' => 'medium',
+                'target_id' => (int)($task['id'] ?? 0),
+            ],
+            'blocked' => [
+                'key' => 'resolve_blocker',
+                'label' => '处理阻塞原因',
+                'priority' => 'high',
+                'target_id' => (int)($intent['id'] ?? 0),
+            ],
+            'failed' => [
+                'key' => 'review_failure',
+                'label' => '复核失败原因',
+                'priority' => 'high',
+                'target_id' => (int)($task['id'] ?? 0),
+            ],
+            default => [
+                'key' => 'none',
+                'label' => '无需操作',
+                'priority' => 'low',
+                'target_id' => 0,
+            ],
+        };
+    }
+
+    private function buildExecutionBottleneck(array $stageCounts): array
+    {
+        $stage = '';
+        $count = 0;
+        foreach (['approval', 'execution', 'evidence', 'review', 'blocked', 'failed'] as $candidate) {
+            $value = (int)($stageCounts[$candidate] ?? 0);
+            if ($value > $count) {
+                $stage = $candidate;
+                $count = $value;
+            }
+        }
+
+        return [
+            'stage' => $stage,
+            'count' => $count,
+            'label' => $this->executionStageLabel($stage),
+        ];
+    }
+
+    private function executionStageLabel(string $stage): string
+    {
+        return [
+            'approval' => '审批',
+            'execution' => '执行',
+            'evidence' => '执行证据',
+            'review' => '效果复盘',
+            'reviewed' => 'ROI确认',
+            'blocked' => '阻塞',
+            'failed' => '失败',
+        ][$stage] ?? '';
+    }
+
+    private function executionMoneyStatus(int $roiReady, float $totalProfit): string
+    {
+        if ($roiReady <= 0) {
+            return 'no_roi';
+        }
+        if ($totalProfit > 0) {
+            return 'profit_positive';
+        }
+        if ($totalProfit < 0) {
+            return 'profit_negative';
+        }
+
+        return 'break_even';
+    }
+
+    private function latestExecutionTask(array $tasks): array
+    {
+        if (empty($tasks)) {
+            return [];
+        }
+
+        foreach (['executed', 'executing', 'pending_execute', 'blocked', 'failed'] as $status) {
+            foreach ($tasks as $task) {
+                if ((string)($task['status'] ?? '') === $status) {
+                    return $task;
+                }
+            }
+        }
+
+        return $tasks[0];
+    }
+
+    private function executionFlowStage(array $intent, array $task, int $evidenceCount, string $reviewStatus): string
+    {
+        $intentStatus = (string)($intent['status'] ?? '');
+        if ($intentStatus === 'blocked') {
+            return 'blocked';
+        }
+        if ($intentStatus === 'rejected') {
+            return 'rejected';
+        }
+        if (!in_array($intentStatus, ['approved'], true)) {
+            return 'approval';
+        }
+
+        if (empty($task)) {
+            return 'execution';
+        }
+
+        $taskStatus = (string)($task['status'] ?? '');
+        if ($taskStatus === 'blocked') {
+            return 'blocked';
+        }
+        if ($taskStatus === 'failed') {
+            return 'failed';
+        }
+        if ($taskStatus !== 'executed') {
+            return 'execution';
+        }
+        if ($evidenceCount <= 0) {
+            return 'evidence';
+        }
+        if (in_array($reviewStatus, ['success', 'near_success', 'failed'], true)) {
+            return 'reviewed';
+        }
+
+        return 'review';
+    }
+
+    private function buildExecutionRoi(array $intent, array $task, array $latestEvidence): array
+    {
+        if (empty($latestEvidence)) {
+            return ['status' => 'data_gap', 'message' => 'execution evidence missing'];
+        }
+
+        $before = $this->arrayValue($latestEvidence['before'] ?? []);
+        $after = $this->arrayValue($latestEvidence['after'] ?? []);
+        $beforeRevenue = $this->firstNumericMetric($before, ['revenue', 'avg_revenue', 'amount', 'income']);
+        $afterRevenue = $this->firstNumericMetric($after, ['revenue', 'avg_revenue', 'amount', 'income']);
+        if ($beforeRevenue === null || $afterRevenue === null) {
+            return ['status' => 'data_gap', 'message' => 'revenue evidence missing'];
+        }
+
+        $platformResponse = $this->arrayValue($latestEvidence['platform_response'] ?? []);
+        $targetValue = $this->arrayValue($task['target_value'] ?? []);
+        if (empty($targetValue)) {
+            $targetValue = $this->arrayValue($intent['target_value'] ?? []);
+        }
+        $cost = $this->firstNumericMetric($after, ['cost', 'ad_cost', 'spend', 'budget']);
+        $cost ??= $this->firstNumericMetric($platformResponse, ['cost', 'ad_cost', 'spend', 'budget']);
+        $cost ??= $this->firstNumericMetric($targetValue, ['cost', 'ad_cost', 'spend', 'budget']);
+        if ($cost === null || $cost <= 0) {
+            return ['status' => 'data_gap', 'message' => 'cost evidence missing'];
+        }
+
+        $incrementalRevenue = $afterRevenue - $beforeRevenue;
+        $profit = $incrementalRevenue - $cost;
+
+        return [
+            'status' => 'ready',
+            'value' => round($profit / $cost * 100, 2),
+            'unit' => '%',
+            'before_revenue' => round($beforeRevenue, 2),
+            'after_revenue' => round($afterRevenue, 2),
+            'incremental_revenue' => round($incrementalRevenue, 2),
+            'cost' => round($cost, 2),
+            'profit' => round($profit, 2),
+            'formula' => '(after_revenue - before_revenue - cost) / cost',
+        ];
+    }
+
+    private function firstNumericMetric(array $data, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $data)) {
+                continue;
+            }
+            $value = $data[$key];
+            if ($value === '' || $value === null) {
+                continue;
+            }
+            if (is_numeric($value)) {
+                return (float)$value;
+            }
+        }
+
+        return null;
     }
 
     private function executionIntentBlockedReasons(string $objectType, array $input, array $targetValue, array $evidence): array
@@ -1125,6 +1603,17 @@ class OperationManagementService
 
     private function buildSummary(array $hotelIds, ?int $hotelId, string $date): array
     {
+        return $this->buildSummaryFromRows(
+            $this->dailyReportRows($hotelIds, $date, $date),
+            $this->onlineRows($hotelIds, $date, $date),
+            $hotelIds,
+            $hotelId,
+            $date
+        );
+    }
+
+    private function buildSummaryFromRows(array $daily, array $online, array $hotelIds, ?int $hotelId, string $date): array
+    {
         $base = [
             'hotel_id' => $hotelId ?: ($hotelIds[0] ?? null),
             'date' => $date,
@@ -1137,8 +1626,6 @@ class OperationManagementService
             'data_status' => self::DATA_PENDING,
         ];
 
-        $daily = $this->dailyReportRows($hotelIds, $date, $date);
-        $online = $this->onlineRows($hotelIds, $date, $date);
         if (empty($daily) && empty($online)) {
             return $base;
         }
@@ -1736,13 +2223,14 @@ class OperationManagementService
 
     private function extractRevenue(array $row, array $reportData): float
     {
-        $revenue = (float)($row['revenue'] ?? 0);
+        $revenue = $this->metricNumber($row['revenue'] ?? 0);
         if ($revenue > 0) {
             return $revenue;
         }
         foreach (['day_revenue', 'total_revenue', 'revenue', 'room_revenue'] as $key) {
-            if ((float)($reportData[$key] ?? 0) > 0) {
-                return (float)$reportData[$key];
+            $value = $this->metricNumber($reportData[$key] ?? 0);
+            if ($value > 0) {
+                return $value;
             }
         }
         return $this->sumReportFields($reportData, [
@@ -1757,8 +2245,9 @@ class OperationManagementService
     private function extractRoomNights(array $row, array $reportData): float
     {
         foreach (['room_nights', 'occupied_rooms', 'day_total_rooms', 'total_rooms'] as $key) {
-            if ((float)($reportData[$key] ?? 0) > 0) {
-                return (float)$reportData[$key];
+            $value = $this->metricNumber($reportData[$key] ?? 0);
+            if ($value > 0) {
+                return $value;
             }
         }
 
@@ -1772,7 +2261,7 @@ class OperationManagementService
             return $rooms;
         }
 
-        return (float)($row['guest_count'] ?? 0);
+        return $this->metricNumber($row['guest_count'] ?? 0);
     }
 
     private function extractSalableRoomCount(array $row, array $reportData): float
@@ -1785,8 +2274,9 @@ class OperationManagementService
             $reportData['room_count'] ?? null,
             $reportData['rooms_total'] ?? null,
         ] as $value) {
-            if (is_numeric($value) && (float)$value > 0) {
-                return (float)$value;
+            $number = $this->metricNumber($value);
+            if ($number > 0) {
+                return $number;
             }
         }
         return 0.0;
@@ -1796,9 +2286,23 @@ class OperationManagementService
     {
         $total = 0.0;
         foreach ($fields as $field) {
-            $total += (float)($reportData[$field] ?? 0);
+            $total += $this->metricNumber($reportData[$field] ?? 0);
         }
         return $total;
+    }
+
+    private function metricNumber($value): float
+    {
+        if (is_int($value) || is_float($value)) {
+            return (float)$value;
+        }
+
+        if (!is_string($value)) {
+            return 0.0;
+        }
+
+        $clean = str_replace([',', ' ', "\u{00A0}", '%'], '', trim($value));
+        return is_numeric($clean) ? (float)$clean : 0.0;
     }
 
     private function buildDailyFinancialKeys(array $dailyRows): array

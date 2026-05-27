@@ -76,6 +76,93 @@ final class OperationManagementServiceTest extends TestCase
         self::assertContains('operation_alerts_accuracy_label_missing', array_column($summary['data_gaps'], 'code'));
     }
 
+    public function testDailyFinancialExtractorsUseFallbackFieldsWithoutInventingValues(): void
+    {
+        $service = new OperationManagementService();
+        $reportData = [
+            'xb_revenue' => '1,200',
+            'mt_revenue' => 800,
+            'parking_revenue' => 50,
+            'xb_rooms' => 4,
+            'mt_rooms' => 3,
+            'salable_rooms' => 20,
+        ];
+
+        self::assertSame(2050.0, $this->invokeNonPublic($service, 'extractRevenue', [[], $reportData]));
+        self::assertSame(7.0, $this->invokeNonPublic($service, 'extractRoomNights', [[], $reportData]));
+        self::assertSame(20.0, $this->invokeNonPublic($service, 'extractSalableRoomCount', [[], $reportData]));
+        self::assertSame(0.0, $this->invokeNonPublic($service, 'extractRevenue', [[], ['xb_revenue' => 'bad']]));
+    }
+
+    public function testDashboardSummaryAggregatesDailyAndOnlineRowsWithoutDoubleCountingRevenue(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [[
+                'hotel_id' => 7,
+                'report_date' => '2026-05-18',
+                'report_data' => json_encode([
+                    'xb_revenue' => '1,200',
+                    'mt_revenue' => 300,
+                    'xb_rooms' => 4,
+                    'mt_rooms' => 1,
+                    'salable_rooms' => 10,
+                ], JSON_UNESCAPED_UNICODE),
+            ]],
+            [[
+                'system_hotel_id' => 7,
+                'data_date' => '2026-05-18',
+                'amount' => 999,
+                'quantity' => 9,
+                'book_order_num' => 8,
+                'raw_data' => json_encode(['bookOrderNum' => 9], JSON_UNESCAPED_UNICODE),
+            ]],
+            [7],
+            7,
+            '2026-05-18',
+        ]);
+
+        self::assertSame(1500.0, $summary['revenue']);
+        self::assertSame(5.0, $summary['room_nights']);
+        self::assertSame(9, $summary['orders']);
+        self::assertSame(300.0, $summary['adr']);
+        self::assertSame(50.0, $summary['occ']);
+        self::assertSame(150.0, $summary['revpar']);
+        self::assertSame('ok', $summary['data_status']);
+    }
+
+    public function testRootCauseRulesFlagDataTrafficPriceScoreAndHolidayBoundaries(): void
+    {
+        $service = new OperationManagementService();
+
+        $result = $this->invokeNonPublic($service, 'buildRootCauseResult', [[
+            'ota' => ['orders' => 5, 'exposure' => 0, 'visitors' => 0, 'view_rate' => 2, 'order_rate' => 1],
+            'summary' => ['adr' => 330],
+            'competitors' => ['avg_price' => 250, 'avg_score' => 4.8],
+            'reviews' => ['score' => 4.5],
+            'holiday' => ['days_left' => 7, 'data_status' => 'ok'],
+        ], ['exposure' => 100], ['view_rate' => 20, 'order_rate' => 10], 'conversion_low']);
+
+        self::assertSame('high', $result['problem_level']);
+        self::assertSame('data_abnormal', $result['root_causes'][0]['type']);
+        self::assertContains('traffic_down', array_column($result['root_causes'], 'type'));
+        self::assertContains('price_high', array_column($result['root_causes'], 'type'));
+        self::assertContains('holiday_near', array_column($result['root_causes'], 'type'));
+
+        $empty = $this->invokeNonPublic($service, 'buildRootCauseResult', [[
+            'ota' => [],
+            'summary' => [],
+            'competitors' => [],
+            'reviews' => [],
+            'holiday' => [],
+        ], [], [], '']);
+
+        self::assertSame('data_insufficient', $empty['problem_level']);
+        self::assertSame('unknown', $empty['main_problem']);
+        self::assertSame([], $empty['root_causes']);
+    }
+
     private function metricValue(array $summary, string $key): mixed
     {
         foreach ($summary['metrics'] as $metric) {

@@ -162,4 +162,188 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame(['price' => 188], $result['evidence']['after']);
         self::assertSame(['mode' => 'manual'], $result['evidence']['platform_response']);
     }
+
+    public function testExecutionFlowItemTracksRecommendationExecutionEvidenceReviewAndRoi(): void
+    {
+        $service = new OperationManagementService();
+        self::assertTrue(method_exists($service, 'buildExecutionFlowItem'), 'Missing execution flow item builder');
+        self::assertTrue(method_exists($service, 'buildExecutionFlowSummary'), 'Missing execution flow summary builder');
+
+        $item = $service->buildExecutionFlowItem([
+            'id' => 11,
+            'source_module' => 'strategy_simulation',
+            'source_record_id' => 22,
+            'hotel_id' => 7,
+            'platform' => 'meituan',
+            'object_type' => 'campaign',
+            'action_type' => 'promotion',
+            'date_start' => '2026-05-27',
+            'date_end' => '2026-05-29',
+            'current_value_json' => json_encode(['avg_revenue' => 1000], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['campaign_type' => 'discount', 'budget' => 200, 'target_metric' => 'revenue'], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode(['recommendation' => 'boost conversion'], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'revenue',
+            'expected_delta' => 15,
+            'risk_level' => 'medium',
+            'status' => 'approved',
+            'blocked_reason' => '',
+            'created_at' => '2026-05-26 10:00:00',
+            'approved_at' => '2026-05-26 10:30:00',
+        ], [[
+            'id' => 31,
+            'intent_id' => 11,
+            'hotel_id' => 7,
+            'execution_mode' => 'manual',
+            'status' => 'executed',
+            'result_status' => 'success',
+            'result_summary' => 'revenue lifted after promotion',
+            'executed_at' => '2026-05-27 11:00:00',
+            'current_value_json' => json_encode(['avg_revenue' => 1000], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['budget' => 200], JSON_UNESCAPED_UNICODE),
+        ]], [[
+            'id' => 41,
+            'task_id' => 31,
+            'evidence_type' => 'manual_screenshot',
+            'before_json' => json_encode(['revenue' => 1000], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode(['revenue' => 1300, 'cost' => 200], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => json_encode(['mode' => 'manual'], JSON_UNESCAPED_UNICODE),
+            'remark' => 'updated in OTA backend',
+            'created_at' => '2026-05-27 11:10:00',
+        ]]);
+
+        self::assertSame('reviewed', $item['stage']);
+        self::assertSame('strategy_simulation#22', $item['recommendation']['source']);
+        self::assertSame('approved', $item['approval']['status']);
+        self::assertSame('executed', $item['execution']['status']);
+        self::assertSame(1, $item['evidence']['count']);
+        self::assertSame('success', $item['review']['status']);
+        self::assertSame('ready', $item['roi']['status']);
+        self::assertSame(50.0, $item['roi']['value']);
+        self::assertSame(300.0, $item['roi']['incremental_revenue']);
+
+        $summary = $service->buildExecutionFlowSummary([$item]);
+
+        self::assertSame(1, $summary['total']);
+        self::assertSame(1, $summary['stage_counts']['reviewed']);
+        self::assertSame(1, $summary['evidence_ready']);
+        self::assertSame(1, $summary['roi_ready']);
+        self::assertSame(50.0, $summary['avg_roi']);
+    }
+
+    public function testExecutionFlowSummaryExposesMoneyAndConversionRates(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $service->buildExecutionFlowSummary([
+            [
+                'stage' => 'reviewed',
+                'approval' => ['status' => 'approved'],
+                'execution' => ['status' => 'executed'],
+                'evidence' => ['count' => 1],
+                'roi' => [
+                    'status' => 'ready',
+                    'value' => 50.0,
+                    'incremental_revenue' => 300.0,
+                    'cost' => 200.0,
+                    'profit' => 100.0,
+                ],
+            ],
+            [
+                'stage' => 'approval',
+                'approval' => ['status' => 'pending_approval'],
+                'execution' => ['status' => 'pending_create'],
+                'evidence' => ['count' => 0],
+                'roi' => ['status' => 'data_gap'],
+            ],
+        ]);
+
+        self::assertSame(2, $summary['total']);
+        self::assertSame(1, $summary['approved']);
+        self::assertSame(1, $summary['executed']);
+        self::assertSame(50.0, $summary['approval_rate']);
+        self::assertSame(50.0, $summary['execution_rate']);
+        self::assertSame(50.0, $summary['evidence_rate']);
+        self::assertSame(50.0, $summary['roi_ready_rate']);
+        self::assertSame(300.0, $summary['total_incremental_revenue']);
+        self::assertSame(200.0, $summary['total_cost']);
+        self::assertSame(100.0, $summary['total_profit']);
+        self::assertSame(100.0, $summary['profitable_rate']);
+    }
+
+    public function testExecutionFlowItemProvidesNextAction(): void
+    {
+        $service = new OperationManagementService();
+
+        $approvalItem = $service->buildExecutionFlowItem([
+            'id' => 12,
+            'source_module' => 'manual',
+            'source_record_id' => 0,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'price',
+            'action_type' => 'price_adjust',
+            'date_start' => '2026-05-27',
+            'date_end' => '2026-05-27',
+            'current_value_json' => json_encode(['current_price' => 260], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['target_price' => 288, 'room_type_key' => 'RT-1', 'rate_plan_key' => 'BAR'], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode(['reason' => 'price opportunity'], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'revenue',
+            'expected_delta' => 8,
+            'risk_level' => 'medium',
+            'status' => 'pending_approval',
+            'blocked_reason' => '',
+        ]);
+
+        self::assertSame('approval', $approvalItem['stage']);
+        self::assertSame('approve_intent', $approvalItem['next_action']['key']);
+        self::assertSame('high', $approvalItem['next_action']['priority']);
+
+        $evidenceItem = $service->buildExecutionFlowItem([
+            'id' => 13,
+            'source_module' => 'strategy_simulation',
+            'source_record_id' => 23,
+            'hotel_id' => 7,
+            'platform' => 'meituan',
+            'object_type' => 'campaign',
+            'action_type' => 'promotion',
+            'date_start' => '2026-05-27',
+            'date_end' => '2026-05-29',
+            'current_value_json' => json_encode(['avg_revenue' => 1000], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['budget' => 200, 'target_metric' => 'revenue'], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode(['reason' => 'conversion low'], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'revenue',
+            'expected_delta' => 12,
+            'risk_level' => 'medium',
+            'status' => 'approved',
+            'blocked_reason' => '',
+        ], [[
+            'id' => 32,
+            'intent_id' => 13,
+            'hotel_id' => 7,
+            'execution_mode' => 'manual',
+            'status' => 'executed',
+            'result_status' => 'observing',
+            'executed_at' => '2026-05-27 12:00:00',
+            'current_value_json' => json_encode(['avg_revenue' => 1000], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['budget' => 200], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        self::assertSame('evidence', $evidenceItem['stage']);
+        self::assertSame('record_evidence', $evidenceItem['next_action']['key']);
+    }
+
+    public function testExecutionFlowSummaryExposesBottleneckAndMoneyStatus(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $service->buildExecutionFlowSummary([
+            ['stage' => 'approval', 'approval' => ['status' => 'pending_approval'], 'execution' => ['status' => 'pending_create'], 'evidence' => ['count' => 0], 'roi' => ['status' => 'data_gap']],
+            ['stage' => 'approval', 'approval' => ['status' => 'pending_approval'], 'execution' => ['status' => 'pending_create'], 'evidence' => ['count' => 0], 'roi' => ['status' => 'data_gap']],
+            ['stage' => 'reviewed', 'approval' => ['status' => 'approved'], 'execution' => ['status' => 'executed'], 'evidence' => ['count' => 1], 'roi' => ['status' => 'ready', 'value' => 40, 'incremental_revenue' => 280, 'cost' => 200, 'profit' => 80]],
+        ]);
+
+        self::assertSame('approval', $summary['bottleneck']['stage']);
+        self::assertSame(2, $summary['bottleneck']['count']);
+        self::assertSame('profit_positive', $summary['money_status']);
+    }
 }

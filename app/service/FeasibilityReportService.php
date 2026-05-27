@@ -474,6 +474,13 @@ class FeasibilityReportService
     private function schema(): array
     {
         return [
+            'x-governance' => [
+                'module' => 'agent',
+                'scenario' => 'feasibility_report',
+                'prompt_version' => 'agent.feasibility_report.v1',
+                'decision_impact' => 'investment',
+                'knowledge_sources' => ['user_input', 'system_snapshot', 'deterministic_calculation'],
+            ],
             'type' => 'object',
             'additionalProperties' => false,
             'required' => ['conclusion_grade', 'conclusion_text', 'core_reason', 'summary', 'basic_info', 'market_judgement', 'financial_scenarios', 'risk_list', 'action_plan', 'assumptions', 'evidence'],

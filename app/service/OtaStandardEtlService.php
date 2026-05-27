@@ -117,6 +117,9 @@ class OtaStandardEtlService
             'hotel_name',
             'data_date',
             'amount',
+            'room_revenue',
+            'gross_revenue',
+            'net_revenue',
             'quantity',
             'book_order_num',
             'comment_score',
@@ -133,7 +136,34 @@ class OtaStandardEtlService
             'flow_rate',
             'order_filling_num',
             'order_submit_num',
+            'available_rooms',
+            'available_room_nights',
+            'salable_rooms',
+            'salable_room_nights',
+            'total_rooms_count',
+            'rooms_total',
+            'occupied_rooms',
+            'occupied_room_nights',
+            'commission_amount',
+            'commission',
+            'commission_rate',
+            'ota_commission',
+            'ota_commission_rate',
+            'cancel_order_num',
+            'cancel_room_nights',
+            'cancel_rate',
+            'our_price',
+            'competitor_price',
+            'price_gap',
+            'price_difference',
+            'booking_date',
+            'order_date',
+            'checkin_date',
+            'checkout_date',
+            'lead_time_days',
+            'booking_window',
             'update_time',
+            'updated_at',
             'create_time',
             'created_at',
             'status',
@@ -182,12 +212,56 @@ class OtaStandardEtlService
      */
     private function dailyFact(array $row, array $raw, string $hotelKey, string $source, string $date, string $dataType): array
     {
-        $revenue = $this->firstNumber($row, $raw, ['amount', 'revenue', 'totalAmount', 'saleAmount']);
+        $grossRevenue = $this->firstNumber($row, $raw, ['amount', 'gross_revenue', 'grossRevenue', 'revenue', 'totalAmount', 'saleAmount', 'order_amount', 'orderAmount']);
+        $roomRevenue = $this->nullableNumber($row, $raw, ['room_revenue', 'roomRevenue', 'room_amount', 'roomAmount']) ?? $grossRevenue;
         $roomNights = $this->firstNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'checkOutQuantity']);
         $orders = (int)round($this->firstNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'orderCount', 'orderNum', 'orders']));
         $cancelOrders = $this->nullableNumber($row, $raw, ['cancel_order_num', 'cancelOrderNum', 'cancel_orders', 'cancelOrders']);
+        $cancelRoomNights = $this->nullableNumber($row, $raw, ['cancel_room_nights', 'cancelRoomNights', 'cancelled_room_nights', 'cancelledRoomNights']);
+        $cancelRate = $this->nullablePercent($row, $raw, ['cancel_rate', 'cancelRate', 'cancellation_rate', 'cancellationRate']);
+        $availableRoomNights = $this->nullableNumber($row, $raw, [
+            'available_room_nights',
+            'availableRoomNights',
+            'salable_room_nights',
+            'salableRoomNights',
+            'available_rooms',
+            'availableRooms',
+            'salable_rooms',
+            'salableRooms',
+            'total_rooms_count',
+            'totalRoomsCount',
+            'rooms_total',
+            'roomsTotal',
+        ]);
+        $occupiedRoomNights = $this->nullableNumber($row, $raw, [
+            'occupied_room_nights',
+            'occupiedRoomNights',
+            'occupied_rooms',
+            'occupiedRooms',
+            'rooms_sold',
+            'roomsSold',
+        ]) ?? ($roomNights > 0 ? $roomNights : null);
+        $commissionRate = $this->nullablePercent($row, $raw, ['commission_rate', 'commissionRate', 'ota_commission_rate', 'otaCommissionRate']);
+        $directCommissionAmount = $this->nullableNumber($row, $raw, ['commission_amount', 'commissionAmount', 'commission', 'ota_commission', 'otaCommission', 'channel_commission', 'channelCommission']);
+        $commissionAmount = $directCommissionAmount;
+        $commissionAmountBasis = $directCommissionAmount !== null ? 'direct' : null;
+        if ($commissionAmount === null && $commissionRate !== null) {
+            $commissionAmount = round($grossRevenue * $commissionRate / 100, 2);
+            $commissionAmountBasis = 'derived_from_commission_rate';
+        }
+        $directNetRevenue = $this->nullableNumber($row, $raw, ['net_revenue', 'netRevenue', 'net_amount', 'netAmount', 'after_commission_revenue', 'afterCommissionRevenue', 'settlement_amount', 'settlementAmount']);
+        $netRevenue = $directNetRevenue;
+        $netRevenueBasis = $directNetRevenue !== null ? 'direct' : null;
+        if ($netRevenue === null && $commissionAmount !== null) {
+            $netRevenue = round($grossRevenue - $commissionAmount, 2);
+            $netRevenueBasis = 'derived_from_commission_amount';
+        }
         $ourPrice = $this->nullableNumber($row, $raw, ['our_price', 'ourPrice', 'hotel_price', 'hotelPrice']);
         $competitorPrice = $this->nullableNumber($row, $raw, ['competitor_price', 'competitorPrice', 'market_price', 'marketPrice']);
+        $priceGap = $this->nullableNumber($row, $raw, ['price_gap', 'priceGap', 'price_difference', 'priceDifference']);
+        if ($priceGap === null && $ourPrice !== null && $competitorPrice !== null) {
+            $priceGap = round($ourPrice - $competitorPrice, 2);
+        }
 
         return [
             'date_key' => $date,
@@ -195,16 +269,42 @@ class OtaStandardEtlService
             'platform_key' => $source,
             'data_type' => $dataType,
             'dimension' => (string)($row['dimension'] ?? $raw['dimension'] ?? ''),
-            'revenue' => round($revenue, 2),
+            'metric_scope' => 'ota_channel',
+            'calculation_basis' => 'ota_daily_standard_fact',
+            'revenue' => round($grossRevenue, 2),
+            'gross_revenue' => round($grossRevenue, 2),
+            'room_revenue' => round($roomRevenue, 2),
+            'net_revenue' => $netRevenue !== null ? round($netRevenue, 2) : null,
+            'commission_amount' => $commissionAmount !== null ? round($commissionAmount, 2) : null,
+            'commission_rate' => $commissionRate !== null ? round($commissionRate, 2) : null,
+            'net_revenue_basis' => $netRevenueBasis,
+            'commission_amount_basis' => $commissionAmountBasis,
             'room_nights' => round($roomNights, 2),
+            'available_room_nights' => $availableRoomNights !== null ? round($availableRoomNights, 2) : null,
+            'occupied_room_nights' => $occupiedRoomNights !== null ? round($occupiedRoomNights, 2) : null,
             'order_count' => $orders,
-            'adr' => $roomNights > 0 ? round($revenue / $roomNights, 2) : null,
+            'adr' => $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
+            'occ' => $availableRoomNights !== null && $availableRoomNights > 0 && $occupiedRoomNights !== null
+                ? round($occupiedRoomNights / $availableRoomNights * 100, 2)
+                : null,
+            'revpar' => $availableRoomNights !== null && $availableRoomNights > 0
+                ? round($roomRevenue / $availableRoomNights, 2)
+                : null,
+            'net_revpar' => $availableRoomNights !== null && $availableRoomNights > 0 && $netRevenue !== null
+                ? round($netRevenue / $availableRoomNights, 2)
+                : null,
+            'lead_time_days' => $this->leadTimeDays($row, $raw),
             'comment_score' => $this->nullableNumber($row, $raw, ['comment_score', 'commentScore', 'score']),
             'data_value' => $this->nullableNumber($row, $raw, ['data_value', 'dataValue']),
             'cancel_order_num' => $cancelOrders,
+            'cancel_room_nights' => $cancelRoomNights,
+            'cancel_rate' => $cancelRate,
             'our_price' => $ourPrice,
             'competitor_price' => $competitorPrice,
-            'price_gap' => $ourPrice !== null && $competitorPrice !== null ? round($ourPrice - $competitorPrice, 2) : null,
+            'price_gap' => $priceGap,
+            'price_gap_rate' => $priceGap !== null && $competitorPrice !== null && $competitorPrice > 0
+                ? round($priceGap / $competitorPrice * 100, 2)
+                : null,
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, $dataType, $date),
         ];
@@ -428,6 +528,48 @@ class OtaStandardEtlService
             }
         }
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @param array<int, string> $keys
+     */
+    private function nullablePercent(array $row, array $raw, array $keys): ?float
+    {
+        $value = $this->nullableNumber($row, $raw, $keys);
+        if ($value === null) {
+            return null;
+        }
+        if ($value < 0) {
+            return null;
+        }
+        $percent = $value > 0 && $value <= 1 ? $value * 100 : $value;
+        return $percent <= 100 ? $percent : null;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function leadTimeDays(array $row, array $raw): ?int
+    {
+        $explicit = $this->nullableNumber($row, $raw, ['lead_time_days', 'leadTimeDays', 'booking_window', 'bookingWindow']);
+        if ($explicit !== null) {
+            $days = (int)round($explicit);
+            return $days >= 0 ? $days : null;
+        }
+
+        $bookingDate = $this->dateValue($this->firstText($row, $raw, ['booking_date', 'bookingDate', 'order_date', 'orderDate', 'create_date', 'createDate']));
+        $checkinDate = $this->dateValue($this->firstText($row, $raw, ['checkin_date', 'checkinDate', 'arrival_date', 'arrivalDate', 'stay_date', 'stayDate']));
+        if ($bookingDate === '' || $checkinDate === '') {
+            return null;
+        }
+
+        $booking = new \DateTimeImmutable($bookingDate);
+        $checkin = new \DateTimeImmutable($checkinDate);
+        $days = (int)$booking->diff($checkin)->format('%r%a');
+        return $days >= 0 ? $days : null;
     }
 
     /**

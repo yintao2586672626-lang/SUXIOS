@@ -107,6 +107,17 @@ const checks = [
       && /autoFetchRunState\.value = \{[\s\S]*active:\s*true/.test(triggerBody)
       && source.includes("autoFetchRunState.active ? '正在执行平台抓取' : '本次抓取已返回'"),
   },
+  {
+    name: 'Meituan auto-fetch config requires Partner ID, POI ID and Cookies',
+    pass: /const meituanConfigMissingFields = \(config\) => \{[\s\S]*Partner ID[\s\S]*POI ID[\s\S]*Cookies/.test(source)
+      && /const hasMeituanFetchConfigByHotelId = \(hotelId\) => \{[\s\S]*meituanConfigMissingFields\(config\)\.length === 0/.test(source),
+  },
+  {
+    name: 'Meituan auto-fetch missing fields are visible in page',
+    pass: source.includes('美团配置缺失')
+      && source.includes('platform.missingText')
+      && controllerSource.includes("'missing_fields' => $meituanApiStatus['missing_fields']"),
+  },
 ];
 
 const failed = checks.filter(check => !check.pass);

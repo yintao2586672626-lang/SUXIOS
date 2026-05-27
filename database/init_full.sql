@@ -5,7 +5,6 @@
 SET NAMES utf8mb4;
 SET time_zone = '+08:00';
 
-SOURCE ./database/hotel_admin_mysql.sql;
 SOURCE ./database/login_logs.sql;
 SOURCE ./database/complaint_tables.sql;
 SOURCE ./database/update_system_config.sql;
@@ -14,6 +13,7 @@ SOURCE ./database/migrations/20250402_enhance_agent_tables.sql;
 SOURCE ./database/migrations/20260509_create_strategy_simulation_tables.sql;
 SOURCE ./database/migrations/20260511_add_ota_traffic_fields.sql;
 SOURCE ./database/migrations/20260511_create_ai_model_configs.sql;
+SOURCE ./database/migrations/20260527_create_ai_governance_tables.sql;
 SOURCE ./database/migrations/20260511_create_missing_business_tables.sql;
 SOURCE ./database/migrations/20260517_add_international_ota_report_fields.sql;
 SOURCE ./database/migrations/20260516_create_opening_management_tables.sql;

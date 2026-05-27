@@ -428,6 +428,13 @@ class QuantSimulationService
     private function modelAnalysisSchema(): array
     {
         return [
+            'x-governance' => [
+                'module' => 'simulation',
+                'scenario' => 'quant_model_analysis',
+                'prompt_version' => 'simulation.quant_model_analysis.v1',
+                'decision_impact' => 'investment',
+                'knowledge_sources' => ['input', 'deterministic_result', 'scenarios', 'formula_risk_hints'],
+            ],
             'type' => 'object',
             'additionalProperties' => false,
             'required' => ['summary', 'decision', 'recommendations', 'watch_points', 'assumptions'],

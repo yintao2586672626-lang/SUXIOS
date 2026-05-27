@@ -144,6 +144,7 @@ test('edge input guard: all modules, fields, buttons, dialogs, and 422 validatio
 
   expect(moduleResults.filter((row) => row.status === 'fail'), JSON.stringify(moduleResults, null, 2)).toHaveLength(0);
   expect(pageEvents.filter((row) => row.type === 'pageerror'), JSON.stringify(pageEvents, null, 2)).toHaveLength(0);
+  expect(pageEvents.filter((row) => row.category === 'page-error'), JSON.stringify(pageEvents, null, 2)).toHaveLength(0);
 });
 
 function clampInt(raw, fallback, min, max) {
@@ -172,6 +173,22 @@ function classifyError(error, fallback = 'product-bug') {
   if (/pageerror|console-error|javascript/.test(message)) return 'page-error';
   if (/timeout|detached|not visible|not enabled|intercepts pointer events|locator|strict mode/.test(message)) return 'selector-or-dom-state';
   return fallback;
+}
+
+function classifyConsoleEvent(type, text) {
+  if (type === 'warning') return 'page-warning';
+
+  const message = String(text || '').toLowerCase();
+  const expectedStatus = String(config.mutationStatus);
+  if (message.includes('edge_input_guard_mock_validation_error')) return 'test-data-invalid';
+  if (
+    message.includes('failed to load resource')
+    && (message.includes(`status of ${expectedStatus}`) || message.includes('unprocessable entity'))
+  ) {
+    return 'test-data-invalid';
+  }
+
+  return 'page-error';
 }
 
 function countBy(rows, key = 'category') {
@@ -313,10 +330,11 @@ function installDiagnostics(page) {
 
   page.on('console', (message) => {
     if (!['error', 'warning'].includes(message.type())) return;
+    const text = message.text();
     pageEvents.push({
       type: `console-${message.type()}`,
-      category: message.type() === 'error' ? 'page-error' : 'page-warning',
-      message: preview(message.text(), 500),
+      category: classifyConsoleEvent(message.type(), text),
+      message: preview(text, 500),
       timestamp: new Date().toISOString(),
     });
   });

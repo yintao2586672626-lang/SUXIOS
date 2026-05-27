@@ -448,6 +448,13 @@ class StrategySimulation extends Base
     private function strategyAiEvaluationSchema(): array
     {
         return [
+            'x-governance' => [
+                'module' => 'strategy',
+                'scenario' => 'strategy_simulation',
+                'prompt_version' => 'strategy.simulation.v1',
+                'decision_impact' => 'investment',
+                'knowledge_sources' => ['user_input', 'local_data_summary', 'external_map_data_summary', 'deterministic_recommendation'],
+            ],
             'type' => 'object',
             'additionalProperties' => false,
             'required' => [

@@ -12,7 +12,35 @@ Content-Type: application/json
 }
 ```
 
-Returns pending suggestions derived from room base price, demand forecasts, and competitor price records.
+Returns pending suggestions derived from room base price, demand forecast, pickup pace proxy, price elasticity, competitor price, holiday window, inventory constraint, and historical backtest hit rate.
+
+`date` must be a valid `YYYY-MM-DD` value.
+
+The generation endpoint is advisory-only:
+
+- It creates `price_suggestions` rows with `status=1`.
+- It does not update `room_types.base_price`.
+- It does not write OTA rates.
+- Execution still requires manual review and the existing approval / execution-intent workflow.
+
+Key response fields:
+
+| Field | Meaning |
+| --- | --- |
+| `advisory_only` | Always `true` for suggestion generation. |
+| `model_summary.pickup_curve` | Recent OTA room-night pace by rolling windows. Current project data does not contain on-books snapshots, so every result is marked as an `online_daily_data` quantity proxy. |
+| `model_summary.price_elasticity` | Log-log estimate from historical OTA ADR and room nights when at least 10 valid samples exist. |
+| `model_summary.backtest.hit_rate` | Median-split historical hit rate for price-vs-demand direction. |
+| `model_summary.create_policy` | Suggestion creation threshold, including minimum primary signal count and max single change rate. |
+| `model_summary.data_gaps` | Missing or weak inputs surfaced for manual review. |
+| `list[].factors.signals` | Full signal bundle saved with each suggestion for audit and replay. |
+| `list[].factors.signals.competitor.source_date` | Competitor snapshot date. If the target date has no exact snapshot, the model uses the latest snapshot within 7 days and flags staleness in `data_gaps`. |
+| `list[].factors.drivers` | Structured signal drivers with direction and rate contribution. |
+| `list[].risk_level` | `low` / `medium` / `high`, derived from confidence, primary signal count, and material data gaps. |
+| `list[].review_checklist` | Manual review items operators should verify before approval or OTA execution. |
+| `list[].factors.primary_signal_count` | Number of active primary pricing drivers. Calendar-only signals are not enough to create a suggestion. |
+| `list[].factors.decision_boundary` | `manual_review_required_no_auto_rate_write`. |
+| `skipped[]` | Room types reviewed but not written as pending suggestions, with explicit `reason`, `risk_level`, `review_checklist`, and `data_gaps`. Existing pending suggestions are returned as `pending_suggestion_exists` instead of being silently ignored. |
 
 ## Approve or reject
 

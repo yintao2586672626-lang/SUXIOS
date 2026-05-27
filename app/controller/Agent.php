@@ -27,6 +27,7 @@ use app\model\AiModelConfig;
 use app\service\FeasibilityReportService;
 use app\service\LlmClient;
 use app\service\OperationManagementService;
+use app\service\RevenuePricingRecommendationService;
 use think\Response;
 use think\facade\Db;
 use think\facade\Log;
@@ -257,7 +258,13 @@ class Agent extends Base
         $modelKey = trim((string) $this->request->param('model_key', 'deepseek_v4_default'));
         $modelMode = $this->request->param('model_mode', null);
         $modelOptions = $modelMode !== null && trim((string) $modelMode) !== '' ? ['model_mode' => $modelMode] : [];
-        $result = $this->callLlm($prompt, $modelKey, [], $modelOptions);
+        $result = $this->callLlm($prompt, $modelKey, [
+            'module' => 'agent',
+            'scenario' => 'test_llm',
+            'prompt_version' => 'agent.test_llm.v1',
+            'user_id' => (int)($this->currentUser->id ?? 0),
+            'decision_impact' => 'none',
+        ], $modelOptions);
         if (($result['ok'] ?? false) !== true) {
             return $this->error((string) $result['message'], (int) $result['code'], [
                 'model_key' => $result['model_key'] ?? $modelKey,
@@ -372,6 +379,7 @@ class Agent extends Base
             $usedLatestAvailableData = !empty($dataSet['used_latest_available_data']);
             $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $hotelName, $platform, $effectiveStartDate, $effectiveEndDate, $analysisType);
             $result['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $analysisType);
+            $result['evidence_sources'] = $this->buildOtaDiagnosisEvidenceSources($dataSet, $result['metrics'] ?? []);
             if ($usedLatestAvailableData) {
                 $result['requested_date_range'] = ['start_date' => $startDate, 'end_date' => $endDate];
                 $result['data_summary']['used_latest_available_data'] = true;
@@ -383,7 +391,10 @@ class Agent extends Base
                 $result['source_summary']['scope']['requested_start_date'] = $startDate;
                 $result['source_summary']['scope']['requested_end_date'] = $endDate;
             }
-            $llmResult = $this->callLlm($this->buildOtaDiagnosisPrompt($result), $modelKey, [], $modelOptions);
+            $llmResult = $this->callLlm($this->buildOtaDiagnosisPrompt($result), $modelKey, $this->buildAiGovernanceMeta('ota_diagnosis', $result, [
+                'hotel_id' => $hotelId,
+                'user_id' => (int)($this->currentUser->id ?? 0),
+            ]), $modelOptions);
             if (($llmResult['ok'] ?? false) === true) {
                 $result['diagnosis'] = array_merge($result['diagnosis'], $this->parseOtaDiagnosisResult((string) $llmResult['content']));
             } else {
@@ -418,6 +429,7 @@ class Agent extends Base
             $result['evidence_sources'] = $this->buildOtaDiagnosisEvidenceSources($dataSet, $result['metrics'] ?? []);
             $result['action_items'] = $this->buildOtaDiagnosisActionItems($result['recommended_actions'], $result['evidence_sources']);
             $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
+            $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, $llmResult);
 
             return $this->success($result, 'success');
         } catch (\Throwable $e) {
@@ -468,9 +480,10 @@ class Agent extends Base
                 return $this->error('暂无可分析的抓取数据', 422);
             }
 
-            $llmResult = $this->callLlm($this->buildCapturedOtaPrompt($summary), $modelKey, [
+            $llmResult = $this->callLlm($this->buildCapturedOtaPrompt($summary), $modelKey, $this->buildAiGovernanceMeta('captured_ota_analysis', $summary, [
                 'selected_hotel_count' => $summary['hotel_count'],
-            ], $modelOptions);
+                'user_id' => (int)($this->currentUser->id ?? 0),
+            ]), $modelOptions);
             if (($llmResult['ok'] ?? false) !== true) {
                 return $this->error((string) $llmResult['message'], (int) $llmResult['code'], $llmResult['data'] ?? null);
             }
@@ -483,6 +496,7 @@ class Agent extends Base
             $report['data_collection_notice'] = $summary['data_collection_notice'];
             $report['knowledge_context'] = $summary['knowledge_context'];
             $report = $this->applyCapturedOtaDataQualityGuard($report);
+            $report['ai_governance'] = $this->buildAiGovernancePayload('captured_ota_analysis', $summary, $llmResult);
             $report['summary'] = [
                 'hotel_count' => $summary['hotel_count'],
                 'input_hotel_count' => $summary['input_hotel_count'],
@@ -570,9 +584,10 @@ class Agent extends Base
                 'end_date' => $endDate,
             ];
 
-            $llmResult = $this->callLlm($this->buildCapturedOtaFinalPrompt($summary), $modelKey, [
+            $llmResult = $this->callLlm($this->buildCapturedOtaFinalPrompt($summary), $modelKey, $this->buildAiGovernanceMeta('captured_ota_final_summary', $summary, [
                 'selected_hotel_count' => $summary['selected_hotel_count'],
-            ], $modelOptions);
+                'user_id' => (int)($this->currentUser->id ?? 0),
+            ]), $modelOptions);
             $debug = isset($llmResult['data']['debug']) && is_array($llmResult['data']['debug']) ? $llmResult['data']['debug'] : null;
             if (($llmResult['ok'] ?? false) === true) {
                 $report = $this->parseCapturedOtaAnalysisResult((string) $llmResult['content']);
@@ -587,6 +602,7 @@ class Agent extends Base
             if ($debug !== null) {
                 $report['debug'] = $debug;
             }
+            $report['ai_governance'] = $this->buildAiGovernancePayload('captured_ota_final_summary', $summary, $llmResult);
             $report['summary'] = $summaryMeta;
 
             OperationLog::record('agent', 'summarize_captured_ota_analysis', '汇总当前抓取OTA分组报告', (int) ($this->currentUser->id ?? 0), null, null, [
@@ -1270,6 +1286,219 @@ class Agent extends Base
         $lines[] = '知识库使用规则：指标必须标注口径，分母缺失或为0时写不可计算；平台私有分值不反推权重；异常描述必须优先写成数据口径提示或需复核提示。';
 
         return implode("\n", $lines) . "\n";
+    }
+
+    private function buildAiGovernanceMeta(string $scenario, array $context, array $extra = []): array
+    {
+        $payload = $this->buildAiGovernancePayload($scenario, $context, []);
+        $knowledgeSources = $payload['knowledge_citations'];
+        foreach ($payload['evidence_refs'] as $ref) {
+            $knowledgeSources[] = ['ref' => $ref, 'source' => 'database_evidence'];
+        }
+
+        return array_merge([
+            'module' => 'agent',
+            'scenario' => $scenario,
+            'prompt_version' => $payload['prompt_version'],
+            'knowledge_sources' => $knowledgeSources,
+            'confidence_score' => $payload['confidence_score'],
+            'low_confidence_reason' => $payload['low_confidence_reason'],
+            'decision_impact' => $payload['decision_impact'],
+            'human_confirmation_required' => $payload['human_confirmation_required'],
+            'human_confirmation_reason' => $payload['human_confirmation_reason'],
+            'evaluation_set' => $payload['evaluation_set'],
+            'hotel_id' => (int)($context['hotel']['id'] ?? $context['scope']['hotel_id'] ?? 0),
+            'user_id' => (int)($this->currentUser->id ?? 0),
+        ], $extra);
+    }
+
+    private function buildAiGovernancePayload(string $scenario, array $context, array $llmResult): array
+    {
+        $modelGovernance = is_array($llmResult['data']['governance'] ?? null) ? $llmResult['data']['governance'] : [];
+        $knowledgeCitations = $this->extractAiKnowledgeCitations($context['knowledge_context'] ?? []);
+        $evidenceRefs = $this->extractAiEvidenceRefs($context);
+        $confidenceLevel = $this->resolveAiGovernanceConfidenceLevel($context, $llmResult, $knowledgeCitations, $evidenceRefs);
+        $lowConfidence = $confidenceLevel !== 'high';
+        $manualRequired = $this->aiGovernanceRequiresManualConfirmation($scenario, $context, $lowConfidence);
+
+        return [
+            'scenario' => $scenario,
+            'prompt_version' => (string)($modelGovernance['prompt_version'] ?? $this->defaultAiPromptVersion($scenario)),
+            'evaluation_set' => $this->defaultAiEvaluationSet($scenario),
+            'confidence_level' => $confidenceLevel,
+            'confidence_score' => $this->confidenceScoreForLevel($confidenceLevel),
+            'low_confidence' => $lowConfidence,
+            'low_confidence_reason' => $lowConfidence ? $this->buildAiLowConfidenceReason($context, $llmResult, $knowledgeCitations, $evidenceRefs) : '',
+            'human_confirmation_required' => $manualRequired,
+            'human_confirmation_reason' => $manualRequired ? $this->buildAiHumanConfirmationReason($scenario, $confidenceLevel, $context) : '',
+            'decision_impact' => $this->aiDecisionImpact($scenario),
+            'knowledge_citations' => $knowledgeCitations,
+            'evidence_refs' => $evidenceRefs,
+            'source_policy' => 'database_evidence_and_knowledge_citations_required',
+            'model_call' => [
+                'call_id' => (string)($modelGovernance['call_id'] ?? $modelGovernance['request_id'] ?? $modelGovernance['call_log_id'] ?? ''),
+                'call_log_id' => (int)($modelGovernance['call_log_id'] ?? 0),
+                'status' => (string)($modelGovernance['status'] ?? (($llmResult['ok'] ?? false) === true ? 'success' : 'failed')),
+                'provider' => (string)($llmResult['provider'] ?? ''),
+                'model_key' => (string)($llmResult['model_key'] ?? ''),
+                'model' => (string)($llmResult['model'] ?? ''),
+            ],
+            'log_sink' => 'ai_model_call_logs',
+        ];
+    }
+
+    private function extractAiKnowledgeCitations($knowledgeContext): array
+    {
+        $context = is_array($knowledgeContext) ? $knowledgeContext : [];
+        $items = is_array($context['items'] ?? null) ? $context['items'] : [];
+        $citations = [];
+        foreach (array_slice($items, 0, 12) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $source = mb_substr(trim((string)($item['source'] ?? 'knowledge_context')), 0, 80);
+            $id = (int)($item['id'] ?? 0);
+            $title = mb_substr(trim((string)($item['title'] ?? '')), 0, 160);
+            $ref = $source . '#' . ($id > 0 ? (string)$id : substr(hash('sha256', $title), 0, 12));
+            $citations[$ref] = [
+                'ref' => $ref,
+                'source' => $source,
+                'title' => $title,
+            ];
+        }
+
+        return array_values($citations);
+    }
+
+    private function extractAiEvidenceRefs(array $context): array
+    {
+        $refs = [];
+        foreach ((array)($context['evidence_sources'] ?? []) as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $ref = trim((string)($source['ref'] ?? ''));
+            if ($ref !== '') {
+                $refs[$ref] = true;
+            }
+        }
+        foreach ((array)($context['action_items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            foreach ((array)($item['evidence_refs'] ?? []) as $ref) {
+                $ref = trim((string)$ref);
+                if ($ref !== '') {
+                    $refs[$ref] = true;
+                }
+            }
+        }
+
+        return array_slice(array_keys($refs), 0, 30);
+    }
+
+    private function resolveAiGovernanceConfidenceLevel(array $context, array $llmResult, array $knowledgeCitations, array $evidenceRefs): string
+    {
+        if (!empty($llmResult) && ($llmResult['ok'] ?? false) !== true) {
+            return 'low';
+        }
+
+        $quality = is_array($context['data_quality'] ?? null) ? $context['data_quality'] : [];
+        if (($quality['is_reliable'] ?? true) === false) {
+            return 'low';
+        }
+
+        $missingSections = array_values(array_filter((array)($context['missing_sections'] ?? []), static fn($value): bool => trim((string)$value) !== ''));
+        if (count($missingSections) >= 3) {
+            return 'low';
+        }
+        if (!empty($missingSections) || trim((string)($quality['warning'] ?? '')) !== '' || empty($evidenceRefs)) {
+            return 'medium';
+        }
+        if (empty($knowledgeCitations)) {
+            return 'medium';
+        }
+
+        return 'high';
+    }
+
+    private function confidenceScoreForLevel(string $level): float
+    {
+        return ['high' => 0.9, 'medium' => 0.62, 'low' => 0.35][$level] ?? 0.35;
+    }
+
+    private function aiGovernanceRequiresManualConfirmation(string $scenario, array $context, bool $lowConfidence): bool
+    {
+        if ($lowConfidence || in_array($scenario, ['ota_diagnosis', 'captured_ota_analysis', 'captured_ota_final_summary'], true)) {
+            return true;
+        }
+        foreach ((array)($context['action_items'] ?? []) as $item) {
+            if (is_array($item) && ($item['status'] ?? '') === 'pending_manual_review') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function buildAiLowConfidenceReason(array $context, array $llmResult, array $knowledgeCitations, array $evidenceRefs): string
+    {
+        if (!empty($llmResult) && ($llmResult['ok'] ?? false) !== true) {
+            return 'model call failed or returned fallback content';
+        }
+        $quality = is_array($context['data_quality'] ?? null) ? $context['data_quality'] : [];
+        if (($quality['is_reliable'] ?? true) === false || trim((string)($quality['warning'] ?? '')) !== '') {
+            return 'data quality warning requires manual review';
+        }
+        if (!empty($context['missing_sections'])) {
+            return 'source coverage is incomplete';
+        }
+        if (empty($evidenceRefs)) {
+            return 'no database evidence refs attached';
+        }
+        if (empty($knowledgeCitations)) {
+            return 'no knowledge citation attached';
+        }
+        return 'manual review required by governance policy';
+    }
+
+    private function buildAiHumanConfirmationReason(string $scenario, string $confidenceLevel, array $context): string
+    {
+        foreach ((array)($context['action_items'] ?? []) as $item) {
+            if (is_array($item) && ($item['status'] ?? '') === 'pending_manual_review') {
+                return 'recommended actions are pending manual review';
+            }
+        }
+        if ($confidenceLevel !== 'high') {
+            return 'confidence level ' . $confidenceLevel . ' requires operator review';
+        }
+        return $this->aiDecisionImpact($scenario) . ' decision requires operator confirmation';
+    }
+
+    private function aiDecisionImpact(string $scenario): string
+    {
+        return in_array($scenario, ['ota_diagnosis', 'captured_ota_analysis', 'captured_ota_final_summary'], true)
+            ? 'operational'
+            : 'none';
+    }
+
+    private function defaultAiPromptVersion(string $scenario): string
+    {
+        return [
+            'ota_diagnosis' => 'ota_diagnosis:v1',
+            'captured_ota_analysis' => 'captured_ota_analysis:v1',
+            'captured_ota_final_summary' => 'captured_ota_final_summary:v1',
+            'agent_test_llm' => 'agent_test_llm:v1',
+        ][$scenario] ?? ($scenario . ':v1');
+    }
+
+    private function defaultAiEvaluationSet(string $scenario): string
+    {
+        return [
+            'ota_diagnosis' => 'ota_diagnosis_governance_v1',
+            'captured_ota_analysis' => 'captured_ota_governance_v1',
+            'captured_ota_final_summary' => 'captured_ota_final_governance_v1',
+            'agent_test_llm' => 'agent_test_llm_smoke_v1',
+        ][$scenario] ?? ($scenario . '_governance_v1');
     }
 
     private function applyCapturedOtaDataQualityGuard(array $report): array
@@ -3370,9 +3599,14 @@ class Agent extends Base
         if ($hotelId <= 0) {
             return $this->error('hotel_id is required', 422);
         }
+        if (!$this->isDateString($date)) {
+            return $this->error('date must be YYYY-MM-DD', 422);
+        }
 
         $roomTypes = RoomType::getHotelRoomTypes($hotelId);
+        $pricingService = new RevenuePricingRecommendationService();
         $created = [];
+        $skipped = [];
         foreach ($roomTypes as $roomType) {
             $roomTypeId = (int)$roomType->id;
             $exists = PriceSuggestion::where('hotel_id', $hotelId)
@@ -3381,74 +3615,67 @@ class Agent extends Base
                 ->where('status', PriceSuggestion::STATUS_PENDING)
                 ->find();
             if ($exists) {
+                $skipped[] = [
+                    'room_type_id' => $roomTypeId,
+                    'room_type_name' => (string)($roomType->name ?? ''),
+                    'reason' => 'pending_suggestion_exists',
+                    'existing_suggestion_id' => (int)$exists->id,
+                    'primary_signal_count' => 0,
+                    'price_change_rate' => 0.0,
+                    'risk_level' => 'medium',
+                    'data_gaps' => [],
+                    'review_checklist' => ['Review or close the existing pending suggestion before generating another one.'],
+                ];
                 continue;
             }
 
-            $currentPrice = (float)$roomType->base_price;
-            $minPrice = (float)$roomType->min_price;
-            $maxPrice = (float)$roomType->max_price;
-            $forecast = DemandForecast::where('hotel_id', $hotelId)
-                ->where('room_type_id', $roomTypeId)
-                ->where('forecast_date', $date)
-                ->find();
-            $predictedOccupancy = $forecast ? (float)$forecast->predicted_occupancy : 0.0;
-            $competitorAvg = (float)CompetitorAnalysis::where('hotel_id', $hotelId)
-                ->where('room_type_id', $roomTypeId)
-                ->where('analysis_date', $date)
-                ->avg('competitor_price');
-
-            $multiplier = 1.0;
-            $factors = [];
-            if ($predictedOccupancy >= 85) {
-                $multiplier += 0.15;
-                $factors[] = 'high forecast occupancy';
-            } elseif ($predictedOccupancy >= 75) {
-                $multiplier += 0.08;
-                $factors[] = 'medium-high forecast occupancy';
-            } elseif ($predictedOccupancy > 0 && $predictedOccupancy <= 40) {
-                $multiplier -= 0.07;
-                $factors[] = 'low forecast occupancy';
-            }
-            if ($competitorAvg > 0 && $currentPrice > 0) {
-                if ($competitorAvg > $currentPrice * 1.05) {
-                    $multiplier += 0.05;
-                    $factors[] = 'competitor price higher';
-                } elseif ($currentPrice > $competitorAvg * 1.10) {
-                    $multiplier -= 0.05;
-                    $factors[] = 'our price higher than competitor';
-                }
-            }
-
-            $suggestedPrice = $currentPrice > 0 ? round($currentPrice * $multiplier, 2) : 0.0;
-            if ($minPrice > 0) {
-                $suggestedPrice = max($minPrice, $suggestedPrice);
-            }
-            if ($maxPrice > 0) {
-                $suggestedPrice = min($maxPrice, $suggestedPrice);
-            }
-            if ($suggestedPrice <= 0 || abs($suggestedPrice - $currentPrice) < 1) {
+            $recommendation = $pricingService->recommend($hotelId, $roomType->toArray(), $date);
+            if (($recommendation['should_create'] ?? false) !== true) {
+                $skipped[] = [
+                    'room_type_id' => $roomTypeId,
+                    'room_type_name' => (string)($roomType->name ?? ''),
+                    'reason' => (string)($recommendation['skip_reason'] ?? 'not_created'),
+                    'primary_signal_count' => (int)($recommendation['primary_signal_count'] ?? 0),
+                    'price_change_rate' => (float)($recommendation['price_change_rate'] ?? 0),
+                    'risk_level' => (string)($recommendation['risk_level'] ?? 'high'),
+                    'data_gaps' => array_values((array)($recommendation['factors']['signals']['data_gaps'] ?? [])),
+                    'review_checklist' => array_values((array)($recommendation['review_checklist'] ?? [])),
+                ];
                 continue;
             }
 
             $suggestion = PriceSuggestion::create([
                 'hotel_id' => $hotelId,
                 'room_type_id' => $roomTypeId,
-                'suggestion_type' => $predictedOccupancy > 0 ? PriceSuggestion::TYPE_FORECAST : PriceSuggestion::TYPE_COMPETITOR,
+                'suggestion_type' => PriceSuggestion::TYPE_DYNAMIC,
                 'status' => PriceSuggestion::STATUS_PENDING,
                 'suggestion_date' => $date,
-                'current_price' => $currentPrice,
-                'suggested_price' => $suggestedPrice,
-                'min_price' => $minPrice,
-                'max_price' => $maxPrice,
-                'confidence_score' => $predictedOccupancy > 0 ? 0.82 : 0.65,
-                'competitor_data' => ['avg_price' => $competitorAvg],
-                'factors' => $factors,
-                'reason' => implode('; ', $factors) ?: 'generated from current room price and available revenue data',
+                'current_price' => (float)$recommendation['current_price'],
+                'suggested_price' => (float)$recommendation['suggested_price'],
+                'min_price' => (float)$roomType->min_price,
+                'max_price' => (float)$roomType->max_price,
+                'confidence_score' => (float)$recommendation['confidence_score'],
+                'competitor_data' => $recommendation['competitor_data'] ?? [],
+                'factors' => $recommendation['factors'] ?? [],
+                'demand_forecast_id' => (int)($recommendation['factors']['signals']['demand_forecast']['id'] ?? 0),
+                'reason' => (string)$recommendation['reason'],
             ]);
-            $created[] = $suggestion->toArray();
+            $createdRow = $suggestion->toArray();
+            $createdRow['risk_level'] = (string)($recommendation['risk_level'] ?? 'medium');
+            $createdRow['review_checklist'] = array_values((array)($recommendation['review_checklist'] ?? []));
+            $created[] = $createdRow;
         }
 
-        return $this->success(['created_count' => count($created), 'list' => $created], 'success');
+        return $this->success([
+            'reviewed_count' => count($created) + count($skipped),
+            'created_count' => count($created),
+            'skipped_count' => count($skipped),
+            'list' => $created,
+            'skipped' => $skipped,
+            'advisory_only' => true,
+            'model_summary' => $pricingService->hotelPricingModelSummary($hotelId, $date),
+            'next_action' => 'Manual review required. This endpoint only creates pending suggestions and does not write room prices or OTA rates.',
+        ], 'success');
     }
 
     public function applyPrice(): Response
@@ -3750,6 +3977,7 @@ class Agent extends Base
         
         // 预测准确率
         $forecastAccuracy = DemandForecast::getAccuracyStats($hotelId, 30);
+        $pricingModelSummary = (new RevenuePricingRecommendationService())->hotelPricingModelSummary($hotelId, date('Y-m-d'));
         
         // 竞对监控概览
         $competitorAlerts = CompetitorAnalysis::getAlertCompetitors($hotelId, 15);
@@ -3774,6 +4002,8 @@ class Agent extends Base
             'competitor_alerts' => $competitorAlerts,
             'week_revpar_forecast' => $avgPredictedRevpar,
             'high_demand_count' => count(DemandForecast::getHighDemandDates($hotelId, 80)),
+            'pricing_backtest' => $pricingModelSummary['backtest'] ?? [],
+            'pricing_model_summary' => $pricingModelSummary,
         ]);
     }
 

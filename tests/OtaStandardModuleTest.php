@@ -29,6 +29,18 @@ final class OtaStandardModuleTest extends TestCase
         self::assertSame(6.0, $dataset['fact_ota_daily'][0]['room_nights']);
         self::assertSame(4, $dataset['fact_ota_daily'][0]['order_count']);
         self::assertSame(200.0, $dataset['fact_ota_daily'][0]['adr']);
+        self::assertSame('ota_channel', $dataset['fact_ota_daily'][0]['metric_scope']);
+        self::assertSame(10.0, $dataset['fact_ota_daily'][0]['available_room_nights']);
+        self::assertSame(6.0, $dataset['fact_ota_daily'][0]['occupied_room_nights']);
+        self::assertSame(60.0, $dataset['fact_ota_daily'][0]['occ']);
+        self::assertSame(120.0, $dataset['fact_ota_daily'][0]['revpar']);
+        self::assertSame(180.0, $dataset['fact_ota_daily'][0]['commission_amount']);
+        self::assertSame(15.0, $dataset['fact_ota_daily'][0]['commission_rate']);
+        self::assertSame(1020.0, $dataset['fact_ota_daily'][0]['net_revenue']);
+        self::assertSame('derived_from_commission_amount', $dataset['fact_ota_daily'][0]['net_revenue_basis']);
+        self::assertSame('derived_from_commission_rate', $dataset['fact_ota_daily'][0]['commission_amount_basis']);
+        self::assertSame(102.0, $dataset['fact_ota_daily'][0]['net_revpar']);
+        self::assertSame(8, $dataset['fact_ota_daily'][0]['lead_time_days']);
 
         self::assertSame(20.0, $dataset['fact_ota_traffic'][0]['flow_rate']);
         self::assertSame(33.33, $dataset['fact_ota_traffic'][0]['submit_rate']);
@@ -43,13 +55,29 @@ final class OtaStandardModuleTest extends TestCase
         $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
 
         self::assertSame(1200.0, $metrics['totals']['revenue']);
+        self::assertSame(1200.0, $metrics['totals']['room_revenue']);
+        self::assertSame(1020.0, $metrics['totals']['net_revenue']);
+        self::assertSame(180.0, $metrics['totals']['commission_amount']);
+        self::assertSame(15.0, $metrics['totals']['commission_rate']);
         self::assertSame(6.0, $metrics['totals']['room_nights']);
+        self::assertSame(10.0, $metrics['totals']['available_room_nights']);
+        self::assertSame(6.0, $metrics['totals']['occupied_room_nights']);
         self::assertSame(4, $metrics['totals']['order_count']);
         self::assertSame(200.0, $metrics['totals']['adr']);
+        self::assertSame(60.0, $metrics['totals']['occ']);
+        self::assertSame(120.0, $metrics['totals']['revpar']);
+        self::assertSame(102.0, $metrics['totals']['net_revpar']);
+        self::assertSame(8.0, $metrics['totals']['avg_lead_time_days']);
         self::assertSame(25.0, $metrics['totals']['cancellation_rate']);
+        self::assertSame(16.67, $metrics['totals']['room_night_cancellation_rate']);
         self::assertSame(20.0, $metrics['traffic']['avg_flow_rate']);
         self::assertSame(33.33, $metrics['traffic']['avg_submit_rate']);
         self::assertSame(-20.0, $metrics['competitor_price']['avg_price_gap']);
+        self::assertSame(-9.09, $metrics['competitor_price']['avg_price_gap_rate']);
+        self::assertSame('fact_ota_daily', $metrics['fact_table']['name']);
+        self::assertArrayHasKey('revpar', $metrics['metric_definitions']['metrics']);
+        self::assertSame(100.0, $metrics['channel_contribution'][0]['contribution_rate']);
+        self::assertSame(100.0, $metrics['channel_contribution'][0]['net_contribution_rate']);
 
         $missingCancel = (new OtaRevenueMetricService())->summarizeDataset($etl->buildDatasetFromRows([
             array_replace($this->sampleRows()[0], [
@@ -71,6 +99,147 @@ final class OtaStandardModuleTest extends TestCase
 
         self::assertSame(20.0, $partialCancel['totals']['cancellation_rate']);
         self::assertContains('cancellation_fields_partial', array_column($partialCancel['data_gaps'], 'code'));
+    }
+
+    public function testEtlRejectsInvalidPercentAndNegativeLeadTimeWithoutInventingMetrics(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 11,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-05-19',
+                'amount' => 1000,
+                'quantity' => 5,
+                'book_order_num' => 3,
+                'raw_data' => json_encode([
+                    'available_rooms' => 10,
+                    'commission_rate' => 120,
+                    'cancel_rate' => -0.2,
+                    'booking_date' => '2026-05-20',
+                    'checkin_date' => '2026-05-19',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+
+        $fact = $dataset['fact_ota_daily'][0];
+
+        self::assertNull($fact['commission_rate']);
+        self::assertNull($fact['commission_amount']);
+        self::assertNull($fact['net_revenue']);
+        self::assertNull($fact['cancel_rate']);
+        self::assertNull($fact['lead_time_days']);
+    }
+
+    public function testDirectNetRevenueDoesNotDependOnCommissionFields(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset(
+            (new OtaStandardEtlService())->buildDatasetFromRows([
+                [
+                    'id' => 12,
+                    'system_hotel_id' => 7,
+                    'hotel_id' => 'ctrip-7',
+                    'hotel_name' => 'Hotel Alpha',
+                    'source' => 'ctrip',
+                    'data_type' => 'business',
+                    'data_date' => '2026-05-20',
+                    'update_time' => '2026-05-20 10:00:00',
+                    'amount' => 1000,
+                    'quantity' => 5,
+                    'book_order_num' => 3,
+                    'raw_data' => json_encode([
+                        'net_revenue' => 880,
+                        'available_rooms' => 10,
+                    ], JSON_UNESCAPED_UNICODE),
+                ],
+            ])
+        );
+
+        self::assertSame(880.0, $metrics['totals']['net_revenue']);
+        self::assertSame(88.0, $metrics['totals']['net_revpar']);
+        self::assertSame([], $metrics['metric_trust']['totals.net_revenue']['failure_reasons']);
+        self::assertSame([], $metrics['metric_trust']['totals.net_revpar']['failure_reasons']);
+        self::assertContains('commission_fields_missing', array_column($metrics['data_gaps'], 'code'));
+    }
+
+    public function testRevparUsesOnlyRowsWithAlignedAvailableRoomNightRows(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'fact_ota_daily' => [
+                [
+                    'platform_key' => 'ctrip',
+                    'hotel_key' => 'system:7',
+                    'revenue' => 100.0,
+                    'room_revenue' => 100.0,
+                    'net_revenue' => 80.0,
+                    'room_nights' => 1.0,
+                    'available_room_nights' => 10.0,
+                    'occupied_room_nights' => 5.0,
+                    'order_count' => 1,
+                    'source_trace' => $this->trace(101, 'ctrip', 'business', '2026-05-20'),
+                ],
+                [
+                    'platform_key' => 'ctrip',
+                    'hotel_key' => 'system:7',
+                    'revenue' => 900.0,
+                    'room_revenue' => 900.0,
+                    'net_revenue' => 720.0,
+                    'room_nights' => 9.0,
+                    'available_room_nights' => null,
+                    'occupied_room_nights' => null,
+                    'order_count' => 9,
+                    'source_trace' => $this->trace(102, 'ctrip', 'business', '2026-05-20'),
+                ],
+            ],
+            'fact_ota_traffic' => [],
+            'fact_ota_comment' => [],
+        ]);
+
+        self::assertSame(10.0, $metrics['totals']['revpar']);
+        self::assertSame(8.0, $metrics['totals']['net_revpar']);
+        self::assertSame(10.0, $metrics['by_platform'][0]['revpar']);
+        self::assertSame(8.0, $metrics['by_platform'][0]['net_revpar']);
+        self::assertContains('available_room_nights_partial', array_column($metrics['data_gaps'], 'code'));
+        self::assertContains('available_room_nights_partial', $metrics['metric_trust']['totals.revpar']['failure_reasons']);
+    }
+
+    public function testCommissionRateUsesOnlyRowsWithCommissionFields(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'fact_ota_daily' => [
+                [
+                    'platform_key' => 'ctrip',
+                    'hotel_key' => 'system:7',
+                    'revenue' => 100.0,
+                    'gross_revenue' => 100.0,
+                    'room_revenue' => 100.0,
+                    'commission_amount' => 10.0,
+                    'room_nights' => 1.0,
+                    'order_count' => 1,
+                    'source_trace' => $this->trace(201, 'ctrip', 'business', '2026-05-21'),
+                ],
+                [
+                    'platform_key' => 'ctrip',
+                    'hotel_key' => 'system:7',
+                    'revenue' => 900.0,
+                    'gross_revenue' => 900.0,
+                    'room_revenue' => 900.0,
+                    'commission_amount' => null,
+                    'room_nights' => 9.0,
+                    'order_count' => 9,
+                    'source_trace' => $this->trace(202, 'ctrip', 'business', '2026-05-21'),
+                ],
+            ],
+            'fact_ota_traffic' => [],
+            'fact_ota_comment' => [],
+        ]);
+
+        self::assertSame(10.0, $metrics['totals']['commission_rate']);
+        self::assertContains('commission_fields_partial', array_column($metrics['data_gaps'], 'code'));
+        self::assertContains('commission_fields_partial', $metrics['metric_trust']['totals.commission_rate']['failure_reasons']);
     }
 
     public function testRevenueMetricsExposeTraceableTrustMetadataForEachMetric(): void
@@ -96,7 +265,14 @@ final class OtaStandardModuleTest extends TestCase
             'totals.room_nights',
             'totals.order_count',
             'totals.adr',
+            'totals.occ',
+            'totals.revpar',
+            'totals.commission_amount',
+            'totals.net_revenue',
+            'totals.net_revpar',
+            'totals.avg_lead_time_days',
             'totals.cancellation_rate',
+            'totals.room_night_cancellation_rate',
             'totals.review_count',
             'totals.avg_comment_score',
             'traffic.avg_flow_rate',
@@ -120,7 +296,9 @@ final class OtaStandardModuleTest extends TestCase
         self::assertTrue($metrics['metric_trust']['totals.revenue']['saved_success']);
         self::assertSame([], $metrics['metric_trust']['totals.revenue']['failure_reasons']);
 
-        self::assertSame('sum(fact_ota_daily.revenue) / sum(fact_ota_daily.room_nights)', $metrics['metric_trust']['totals.adr']['caliber']);
+        self::assertSame('sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.room_nights)', $metrics['metric_trust']['totals.adr']['caliber']);
+        self::assertSame('sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.available_room_nights)', $metrics['metric_trust']['totals.revpar']['caliber']);
+        self::assertSame('avg(fact_ota_daily.lead_time_days)', $metrics['metric_trust']['totals.avg_lead_time_days']['caliber']);
         self::assertSame([2], $metrics['metric_trust']['traffic.avg_flow_rate']['source']['row_ids']);
         self::assertSame('2026-05-18 12:35:00', $metrics['metric_trust']['traffic.avg_flow_rate']['updated_at']);
 
@@ -200,10 +378,12 @@ final class OtaStandardModuleTest extends TestCase
         self::assertContains('LSTM', $analysis['model_policy']['excluded_models']);
 
         $keys = array_column($analysis['modules'], 'key');
-        self::assertSame(['adr', 'cancellation_rate', 'traffic_conversion', 'competitor_price_gap'], $keys);
+        self::assertSame(['adr', 'revpar', 'net_revpar', 'cancellation_rate', 'traffic_conversion', 'competitor_price_gap'], $keys);
         self::assertSame('available', $analysis['modules'][0]['status']);
         self::assertSame('available', $analysis['modules'][1]['status']);
-        self::assertSame('watch', $analysis['modules'][3]['status']);
+        self::assertSame('available', $analysis['modules'][2]['status']);
+        self::assertSame('available', $analysis['modules'][3]['status']);
+        self::assertSame('watch', $analysis['modules'][5]['status']);
     }
 
     /**
@@ -226,8 +406,14 @@ final class OtaStandardModuleTest extends TestCase
                 'comment_score' => 4.8,
                 'raw_data' => json_encode([
                     'cancel_order_num' => 1,
+                    'cancel_room_nights' => 1,
                     'our_price' => 200,
                     'competitor_price' => 220,
+                    'available_rooms' => 10,
+                    'occupied_rooms' => 6,
+                    'commission_rate' => 0.15,
+                    'booking_date' => '2026-05-10',
+                    'checkin_date' => '2026-05-18',
                 ], JSON_UNESCAPED_UNICODE),
             ],
             [
@@ -261,6 +447,24 @@ final class OtaStandardModuleTest extends TestCase
                     'sentiment' => 'negative',
                 ], JSON_UNESCAPED_UNICODE),
             ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function trace(int $rowId, string $platform, string $dataType, string $date): array
+    {
+        return [
+            'table' => 'online_daily_data',
+            'row_id' => $rowId,
+            'hotel_key' => 'system:7',
+            'platform' => $platform,
+            'data_type' => $dataType,
+            'date_key' => $date,
+            'updated_at' => $date . ' 10:00:00',
+            'saved_success' => true,
+            'failure_reasons' => [],
         ];
     }
 }

@@ -732,6 +732,9 @@ class RevenueResearchService
      */
     private function openAiResponsesPayload(array $config, array $product, array $localSources, array $gaps, array $businessForecast, string $toolType): array
     {
+        $schema = $this->resultSchema();
+        unset($schema['x-governance']);
+
         return [
             'model' => $config['model'],
             'tools' => [
@@ -761,7 +764,7 @@ class RevenueResearchService
                 'format' => [
                     'type' => 'json_schema',
                     'name' => 'revenue_business_prediction',
-                    'schema' => $this->resultSchema(),
+                    'schema' => $schema,
                     'strict' => false,
                 ],
             ],
@@ -848,6 +851,13 @@ class RevenueResearchService
     {
         $stringArray = ['type' => 'array', 'items' => ['type' => 'string']];
         return [
+            'x-governance' => [
+                'module' => 'revenue_research',
+                'scenario' => 'business_prediction',
+                'prompt_version' => 'revenue_research.business_prediction.v1',
+                'decision_impact' => 'operational',
+                'knowledge_sources' => ['local_sources', 'business_forecast', 'data_gaps'],
+            ],
             'type' => 'object',
             'additionalProperties' => false,
             'properties' => [

@@ -792,6 +792,13 @@ class TransferDecisionService
     private function pricingAiEvaluationSchema(): array
     {
         return [
+            'x-governance' => [
+                'module' => 'transfer',
+                'scenario' => 'asset_pricing',
+                'prompt_version' => 'transfer.asset_pricing.v1',
+                'decision_impact' => 'investment',
+                'knowledge_sources' => ['input', 'pricing_result'],
+            ],
             'type' => 'object',
             'additionalProperties' => false,
             'required' => ['summary', 'decision', 'recommendations', 'watch_points', 'assumptions'],

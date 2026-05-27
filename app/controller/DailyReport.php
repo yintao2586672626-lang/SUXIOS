@@ -151,7 +151,7 @@ class DailyReport extends Base
         }
 
         $hotel = $report->hotel;
-        $reportData = $report->report_data ?? [];
+        $reportData = $this->normalizeReportData($report->report_data ?? []);
         $reportDate = $report->report_date;
         
         // 获取年月
@@ -203,7 +203,7 @@ class DailyReport extends Base
     {
         $sum = [];
         foreach ($reports as $report) {
-            $data = $report->report_data ?? [];
+            $data = $this->normalizeReportData($report->report_data ?? []);
             foreach ($data as $key => $value) {
                 if (!isset($sum[$key])) {
                     $sum[$key] = 0;
@@ -220,6 +220,33 @@ class DailyReport extends Base
     /**
      * 计算报表详情数据
      */
+    private function normalizeReportData($value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        if (is_object($value)) {
+            if (method_exists($value, 'toArray')) {
+                try {
+                    $array = $value->toArray();
+                    return is_array($array) ? $array : [];
+                } catch (\Throwable $e) {
+                    return [];
+                }
+            }
+
+            return get_object_vars($value);
+        }
+
+        return [];
+    }
+
     private function calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays): array
     {
         // 辅助函数：安全获取数值
@@ -1040,7 +1067,7 @@ class DailyReport extends Base
         }
         
         $hotel = $report->hotel;
-        $reportData = $report->report_data ?? [];
+        $reportData = $this->normalizeReportData($report->report_data ?? []);
         $reportDate = $report->report_date;
         
         // 获取年月
@@ -1124,7 +1151,7 @@ class DailyReport extends Base
         }
 
         foreach ($reports as $report) {
-            $reportData = $report->report_data ?? [];
+            $reportData = $this->normalizeReportData($report->report_data ?? []);
             $taskContext = $this->loadMonthlyTaskContext((int)$report->hotel_id, (string)$report->report_date);
 
             if (!$hotelName && $report->hotel) {
@@ -1240,6 +1267,10 @@ class DailyReport extends Base
         } else {
             $reports = $exportData['reports'] ?? [];
         }
+        foreach ($reports as &$report) {
+            $report['data'] = $this->normalizeReportData($report['data'] ?? []);
+        }
+        unset($report);
         
         // 月任务数据
         $monthRevenueTarget = $monthTask['revenue_budget'] ?? 0;
@@ -1500,7 +1531,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         
         // ==================== 数据行 ====================
         foreach ($reports as $report) {
-            $data = $report['data'] ?? [];
+            $data = $this->normalizeReportData($report['data'] ?? []);
             $reportDate = $report['report_date'] ?? '';
             
             $html .= '<tr>';
@@ -1520,7 +1551,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             
             // 获取数据
             $getVal = function($key, $default = 0) use ($data) {
-                return isset($data[$key]) && is_numeric($data[$key]) ? floatval($data[$key]) : $default;
+                $num = array_key_exists($key, $data) ? $this->normalizeNumber($data[$key]) : null;
+                return $num !== null ? $num : $default;
             };
             $rowMonthTask = is_array($report['month_task'] ?? null) ? $report['month_task'] : $monthTask;
             $rowMonthRevenueTarget = (float)($rowMonthTask['revenue_budget'] ?? $monthRevenueTarget);
@@ -1815,10 +1847,11 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         ];
         
         foreach ($reports as $report) {
-            $data = $report['data'] ?? [];
+            $data = $this->normalizeReportData($report['data'] ?? []);
             
             $getVal = function($key, $default = 0) use ($data) {
-                return isset($data[$key]) && is_numeric($data[$key]) ? floatval($data[$key]) : $default;
+                $num = array_key_exists($key, $data) ? $this->normalizeNumber($data[$key]) : null;
+                return $num !== null ? $num : $default;
             };
             
             // 累加各项

@@ -21,10 +21,12 @@ class OtaInsightAnalysisService
             'model_policy' => [
                 'model_type' => 'deterministic_rules',
                 'excluded_models' => ['LSTM', 'ARIMA', 'neural_network'],
-                'reason' => 'Use transparent rules first for ADR, cancellation, traffic conversion, and competitor price gap.',
+                'reason' => 'Use transparent rules first for ADR, RevPAR, Net RevPAR, cancellation, traffic conversion, and competitor price gap.',
             ],
             'modules' => [
                 $this->adrModule($totals),
+                $this->revparModule($totals),
+                $this->netRevparModule($totals),
                 $this->cancellationModule($totals),
                 $this->trafficModule($traffic),
                 $this->priceGapModule($price),
@@ -57,6 +59,63 @@ class OtaInsightAnalysisService
             'ADR is calculated from standardized OTA revenue and room nights.',
             'Break down ADR by platform and hotel, then review abnormal high or low price dates.',
             ['adr' => (float)$adr]
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $totals
+     * @return array<string, mixed>
+     */
+    private function revparModule(array $totals): array
+    {
+        $revpar = $totals['revpar'] ?? null;
+        if ($revpar === null) {
+            return $this->module(
+                'revpar',
+                'missing_data',
+                'P0',
+                'RevPAR cannot be calculated because available room nights are missing.',
+                'Backfill available_room_nights before calculating RevPAR.'
+            );
+        }
+
+        return $this->module(
+            'revpar',
+            'available',
+            'P1',
+            'RevPAR is calculated from standardized room revenue and available room nights.',
+            'Split RevPAR movement into ADR and OCC before creating price or inventory actions.',
+            ['revpar' => (float)$revpar]
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $totals
+     * @return array<string, mixed>
+     */
+    private function netRevparModule(array $totals): array
+    {
+        $netRevpar = $totals['net_revpar'] ?? null;
+        if ($netRevpar === null) {
+            return $this->module(
+                'net_revpar',
+                'missing_data',
+                'P0',
+                'Net RevPAR cannot be calculated because net revenue or available room nights are missing.',
+                'Backfill commission amount, commission rate, or platform net revenue before evaluating after-commission yield.'
+            );
+        }
+
+        return $this->module(
+            'net_revpar',
+            'available',
+            'P1',
+            'Net RevPAR is calculated from after-commission revenue and available room nights.',
+            'Compare Net RevPAR by platform to identify channels with weak after-commission yield.',
+            [
+                'net_revpar' => (float)$netRevpar,
+                'commission_rate' => $totals['commission_rate'] ?? null,
+            ]
         );
     }
 

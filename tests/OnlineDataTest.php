@@ -170,6 +170,80 @@ final class OnlineDataTest extends TestCase
         ]));
     }
 
+    public function testMeituanDateRangeNormalizesPlatformDateFormats(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(['2026-05-02', '2026-05-03'], $this->invokeNonPublic($controller, 'normalizeMeituanManualDateRange', [
+            '2026/5/2',
+            '20260503',
+        ]));
+        self::assertSame(['2026-05-03', '2026-05-03'], $this->invokeNonPublic($controller, 'normalizeMeituanManualDateRange', [
+            '',
+            '2026-05-03',
+        ]));
+    }
+
+    public function testMeituanDateRangeRejectsReverseRange(): void
+    {
+        $controller = $this->controller();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->invokeNonPublic($controller, 'normalizeMeituanManualDateRange', [
+            '2026-05-04',
+            '2026-05-03',
+        ]);
+    }
+
+    public function testMeituanCapturedRowsCleanTrafficAndOrdersWithoutExternalCalls(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-1',
+            'poiId' => 'poi-1',
+            'poiName' => 'Meituan Hotel',
+            'defaultDataDate' => '2026/5/2',
+            'traffic' => [
+                'data' => [
+                    'rows' => [[
+                        'statDate' => '20260503',
+                        'exposure_count' => '100',
+                        'page_views' => '40',
+                        'click_count' => '5',
+                        'conversion_rate' => '40%',
+                    ]],
+                ],
+            ],
+            'orders' => [
+                'data' => [
+                    'list' => [[
+                        'orderId' => 'ORDER-1',
+                        'totalAmount' => '500',
+                        'roomCount' => 2,
+                        'checkInDate' => '2026-05-01',
+                        'checkOutDate' => '2026-05-03',
+                        'createTime' => '2026/5/1',
+                    ]],
+                ],
+            ],
+        ], 7]);
+
+        self::assertCount(2, $rows);
+        self::assertSame('meituan', $rows[0]['source']);
+        self::assertSame('traffic', $rows[0]['data_type']);
+        self::assertSame('2026-05-03', $rows[0]['data_date']);
+        self::assertSame(100, $rows[0]['list_exposure']);
+        self::assertSame(40, $rows[0]['detail_exposure']);
+        self::assertSame(40.0, $rows[0]['flow_rate']);
+
+        self::assertSame('order', $rows[1]['data_type']);
+        self::assertSame('2026-05-01', $rows[1]['data_date']);
+        self::assertSame(500.0, $rows[1]['amount']);
+        self::assertSame(4, $rows[1]['quantity']);
+        self::assertSame(7, $rows[1]['system_hotel_id']);
+    }
+
     public function testExtractCtripTrafficRowsExpandsDailyMetricSeries(): void
     {
         $controller = $this->controller();
@@ -462,6 +536,38 @@ final class OnlineDataTest extends TestCase
         self::assertSame('美团 Cookie为空，请重新登录OTA后台后更新授权。', $this->invokeNonPublic($controller, 'cookieHealthMessage', ['meituan', 'empty', null]));
         self::assertSame('OTA Cookie缺少更新时间，请重新保存一次配置以便系统判断有效期。', $this->invokeNonPublic($controller, 'cookieHealthMessage', ['generic', 'unknown', null]));
         self::assertSame('/online-data?tab=cookies', $this->invokeNonPublic($controller, 'cookieReauthorizeEntry', []));
+    }
+
+    public function testCookieHealthStateClassifiesEmptyUnknownWarningExpiredAndAlerted(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame('expired', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['', null, false, 5, 14]));
+        self::assertSame('unknown', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['cookie=value', null, false, 5, 14]));
+        self::assertSame('ok', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['cookie=value', 4, false, 5, 14]));
+        self::assertSame('warning', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['cookie=value', 5, false, 5, 14]));
+        self::assertSame('expired', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['cookie=value', 14, false, 5, 14]));
+        self::assertSame('expired', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['cookie=value', 1, true, 5, 14]));
+    }
+
+    public function testCollectionAuthorizationRowsFilterGlobalAndSelectedHotelHistory(): void
+    {
+        $controller = $this->controller();
+        $rows = [
+            ['hotel_id' => 0, 'status' => 'ok'],
+            ['hotel_id' => 7, 'status' => 'warning'],
+            ['hotel_id' => 8, 'status' => 'expired'],
+        ];
+
+        $filtered = $this->invokeNonPublic($controller, 'filterCollectionAuthorizationRows', [$rows, 7]);
+        $summary = $this->invokeNonPublic($controller, 'buildCollectionAuthorizationSummary', [$filtered]);
+
+        self::assertSame([0, 7], array_column($filtered, 'hotel_id'));
+        self::assertSame('warning', $summary['overall_status']);
+        self::assertSame(2, $summary['total']);
+        self::assertSame(1, $summary['ok']);
+        self::assertSame(1, $summary['warning']);
+        self::assertSame(0, $summary['expired']);
     }
 
     public function testCtripLatestBatchScopeUsesLatestFetchTimeWhenHotelIsSelected(): void
@@ -1344,6 +1450,40 @@ final class OnlineDataTest extends TestCase
         ], 'profile_browser']);
         self::assertSame('needs_profile', $profileResult['status_code']);
         self::assertSame('建立或重新登录浏览器 Profile', $profileResult['next_action']);
+
+        $meituanMissingResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
+            'module' => 'ranking_api',
+            'saved_count' => 0,
+            'success' => false,
+            'skipped' => true,
+            'message' => '缺少美团 Partner ID / POI ID / Cookies',
+        ], 'cookie_config']);
+        self::assertSame('needs_config', $meituanMissingResult['status_code']);
+        self::assertSame('补齐美团 Partner ID / POI ID / Cookies', $meituanMissingResult['next_action']);
+    }
+
+    public function testMeituanAutoFetchConfigStatusReportsMissingFields(): void
+    {
+        $controller = $this->controller();
+
+        $missing = $this->invokeNonPublic($controller, 'meituanAutoFetchConfigStatus', [[
+            'partner_id' => '',
+            'poi_id' => 'poi-7',
+            'cookies' => '',
+        ]]);
+
+        self::assertFalse($missing['api_configured']);
+        self::assertSame(['Partner ID', 'Cookies'], $missing['missing_fields']);
+        self::assertSame('Partner ID / Cookies', $missing['missing_text']);
+
+        $complete = $this->invokeNonPublic($controller, 'meituanAutoFetchConfigStatus', [[
+            'partnerId' => 'partner-7',
+            'poiId' => 'poi-7',
+            'cookie' => 'meituan-cookie',
+        ]]);
+
+        self::assertTrue($complete['api_configured']);
+        self::assertSame([], $complete['missing_fields']);
     }
 }
 

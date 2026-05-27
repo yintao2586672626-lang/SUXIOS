@@ -22,6 +22,7 @@ class PriceSuggestion extends Model
         'id' => 'integer',
         'hotel_id' => 'integer',
         'room_type_id' => 'integer',
+        'demand_forecast_id' => 'integer',
         'suggestion_type' => 'integer',
         'status' => 'integer',
         'current_price' => 'float',

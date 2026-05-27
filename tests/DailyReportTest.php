@@ -65,6 +65,50 @@ final class DailyReportTest extends TestCase
         self::assertSame(5.0, $sum['xb_rooms']);
     }
 
+    public function testLegacyJsonReportDataFeedsMonthSumAndExportTotals(): void
+    {
+        $controller = $this->controller();
+        $reports = [
+            (object)['report_data' => json_encode([
+                'xb_revenue' => '1,200',
+                'xb_rooms' => 3,
+                'salable_rooms' => 10,
+            ], JSON_UNESCAPED_UNICODE)],
+            (object)['report_data' => (object)[
+                'mt_revenue' => 800,
+                'mt_rooms' => '2',
+                'salable_rooms' => 10,
+            ]],
+        ];
+
+        $sum = $this->invokeNonPublic($controller, 'calculateMonthSum', [$reports]);
+
+        self::assertSame(1200.0, $sum['xb_revenue']);
+        self::assertSame(800.0, $sum['mt_revenue']);
+        self::assertSame(5.0, $sum['xb_rooms'] + $sum['mt_rooms']);
+
+        $html = $this->invokeNonPublic($controller, 'generateExcelHtml', [[
+            'reports' => [
+                [
+                    'hotel_name' => 'Legacy Hotel',
+                    'report_date' => '2026-05-01',
+                    'data' => $reports[0]->report_data,
+                ],
+                [
+                    'hotel_name' => 'Legacy Hotel',
+                    'report_date' => '2026-05-02',
+                    'data' => $reports[1]->report_data,
+                ],
+            ],
+            'month_task' => ['revenue_budget' => 4000],
+        ]]);
+
+        self::assertStringContainsString('2026-05-01', $html);
+        self::assertStringContainsString('2026-05-02', $html);
+        self::assertStringContainsString('2,000.00', $html);
+        self::assertStringContainsString('400.00', $html);
+    }
+
     /**
      * 覆盖 calculateReportDetail：
      * 验证日报核心收入、房晚、出租率、ADR/RevPAR、点评和私域字段计算。
@@ -131,6 +175,54 @@ final class DailyReportTest extends TestCase
         self::assertSame(30.0, $detail['day_cash_income']);
         self::assertSame(500.0, $detail['day_stored_value']);
         self::assertSame($reportData, $detail['raw_data']);
+    }
+
+    public function testDerivedFieldsProtectImportMappingTotals(): void
+    {
+        $controller = $this->controller();
+        $data = [
+            'total_rooms_count' => 30,
+            'maintenance_rooms' => 2,
+            'overnight_rooms' => 10,
+            'hourly_rooms' => 2,
+            'room_revenue' => 2400,
+            'xb_revenue' => 1000,
+            'xb_rooms' => 4,
+            'mt_revenue' => 800,
+            'mt_rooms' => 3,
+            'walkin_revenue' => 500,
+            'walkin_rooms' => 2,
+            'protocol_revenue' => 100,
+            'protocol_rooms' => 1,
+        ];
+
+        $this->invokeNonPublic($controller, 'calculateDerivedFields', [&$data]);
+
+        self::assertSame(28, $data['salable_rooms']);
+        self::assertSame(12, $data['total_rooms']);
+        self::assertSame(1800, $data['online_revenue']);
+        self::assertSame(7, $data['online_rooms']);
+        self::assertSame(600, $data['offline_revenue']);
+        self::assertSame(3, $data['offline_rooms']);
+        self::assertSame(200, $data['adr']);
+        self::assertSame(7 / 12, $data['ota_room_rate']);
+    }
+
+    public function testReportDataNormalizationKeepsSavedEchoShapeReadable(): void
+    {
+        $controller = $this->controller();
+        $data = [
+            'xb_revenue' => 1200.5,
+            'raw_data' => ['source' => 'import-preview'],
+        ];
+
+        $array = $this->invokeNonPublic($controller, 'normalizeReportData', [$data]);
+        $json = $this->invokeNonPublic($controller, 'normalizeReportData', [json_encode($data, JSON_UNESCAPED_UNICODE)]);
+        $object = $this->invokeNonPublic($controller, 'normalizeReportData', [(object)$data]);
+
+        self::assertSame($data, $array);
+        self::assertSame($data, $json);
+        self::assertSame($data, $object);
     }
 
     /**

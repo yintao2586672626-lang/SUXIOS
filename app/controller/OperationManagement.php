@@ -166,6 +166,16 @@ class OperationManagement extends Base
         }
     }
 
+    public function executionFlow(): Response
+    {
+        try {
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
+            return $this->success($this->service->executionFlow($hotelIds, $hotelId, $this->request->get()));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution flow query failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
     public function createExecutionIntent(): Response
     {
         try {

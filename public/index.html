@@ -37,7 +37,7 @@
                     </div>
                     <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
                     <p class="login-slogan text-base font-medium tracking-wide">Hotel Intelligence Platform</p>
-                    <p class="login-copy">酒店经营与收益决策数据中枢</p>
+                    <p class="login-copy">已开业酒店线上获客与收益增长中枢</p>
                 </div>
                 
                 <!-- 登录表单 -->
@@ -113,7 +113,7 @@
                 <!-- 🌟 Slogan 展示 -->
                 <div class="slogan-container text-center">
                     <p class="login-system-note">
-                        <i class="fas fa-chart-line"></i>OTA 数据驱动的运营收益闭环平台
+                        <i class="fas fa-chart-line"></i>OTA 数据 → 收益诊断 → 运营动作 → 效果复盘
                     </p>
                 </div>
                 
@@ -3129,6 +3129,88 @@
                             </div>
                         </div>
 
+                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="font-bold text-gray-900">决策到执行主流程</h3>
+                                    <p class="text-sm text-gray-500 mt-1">建议动作、审批、执行证据、效果复盘和 ROI 统一进入执行池。</p>
+                                </div>
+                                <button @click="loadOperationActions" :disabled="operationLoading.actions" class="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-60">
+                                    <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': operationLoading.actions }"></i>刷新
+                                </button>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
+                                <div v-for="stage in operationExecutionStages" :key="stage.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                    <div class="text-xs text-gray-500">{{ stage.label }}</div>
+                                    <div class="text-xl font-bold text-gray-900 mt-1">{{ stage.count || 0 }}</div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
+                                <div v-for="card in operationExecutionSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 p-3">
+                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                    <div class="text-xl font-bold text-gray-900 mt-1">{{ card.value }}</div>
+                                    <div class="text-xs text-gray-400 mt-2">{{ card.hint }}</div>
+                                </div>
+                            </div>
+                            <div class="flex flex-col md:flex-row md:items-center gap-3 mb-4 text-sm">
+                                <div class="rounded-lg border border-amber-100 bg-amber-50 text-amber-800 px-3 py-2">
+                                    当前瓶颈：{{ operationExecutionBottleneckText }}
+                                </div>
+                                <div :class="operationExecutionMoneyStatusClass" class="rounded-lg border px-3 py-2">
+                                    赚钱状态：{{ operationExecutionMoneyStatusText }}
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full text-sm">
+                                    <thead class="bg-gray-50 text-gray-500">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left">建议来源</th>
+                                            <th class="px-4 py-3 text-left">动作</th>
+                                            <th class="px-4 py-3 text-left">审批</th>
+                                            <th class="px-4 py-3 text-left">执行</th>
+                                            <th class="px-4 py-3 text-left">证据</th>
+                                            <th class="px-4 py-3 text-left">复盘</th>
+                                            <th class="px-4 py-3 text-left">ROI</th>
+                                            <th class="px-4 py-3 text-left">下一步</th>
+                                            <th class="px-4 py-3 text-left">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                                        <tr v-for="item in operationExecutionItems" :key="item.id" class="hover:bg-gray-50">
+                                            <td class="px-4 py-3">
+                                                <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
+                                                <div class="text-xs text-gray-400">{{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
+                                            </td>
+                                            <td class="px-4 py-3">{{ operationExecutionActionText(item) }}</td>
+                                            <td class="px-4 py-3">
+                                                <span :class="operationExecutionStatusClass(item.approval?.status)" class="px-2 py-1 rounded-full text-xs">{{ operationExecutionStatusLabel(item.approval?.status) }}</span>
+                                                <div v-if="item.approval?.blocked_reason" class="text-xs text-amber-700 mt-1">{{ item.approval.blocked_reason }}</div>
+                                            </td>
+                                            <td class="px-4 py-3">{{ operationExecutionStatusLabel(item.execution?.status) }}</td>
+                                            <td class="px-4 py-3">{{ item.evidence?.count || 0 }} 条</td>
+                                            <td class="px-4 py-3 text-gray-600">{{ operationExecutionReviewText(item) }}</td>
+                                            <td class="px-4 py-3">
+                                                <span :class="item.roi?.status === 'ready' ? 'text-green-700 font-semibold' : 'text-gray-400'">{{ operationExecutionRoiText(item.roi) }}</span>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <span :class="operationExecutionNextActionClass(item.next_action)" class="px-2 py-1 rounded-full text-xs">{{ item.next_action?.label || '-' }}</span>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <div class="flex flex-wrap gap-2">
+                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs hover:bg-green-700">审批</button>
+                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, false)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">驳回</button>
+                                                    <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
+                                                    <button v-if="operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">复盘</button>
+                                                    <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div v-if="!operationExecutionItems.length && !operationLoading.actions" class="p-6 text-center text-gray-400">暂无执行闭环记录</div>
+                        </div>
+
                         <div v-if="operationLoading.actions" class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-500">正在加载策略追踪...</div>
                         <div v-if="operationError.actions" class="bg-red-50 border border-red-100 text-red-600 rounded-xl p-4 text-sm">{{ operationError.actions }}</div>
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
@@ -3323,7 +3405,7 @@
                                         </span>
                                         <span :class="hasMeituanFetchConfigByHotelId(hotel.id) ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-gray-50 text-gray-500 border-gray-100'"
                                             class="px-2 py-1 rounded-full border">
-                                            美团{{ hasMeituanFetchConfigByHotelId(hotel.id) ? '已配置' : '未配置' }}
+                                            美团{{ hasMeituanFetchConfigByHotelId(hotel.id) ? '已配置' : (meituanConfigMissingTextByHotelId(hotel.id) ? '缺项' : '未配置') }}
                                         </span>
                                     </div>
                                 </div>
@@ -4180,8 +4262,8 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div class="flex flex-col md:flex-row md:items-center gap-3">
                                     <div>
-                                        <div class="text-xl font-bold text-gray-900">首页经营罗盘</div>
-                                        <div class="text-xs text-gray-500 mt-1">集中常用运营动作，可按团队习惯调整顺序与显示</div>
+                                        <div class="text-xl font-bold text-gray-900">线上获客与收益罗盘</div>
+                                        <div class="text-xs text-gray-500 mt-1">优先处理 OTA 数据、收益诊断、根因定位、策略动作和效果复盘</div>
                                     </div>
                                     <select v-model="filterReportHotel" class="input-field w-full md:w-56">
                                         <option value="">全部门店</option>
@@ -7685,10 +7767,13 @@
                                         <div class="text-xs text-gray-500 mt-1">
                                             携程配置：{{ getCtripConfigNameByHotelId(autoFetchHotelId) || '未关联' }}
                                         </div>
+                                        <div class="text-xs text-gray-500 mt-1">
+                                            美团配置：{{ hasMeituanFetchConfigByHotelId(autoFetchHotelId) ? (getMeituanConfigNameByHotelId(autoFetchHotelId) || '已关联') : (meituanConfigMissingTextByHotelId(autoFetchHotelId) ? ('缺失 ' + meituanConfigMissingTextByHotelId(autoFetchHotelId)) : '未关联') }}
+                                        </div>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">每日运行时间</label>
-                                        <input type="time" v-model="autoFetchScheduleTime" @change="saveFetchSchedule" :disabled="!autoFetchHotelId || !hasCtripFetchConfigByHotelId(autoFetchHotelId)"
+                                        <input type="time" v-model="autoFetchScheduleTime" @change="saveFetchSchedule" :disabled="!autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)"
                                             class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400">
                                     </div>
                                     <div>
@@ -7698,7 +7783,7 @@
                                                 class="px-3 py-2 bg-white border text-gray-700 rounded-lg hover:bg-gray-50" title="刷新">
                                                 <i class="fas fa-sync-alt"></i>
                                             </button>
-                                            <button @click="triggerAutoFetch" :disabled="fetchingData || !autoFetchHotelId || !hasCtripFetchConfigByHotelId(autoFetchHotelId)"
+                                            <button @click="triggerAutoFetch" :disabled="fetchingData || !autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)"
                                                 class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
                                                 <i :class="['fas mr-2', fetchingData ? 'fa-spinner fa-spin' : 'fa-play']"></i>{{ fetchingData ? '抓取中...' : '立即抓取' }}
                                             </button>
@@ -7706,8 +7791,11 @@
                                     </div>
                                 </div>
 
-                                <div v-if="autoFetchHotelId && !hasCtripFetchConfigByHotelId(autoFetchHotelId)" class="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm">
-                                    请先在“酒店管理”中为该酒店保存并关联携程 Cookies 配置。
+                                <div v-if="autoFetchHotelId && !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)" class="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm">
+                                    请先在“酒店管理”中为该酒店保存并关联携程或美团平台配置。
+                                </div>
+                                <div v-if="autoFetchHotelId && meituanConfigMissingTextByHotelId(autoFetchHotelId)" class="mb-4 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg px-3 py-2 text-sm">
+                                    美团配置缺失：{{ meituanConfigMissingTextByHotelId(autoFetchHotelId) }}。请在“酒店管理”的 OTA 数据源配置中补齐。
                                 </div>
 
                                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
@@ -7732,9 +7820,9 @@
                                 </div>
 
                                 <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b">
-                                    <label :class="['flex items-center', autoFetchHotelId && hasCtripFetchConfigByHotelId(autoFetchHotelId) ? 'cursor-pointer' : 'cursor-not-allowed opacity-60']">
+                                    <label :class="['flex items-center', autoFetchHotelId && hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId) ? 'cursor-pointer' : 'cursor-not-allowed opacity-60']">
                                         <div class="relative">
-                                            <input type="checkbox" v-model="autoFetchEnabled" @change="toggleAutoFetch" :disabled="!autoFetchHotelId || !hasCtripFetchConfigByHotelId(autoFetchHotelId)" class="sr-only">
+                                            <input type="checkbox" v-model="autoFetchEnabled" @change="toggleAutoFetch" :disabled="!autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)" class="sr-only">
                                             <div :class="['w-12 h-6 rounded-full transition-colors', autoFetchEnabled ? 'bg-green-500' : 'bg-gray-300']"></div>
                                             <div :class="['absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform', autoFetchEnabled ? 'translate-x-6' : '']"></div>
                                         </div>
@@ -7771,7 +7859,7 @@
                                                     </div>
                                                     <div class="text-xs text-gray-500 truncate mt-1">{{ item.message }}</div>
                                                 </div>
-                                                <button @click="retryAutoFetchDate(item.date)" :disabled="fetchingData || autoFetchBackfillingDate === item.date || !autoFetchHotelId || !hasCtripFetchConfigByHotelId(autoFetchHotelId)"
+                                                <button @click="retryAutoFetchDate(item.date)" :disabled="fetchingData || autoFetchBackfillingDate === item.date || !autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)"
                                                     class="px-3 py-1.5 bg-white border text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50 text-sm whitespace-nowrap">
                                                     <i :class="['fas mr-1', autoFetchBackfillingDate === item.date ? 'fa-spinner fa-spin' : 'fa-redo']"></i>补抓
                                                 </button>
@@ -7783,7 +7871,7 @@
                                         <div class="flex gap-2">
                                             <input type="date" v-model="autoFetchBackfillDate" :max="autoFetchMaxBackfillDate"
                                                 class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                            <button @click="retryAutoFetchDate(autoFetchBackfillDate)" :disabled="fetchingData || !autoFetchBackfillDate || autoFetchBackfillingDate === autoFetchBackfillDate || !autoFetchHotelId || !hasCtripFetchConfigByHotelId(autoFetchHotelId)"
+                                            <button @click="retryAutoFetchDate(autoFetchBackfillDate)" :disabled="fetchingData || !autoFetchBackfillDate || autoFetchBackfillingDate === autoFetchBackfillDate || !autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)"
                                                 class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 whitespace-nowrap">
                                                 <i :class="['fas mr-1', autoFetchBackfillingDate === autoFetchBackfillDate ? 'fa-spinner fa-spin' : 'fa-plus-circle']"></i>补抓
                                             </button>
@@ -10829,7 +10917,7 @@
                         </div>
                     </div>
 
-                    <!-- 全生命周期服务 (仅超级管理员) -->
+                    <!-- 全生命周期辅助视图 -->
                     <div v-if="currentPage === 'lifecycle'" class="max-w-7xl mx-auto space-y-6">
                         <!-- 核心理念横幅 -->
                         <div class="rounded-2xl p-4 md:p-5 text-white relative overflow-hidden border border-white/10" style="background: linear-gradient(135deg, #0b376d 0%, #1262a8 58%, #0ea5b7 100%); box-shadow: 0 16px 36px rgba(15, 63, 122, 0.16);">
@@ -10839,35 +10927,35 @@
                                     <div class="flex flex-wrap items-center gap-2 mb-3">
                                         <span class="inline-flex items-center gap-2 max-w-full bg-white/12 border border-white/15 rounded-full px-3 py-1 text-xs md:text-sm text-white/90">
                                             <i class="fas fa-route text-cyan-100"></i>
-                                            <span class="truncate">让每个决策，都有数据依据</span>
+                                            <span class="truncate">以运营收益闭环为核心</span>
                                         </span>
                                         <span class="hidden sm:inline-flex items-center gap-1.5 bg-white/10 border border-white/10 rounded-full px-3 py-1 text-xs text-cyan-50">
                                             <i class="fas fa-layer-group text-cyan-100"></i>
-                                            五阶段闭环
+                                            P0主线 + 二期辅助
                                         </span>
                                     </div>
-                                    <h2 class="text-xl md:text-2xl font-bold text-white leading-tight">宿析全生命周期服务</h2>
-                                    <p class="text-white/80 text-sm md:text-base mt-2 max-w-3xl">从筹建到退出，为酒店每个关键决策提供数据支撑</p>
+                                    <h2 class="text-xl md:text-2xl font-bold text-white leading-tight">全生命周期辅助视图</h2>
+                                    <p class="text-white/80 text-sm md:text-base mt-2 max-w-3xl">围绕已开业门店的线上获客和收益增长，保留投前、开业、扩张和转让的辅助判断入口</p>
                                     <div class="mt-4 hidden sm:flex flex-wrap gap-2 text-xs text-white/80">
-                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">筹建</span>
-                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">开业</span>
-                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">运营</span>
-                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">收益</span>
-                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">转让</span>
+                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">OTA数据</span>
+                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">收益诊断</span>
+                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">运营动作</span>
+                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">效果复盘</span>
+                                        <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">投前辅助</span>
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full lg:w-80 lg:flex-shrink-0">
                                     <div class="rounded-xl bg-white/12 px-2 sm:px-3 py-3 text-center border border-white/12">
-                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">5</div>
-                                        <div class="text-xs text-white/75 mt-1.5">经营阶段</div>
+                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">P0</div>
+                                        <div class="text-xs text-white/75 mt-1.5">主闭环</div>
                                     </div>
                                     <div class="rounded-xl bg-white/12 px-2 sm:px-3 py-3 text-center border border-white/12">
-                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">10+</div>
-                                        <div class="text-xs text-white/75 mt-1.5">决策场景</div>
+                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">二期</div>
+                                        <div class="text-xs text-white/75 mt-1.5">辅助模块</div>
                                     </div>
                                     <div class="rounded-xl bg-white/12 px-2 sm:px-3 py-3 text-center border border-white/12">
-                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">AI</div>
-                                        <div class="text-xs text-white/75 mt-1.5">数据支撑</div>
+                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">留痕</div>
+                                        <div class="text-xs text-white/75 mt-1.5">决策依据</div>
                                     </div>
                                 </div>
                             </div>
@@ -12634,7 +12722,7 @@
                                                     <div class="mt-2 grid grid-cols-3 gap-2 text-xs">
                                                         <div class="rounded bg-white border px-2 py-1">
                                                             <div class="text-gray-400">Cookie/配置</div>
-                                                            <div :class="platform.cookieConfigured || platform.taskCount > 0 ? 'text-green-700' : 'text-gray-500'">{{ platform.cookieConfigured || platform.taskCount > 0 ? '已配置' : '缺失' }}</div>
+                                                            <div :class="platform.apiConfigured || platform.taskCount > 0 ? 'text-green-700' : 'text-gray-500'">{{ platform.apiConfigured || platform.taskCount > 0 ? '已配置' : '缺失' }}</div>
                                                         </div>
                                                         <div class="rounded bg-white border px-2 py-1">
                                                             <div class="text-gray-400">Profile</div>
@@ -12646,6 +12734,7 @@
                                                         </div>
                                                     </div>
                                                     <div v-if="platform.nextAction" class="mt-2 text-xs text-gray-500">{{ platform.nextAction }}</div>
+                                                    <div v-if="platform.missingText" class="mt-2 text-xs text-red-600">美团配置缺失：{{ platform.missingText }}</div>
                                                     <div class="mt-3 flex flex-wrap gap-1.5">
                                                         <span v-for="item in platform.modules" :key="item" class="px-2 py-1 rounded bg-white border text-xs text-gray-600">{{ item }}</span>
                                                     </div>
@@ -12717,6 +12806,9 @@
 
                                             <div v-if="autoFetchHotelId && !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)" class="mb-5 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm">
                                                 请先在“酒店管理”中为该酒店保存并关联携程或美团平台配置。
+                                            </div>
+                                            <div v-if="autoFetchHotelId && meituanConfigMissingTextByHotelId(autoFetchHotelId)" class="mb-5 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg px-3 py-2 text-sm">
+                                                美团配置缺失：{{ meituanConfigMissingTextByHotelId(autoFetchHotelId) }}。请在“酒店管理”的 OTA 数据源配置中补齐。
                                             </div>
 
                                             <div v-if="autoFetchRunState.active || autoFetchRunState.message" class="mb-5 rounded-lg border px-4 py-3 text-sm" :class="autoFetchRunState.active ? 'bg-blue-50 border-blue-200 text-blue-800' : (autoFetchRunState.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800')">
@@ -15683,11 +15775,12 @@
             const autoFetchScheduleTime = ref('10:00');
 
             // 门店罗盘
-            const defaultHomeQuickEntryOrder = ['online-data', 'operation-diagnosis', 'strategy-simulation', 'ai-tools', 'hotel-management', 'system-settings'];
+            const defaultHomeQuickEntryOrder = ['online-data', 'operation-diagnosis', 'operation-root-cause', 'operation-alerts', 'strategy-simulation', 'action-tracking', 'hotel-management', 'ai-tools', 'system-settings'];
+            const defaultHomeQuickEntryHidden = ['hotel-management', 'ai-tools', 'system-settings'];
             const compassLayout = ref({
                 order: ['weather', 'todo', 'metrics', 'alerts', 'holiday'],
                 hidden: [],
-                quick_entries: { order: [...defaultHomeQuickEntryOrder], hidden: [] },
+                quick_entries: { order: [...defaultHomeQuickEntryOrder], hidden: [...defaultHomeQuickEntryHidden] },
             });
             const compassLayoutPanel = ref(false);
             const homeQuickLayoutEditing = ref(false);
@@ -16588,10 +16681,13 @@
                 return true;
             };
             const homeQuickEntryDefinitions = [
-                { key: 'online-data', title: '线上数据获取', desc: '同步 OTA 数据', page: 'ctrip-ebooking', tab: 'ctrip-ranking', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
-                { key: 'operation-diagnosis', title: '经营诊断', desc: '查看全维数据', page: 'ops-source', icon: 'fas fa-search' },
-                { key: 'strategy-simulation', title: '策略推演', desc: '生成收益方案', page: 'ai-strategy', icon: 'fas fa-chess' },
-                { key: 'ai-tools', title: '酒店AI工具箱', desc: '跳转常用AI工具', page: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true },
+                { key: 'online-data', title: 'OTA数据同步', desc: '采集校验携程美团', page: 'ctrip-ebooking', tab: 'ctrip-ranking', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
+                { key: 'operation-diagnosis', title: '收益诊断', desc: '收入与OTA漏斗', page: 'ops-source', icon: 'fas fa-search' },
+                { key: 'operation-root-cause', title: '根因定位', desc: '找获客和收入问题', page: 'ops-analysis', icon: 'fas fa-microscope' },
+                { key: 'operation-alerts', title: '预警建议', desc: '查看风险与动作', page: 'ops-insight', icon: 'fas fa-bell' },
+                { key: 'strategy-simulation', title: '策略模拟', desc: '生成运营方案', page: 'ops-plan', icon: 'fas fa-lightbulb' },
+                { key: 'action-tracking', title: '动作复盘', desc: '跟踪执行与ROI', page: 'ops-track', icon: 'fas fa-play-circle' },
+                { key: 'ai-tools', title: '酒店AI工具箱', desc: '辅助工具入口', page: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true },
                 { key: 'hotel-management', title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
                 { key: 'system-settings', title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog', requireSuper: true }
             ];
@@ -16735,7 +16831,7 @@
             };
             const resetHomeQuickLayout = () => {
                 clearHomeQuickDrag();
-                setHomeQuickLayout({ order: [...defaultHomeQuickEntryOrder], hidden: [] });
+                setHomeQuickLayout({ order: [...defaultHomeQuickEntryOrder], hidden: [...defaultHomeQuickEntryHidden] });
             };
             const saveHomeQuickLayout = async () => {
                 clearHomeQuickDrag();
@@ -17025,10 +17121,12 @@
                     configured: !!autoFetchPlatformStatus.value?.ctrip?.configured || hasCtripFetchConfigByHotelId(autoFetchHotelId.value),
                     configName: autoFetchPlatformStatus.value?.ctrip?.name || getCtripConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
                     entryUrl: autoFetchPlatformStatus.value?.ctrip?.entry_url || 'https://ebooking.ctrip.com',
+                    apiConfigured: !!autoFetchPlatformStatus.value?.ctrip?.cookie_configured,
                     cookieConfigured: !!autoFetchPlatformStatus.value?.ctrip?.cookie_configured,
                     profileConfigured: !!autoFetchPlatformStatus.value?.ctrip?.profile_configured,
                     taskCount: autoFetchPlatformStatus.value?.ctrip?.task_count || 0,
                     nextAction: autoFetchPlatformStatus.value?.ctrip?.next_action || '',
+                    missingText: '',
                     modules: autoFetchPlatformStatus.value?.ctrip?.task_modules?.length ? autoFetchPlatformStatus.value.ctrip.task_modules : ['business', 'traffic', 'browser_profile'],
                 },
                 {
@@ -17040,10 +17138,14 @@
                     configured: !!autoFetchPlatformStatus.value?.meituan?.configured || hasMeituanFetchConfigByHotelId(autoFetchHotelId.value),
                     configName: autoFetchPlatformStatus.value?.meituan?.name || getMeituanConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
                     entryUrl: autoFetchPlatformStatus.value?.meituan?.entry_url || 'https://eb.meituan.com',
+                    apiConfigured: !!autoFetchPlatformStatus.value?.meituan?.api_configured || hasMeituanFetchConfigByHotelId(autoFetchHotelId.value),
                     cookieConfigured: !!autoFetchPlatformStatus.value?.meituan?.cookie_configured,
+                    partnerIdConfigured: !!autoFetchPlatformStatus.value?.meituan?.partner_id_configured,
+                    poiIdConfigured: !!autoFetchPlatformStatus.value?.meituan?.poi_id_configured,
                     profileConfigured: !!autoFetchPlatformStatus.value?.meituan?.profile_configured,
                     taskCount: autoFetchPlatformStatus.value?.meituan?.task_count || 0,
                     nextAction: autoFetchPlatformStatus.value?.meituan?.next_action || '',
+                    missingText: autoFetchPlatformStatus.value?.meituan?.missing_text || meituanConfigMissingTextByHotelId(autoFetchHotelId.value),
                     modules: autoFetchPlatformStatus.value?.meituan?.task_modules?.length ? autoFetchPlatformStatus.value.meituan.task_modules : ['ranking', 'traffic', 'comments', 'browser_profile'],
                 },
             ]);
@@ -17981,7 +18083,6 @@
             // 菜单配置 - 根据权限控制显示
             const menuItems = computed(() => [
                 { name: '首页', path: 'compass', icon: 'fas fa-home', requireSuper: false, requireManager: true, permissions: [] },
-                { name: '全生命周期服务', path: 'lifecycle', icon: 'fas fa-share-alt', requireSuper: false, permissions: [], highlight: true },
                 { 
                     name: '运营收益闭环',
                     testid: 'nav-project-ai-management',
@@ -18047,6 +18148,7 @@
                         }
                     ]
                 },
+                { name: '全生命周期辅助', path: 'lifecycle', icon: 'fas fa-share-alt', requireSuper: false, permissions: [], highlight: true },
                 { name: systemConfig.value.menu_hotel_name || '门店管理', path: 'hotels', icon: 'fas fa-hotel', configKey: 'menu_hotel_name', requireSuper: false, permissions: [] },
                 {
                     name: '线上数据手动获取',
@@ -18095,6 +18197,7 @@
                 '项目AI管理': 'project-ai-management',
                 '首页': 'compass',
                 '全生命周期服务': 'lifecycle',
+                '全生命周期辅助': 'lifecycle',
                 '线上数据手动获取': 'online-data',
                 '团队管理': 'team',
                 '智能知识中枢': 'knowledge-center',
@@ -19031,6 +19134,7 @@
             const operationAlerts = ref({ list: [], unread_count: 0, data_status: '' });
             const operationStrategyResult = ref(null);
             const operationActions = ref([]);
+            const operationExecutionFlow = ref({ summary: {}, stages: [], list: [], data_gaps: [], data_status: '' });
             const operationEffectValidation = ref({ status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} });
             const operationLoading = ref({
                 fullData: false,
@@ -19182,6 +19286,90 @@
                 if (!gaps.length) return '';
                 return gaps.slice(0, 2).map(item => item.message || item.code).filter(Boolean).join('；');
             });
+            const operationExecutionItems = computed(() => operationExecutionFlow.value?.list || []);
+            const operationExecutionStages = computed(() => operationExecutionFlow.value?.stages || []);
+            const operationExecutionSummaryCards = computed(() => {
+                const summary = operationExecutionFlow.value?.summary || {};
+                return [
+                    { label: '执行单', value: operationValue(summary.total || 0), hint: '建议转执行意图总数' },
+                    { label: '审批率', value: operationExecutionRateText(summary.approval_rate), hint: `已审批 ${summary.approved || 0}` },
+                    { label: '执行率', value: operationExecutionRateText(summary.execution_rate), hint: `已执行 ${summary.executed || 0}` },
+                    { label: '证据率', value: operationExecutionRateText(summary.evidence_rate), hint: `证据齐备 ${summary.evidence_ready || 0}` },
+                    { label: '净收益', value: operationMoney(summary.total_profit || 0), hint: `增量收入 ${operationMoney(summary.total_incremental_revenue || 0)}` },
+                    { label: '平均 ROI', value: summary.avg_roi === null || summary.avg_roi === undefined ? '-' : `${summary.avg_roi}%`, hint: `可计算样本 ${summary.roi_ready || 0}` },
+                ];
+            });
+            const operationExecutionBottleneckText = computed(() => {
+                const bottleneck = operationExecutionFlow.value?.summary?.bottleneck || {};
+                if (!bottleneck.stage || !bottleneck.count) return '暂无明显瓶颈';
+                return `${bottleneck.label || operationExecutionStatusLabel(bottleneck.stage)} ${bottleneck.count} 单`;
+            });
+            const operationExecutionMoneyStatusText = computed(() => ({
+                profit_positive: '已验证赚钱',
+                profit_negative: '已验证亏损',
+                break_even: '收益持平',
+                no_roi: '缺少 ROI 证据',
+            }[operationExecutionFlow.value?.summary?.money_status] || '待判断'));
+            const operationExecutionMoneyStatusClass = computed(() => ({
+                profit_positive: 'border-green-100 bg-green-50 text-green-700',
+                profit_negative: 'border-red-100 bg-red-50 text-red-700',
+                break_even: 'border-blue-100 bg-blue-50 text-blue-700',
+                no_roi: 'border-gray-100 bg-gray-50 text-gray-600',
+            }[operationExecutionFlow.value?.summary?.money_status] || 'border-gray-100 bg-gray-50 text-gray-600'));
+            const operationExecutionSourceText = (item) => {
+                const source = item?.recommendation?.source || '';
+                return source && !source.endsWith('#0') ? source : (item?.recommendation?.source_module || 'manual');
+            };
+            const operationExecutionRateText = (value) => value === null || value === undefined ? '-' : `${Number(value).toFixed(0)}%`;
+            const operationExecutionActionText = (item) => {
+                const recommendation = item?.recommendation || {};
+                const objectText = ({ price: '价格', inventory: '房态', campaign: '活动' }[recommendation.object_type] || recommendation.object_type || '动作');
+                return `${objectText} · ${operationStrategyTypeLabel(recommendation.action_type)}`;
+            };
+            const operationExecutionStatusLabel = (status) => ({
+                draft: '草稿',
+                pending_approval: '待审批',
+                approved: '已审批',
+                rejected: '已驳回',
+                blocked: '已阻塞',
+                pending_create: '待生成任务',
+                pending_execute: '待执行',
+                executing: '执行中',
+                executed: '已执行',
+                failed: '执行失败',
+                observing: '观察中',
+                success: '有效',
+                near_success: '接近有效',
+            }[status] || status || '-');
+            const operationExecutionStatusClass = (status) => ({
+                approved: 'bg-green-50 text-green-700',
+                executed: 'bg-green-50 text-green-700',
+                success: 'bg-green-50 text-green-700',
+                pending_approval: 'bg-amber-50 text-amber-700',
+                pending_execute: 'bg-blue-50 text-blue-700',
+                executing: 'bg-blue-50 text-blue-700',
+                blocked: 'bg-amber-50 text-amber-700',
+                rejected: 'bg-gray-100 text-gray-500',
+                failed: 'bg-red-50 text-red-700',
+            }[status] || 'bg-gray-100 text-gray-500');
+            const operationExecutionReviewText = (item) => {
+                const review = item?.review || {};
+                const label = operationExecutionStatusLabel(review.status);
+                return review.summary ? `${label} · ${review.summary}` : label;
+            };
+            const operationExecutionRoiText = (roi) => {
+                if (!roi || roi.status !== 'ready') return roi?.message || '待计算';
+                return `${roi.value}% / 利润${operationMoney(roi.profit)}`;
+            };
+            const operationExecutionNextActionClass = (action) => ({
+                high: 'bg-red-50 text-red-700',
+                medium: 'bg-amber-50 text-amber-700',
+                low: 'bg-gray-100 text-gray-500',
+            }[action?.priority] || 'bg-gray-100 text-gray-500');
+            const operationCanApproveExecution = (item) => item?.approval?.status === 'pending_approval';
+            const operationCanExecuteWithEvidence = (item) => ['pending_execute', 'executing'].includes(item?.execution?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+            const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+            const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item) || operationCanExecuteWithEvidence(item) || operationCanReviewExecution(item);
             const operationErrorMessage = (error, fallback) => {
                 const message = error?.message || '';
                 return /[\u4e00-\u9fa5]/.test(message) ? message : fallback;
@@ -19520,13 +19708,106 @@
                     });
                     if (hotelId === null) return;
                     if (hotelId) params.append('hotel_id', hotelId);
-                    const res = await apiRequest(`/operation/action-tracking${params.toString() ? '?' + params.toString() : ''}`);
+                    const query = params.toString() ? '?' + params.toString() : '';
+                    const [res, flowRes] = await Promise.all([
+                        apiRequest(`/operation/action-tracking${query}`),
+                        apiRequest(`/operation/execution-flow${query}`),
+                    ]);
                     if (res.code !== 200) throw new Error(res.message || '策略追踪加载失败');
+                    if (flowRes.code !== 200) throw new Error(flowRes.message || '执行闭环加载失败');
                     operationActions.value = res.data?.actions || [];
+                    operationExecutionFlow.value = flowRes.data || { summary: {}, stages: [], list: [], data_gaps: [], data_status: '' };
                     operationEffectValidation.value = res.data?.effect_validation || { status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} };
                 } catch (error) {
                     operationError.value.actions = operationErrorMessage(error, '策略追踪加载失败');
                     showToast(operationError.value.actions, 'error');
+                } finally {
+                    operationLoading.value.actions = false;
+                }
+            };
+
+            const parseOperationEvidenceNumber = (value, label) => {
+                const text = String(value ?? '').trim();
+                if (!text) throw new Error(`${label}不能为空`);
+                const number = Number(text);
+                if (!Number.isFinite(number)) throw new Error(`${label}必须是数字`);
+                return number;
+            };
+
+            const approveOperationExecutionIntent = async (item, approved = true) => {
+                if (!item?.id) return;
+                const remark = approved ? '' : (prompt('请输入驳回原因') || '').trim();
+                if (!approved && !remark) return;
+                if (approved && !confirm('确认审批该执行意图？')) return;
+                operationLoading.value.actions = true;
+                try {
+                    const res = await apiRequest(`/operation/execution-intents/${item.id}/approve`, {
+                        method: 'POST',
+                        body: JSON.stringify({ approved, remark }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '执行意图审批失败');
+                    showToast(approved ? '执行意图已审批' : '执行意图已驳回');
+                    await loadOperationActions();
+                } catch (error) {
+                    showToast(operationErrorMessage(error, '执行意图审批失败'), 'error');
+                } finally {
+                    operationLoading.value.actions = false;
+                }
+            };
+
+            const recordOperationExecutionEvidence = async (item) => {
+                const taskId = Number(item?.execution?.task_id || 0);
+                if (!taskId) return;
+                const beforeText = prompt('请输入执行前收入，用于 ROI 复盘');
+                if (beforeText === null) return;
+                const afterText = prompt('请输入执行后收入，用于 ROI 复盘');
+                if (afterText === null) return;
+                const costText = prompt('请输入执行成本或投放成本');
+                if (costText === null) return;
+                const remark = (prompt('请输入执行证据备注，如平台、截图路径或操作说明') || '').trim();
+
+                try {
+                    const beforeRevenue = parseOperationEvidenceNumber(beforeText, '执行前收入');
+                    const afterRevenue = parseOperationEvidenceNumber(afterText, '执行后收入');
+                    const cost = parseOperationEvidenceNumber(costText, '执行成本');
+                    operationLoading.value.actions = true;
+                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/execute`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            status: 'executed',
+                            evidence_type: 'manual_finance',
+                            evidence: {
+                                before: { revenue: beforeRevenue },
+                                after: { revenue: afterRevenue, cost },
+                                platform_response: { mode: 'manual' },
+                                remark,
+                            },
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '执行证据保存失败');
+                    showToast('执行证据已保存');
+                    await loadOperationActions();
+                } catch (error) {
+                    showToast(operationErrorMessage(error, error.message || '执行证据保存失败'), 'error');
+                } finally {
+                    operationLoading.value.actions = false;
+                }
+            };
+
+            const reviewOperationExecutionTask = async (item) => {
+                const taskId = Number(item?.execution?.task_id || 0);
+                if (!taskId) return;
+                operationLoading.value.actions = true;
+                try {
+                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/review`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '执行复盘失败');
+                    showToast('执行复盘已更新');
+                    await loadOperationActions();
+                } catch (error) {
+                    showToast(operationErrorMessage(error, '执行复盘失败'), 'error');
                 } finally {
                     operationLoading.value.actions = false;
                 }
@@ -21049,12 +21330,36 @@
             const selectedCtripHotelConfig = computed(() => findCtripConfigByHotelId(selectedCtripHotelId.value));
             const selectedMeituanHotelConfig = computed(() => findMeituanConfigByHotelId(meituanForm.value.hotelId));
 
+            const meituanConfigHasCookies = (config) => {
+                return !!(String(config?.cookies || '').trim() || config?.has_cookies);
+            };
+
+            const meituanConfigMissingFields = (config) => {
+                const missing = [];
+                if (!String(config?.partner_id || config?.partnerId || '').trim()) missing.push('Partner ID');
+                if (!String(config?.poi_id || config?.poiId || '').trim()) missing.push('POI ID');
+                if (!meituanConfigHasCookies(config)) missing.push('Cookies');
+                return missing;
+            };
+
+            const meituanConfigMissingText = (config) => meituanConfigMissingFields(config).join(' / ');
+
+            const meituanConfigMissingTextByHotelId = (hotelId) => {
+                if (!hotelId) return '';
+                const config = findMeituanConfigByHotelId(hotelId);
+                return config ? meituanConfigMissingText(config) : '';
+            };
+
             const hotelOtaConfigStatusText = computed(() => {
                 const hasCtrip = !!(hotelOtaConfig.value.ctrip?.cookies || '').trim();
-                const hasMeituan = !!(hotelOtaConfig.value.meituan?.cookies || '').trim();
+                const meituan = hotelOtaConfig.value.meituan || {};
+                const hasMeituanPartial = !!(meituan.cookies || meituan.partner_id || meituan.poi_id);
+                const meituanMissing = meituanConfigMissingFields(meituan);
+                const hasMeituan = hasMeituanPartial && meituanMissing.length === 0;
                 if (hasCtrip && hasMeituan) return '携程、美团已填写';
                 if (hasCtrip) return '携程已填写';
                 if (hasMeituan) return '美团已填写';
+                if (hasMeituanPartial) return `美团缺失：${meituanMissing.join(' / ')}`;
                 return '默认收起，可在此维护携程、美团 Cookie 与平台 ID';
             });
 
@@ -21079,7 +21384,7 @@
             const hasMeituanFetchConfigByHotelId = (hotelId) => {
                 if (!hotelId) return false;
                 const config = findMeituanConfigByHotelId(hotelId);
-                return !!(config && (String(config.cookies || '').trim() || config.has_cookies));
+                return !!(config && meituanConfigMissingFields(config).length === 0);
             };
 
             const hasAnyPlatformFetchConfigByHotelId = (hotelId) => {
@@ -23692,7 +23997,7 @@
                     body: JSON.stringify({
                         order: compassLayout.value.order,
                         hidden: compassLayout.value.hidden || [],
-                        quick_entries: compassLayout.value.quick_entries || { order: [...defaultHomeQuickEntryOrder], hidden: [] }
+                        quick_entries: compassLayout.value.quick_entries || { order: [...defaultHomeQuickEntryOrder], hidden: [...defaultHomeQuickEntryHidden] }
                     })
                 });
                 if (res.code === 200) {
@@ -25926,13 +26231,14 @@
 
             const hasPartialMeituanOtaConfig = () => {
                 const cfg = hotelOtaConfig.value.meituan || {};
-                return !!(cfg.cookies || cfg.partner_id || cfg.poi_id);
+                return !!(String(cfg.cookies || '').trim() || String(cfg.partner_id || '').trim() || String(cfg.poi_id || '').trim());
             };
 
             const validateHotelOtaConfig = () => {
                 const meituan = hotelOtaConfig.value.meituan || {};
-                if (hasPartialMeituanOtaConfig() && (!meituan.cookies || !meituan.partner_id || !meituan.poi_id)) {
-                    showToast('美团数据源需同时填写 Cookie、Partner ID 和 POI ID', 'error');
+                const missingFields = meituanConfigMissingFields(meituan);
+                if (hasPartialMeituanOtaConfig() && missingFields.length > 0) {
+                    showToast(`美团数据源缺失：${missingFields.join(' / ')}`, 'error');
                     return false;
                 }
                 return true;
@@ -31452,7 +31758,7 @@
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
                 transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferHotelOptions,
                 transferRecordTypeLabel, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, archiveTransferRecord,
-                operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationEffectValidation,
+                operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationEffectValidation,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
                 operationAlertFilter, operationAlertFilters, operationStrategyTypes, operationHotelOptions, operationSummaryCards, operationOtaCards, operationCompetitorCards,
                 operationSourceBrief, operationDecisionCards,
@@ -31462,6 +31768,11 @@
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
                 operationEffectMetricCards, operationEffectDataGapText, operationEffectStatusLabel, operationEffectStatusClass, operationEffectMetricStatusLabel, operationEffectMetricValue,
+                operationExecutionItems, operationExecutionStages, operationExecutionSummaryCards, operationExecutionSourceText, operationExecutionActionText,
+                operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, operationExecutionRoiText,
+                operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
+                operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReviewExecution, operationExecutionActionAvailable,
+                approveOperationExecutionIntent, recordOperationExecutionEvidence, reviewOperationExecutionTask,
                 openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingOverview, openingTasks, openingLoading,
                 openingProjectForm, openingPositioningImpact, openingTaskFilter, openingTaskPage, openingTaskPagination, pagedOpeningTasks, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
                 selectedOpeningTaskIds, selectedOpeningTasks, isAllFilteredOpeningTasksSelected, toggleSelectAllFilteredOpeningTasks, clearSelectedOpeningTasks, batchUpdateOpeningTasks,
@@ -31483,7 +31794,7 @@
                 revenueResearchForecastCards, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, searchUser, filterUserRoleId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
