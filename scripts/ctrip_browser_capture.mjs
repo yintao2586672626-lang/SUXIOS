@@ -1,8 +1,8 @@
-import { chromium } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
+import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 
 const URLS = {
   business: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true',
@@ -69,16 +69,7 @@ const payload = {
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
 };
 
-const launchOptions = {
-  headless: args.headless === 'true',
-  viewport: { width: 1440, height: 960 },
-  locale: 'zh-CN',
-};
-if (args.chromePath) {
-  launchOptions.executablePath = String(args.chromePath);
-}
-
-const browser = await chromium.launchPersistentContext(storageDir, launchOptions);
+const browser = await launchOtaPersistentContext(storageDir, args);
 payload.cookie_injection = await injectBrowserCookies(browser, args, 'ctrip');
 const page = await browser.newPage();
 registerResponseCapture(page, payload);

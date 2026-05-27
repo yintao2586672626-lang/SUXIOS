@@ -15,7 +15,7 @@
 | --- | --- | --- | --- |
 | P0 | 订单、订单日志、订单监控 | 经营日报、实时驾驶舱、失败归因 | 直连导出/上下文补数 + 自动 Profile |
 | P0 | 房型、产品、价格、库存 | 房态价量日报、价格库存巡检 | 直连平台导出/API 上下文优先 |
-| P0 | 点评、评分、回复 | 口碑看板、客服任务 | 手动 Payload + 自动 Profile |
+| 暂缓 | 点评、评分、回复 | 平台管控较严，短期投入产出低 | 仅保留显式手动入口，不进入默认自动采集 |
 | P1 | 流量、排名、转化 | 周月看板、漏斗诊断 | 商家报表/自动 Profile |
 | P1 | 接口耗时、异常、SLA | 运营监控、告警 | 订单日志/监控页 |
 | P2 | 广告投放 | 活动复盘、ROI | 有广告账号、成本口径和复盘需求时再接入 |
@@ -59,7 +59,7 @@
 | 订单/入住 | Cookie/Session、`partner_id`、`poi_id`/`store_id`、订单筛选 Payload、日期 | 订单/入住管理页，`/orders/list`、`/order/unhandled/count` | 订单号、状态、房型、间数、入住离店、金额、均价 |
 | 订单日志/监控 | 导出表或监控页上下文 | 直连订单日志/监控页 | 步骤、结果、时间、耗时、成功/失败/异常、TP95 |
 | 产品/价格库存 | 直连产品导出、`poiId`、房型/产品上下文 | 直连产品/房态价页面 | 产品名、底价、卖价、佣金、库存、早餐、开关 |
-| 点评 | Cookie/Session、`poi_id`/`store_id`、点评 Payload、日期 | 点评页，`queryGeneralCommentInfo`、`commentsInfo` | 评分、评价数、差评、回复、房型、入住日期 |
+| 点评（暂缓） | Cookie/Session、`poi_id`/`store_id`、点评 Payload、日期 | 点评页，`queryGeneralCommentInfo`、`commentsInfo` | 仅显式手动启用时采集 |
 | 流量/排名 | Cookie/Session、`partner_id`、`poi_id`/`store_id`、iframe URL、日期 Payload | 数据中心 iframe/newhb SPA，`businessData`、`traffic`、`peerTrends` | 曝光、浏览、PV/UV、转化、排名 |
 | 广告 | 广告账号、成本、活动数据、日期 | 广告页，仅明确需要时加入 | 曝光、点击、消耗、订单、ROI/ROAS |
 

@@ -9,6 +9,10 @@ const functionMatch = source.match(/const generateOtaDiagnosis = async \(\) => \
 const generateBody = functionMatch ? functionMatch[0] : '';
 const triggerMatch = source.match(/const triggerAutoFetch = async \(\) => \{[\s\S]*?\n            \};/);
 const triggerBody = triggerMatch ? triggerMatch[0] : '';
+const runFetchMatch = source.match(/const runOtaDiagnosisHotelFetch = async \([\s\S]*?\n            \};/);
+const runFetchBody = runFetchMatch ? runFetchMatch[0] : '';
+const autoFetchTaskPlanMatch = controllerSource.match(/private function buildAutoFetchConfigTaskPlan[\s\S]*?\n    private function executeCtripAutoFetch/);
+const autoFetchTaskPlanBody = autoFetchTaskPlanMatch ? autoFetchTaskPlanMatch[0] : '';
 
 const checks = [
   {
@@ -37,13 +41,14 @@ const checks = [
     pass: source.includes("url: '/online-data/fetch-meituan-traffic'"),
   },
   {
-    name: 'auto-fetch includes Ctrip comments data',
-    pass: /label'\s*=>\s*'ctrip-comments'/.test(controllerSource)
+    name: 'auto-fetch skips Ctrip comments data by default',
+    pass: !/label'\s*=>\s*'ctrip-comments'/.test(autoFetchTaskPlanBody)
       && /executeCtripCommentsAutoFetchTask/.test(controllerSource),
   },
   {
-    name: 'auto-fetch includes Meituan comments data',
-    pass: source.includes("url: '/online-data/fetch-meituan-comments'"),
+    name: 'auto-fetch skips Meituan comments data by default',
+    pass: !/label'\s*=>\s*'meituan-comments'/.test(autoFetchTaskPlanBody)
+      && !runFetchBody.includes("url: '/online-data/fetch-meituan-comments'"),
   },
   {
     name: 'auto-fetch writes fetched rows to selected system hotel',

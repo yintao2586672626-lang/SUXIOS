@@ -46,13 +46,13 @@ SELECT
   '采集方法',
   JSON_OBJECT(
     'title', @meituan_capture_unit_name,
-    'summary', '真实浏览器登录美团 eBooking，复用门店独立 Profile，按点评、流量、广告、订单页面触发接口，监听 XHR/fetch JSON 响应并解析入库。',
+    'summary', '真实浏览器登录美团 eBooking，复用门店独立 Profile，默认按流量、订单、广告页面触发接口，监听 XHR/fetch JSON 响应并解析入库；点评暂缓。',
     'profile_rule', '每个门店使用独立 storage/meituan_profile_{store_id}，Profile 和 Cookie 不进入 Git。',
     'login_flow', JSON_ARRAY('复用本地 Profile Cookie', '打开美团 eBooking 登录入口检查登录态', '登录失效时弹出浏览器等待人工登录', '登录成功后自动继续采集', '登录态保留供下次复用'),
-    'page_order', JSON_ARRAY('点评管理页', '数据中心 iframe', 'newhb 流量 SPA', '可选广告页', '订单/入住管理页'),
+    'page_order', JSON_ARRAY('数据中心 iframe', 'newhb 流量 SPA', '可选广告页', '订单/入住管理页'),
     'response_filter', JSON_ARRAY('XHR 或 fetch 响应', 'HTTP 200', '返回体可解析为 JSON', 'URL 命中明确业务规则'),
     'match_keywords', JSON_OBJECT(
-      'reviews', JSON_ARRAY('queryGeneralCommentInfo', 'commentsInfo', 'comments/statistics'),
+      'reviews_optional_deferred', JSON_ARRAY('queryGeneralCommentInfo', 'commentsInfo', 'comments/statistics'),
       'traffic', JSON_ARRAY('businessData', 'traffic', 'peerTrends'),
       'ads', JSON_ARRAY('cureShops'),
       'orders', JSON_ARRAY('/orders/list', '/order/unhandled/count')
@@ -68,7 +68,7 @@ SELECT
   JSON_OBJECT(
     'target_table', 'online_daily_data',
     'no_new_tables', JSON_ARRAY('reviews', 'orders', 'traffic_data'),
-    'review', 'data_type=review，comment_score/data_value 保存评分，点评 ID、内容、回复、是否差评、点评人、房型、入住时间、标签进入 raw_data。',
+    'review', '点评暂缓，仅显式手动启用时使用 data_type=review 保存；不进入默认自动采集。',
     'traffic', 'data_type=traffic，list_exposure 保存曝光，detail_exposure 保存浏览或点击，flow_rate 保存转化率，搜索/品类/关键词排名进入 raw_data。',
     'advertising', 'data_type=advertising，曝光、点击、转化沿用流量字段，广告计划、关键词、ROI 进入 raw_data。',
     'order', 'data_type=order，amount 保存订单金额，quantity 保存 room_count*nights，book_order_num 保存订单数，data_value 保存平均房价，订单详情进入 raw_data。',
@@ -84,7 +84,7 @@ SELECT
   JSON_OBJECT(
     'json_first', '接口 JSON 优先，DOM/HTML 只用于页面展示指标、摘要或排名兜底。',
     'raw_retention', '关键接口保留脱敏 raw_data，便于字段变化排查、对账和修复。',
-    'dedupe', '点评按评价 ID 去重，订单按订单号去重，流量和广告按酒店、来源、类型、维度和日期更新。',
+    'dedupe', '订单按订单号去重，流量和广告按酒店、来源、类型、维度和日期更新；点评暂缓时不参与默认去重链路。',
     'sensitive_data', 'Cookie、Profile、账号密码、手机号明文、截图和含敏感数据的输出不进入 Git。',
     'failure_policy', '登录超时、接口未命中、空数据必须显式返回，不写假数据冒充真实经营结果。',
     'verification', JSON_ARRAY('确认 capture-meituan-browser 可启动脚本', '确认首次登录和已登录 Profile 均可执行', '确认保存行可被 OTA 历史、AI 诊断、收益分析和经营预警读取')
@@ -136,10 +136,10 @@ SET @staff_knowledge_content := CONCAT(
   '1. 每个门店使用 `storage/meituan_profile_{store_id}`。', '\n',
   '2. 在“美团ebooking数据获取 -> 浏览器抓取”点击“开始抓取并入库”。', '\n',
   '3. 首次弹出美团窗口时完成人工登录，脚本自动等待登录态并继续采集。', '\n',
-  '4. 依次打开点评、流量、newhb 流量、广告、订单页面。', '\n',
+  '4. 默认依次打开流量、newhb 流量、广告、订单页面；点评暂缓。', '\n',
   '5. 只处理命中业务规则的 JSON 响应；DOM/HTML 只做兜底。', '\n\n',
   '## 字段映射', '\n',
-  '- 点评：`data_type=review`，评分进入 `comment_score/data_value`，点评详情进入 `raw_data`。', '\n',
+  '- 点评：当前暂缓，仅显式手动启用时写入 `data_type=review`。', '\n',
   '- 流量：`data_type=traffic`，使用 `list_exposure/detail_exposure/flow_rate`，排名和关键词进入 `raw_data`。', '\n',
   '- 广告：`data_type=advertising`，曝光、点击、转化沿用流量字段，计划和 ROI 进入 `raw_data`。', '\n',
   '- 订单：`data_type=order`，金额进入 `amount`，间夜进入 `quantity`，订单数进入 `book_order_num`，均价进入 `data_value`。', '\n\n',

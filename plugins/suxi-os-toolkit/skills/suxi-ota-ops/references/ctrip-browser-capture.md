@@ -1,5 +1,7 @@
 # 携程数据获取方案（手动 + 自动）
 
+> 客户/项目团队可读详版方法见：`docs/ctrip_browser_capture_method.md`。
+
 ## 定位
 
 携程数据获取分两条路线：
@@ -15,7 +17,7 @@
 | --- | --- | --- | --- |
 | P0 | 经营概况、订单、间夜、收入 | OTA 经营日报、收益分析 | 手动导入/接口上下文 + 自动 Profile |
 | P0 | 流量、转化、排名 | 周月看板、漏斗诊断 | 手动报表或 Payload + 自动 Profile |
-| P0 | 点评、评分、回复 | 口碑看板、服务质量 | 手动 Payload + 自动 Profile |
+| 暂缓 | 点评、评分、回复 | 平台管控较严，短期投入产出低 | 仅保留显式手动入口，不进入默认自动采集 |
 | P1 | 房态、房价、ARI、产品 | 房态价量日报、价格巡检 | Trip Connect/API/导出优先，自动补充 |
 | P1 | 竞对、市场热度 | 经营复盘、收益建议 | 仅采集后台可见或官方导出项 |
 | P2 | 广告投放 | 活动复盘、ROI | 有广告成本和账号权限时再接入 |
@@ -46,7 +48,7 @@
 
 1. 使用 `storage/ctrip_profile_{store_id}`，每个门店独立 Profile。
 2. 复用已登录状态；失效时返回 `needs_login` 并打开登录页，等待人工完成短信、滑块或人机验证。
-3. 按模块打开页面：经营概况、流量、订单、点评、房态房价。
+3. 按模块打开页面：经营概况、流量、订单、房态房价；点评暂缓。
 4. 只监听 XHR/fetch、HTTP 200、可解析 JSON、命中 URL 规则的响应。
 5. DOM 只补页面已展示的排名、摘要或缺失指标；不抓菜单、按钮、导航文本作为业务数据。
 6. 清洗、脱敏、去重后写入 `online_daily_data`，关键原始结构进入 `raw_data`。
@@ -58,7 +60,7 @@
 | 经营概况 | Cookie 或导出报表、酒店 ID、日期 | 数据中心概况页、昨日概况接口 | 成交金额、订单数、间夜、均价、成交率、评分 |
 | 流量 | Cookie、`node_id`/酒店 ID、Payload、日期，或流量报表 | 数据中心流量页，`queryScanFlowDetailsV2`、`queryFlowTransforNew` 等 | PV、UV、曝光、点击、转化、排名 |
 | 订单 | Cookie、订单筛选 Payload、日期，或订单导出 | 订单页，`queryOrderList`、`getOrderList` 等 | 订单号、状态、房型、间数、入住离店、金额 |
-| 点评 | Cookie、`spidertoken`、Payload、日期、渠道 Tab | 点评页，`getCommentList` | 评分、内容、回复、差评、房型、入住日期 |
+| 点评（暂缓） | Cookie、`spidertoken`、Payload、日期、渠道 Tab | 点评页，`getCommentList` | 仅显式手动启用时采集 |
 | 房态房价/ARI | Trip Connect/API、导出表，或后台可见页面 | 房态房价页或官方接口 | 日历价、库存、关房、限制、取消规则 |
 | 广告 | 广告报表、成本、日期 | 广告页，仅明确需要时加入 | 曝光、点击、消耗、订单、ROI/ROAS |
 

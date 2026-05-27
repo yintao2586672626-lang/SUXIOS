@@ -1,9 +1,9 @@
-import { chromium } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import readline from 'node:readline/promises';
 import process from 'node:process';
+import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 
 const URLS = {
   comments: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
@@ -44,16 +44,7 @@ const payload = {
   screenshots: [],
 };
 
-const launchOptions = {
-  headless: args.headless === 'true',
-  viewport: { width: 1440, height: 960 },
-  locale: 'zh-CN',
-};
-if (args.chromePath) {
-  launchOptions.executablePath = String(args.chromePath);
-}
-
-const browser = await chromium.launchPersistentContext(storageDir, launchOptions);
+const browser = await launchOtaPersistentContext(storageDir, args);
 const page = await browser.newPage();
 registerResponseCapture(page, payload);
 

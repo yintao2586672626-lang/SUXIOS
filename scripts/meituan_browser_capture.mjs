@@ -1,4 +1,3 @@
-import { chromium } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -9,6 +8,7 @@ import {
   injectBrowserCookies as injectStandardBrowserCookies,
   normalizeCaptureSections as normalizeStandardCaptureSections,
 } from './lib/ota_capture_standard.mjs';
+import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 
 const URLS = {
   login: 'https://me.meituan.com/ebooking/',
@@ -29,7 +29,7 @@ const reportDir = resolve(args.reportDir || 'reports');
 const assetDir = join(reportDir, 'meituan_capture_assets');
 const capturedAt = new Date().toISOString();
 const outputPath = resolve(args.output || join(reportDir, `meituan_capture_${safeName(storeId)}_${timestamp()}.json`));
-const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'reviews,traffic,orders');
+const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'traffic,orders');
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -53,16 +53,7 @@ const payload = {
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
 };
 
-const launchOptions = {
-  headless: args.headless === 'true',
-  viewport: { width: 1440, height: 960 },
-  locale: 'zh-CN',
-};
-if (args.chromePath) {
-  launchOptions.executablePath = String(args.chromePath);
-}
-
-const browser = await chromium.launchPersistentContext(storageDir, launchOptions);
+const browser = await launchOtaPersistentContext(storageDir, args);
 payload.cookie_injection = await injectBrowserCookies(browser, args, 'meituan');
 
 const page = await browser.newPage();

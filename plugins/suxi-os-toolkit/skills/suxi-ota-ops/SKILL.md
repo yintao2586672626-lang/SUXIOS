@@ -21,8 +21,9 @@ description: Handle宿析OS OTA运营、携程/美团数据获取、手动采集
 3. 先按业务模块定位问题，再改对应平台和对应路径；不要因为一个模块失败改全平台通用逻辑。
 4. 保留现有渠道字段名、历史导入数据和 `online_daily_data` 兼容性。
 5. 默认不新增 `reviews`、`orders`、`traffic_data` 表；只有明确产品功能需要结构化明细查询时才新增表或字段。
-6. 记录外部平台端点、本地系统端口、浏览器调试端口时必须分开；不要把默认 HTTPS 端口硬编码成平台规则。
-7. 空数据、登录失效、接口未命中、字段缺失必须显式返回原因，不写假成功、不写兜底假数据。
+6. 携程点评和美团点评当前不作为默认自动采集重点；只保留显式手动入口，默认优先经营概况、流量、订单和广告数据。
+7. 记录外部平台端点、本地系统端口、浏览器调试端口时必须分开；不要把默认 HTTPS 端口硬编码成平台规则。
+8. 空数据、登录失效、接口未命中、字段缺失必须显式返回原因，不写假成功、不写兜底假数据。
 
 ## Collection Modes
 
@@ -36,7 +37,7 @@ description: Handle宿析OS OTA运营、携程/美团数据获取、手动采集
 - 参考文档：`references/ctrip-browser-capture.md`。
 - 手动优先处理用户提交的 `Cookie`、`spidertoken`、`node_id` / 平台酒店 ID、Payload、日期范围、渠道 Tab，或携程后台/Trip Connect 可导出的内容、ARI、预订、点评、分析数据。
 - 自动使用 `storage/ctrip_profile_{store_id}`，按门店隔离 Profile；失效时打开携程登录页等待人工完成短信、滑块或人机验证。
-- 自动模块优先级：经营概况、流量、订单、点评、房态房价；广告、渠道评分、更多页面只在明确业务需要时加入。
+- 自动模块优先级：经营概况、流量、订单、房态房价；广告、渠道评分、更多页面只在明确业务需要时加入；点评暂缓，不进入默认自动采集。
 - JSON 响应优先；DOM 只补页面已展示的排名、摘要或缺失指标，不抓导航、菜单、按钮文本作为业务数据。
 - 入库优先映射：
   - Overview: `amount`, `quantity`, `book_order_num`, `comment_score`, `raw_data`.
@@ -50,7 +51,7 @@ description: Handle宿析OS OTA运营、携程/美团数据获取、手动采集
 - 参考文档：`references/meituan-browser-capture.md`。
 - 手动优先处理用户提交的 Cookie/Session、`partner_id`、`poi_id` / `store_id`、Payload、iframe URL、必要动态签名，或直连平台可导出的产品、订单日志、订单监控数据。
 - 自动优先走页面触发流程：`POST /api/online-data/capture-meituan-browser` starts `scripts/meituan_browser_capture.mjs`，复用 `storage/meituan_profile_{store_id}`。
-- 自动模块优先级：点评、流量/数据中心、订单/入住管理、价格库存/直连产品；广告只在已有广告账号、成本口径和复盘需求时加入。
+- 自动模块优先级：流量/数据中心、订单/入住管理、价格库存/直连产品；广告只在已有广告账号、成本口径和复盘需求时加入；点评暂缓，不进入默认自动采集。
 - 美团页面 iframe、SPA、签名和登录态变化更频繁，自动路径应以浏览器响应监听为主；手动路径只校验用户已提供的上下文，不在后台代登录。
 - 入库优先映射：
   - Reviews: `data_type=review`, score in `comment_score`/`data_value`, details in `raw_data`.

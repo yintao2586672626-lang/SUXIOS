@@ -32,5 +32,9 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "json2csv": "^6.0.0-alpha.2"
+  },
+  "dependencies": {
+    "cloakbrowser": "^0.3.31",
+    "playwright-core": "^1.60.0"
   }
 }

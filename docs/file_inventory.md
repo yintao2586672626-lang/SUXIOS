@@ -293,6 +293,7 @@
 | 文件 | 用途 | 处理建议 |
 |---|---|---|
 | `docs/ai_model_config.md` | AI 模型配置说明 | 保留 |
+| `docs/ctrip_browser_capture_method.md` | 携程 OTA 浏览器自动采集方法详版说明 | 保留 |
 | `docs/external_signal_api.md` | 外部信号 API 说明 | 保留 |
 | `docs/five_modules_business_loop_field_inventory.md` | 五模块业务闭环字段清单 | 保留 |
 | `docs/lifecycle_binding_example.md` | 生命周期绑定示例 | 保留 |

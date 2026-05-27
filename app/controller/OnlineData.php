@@ -3376,18 +3376,8 @@ class OnlineData extends Base
     private function resolveMeituanCaptureChromePath(): string
     {
         $configured = trim((string)(getenv('CHROME_PATH') ?: env('CHROME_PATH', '')));
-        $candidates = array_filter([
-            $configured,
-            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-            'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-        ]);
-
-        foreach ($candidates as $candidate) {
-            if (is_file($candidate)) {
-                return $candidate;
-            }
+        if ($configured !== '' && is_file($configured)) {
+            return $configured;
         }
         return '';
     }
@@ -10633,31 +10623,7 @@ JAVASCRIPT;
             ]);
         }
 
-        $ctripCommentConfig = is_array($savedConfigs['ctrip-comments'] ?? null) ? $savedConfigs['ctrip-comments'] : [];
-        if ($this->isAutoFetchDataConfigUsable($ctripCommentConfig, $hotelId)) {
-            $ctripCommentPayload = $this->firstAutoFetchConfigValue($ctripCommentConfig, ['payload_json', 'payloadJson', 'extra_params', 'extraParams'], []);
-            if (!empty($this->configValueToArray($ctripCommentPayload))) {
-                $this->pushAutoFetchTask($tasks, [
-                    'platform' => 'ctrip',
-                    'module' => 'comments',
-                    'label' => 'ctrip-comments',
-                    'required' => ['request_url', 'cookies', 'spidertoken'],
-                    'body' => [
-                        'request_url' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['request_url', 'requestUrl'], ''),
-                        'hotel_id' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['hotel_id', 'hotelId', 'ota_hotel_id'], ''),
-                        'cookies' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['cookies', 'cookie'], $ctripCookies),
-                        'spidertoken' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['spidertoken', 'token'], ''),
-                        'payload_json' => $ctripCommentPayload,
-                        '_fxpcqlniredt' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['_fxpcqlniredt'], ''),
-                        'x_trace_id' => $this->firstAutoFetchConfigValue($ctripCommentConfig, ['x_trace_id', 'xTraceId'], ''),
-                        'start_date' => $startDate,
-                        'end_date' => $endDate,
-                        'auto_save' => true,
-                        'system_hotel_id' => $hotelId,
-                    ],
-                ]);
-            }
-        }
+        // 点评接口当前不纳入默认自动抓取计划，保留单独手动入口。
 
         $meituanCookies = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['cookies', 'cookie'], ''));
         $meituanPartnerId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['partner_id', 'partnerId'], ''));
@@ -10702,33 +10668,6 @@ JAVASCRIPT;
                     'start_date' => $startDate,
                     'end_date' => $endDate,
                     'extra_params' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['extra_params', 'extraParams'], ''),
-                    'auto_save' => true,
-                    'system_hotel_id' => $hotelId,
-                ],
-            ]);
-        }
-
-        $meituanCommentRawConfig = is_array($savedConfigs['meituan-comments'] ?? null) ? $savedConfigs['meituan-comments'] : [];
-        $meituanCommentConfig = $this->isAutoFetchDataConfigUsable($meituanCommentRawConfig, $hotelId) ? $meituanCommentRawConfig : [];
-        if (!empty($meituanCommentConfig) || ($meituanCookies !== '' && $meituanPartnerId !== '' && $meituanPoiId !== '')) {
-            $this->pushAutoFetchTask($tasks, [
-                'platform' => 'meituan',
-                'module' => 'comments',
-                'label' => 'meituan-comments',
-                'required' => ['cookies', 'partner_id', 'poi_id'],
-                'body' => [
-                    'request_url' => $this->firstAutoFetchConfigValue($meituanCommentConfig, ['request_url', 'requestUrl'], ''),
-                    'partner_id' => $this->firstAutoFetchConfigValue($meituanCommentConfig, ['partner_id', 'partnerId'], $meituanPartnerId),
-                    'poi_id' => $this->firstAutoFetchConfigValue($meituanCommentConfig, ['poi_id', 'poiId'], $meituanPoiId),
-                    'cookies' => $this->firstAutoFetchConfigValue($meituanCommentConfig, ['cookies', 'cookie'], $meituanCookies),
-                    'mtgsig' => $this->firstAutoFetchConfigValue($meituanCommentConfig, ['mtgsig'], ''),
-                    '_mtsi_eb_u' => $this->firstAutoFetchConfigValue($meituanCommentConfig, ['_mtsi_eb_u', 'mtsi_eb_u'], ''),
-                    'reply_type' => $this->firstAutoFetchConfigValue($meituanCommentConfig, ['reply_type', 'replyType'], '2'),
-                    'tag' => $this->firstAutoFetchConfigValue($meituanCommentConfig, ['tag'], ''),
-                    'limit' => (int)$this->firstAutoFetchConfigValue($meituanCommentConfig, ['limit'], 50),
-                    'offset' => (int)$this->firstAutoFetchConfigValue($meituanCommentConfig, ['offset'], 0),
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
                     'auto_save' => true,
                     'system_hotel_id' => $hotelId,
                 ],
@@ -11540,8 +11479,8 @@ JAVASCRIPT;
             '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
         ];
         $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
-        $sections = trim((string)($config['profile_sections'] ?? $config['capture_sections'] ?? 'reviews,traffic,orders'));
-        $args[] = '--sections=' . ($sections !== '' ? $sections : 'reviews,traffic,orders');
+        $sections = trim((string)($config['profile_sections'] ?? $config['capture_sections'] ?? 'traffic,orders'));
+        $args[] = '--sections=' . ($sections !== '' ? $sections : 'traffic,orders');
         $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
         if ($poiId !== '') {
             $args[] = '--poi-id=' . $poiId;

@@ -12154,13 +12154,13 @@
                                             <div class="w-12 h-12 rounded-full bg-purple-500 flex items-center justify-center">
                                                 <i class="fas fa-comments text-white text-xl"></i>
                                             </div>
-                                            <span class="text-xs px-2 py-1 bg-purple-200 text-purple-700 rounded-full">用户评价</span>
+                                            <span class="text-xs px-2 py-1 bg-purple-200 text-purple-700 rounded-full">暂缓</span>
                                         </div>
                                         <h4 class="font-semibold text-gray-800 mb-1">携程点评</h4>
-                                        <p class="text-sm text-gray-500">评分、评论内容</p>
+                                        <p class="text-sm text-gray-500">暂不纳入默认采集</p>
                                         <div class="mt-4 space-y-1 text-xs text-gray-600">
                                             <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">URL / Cookie / token</span></div>
-                                            <div class="flex justify-between gap-3"><span>请求</span><span class="text-gray-800">Payload JSON</span></div>
+                                            <div class="flex justify-between gap-3"><span>状态</span><span class="text-gray-800">保留手动入口</span></div>
                                         </div>
                                         <div class="mt-3 text-xs text-purple-600">
                                             <i class="fas fa-cog mr-1"></i>点击配置
@@ -12174,13 +12174,13 @@
                                             <div class="w-12 h-12 rounded-full bg-pink-500 flex items-center justify-center">
                                                 <i class="fas fa-star text-white text-xl"></i>
                                             </div>
-                                            <span class="text-xs px-2 py-1 bg-pink-200 text-pink-700 rounded-full">用户评价</span>
+                                            <span class="text-xs px-2 py-1 bg-pink-200 text-pink-700 rounded-full">暂缓</span>
                                         </div>
                                         <h4 class="font-semibold text-gray-800 mb-1">美团点评</h4>
-                                        <p class="text-sm text-gray-500">评分、评论内容</p>
+                                        <p class="text-sm text-gray-500">暂不纳入默认采集</p>
                                         <div class="mt-4 space-y-1 text-xs text-gray-600">
                                             <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">Partner / POI / Cookie</span></div>
-                                            <div class="flex justify-between gap-3"><span>范围</span><span class="text-gray-800">差评 / 待回复</span></div>
+                                            <div class="flex justify-between gap-3"><span>状态</span><span class="text-gray-800">保留手动入口</span></div>
                                         </div>
                                         <div class="mt-3 text-xs text-pink-600">
                                             <i class="fas fa-cog mr-1"></i>点击配置
@@ -18706,14 +18706,14 @@
                     outputText: '房费收入、出租间夜、配置口径'
                 },
                 'ctrip-comments': {
-                    description: '用于携程点评抓取兼容配置；推荐口径为浏览器 Profile 打开点评页并监听 getCommentList JSON。',
+                    description: '携程点评当前暂缓，不进入默认自动采集；该配置仅保留为显式手动兼容入口。',
                     requiredText: 'Profile / Cookie / spidertoken',
-                    outputText: '评分、评论内容、raw_data'
+                    outputText: '暂缓 / 手动启用'
                 },
                 'meituan-comments': {
-                    description: '用于美团点评手动接口抓取，核心参数为 Partner ID、POI ID 和 Cookie；mtgsig 仅作为签名失败时的补充参数。',
+                    description: '美团点评当前暂缓，不进入默认自动采集；该配置仅保留为显式手动兼容入口。',
                     requiredText: 'Partner ID / POI ID / Cookie',
-                    outputText: '差评、待回复评论'
+                    outputText: '暂缓 / 手动启用'
                 },
                 'ctrip-ads': {
                     description: '用于携程金字塔广告投放数据直接获取，核心参数为广告接口 URL、Cookie、日期和可选 Payload。',
@@ -22569,13 +22569,9 @@
                 const [
                     ctripTrafficConfig,
                     meituanTrafficConfig,
-                    ctripCommentConfig,
-                    meituanCommentConfig,
                 ] = await Promise.all([
                     readSavedOtaDataConfig('ctrip-traffic'),
                     readSavedOtaDataConfig('meituan-traffic'),
-                    readSavedOtaDataConfig('ctrip-comments'),
-                    readSavedOtaDataConfig('meituan-comments'),
                 ]);
 
                 if (ctripConfig && String(ctripConfig.cookies || '').trim()) {
@@ -22659,30 +22655,6 @@
                             auto_save: true,
                             system_hotel_id: systemHotelId,
                         },
-                    });
-                }
-
-                const meituanCommentBody = {
-                    partner_id: firstDataConfigValue(meituanCommentConfig.partner_id, meituanCommentConfig.partnerId, meituanConfig?.partner_id, meituanConfig?.partnerId),
-                    poi_id: firstDataConfigValue(meituanCommentConfig.poi_id, meituanCommentConfig.poiId, meituanConfig?.poi_id, meituanConfig?.poiId),
-                    cookies: firstDataConfigValue(meituanCommentConfig.cookies, meituanCommentConfig.cookie, meituanConfig?.cookies),
-                    mtgsig: meituanCommentConfig.mtgsig,
-                    _mtsi_eb_u: firstDataConfigValue(meituanCommentConfig._mtsi_eb_u, meituanCommentConfig.mtsi_eb_u),
-                    reply_type: meituanCommentConfig.reply_type,
-                    tag: meituanCommentConfig.tag,
-                    limit: Number(meituanCommentConfig.limit || 50),
-                    offset: Number(meituanCommentConfig.offset || 0),
-                    start_date: startDate,
-                    end_date: endDate,
-                    auto_save: true,
-                    system_hotel_id: systemHotelId,
-                };
-                if (meituanConfig || isSavedOtaDataConfigUsable(meituanCommentConfig, systemHotelId)) {
-                    pushOtaDiagnosisFetchTask(tasks, {
-                        label: 'meituan-comments',
-                        url: '/online-data/fetch-meituan-comments',
-                        required: ['cookies', 'partner_id', 'poi_id'],
-                        body: meituanCommentBody,
                     });
                 }
 

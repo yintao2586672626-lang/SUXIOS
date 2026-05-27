@@ -16,6 +16,7 @@
 | 触发方式 | 页面点击“开始抓取并入库”，后端启动本机浏览器脚本 |
 | 首次登录 | 弹出美团窗口，人工完成登录；脚本自动等待登录态 |
 | 数据来源 | response 监听优先，DOM/HTML 兜底，截图仅用于排障 |
+| 当前重点 | 先做流量、订单、经营数据和广告；美团点评暂缓，不进入默认自动采集 |
 | 入库表 | 统一写入 `online_daily_data`，不新增 `reviews`、`traffic_data`、`orders` |
 | 备用方式 | 保留命令复制和 JSON 导入，用于排障和离线补录 |
 
@@ -23,7 +24,7 @@
 
 | 数据 | 页面 | 命中关键词 |
 | --- | --- | --- |
-| 点评 | `https://me.meituan.com/ebooking/merchant/comment-manage-react#/home` | `queryGeneralCommentInfo`、`commentsInfo`、`comments/statistics` |
+| 点评（暂缓） | `https://me.meituan.com/ebooking/merchant/comment-manage-react#/home` | `queryGeneralCommentInfo`、`commentsInfo`、`comments/statistics` |
 | 流量 | `https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Fdata-center%2Findex.html` | `businessData`、`traffic`、`peerTrends` |
 | 新流量 SPA | `https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html` | `businessData`、`traffic`、`peerTrends` |
 | 广告 | 通过 `ads_url` 指定 | `cureShops` |
@@ -33,7 +34,7 @@
 
 | 来源数据 | `data_type` | 项目字段 |
 | --- | --- | --- |
-| 点评 | `review` | `comment_score` / `data_value` 保存评分，内容、回复、房型、入住时间、标签写入 `raw_data` |
+| 点评（暂缓） | `review` | 仅显式手动启用时保存；不进入当前默认自动采集 |
 | 流量 | `traffic` | `list_exposure`、`detail_exposure`、`flow_rate`、关键词/排名写入 `raw_data` |
 | 广告 | `advertising` | 曝光、点击、转化沿用流量字段，计划、关键词、ROI 写入 `raw_data` |
 | 订单 | `order` | `amount`、`quantity`、`book_order_num`、`data_value`，订单详情写入 `raw_data` |
@@ -42,7 +43,7 @@
 
 | 阶段 | 任务 | 产物 |
 | --- | --- | --- |
-| P0 | 固化真实抓取链路 | `scripts/meituan_browser_capture.mjs`、`POST /api/online-data/capture-meituan-browser` |
+| P0 | 固化真实抓取链路 | `scripts/meituan_browser_capture.mjs`、`POST /api/online-data/capture-meituan-browser`；默认采集 `traffic,orders` |
 | P1 | 固化 Agent 技能 | `suxi-ota-ops/references/meituan-browser-capture.md` |
 | P2 | 固化知识中枢 | `database/migrations/20260519_seed_meituan_browser_capture_knowledge.sql` |
 | P3 | 固化初始化链路 | `database/init_full.sql` 引入美团知识 seed |

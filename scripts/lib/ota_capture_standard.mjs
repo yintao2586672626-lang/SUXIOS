@@ -2,7 +2,7 @@ export const PLATFORM_CONFIGS = {
   meituan: {
     label: 'Meituan eBooking',
     profilePrefix: 'meituan_profile',
-    defaultSections: ['reviews', 'traffic', 'orders'],
+    defaultSections: ['traffic', 'orders'],
     allowedSections: ['reviews', 'traffic', 'ads', 'orders'],
     cookieDomains: ['me.meituan.com', 'eb.meituan.com', '.meituan.com', '.dianping.com'],
     sectionAliases: {

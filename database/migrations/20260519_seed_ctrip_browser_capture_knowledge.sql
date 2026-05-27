@@ -50,7 +50,8 @@ SELECT
     'profile_rule', '每个门店使用独立 storage/ctrip_profile_{store_id}，避免 Cookie 串用；Profile 和 Cookie 不进入 Git。',
     'login_flow', JSON_ARRAY('复用本地 Profile Cookie', '打开携程商家后台检查登录态', '登录失效时自动登录', '短信、滑块、人机验证交给人工确认', '登录成功后继续采集并保留 Profile'),
     'response_filter', JSON_ARRAY('资源类型为 XHR 或 fetch', 'HTTP 状态码为 200', '返回体可解析为 JSON', 'URL 命中明确业务规则'),
-    'match_keywords', JSON_ARRAY('getCommentList', 'queryScanFlowDetailsV2', 'fetchMarketOverViewV2', 'getDayReportServerQuantity', 'queryOrderList', 'promotion', 'pyramidad')
+    'match_keywords', JSON_ARRAY('queryScanFlowDetailsV2', 'fetchMarketOverViewV2', 'getDayReportServerQuantity', 'queryOrderList', 'promotion', 'pyramidad'),
+    'deferred_keywords', JSON_OBJECT('reviews', JSON_ARRAY('getCommentList'))
   ),
   NOW()
 WHERE @ctrip_capture_unit_id IS NOT NULL;
@@ -63,7 +64,7 @@ SELECT
     'target_table', 'online_daily_data',
     'no_new_tables', JSON_ARRAY('reviews', 'orders', 'traffic_data'),
     'overview', 'amount=成交金额，quantity=间夜数，book_order_num=订单数，comment_score=携程评分，排名和 PSI 进入 raw_data。',
-    'review', 'data_type=review，评分进入 comment_score/data_value，点评 ID、内容、回复、房型、入住日期、评价时间进入 raw_data。',
+    'review', '点评暂缓，仅显式手动启用时使用 data_type=review 保存；不进入默认自动采集。',
     'traffic', 'data_type=traffic，使用 list_exposure、detail_exposure、flow_rate、order_filling_num、order_submit_num，排名和细节进入 raw_data。',
     'order', 'data_type=order，金额进入 amount，间夜进入 quantity，订单数进入 book_order_num，平均房价进入 data_value，订单明细进入 raw_data。',
     'advertising', 'data_type=advertising，曝光、点击、转化优先使用现有流量字段，费用、计划、ROI 进入 raw_data。',
@@ -79,7 +80,7 @@ SELECT
   JSON_OBJECT(
     'json_first', '接口 JSON 优先，DOM 只用于补充排名、摘要或页面展示指标。',
     'raw_retention', '关键接口保留脱敏 raw_data，便于排查字段变化、对账和数据修复。',
-    'dedupe', '点评按评价 ID 去重；订单按订单号去重；汇总按酒店、来源、类型、维度和日期更新。',
+    'dedupe', '订单按订单号去重；汇总按酒店、来源、类型、维度和日期更新；点评暂缓时不参与默认去重链路。',
     'sensitive_data', 'Cookie、spidertoken、Profile、账号密码、手机号明文不写入文档、日志或 Git。',
     'delay_policy', '日报优先采集昨日完整数据；平台延迟时标记暂缺或异常，不写错误数据。',
     'verification', JSON_ARRAY('确认采集行能被 OTA 列表读取', '确认 AI 诊断和收益分析仍可读取', '确认空数据和登录失效有可解释状态')
@@ -130,12 +131,12 @@ SET @staff_knowledge_content := CONCAT(
   '## 推荐流程', '\n',
   '1. 为每个门店建立 `storage/ctrip_profile_{store_id}`。', '\n',
   '2. 复用登录态，失效时登录，短信、滑块、人机验证由人工确认。', '\n',
-  '3. 依次打开点评、流量、订单、广告、昨日概况等业务页面。', '\n',
+  '3. 默认打开经营概况、流量、订单、广告、昨日概况等业务页面；点评暂缓。', '\n',
   '4. 只处理 XHR/fetch、HTTP 200、可解析 JSON、URL 命中规则的响应。', '\n',
   '5. JSON 优先，DOM 只补排名或页面摘要，关键原始结构脱敏后进入 `raw_data`。', '\n\n',
   '## 字段映射', '\n',
   '- 经营概况：`amount`、`quantity`、`book_order_num`、`comment_score`、`raw_data`。', '\n',
-  '- 点评：`data_type=review`，评分进 `comment_score/data_value`，点评详情进 `raw_data`。', '\n',
+  '- 点评：当前暂缓，仅显式手动启用时写入 `data_type=review`。', '\n',
   '- 流量：`data_type=traffic`，使用 `list_exposure/detail_exposure/flow_rate/order_filling_num/order_submit_num`。', '\n',
   '- 订单：`data_type=order`，金额进 `amount`，间夜进 `quantity`，订单数进 `book_order_num`。', '\n',
   '- 广告：`data_type=advertising`，曝光、点击、转化用现有流量字段，费用和 ROI 进 `raw_data`。', '\n\n',

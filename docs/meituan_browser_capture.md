@@ -6,6 +6,8 @@
 
 原因：美团 ebooking 的签名、登录态、iframe/SPA 页面变化较频繁，单纯由后端拼接口参数不可稳定实现完整抓取。
 
+当前默认重点是流量、订单、经营数据和广告。美团点评先暂缓，只保留显式手动启用能力。
+
 ## 登录态
 
 - Profile 目录：`storage/meituan_profile_{store_id}`
@@ -17,20 +19,20 @@
 | 步骤 | 页面 |
 | --- | --- |
 | 登录验证 | `https://me.meituan.com/ebooking/` |
-| 点评 | `https://me.meituan.com/ebooking/merchant/comment-manage-react#/home` |
 | 流量 iframe | `https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Fdata-center%2Findex.html` |
 | 新流量 SPA | `https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html` |
 | 广告 | 通过 `--ads-url` 指定，监听 `cureShops` |
 | 订单 | `https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Forder-eb%2Findex.html%23%2Fcheckin` |
+| 点评（暂缓） | `https://me.meituan.com/ebooking/merchant/comment-manage-react#/home` |
 
 ## 命中规则
 
 | 数据 | 优先来源 | 命中关键词 |
 | --- | --- | --- |
-| 点评 | response + DOM | `queryGeneralCommentInfo`、`commentsInfo`、`comments/statistics` |
 | 流量 | response + DOM/HTML | `businessData`、`traffic`、`peerTrends` |
 | 广告 | response | `cureShops` |
 | 订单 | response + DOM/HTML | `/orders/list`、`/order/unhandled/count` |
+| 点评（暂缓） | response + DOM | `queryGeneralCommentInfo`、`commentsInfo`、`comments/statistics` |
 
 ## 入库映射
 
@@ -38,10 +40,10 @@
 
 | 来源数据 | `data_type` | 核心映射 |
 | --- | --- | --- |
-| 点评 | `review` | `hotel_id=poi_id`、`comment_score=score`、`quantity=1`、原始点评字段进 `raw_data` |
 | 流量 | `traffic` | `list_exposure=exposure_count`、`detail_exposure=page_views/click_count`、`flow_rate=conversion_rate`、`raw_data` 保留关键词排名等 |
 | 广告 | `advertising` | `list_exposure=exposure_count`、`detail_exposure=click_count`、`flow_rate=conversion_rate`、`raw_data` 保留广告和关键词数据 |
 | 订单 | `order` | `amount=total_amount`、`quantity=room_count*nights`、`book_order_num=order_count/1`、`data_value=avg_price`、订单详情进 `raw_data` |
+| 点评（暂缓） | `review` | 仅显式手动启用时保存，不进入默认自动采集 |
 
 ## 使用
 
@@ -67,6 +69,12 @@ npm run meituan:capture -- --store-id=68471 --system-hotel-id=1 --submit=true --
 
 ```bash
 node scripts/meituan_browser_capture.mjs --store-id=68471 --system-hotel-id=1
+```
+
+默认等同于：
+
+```bash
+node scripts/meituan_browser_capture.mjs --store-id=68471 --sections=traffic,orders
 ```
 
 ## 后端接口
