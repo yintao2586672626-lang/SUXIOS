@@ -116,6 +116,7 @@ Route::group('api/system-config', function () {
 Route::group('api/online-data', function () {
     Route::post('/fetch-ctrip', 'OnlineData/fetchCtrip');
     Route::post('/fetch-meituan', 'OnlineData/fetchMeituan');
+    Route::post('/meituan/display-model', 'OnlineData/meituanDisplayModel');
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');

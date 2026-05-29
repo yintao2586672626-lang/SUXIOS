@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS `quant_simulation_records` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '租户ID，默认跟随创建用户',
   `project_name` VARCHAR(120) NOT NULL DEFAULT '' COMMENT '模拟项目名称',
   `input_json` JSON DEFAULT NULL COMMENT '量化模拟输入',
   `result_json` JSON DEFAULT NULL COMMENT '基准情景结果',
@@ -13,6 +14,7 @@ CREATE TABLE IF NOT EXISTS `quant_simulation_records` (
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` DATETIME DEFAULT NULL,
   PRIMARY KEY (`id`),
+  KEY `idx_quant_sim_tenant_user` (`tenant_id`, `created_by`, `id`),
   KEY `idx_quant_sim_created_by` (`created_by`, `id`),
   KEY `idx_quant_sim_risk_level` (`risk_level`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='筹建量化模拟记录表';

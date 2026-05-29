@@ -45,4 +45,19 @@ final class AuthMiddlewareAuditTest extends TestCase
         self::assertSame(16, $this->invokeNonPublic($middleware, 'resolveAuditHotelId', [['system_hotel_id' => '16', 'hotel_id' => '15'], $user]));
         self::assertSame(7, $this->invokeNonPublic($middleware, 'resolveAuditHotelId', [[], $user]));
     }
+
+    public function testRateLimitPolicyUsesStricterExportAndWriteBuckets(): void
+    {
+        $middleware = new Auth();
+
+        $export = $this->invokeNonPublic($middleware, 'resolveRateLimitPolicy', ['GET', '/api/daily-reports/export?hotel_id=7']);
+        self::assertSame('export', $export['scope']);
+        self::assertSame(10, $export['limit']);
+        self::assertSame(3600, $export['window']);
+
+        $write = $this->invokeNonPublic($middleware, 'resolveRateLimitPolicy', ['POST', '/api/online-data/save-daily-data']);
+        self::assertSame('write', $write['scope']);
+        self::assertSame(60, $write['limit']);
+        self::assertSame(60, $write['window']);
+    }
 }

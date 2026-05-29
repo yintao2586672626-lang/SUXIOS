@@ -5308,6 +5308,50 @@ aside.sidebar.collapsed .sidebar-item.active {
         inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
 }
 
+@media (max-width: 640px) {
+    .flex.h-screen.bg-gray-50 {
+        min-width: 0;
+    }
+
+    aside.sidebar.sidebar {
+        width: 64px !important;
+        min-width: 64px !important;
+        max-width: 64px !important;
+        flex: 0 0 64px !important;
+        overflow: visible;
+    }
+
+    aside.sidebar.sidebar > .p-3:first-child {
+        padding: 12px 8px !important;
+    }
+
+    aside.sidebar.sidebar .sidebar-item {
+        width: 44px !important;
+        min-width: 44px !important;
+        margin: 3px auto !important;
+        justify-content: center !important;
+    }
+
+    aside.sidebar.sidebar .sidebar-item > div {
+        justify-content: center !important;
+        width: 100% !important;
+    }
+
+    aside.sidebar.sidebar .sidebar-item i {
+        margin: 0 !important;
+    }
+
+    main[data-testid="app-main"] {
+        min-width: 0 !important;
+        width: calc(100vw - 64px) !important;
+    }
+
+    main[data-testid="app-main"] > .p-6,
+    main[data-testid="app-main"] .page-enter {
+        padding: 1rem !important;
+    }
+}
+
 .header {
     background: rgba(255, 255, 255, 0.86) !important;
     border-bottom: 1px solid rgba(215, 226, 239, 0.9) !important;

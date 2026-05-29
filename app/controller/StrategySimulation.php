@@ -68,6 +68,7 @@ class StrategySimulation extends Base
             }
 
             $query = StrategySimulationRecord::whereNull('deleted_at');
+            $this->applyTenantScope($query);
             if (!$this->currentUser->isSuperAdmin()) {
                 $query->where('created_by', (int)($this->currentUser->id ?? 0));
             }
@@ -89,6 +90,7 @@ class StrategySimulation extends Base
             }
 
             $query = StrategySimulationRecord::where('id', $id)->whereNull('deleted_at');
+            $this->applyTenantScope($query);
             if (!$this->currentUser->isSuperAdmin()) {
                 $query->where('created_by', (int)($this->currentUser->id ?? 0));
             }
@@ -112,6 +114,7 @@ class StrategySimulation extends Base
             }
 
             $query = StrategySimulationRecord::where('id', $id)->whereNull('deleted_at');
+            $this->applyTenantScope($query);
             if (!$this->currentUser->isSuperAdmin()) {
                 $query->where('created_by', (int)($this->currentUser->id ?? 0));
             }
@@ -619,6 +622,7 @@ class StrategySimulation extends Base
     private function saveRecord(array $input, array $dataSnapshot, array $scores, array $recommendation, array $risk): int
     {
         $record = StrategySimulationRecord::create([
+            'tenant_id' => $this->tenantIdForCurrentUser(),
             'project_name' => $input['project_name'],
             'city' => $input['city'],
             'district' => $input['district'],
@@ -642,6 +646,46 @@ class StrategySimulation extends Base
         ]);
 
         return (int)$record->id;
+    }
+
+    private function applyTenantScope($query): void
+    {
+        if ($this->currentUser->isSuperAdmin()) {
+            return;
+        }
+
+        $tenantId = $this->tenantIdForCurrentUser();
+        if ($tenantId === null) {
+            $query->where('tenant_id', -1);
+            return;
+        }
+
+        $query->where('tenant_id', $tenantId);
+    }
+
+    private function tenantIdForCurrentUser(): ?int
+    {
+        $userId = (int)($this->currentUser->id ?? 0);
+        if ($userId <= 0) {
+            return null;
+        }
+
+        try {
+            $row = Db::name('users')->where('id', $userId)->field('tenant_id,hotel_id')->find();
+            if (!$row) {
+                return null;
+            }
+
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            if ($tenantId > 0) {
+                return $tenantId;
+            }
+
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            return $hotelId > 0 ? $hotelId : null;
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     private function scoreMarketDemand(array $input, array $localData, array $externalData): array

@@ -2,7 +2,6 @@
 .env
 .env.*
 !.example.env
-!.env.example
 .mcp.json
 
 # Dependencies
@@ -25,6 +24,7 @@ tests/report/
 test-results/
 output/
 reports/ctrip_capture_assets/
+reports/meituan_capture_assets/
 
 # Git / IDE / OS
 /.git/
@@ -45,6 +45,7 @@ Desktop.ini
 /HOTEL/
 
 # Sensitive database backup
+database/backups/
 hotelx_dump.sql
 *_dump.sql
 *_backup*.sql
@@ -98,3 +99,4 @@ public/enhanced-components.css
 public/tailwind-custom.css
 public/tailwind.min.css.bak
 public/nginx.htaccess
+.gstack/

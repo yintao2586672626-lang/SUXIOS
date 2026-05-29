@@ -84,7 +84,12 @@ $hotelUser = new class {
     public function getPermittedHotelIds(): array { return [7]; }
 };
 set_private_property($online, 'currentUser', $hotelUser);
-assert_same(7, call_private($online, 'resolveOnlineDataSystemHotelId', [99]), 'non-super admin must not override system_hotel_id');
+try {
+    call_private($online, 'resolveOnlineDataSystemHotelId', [99]);
+    fail('non-super admin must reject unpermitted system_hotel_id');
+} catch (\think\exception\HttpException $e) {
+    assert_same(403, $e->getStatusCode(), 'unpermitted system_hotel_id must return 403');
+}
 assert_same(7, call_private($online, 'resolveOnlineDataSystemHotelId', [null]), 'non-super admin must fall back to own hotel');
 
 $superOnline = $onlineRef->newInstanceWithoutConstructor();
@@ -147,17 +152,58 @@ assert_same(1600.0, $multiHotelMetrics['revenue'], 'daily report financial keys 
 assert_same(16.0, $multiHotelMetrics['room_nights'], 'daily report room-night keys must stay hotel-scoped');
 
 $onlineSource = file_get_contents(__DIR__ . '/../app/controller/OnlineData.php');
+$authSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
+$dailyReportSource = file_get_contents(__DIR__ . '/../app/controller/DailyReport.php');
+$platformSyncSource = file_get_contents(__DIR__ . '/../app/service/PlatformDataSyncService.php');
+$competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorApi.php');
 $aiConfigSource = file_get_contents(__DIR__ . '/../app/controller/AiConfig.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $operationSource = file_get_contents(__DIR__ . '/../app/service/OperationManagementService.php');
 $transferSource = file_get_contents(__DIR__ . '/../app/service/TransferDecisionService.php');
+$loginLogSource = file_get_contents(__DIR__ . '/../app/model/LoginLog.php');
+$tenantMigrationSource = file_get_contents(__DIR__ . '/../database/migrations/20260529_add_tenant_security_fields.sql');
+$initFullSource = file_get_contents(__DIR__ . '/../database/init_full.sql');
 $commandSource = file_get_contents(__DIR__ . '/../app/command/AutoFetchOnlineData.php');
 $legacyCronSource = file_get_contents(__DIR__ . '/auto_fetch_online_data.php');
+$competitorTaskSource = extract_method_source($competitorSource, 'task');
+$competitorReportSource = extract_method_source($competitorSource, 'report');
 
 assert_true((bool)preg_match('/function\s+fetchCtrip\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'fetchCtrip must check login and hotel binding before reading cookies');
 assert_true((bool)preg_match('/function\s+saveCtripConfig\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'saveCtripConfig must check login and hotel binding');
 assert_true(str_contains($onlineSource, "checkActionPermission('can_fetch_online_data')"), 'online data write/fetch endpoints must enforce can_fetch_online_data');
 assert_true(str_contains($onlineSource, "checkActionPermission('can_delete_online_data')"), 'online data delete endpoints must enforce can_delete_online_data');
+assert_true(str_contains($authSource, 'enforceRateLimit'), 'authenticated APIs must enforce request rate limits');
+assert_true(str_contains($authSource, 'rate_limited'), 'rate-limited requests must be written to operation logs');
+assert_true(str_contains($competitorSource, 'enforceExternalRateLimit'), 'public competitor token APIs must enforce route-local rate limits');
+assert_true(str_contains($competitorTaskSource, "enforceExternalRateLimit('task'"), 'competitor task endpoint must rate limit external devices');
+assert_true(str_contains($competitorReportSource, "enforceExternalRateLimit('report'"), 'competitor report endpoint must rate limit external devices');
+assert_true(str_contains($competitorSource, 'external_rate_limited'), 'rate-limited competitor token requests must be audited');
+assert_true(str_contains($competitorTaskSource, "OperationLog::record('competitor', 'task'"), 'competitor task endpoint must write operation audit logs');
+assert_true(str_contains($competitorReportSource, "OperationLog::record('competitor', 'report'"), 'competitor report endpoint must write operation audit logs');
+assert_true(str_contains($dailyReportSource, 'EXPORT_BATCH_LIMIT'), 'daily report exports must have a batch download limit');
+assert_true(str_contains($dailyReportSource, 'SUXIOS Export Watermark'), 'daily report exports must include a user watermark');
+assert_true(str_contains($onlineSource, 'tenantIdForSystemHotel'), 'online daily data writes must populate tenant_id when available');
+assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync writes must populate tenant_id when available');
+assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');
+assert_true(str_contains($operationSource, 'withTenantId'), 'operation management writes must populate tenant_id when available');
+assert_true(str_contains($transferSource, "'tenant_id' => \$hotelId"), 'transfer records must populate tenant_id on write');
+assert_true(str_contains($initFullSource, '20260529_add_tenant_security_fields.sql'), 'full database initialization must apply tenant security migration');
+$tenantScopedTables = [
+    'hotels', 'users', 'user_hotel_permissions', 'daily_reports', 'monthly_tasks', 'online_daily_data',
+    'operation_logs', 'platform_data_sources', 'platform_data_sync_tasks', 'platform_data_raw_records',
+    'platform_data_sync_logs', 'agent_configs', 'agent_logs', 'agent_tasks', 'knowledge_categories',
+    'knowledge_base', 'room_types', 'price_suggestions', 'devices', 'energy_consumption',
+    'demand_forecasts', 'competitor_analysis', 'competitor_hotel', 'agent_work_orders', 'agent_conversations',
+    'energy_benchmarks', 'energy_saving_suggestions', 'maintenance_plans', 'hotel_field_templates',
+    'competitor_price_log', 'opening_projects', 'operation_alerts', 'operation_action_tracks',
+    'operation_execution_intents', 'operation_execution_tasks', 'operation_execution_evidence',
+    'transfer_records', 'complaint_rooms', 'complaint_feedbacks', 'field_mappings',
+    'ai_model_call_logs', 'login_logs', 'quant_simulation_records', 'expansion_records',
+    'strategy_simulation_records', 'feasibility_reports',
+];
+foreach ($tenantScopedTables as $table) {
+    assert_true(str_contains($tenantMigrationSource, '`' . $table . '`'), "tenant migration must cover {$table}");
+}
 assert_true(!str_contains($onlineSource, "getConfigList('online_data_cookies_list')"), 'controller auto fetch must not fall back to global cookie list');
 assert_true(!str_contains($commandSource, "Cache::get('online_data_cookies_list'"), 'scheduled auto fetch must not fall back to global cookie list');
 

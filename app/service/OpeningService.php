@@ -62,7 +62,7 @@ class OpeningService
         $now = $this->now();
         $hotelName = trim((string)$input['hotel_name']);
 
-        return (int)Db::name('opening_projects')->insertGetId([
+        $data = [
             'hotel_id' => 0,
             'project_name' => trim((string)$input['project_name']),
             'hotel_name' => $hotelName,
@@ -79,7 +79,11 @@ class OpeningService
             'created_by' => $userId,
             'created_at' => $now,
             'updated_at' => $now,
-        ]);
+        ];
+
+        return (int)Db::name('opening_projects')->insertGetId(
+            $this->withTenantId($data, 'opening_projects', $this->resolveProjectTenantId($hotelIds))
+        );
     }
 
     public function projects(array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
@@ -772,5 +776,37 @@ class OpeningService
     private function now(): string
     {
         return date('Y-m-d H:i:s');
+    }
+
+    private function resolveProjectTenantId(array $hotelIds): int
+    {
+        $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
+        return count($ids) === 1 ? $ids[0] : 0;
+    }
+
+    private function withTenantId(array $data, string $table, int $tenantId): array
+    {
+        if ($this->tableHasColumn($table, 'tenant_id')) {
+            $data['tenant_id'] = $tenantId;
+        }
+
+        return $data;
+    }
+
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        static $cache = [];
+        $key = $table . '.' . $column;
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
+        }
+
+        try {
+            $rows = Db::query('SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`');
+            $columns = array_fill_keys(array_map(static fn(array $row): string => (string)$row['Field'], $rows), true);
+            return $cache[$key] = isset($columns[$column]);
+        } catch (Throwable $e) {
+            return $cache[$key] = false;
+        }
     }
 }

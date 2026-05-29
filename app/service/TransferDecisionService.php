@@ -384,6 +384,7 @@ class TransferDecisionService
 
         return (int)Db::name('transfer_records')->insertGetId([
             'record_type' => $recordType,
+            'tenant_id' => $hotelId,
             'hotel_id' => $hotelId,
             'hotel_name' => $summary['hotel_name'],
             'source_date' => $summary['source_date'],
@@ -451,6 +452,7 @@ class TransferDecisionService
             CREATE TABLE IF NOT EXISTS transfer_records (
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
                 record_type VARCHAR(30) NOT NULL DEFAULT '',
+                tenant_id INT UNSIGNED DEFAULT NULL,
                 hotel_id INT UNSIGNED NOT NULL DEFAULT 0,
                 hotel_name VARCHAR(160) NOT NULL DEFAULT '',
                 source_date DATE DEFAULT NULL,
@@ -464,6 +466,7 @@ class TransferDecisionService
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 deleted_at DATETIME DEFAULT NULL,
                 PRIMARY KEY (id),
+                INDEX idx_transfer_records_tenant (tenant_id, hotel_id),
                 INDEX idx_transfer_records_hotel_type (hotel_id, record_type, id),
                 INDEX idx_transfer_records_created_by (created_by, id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4

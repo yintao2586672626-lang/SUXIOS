@@ -32,6 +32,9 @@ const checks = [
       'public function records(int $userId, bool $isSuperAdmin): array',
       'public function detail(int $id, int $userId, bool $isSuperAdmin): array',
       'public function archive(int $id, int $userId, bool $isSuperAdmin): bool',
+      "'tenant_id' => $this->tenantIdForUser($userId)",
+      'private function applyTenantScope',
+      "where('tenant_id', $tenantId)",
       'private function calculateSimulation(array $input): array',
       'private function buildScenarios(array $input): array',
     ],
@@ -41,6 +44,8 @@ const checks = [
     contains: [
       'CREATE TABLE IF NOT EXISTS `quant_simulation_records`',
       '`input_json` JSON DEFAULT NULL',
+      '`tenant_id` BIGINT UNSIGNED DEFAULT NULL',
+      '`idx_quant_sim_tenant_user` (`tenant_id`, `created_by`, `id`)',
       '`result_json` JSON DEFAULT NULL',
       '`scenarios_json` JSON DEFAULT NULL',
       '`risk_hints_json` JSON DEFAULT NULL',

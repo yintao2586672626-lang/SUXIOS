@@ -3,6 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS `login_logs` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `tenant_id` INT UNSIGNED DEFAULT NULL COMMENT '租户ID，默认跟随登录用户主酒店',
     `user_id` INT UNSIGNED DEFAULT NULL COMMENT '用户ID',
     `username` VARCHAR(50) NOT NULL COMMENT '用户名',
     `action` VARCHAR(20) NOT NULL COMMENT '操作类型: login/logout/refresh',
@@ -13,6 +14,7 @@ CREATE TABLE IF NOT EXISTS `login_logs` (
     `client_info` JSON DEFAULT NULL COMMENT '客户端信息(浏览器、操作系统等)',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_tenant_user` (`tenant_id`, `user_id`),
     INDEX `idx_username` (`username`),
     INDEX `idx_action` (`action`),
     INDEX `idx_status` (`status`),

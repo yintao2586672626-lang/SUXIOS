@@ -1,9 +1,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import readline from 'node:readline/promises';
 import process from 'node:process';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
 const URLS = {
   comments: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
@@ -434,44 +434,9 @@ function readPath(value, path) {
   return current;
 }
 
-function parseArgs(argv) {
-  const result = {};
-  for (const arg of argv) {
-    if (!arg.startsWith('--')) {
-      continue;
-    }
-    const [rawKey, ...rest] = arg.slice(2).split('=');
-    const key = rawKey.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
-    result[key] = rest.length ? rest.join('=') : 'true';
-  }
-  return result;
-}
-
 function summarize(data) {
   return {
     reviews: data.reviews.length,
     responses: data.responses.length,
   };
-}
-
-function timestamp() {
-  return new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
-}
-
-function safeName(value) {
-  return String(value || 'default').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
-}
-
-async function waitForEnter(prompt) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    await rl.question(prompt);
-  } finally {
-    rl.close();
-  }
-}
-
-function fail(message) {
-  console.error(message);
-  process.exit(1);
 }

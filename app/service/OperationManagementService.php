@@ -244,8 +244,9 @@ class OperationManagementService
         $now = date('Y-m-d H:i:s');
         $before = $this->baseline($hotelIds, 7, (string)$input['start_date']);
 
-        return (int)Db::name('operation_action_tracks')->insertGetId([
-            'hotel_id' => $hotelId ?: ($hotelIds[0] ?? 0),
+        $selectedHotelId = (int)($hotelId ?: ($hotelIds[0] ?? 0));
+        $data = [
+            'hotel_id' => $selectedHotelId,
             'action_type' => (string)$input['action_type'],
             'action_title' => (string)$input['action_title'],
             'start_date' => (string)$input['start_date'],
@@ -260,7 +261,11 @@ class OperationManagementService
             'status' => 'active',
             'created_at' => $now,
             'updated_at' => $now,
-        ]);
+        ];
+
+        return (int)Db::name('operation_action_tracks')->insertGetId(
+            $this->withTenantId($data, 'operation_action_tracks', $selectedHotelId)
+        );
     }
 
     public function actionTracking(array $hotelIds, ?int $hotelId): array
@@ -674,7 +679,8 @@ class OperationManagementService
 
         $evidence = $this->arrayValue($input['evidence'] ?? []);
         if ($status === 'executed' && empty($evidence)) {
-            throw new \InvalidArgumentException('execution evidence is required before marking task executed');
+            $status = 'blocked';
+            $input['blocked_reason'] = trim((string)($input['blocked_reason'] ?? 'execution evidence missing'));
         }
 
         $now = date('Y-m-d H:i:s');
@@ -685,7 +691,7 @@ class OperationManagementService
             'updated_at' => $now,
         ];
 
-        if (in_array($status, ['blocked', 'executed', 'failed'], true)) {
+        if (in_array($status, ['executed', 'failed'], true)) {
             $taskUpdate['executed_at'] = $now;
         }
         if (array_key_exists('current_value', $input)) {
@@ -719,7 +725,7 @@ class OperationManagementService
         $payload = $this->buildExecutionIntentPayload($hotelIds, $hotelId, $input, $createdBy);
         $now = date('Y-m-d H:i:s');
 
-        $id = (int)Db::name('operation_execution_intents')->insertGetId([
+        $id = (int)Db::name('operation_execution_intents')->insertGetId($this->withTenantId([
             'source_module' => $payload['source_module'],
             'source_record_id' => $payload['source_record_id'],
             'hotel_id' => $payload['hotel_id'],
@@ -739,7 +745,7 @@ class OperationManagementService
             'created_by' => $createdBy,
             'created_at' => $now,
             'updated_at' => $now,
-        ]);
+        ], 'operation_execution_intents', (int)$payload['hotel_id']));
 
         return $this->executionIntentDetail($id, $hotelIds);
     }
@@ -794,7 +800,7 @@ class OperationManagementService
         if ($approved) {
             $taskExists = (int)Db::name('operation_execution_tasks')->where('intent_id', $id)->whereNull('deleted_at')->count();
             if ($taskExists === 0) {
-                Db::name('operation_execution_tasks')->insert([
+                Db::name('operation_execution_tasks')->insert($this->withTenantId([
                     'intent_id' => $id,
                     'hotel_id' => (int)$intent['hotel_id'],
                     'execution_mode' => 'manual',
@@ -803,7 +809,7 @@ class OperationManagementService
                     'status' => 'pending_execute',
                     'created_at' => $now,
                     'updated_at' => $now,
-                ]);
+                ], 'operation_execution_tasks', (int)$intent['hotel_id']));
             }
         }
 
@@ -910,6 +916,55 @@ class OperationManagementService
             return true;
         } catch (Throwable $e) {
             return false;
+        }
+    }
+
+    private function withTenantId(array $data, string $table, int $tenantId): array
+    {
+        if ($this->tableHasColumn($table, 'tenant_id')) {
+            $data['tenant_id'] = $tenantId > 0 ? $tenantId : null;
+        }
+
+        return $data;
+    }
+
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        static $cache = [];
+        $key = $table . '.' . $column;
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
+        }
+
+        try {
+            $rows = Db::query('SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`');
+            $columns = array_fill_keys(array_map(static fn(array $row): string => (string)$row['Field'], $rows), true);
+            return $cache[$key] = isset($columns[$column]);
+        } catch (Throwable $e) {
+            return $cache[$key] = false;
+        }
+    }
+
+    private function tenantIdForExecutionTask(int $taskId): int
+    {
+        if ($taskId <= 0) {
+            return 0;
+        }
+
+        try {
+            $row = Db::name('operation_execution_tasks')->where('id', $taskId)->field('tenant_id,hotel_id')->find();
+            if (!$row) {
+                return 0;
+            }
+
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            if ($tenantId > 0) {
+                return $tenantId;
+            }
+
+            return max(0, (int)($row['hotel_id'] ?? 0));
+        } catch (Throwable $e) {
+            return 0;
         }
     }
 
@@ -1321,8 +1376,9 @@ class OperationManagementService
 
     private function insertExecutionEvidence(array $payload): void
     {
-        Db::name('operation_execution_evidence')->insert([
-            'task_id' => (int)$payload['task_id'],
+        $taskId = (int)$payload['task_id'];
+        Db::name('operation_execution_evidence')->insert($this->withTenantId([
+            'task_id' => $taskId,
             'evidence_type' => (string)$payload['evidence_type'],
             'before_json' => json_encode($payload['before'] ?? [], JSON_UNESCAPED_UNICODE),
             'after_json' => json_encode($payload['after'] ?? [], JSON_UNESCAPED_UNICODE),
@@ -1332,7 +1388,7 @@ class OperationManagementService
             'created_by' => (int)($payload['created_by'] ?? 0),
             'created_at' => (string)($payload['created_at'] ?? date('Y-m-d H:i:s')),
             'updated_at' => date('Y-m-d H:i:s'),
-        ]);
+        ], 'operation_execution_evidence', $this->tenantIdForExecutionTask($taskId)));
     }
 
     private function createActionTrackForExecution(array $intent, int $taskId): int
@@ -1342,7 +1398,7 @@ class OperationManagementService
         $hotelId = (int)$intent['hotel_id'];
         $before = $this->baseline([$hotelId], 7, $dateStart);
 
-        return (int)Db::name('operation_action_tracks')->insertGetId([
+        return (int)Db::name('operation_action_tracks')->insertGetId($this->withTenantId([
             'hotel_id' => $hotelId,
             'action_type' => (string)($intent['action_type'] ?? ''),
             'action_title' => 'execution_task_' . $taskId . '_' . (string)($intent['object_type'] ?? 'operation'),
@@ -1358,7 +1414,7 @@ class OperationManagementService
             'status' => 'active',
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
-        ]);
+        ], 'operation_action_tracks', $hotelId));
     }
 
     private function buildEffectValidation(array $hotelIds, ?int $hotelId, array $actions): array
@@ -2093,6 +2149,7 @@ class OperationManagementService
                 'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE),
                 'updated_at' => $now,
             ];
+            $payload = $this->withTenantId($payload, 'operation_alerts', $hotelId);
 
             $existing = Db::name('operation_alerts')
                 ->where('hotel_id', $hotelId)

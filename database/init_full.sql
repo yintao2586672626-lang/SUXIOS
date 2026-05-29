@@ -27,6 +27,7 @@ SOURCE ./database/migrations/20260517_create_quant_simulation_records.sql;
 SOURCE ./database/migrations/20260517_create_expansion_records.sql;
 SOURCE ./database/migrations/20260517_create_transfer_records.sql;
 SOURCE ./database/migrations/20260518_create_knowledge_center_tables.sql;
+SOURCE ./database/migrations/20260529_add_tenant_security_fields.sql;
 SOURCE ./database/migrations/20260519_seed_ctrip_browser_capture_knowledge.sql;
 SOURCE ./database/migrations/20260519_seed_meituan_browser_capture_knowledge.sql;
 SOURCE ./database/migrations/20260520_seed_ota_platform_field_inventory_knowledge.sql;

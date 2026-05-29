@@ -380,6 +380,21 @@ final class DailyReportTest extends TestCase
         self::assertSame('&lt;tag&gt;&quot;', $this->invokeNonPublic($controller, 'escapeHtml', ['<tag>"']));
     }
 
+    public function testExportLimitAndWatermarkHelpers(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'isExportBatchAllowed', [31]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isExportBatchAllowed', [32]));
+
+        $watermark = $this->invokeNonPublic($controller, 'formatExportWatermark', [[
+            'text' => 'SUXIOS Export Watermark | user=<tester>#7',
+        ]]);
+
+        self::assertStringContainsString('SUXIOS Export Watermark', $watermark);
+        self::assertStringContainsString('&lt;tester&gt;#7', $watermark);
+    }
+
     /**
      * 覆盖 parseNumber/parsePercent：
      * 验证百分号、普通数字、小数比例和大于 100 的边界值。

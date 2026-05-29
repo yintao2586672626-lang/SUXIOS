@@ -19,12 +19,14 @@ class FeasibilityReportService
     {
         $this->ensureTable();
         $input = $this->normalizeInput($input);
-        $snapshot = $this->buildSnapshot($input);
+        $tenantId = $this->tenantIdForUser($userId);
+        $snapshot = $this->buildSnapshot($input, $tenantId);
         $calculation = $this->calculate($input, $snapshot);
         $report = $this->buildAiReport($input, $snapshot, $calculation);
         $report = $this->mergeFinancials($report, $input, $calculation);
 
         $record = FeasibilityReport::create([
+            'tenant_id' => $tenantId,
             'project_name' => $input['project_name'],
             'input_json' => $input,
             'snapshot_json' => $snapshot,
@@ -42,6 +44,7 @@ class FeasibilityReportService
     {
         $this->ensureTable();
         $query = FeasibilityReport::where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -58,6 +61,7 @@ class FeasibilityReportService
     {
         $this->ensureTable();
         $query = FeasibilityReport::where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -70,6 +74,7 @@ class FeasibilityReportService
     {
         $this->ensureTable();
         $query = FeasibilityReport::whereNull('deleted_at')->order('id', 'desc');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -93,6 +98,7 @@ class FeasibilityReportService
         $this->ensureTable();
 
         $query = FeasibilityReport::where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -108,6 +114,7 @@ class FeasibilityReportService
         Db::execute("
             CREATE TABLE IF NOT EXISTS feasibility_reports (
                 id INT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id INT UNSIGNED DEFAULT NULL,
                 project_name VARCHAR(120) NOT NULL,
                 input_json JSON NULL,
                 snapshot_json JSON NULL,
@@ -119,10 +126,57 @@ class FeasibilityReportService
                 created_at DATETIME NULL,
                 updated_at DATETIME NULL,
                 deleted_at DATETIME NULL,
+                INDEX idx_feasibility_reports_tenant_user (tenant_id, created_by, id),
                 INDEX idx_created_by (created_by),
                 INDEX idx_grade (conclusion_grade)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+        $this->ensureTenantColumns();
+    }
+
+    private function ensureTenantColumns(): void
+    {
+        Db::execute("ALTER TABLE feasibility_reports ADD COLUMN IF NOT EXISTS tenant_id INT UNSIGNED DEFAULT NULL COMMENT '绉熸埛ID锛岄粯璁よ窡闅忓垱寤虹敤鎴? AFTER id");
+        Db::execute("ALTER TABLE feasibility_reports ADD INDEX IF NOT EXISTS idx_feasibility_reports_tenant_user (tenant_id, created_by, id)");
+    }
+
+    private function applyTenantScope($query, int $userId, bool $isSuperAdmin): void
+    {
+        if ($isSuperAdmin) {
+            return;
+        }
+
+        $tenantId = $this->tenantIdForUser($userId);
+        if ($tenantId === null) {
+            $query->where('tenant_id', -1);
+            return;
+        }
+
+        $query->where('tenant_id', $tenantId);
+    }
+
+    private function tenantIdForUser(int $userId): ?int
+    {
+        if ($userId <= 0) {
+            return null;
+        }
+
+        try {
+            $row = Db::name('users')->where('id', $userId)->field('tenant_id,hotel_id')->find();
+            if (!$row) {
+                return null;
+            }
+
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            if ($tenantId > 0) {
+                return $tenantId;
+            }
+
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            return $hotelId > 0 ? $hotelId : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     private function normalizeInput(array $input): array
@@ -157,12 +211,12 @@ class FeasibilityReportService
         return $result;
     }
 
-    private function buildSnapshot(array $input): array
+    private function buildSnapshot(array $input, ?int $tenantId = null): array
     {
-        $daily = $this->safeRows('daily_reports', fn () => Db::name('daily_reports')->order('report_date', 'desc')->limit(30)->select()->toArray());
-        $online = $this->safeRows('online_daily_data', fn () => Db::name('online_daily_data')->order('id', 'desc')->limit(30)->select()->toArray());
-        $competitors = $this->safeRows('competitor_hotel', fn () => Db::name('competitor_hotel')->where('status', 1)->limit(20)->select()->toArray());
-        $prices = $this->safeRows('competitor_price_log', fn () => Db::name('competitor_price_log')->order('id', 'desc')->limit(50)->select()->toArray());
+        $daily = $this->safeRows('daily_reports', fn () => $this->buildTenantSnapshotQuery('daily_reports', $tenantId)->order('report_date', 'desc')->limit(30)->select()->toArray());
+        $online = $this->safeRows('online_daily_data', fn () => $this->buildTenantSnapshotQuery('online_daily_data', $tenantId)->order('id', 'desc')->limit(30)->select()->toArray());
+        $competitors = $this->safeRows('competitor_hotel', fn () => $this->buildTenantSnapshotQuery('competitor_hotel', $tenantId)->where('status', 1)->limit(20)->select()->toArray());
+        $prices = $this->safeRows('competitor_price_log', fn () => $this->buildTenantSnapshotQuery('competitor_price_log', $tenantId)->order('id', 'desc')->limit(50)->select()->toArray());
 
         return [
             'daily_summary' => $this->summarizeDailyReports($daily),
@@ -223,6 +277,29 @@ class FeasibilityReportService
                 return [];
             }
             throw $e;
+        }
+    }
+
+    private function buildTenantSnapshotQuery(string $table, ?int $tenantId)
+    {
+        $query = Db::name($table);
+        if ($tenantId === null || !$this->tableHasColumn($table, 'tenant_id')) {
+            $query->where('id', -1);
+            return $query;
+        }
+
+        $query->where('tenant_id', $tenantId);
+        return $query;
+    }
+
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        try {
+            $safeTable = str_replace('`', '', $table);
+            $safeColumn = str_replace("'", "''", $column);
+            return !empty(Db::query("SHOW COLUMNS FROM `{$safeTable}` LIKE '{$safeColumn}'"));
+        } catch (\Throwable $e) {
+            return false;
         }
     }
 

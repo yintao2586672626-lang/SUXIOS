@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\LlmClient;
+use app\service\LlmEndpoint;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
 
@@ -35,19 +36,17 @@ final class LlmClientTest extends TestCase
 
     public function testChatEndpointUrlSupportsProviderSpecificPathsAndQueryStrings(): void
     {
-        $client = new LlmClient();
-
         self::assertSame(
             'https://api.mistral.ai/v1/chat/completions',
-            $this->invokeNonPublic($client, 'chatEndpointUrl', ['https://api.mistral.ai/v1', 'mistral'])
+            LlmEndpoint::chatCompletionUrl('https://api.mistral.ai/v1', 'mistral')
         );
         self::assertSame(
             'https://api.perplexity.ai/v1/sonar',
-            $this->invokeNonPublic($client, 'chatEndpointUrl', ['https://api.perplexity.ai/v1', 'perplexity'])
+            LlmEndpoint::chatCompletionUrl('https://api.perplexity.ai/v1', 'perplexity')
         );
         self::assertSame(
             'https://example.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview',
-            $this->invokeNonPublic($client, 'chatEndpointUrl', ['https://example.services.ai.azure.com/models?api-version=2024-05-01-preview', 'microsoft_phi'])
+            LlmEndpoint::chatCompletionUrl('https://example.services.ai.azure.com/models?api-version=2024-05-01-preview', 'microsoft_phi')
         );
     }
 

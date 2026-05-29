@@ -89,6 +89,15 @@ $env:E2E_PASSWORD='admin123'
 npm run test:e2e:full
 ```
 
+短程排查可使用可控上限：
+
+```powershell
+$env:E2E_FULL_MIN_LOOP='1'
+$env:E2E_FULL_MAX_LOOP='3'
+$env:E2E_LOOP='3'
+npm run test:e2e:full:bounded
+```
+
 报告目录：
 
 ```text

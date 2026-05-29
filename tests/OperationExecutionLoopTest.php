@@ -116,20 +116,22 @@ final class OperationExecutionLoopTest extends TestCase
         );
     }
 
-    public function testExecutedTaskRequiresEvidence(): void
+    public function testExecutedTaskWithoutEvidenceIsBlocked(): void
     {
         $service = new OperationManagementService();
         self::assertTrue(method_exists($service, 'buildExecutionTaskUpdate'), 'Missing execution task update builder');
 
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('evidence');
-
-        $service->buildExecutionTaskUpdate(
+        $result = $service->buildExecutionTaskUpdate(
             ['id' => 9, 'status' => 'pending_execute'],
             ['id' => 4, 'status' => 'approved'],
             ['status' => 'executed'],
             3
         );
+
+        self::assertSame('blocked', $result['task']['status']);
+        self::assertStringContainsString('evidence', $result['task']['blocked_reason']);
+        self::assertArrayNotHasKey('executed_at', $result['task']);
+        self::assertNull($result['evidence']);
     }
 
     public function testExecutedTaskBuildsTaskUpdateAndEvidencePayload(): void

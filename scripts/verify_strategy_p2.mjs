@@ -21,8 +21,24 @@ const checks = [
       'public function detail(int $id): Response',
       'public function archive(int $id): Response',
       'private function formatRecord(array $row, bool $withDetail): array',
+      "'tenant_id' => $this->tenantIdForCurrentUser()",
+      'private function applyTenantScope',
+      "where('tenant_id', $tenantId)",
       "->whereNull('deleted_at')",
       "->where('created_by', (int)($this->currentUser->id ?? 0))",
+    ],
+  },
+  {
+    file: 'app/model/StrategySimulationRecord.php',
+    contains: [
+      "'tenant_id' => 'integer'",
+    ],
+  },
+  {
+    file: 'database/migrations/20260509_create_strategy_simulation_tables.sql',
+    contains: [
+      '`tenant_id` INT UNSIGNED DEFAULT NULL',
+      'INDEX `idx_strategy_records_tenant_user` (`tenant_id`, `created_by`, `id`)',
     ],
   },
   {

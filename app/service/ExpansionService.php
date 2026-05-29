@@ -526,6 +526,7 @@ class ExpansionService
         $now = date('Y-m-d H:i:s');
 
         return (int)Db::name('expansion_records')->insertGetId([
+            'tenant_id' => $this->tenantIdForUser($userId),
             'record_type' => $recordType,
             'project_name' => $summary['project_name'],
             'city_area' => $summary['city_area'],
@@ -544,6 +545,7 @@ class ExpansionService
         $this->ensureTable();
 
         $query = Db::name('expansion_records')->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -557,6 +559,7 @@ class ExpansionService
         $this->ensureTable();
 
         $query = Db::name('expansion_records')->where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -574,6 +577,7 @@ class ExpansionService
         $this->ensureTable();
 
         $query = Db::name('expansion_records')->where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -612,6 +616,7 @@ class ExpansionService
         $query = Db::name('expansion_records')
             ->whereIn('record_type', $recordTypes)
             ->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -628,6 +633,7 @@ class ExpansionService
         Db::execute("
             CREATE TABLE IF NOT EXISTS expansion_records (
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                tenant_id BIGINT UNSIGNED DEFAULT NULL,
                 record_type VARCHAR(30) NOT NULL DEFAULT '',
                 project_name VARCHAR(160) NOT NULL DEFAULT '',
                 city_area VARCHAR(160) NOT NULL DEFAULT '',
@@ -640,10 +646,57 @@ class ExpansionService
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 deleted_at DATETIME DEFAULT NULL,
                 PRIMARY KEY (id),
+                INDEX idx_expansion_records_tenant_user (tenant_id, created_by, id),
                 INDEX idx_expansion_records_type_user (record_type, created_by, id),
                 INDEX idx_expansion_records_city_area (city_area)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+        $this->ensureTenantColumns();
+    }
+
+    private function ensureTenantColumns(): void
+    {
+        Db::execute("ALTER TABLE expansion_records ADD COLUMN IF NOT EXISTS tenant_id BIGINT UNSIGNED DEFAULT NULL COMMENT '租户ID，默认跟随创建用户' AFTER id");
+        Db::execute("ALTER TABLE expansion_records ADD INDEX IF NOT EXISTS idx_expansion_records_tenant_user (tenant_id, created_by, id)");
+    }
+
+    private function applyTenantScope($query, int $userId, bool $isSuperAdmin): void
+    {
+        if ($isSuperAdmin) {
+            return;
+        }
+
+        $tenantId = $this->tenantIdForUser($userId);
+        if ($tenantId === null) {
+            $query->where('tenant_id', -1);
+            return;
+        }
+
+        $query->where('tenant_id', $tenantId);
+    }
+
+    private function tenantIdForUser(int $userId): ?int
+    {
+        if ($userId <= 0) {
+            return null;
+        }
+
+        try {
+            $row = Db::name('users')->where('id', $userId)->field('tenant_id,hotel_id')->find();
+            if (!$row) {
+                return null;
+            }
+
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            if ($tenantId > 0) {
+                return $tenantId;
+            }
+
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            return $hotelId > 0 ? $hotelId : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     private function recordSummary(string $recordType, array $input, array $result): array

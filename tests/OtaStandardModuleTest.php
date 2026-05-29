@@ -165,6 +165,101 @@ final class OtaStandardModuleTest extends TestCase
         self::assertSame(92.5, $metrics['quality']['avg_service_score']);
     }
 
+    public function testRevenueMetricsExposeTraceableChannelMetrics(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 71,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-05-27',
+                'amount' => 1200,
+                'quantity' => 6,
+                'book_order_num' => 4,
+                'source_trace_id' => 'trace-business-71',
+                'update_time' => '2026-05-27 10:00:00',
+                'raw_data' => json_encode(['available_rooms' => 10], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 72,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'traffic',
+                'data_date' => '2026-05-27',
+                'list_exposure' => 1000,
+                'detail_exposure' => 185,
+                'flow_rate' => 18.5,
+                'order_filling_num' => 40,
+                'order_submit_num' => 9,
+                'source_trace_id' => 'trace-traffic-72',
+                'update_time' => '2026-05-27 10:05:00',
+                'raw_data' => '{}',
+            ],
+            [
+                'id' => 73,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'advertising',
+                'data_date' => '2026-05-27',
+                'amount' => 256.75,
+                'list_exposure' => 10000,
+                'detail_exposure' => 320,
+                'book_order_num' => 16,
+                'data_value' => 7.35,
+                'source_trace_id' => 'trace-ad-73',
+                'update_time' => '2026-05-27 10:10:00',
+                'raw_data' => json_encode(['orderAmount' => 1888, 'campaignId' => 'campaign-1'], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 74,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'search_keyword',
+                'dimension' => 'family hotel',
+                'data_date' => '2026-05-27',
+                'list_exposure' => 300,
+                'detail_exposure' => 45,
+                'order_submit_num' => 3,
+                'data_value' => 5,
+                'source_trace_id' => 'trace-keyword-74',
+                'update_time' => '2026-05-27 10:15:00',
+                'raw_data' => json_encode(['keyword' => 'family hotel', 'rank' => 2], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+
+        self::assertCount(1, $dataset['fact_ota_search_keyword']);
+
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+
+        self::assertArrayHasKey('channel_metrics', $metrics);
+        $trafficFlow = $this->channelMetric($metrics['channel_metrics'], 'traffic', 'flow_rate');
+        self::assertSame(['scope', 'platform', 'resource', 'metric_key', 'value', 'denominator', 'data_status', 'source_trace_id', 'updated_at'], array_keys($trafficFlow));
+        self::assertSame('ota_channel', $trafficFlow['scope']);
+        self::assertSame('ctrip', $trafficFlow['platform']);
+        self::assertSame(18.5, $trafficFlow['value']);
+        self::assertSame(1000.0, $trafficFlow['denominator']);
+        self::assertSame('ok', $trafficFlow['data_status']);
+        self::assertSame('trace-traffic-72', $trafficFlow['source_trace_id']);
+        self::assertSame('2026-05-27 10:05:00', $trafficFlow['updated_at']);
+
+        $adSpend = $this->channelMetric($metrics['channel_metrics'], 'advertising', 'amount');
+        self::assertSame(256.75, $adSpend['value']);
+        self::assertSame('trace-ad-73', $adSpend['source_trace_id']);
+
+        $keywordRank = $this->channelMetric($metrics['channel_metrics'], 'search_keyword:family hotel', 'rank');
+        self::assertSame(2.0, $keywordRank['value']);
+        self::assertSame('trace-keyword-74', $keywordRank['source_trace_id']);
+    }
+
     public function testInsightAnalysisIncludesAdvertisingEfficiencyAndServiceQualityModules(): void
     {
         $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
@@ -636,5 +731,20 @@ final class OtaStandardModuleTest extends TestCase
             'saved_success' => true,
             'failure_reasons' => [],
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $metrics
+     * @return array<string, mixed>
+     */
+    private function channelMetric(array $metrics, string $resource, string $metricKey): array
+    {
+        foreach ($metrics as $metric) {
+            if (($metric['resource'] ?? '') === $resource && ($metric['metric_key'] ?? '') === $metricKey) {
+                return $metric;
+            }
+        }
+
+        self::fail("Missing channel metric {$resource}.{$metricKey}");
     }
 }

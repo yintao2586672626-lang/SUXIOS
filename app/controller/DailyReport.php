@@ -14,6 +14,7 @@ use think\facade\Db;
 
 class DailyReport extends Base
 {
+    private const EXPORT_BATCH_LIMIT = 31;
     private const OTA_CHANNEL_KEYS = ['xb', 'mt', 'fliggy', 'tc', 'dy', 'qn', 'zx', 'booking', 'agoda', 'expedia'];
     private const OTA_EXCEL_CHANNELS = [
         ['key' => 'xb', 'label' => '携程'],
@@ -859,6 +860,9 @@ class DailyReport extends Base
 
         $report = new DailyReportModel();
         $report->hotel_id = $hotelId;
+        if ($this->dailyReportsHasColumn('tenant_id')) {
+            $report->tenant_id = $this->tenantIdForHotel($hotelId);
+        }
         $report->report_date = $reportDate;
         $report->report_data = $reportData;
         $report->submitter_id = $this->currentUser->id;
@@ -1306,6 +1310,7 @@ class DailyReport extends Base
                 'data' => $reportData,  // 直接传递原始数据
             ],
             'month_task' => $taskData,
+            'watermark' => $this->buildExportWatermark((int)$report->hotel_id, 1),
         ];
 
         return $this->generateExcelResponse($exportData, "日报表_{$hotel->name}_{$reportDate}.xlsx");
@@ -1337,12 +1342,35 @@ class DailyReport extends Base
         }
 
         $reports = $query->order('report_date', 'asc')->select();
+        $reportCount = count($reports);
+        if (!$this->isExportBatchAllowed($reportCount)) {
+            OperationLog::record(
+                'daily_report',
+                'export_blocked',
+                '批量导出超出限制: ' . $reportCount . '条',
+                $this->currentUser->id,
+                $hotelId ? (int)$hotelId : null,
+                'export_limit_exceeded',
+                [
+                    'audit_type' => 'operation',
+                    'limit' => self::EXPORT_BATCH_LIMIT,
+                    'requested_count' => $reportCount,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                ]
+            );
+            return $this->error('批量导出最多支持' . self::EXPORT_BATCH_LIMIT . '条日报，请缩小日期范围或选择单日报导出', 429, [
+                'limit' => self::EXPORT_BATCH_LIMIT,
+                'requested_count' => $reportCount,
+            ]);
+        }
 
         $monthTaskData = [];
 
         $exportData = [
             'reports' => [],
             'month_task' => $monthTaskData,
+            'watermark' => $this->buildExportWatermark($hotelId ? (int)$hotelId : null, $reportCount),
         ];
         
         // 获取酒店名称用于文件名
@@ -1383,6 +1411,33 @@ class DailyReport extends Base
         $filename .= '.xlsx';
 
         return $this->generateExcelResponse($exportData, $filename);
+    }
+
+    private function isExportBatchAllowed(int $reportCount): bool
+    {
+        return $reportCount <= self::EXPORT_BATCH_LIMIT;
+    }
+
+    private function buildExportWatermark(?int $hotelId, int $reportCount): array
+    {
+        $userId = (int)($this->currentUser->id ?? 0);
+        $username = trim((string)($this->currentUser->realname ?? $this->currentUser->username ?? 'unknown'));
+        $exportedAt = date('Y-m-d H:i:s');
+
+        return [
+            'user_id' => $userId,
+            'username' => $username,
+            'hotel_id' => $hotelId,
+            'report_count' => $reportCount,
+            'exported_at' => $exportedAt,
+            'text' => sprintf('SUXIOS Export Watermark | user=%s#%d | hotel=%s | count=%d | time=%s', $username, $userId, $hotelId ?? 'mixed', $reportCount, $exportedAt),
+        ];
+    }
+
+    private function formatExportWatermark(array $watermark): string
+    {
+        $text = trim((string)($watermark['text'] ?? ''));
+        return $text === '' ? '' : $this->escapeHtml($text);
     }
 
     private function loadMonthlyTaskContext(int $hotelId, string $reportDate): array
@@ -1438,7 +1493,26 @@ class DailyReport extends Base
      */
     private function generateExcelResponse(array $exportData, string $filename): Response
     {
+        if (!isset($exportData['watermark'])) {
+            $mode = (string)($exportData['mode'] ?? '');
+            $reportCount = $mode === 'single' ? 1 : count($exportData['reports'] ?? []);
+            $exportData['watermark'] = $this->buildExportWatermark(null, $reportCount);
+        }
         $html = $this->generateExcelHtml($exportData);
+        OperationLog::record(
+            'daily_report',
+            'export',
+            '导出日报表: ' . $filename,
+            (int)($this->currentUser->id ?? 0) ?: null,
+            isset($exportData['watermark']['hotel_id']) ? (int)$exportData['watermark']['hotel_id'] : null,
+            null,
+            [
+                'audit_type' => 'operation',
+                'filename' => $filename,
+                'report_count' => $exportData['watermark']['report_count'] ?? null,
+                'watermark' => $exportData['watermark']['text'] ?? '',
+            ]
+        );
         
         return response($html, 200, [
             'Content-Type' => 'application/vnd.ms-excel; charset=utf-8',
@@ -1994,6 +2068,11 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $html .= '</tr>';
         }
         
+        $watermark = $this->formatExportWatermark($exportData['watermark'] ?? []);
+        if ($watermark !== '') {
+            $html .= '<tr><td colspan="114" style="color:#666666;font-size:10px;text-align:left;background:#F2F2F2">' . $watermark . '</td></tr>';
+        }
+
         $html .= '</table></body></html>';
         
         return $html;
@@ -2211,6 +2290,26 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
     private function escapeHtml(string $str): string
     {
         return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
+    }
+
+    private function dailyReportsHasColumn(string $column): bool
+    {
+        static $columns = null;
+        if ($columns === null) {
+            try {
+                $rows = Db::query('SHOW COLUMNS FROM daily_reports');
+                $columns = array_fill_keys(array_column($rows, 'Field'), true);
+            } catch (\Throwable $e) {
+                $columns = [];
+            }
+        }
+
+        return isset($columns[$column]);
+    }
+
+    private function tenantIdForHotel(int $hotelId): int
+    {
+        return max(0, $hotelId);
     }
 
     /**

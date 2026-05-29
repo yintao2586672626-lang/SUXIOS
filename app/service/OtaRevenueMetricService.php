@@ -15,6 +15,7 @@ class OtaRevenueMetricService
         $traffic = $this->list($dataset['fact_ota_traffic'] ?? []);
         $advertising = $this->list($dataset['fact_ota_advertising'] ?? []);
         $quality = $this->list($dataset['fact_ota_quality'] ?? []);
+        $searchKeywords = $this->list($dataset['fact_ota_search_keyword'] ?? []);
         $comments = $this->list($dataset['fact_ota_comment'] ?? []);
         $dataGaps = [];
 
@@ -175,7 +176,7 @@ class OtaRevenueMetricService
         $metricTrust['quality.avg_service_score'] = $this->trust($quality, 'avg(fact_ota_quality.service_score)');
 
         return [
-            'status' => $daily || $traffic || $advertising || $quality || $comments ? 'ready' : 'empty',
+            'status' => $daily || $traffic || $advertising || $quality || $searchKeywords || $comments ? 'ready' : 'empty',
             'generated_at' => date('Y-m-d H:i:s'),
             'fact_table' => [
                 'name' => 'fact_ota_daily',
@@ -223,6 +224,7 @@ class OtaRevenueMetricService
             'channel_contribution' => $this->channelContribution($daily, $revenue, $netRevenue),
             'by_platform' => $this->groupDailyBy($daily, 'platform_key', $revenue, $netRevenue),
             'by_hotel' => $this->groupDailyBy($daily, 'hotel_key', $revenue, $netRevenue),
+            'channel_metrics' => $this->channelMetrics($daily, $traffic, $advertising, $quality, $searchKeywords, $comments),
             'data_gaps' => $dataGaps,
             'etl_quality' => $dataset['data_quality'] ?? [],
             'metric_trust' => $metricTrust,
@@ -461,6 +463,135 @@ class OtaRevenueMetricService
             ],
             $this->groupDailyBy($daily, 'platform_key', $totalRevenue, $totalNetRevenue)
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $daily
+     * @param array<int, array<string, mixed>> $traffic
+     * @param array<int, array<string, mixed>> $advertising
+     * @param array<int, array<string, mixed>> $quality
+     * @param array<int, array<string, mixed>> $searchKeywords
+     * @param array<int, array<string, mixed>> $comments
+     * @return array<int, array<string, mixed>>
+     */
+    private function channelMetrics(array $daily, array $traffic, array $advertising, array $quality, array $searchKeywords, array $comments): array
+    {
+        $metrics = [];
+
+        foreach ($daily as $row) {
+            $resource = $this->channelResource($row, (string)($row['data_type'] ?? 'business'));
+            $this->appendChannelMetric($metrics, $row, $resource, 'revenue', $row['revenue'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'room_nights', $row['room_nights'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'order_count', $row['order_count'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'adr', $row['adr'] ?? null, $row['room_nights'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'our_price', $row['our_price'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'competitor_price', $row['competitor_price'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'price_gap', $row['price_gap'] ?? null);
+        }
+
+        foreach ($traffic as $row) {
+            $this->appendChannelMetric($metrics, $row, 'traffic', 'list_exposure', $row['list_exposure'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'traffic', 'detail_exposure', $row['detail_exposure'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'traffic', 'flow_rate', $row['flow_rate'] ?? null, $row['list_exposure'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'traffic', 'order_filling_num', $row['order_filling_num'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'traffic', 'order_submit_num', $row['order_submit_num'] ?? null, $row['order_filling_num'] ?? null);
+        }
+
+        foreach ($advertising as $row) {
+            $this->appendChannelMetric($metrics, $row, 'advertising', 'amount', $row['spend'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'advertising', 'impressions', $row['impressions'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'advertising', 'clicks', $row['clicks'] ?? null, $row['impressions'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'advertising', 'bookings', $row['bookings'] ?? null, $row['clicks'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'advertising', 'roi', $row['roas'] ?? null, $row['spend'] ?? null);
+        }
+
+        foreach ($quality as $row) {
+            $this->appendChannelMetric($metrics, $row, 'quality', 'psi_score', $row['psi_score'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'quality', 'service_score', $row['service_score'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'quality', 'reply_rate', $row['reply_rate'] ?? null);
+        }
+
+        foreach ($searchKeywords as $row) {
+            $resource = $this->channelResource($row, 'search_keyword');
+            $this->appendChannelMetric($metrics, $row, $resource, 'rank', $row['rank'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'impressions', $row['impressions'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'clicks', $row['clicks'] ?? null, $row['impressions'] ?? null);
+            $this->appendChannelMetric($metrics, $row, $resource, 'order_contribution', $row['order_contribution'] ?? null, $row['clicks'] ?? null);
+        }
+
+        foreach ($comments as $row) {
+            $this->appendChannelMetric($metrics, $row, 'review', 'score', $row['score'] ?? null);
+        }
+
+        return $metrics;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $metrics
+     * @param array<string, mixed> $row
+     */
+    private function appendChannelMetric(array &$metrics, array $row, string $resource, string $metricKey, mixed $value, mixed $denominator = null): void
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return;
+        }
+
+        $trace = is_array($row['source_trace'] ?? null) ? $row['source_trace'] : [];
+        $sourceTraceId = trim((string)($trace['source_trace_id'] ?? ''));
+        if ($sourceTraceId === '' && array_key_exists('row_id', $trace) && $trace['row_id'] !== null && $trace['row_id'] !== '') {
+            $sourceTraceId = 'online_daily_data#' . (string)$trace['row_id'];
+        }
+
+        $denominatorValue = $denominator !== null && $denominator !== '' && is_numeric($denominator)
+            ? (float)$denominator
+            : null;
+
+        $metrics[] = [
+            'scope' => 'ota_channel',
+            'platform' => (string)($trace['platform'] ?? $row['platform_key'] ?? ''),
+            'resource' => $resource,
+            'metric_key' => $metricKey,
+            'value' => (float)$value,
+            'denominator' => $denominatorValue,
+            'data_status' => $this->channelMetricDataStatus($trace),
+            'source_trace_id' => $sourceTraceId,
+            'updated_at' => (string)($trace['updated_at'] ?? ''),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function channelResource(array $row, string $default): string
+    {
+        $default = $default !== '' ? $default : 'business';
+        if ($default === 'search_keyword') {
+            $keyword = trim((string)($row['keyword'] ?? ''));
+            return $keyword !== '' ? 'search_keyword:' . $keyword : 'search_keyword';
+        }
+
+        $dimension = trim((string)($row['dimension'] ?? ''));
+        return $dimension !== '' ? $default . ':' . $dimension : $default;
+    }
+
+    /**
+     * @param array<string, mixed> $trace
+     */
+    private function channelMetricDataStatus(array $trace): string
+    {
+        if (!$trace) {
+            return 'unknown';
+        }
+        if (($trace['saved_success'] ?? false) !== true) {
+            return 'failed';
+        }
+        if (!empty($trace['failure_reasons'])) {
+            return 'failed';
+        }
+        if (trim((string)($trace['updated_at'] ?? '')) === '') {
+            return 'warning';
+        }
+        return 'ok';
     }
 
     /**

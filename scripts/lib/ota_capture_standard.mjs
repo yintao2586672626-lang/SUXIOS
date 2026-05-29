@@ -55,6 +55,7 @@ export const PLATFORM_CONFIGS = {
           'fetchmarketoverviewv2',
           'getdayreportflowcompete',
           'getdayreportserverquantity',
+          'fetchcurrenthotelseqinfov1',
           'fetchvisitortitlev2',
           'fetchcapacityoverviewv4',
           'getdayreportcompetehotelreport',

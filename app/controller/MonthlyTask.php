@@ -134,6 +134,9 @@ class MonthlyTask extends Base
 
         $task = new MonthlyTaskModel();
         $task->hotel_id = $hotelId;
+        if ($this->monthlyTasksHasColumn('tenant_id')) {
+            $task->tenant_id = $hotelId;
+        }
         $task->year = $data['year'];
         $task->month = $data['month'];
         $task->task_data = $taskData;
@@ -252,6 +255,21 @@ class MonthlyTask extends Base
         }
         // 非超级管理员必须有酒店关联
         $this->requireHotel();
+    }
+
+    private function monthlyTasksHasColumn(string $column): bool
+    {
+        static $columns = null;
+        if ($columns === null) {
+            try {
+                $rows = Db::query('SHOW COLUMNS FROM monthly_tasks');
+                $columns = array_fill_keys(array_column($rows, 'Field'), true);
+            } catch (\Throwable $e) {
+                $columns = [];
+            }
+        }
+
+        return isset($columns[$column]);
     }
 
     /**

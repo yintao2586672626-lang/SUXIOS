@@ -29,6 +29,7 @@ class OtaStandardEtlService
         $trafficFacts = [];
         $advertisingFacts = [];
         $qualityFacts = [];
+        $searchKeywordFacts = [];
         $commentFacts = [];
         $rejectedRows = [];
 
@@ -91,10 +92,14 @@ class OtaStandardEtlService
                 $qualityFacts[] = $this->qualityFact($row, $raw, $hotelKey, $source, $date);
                 continue;
             }
+            if ($dataType === 'search_keyword') {
+                $searchKeywordFacts[] = $this->searchKeywordFact($row, $raw, $hotelKey, $source, $date);
+                continue;
+            }
             $dailyFacts[] = $this->dailyFact($row, $raw, $hotelKey, $source, $date, $dataType);
         }
 
-        $acceptedCount = count($dailyFacts) + count($trafficFacts) + count($advertisingFacts) + count($qualityFacts) + count($commentFacts);
+        $acceptedCount = count($dailyFacts) + count($trafficFacts) + count($advertisingFacts) + count($qualityFacts) + count($searchKeywordFacts) + count($commentFacts);
         return [
             'status' => $acceptedCount > 0 ? 'ready' : 'empty',
             'dim_hotel' => array_values($hotels),
@@ -103,6 +108,7 @@ class OtaStandardEtlService
             'fact_ota_traffic' => $trafficFacts,
             'fact_ota_advertising' => $advertisingFacts,
             'fact_ota_quality' => $qualityFacts,
+            'fact_ota_search_keyword' => $searchKeywordFacts,
             'fact_ota_comment' => $commentFacts,
             'data_quality' => [
                 'input_rows' => count($rows),
@@ -186,6 +192,10 @@ class OtaStandardEtlService
             'error_info',
             'failure_reason',
             'failed_reason',
+            'data_source_id',
+            'sync_task_id',
+            'ingestion_method',
+            'source_trace_id',
         ], array_keys($columns)));
 
         $query = Db::name('online_daily_data')->field($fields ?: '*');
@@ -413,6 +423,31 @@ class OtaStandardEtlService
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
      */
+    private function searchKeywordFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
+    {
+        $detail = $this->rawDetail($raw);
+        $keyword = $this->firstText($row, $detail, ['dimension', 'keyword', 'searchKeyword', 'search_word', 'searchWord']);
+        $rank = $this->nullableNumber($row, $detail, ['rank', 'ranking', 'search_rank', 'searchRank', 'position']);
+
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'keyword' => $keyword,
+            'rank' => $rank !== null ? round($rank, 2) : null,
+            'impressions' => (int)round($this->firstNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure', 'exposure_count', 'exposureCount'])),
+            'clicks' => (int)round($this->firstNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount'])),
+            'order_contribution' => (int)round($this->firstNumber($row, $detail, ['order_submit_num', 'orderSubmitNum', 'order_contribution', 'orderContribution', 'orders', 'orderCount'])),
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'search_keyword', $date),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
     private function commentFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
     {
         $score = $this->nullableNumber($row, $raw, ['comment_score', 'commentScore', 'score', 'data_value', 'dataValue']);
@@ -464,6 +499,10 @@ class OtaStandardEtlService
         return [
             'table' => 'online_daily_data',
             'row_id' => array_key_exists('id', $row) ? (is_numeric($row['id']) ? (int)$row['id'] : (string)$row['id']) : null,
+            'source_trace_id' => $this->sourceTraceId($row),
+            'data_source_id' => $row['data_source_id'] ?? null,
+            'sync_task_id' => $row['sync_task_id'] ?? null,
+            'ingestion_method' => (string)($row['ingestion_method'] ?? ''),
             'hotel_key' => $hotelKey,
             'platform' => $source,
             'data_type' => $dataType,
@@ -575,10 +614,27 @@ class OtaStandardEtlService
         if (in_array($value, ['quality', 'service', 'service_quality', 'psi'], true)) {
             return 'quality';
         }
+        if (in_array($value, ['search_keyword', 'search-keyword', 'search_keywords', 'search-keywords', 'keyword', 'keywords', 'search_word', 'search_words', 'hot_word', 'hot_words'], true)) {
+            return 'search_keyword';
+        }
         if (in_array($value, ['review', 'reviews', 'comment', 'comments'], true)) {
             return 'review';
         }
         return $value !== '' ? $value : 'business';
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function sourceTraceId(array $row): string
+    {
+        $traceId = trim((string)($row['source_trace_id'] ?? ''));
+        if ($traceId !== '') {
+            return $traceId;
+        }
+
+        $raw = $this->decodeJson($row['raw_data'] ?? []);
+        return trim((string)($raw['source_trace_id'] ?? ''));
     }
 
     /**

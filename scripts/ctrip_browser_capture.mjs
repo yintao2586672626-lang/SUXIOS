@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 import { sanitizeOtaPayloadForStorage } from './lib/ota_capture_standard.mjs';
+import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const URLS = {
   business: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true',
@@ -17,6 +18,7 @@ const KEYWORDS = {
     'fetchMarketOverViewV2',
     'getDayReportFlowCompete',
     'getDayReportServerQuantity',
+    'fetchCurrentHotelSeqInfoV1',
     'fetchVisitorTitleV2',
     'fetchCapacityOverViewV4',
     'getDayReportCompeteHotelReport',
@@ -739,19 +741,6 @@ function allowedCookieDomains(platform) {
   return [];
 }
 
-function parseArgs(argv) {
-  const result = {};
-  for (const arg of argv) {
-    if (!arg.startsWith('--')) {
-      continue;
-    }
-    const [rawKey, ...rest] = arg.slice(2).split('=');
-    const key = rawKey.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
-    result[key] = rest.length ? rest.join('=') : 'true';
-  }
-  return result;
-}
-
 function normalizeSections(value) {
   const allowed = new Set(['business', 'traffic']);
   const sections = String(value || '')
@@ -768,17 +757,4 @@ function summarize(data) {
     reviews: data.reviews.length,
     responses: data.responses.length,
   };
-}
-
-function timestamp() {
-  return new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
-}
-
-function safeName(value) {
-  return String(value || 'default').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
-}
-
-function fail(message) {
-  console.error(message);
-  process.exit(1);
 }

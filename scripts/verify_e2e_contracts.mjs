@@ -92,6 +92,8 @@ requireText('tests/automation/full-click-coverage.spec.js', 'summary.json', 'ful
 requireText('tests/automation/full-click-coverage.spec.js', 'MIN_KEY_FUNCTION_LOOPS = 50', 'full click key-function validation starts at 50 loops');
 requireText('tests/automation/full-click-coverage.spec.js', 'MAX_KEY_FUNCTION_LOOPS = 100', 'full click key-function validation caps at 100 loops');
 requireText('tests/automation/full-click-coverage.spec.js', 'parseKeyFunctionLoopCount', 'full click clamps key-function loop count');
+requireText('tests/automation/full-click-coverage.spec.js', 'E2E_FULL_MIN_LOOP', 'full click can lower loop floor for bounded runs');
+requireText('tests/automation/full-click-coverage.spec.js', 'E2E_FULL_MAX_LOOP', 'full click can cap loop count for bounded runs');
 requireNoText('tests/automation/full-click-coverage.spec.js', 'waitForTimeout', 'full click test avoids fixed sleeps');
 
 requireText('tests/automation/edge-input-guard.spec.js', 'edgeCasesForField', 'edge input guard generates boundary input cases');
@@ -142,6 +144,7 @@ requireText('package.json', 'test:e2e:quick', 'package exposes quick CI e2e comm
 requireText('package.json', 'test:e2e:business', 'package exposes business chain e2e command');
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
+requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
 
 const failures = checks.filter((check) => !check.ok);
 if (failures.length) {

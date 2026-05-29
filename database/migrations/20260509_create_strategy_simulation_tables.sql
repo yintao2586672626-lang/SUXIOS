@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS `strategy_simulation_records` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `tenant_id` INT UNSIGNED DEFAULT NULL,
     `project_name` VARCHAR(120) NOT NULL,
     `city` VARCHAR(60) NOT NULL,
     `district` VARCHAR(80) DEFAULT '',
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS `strategy_simulation_records` (
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at` DATETIME DEFAULT NULL,
+    INDEX `idx_strategy_records_tenant_user` (`tenant_id`, `created_by`, `id`),
     INDEX `idx_city_district` (`city`, `district`),
     INDEX `idx_created_by` (`created_by`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='战略推演记录表';

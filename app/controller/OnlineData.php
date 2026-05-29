@@ -304,6 +304,9 @@ class OnlineData extends Base
                 OperationLog::record('online_data', 'fetch_ctrip', "获取携程线上数据: {$savedCount}条", $this->currentUser->id, $systemHotelId);
             }
 
+            $displayHotels = $this->buildCtripBusinessDisplayHotels(['date_results' => $dateResults]);
+            $displaySummary = $this->buildCtripBusinessDisplaySummary($displayHotels);
+
             return json([
                 'code' => 200,
                 'message' => '获取成功',
@@ -315,6 +318,9 @@ class OnlineData extends Base
                     'fetched_at' => $fetchedAt,
                     'request_start_date' => $startDate,
                     'request_end_date' => $endDate,
+                    'display_hotels' => $displayHotels,
+                    'display_hotel_count' => count($displayHotels),
+                    'display_summary' => $displaySummary,
                 ]
             ]);
         } catch (\Exception $e) {
@@ -446,6 +452,8 @@ class OnlineData extends Base
             
             // 确保所有数据都是有效的UTF-8编码
             $responseData = $this->ensureUtf8($responseData);
+            $displayHotels = $this->buildMeituanBusinessDisplayHotels($responseData);
+            $displaySummary = $this->buildMeituanBusinessDisplaySummary($displayHotels, $this->buildMeituanBusinessDisplayContext());
             $rawResponse = substr($this->ensureUtf8String($result['raw'] ?? ''), 0, 1000);
             
             // 直接构建响应数据并使用JSON_INVALID_UTF8_SUBSTITUTE处理无效字符
@@ -456,6 +464,9 @@ class OnlineData extends Base
                     'data' => $responseData,
                     'raw_response' => $rawResponse,
                     'saved_count' => $savedCount,
+                    'display_hotels' => $displayHotels,
+                    'display_hotel_count' => count($displayHotels),
+                    'display_summary' => $displaySummary,
                 ],
                 'time' => time(),
             ];
@@ -486,6 +497,29 @@ class OnlineData extends Base
     /**
      * 获取携程流量数据
      */
+    public function meituanDisplayModel(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $rows = $this->request->post('display_hotels', []);
+            if (is_string($rows)) {
+                $decodedRows = json_decode($rows, true);
+                $rows = is_array($decodedRows) ? $decodedRows : [];
+            }
+
+            $displayHotels = $this->mergeMeituanBusinessDisplayHotels(is_array($rows) ? $rows : []);
+            return $this->success([
+                'display_hotels' => $displayHotels,
+                'display_hotel_count' => count($displayHotels),
+                'display_summary' => $this->buildMeituanBusinessDisplaySummary($displayHotels, $this->buildMeituanBusinessDisplayContext()),
+            ]);
+        } catch (\Throwable $e) {
+            return $this->error('构建美团展示模型失败: ' . $e->getMessage());
+        }
+    }
+
     public function fetchCtripTraffic(): Response
     {
         $this->checkPermission();
@@ -550,6 +584,8 @@ class OnlineData extends Base
             }
 
             $trafficRows = is_array($responseData) ? $this->extractCtripTrafficRows($responseData) : [];
+            $displayTrafficRows = $this->buildCtripTrafficDisplayRows($trafficRows);
+            $displayTrafficSummary = $this->buildCtripTrafficDisplaySummary($displayTrafficRows);
             $savedCount = 0;
             if ($autoSave && is_array($responseData)) {
                 $savedCount = $this->parseAndSaveTrafficData(
@@ -569,6 +605,8 @@ class OnlineData extends Base
                 'data' => $responseData,
                 'decoded_data' => $responseData,
                 'traffic_rows' => $trafficRows,
+                'display_traffic_rows' => $displayTrafficRows,
+                'display_traffic_summary' => $displayTrafficSummary,
                 'raw_response' => $result['raw_response'],
                 'http_code' => $result['http_code'],
                 'saved_count' => $savedCount,
@@ -745,6 +783,96 @@ class OnlineData extends Base
             'diagnosis' => $summary['diagnosis'],
             'main_problem_stage' => $summary['main_problem_stage'],
             'recommendations' => $summary['recommendations'],
+        ];
+    }
+
+    private function buildCtripTrafficDisplayRows($responseData): array
+    {
+        $rows = $this->extractCtripTrafficRows($responseData);
+        $displayRows = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $normalized = $this->normalizeAppTrafficRow($row);
+            if ($normalized === null) {
+                continue;
+            }
+
+            $metrics = $normalized['metrics'];
+            $hotelId = $this->readTrafficNumber($row, ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'nodeId', 'node_id'], null);
+            $compareType = $normalized['compare_type'] === 'self' ? 'self' : 'competitor_avg';
+            $displayRows[] = [
+                'date' => $normalized['date'],
+                'hotelId' => $hotelId !== null ? (int)$hotelId : ($compareType === 'competitor_avg' ? -1 : null),
+                'compareType' => $compareType,
+                'listExposure' => (float)$metrics['exposure'],
+                'detailExposure' => (float)$metrics['detail_visitors'],
+                'flowRate' => (float)$metrics['exposure_rate'],
+                'orderFillingNum' => (float)$metrics['order_visitors'],
+                'orderSubmitNum' => (float)$metrics['submit_users'],
+                'orderFillRate' => (float)$metrics['order_rate'],
+                'submitRate' => (float)$metrics['deal_rate'],
+            ];
+        }
+
+        usort($displayRows, function (array $left, array $right): int {
+            $dateCompare = strcmp((string)$left['date'], (string)$right['date']);
+            if ($dateCompare !== 0) {
+                return $dateCompare;
+            }
+            if ($left['compareType'] === $right['compareType']) {
+                return 0;
+            }
+            return $left['compareType'] === 'self' ? -1 : 1;
+        });
+
+        return $displayRows;
+    }
+
+    private function buildCtripTrafficDisplaySummary(array $rows): array
+    {
+        $summary = $this->emptyCtripTrafficDisplaySummary();
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $targetKey = ($row['compareType'] ?? '') === 'self' ? 'self' : 'avg';
+            $summary[$targetKey]['listExposure'] += (float)($row['listExposure'] ?? 0);
+            $summary[$targetKey]['detailExposure'] += (float)($row['detailExposure'] ?? 0);
+            $summary[$targetKey]['orderFillingNum'] += (float)($row['orderFillingNum'] ?? 0);
+            $summary[$targetKey]['orderSubmitNum'] += (float)($row['orderSubmitNum'] ?? 0);
+        }
+
+        foreach (['self', 'avg'] as $targetKey) {
+            $item = $summary[$targetKey];
+            $summary[$targetKey]['flowRate'] = $this->trafficRate($item['detailExposure'], $item['listExposure']);
+            $summary[$targetKey]['orderFillRate'] = $this->trafficRate($item['orderFillingNum'], $item['detailExposure']);
+            $summary[$targetKey]['submitRate'] = $this->trafficRate($item['orderSubmitNum'], $item['orderFillingNum']);
+        }
+
+        return $summary;
+    }
+
+    private function emptyCtripTrafficDisplaySummary(): array
+    {
+        return [
+            'self' => $this->emptyCtripTrafficDisplayMetrics(),
+            'avg' => $this->emptyCtripTrafficDisplayMetrics(),
+        ];
+    }
+
+    private function emptyCtripTrafficDisplayMetrics(): array
+    {
+        return [
+            'listExposure' => 0.0,
+            'detailExposure' => 0.0,
+            'flowRate' => 0.0,
+            'orderFillingNum' => 0.0,
+            'orderFillRate' => 0.0,
+            'orderSubmitNum' => 0.0,
+            'submitRate' => 0.0,
         ];
     }
 
@@ -2045,9 +2173,17 @@ class OnlineData extends Base
             'fetchMarketOverViewV2',
             'getDayReportFlowCompete',
             'getDayReportServerQuantity',
+            'fetchCurrentHotelSeqInfoV1',
             'fetchVisitorTitleV2',
             'fetchCapacityOverViewV4',
             'queryFlowTransforNewV1',
+            'queryFlowTransforNew',
+            'queryScanFlowDetailsV2',
+            'queryHomePageRealTimeData',
+            'getDayReportCompeteHotelReport',
+            'getFlowData',
+            'getTrafficData',
+            'getStatData',
             'getCompeteHotelReportV1',
             'getHotWordsV1',
             'getHotHotelsV1',
@@ -3399,7 +3535,7 @@ class OnlineData extends Base
 
         $needles = $section === 'traffic'
             ? ['queryscanflowdetailsv2', 'queryflowtransfornew', 'queryhomepagerealtimedata', 'getflowdata', 'gettrafficdata', 'getstatdata']
-            : ['getdayreportrealtimedate', 'fetchmarketoverviewv2', 'getdayreportflowcompete', 'getdayreportserverquantity', 'fetchvisitortitlev2', 'fetchcapacityoverviewv4', 'queryflowtransfornewv1', 'getcompetehotelreportv1', 'gethotwordsv1', 'gethothotelsv1', 'getflowhotelsv1', 'gethotroomsv1', 'getuserbehaviorv1', 'gettrafficreportv1', 'getlastweekreportv1', 'getdayreportcompetehotelreport'];
+            : ['getdayreportrealtimedate', 'fetchmarketoverviewv2', 'getdayreportflowcompete', 'getdayreportserverquantity', 'fetchcurrenthotelseqinfov1', 'fetchvisitortitlev2', 'fetchcapacityoverviewv4', 'queryflowtransfornewv1', 'getcompetehotelreportv1', 'gethotwordsv1', 'gethothotelsv1', 'getflowhotelsv1', 'gethotroomsv1', 'getuserbehaviorv1', 'gettrafficreportv1', 'getlastweekreportv1', 'getdayreportcompetehotelreport'];
         foreach ($needles as $needle) {
             if (str_contains($url, $needle)) {
                 return true;
@@ -5033,6 +5169,858 @@ class OnlineData extends Base
         }
 
         return $this->extractHotelData($responseData);
+    }
+
+    private function buildCtripBusinessDisplayHotels($responseData): array
+    {
+        if (is_array($responseData) && isset($responseData['date_results']) && is_array($responseData['date_results'])) {
+            $hotelMap = [];
+            foreach ($responseData['date_results'] as $dateResult) {
+                if (!is_array($dateResult)) {
+                    continue;
+                }
+                foreach ($this->buildCtripBusinessDisplayHotels($dateResult['data'] ?? []) as $hotel) {
+                    $this->mergeCtripBusinessDisplayHotel($hotelMap, $hotel, true);
+                }
+            }
+            return $this->sortBusinessDisplayHotels($hotelMap, 'quantity');
+        }
+
+        $hotelMap = [];
+        foreach ($this->extractCtripBusinessDataList($responseData) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotel = $this->ctripBusinessDisplayHotelFromItem($item);
+            if ($hotel !== null) {
+                $this->mergeCtripBusinessDisplayHotel($hotelMap, $hotel, false);
+            }
+        }
+
+        return $this->sortBusinessDisplayHotels($hotelMap, 'quantity');
+    }
+
+    private function ctripBusinessDisplayHotelFromItem(array $item): ?array
+    {
+        if (isset($item['raw_data']) && is_string($item['raw_data']) && $item['raw_data'] !== '') {
+            $raw = json_decode($item['raw_data'], true);
+            if (is_array($raw)) {
+                $item = array_replace($raw, $item);
+            }
+        }
+
+        $hotelId = (string)($item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? $item['id'] ?? '');
+        $hotelName = (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? '');
+        if ($hotelId === '' && $hotelName === '') {
+            return null;
+        }
+
+        return [
+            'hotelId' => $hotelId,
+            'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
+            'amount' => $this->numberFromKeys($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']),
+            'quantity' => (int)$this->numberFromKeys($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'checkInQuantity']),
+            'bookOrderNum' => (int)$this->numberFromKeys($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']),
+            'totalOrderNum' => (int)$this->numberFromKeys($item, ['totalOrderNum', 'total_order_num', 'bookOrderNum', 'book_order_num', 'orderCount', 'order_count']),
+            'commentScore' => $this->numberFromKeys($item, ['commentScore', 'comment_score', 'score', 'avgScore']),
+            'qunarCommentScore' => $this->numberFromKeys($item, ['qunarCommentScore', 'qunar_comment_score', 'qunarScore']),
+            'totalDetailNum' => (int)$this->numberFromKeys($item, ['totalDetailNum', 'total_detail_num', 'detailVisitors', 'exposure', 'exposureCount', 'pv', 'pageView', 'viewCount']),
+            'qunarDetailVisitors' => (int)$this->numberFromKeys($item, ['qunarDetailVisitors', 'qunar_detail_visitors', 'views', 'uv', 'visitorCount', 'detailUv']),
+            'convertionRate' => $this->numberFromKeys($item, ['convertionRate', 'convertion_rate', 'conversionRate']),
+            'qunarDetailCR' => $this->numberFromKeys($item, ['qunarDetailCR', 'qunar_detail_cr']),
+            'amountRank' => (int)$this->numberFromKeys($item, ['amountRank', 'amount_rank'], 0),
+            'quantityRank' => (int)$this->numberFromKeys($item, ['quantityRank', 'quantity_rank'], 0),
+            'commentScoreRank' => (int)$this->numberFromKeys($item, ['commentScoreRank', 'comment_score_rank'], 0),
+            'qunarDetailCRRank' => (int)$this->numberFromKeys($item, ['qunarDetailCRRank', 'qunar_detail_cr_rank'], 0),
+        ];
+    }
+
+    private function mergeCtripBusinessDisplayHotel(array &$hotelMap, array $hotel, bool $sumValues): void
+    {
+        $key = (string)($hotel['hotelId'] ?? '') . '_' . (string)($hotel['hotelName'] ?? '');
+        if (!isset($hotelMap[$key])) {
+            $hotelMap[$key] = $hotel;
+            return;
+        }
+
+        foreach (['amount', 'quantity', 'bookOrderNum', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
+            $hotelMap[$key][$field] = $sumValues
+                ? (float)($hotelMap[$key][$field] ?? 0) + (float)($hotel[$field] ?? 0)
+                : max((float)($hotelMap[$key][$field] ?? 0), (float)($hotel[$field] ?? 0));
+        }
+        foreach (['quantity', 'bookOrderNum', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
+            $hotelMap[$key][$field] = (int)($hotelMap[$key][$field] ?? 0);
+        }
+        foreach (['commentScore', 'qunarCommentScore', 'convertionRate', 'qunarDetailCR'] as $field) {
+            $hotelMap[$key][$field] = max((float)($hotelMap[$key][$field] ?? 0), (float)($hotel[$field] ?? 0));
+        }
+        foreach (['amountRank', 'quantityRank', 'commentScoreRank', 'qunarDetailCRRank'] as $field) {
+            $existing = (int)($hotelMap[$key][$field] ?? 0);
+            $incoming = (int)($hotel[$field] ?? 0);
+            if ($incoming > 0) {
+                $hotelMap[$key][$field] = $existing === 0 ? $incoming : min($existing, $incoming);
+            }
+        }
+    }
+
+    private function buildMeituanBusinessDisplayHotels($responseData): array
+    {
+        $hotelMap = [];
+        foreach ($this->extractMeituanBusinessRankRows($responseData) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = (string)($item['poiId'] ?? $item['poi_id'] ?? $item['shopId'] ?? $item['shop_id'] ?? $item['hotelId'] ?? '');
+            $hotelName = (string)($item['poiName'] ?? $item['poi_name'] ?? $item['shopName'] ?? $item['shop_name'] ?? $item['hotelName'] ?? $item['name'] ?? '');
+            if ($hotelId === '' && $hotelName === '') {
+                continue;
+            }
+
+            $key = $hotelId . '_' . $hotelName;
+            if (!isset($hotelMap[$key])) {
+                $hotelMap[$key] = [
+                    'poiId' => $hotelId,
+                    'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
+                    'roomNights' => 0.0,
+                    'roomRevenue' => 0.0,
+                    'salesRoomNights' => 0.0,
+                    'sales' => 0.0,
+                    'viewConversion' => 0.0,
+                    'payConversion' => 0.0,
+                    'exposure' => 0.0,
+                    'views' => 0.0,
+                    'rank' => 0,
+                ];
+            }
+
+            $metricType = $this->classifyMeituanBusinessDisplayMetric((string)($item['_dimName'] ?? $item['dimension'] ?? ''), (string)($item['_aiMetricName'] ?? $item['aiMetricName'] ?? ''), (string)($item['rankType'] ?? $item['rank_type'] ?? ''));
+            $value = $this->numberFromKeys($item, ['dataValue', 'data_value', 'monthRoomNights', 'month_room_nights']);
+            if ($metricType !== '') {
+                $hotelMap[$key][$metricType] = max((float)($hotelMap[$key][$metricType] ?? 0), $value);
+            }
+            $rank = (int)$this->numberFromKeys($item, ['rank', 'ranking'], 0);
+            if ($rank > 0) {
+                $existingRank = (int)($hotelMap[$key]['rank'] ?? 0);
+                $hotelMap[$key]['rank'] = $existingRank === 0 ? $rank : min($existingRank, $rank);
+            }
+        }
+
+        return $this->sortBusinessDisplayHotels($hotelMap, 'roomNights');
+    }
+
+    private function mergeMeituanBusinessDisplayHotels(array $rows): array
+    {
+        $hotelMap = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $poiId = (string)($row['poiId'] ?? $row['poi_id'] ?? $row['hotelId'] ?? '');
+            $hotelName = (string)($row['hotelName'] ?? $row['hotel_name'] ?? $row['poiName'] ?? '');
+            if ($poiId === '' && $hotelName === '') {
+                continue;
+            }
+            $key = $poiId . '_' . $hotelName;
+            if (!isset($hotelMap[$key])) {
+                $hotelMap[$key] = [
+                    'poiId' => $poiId,
+                    'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
+                    'roomNights' => 0.0,
+                    'roomRevenue' => 0.0,
+                    'salesRoomNights' => 0.0,
+                    'sales' => 0.0,
+                    'viewConversion' => 0.0,
+                    'payConversion' => 0.0,
+                    'exposure' => 0.0,
+                    'views' => 0.0,
+                    'rank' => 0,
+                ];
+            }
+
+            foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'viewConversion', 'payConversion', 'exposure', 'views'] as $field) {
+                $hotelMap[$key][$field] = max((float)($hotelMap[$key][$field] ?? 0), (float)($row[$field] ?? 0));
+            }
+            $rank = (int)($row['rank'] ?? 0);
+            if ($rank > 0) {
+                $existingRank = (int)($hotelMap[$key]['rank'] ?? 0);
+                $hotelMap[$key]['rank'] = $existingRank === 0 ? $rank : min($existingRank, $rank);
+            }
+        }
+
+        return $this->sortBusinessDisplayHotels($hotelMap, 'roomNights');
+    }
+
+    private function extractMeituanBusinessRankRows($responseData): array
+    {
+        if (!is_array($responseData)) {
+            return [];
+        }
+        foreach ([
+            $responseData['data']['peerRankData'] ?? null,
+            $responseData['data']['data']['peerRankData'] ?? null,
+            $responseData['peerRankData'] ?? null,
+        ] as $peerRankData) {
+            if (is_array($peerRankData)) {
+                $rows = [];
+                foreach ($peerRankData as $rankData) {
+                    if (!is_array($rankData) || !isset($rankData['roundRanks']) || !is_array($rankData['roundRanks'])) {
+                        continue;
+                    }
+                    foreach ($rankData['roundRanks'] as $item) {
+                        if (!is_array($item)) {
+                            continue;
+                        }
+                        $item['_dimName'] = $rankData['dimName'] ?? '';
+                        $item['_aiMetricName'] = $rankData['aiMetricName'] ?? '';
+                        $rows[] = $item;
+                    }
+                }
+                return $rows;
+            }
+        }
+
+        foreach ([
+            $responseData['data']['roundrank'] ?? null,
+            $responseData['data']['rankList'] ?? null,
+            $responseData['data']['list'] ?? null,
+            $responseData['data'] ?? null,
+            $responseData['list'] ?? null,
+            $responseData['roundrank'] ?? null,
+        ] as $rows) {
+            if (is_array($rows) && isset($rows[0]) && is_array($rows[0])) {
+                return $rows;
+            }
+        }
+
+        return [];
+    }
+
+    private function classifyMeituanBusinessDisplayMetric(string $dimName, string $metricName, string $rankType): string
+    {
+        $upperMetric = strtoupper($metricName);
+        $combined = $dimName . '|' . $upperMetric;
+        if (str_contains($upperMetric, 'P_RZ_NIGHT_COUNT') || str_contains($upperMetric, 'NIGHT_COUNT') || str_contains($upperMetric, 'ROOM_NIGHT') || str_contains($combined, '间夜')) {
+            return str_contains($upperMetric, 'P_XS') ? 'salesRoomNights' : 'roomNights';
+        }
+        if (str_contains($upperMetric, 'P_RZ_ROOM_PAY') || str_contains($combined, '房费') || str_contains($combined, '收入')) {
+            return 'roomRevenue';
+        }
+        if ((str_contains($upperMetric, 'P_XS') && str_contains($upperMetric, 'AMT')) || str_contains($combined, '销售额')) {
+            return 'sales';
+        }
+        if (str_contains($upperMetric, 'VIEW_CONVERT') || str_contains($combined, '浏览转化')) {
+            return 'viewConversion';
+        }
+        if (str_contains($upperMetric, 'PAY_CONVERT') || str_contains($combined, '支付转化')) {
+            return 'payConversion';
+        }
+        if (str_contains($upperMetric, 'EXPOSURE') || str_contains($combined, '曝光') || $rankType === 'P_LL') {
+            return 'exposure';
+        }
+        if (str_contains($upperMetric, 'VIEW') || str_contains($combined, '浏览')) {
+            return 'views';
+        }
+        return '';
+    }
+
+    private function numberFromKeys(array $data, array $keys, float $default = 0.0): float
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $data) && $data[$key] !== null && $data[$key] !== '') {
+                $value = is_string($data[$key]) ? str_replace([',', '%', ' '], '', trim($data[$key])) : $data[$key];
+                return is_numeric($value) ? (float)$value : $default;
+            }
+        }
+        return $default;
+    }
+
+    private function sortBusinessDisplayHotels(array $hotelMap, string $sortField): array
+    {
+        $rows = array_values($hotelMap);
+        usort($rows, static fn(array $a, array $b): int => ((float)($b[$sortField] ?? 0)) <=> ((float)($a[$sortField] ?? 0)));
+        return $this->enrichMeituanBusinessDisplayMetrics($this->enrichCtripBusinessDisplayMetrics($rows));
+    }
+
+    private function enrichCtripBusinessDisplayMetrics(array $rows): array
+    {
+        $adrValues = [];
+        foreach ($rows as $row) {
+            if (!$this->isCtripBusinessDisplayRow($row)) {
+                continue;
+            }
+            $amount = (float)($row['amount'] ?? 0);
+            $quantity = (int)($row['quantity'] ?? 0);
+            if ($amount > 0 && $quantity > 0) {
+                $adrValues[] = $amount / $quantity;
+            }
+        }
+        $circleAdr = count($adrValues) > 0 ? array_sum($adrValues) / count($adrValues) : 0.0;
+
+        foreach ($rows as &$row) {
+            if (!$this->isCtripBusinessDisplayRow($row)) {
+                continue;
+            }
+
+            $amount = (float)($row['amount'] ?? 0);
+            $quantity = (int)($row['quantity'] ?? 0);
+            $bookOrderNum = (int)($row['bookOrderNum'] ?? 0);
+            $totalDetailNum = (int)($row['totalDetailNum'] ?? 0);
+
+            $adr = $quantity > 0 ? round($amount / $quantity, 2) : 0.0;
+            $ari = $circleAdr > 0 && $adr > 0 ? round($adr / $circleAdr * 100, 2) : 0.0;
+            $sci = $ari > 0 ? round($ari * log(max(1, $quantity)), 2) : 0.0;
+            $bookingRate = $totalDetailNum > 0 ? round($bookOrderNum / $totalDetailNum * 100, 2) : 0.0;
+
+            $row['adr'] = $adr;
+            $row['adrText'] = $quantity > 0 ? number_format($adr, 2, '.', '') : '-';
+            $row['ari'] = $ari;
+            $row['ariText'] = $ari > 0 ? number_format($ari, 1, '.', '') : '-';
+            $row['sci'] = $sci;
+            $row['sciText'] = $sci > 0 ? number_format($sci, 0, '.', '') : '-';
+            $row['bookingRate'] = $bookingRate;
+            $row['bookingRateText'] = $totalDetailNum > 0 ? number_format($bookingRate, 1, '.', '') . '%' : '-';
+            $row['displayMetricStatus'] = [
+                'adr' => $quantity > 0 ? 'ok' : 'missing_quantity',
+                'ari' => $circleAdr > 0 && $adr > 0 ? 'ok' : ($circleAdr > 0 ? 'missing_adr' : 'missing_circle_adr'),
+                'sci' => $sci > 0 ? 'ok' : 'missing_ari',
+                'bookingRate' => $totalDetailNum > 0 ? 'ok' : 'missing_total_detail_num',
+            ];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function enrichMeituanBusinessDisplayMetrics(array $rows): array
+    {
+        foreach ($rows as &$row) {
+            if (!$this->isMeituanBusinessDisplayRow($row)) {
+                continue;
+            }
+
+            $roomNights = (float)($row['roomNights'] ?? 0);
+            $roomRevenue = (float)($row['roomRevenue'] ?? 0);
+            $salesRoomNights = (float)($row['salesRoomNights'] ?? 0);
+            $sales = (float)($row['sales'] ?? 0);
+            $views = (float)($row['views'] ?? 0);
+            $viewConversion = (float)($row['viewConversion'] ?? 0);
+            $payConversion = (float)($row['payConversion'] ?? 0);
+
+            $avgRoomPrice = $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : 0.0;
+            $avgSalesPrice = $salesRoomNights > 0 ? round($sales / $salesRoomNights, 2) : 0.0;
+            $orderCount = $views > 0 && $payConversion > 0 ? (int)round($views * $payConversion) : 0;
+            $absoluteConversion = $viewConversion > 0 && $payConversion > 0 ? round($viewConversion * $payConversion, 4) : 0.0;
+
+            $row['avgRoomPrice'] = $avgRoomPrice;
+            $row['avgRoomPriceText'] = $avgRoomPrice > 0 ? number_format($avgRoomPrice, 0, '.', ',') : '-';
+            $row['avgSalesPrice'] = $avgSalesPrice;
+            $row['avgSalesPriceText'] = $avgSalesPrice > 0 ? number_format($avgSalesPrice, 0, '.', ',') : '-';
+            $row['orderCount'] = $orderCount;
+            $row['orderCountText'] = $orderCount > 0 ? number_format($orderCount) : '-';
+            $row['absoluteConversion'] = $absoluteConversion;
+            $row['absoluteConversionText'] = $absoluteConversion > 0 ? number_format($absoluteConversion * 100, 2, '.', '') . '%' : '-';
+            $row['viewConversionText'] = $viewConversion > 0 ? number_format($viewConversion * 100, 2, '.', '') . '%' : '-';
+            $row['payConversionText'] = $payConversion > 0 ? number_format($payConversion * 100, 2, '.', '') . '%' : '-';
+            $row['displayMetricStatus'] = [
+                'avgRoomPrice' => $roomNights > 0 ? 'ok' : 'missing_room_nights',
+                'avgSalesPrice' => $salesRoomNights > 0 ? 'ok' : 'missing_sales_room_nights',
+                'orderCount' => $views > 0 && $payConversion > 0 ? 'ok' : 'missing_views_or_pay_conversion',
+                'absoluteConversion' => $viewConversion > 0 && $payConversion > 0 ? 'ok' : 'missing_conversion',
+            ];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function buildMeituanBusinessDisplaySummary(array $rows, array $context = []): array
+    {
+        $rows = array_values(array_filter($this->enrichMeituanBusinessDisplayMetrics($rows), fn($row): bool => is_array($row) && $this->isMeituanBusinessDisplayRow($row)));
+        if (empty($rows)) {
+            return $this->emptyMeituanBusinessDisplaySummary();
+        }
+
+        $hotelCount = count($rows);
+        $totalRoomNights = $this->sumBusinessRows($rows, 'roomNights');
+        $totalRoomRevenue = $this->sumBusinessRows($rows, 'roomRevenue');
+        $totalSalesRoomNights = $this->sumBusinessRows($rows, 'salesRoomNights');
+        $totalSales = $this->sumBusinessRows($rows, 'sales');
+        $totalExposure = $this->sumBusinessRows($rows, 'exposure');
+        $totalViews = $this->sumBusinessRows($rows, 'views');
+        $totalOrderCount = (int)$this->sumBusinessRows($rows, 'orderCount');
+        $avgRoomPrice = $totalRoomNights > 0 ? round($totalRoomRevenue / $totalRoomNights, 2) : 0.0;
+        $avgSalesPrice = $totalSalesRoomNights > 0 ? round($totalSales / $totalSalesRoomNights, 2) : 0.0;
+        $avgViewConversionRate = $this->avgBusinessRows($rows, 'viewConversion') * 100;
+        $avgPayConversionRate = $this->avgBusinessRows($rows, 'payConversion') * 100;
+        $avgAbsoluteConversionRate = $this->avgBusinessRows($rows, 'absoluteConversion') * 100;
+        $revenueHhi = $this->hhiBusinessRows($rows, 'sales');
+        $visitHhi = $this->hhiBusinessRows($rows, 'views');
+        $operationFocus = $revenueHhi > 0 && $visitHhi > 0 && $revenueHhi - $visitHhi > 0 ? '提高转化率' : ($revenueHhi > 0 && $visitHhi > 0 ? '抢夺流量' : '-');
+        $marketInventory = $this->meituanBusinessMarketInventory($context);
+        $marketVitalityRate = $marketInventory > 0 ? round($totalRoomNights / $marketInventory * 100, 2) : 0.0;
+        $priceSigma = $this->meituanBusinessPriceSigma($rows);
+        $marketPriceSignal = $this->meituanBusinessMarketPriceSignal($avgRoomPrice, $avgSalesPrice);
+        $inventoryTurnoverRate = $totalRoomNights > 0 ? round($totalSalesRoomNights / $totalRoomNights * 100, 2) : 0.0;
+
+        return [
+            'status' => 'success',
+            'metrics' => [
+                'hotelCount' => $hotelCount,
+                'marketInventory' => $marketInventory,
+                'marketVitalityRate' => $marketVitalityRate,
+                'priceSigma' => $priceSigma,
+                'marketPriceSignal' => $marketPriceSignal,
+                'inventoryTurnoverRate' => $inventoryTurnoverRate,
+                'revenueConcentration' => $revenueHhi,
+                'visitConcentration' => $visitHhi,
+                'operationFocus' => $operationFocus,
+                'totalRoomNights' => round($totalRoomNights, 2),
+                'totalRoomRevenue' => round($totalRoomRevenue, 2),
+                'totalSalesRoomNights' => round($totalSalesRoomNights, 2),
+                'totalSales' => round($totalSales, 2),
+                'totalExposure' => round($totalExposure, 2),
+                'totalViews' => round($totalViews, 2),
+                'totalOrderCount' => $totalOrderCount,
+                'avgRoomPrice' => $avgRoomPrice,
+                'avgSalesPrice' => $avgSalesPrice,
+                'avgViewConversionRate' => round($avgViewConversionRate, 2),
+                'avgPayConversionRate' => round($avgPayConversionRate, 2),
+                'avgAbsoluteConversionRate' => round($avgAbsoluteConversionRate, 2),
+            ],
+            'cards' => [
+                $this->businessSummaryCard('hotelCount', '酒店总数', number_format($hotelCount), 'text-gray-700', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('marketInventory', '市场总库存', $marketInventory > 0 ? number_format($marketInventory) : '-', 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
+                $this->businessSummaryCard('marketVitalityRate', '市场活力', $marketVitalityRate > 0 ? number_format($marketVitalityRate, 2, '.', '') . '%' : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200', $this->meituanBusinessVitalityLevel($marketVitalityRate)),
+                $this->businessSummaryCard('priceSigma', '竞争健康度', $priceSigma > 0 ? number_format($priceSigma, 2, '.', '') . '%' : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $this->meituanBusinessPriceSigmaLevel($priceSigma)),
+                $this->businessSummaryCard('marketPriceSignal', '市场价格预估', $marketPriceSignal, 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('inventoryTurnoverRate', '库存周转率', $inventoryTurnoverRate > 0 ? number_format($inventoryTurnoverRate, 2, '.', '') . '%' : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200'),
+                $this->businessSummaryCard('revenueConcentration', '收益集中度', $revenueHhi > 0 ? number_format($revenueHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+                $this->businessSummaryCard('visitConcentration', '浏览/访客集中度', $visitHhi > 0 ? number_format($visitHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+                $this->businessSummaryCard('operationFocus', '运营重心', $operationFocus, 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
+                $this->businessSummaryCard('totalRoomNights', '总入住间夜', number_format($totalRoomNights), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalRoomRevenue', '总房费收入', '楼' . number_format((float)floor($totalRoomRevenue)), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalSalesRoomNights', '总销售间夜', number_format($totalSalesRoomNights), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalSales', '总销售额', '楼' . number_format((float)floor($totalSales)), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalExposure', '总曝光量', number_format($totalExposure), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalViews', '总浏览量', number_format($totalViews), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalOrderCount', '总订单量', number_format($totalOrderCount), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('avgViewConversionRate', '平均浏览转化率', number_format($avgViewConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->businessSummaryCard('avgPayConversionRate', '平均支付转化率', number_format($avgPayConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->businessSummaryCard('avgAbsoluteConversionRate', '绝对转化率', number_format($avgAbsoluteConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+            ],
+        ];
+    }
+
+    private function buildCtripBusinessDisplaySummary(array $rows): array
+    {
+        $rows = array_values(array_filter($rows, fn($row): bool => is_array($row) && $this->isCtripBusinessDisplayRow($row)));
+        if (empty($rows)) {
+            return $this->emptyCtripBusinessDisplaySummary();
+        }
+
+        $hotelCount = count($rows);
+        $totalAmount = round($this->sumCtripBusinessRows($rows, 'amount'), 2);
+        $totalQuantity = (int)$this->sumCtripBusinessRows($rows, 'quantity');
+        $totalDetailNum = (int)$this->sumCtripBusinessRows($rows, 'totalDetailNum');
+        $totalQunarDetailVisitors = (int)$this->sumCtripBusinessRows($rows, 'qunarDetailVisitors');
+        $totalOrderNum = (int)$this->sumCtripBusinessRows($rows, 'totalOrderNum');
+        $adr = $totalQuantity > 0 ? round($totalAmount / $totalQuantity, 2) : 0.0;
+        $avgAri = $this->avgCtripBusinessRows($rows, 'ari');
+        $avgSci = $this->avgCtripBusinessRows($rows, 'sci');
+        $trafficValue = ($totalDetailNum + $totalQunarDetailVisitors) > 0 ? round($totalAmount / ($totalDetailNum + $totalQunarDetailVisitors), 2) : 0.0;
+        $revenueHhi = $this->hhiCtripBusinessRows($rows, 'amount');
+        $visitHhi = $this->hhiCtripBusinessRows($rows, 'totalDetailNum');
+        $priceSigma = $this->priceSigmaCtripBusinessRows($rows);
+        $ctripReviewImpact = $this->reviewImpactCtripBusinessRows($rows, 'commentScore', 'convertionRate');
+        $qunarReviewImpact = $this->reviewImpactCtripBusinessRows($rows, 'qunarCommentScore', 'qunarDetailCR');
+
+        $ariLevel = $this->levelForCtripBusinessMetric($avgAri, [
+            [80, '价格偏低', 'text-red-600'],
+            [95, '略低于均价', 'text-orange-600'],
+            [110, '价格合理', 'text-green-600'],
+            [130, '价格偏高', 'text-yellow-600'],
+            [INF, '溢价优势', 'text-blue-600'],
+        ]);
+        $sciLevel = $this->levelForCtripBusinessMetric($avgSci, [
+            [150, '极弱', 'text-red-600'],
+            [260, '偏弱', 'text-orange-600'],
+            [370, '中等', 'text-green-600'],
+            [480, '较强', 'text-yellow-600'],
+            [INF, '极强', 'text-blue-600'],
+        ]);
+        $revenueLevel = $this->levelForCtripBusinessMetric($revenueHhi, [
+            [500, '低度内卷', 'text-yellow-600'],
+            [800, '中度内卷', 'text-orange-600'],
+            [INF, '寡头市场', 'text-red-600'],
+        ]);
+        $visitLevel = $this->levelForCtripBusinessMetric($visitHhi, [
+            [400, '低度内卷', 'text-yellow-600'],
+            [700, '中度内卷', 'text-orange-600'],
+            [INF, '高度内卷', 'text-red-600'],
+        ]);
+        $priceLevel = $this->levelForCtripBusinessMetric($priceSigma, [
+            [3, '健康', 'text-green-600'],
+            [8, '良好', 'text-emerald-600'],
+            [15, '激烈', 'text-orange-600'],
+            [INF, '恶化', 'text-red-600'],
+        ]);
+
+        $metrics = [
+            'hotelCount' => $hotelCount,
+            'totalAmount' => $totalAmount,
+            'totalQuantity' => $totalQuantity,
+            'adr' => $adr,
+            'avgAri' => $avgAri,
+            'avgSci' => $avgSci,
+            'totalDetailNum' => $totalDetailNum,
+            'totalQunarDetailVisitors' => $totalQunarDetailVisitors,
+            'totalOrderNum' => $totalOrderNum,
+            'trafficValue' => $trafficValue,
+            'revenueConcentration' => $revenueHhi,
+            'visitConcentration' => $visitHhi,
+            'priceSigma' => $priceSigma,
+            'ctripReviewImpact' => $ctripReviewImpact,
+            'qunarReviewImpact' => $qunarReviewImpact,
+        ];
+
+        return [
+            'status' => 'success',
+            'metrics' => $metrics,
+            'cards' => [
+                $this->ctripBusinessSummaryCard('hotelCount', '酒店总数', number_format($hotelCount), 'text-gray-700', 'bg-blue-50 border border-blue-200'),
+                $this->ctripBusinessSummaryCard('totalAmount', '总销售额', '¥' . number_format((float)round($totalAmount)), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->ctripBusinessSummaryCard('totalQuantity', '总间夜量', number_format($totalQuantity), 'text-yellow-600', 'bg-yellow-50 border border-yellow-200'),
+                $this->ctripBusinessSummaryCard('adr', '平均房价(ADR)', $adr > 0 ? '¥' . number_format($adr, 2, '.', ',') : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->ctripBusinessSummaryCard('avgAri', '平均房价指数(ARI)', $avgAri > 0 ? number_format($avgAri, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $ariLevel),
+                $this->ctripBusinessSummaryCard('avgSci', '商圈综合竞争力指数(SCI)', $avgSci > 0 ? number_format($avgSci, 0, '.', ',') : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200', $sciLevel),
+                $this->ctripBusinessSummaryCard('totalDetailNum', '携程APP总访客量', number_format($totalDetailNum), 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
+                $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', number_format($totalQunarDetailVisitors), 'text-teal-600', 'bg-teal-50 border border-teal-200'),
+                $this->ctripBusinessSummaryCard('totalOrderNum', '全渠道AI预计总间夜数', number_format($totalOrderNum), 'text-yellow-600', 'bg-yellow-50 border border-yellow-200'),
+                $this->ctripBusinessSummaryCard('trafficValue', '流量价值效率', $trafficValue > 0 ? '¥' . number_format($trafficValue, 2, '.', ',') : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->ctripBusinessSummaryCard('revenueConcentration', '收益集中度', number_format($revenueHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $revenueLevel),
+                $this->ctripBusinessSummaryCard('visitConcentration', '浏览/访客集中度', number_format($visitHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $visitLevel),
+                $this->ctripBusinessSummaryCard('priceSigma', '竞争健康度', $priceSigma > 0 ? number_format($priceSigma, 2, '.', '') . '%' : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $priceLevel),
+                $this->ctripBusinessSummaryCard('ctripReviewImpact', '携程点评分-转化率影响因子(R)', $ctripReviewImpact > 0 ? number_format($ctripReviewImpact, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+                $this->ctripBusinessSummaryCard('qunarReviewImpact', '去哪儿点评分-转化率影响因子(R)', $qunarReviewImpact > 0 ? number_format($qunarReviewImpact, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+            ],
+        ];
+    }
+
+    private function emptyCtripBusinessDisplaySummary(): array
+    {
+        return [
+            'status' => 'empty',
+            'metrics' => [
+                'hotelCount' => 0,
+                'totalAmount' => 0.0,
+                'totalQuantity' => 0,
+                'adr' => 0.0,
+                'avgAri' => 0.0,
+                'avgSci' => 0.0,
+                'totalDetailNum' => 0,
+                'totalQunarDetailVisitors' => 0,
+                'totalOrderNum' => 0,
+                'trafficValue' => 0.0,
+                'revenueConcentration' => 0.0,
+                'visitConcentration' => 0.0,
+                'priceSigma' => 0.0,
+                'ctripReviewImpact' => 0.0,
+                'qunarReviewImpact' => 0.0,
+            ],
+            'cards' => [],
+        ];
+    }
+
+    private function businessSummaryCard(string $key, string $label, string $value, string $valueClass, string $panelClass, array $level = []): array
+    {
+        return $this->ctripBusinessSummaryCard($key, $label, $value, $valueClass, $panelClass, $level);
+    }
+
+    private function ctripBusinessSummaryCard(string $key, string $label, string $value, string $valueClass, string $panelClass, array $level = []): array
+    {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'value' => $value,
+            'valueClass' => $valueClass,
+            'panelClass' => $panelClass,
+            'level' => (string)($level['level'] ?? ''),
+            'levelClass' => (string)($level['levelClass'] ?? ''),
+        ];
+    }
+
+    private function sumCtripBusinessRows(array $rows, string $field): float
+    {
+        $sum = 0.0;
+        foreach ($rows as $row) {
+            $sum += (float)($row[$field] ?? 0);
+        }
+        return $sum;
+    }
+
+    private function sumBusinessRows(array $rows, string $field): float
+    {
+        return $this->sumCtripBusinessRows($rows, $field);
+    }
+
+    private function avgCtripBusinessRows(array $rows, string $field): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row[$field] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        return count($values) > 0 ? round(array_sum($values) / count($values), 2) : 0.0;
+    }
+
+    private function avgBusinessRows(array $rows, string $field): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row[$field] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        return count($values) > 0 ? array_sum($values) / count($values) : 0.0;
+    }
+
+    private function hhiCtripBusinessRows(array $rows, string $field): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row[$field] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        $total = array_sum($values);
+        if ($total <= 0) {
+            return 0.0;
+        }
+        $hhi = 0.0;
+        foreach ($values as $value) {
+            $share = $value / $total;
+            $hhi += $share * $share;
+        }
+        return round($hhi * 10000, 2);
+    }
+
+    private function hhiBusinessRows(array $rows, string $field): float
+    {
+        return $this->hhiCtripBusinessRows($rows, $field);
+    }
+
+    private function meituanBusinessMarketInventory(array $context): int
+    {
+        $roomCount = (int)($context['competitor_room_count'] ?? $context['market_inventory'] ?? $context['marketInventory'] ?? 0);
+        if ($roomCount <= 0) {
+            return 0;
+        }
+        return $roomCount * $this->resolveMeituanBusinessDisplayDays($context);
+    }
+
+    private function resolveMeituanBusinessDisplayDays(array $context): int
+    {
+        $dateRanges = $context['date_ranges'] ?? [];
+        if (is_string($dateRanges)) {
+            $decodedDateRanges = json_decode($dateRanges, true);
+            $dateRanges = is_array($decodedDateRanges) ? $decodedDateRanges : [$dateRanges];
+        }
+        if (!is_array($dateRanges)) {
+            $dateRanges = [];
+        }
+        if (!empty($context['date_range'])) {
+            $dateRanges[] = (string)$context['date_range'];
+        }
+
+        $dateRanges = array_map(static fn($value): string => (string)$value, $dateRanges);
+        if (in_array('0', $dateRanges, true) || in_array('1', $dateRanges, true)) {
+            return 1;
+        }
+        if (in_array('7', $dateRanges, true)) {
+            return 7;
+        }
+        if (in_array('30', $dateRanges, true)) {
+            return 30;
+        }
+        if (in_array('custom', $dateRanges, true)) {
+            $start = strtotime((string)($context['start_date'] ?? ''));
+            $end = strtotime((string)($context['end_date'] ?? ''));
+            if ($start !== false && $end !== false && $end >= $start) {
+                return max(1, (int)floor(($end - $start) / 86400) + 1);
+            }
+        }
+        return 1;
+    }
+
+    private function meituanBusinessPriceSigma(array $rows): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row['avgRoomPrice'] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        if (count($values) < 2) {
+            return 0.0;
+        }
+        $avg = array_sum($values) / count($values);
+        if ($avg <= 0) {
+            return 0.0;
+        }
+        $variance = 0.0;
+        foreach ($values as $value) {
+            $variance += ($value - $avg) ** 2;
+        }
+        return round(sqrt($variance / count($values)) / max($avg, 1) * 100, 2);
+    }
+
+    private function meituanBusinessMarketPriceSignal(float $avgRoomPrice, float $avgSalesPrice): string
+    {
+        if ($avgRoomPrice <= 0 || $avgSalesPrice <= 0) {
+            return '-';
+        }
+        $ratio = $avgSalesPrice / $avgRoomPrice;
+        if ($ratio >= 1.05) {
+            return '销售价偏高';
+        }
+        if ($ratio <= 0.95) {
+            return '销售价偏低';
+        }
+        return '价格稳定';
+    }
+
+    private function meituanBusinessVitalityLevel(float $value): array
+    {
+        return $this->levelForCtripBusinessMetric($value, [
+            [50, '偏低', 'text-orange-600'],
+            [90, '活跃', 'text-green-600'],
+            [INF, '高活跃', 'text-blue-600'],
+        ]);
+    }
+
+    private function meituanBusinessPriceSigmaLevel(float $value): array
+    {
+        return $this->levelForCtripBusinessMetric($value, [
+            [5, '健康', 'text-green-600'],
+            [12, '波动', 'text-orange-600'],
+            [INF, '分化', 'text-red-600'],
+        ]);
+    }
+
+    private function priceSigmaCtripBusinessRows(array $rows): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row['adr'] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        if (count($values) < 2) {
+            return 0.0;
+        }
+        $avg = array_sum($values) / count($values);
+        if ($avg <= 0) {
+            return 0.0;
+        }
+        $variance = 0.0;
+        foreach ($values as $value) {
+            $variance += ($value - $avg) ** 2;
+        }
+        return round(sqrt($variance / count($values)) / max($avg, 1) * 100, 2);
+    }
+
+    private function reviewImpactCtripBusinessRows(array $rows, string $scoreField, string $rateField): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $score = (float)($row[$scoreField] ?? 0);
+            $rate = (float)($row[$rateField] ?? 0);
+            if ($score > 0 && $rate > 0) {
+                $values[] = $score / max($rate, 0.01) * 100;
+            }
+        }
+        return count($values) > 0 ? round(array_sum($values) / count($values), 2) : 0.0;
+    }
+
+    private function levelForCtripBusinessMetric(float $value, array $ranges): array
+    {
+        if ($value <= 0) {
+            return ['level' => '数据不足', 'levelClass' => 'text-gray-500'];
+        }
+        foreach ($ranges as $range) {
+            if ($value < (float)$range[0] || (float)$range[0] === INF) {
+                return ['level' => (string)$range[1], 'levelClass' => (string)$range[2]];
+            }
+        }
+        return ['level' => '', 'levelClass' => ''];
+    }
+
+    private function emptyMeituanBusinessDisplaySummary(): array
+    {
+        return [
+            'status' => 'empty',
+            'metrics' => [
+                'hotelCount' => 0,
+                'marketInventory' => 0,
+                'marketVitalityRate' => 0.0,
+                'priceSigma' => 0.0,
+                'marketPriceSignal' => '-',
+                'inventoryTurnoverRate' => 0.0,
+                'revenueConcentration' => 0.0,
+                'visitConcentration' => 0.0,
+                'operationFocus' => '-',
+                'totalRoomNights' => 0.0,
+                'totalRoomRevenue' => 0.0,
+                'totalSalesRoomNights' => 0.0,
+                'totalSales' => 0.0,
+                'totalExposure' => 0.0,
+                'totalViews' => 0.0,
+                'totalOrderCount' => 0,
+                'avgRoomPrice' => 0.0,
+                'avgSalesPrice' => 0.0,
+                'avgViewConversionRate' => 0.0,
+                'avgPayConversionRate' => 0.0,
+                'avgAbsoluteConversionRate' => 0.0,
+            ],
+            'cards' => [],
+        ];
+    }
+
+    private function buildMeituanBusinessDisplayContext(): array
+    {
+        $dateRanges = $this->request->post('date_ranges', $this->request->post('date_range', []));
+        if (is_string($dateRanges)) {
+            $decodedDateRanges = json_decode($dateRanges, true);
+            $dateRanges = is_array($decodedDateRanges) ? $decodedDateRanges : [$dateRanges];
+        }
+
+        return [
+            'competitor_room_count' => (int)$this->request->post('competitor_room_count', 0),
+            'date_ranges' => is_array($dateRanges) ? array_values($dateRanges) : [],
+            'date_range' => $this->request->post('date_range', ''),
+            'start_date' => (string)$this->request->post('start_date', ''),
+            'end_date' => (string)$this->request->post('end_date', ''),
+        ];
+    }
+
+    private function isCtripBusinessDisplayRow(array $row): bool
+    {
+        return array_key_exists('hotelId', $row)
+            && array_key_exists('amount', $row)
+            && array_key_exists('quantity', $row);
+    }
+
+    private function isMeituanBusinessDisplayRow(array $row): bool
+    {
+        return array_key_exists('poiId', $row)
+            && array_key_exists('roomNights', $row)
+            && array_key_exists('roomRevenue', $row);
     }
 
     private function buildCtripBusinessFingerprint($responseData): string
@@ -7049,6 +8037,9 @@ JAVASCRIPT;
     private function filterOnlineDailyDataFields(array $data): array
     {
         $columns = $this->getOnlineDailyDataColumns();
+        if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
+            $data['tenant_id'] = $this->tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
+        }
         return array_intersect_key($data, $columns);
     }
 
@@ -7106,12 +8097,24 @@ JAVASCRIPT;
     private function applyOnlineDailyDataValidationFields(array $data, ?array $columns = null): array
     {
         $columns = $columns ?? $this->getOnlineDailyDataColumns();
+        if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
+            $data['tenant_id'] = $this->tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
+        }
         foreach ($this->buildOnlineDailyDataValidationFields($data) as $field => $value) {
             if (isset($columns[$field])) {
                 $data[$field] = $value;
             }
         }
         return $data;
+    }
+
+    private function tenantIdForSystemHotel($systemHotelId): ?int
+    {
+        if ($systemHotelId === null || $systemHotelId === '' || !is_numeric($systemHotelId) || (int)$systemHotelId <= 0) {
+            return null;
+        }
+
+        return (int)$systemHotelId;
     }
 
     private function resolveOnlineDataSystemHotelId($input): ?int
@@ -7125,10 +8128,6 @@ JAVASCRIPT;
             if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
                 $hotelId = (int)$input;
                 if (!in_array($hotelId, $permittedHotelIds, true)) {
-                    $ownHotelId = $this->currentUser->hotel_id ?? null;
-                    if (count($permittedHotelIds) === 1 && (int)$ownHotelId === $permittedHotelIds[0]) {
-                        return $permittedHotelIds[0];
-                    }
                     throw new HttpException(403, '无权访问该酒店');
                 }
                 return $hotelId;
@@ -7910,6 +8909,10 @@ JAVASCRIPT;
 
         $fetchedAt = $this->maxOnlineRowsFetchedAt($rows, $columns);
 
+        $decodedRows = $this->decodeOnlineRawRows($rows);
+        $displayHotels = $section === 'rank' ? $this->buildCtripBusinessDisplayHotels($decodedRows) : [];
+        $displayTrafficRows = $section === 'traffic' ? $this->buildCtripTrafficDisplayRows($decodedRows) : [];
+
         return [
             'data_type' => $section,
             'data_type_label' => $labelMap[$section] ?? $section,
@@ -7919,7 +8922,11 @@ JAVASCRIPT;
             'data_date' => (string)($latest['data_date'] ?? ''),
             'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
             'total' => count($rows),
-            'rows' => $this->decodeOnlineRawRows($rows),
+            'rows' => $decodedRows,
+            'display_hotels' => $displayHotels,
+            'display_summary' => $section === 'rank' ? $this->buildCtripBusinessDisplaySummary($displayHotels) : $this->emptyCtripBusinessDisplaySummary(),
+            'display_traffic_rows' => $displayTrafficRows,
+            'display_traffic_summary' => $section === 'traffic' ? $this->buildCtripTrafficDisplaySummary($displayTrafficRows) : $this->emptyCtripTrafficDisplaySummary(),
         ];
     }
 
@@ -7935,6 +8942,10 @@ JAVASCRIPT;
             'fetched_at' => '',
             'total' => 0,
             'rows' => [],
+            'display_hotels' => [],
+            'display_summary' => $this->emptyCtripBusinessDisplaySummary(),
+            'display_traffic_rows' => [],
+            'display_traffic_summary' => $this->emptyCtripTrafficDisplaySummary(),
         ];
     }
 
@@ -12437,6 +13448,7 @@ JAVASCRIPT;
                     'days' => $periodDays,
                 ],
                 'hotel_id' => $hotelId,
+                'status_catalog' => $this->collectionReliabilityStatusCatalog(),
                 'authorization' => [
                     'summary' => $this->buildCollectionAuthorizationSummary($authorizationRows),
                     'list' => $authorizationRows,
@@ -12444,9 +13456,10 @@ JAVASCRIPT;
                 ],
                 'failure_reasons' => $this->buildCollectionFailureReasons($alerts, $collectionLogs, 20),
                 'field_definitions' => $this->buildOtaCollectionFieldDefinitions(),
-                'collection_logs' => $collectionLogs,
+                'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
                 'history_replay' => $this->buildCollectionHistoryReplayRows($hotelId, $startDate, $endDate, 30),
                 'data_quality' => $this->buildCollectionQualitySnapshot($qualityRows),
+                'pending_actions' => $this->buildCollectionPendingActions($authorizationRows, $alerts, $collectionLogs, $qualityRows),
             ]);
         } catch (\Throwable $e) {
             return $this->error('采集可靠性查询失败: ' . $e->getMessage());
@@ -12662,6 +13675,10 @@ JAVASCRIPT;
             'warning' => 0,
             'expired' => 0,
             'unknown' => 0,
+            'waiting_config' => 0,
+            'failed' => 0,
+            'partial_success' => 0,
+            'success' => 0,
         ];
 
         foreach ($rows as $row) {
@@ -12672,23 +13689,130 @@ JAVASCRIPT;
             $counts[$status]++;
         }
 
-        $overall = 'empty';
+        $overall = 'waiting_config';
         if ($counts['expired'] > 0) {
-            $overall = 'risk';
+            $overall = 'expired';
+        } elseif ($counts['failed'] > 0) {
+            $overall = 'failed';
+        } elseif ($counts['partial_success'] > 0) {
+            $overall = 'partial_success';
         } elseif ($counts['warning'] > 0 || $counts['unknown'] > 0) {
             $overall = 'warning';
-        } elseif ($counts['ok'] > 0) {
+        } elseif ($counts['ok'] > 0 || $counts['success'] > 0) {
             $overall = 'ok';
         }
 
-        return [
+        return array_merge([
             'overall_status' => $overall,
             'total' => count($rows),
-            'ok' => $counts['ok'],
-            'warning' => $counts['warning'],
-            'expired' => $counts['expired'],
-            'unknown' => $counts['unknown'],
-        ];
+        ], $counts);
+    }
+
+    private function collectionReliabilityStatusCatalog(): array
+    {
+        return ['ok', 'warning', 'expired', 'unknown', 'waiting_config', 'failed', 'partial_success', 'success'];
+    }
+
+    private function normalizeCollectionStatus(string $status): string
+    {
+        $status = strtolower(trim($status));
+        return match ($status) {
+            'ok', 'success', 'warning', 'expired', 'unknown', 'waiting_config', 'failed', 'partial_success' => $status,
+            'skip', 'skipped', 'empty', 'disabled' => 'waiting_config',
+            'partial' => 'partial_success',
+            'fail', 'error' => 'failed',
+            default => 'unknown',
+        };
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $logs
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeCollectionLogStatuses(array $logs): array
+    {
+        return array_map(function (array $log): array {
+            $rawStatus = (string)($log['status'] ?? '');
+            $log['raw_status'] = $rawStatus;
+            $log['status'] = $this->normalizeCollectionStatus($rawStatus);
+            return $log;
+        }, $logs);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $authorizationRows
+     * @param array<int, array<string, mixed>> $alerts
+     * @param array<int, array<string, mixed>> $collectionLogs
+     * @param array<int, array<string, mixed>> $qualityRows
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildCollectionPendingActions(array $authorizationRows, array $alerts, array $collectionLogs, array $qualityRows): array
+    {
+        $actions = [];
+        foreach ($authorizationRows as $row) {
+            $status = $this->normalizeCollectionStatus((string)($row['status'] ?? 'unknown'));
+            if ($status === 'ok' || $status === 'success') {
+                continue;
+            }
+            $actions[] = [
+                'type' => 'authorization',
+                'status' => $status,
+                'platform' => (string)($row['platform'] ?? ''),
+                'hotel_id' => $row['hotel_id'] ?? null,
+                'reason' => (string)($row['message'] ?? $status),
+                'action' => (string)($row['next_action'] ?? 'reauthorize OTA account'),
+                'entry' => (string)($row['reauthorize_entry'] ?? $this->cookieReauthorizeEntry()),
+            ];
+        }
+
+        foreach ($alerts as $alert) {
+            $actions[] = [
+                'type' => 'failure_reason',
+                'status' => 'expired',
+                'platform' => (string)($alert['platform'] ?? ''),
+                'hotel_id' => $alert['hotel_id'] ?? null,
+                'reason' => (string)($alert['message'] ?? ''),
+                'action' => (string)($alert['next_action'] ?? 'reauthorize OTA account'),
+                'entry' => (string)($alert['reauthorize_entry'] ?? $this->cookieReauthorizeEntry()),
+            ];
+        }
+
+        foreach ($collectionLogs as $log) {
+            $status = $this->normalizeCollectionStatus((string)($log['status'] ?? ''));
+            if (!in_array($status, ['failed', 'partial_success', 'waiting_config'], true)) {
+                continue;
+            }
+            $actions[] = [
+                'type' => 'collection',
+                'status' => $status,
+                'platform' => (string)($log['platform'] ?? ''),
+                'hotel_id' => $log['hotel_id'] ?? null,
+                'reason' => (string)($log['message'] ?? ''),
+                'action' => 'check authorization, field mapping, and platform response',
+                'entry' => '',
+            ];
+        }
+
+        foreach ($qualityRows as $row) {
+            $quality = $this->buildOnlineDataQuality($row);
+            if (($quality['status'] ?? 'ok') === 'ok') {
+                continue;
+            }
+            $actions[] = [
+                'type' => 'field_quality',
+                'status' => $this->normalizeCollectionStatus((string)($quality['status'] ?? 'warning')),
+                'platform' => (string)($row['source'] ?? ''),
+                'hotel_id' => $row['system_hotel_id'] ?? $row['hotel_id'] ?? null,
+                'reason' => (string)($quality['summary'] ?? ''),
+                'action' => 'review missing fields and raw payload mapping',
+                'entry' => '',
+            ];
+            if (count($actions) >= 20) {
+                break;
+            }
+        }
+
+        return array_slice($actions, 0, 20);
     }
 
     private function filterCollectionAlertsByHotel(array $alerts, ?int $hotelId): array

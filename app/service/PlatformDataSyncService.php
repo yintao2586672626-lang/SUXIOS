@@ -64,11 +64,13 @@ final class PlatformDataSyncService
 
             $platform = strtolower((string)($source['platform'] ?? $row['source'] ?? 'custom'));
             $dataType = $this->normalizeDataType((string)($source['data_type'] ?? $row['data_type'] ?? 'business'));
-            if ($this->isCommentDataType($dataType)) {
+            if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($source, $payload)) {
                 continue;
             }
             $traceId = $this->buildTraceId($source, $row, $date, $syncTaskId);
-            $sanitizedRow = $this->sanitizePayloadForStorage($row, $dataType);
+            $sanitizedRow = $dataType === 'review'
+                ? $this->sanitizeReviewPayloadForStorage($row)
+                : $this->sanitizePayloadForStorage($row, $dataType);
             $raw = [
                 'row' => $sanitizedRow,
                 'data_source_id' => $source['id'] ?? null,
@@ -89,9 +91,10 @@ final class PlatformDataSyncService
                 'qunar_comment_score' => $this->numericValue($row, ['qunar_comment_score', 'qunar_score']),
                 'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'system_hotel_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
+                'tenant_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
                 'data_value' => $this->dataValue($row, $dataType),
                 'source' => $platform,
-                'dimension' => $this->stringValue($row, ['dimension', 'dim_name', '_dimName']),
+                'dimension' => $this->stringValue($row, ['dimension', 'dim_name', '_dimName']) ?: ($dataType === 'review' ? $this->reviewDimensionValue($row) : ''),
                 'data_type' => $dataType,
                 'platform' => $this->stringValue($row, ['platform']) ?: $platform,
                 'compare_type' => $this->stringValue($row, ['compare_type', 'compareType']),
@@ -160,6 +163,9 @@ final class PlatformDataSyncService
             'updated_by' => (int)($user->id ?? 0) ?: null,
             'update_time' => $now,
         ];
+        if (isset($this->tableColumns('platform_data_sources')['tenant_id'])) {
+            $data['tenant_id'] = (int)$source['system_hotel_id'] ?: null;
+        }
 
         $id = (int)($payload['id'] ?? 0);
         if ($id > 0) {
@@ -310,7 +316,7 @@ final class PlatformDataSyncService
                 $secret[$key === 'cookie' ? 'cookies' : $key] = (string)$payload[$key];
             }
         }
-        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name'] as $key) {
+        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
                 $config[$key] = $payload[$key];
             }
@@ -321,7 +327,13 @@ final class PlatformDataSyncService
             ? 'ready'
             : 'waiting_config';
         $dataType = $this->normalizeDataType(trim((string)($payload['data_type'] ?? 'business')) ?: 'business');
-        if ($this->isCommentDataType($dataType)) {
+        $sourceForPolicy = [
+            'data_type' => $dataType,
+            'ingestion_method' => $method,
+            'config' => $config,
+            'secret' => $secret,
+        ];
+        if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($sourceForPolicy, $payload)) {
             throw new RuntimeException('Comment/review data collection is disabled by policy.', 422);
         }
 
@@ -362,7 +374,7 @@ final class PlatformDataSyncService
     private function createTask(array $source, $user, string $triggerType): int
     {
         $now = date('Y-m-d H:i:s');
-        return (int)Db::name('platform_data_sync_tasks')->insertGetId([
+        $data = [
             'data_source_id' => (int)$source['id'],
             'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0) ?: null,
             'platform' => (string)$source['platform'],
@@ -376,7 +388,12 @@ final class PlatformDataSyncService
             'requested_by' => (int)($user->id ?? 0) ?: null,
             'create_time' => $now,
             'update_time' => $now,
-        ]);
+        ];
+        if (isset($this->tableColumns('platform_data_sync_tasks')['tenant_id'])) {
+            $data['tenant_id'] = (int)($source['system_hotel_id'] ?? 0) ?: null;
+        }
+
+        return (int)Db::name('platform_data_sync_tasks')->insertGetId($data);
     }
 
     private function finishTask(int $taskId, array $source, string $status, string $message, int $normalizedCount, int $savedCount, array $payload): array
@@ -421,7 +438,7 @@ final class PlatformDataSyncService
     {
         $payload = $this->sanitizePayloadForStorage($payload, (string)($source['data_type'] ?? ''));
         $raw = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        Db::name('platform_data_raw_records')->insert([
+        $data = [
             'data_source_id' => (int)$source['id'],
             'sync_task_id' => $taskId,
             'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0) ?: null,
@@ -433,7 +450,12 @@ final class PlatformDataSyncService
             'http_status' => $httpStatus,
             'received_at' => date('Y-m-d H:i:s'),
             'create_time' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        if (isset($this->tableColumns('platform_data_raw_records')['tenant_id'])) {
+            $data['tenant_id'] = (int)($source['system_hotel_id'] ?? 0) ?: null;
+        }
+
+        Db::name('platform_data_raw_records')->insert($data);
     }
 
     /**
@@ -533,6 +555,9 @@ final class PlatformDataSyncService
         if (in_array($value, ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns'], true)) {
             return 'advertising';
         }
+        if (in_array($value, ['search_keyword', 'search-keyword', 'search_keywords', 'search-keywords', 'keyword', 'keywords', 'search_word', 'search_words', 'hot_word', 'hot_words'], true)) {
+            return 'search_keyword';
+        }
         if (in_array($value, ['quality', 'service', 'service_quality', 'psi'], true)) {
             return 'quality';
         }
@@ -545,6 +570,38 @@ final class PlatformDataSyncService
     private function isCommentDataType(string $dataType): bool
     {
         return $this->normalizeDataType($dataType) === 'review';
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $payload
+     */
+    private function isReviewCollectionAllowed(array $source, array $payload = []): bool
+    {
+        if (!$this->isCommentDataType((string)($source['data_type'] ?? ''))) {
+            return true;
+        }
+
+        $config = $this->decodeConfig($source['config_json'] ?? $source['config'] ?? []);
+        foreach (['allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
+            if ($this->truthy($payload[$key] ?? null) || $this->truthy($config[$key] ?? null)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function truthy(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (int)$value === 1;
+        }
+        $text = strtolower(trim((string)$value));
+        return in_array($text, ['1', 'true', 'yes', 'on', 'enabled'], true);
     }
 
     /**
@@ -574,6 +631,10 @@ final class PlatformDataSyncService
             if ($roomCount > 0 && $nights > 0) {
                 return (int)round($roomCount * $nights);
             }
+        }
+        if ($dataType === 'review') {
+            $count = $this->numericValue($row, ['review_count', 'reviewCount', 'comment_count', 'commentCount', 'count', 'quantity']);
+            return $count > 0 ? (int)round($count) : 1;
         }
 
         return (int)$this->numericValue($row, [
@@ -606,6 +667,9 @@ final class PlatformDataSyncService
         if ($dataType === 'advertising') {
             return $this->numericValue($row, ['roas', 'roi', 'ecpc', 'ctr', 'cvr']);
         }
+        if ($dataType === 'review') {
+            return $this->numericValue($row, ['comment_score', 'rating', 'score', 'data_value', 'dataValue']);
+        }
         if ($dataType === 'order') {
             $quantity = $this->quantityValue($row, $dataType);
             $amount = $this->amountValue($row, $dataType);
@@ -637,6 +701,88 @@ final class PlatformDataSyncService
     private function sanitizePayloadForStorage(array $payload, string $dataType = ''): array
     {
         return $this->sanitizePayloadNode($payload, $this->normalizeDataType($dataType) === 'order');
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function sanitizeReviewPayloadForStorage(array $payload): array
+    {
+        $sanitized = $this->removeReviewPrivateFields($this->sanitizePayloadForStorage($payload, 'review'));
+        $summary = $this->reviewSummaryText($payload);
+        if ($summary !== '') {
+            $sanitized['review_summary'] = $summary;
+        }
+        return $sanitized;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function removeReviewPrivateFields(array $node): array
+    {
+        $clean = [];
+        foreach ($node as $key => $value) {
+            $keyText = (string)$key;
+            if ($this->isReviewPrivateKey($keyText)) {
+                continue;
+            }
+            $clean[$key] = is_array($value) ? $this->sanitizeReviewArray($value) : $value;
+        }
+        return $clean;
+    }
+
+    /**
+     * @param array<mixed> $value
+     * @return array<mixed>
+     */
+    private function sanitizeReviewArray(array $value): array
+    {
+        $clean = [];
+        foreach ($value as $key => $item) {
+            $keyText = (string)$key;
+            if ($this->isReviewPrivateKey($keyText)) {
+                continue;
+            }
+            $clean[$key] = is_array($item) ? $this->sanitizeReviewArray($item) : $item;
+        }
+        return $clean;
+    }
+
+    private function isReviewPrivateKey(string $key): bool
+    {
+        return preg_match('/content|commentContent|comment_text|review_text|guest|phone|mobile|tel|certificate|idcard|id_card|identity|openid|avatar|nickname/i', $key) === 1;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function reviewSummaryText(array $payload): string
+    {
+        $text = $this->stringValue($payload, ['review_summary', 'summary', 'content', 'commentContent', 'comment_text', 'review_text']);
+        if ($text === '') {
+            return '';
+        }
+        $text = preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i', '[redacted]', $text) ?? $text;
+        $text = preg_replace('/\b1[3-9]\d{9}\b/', '[redacted]', $text) ?? $text;
+        $text = preg_replace('/\b\d{6,}\b/', '[redacted]', $text) ?? $text;
+        $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+        return mb_substr($text, 0, 120);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function reviewDimensionValue(array $row): string
+    {
+        $tags = $row['tags'] ?? $row['labels'] ?? $row['tag_list'] ?? null;
+        if (is_array($tags)) {
+            $values = array_values(array_filter(array_map(static fn(mixed $item): string => trim((string)$item), $tags), static fn(string $item): bool => $item !== ''));
+            return implode(',', array_slice($values, 0, 8));
+        }
+        return $this->stringValue($row, ['tag', 'label', 'sentiment']);
     }
 
     /**
@@ -1177,7 +1323,7 @@ final class PlatformDataSyncService
 
     private function logSync(int $taskId, array $source, string $level, string $event, string $message, array $context = []): void
     {
-        Db::name('platform_data_sync_logs')->insert([
+        $data = [
             'sync_task_id' => $taskId,
             'data_source_id' => (int)($source['id'] ?? 0) ?: null,
             'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0) ?: null,
@@ -1186,6 +1332,11 @@ final class PlatformDataSyncService
             'message' => $message,
             'context_json' => json_encode($context, JSON_UNESCAPED_UNICODE),
             'create_time' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        if (isset($this->tableColumns('platform_data_sync_logs')['tenant_id'])) {
+            $data['tenant_id'] = (int)($source['system_hotel_id'] ?? 0) ?: null;
+        }
+
+        Db::name('platform_data_sync_logs')->insert($data);
     }
 }

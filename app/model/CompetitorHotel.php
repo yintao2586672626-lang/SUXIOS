@@ -20,6 +20,7 @@ class CompetitorHotel extends Model
 
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'store_id' => 'integer',
         'status' => 'integer',
     ];

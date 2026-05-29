@@ -36,7 +36,31 @@ const checks = [
       'public function detail(int $id, int $userId, bool $isSuperAdmin): ?array',
       'public function list(int $page = 1, int $pageSize = 10, int $userId = 0, bool $isSuperAdmin = false): array',
       'public function archive(int $id, int $userId, bool $isSuperAdmin): bool',
+      '$tenantId = $this->tenantIdForUser($userId)',
+      '$snapshot = $this->buildSnapshot($input, $tenantId)',
+      "'tenant_id' => $tenantId",
+      'private function applyTenantScope',
+      "where('tenant_id', $tenantId)",
+      'private function buildTenantSnapshotQuery',
+      'private function tenantIdForUser',
+      'private function ensureTenantColumns',
+      'tenant_id INT UNSIGNED DEFAULT NULL',
+      'INDEX idx_feasibility_reports_tenant_user (tenant_id, created_by, id)',
       "->where('created_by', $userId)",
+    ],
+  },
+  {
+    file: 'app/model/FeasibilityReport.php',
+    contains: [
+      "'tenant_id' => 'integer'",
+    ],
+  },
+  {
+    file: 'database/migrations/20260511_create_missing_business_tables.sql',
+    contains: [
+      '`tenant_id` INT UNSIGNED DEFAULT NULL',
+      '`idx_feasibility_reports_tenant_user` (`tenant_id`, `created_by`, `id`)',
+      '`idx_competitor_hotel_tenant_store` (`tenant_id`, `store_id`, `status`)',
     ],
   },
   {

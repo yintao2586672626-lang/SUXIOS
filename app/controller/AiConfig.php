@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\model\AiModelConfig;
 use app\model\OperationLog;
+use app\service\LlmEndpoint;
 use think\facade\Db;
 use think\Response;
 
@@ -495,7 +496,7 @@ class AiConfig extends Base
             ],
         ]);
 
-        $response = @file_get_contents($this->chatEndpointUrl($baseUrl, $provider), false, $context);
+        $response = @file_get_contents(LlmEndpoint::chatCompletionUrl($baseUrl, $provider), false, $context);
         if ($response === false) {
             return ['ok' => false, 'message' => '网络请求失败', 'code' => 502];
         }
@@ -516,29 +517,6 @@ class AiConfig extends Base
         }
 
         return ['ok' => true, 'content' => trim($content)];
-    }
-
-    private function chatEndpointUrl(string $baseUrl, string $provider): string
-    {
-        $baseUrl = rtrim(trim($baseUrl), '/');
-        $provider = strtolower(trim($provider));
-        $path = $provider === 'perplexity' ? '/sonar' : '/chat/completions';
-
-        if ($baseUrl === '') {
-            return $path;
-        }
-        if (preg_match('#/(chat/completions|sonar)(\?|$)#', $baseUrl)) {
-            return $baseUrl;
-        }
-
-        $query = '';
-        $queryPos = strpos($baseUrl, '?');
-        if ($queryPos !== false) {
-            $query = substr($baseUrl, $queryPos);
-            $baseUrl = rtrim(substr($baseUrl, 0, $queryPos), '/');
-        }
-
-        return $baseUrl . $path . $query;
     }
 
     private function aiConfigSecret(): string

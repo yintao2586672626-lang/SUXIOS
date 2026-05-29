@@ -37,6 +37,7 @@ class QuantSimulationService
         $now = date('Y-m-d H:i:s');
 
         $id = (int)Db::name('quant_simulation_records')->insertGetId([
+            'tenant_id' => $this->tenantIdForUser($userId),
             'project_name' => $projectName,
             'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
             'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
@@ -58,6 +59,7 @@ class QuantSimulationService
         $this->ensureTable();
 
         $query = Db::name('quant_simulation_records')->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -71,6 +73,7 @@ class QuantSimulationService
         $this->ensureTable();
 
         $query = Db::name('quant_simulation_records')->where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -88,6 +91,7 @@ class QuantSimulationService
         $this->ensureTable();
 
         $query = Db::name('quant_simulation_records')->where('id', $id)->whereNull('deleted_at');
+        $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
@@ -109,6 +113,7 @@ class QuantSimulationService
         Db::execute("
             CREATE TABLE IF NOT EXISTS quant_simulation_records (
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                tenant_id BIGINT UNSIGNED DEFAULT NULL,
                 project_name VARCHAR(120) NOT NULL DEFAULT '',
                 input_json JSON DEFAULT NULL,
                 result_json JSON DEFAULT NULL,
@@ -122,10 +127,57 @@ class QuantSimulationService
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 deleted_at DATETIME DEFAULT NULL,
                 PRIMARY KEY (id),
+                INDEX idx_quant_sim_tenant_user (tenant_id, created_by, id),
                 INDEX idx_quant_sim_created_by (created_by, id),
                 INDEX idx_quant_sim_risk_level (risk_level)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+        $this->ensureTenantColumns();
+    }
+
+    private function ensureTenantColumns(): void
+    {
+        Db::execute("ALTER TABLE quant_simulation_records ADD COLUMN IF NOT EXISTS tenant_id BIGINT UNSIGNED DEFAULT NULL COMMENT '租户ID，默认跟随创建用户' AFTER id");
+        Db::execute("ALTER TABLE quant_simulation_records ADD INDEX IF NOT EXISTS idx_quant_sim_tenant_user (tenant_id, created_by, id)");
+    }
+
+    private function applyTenantScope($query, int $userId, bool $isSuperAdmin): void
+    {
+        if ($isSuperAdmin) {
+            return;
+        }
+
+        $tenantId = $this->tenantIdForUser($userId);
+        if ($tenantId === null) {
+            $query->where('tenant_id', -1);
+            return;
+        }
+
+        $query->where('tenant_id', $tenantId);
+    }
+
+    private function tenantIdForUser(int $userId): ?int
+    {
+        if ($userId <= 0) {
+            return null;
+        }
+
+        try {
+            $row = Db::name('users')->where('id', $userId)->field('tenant_id,hotel_id')->find();
+            if (!$row) {
+                return null;
+            }
+
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            if ($tenantId > 0) {
+                return $tenantId;
+            }
+
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            return $hotelId > 0 ? $hotelId : null;
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     private function calculateSimulation(array $input): array

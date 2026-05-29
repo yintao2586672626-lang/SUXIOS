@@ -1,33 +1,9 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { extractPhpMethod } from './lib/shared_helpers.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-
-function extractPhpMethod(content, methodName) {
-  const marker = `function ${methodName}(`;
-  const methodIndex = content.indexOf(marker);
-  if (methodIndex === -1) {
-    return '';
-  }
-
-  const bodyStart = content.indexOf('{', methodIndex);
-  if (bodyStart === -1) {
-    return '';
-  }
-
-  let depth = 0;
-  for (let i = bodyStart; i < content.length; i += 1) {
-    const char = content[i];
-    if (char === '{') depth += 1;
-    if (char === '}') depth -= 1;
-    if (depth === 0) {
-      return content.slice(bodyStart + 1, i);
-    }
-  }
-
-  return '';
-}
 
 const checks = [
   {

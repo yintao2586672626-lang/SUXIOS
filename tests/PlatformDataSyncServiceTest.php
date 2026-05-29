@@ -64,7 +64,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], 34));
     }
 
-    public function testReviewAndCommentPayloadsAreSkipped(): void
+    public function testReviewAndCommentPayloadsAreSkippedUnlessExplicitlyEnabled(): void
     {
         $service = new PlatformDataSyncService();
 
@@ -87,6 +87,45 @@ final class PlatformDataSyncServiceTest extends TestCase
 
             self::assertSame([], $rows, $dataType . ' payload should not be normalized');
         }
+    }
+
+    public function testExplicitManualReviewPayloadKeepsScoresAndRedactedSummary(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'hotel_name' => 'Demo Hotel',
+                    'data_date' => '2026-05-28',
+                    'score' => '3.0',
+                    'review_count' => 2,
+                    'tags' => ['clean', 'service'],
+                    'content' => 'Room was clean. Phone 13800138000 should not be stored.',
+                ],
+            ],
+        ], [
+            'id' => 12,
+            'name' => 'Ctrip reviews',
+            'platform' => 'ctrip',
+            'data_type' => 'review',
+            'system_hotel_id' => 7,
+            'ingestion_method' => 'manual',
+            'config' => ['allow_review' => true],
+        ], 34);
+
+        self::assertCount(1, $rows);
+        self::assertSame('review', $rows[0]['data_type']);
+        self::assertSame(3.0, $rows[0]['comment_score']);
+        self::assertSame(2, $rows[0]['quantity']);
+        self::assertSame('manual', $rows[0]['ingestion_method']);
+
+        $rawData = $rows[0]['raw_data'];
+        self::assertStringContainsString('"review_summary"', $rawData);
+        self::assertStringContainsString('"tags":["clean","service"]', $rawData);
+        self::assertStringNotContainsString('13800138000', $rawData);
+        self::assertStringNotContainsString('Phone 13800138000', $rawData);
     }
 
     public function testOrderPayloadIsRedactedBeforeNormalizedRawDataIsStored(): void

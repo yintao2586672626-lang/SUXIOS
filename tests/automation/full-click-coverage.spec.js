@@ -39,13 +39,32 @@ const buttonResults = [];
 const apiEvents = [];
 const pageEvents = [];
 
-function parseKeyFunctionLoopCount() {
-  const raw = process.env.E2E_LOOP || process.env.E2E_ITERATIONS || DEFAULT_KEY_FUNCTION_LOOPS;
+function parseBoundedInteger(raw, fallback, min, max) {
   const value = Number(raw);
-  if (!Number.isFinite(value)) return DEFAULT_KEY_FUNCTION_LOOPS;
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
+const configuredMinKeyFunctionLoops = parseBoundedInteger(
+  process.env.E2E_FULL_MIN_LOOP || process.env.E2E_MIN_LOOP,
+  MIN_KEY_FUNCTION_LOOPS,
+  1,
+  MAX_KEY_FUNCTION_LOOPS,
+);
+const configuredMaxKeyFunctionLoops = parseBoundedInteger(
+  process.env.E2E_FULL_MAX_LOOP || process.env.E2E_MAX_LOOP,
+  MAX_KEY_FUNCTION_LOOPS,
+  configuredMinKeyFunctionLoops,
+  MAX_KEY_FUNCTION_LOOPS,
+);
+
+function parseKeyFunctionLoopCount() {
+  const raw = process.env.E2E_LOOP || process.env.E2E_ITERATIONS || configuredMinKeyFunctionLoops;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return configuredMinKeyFunctionLoops;
   return Math.min(
-    MAX_KEY_FUNCTION_LOOPS,
-    Math.max(MIN_KEY_FUNCTION_LOOPS, Math.floor(value)),
+    configuredMaxKeyFunctionLoops,
+    Math.max(configuredMinKeyFunctionLoops, Math.floor(value)),
   );
 }
 
@@ -53,6 +72,10 @@ const loopCount = parseKeyFunctionLoopCount();
 const progress = {
   startedAt: new Date().toISOString(),
   loopCount,
+  loopRange: {
+    min: configuredMinKeyFunctionLoops,
+    max: configuredMaxKeyFunctionLoops,
+  },
   modules: MODULES.length,
   current: null,
 };
@@ -559,7 +582,7 @@ test.afterAll(() => {
   console.log('全量点击测试完成，JSON/CSV/summary 报告已生成');
 });
 
-test('50-100轮模块关键功能验证', async ({ page }) => {
+test('模块关键功能全量点击验证（轮数可配置）', async ({ page }) => {
   installDiagnostics(page, { apiEvents, pageEvents });
   await login(page, config);
 

@@ -36,6 +36,15 @@ final class OnlineDataTenantScopeTest extends TestCase
         $this->invokeNonPublic($controller, 'resolveOnlineDataSystemHotelId', [99]);
     }
 
+    public function testNonSuperUserCannotFallbackFromExplicitUnpermittedHotel(): void
+    {
+        $controller = $this->controllerWithUser($this->tenantUser([7], false, 7));
+
+        $this->expectException(HttpException::class);
+
+        $this->invokeNonPublic($controller, 'resolveOnlineDataSystemHotelId', [99]);
+    }
+
     public function testNonSuperMultiHotelUserMustChooseHotel(): void
     {
         $controller = $this->controllerWithUser($this->tenantUser([7, 8]));
@@ -67,14 +76,17 @@ final class OnlineDataTenantScopeTest extends TestCase
     /**
      * @param array<int, int> $hotelIds
      */
-    private function tenantUser(array $hotelIds, bool $superAdmin = false): object
+    private function tenantUser(array $hotelIds, bool $superAdmin = false, ?int $hotelId = null): object
     {
-        return new class($hotelIds, $superAdmin) {
+        return new class($hotelIds, $superAdmin, $hotelId) {
+            public ?int $hotel_id = null;
+
             /**
              * @param array<int, int> $hotelIds
              */
-            public function __construct(private array $hotelIds, private bool $superAdmin)
+            public function __construct(private array $hotelIds, private bool $superAdmin, ?int $hotelId)
             {
+                $this->hotel_id = $hotelId;
             }
 
             public function isSuperAdmin(): bool

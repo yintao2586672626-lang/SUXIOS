@@ -85,6 +85,7 @@ class CompetitorHotelController extends Base
         ]);
 
         $hotel = new CompetitorHotel();
+        $hotel->tenant_id = (int)$data['store_id'];
         $hotel->store_id = (int)$data['store_id'];
         $hotel->platform = $data['platform'];
         $hotel->city = $data['city'];
@@ -109,7 +110,10 @@ class CompetitorHotelController extends Base
         if (isset($data['platform']) && !in_array((string)$data['platform'], CompetitorHotel::platformCodes(), true)) {
             return $this->error('平台不支持');
         }
-        if (isset($data['store_id'])) $hotel->store_id = (int)$data['store_id'];
+        if (isset($data['store_id'])) {
+            $hotel->tenant_id = (int)$data['store_id'];
+            $hotel->store_id = (int)$data['store_id'];
+        }
         if (isset($data['platform'])) $hotel->platform = $data['platform'];
         if (isset($data['city'])) $hotel->city = $data['city'];
         if (isset($data['hotel_name'])) $hotel->hotel_name = $data['hotel_name'];

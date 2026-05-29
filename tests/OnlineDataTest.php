@@ -427,10 +427,210 @@ final class OnlineDataTest extends TestCase
         self::assertSame(9, $hotels[0]['HotelId']);
     }
 
+    public function testBackendBuildsCtripBusinessDisplayRowsForFrontend(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplayHotels', [[
+            'date_results' => [
+                ['data' => ['data' => [['hotelId' => 1, 'hotelName' => 'A', 'amount' => 100, 'quantity' => 2, 'bookOrderNum' => 1]]]],
+                ['data' => ['data' => [['hotelId' => 1, 'hotelName' => 'A', 'amount' => 80, 'quantity' => 3, 'bookOrderNum' => 2]]]],
+            ],
+        ]]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('1', (string)$rows[0]['hotelId']);
+        self::assertSame('A', $rows[0]['hotelName']);
+        self::assertSame(180.0, $rows[0]['amount']);
+        self::assertSame(5, $rows[0]['quantity']);
+        self::assertSame(3, $rows[0]['bookOrderNum']);
+        self::assertSame(3, $rows[0]['totalOrderNum']);
+    }
+
+    public function testBackendBuildsCtripBusinessDisplayRowsFromStoredRawData(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplayHotels', [[
+            [
+                'hotel_id' => '121669867',
+                'hotel_name' => '长沙宾际·云端酒店',
+                'amount' => '28898.42',
+                'quantity' => 114,
+                'book_order_num' => 95,
+                'raw_data' => json_encode([
+                    'hotelId' => 121669867,
+                    'hotelName' => '长沙宾际·云端酒店',
+                    'totalDetailNum' => 612,
+                    'qunarDetailVisitors' => 438,
+                    'qunarDetailCR' => 10.05,
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ]]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(612, $rows[0]['totalDetailNum']);
+        self::assertSame(438, $rows[0]['qunarDetailVisitors']);
+
+        $summary = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplaySummary', [$rows]);
+        self::assertSame(612, $summary['metrics']['totalDetailNum']);
+        self::assertSame(438, $summary['metrics']['totalQunarDetailVisitors']);
+    }
+
+    public function testBackendBuildsCtripBusinessDisplayDerivedMetricsForFrontend(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplayHotels', [[
+            ['hotelId' => 'A', 'hotelName' => 'A', 'amount' => 1000, 'quantity' => 5, 'bookOrderNum' => 2, 'totalDetailNum' => 100],
+            ['hotelId' => 'B', 'hotelName' => 'B', 'amount' => 800, 'quantity' => 4, 'bookOrderNum' => 1, 'totalDetailNum' => 50],
+        ]]);
+
+        self::assertSame('A', $rows[0]['hotelId']);
+        self::assertSame(200.0, $rows[0]['adr']);
+        self::assertSame('200.00', $rows[0]['adrText']);
+        self::assertSame(100.0, $rows[0]['ari']);
+        self::assertSame('100.0', $rows[0]['ariText']);
+        self::assertSame(round(100 * log(5), 2), $rows[0]['sci']);
+        self::assertSame((string)round(100 * log(5)), $rows[0]['sciText']);
+        self::assertSame(2.0, $rows[0]['bookingRate']);
+        self::assertSame('2.0%', $rows[0]['bookingRateText']);
+        self::assertSame('ok', $rows[0]['displayMetricStatus']['adr']);
+        self::assertSame('ok', $rows[0]['displayMetricStatus']['ari']);
+        self::assertSame('ok', $rows[0]['displayMetricStatus']['bookingRate']);
+    }
+
+    public function testBackendBuildsCtripBusinessDisplaySummaryForFrontend(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplayHotels', [[
+            ['hotelId' => 'A', 'hotelName' => 'A', 'amount' => 1000, 'quantity' => 5, 'bookOrderNum' => 2, 'totalOrderNum' => 4, 'totalDetailNum' => 100, 'qunarDetailVisitors' => 50],
+            ['hotelId' => 'B', 'hotelName' => 'B', 'amount' => 800, 'quantity' => 4, 'bookOrderNum' => 1, 'totalOrderNum' => 2, 'totalDetailNum' => 50, 'qunarDetailVisitors' => 25],
+        ]]);
+        $summary = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplaySummary', [$rows]);
+
+        self::assertSame('success', $summary['status']);
+        self::assertSame(2, $summary['metrics']['hotelCount']);
+        self::assertSame(1800.0, $summary['metrics']['totalAmount']);
+        self::assertSame(9, $summary['metrics']['totalQuantity']);
+        self::assertSame(200.0, $summary['metrics']['adr']);
+        self::assertSame(100.0, $summary['metrics']['avgAri']);
+        self::assertSame(round((round(100 * log(5), 2) + round(100 * log(4), 2)) / 2, 2), $summary['metrics']['avgSci']);
+        self::assertSame(150, $summary['metrics']['totalDetailNum']);
+        self::assertSame(75, $summary['metrics']['totalQunarDetailVisitors']);
+        self::assertSame(6, $summary['metrics']['totalOrderNum']);
+        self::assertSame('totalAmount', $summary['cards'][1]['key']);
+        self::assertSame('¥1,800', $summary['cards'][1]['value']);
+        self::assertSame('adr', $summary['cards'][3]['key']);
+        self::assertSame('¥200.00', $summary['cards'][3]['value']);
+    }
+
+    public function testBackendBuildsMeituanBusinessDisplayRowsForFrontend(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => '入住间夜榜',
+                        'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                        'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 9, 'rank' => 2]],
+                    ],
+                    [
+                        'dimName' => '房费收入榜',
+                        'aiMetricName' => 'P_RZ_ROOM_PAY',
+                        'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 600, 'rank' => 3]],
+                    ],
+                    [
+                        'dimName' => '曝光榜',
+                        'aiMetricName' => 'EXPOSURE',
+                        'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 1200]],
+                    ],
+                ],
+            ],
+        ]]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('8', (string)$rows[0]['poiId']);
+        self::assertSame('M', $rows[0]['hotelName']);
+        self::assertSame(9.0, $rows[0]['roomNights']);
+        self::assertSame(600.0, $rows[0]['roomRevenue']);
+        self::assertSame(1200.0, $rows[0]['exposure']);
+        self::assertSame(2, $rows[0]['rank']);
+    }
+
     /**
      * 覆盖 buildCtripTrafficDateRange：
      * 验证预设日期、自定义日期、非法日期范围异常。
      */
+    public function testBackendBuildsMeituanBusinessDisplayDerivedMetricsForFrontend(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    ['dimName' => 'room nights', 'aiMetricName' => 'P_RZ_NIGHT_COUNT', 'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 10]]],
+                    ['dimName' => 'room revenue', 'aiMetricName' => 'P_RZ_ROOM_PAY', 'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 1000]]],
+                    ['dimName' => 'sales nights', 'aiMetricName' => 'P_XS_NIGHT_COUNT', 'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 8]]],
+                    ['dimName' => 'sales amount', 'aiMetricName' => 'P_XS_AMT', 'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 960]]],
+                    ['dimName' => 'exposure', 'aiMetricName' => 'EXPOSURE', 'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 2000]]],
+                    ['dimName' => 'view', 'aiMetricName' => 'VIEW', 'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 500]]],
+                    ['dimName' => 'view conversion', 'aiMetricName' => 'VIEW_CONVERT', 'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 0.5]]],
+                    ['dimName' => 'pay conversion', 'aiMetricName' => 'PAY_CONVERT', 'roundRanks' => [['poiId' => 8, 'poiName' => 'M', 'dataValue' => 0.1]]],
+                ],
+            ],
+        ]]);
+
+        self::assertSame(100.0, $rows[0]['avgRoomPrice']);
+        self::assertSame('100', $rows[0]['avgRoomPriceText']);
+        self::assertSame(120.0, $rows[0]['avgSalesPrice']);
+        self::assertSame('120', $rows[0]['avgSalesPriceText']);
+        self::assertSame(50, $rows[0]['orderCount']);
+        self::assertSame('50', $rows[0]['orderCountText']);
+        self::assertSame(0.05, $rows[0]['absoluteConversion']);
+        self::assertSame('5.00%', $rows[0]['absoluteConversionText']);
+        self::assertSame('50.00%', $rows[0]['viewConversionText']);
+        self::assertSame('10.00%', $rows[0]['payConversionText']);
+        self::assertSame('ok', $rows[0]['displayMetricStatus']['avgRoomPrice']);
+        self::assertSame('ok', $rows[0]['displayMetricStatus']['absoluteConversion']);
+    }
+
+    public function testBackendBuildsMeituanBusinessDisplaySummaryForFrontend(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'mergeMeituanBusinessDisplayHotels', [[
+            ['poiId' => 'A', 'hotelName' => 'A', 'roomNights' => 10, 'roomRevenue' => 1000, 'salesRoomNights' => 8, 'sales' => 960, 'exposure' => 2000, 'views' => 500, 'viewConversion' => 0.5, 'payConversion' => 0.1],
+            ['poiId' => 'B', 'hotelName' => 'B', 'roomNights' => 5, 'roomRevenue' => 400, 'salesRoomNights' => 4, 'sales' => 360, 'exposure' => 1000, 'views' => 250, 'viewConversion' => 0.4, 'payConversion' => 0.08],
+        ]]);
+        $summary = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplaySummary', [$rows, [
+            'competitor_room_count' => 20,
+            'date_ranges' => ['1'],
+        ]]);
+
+        self::assertSame('success', $summary['status']);
+        self::assertSame(2, $summary['metrics']['hotelCount']);
+        self::assertSame(20, $summary['metrics']['marketInventory']);
+        self::assertSame(75.0, $summary['metrics']['marketVitalityRate']);
+        self::assertSame(15.0, $summary['metrics']['totalRoomNights']);
+        self::assertSame(1400.0, $summary['metrics']['totalRoomRevenue']);
+        self::assertSame(12.0, $summary['metrics']['totalSalesRoomNights']);
+        self::assertSame(1320.0, $summary['metrics']['totalSales']);
+        self::assertSame(3000.0, $summary['metrics']['totalExposure']);
+        self::assertSame(750.0, $summary['metrics']['totalViews']);
+        self::assertSame(70, $summary['metrics']['totalOrderCount']);
+        self::assertSame(45.0, $summary['metrics']['avgViewConversionRate']);
+        self::assertSame(9.0, $summary['metrics']['avgPayConversionRate']);
+        self::assertSame(4.1, $summary['metrics']['avgAbsoluteConversionRate']);
+        self::assertSame('hotelCount', $summary['cards'][0]['key']);
+        self::assertSame('2', $summary['cards'][0]['value']);
+        self::assertSame('marketInventory', $summary['cards'][1]['key']);
+        self::assertSame('20', $summary['cards'][1]['value']);
+    }
+
     public function testCtripTrafficDateRangeCoversPresetsCustomAndInvalidInput(): void
     {
         $controller = $this->controller();
@@ -467,6 +667,28 @@ final class OnlineDataTest extends TestCase
         self::assertTrue($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['https://ctrip.com/api', $suffixes]));
         self::assertFalse($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['http://ebooking.ctrip.com/api', $suffixes]));
         self::assertFalse($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['https://ctrip.com.evil.test/api', $suffixes]));
+    }
+
+    public function testBackendBuildsCtripTrafficDisplayRowsAndSummaryForFrontend(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildCtripTrafficDisplayRows', [[
+            ['dataDate' => '2026-05-18', 'hotelId' => 88, 'listExposure' => 1000, 'detailExposure' => 200, 'orderFillingNum' => 20, 'orderSubmitNum' => 5],
+            ['dataDate' => '2026-05-18', 'hotelId' => -1, 'listExposure' => 800, 'detailExposure' => 160, 'orderFillingNum' => 16, 'orderSubmitNum' => 4],
+        ]]);
+
+        self::assertCount(2, $rows);
+        self::assertSame('self', $rows[0]['compareType']);
+        self::assertSame('competitor_avg', $rows[1]['compareType']);
+        self::assertSame(20.0, $rows[0]['flowRate']);
+        self::assertSame(25.0, $rows[0]['submitRate']);
+
+        $summary = $this->invokeNonPublic($controller, 'buildCtripTrafficDisplaySummary', [$rows]);
+        self::assertSame(1000.0, $summary['self']['listExposure']);
+        self::assertSame(800.0, $summary['avg']['listExposure']);
+        self::assertSame(20.0, $summary['self']['flowRate']);
+        self::assertSame(25.0, $summary['avg']['submitRate']);
     }
 
     public function testCtripFlowPageTrafficAliasesAndRankRowsAreExtracted(): void
@@ -675,6 +897,31 @@ final class OnlineDataTest extends TestCase
         self::assertSame(1, $summary['ok']);
         self::assertSame(1, $summary['warning']);
         self::assertSame(0, $summary['expired']);
+    }
+
+    public function testCollectionReliabilityUsesUnifiedStatusVocabulary(): void
+    {
+        $controller = $this->controller();
+
+        $catalog = $this->invokeNonPublic($controller, 'collectionReliabilityStatusCatalog');
+        self::assertSame([
+            'ok',
+            'warning',
+            'expired',
+            'unknown',
+            'waiting_config',
+            'failed',
+            'partial_success',
+            'success',
+        ], $catalog);
+
+        $emptySummary = $this->invokeNonPublic($controller, 'buildCollectionAuthorizationSummary', [[]]);
+        self::assertSame('waiting_config', $emptySummary['overall_status']);
+
+        $expiredSummary = $this->invokeNonPublic($controller, 'buildCollectionAuthorizationSummary', [[
+            ['hotel_id' => 7, 'status' => 'expired'],
+        ]]);
+        self::assertSame('expired', $expiredSummary['overall_status']);
     }
 
     public function testCtripLatestBatchScopeUsesLatestFetchTimeWhenHotelIsSelected(): void
@@ -1359,7 +1606,22 @@ final class OnlineDataTest extends TestCase
             'https://ebooking.ctrip.com/api/fetchMarketOverViewV2',
         ]));
         self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/api/fetchCurrentHotelSeqInfoV1',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
             'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/inland/businessreport/flowdata/queryScanFlowDetailsV2',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/inland/businessreport/flowdata/queryHomePageRealTimeData',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/inland/businessreport/flowdata/getTrafficData',
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
+            'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
         ]));
         self::assertTrue($this->invokeNonPublic($controller, 'isCtripOverviewApiUrl', [
             'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getCompeteHotelReportV1',

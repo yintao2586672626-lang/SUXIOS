@@ -84,6 +84,10 @@ class OperationManagement extends Base
             if (!in_array($strategyType, $allowed, true)) {
                 return $this->error('策略类型不支持', 422);
             }
+            $validationError = $this->validateStrategySimulationInput($input, $strategyType);
+            if ($validationError !== '') {
+                return $this->error($validationError, 422);
+            }
 
             $result = $this->service->strategySimulation($hotelIds, $hotelId, $input);
             if (!empty($input['create_execution_order'])) {
@@ -284,6 +288,42 @@ class OperationManagement extends Base
         }
 
         return date('Y-m-d', $timestamp);
+    }
+
+    private function validateStrategySimulationInput(array &$input, string $strategyType): string
+    {
+        foreach (['start_date' => '开始日期', 'end_date' => '结束日期'] as $field => $label) {
+            if (!array_key_exists($field, $input)) {
+                continue;
+            }
+            $value = trim((string)$input[$field]);
+            if ($value === '') {
+                return $label . '不能为空';
+            }
+            $input[$field] = $this->normalizeDate($value);
+        }
+
+        if (!empty($input['start_date']) && !empty($input['end_date']) && $input['start_date'] > $input['end_date']) {
+            return '结束日期不能早于开始日期';
+        }
+
+        if ($strategyType === 'price_adjust' && array_key_exists('adjust_amount', $input)) {
+            $value = trim((string)$input['adjust_amount']);
+            if ($value === '' || !is_numeric($value) || (float)$value === 0.0) {
+                return '调价金额必填且不能为 0';
+            }
+            $input['adjust_amount'] = (float)$value;
+        }
+
+        if ($strategyType === 'promotion' && array_key_exists('discount_rate', $input)) {
+            $value = trim((string)$input['discount_rate']);
+            if ($value === '' || !is_numeric($value) || (float)$value <= 0.0 || (float)$value > 100.0) {
+                return '折扣比例必填，范围为 0-100';
+            }
+            $input['discount_rate'] = (float)$value;
+        }
+
+        return '';
     }
 
     private function buildStrategyExecutionIntentInput(array $input, array $result, string $strategyType, int $hotelId): array
