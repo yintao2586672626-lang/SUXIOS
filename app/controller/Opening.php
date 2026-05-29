@@ -63,7 +63,8 @@ class Opening extends Base
                 }
             }
 
-            return $this->success($this->service->updateProject($id, $input, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin()), '开业项目已更新');
+            $service = $this->service->forActor($this->currentUserId(), $this->isSuperAdmin());
+            return $this->success($service->updateProject($id, $input, $this->hotelScope()), '开业项目已更新');
         } catch (Throwable $e) {
             return $this->error('更新开业项目失败：' . $e->getMessage(), 400);
         }
@@ -77,7 +78,8 @@ class Opening extends Base
                 return $this->error('开业项目ID无效', 422);
             }
 
-            if (!$this->service->archiveProject($id, $this->hotelScope(), $this->currentUserId(), $this->isSuperAdmin())) {
+            $service = $this->service->forActor($this->currentUserId(), $this->isSuperAdmin());
+            if (!$service->archiveProject($id, $this->hotelScope())) {
                 return $this->error('开业项目不存在或无权操作', 404);
             }
 

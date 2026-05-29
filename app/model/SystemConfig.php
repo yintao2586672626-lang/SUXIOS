@@ -135,7 +135,7 @@ class SystemConfig extends Model
             self::KEY_DEFAULT_PAGE_SIZE => '20',
             
             // 功能开关
-            self::KEY_ENABLE_REGISTRATION => '0',
+            self::KEY_ENABLE_REGISTRATION => '1',
             self::KEY_ENABLE_LOGIN_LOG => '1',
             self::KEY_ENABLE_OPERATION_LOG => '1',
             self::KEY_ENABLE_DATA_BACKUP => '1',

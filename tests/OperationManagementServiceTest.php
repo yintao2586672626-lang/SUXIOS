@@ -132,7 +132,7 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame('ok', $summary['data_status']);
     }
 
-    public function testRootCauseRulesFlagDataTrafficPriceScoreAndHolidayBoundaries(): void
+    public function testRootCauseRulesFlagDataTrafficPriceServiceQualityAndHolidayBoundaries(): void
     {
         $service = new OperationManagementService();
 
@@ -140,7 +140,7 @@ final class OperationManagementServiceTest extends TestCase
             'ota' => ['orders' => 5, 'exposure' => 0, 'visitors' => 0, 'view_rate' => 2, 'order_rate' => 1],
             'summary' => ['adr' => 330],
             'competitors' => ['avg_price' => 250, 'avg_score' => 4.8],
-            'reviews' => ['score' => 4.5],
+            'service_quality' => ['avg_psi_score' => 76.5, 'avg_service_score' => 79.0, 'data_status' => 'ok'],
             'holiday' => ['days_left' => 7, 'data_status' => 'ok'],
         ], ['exposure' => 100], ['view_rate' => 20, 'order_rate' => 10], 'conversion_low']);
 
@@ -148,19 +148,48 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame('data_abnormal', $result['root_causes'][0]['type']);
         self::assertContains('traffic_down', array_column($result['root_causes'], 'type'));
         self::assertContains('price_high', array_column($result['root_causes'], 'type'));
+        self::assertContains('service_quality_low', array_column($result['root_causes'], 'type'));
+        self::assertNotContains('score_low', array_column($result['root_causes'], 'type'));
         self::assertContains('holiday_near', array_column($result['root_causes'], 'type'));
 
         $empty = $this->invokeNonPublic($service, 'buildRootCauseResult', [[
             'ota' => [],
             'summary' => [],
             'competitors' => [],
-            'reviews' => [],
+            'service_quality' => [],
             'holiday' => [],
         ], [], [], '']);
 
         self::assertSame('data_insufficient', $empty['problem_level']);
         self::assertSame('unknown', $empty['main_problem']);
         self::assertSame([], $empty['root_causes']);
+        self::assertStringNotContainsString('点评', implode(' ', $empty['next_actions']));
+    }
+
+    public function testServiceQualitySummaryUsesCapturedQualityRows(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildServiceQualityFromRows', [[
+            [
+                'data_type' => 'quality',
+                'data_value' => 88.6,
+                'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'data_type' => 'service_quality',
+                'raw_data' => json_encode(['service_score' => 86, 'psi_score' => 82.2], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'data_type' => 'traffic',
+                'raw_data' => json_encode(['psiScore' => 10, 'serviceScore' => 10], JSON_UNESCAPED_UNICODE),
+            ],
+        ]]);
+
+        self::assertSame(85.4, $summary['avg_psi_score']);
+        self::assertSame(89.25, $summary['avg_service_score']);
+        self::assertSame(2, $summary['sample_count']);
+        self::assertSame('ok', $summary['data_status']);
     }
 
     private function metricValue(array $summary, string $key): mixed

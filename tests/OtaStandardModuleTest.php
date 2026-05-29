@@ -17,11 +17,11 @@ final class OtaStandardModuleTest extends TestCase
         $dataset = (new OtaStandardEtlService())->buildDatasetFromRows($this->sampleRows());
 
         self::assertSame('ready', $dataset['status']);
-        self::assertCount(2, $dataset['dim_hotel']);
-        self::assertCount(2, $dataset['dim_platform']);
+        self::assertCount(1, $dataset['dim_hotel']);
+        self::assertCount(1, $dataset['dim_platform']);
         self::assertCount(1, $dataset['fact_ota_daily']);
         self::assertCount(1, $dataset['fact_ota_traffic']);
-        self::assertCount(1, $dataset['fact_ota_comment']);
+        self::assertCount(0, $dataset['fact_ota_comment']);
 
         self::assertSame('system:7', $dataset['fact_ota_daily'][0]['hotel_key']);
         self::assertSame('ctrip', $dataset['fact_ota_daily'][0]['platform_key']);
@@ -44,8 +44,8 @@ final class OtaStandardModuleTest extends TestCase
 
         self::assertSame(20.0, $dataset['fact_ota_traffic'][0]['flow_rate']);
         self::assertSame(33.33, $dataset['fact_ota_traffic'][0]['submit_rate']);
-        self::assertSame('negative', $dataset['fact_ota_comment'][0]['sentiment']);
-        self::assertSame([], $dataset['data_quality']['rejected_rows']);
+        self::assertSame('comment_collection_disabled', $dataset['data_quality']['rejected_rows'][0]['reason']);
+        self::assertSame('review', $dataset['data_quality']['rejected_rows'][0]['data_type']);
     }
 
     public function testRevenueMetricsUseStandardFactsWithoutInventingMissingCancellationData(): void
@@ -99,6 +99,133 @@ final class OtaStandardModuleTest extends TestCase
 
         self::assertSame(20.0, $partialCancel['totals']['cancellation_rate']);
         self::assertContains('cancellation_fields_partial', array_column($partialCancel['data_gaps'], 'code'));
+    }
+
+    public function testAdvertisingAndQualityFactsDoNotPolluteRevenueMetrics(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 31,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-05-27',
+                'amount' => 1200,
+                'quantity' => 6,
+                'book_order_num' => 4,
+                'raw_data' => json_encode(['available_rooms' => 10], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 32,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'advertising',
+                'data_date' => '2026-05-27',
+                'amount' => 256.75,
+                'quantity' => 23,
+                'book_order_num' => 16,
+                'list_exposure' => 10000,
+                'detail_exposure' => 320,
+                'flow_rate' => 8.5,
+                'data_value' => 7.35,
+                'raw_data' => json_encode(['orderAmount' => 1888, 'campaignId' => 'campaign-1'], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 33,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'quality',
+                'data_date' => '2026-05-27',
+                'data_value' => 88.6,
+                'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+
+        self::assertCount(1, $dataset['fact_ota_daily']);
+        self::assertCount(1, $dataset['fact_ota_advertising']);
+        self::assertCount(1, $dataset['fact_ota_quality']);
+
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+
+        self::assertSame(1200.0, $metrics['totals']['revenue']);
+        self::assertSame(6.0, $metrics['totals']['room_nights']);
+        self::assertSame(4, $metrics['totals']['order_count']);
+        self::assertSame(256.75, $metrics['advertising']['spend']);
+        self::assertSame(1888.0, $metrics['advertising']['order_amount']);
+        self::assertSame(7.35, $metrics['advertising']['roas']);
+        self::assertSame(10000, $metrics['advertising']['impressions']);
+        self::assertSame(320, $metrics['advertising']['clicks']);
+        self::assertSame(88.6, $metrics['quality']['avg_psi_score']);
+        self::assertSame(92.5, $metrics['quality']['avg_service_score']);
+    }
+
+    public function testInsightAnalysisIncludesAdvertisingEfficiencyAndServiceQualityModules(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 41,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-05-27',
+                'amount' => 1200,
+                'quantity' => 6,
+                'book_order_num' => 4,
+                'raw_data' => json_encode(['available_rooms' => 10], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 42,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'advertising',
+                'data_date' => '2026-05-27',
+                'amount' => 256.75,
+                'quantity' => 23,
+                'book_order_num' => 16,
+                'list_exposure' => 10000,
+                'detail_exposure' => 320,
+                'flow_rate' => 8.5,
+                'data_value' => 7.35,
+                'raw_data' => json_encode(['orderAmount' => 1888, 'campaignId' => 'campaign-1'], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 43,
+                'system_hotel_id' => 7,
+                'hotel_id' => 'ctrip-7',
+                'hotel_name' => 'Hotel Alpha',
+                'source' => 'ctrip',
+                'data_type' => 'quality',
+                'data_date' => '2026-05-27',
+                'data_value' => 88.6,
+                'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+        $analysis = (new OtaInsightAnalysisService())->analyzeMetrics($metrics);
+
+        $modules = array_column($analysis['modules'], null, 'key');
+
+        self::assertArrayHasKey('advertising_efficiency', $modules);
+        self::assertSame('available', $modules['advertising_efficiency']['status']);
+        self::assertSame('P2', $modules['advertising_efficiency']['priority']);
+        self::assertSame(256.75, $modules['advertising_efficiency']['metrics']['spend']);
+        self::assertSame(7.35, $modules['advertising_efficiency']['metrics']['roas']);
+
+        self::assertArrayHasKey('service_quality', $modules);
+        self::assertSame('available', $modules['service_quality']['status']);
+        self::assertSame('P2', $modules['service_quality']['priority']);
+        self::assertSame(88.6, $modules['service_quality']['metrics']['avg_psi_score']);
+        self::assertSame(92.5, $modules['service_quality']['metrics']['avg_service_score']);
     }
 
     public function testEtlRejectsInvalidPercentAndNegativeLeadTimeWithoutInventingMetrics(): void
@@ -342,6 +469,49 @@ final class OtaStandardModuleTest extends TestCase
         self::assertSame('meituan', $dataset['fact_ota_daily'][0]['platform_key']);
         self::assertArrayNotHasKey('Cookie', $dataset['fact_ota_daily'][0]['raw_data']['headers']);
         self::assertArrayNotHasKey('accessToken', $dataset['fact_ota_daily'][0]['raw_data']['headers']['nested']);
+    }
+
+    public function testEtlRedactsLegacyOrderRawDataBeforeFactsExposeIt(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 12,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'meituan',
+                'data_type' => 'orders',
+                'data_date' => '2026-05-19',
+                'amount' => 688,
+                'quantity' => 2,
+                'raw_data' => json_encode([
+                    'orderList' => [
+                        [
+                            'orderId' => 'MT-ORDER-LEGACY-001',
+                            'guestName' => 'Legacy Guest',
+                            'phone' => '13700001111',
+                            'idCardNo' => 'IDCARD-LEGACY-001',
+                            'customerRemark' => 'late arrival needs call',
+                            'amount' => 688,
+                        ],
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+
+        $raw = $dataset['fact_ota_daily'][0]['raw_data'];
+        $encoded = json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        self::assertStringNotContainsString('MT-ORDER-LEGACY-001', (string)$encoded);
+        self::assertStringNotContainsString('Legacy Guest', (string)$encoded);
+        self::assertStringNotContainsString('13700001111', (string)$encoded);
+        self::assertStringNotContainsString('IDCARD-LEGACY-001', (string)$encoded);
+        self::assertStringNotContainsString('late arrival', (string)$encoded);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)($raw['orderList'][0]['order_id_hash'] ?? ''));
+        self::assertSame('L***', $raw['orderList'][0]['guest_name_masked'] ?? null);
+        self::assertSame('*******1111', $raw['orderList'][0]['phone_masked'] ?? null);
+        self::assertSame(688, $raw['orderList'][0]['amount'] ?? null);
+        self::assertSame('order', $dataset['fact_ota_daily'][0]['source_trace']['data_type'] ?? null);
     }
 
     public function testEtlRejectsInvalidDateFiltersInsteadOfWideningScope(): void

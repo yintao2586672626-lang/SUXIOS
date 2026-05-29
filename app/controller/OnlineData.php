@@ -7,7 +7,9 @@ use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\model\User as UserModel;
 use app\service\OtaTrafficUrlNormalizer;
+use app\service\PlatformDataSyncService;
 use think\Response;
+use think\exception\HttpException;
 use think\facade\Db;
 
 class OnlineData extends Base
@@ -32,6 +34,14 @@ class OnlineData extends Base
         return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
     }
 
+    private function commentCollectionDisabledResponse(): Response
+    {
+        return $this->error('Comment/review data collection is disabled by policy.', 422, [
+            'disabled' => true,
+            'scope' => 'ota_comments',
+        ]);
+    }
+
     private function buildStreamSslOptions(): array
     {
         $verify = $this->shouldVerifyOtaSsl();
@@ -39,6 +49,123 @@ class OnlineData extends Base
             'verify_peer' => $verify,
             'verify_peer_name' => $verify,
         ];
+    }
+
+    public function dataSourceList(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            return $this->success($service->listDataSources($this->currentUser, $this->request->get()));
+        } catch (\Throwable $e) {
+            return $this->error('获取数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function saveDataSource(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            $data = $service->saveDataSource($this->currentUser, $this->requestData());
+            OperationLog::record('online_data', 'save_data_source', '保存平台数据源: ' . ($data['name'] ?? ''), $this->currentUser->id, (int)($data['system_hotel_id'] ?? 0) ?: null);
+            return $this->success($data, '数据源保存成功');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('保存数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function deleteDataSource(int $id): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            $service->deleteDataSource($this->currentUser, (int)$id);
+            OperationLog::record('online_data', 'delete_data_source', '停用平台数据源ID: ' . $id, $this->currentUser->id);
+            return $this->success(['id' => (int)$id], '数据源已停用');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('删除数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function syncDataSource(int $id): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            $result = $service->syncDataSource($this->currentUser, (int)$id, $this->requestData());
+            OperationLog::record('online_data', 'sync_data_source', '同步平台数据源ID: ' . $id . '，状态: ' . $result['status'], $this->currentUser->id, null);
+            return $this->success($result, '同步任务已完成');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('同步数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function importDataSourceRows(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            $payload = $this->requestData();
+            $file = $this->request->file('file') ?: $this->request->file('import_file');
+            if ($file) {
+                $payload['rows'] = $service->parseImportFile($file->getPathname(), $file->getOriginalName());
+            }
+            $result = $service->importRows($this->currentUser, $payload);
+            OperationLog::record('online_data', 'import_data_source_rows', '导入平台数据，状态: ' . $result['status'], $this->currentUser->id, null);
+            return $this->success($result, '导入任务已完成');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('导入数据失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function syncTaskList(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            return $this->success($service->listSyncTasks($this->currentUser, $this->request->get()));
+        } catch (\Throwable $e) {
+            return $this->error('获取同步任务失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function syncLogList(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            return $this->success($service->listSyncLogs($this->currentUser, $this->request->get()));
+        } catch (\Throwable $e) {
+            return $this->error('获取同步日志失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function safeHttpCode(int $code): int
+    {
+        return $code >= 400 && $code <= 599 ? $code : 400;
     }
 
     /**
@@ -1069,6 +1196,7 @@ class OnlineData extends Base
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
 
         $cookies = trim((string)$this->request->post('cookies', ''));
         $partnerId = trim((string)$this->request->post('partner_id', ''));
@@ -1440,6 +1568,7 @@ class OnlineData extends Base
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
         @set_time_limit(0);
 
         $requestData = $this->requestData();
@@ -3493,13 +3622,6 @@ class OnlineData extends Base
         $context = $this->buildMeituanCaptureContext($payload, $systemHotelId);
         $rows = [];
 
-        foreach ($this->extractMeituanCapturedSection($payload, 'reviews') as $item) {
-            $row = $this->normalizeMeituanCapturedReviewRow($item, $context);
-            if ($row !== null) {
-                $rows[] = $row;
-            }
-        }
-
         foreach ($this->extractMeituanCapturedSection($payload, 'traffic') as $item) {
             $row = $this->normalizeMeituanCapturedTrafficRow($item, $context);
             if ($row !== null) {
@@ -3806,7 +3928,9 @@ class OnlineData extends Base
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['order_time', 'orderTime', 'createTime', 'check_in_date', 'checkInDate'], ''))
             ?: ($context['default_data_date'] ?? date('Y-m-d'));
-        $identity = $orderId !== '' ? $orderId : substr(md5(json_encode($item, JSON_UNESCAPED_UNICODE)), 0, 12);
+        $identity = $orderId !== ''
+            ? $this->hashOnlineOrderIdentifier($orderId)
+            : hash('sha256', 'ota_order_fallback|' . json_encode($item, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
@@ -3826,7 +3950,7 @@ class OnlineData extends Base
     {
         $hotelId = (string)$this->firstMeituanValue($item, ['poi_id', 'poiId', 'hotel_id', 'hotelId', 'shopId', 'shop_id'], $context['poi_id'] ?: $context['store_id']);
         $hotelName = (string)$this->firstMeituanValue($item, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'shopName', 'shop_name', 'name'], $context['poi_name']);
-        $raw = $item;
+        $raw = $this->sanitizeOnlineOrderRawData($item, ($fields['data_type'] ?? '') === 'order');
         $raw['_capture_context'] = array_filter([
             'store_id' => $context['store_id'] ?? '',
             'poi_id' => $context['poi_id'] ?? '',
@@ -3841,6 +3965,149 @@ class OnlineData extends Base
             'qunar_comment_score' => 0,
             'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
         ], $fields);
+    }
+
+    /**
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function sanitizeOnlineOrderRawData(array $raw, bool $orderContext = false): array
+    {
+        $sanitized = [];
+        foreach ($raw as $key => $value) {
+            $keyText = (string)$key;
+            if ($this->isOnlineSensitiveConfigKey($keyText)) {
+                continue;
+            }
+
+            $childOrderContext = $orderContext || $this->isOnlineOrderContainerKey($keyText);
+            if (is_array($value)) {
+                $sanitized[$key] = $this->sanitizeOnlineOrderRawData($value, $childOrderContext);
+                continue;
+            }
+
+            if ($childOrderContext || $this->isOnlineOrderPiiKey($keyText)) {
+                $this->appendRedactedOnlineOrderField($sanitized, $keyText, $value, $childOrderContext);
+                continue;
+            }
+
+            $sanitized[$key] = $value;
+        }
+        return $sanitized;
+    }
+
+    /**
+     * @param array<string|int, mixed> $target
+     */
+    private function appendRedactedOnlineOrderField(array &$target, string $key, mixed $value, bool $orderContext): void
+    {
+        if ($this->isOnlineOrderIdKey($key, $orderContext)) {
+            $text = trim((string)$value);
+            if ($text !== '') {
+                $target[$this->redactedOnlineOrderFieldName($key, 'hash')] = $this->hashOnlineOrderIdentifier($text);
+            }
+            return;
+        }
+        if ($this->isOnlinePhoneKey($key)) {
+            $masked = $this->maskOnlinePhone((string)$value);
+            if ($masked !== '') {
+                $target[$this->redactedOnlineOrderFieldName($key, 'masked')] = $masked;
+            }
+            return;
+        }
+        if ($this->isOnlineGuestNameKey($key, $orderContext)) {
+            $masked = $this->maskOnlineName((string)$value);
+            if ($masked !== '') {
+                $target[$this->redactedOnlineOrderFieldName($key, 'masked')] = $masked;
+            }
+            return;
+        }
+        if ($this->isOnlineSensitiveOrderTextKey($key)) {
+            return;
+        }
+
+        $target[$key] = $value;
+    }
+
+    private function isOnlineSensitiveConfigKey(string $key): bool
+    {
+        return preg_match('/cookie|token|authorization|mtgsig|password|secret|spidertoken|csrf|session/i', $key) === 1;
+    }
+
+    private function isOnlineOrderContainerKey(string $key): bool
+    {
+        return preg_match('/order[_-]?(list|rows|items|data|detail|details|info)|orders/i', $key) === 1;
+    }
+
+    private function isOnlineOrderPiiKey(string $key): bool
+    {
+        return $this->isOnlineOrderIdKey($key, false)
+            || $this->isOnlinePhoneKey($key)
+            || $this->isOnlineGuestNameKey($key, false)
+            || $this->isOnlineSensitiveOrderTextKey($key);
+    }
+
+    private function isOnlineOrderIdKey(string $key, bool $orderContext): bool
+    {
+        if ($orderContext && preg_match('/^(id|sn)$/i', $key) === 1) {
+            return true;
+        }
+        return preg_match('/^(order[_-]?(id|no|num|number|sn)|booking[_-]?(id|no|number))$/i', $key) === 1;
+    }
+
+    private function isOnlinePhoneKey(string $key): bool
+    {
+        return preg_match('/(phone|mobile|tel)$/i', $key) === 1;
+    }
+
+    private function isOnlineGuestNameKey(string $key, bool $orderContext): bool
+    {
+        if ($orderContext && preg_match('/^(name|full[_-]?name)$/i', $key) === 1) {
+            return true;
+        }
+        return preg_match('/(guest|customer|contact|user|traveller|passenger)[_-]?name$/i', $key) === 1;
+    }
+
+    private function isOnlineSensitiveOrderTextKey(string $key): bool
+    {
+        return preg_match('/(certificate|credential|id[_-]?card|card[_-]?no|passport|remark|memo|note|address)/i', $key) === 1;
+    }
+
+    private function redactedOnlineOrderFieldName(string $key, string $suffix): string
+    {
+        if ($this->isOnlineOrderIdKey($key, true)) {
+            return 'order_id_hash';
+        }
+        $name = preg_replace('/(?<!^)[A-Z]/', '_$0', $key) ?? $key;
+        $name = strtolower((string)preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
+        $name = trim($name, '_');
+        return ($name !== '' ? $name : 'field') . '_' . $suffix;
+    }
+
+    private function hashOnlineOrderIdentifier(string $value): string
+    {
+        return hash('sha256', 'ota_order|' . $value);
+    }
+
+    private function maskOnlinePhone(string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', $value) ?? '';
+        if ($digits === '') {
+            return '';
+        }
+        if (strlen($digits) <= 4) {
+            return str_repeat('*', strlen($digits));
+        }
+        return str_repeat('*', strlen($digits) - 4) . substr($digits, -4);
+    }
+
+    private function maskOnlineName(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        return mb_substr($value, 0, 1) . '***';
     }
 
     private function saveMeituanCapturedDailyRows(array $rows): int
@@ -4006,6 +4273,8 @@ class OnlineData extends Base
      */
     private function parseAndSaveMeituanComments(array $comments, string $poiId, string $partnerId, ?int $systemHotelId = null): int
     {
+        return 0;
+
         $savedCount = 0;
         $dataDate = date('Y-m-d');
 
@@ -5647,6 +5916,7 @@ JAVASCRIPT;
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
 
         $name = $this->request->post('name', '');
         $partnerId = $this->request->post('partner_id', '');
@@ -5702,6 +5972,7 @@ JAVASCRIPT;
     public function getMeituanCommentConfigList(): Response
     {
         $this->checkPermission();
+        return $this->success([]);
 
         $key = 'meituan_comment_config_list';
         $list = $this->getConfigList($key);
@@ -6848,13 +7119,17 @@ JAVASCRIPT;
         if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
             $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
             if (empty($permittedHotelIds)) {
-                abort(403, '无可访问酒店');
+                throw new HttpException(403, '无可访问酒店');
             }
 
             if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
                 $hotelId = (int)$input;
                 if (!in_array($hotelId, $permittedHotelIds, true)) {
-                    abort(403, '无权访问该酒店');
+                    $ownHotelId = $this->currentUser->hotel_id ?? null;
+                    if (count($permittedHotelIds) === 1 && (int)$ownHotelId === $permittedHotelIds[0]) {
+                        return $permittedHotelIds[0];
+                    }
+                    throw new HttpException(403, '无权访问该酒店');
                 }
                 return $hotelId;
             }
@@ -6863,7 +7138,7 @@ JAVASCRIPT;
                 return $permittedHotelIds[0];
             }
 
-            abort(400, '请选择酒店');
+            throw new HttpException(400, '请选择酒店');
         }
 
         if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
@@ -8654,11 +8929,187 @@ JAVASCRIPT;
             $totalQuery->whereIn('system_hotel_id', $permittedHotelIds);
         }
         $totalSummary = $totalQuery->find();
+
+        $supplementQuery = Db::name('online_daily_data')
+            ->where('data_date', '>=', $startDate)
+            ->where('data_date', '<=', $endDate);
+        $this->applyDataTypeFilter($supplementQuery, $dataType);
+        if ($hotelId !== '') {
+            $this->applyOnlineDailyDataHotelFilter($supplementQuery, $hotelId);
+        }
+        if (!$this->currentUser->isSuperAdmin()) {
+            $supplementQuery->whereIn('system_hotel_id', $permittedHotelIds);
+        }
+        $supplementRows = $supplementQuery->select()->toArray();
         
         return $this->success([
             'daily' => $dailySummary,
             'total' => $totalSummary,
+            'ota_channel_supplement' => $this->buildDailyOtaSupplementSummary($supplementRows),
         ]);
+    }
+
+    private function buildDailyOtaSupplementSummary(array $rows): array
+    {
+        $advertising = $this->buildDailyOtaAdvertisingSummary($rows);
+        $serviceQuality = $this->buildDailyOtaServiceQualitySummary($rows);
+        $hasData = ($advertising['data_status'] ?? '') === 'ok' || ($serviceQuality['data_status'] ?? '') === 'ok';
+
+        return [
+            'scope' => 'ota_channel',
+            'source_table' => 'online_daily_data',
+            'data_status' => $hasData ? 'ok' : 'pending',
+            'data_notice' => 'ota_channel_only_not_whole_hotel_scope',
+            'advertising' => $advertising,
+            'service_quality' => $serviceQuality,
+        ];
+    }
+
+    private function buildDailyOtaAdvertisingSummary(array $rows): array
+    {
+        $summary = [
+            'spend' => 0.0,
+            'order_amount' => 0.0,
+            'bookings' => 0,
+            'room_nights' => 0.0,
+            'impressions' => 0,
+            'clicks' => 0,
+            'ctr' => null,
+            'cvr' => null,
+            'roas' => null,
+            'sample_count' => 0,
+            'data_status' => 'pending',
+        ];
+
+        foreach ($rows as $row) {
+            if ($this->normalizeDailyOtaSupplementDataType((string)($row['data_type'] ?? '')) !== 'advertising') {
+                continue;
+            }
+
+            [$raw] = $this->decodeOnlineDataQualityRaw($row['raw_data'] ?? null);
+            $raw = $this->dailyOtaSupplementRawDetail($raw);
+            $spend = $this->dailyOtaSupplementFirstNumber($row, $raw, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend']) ?? 0.0;
+            $orderAmount = $this->dailyOtaSupplementFirstNumber($row, $raw, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']) ?? 0.0;
+            $impressions = (int)round($this->dailyOtaSupplementFirstNumber($row, $raw, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']) ?? 0.0);
+            $clicks = (int)round($this->dailyOtaSupplementFirstNumber($row, $raw, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']) ?? 0.0);
+            $bookings = (int)round($this->dailyOtaSupplementFirstNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']) ?? 0.0);
+            $roomNights = $this->dailyOtaSupplementFirstNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'nights']) ?? 0.0;
+
+            $summary['spend'] += $spend;
+            $summary['order_amount'] += $orderAmount;
+            $summary['impressions'] += $impressions;
+            $summary['clicks'] += $clicks;
+            $summary['bookings'] += $bookings;
+            $summary['room_nights'] += $roomNights;
+            if ($spend > 0 || $orderAmount > 0 || $impressions > 0 || $clicks > 0 || $bookings > 0 || $roomNights > 0) {
+                $summary['sample_count']++;
+            }
+        }
+
+        if ($summary['sample_count'] <= 0) {
+            return $summary;
+        }
+
+        $summary['spend'] = round($summary['spend'], 2);
+        $summary['order_amount'] = round($summary['order_amount'], 2);
+        $summary['room_nights'] = round($summary['room_nights'], 2);
+        $summary['ctr'] = $summary['impressions'] > 0 ? round($summary['clicks'] / $summary['impressions'] * 100, 2) : null;
+        $summary['cvr'] = $summary['clicks'] > 0 ? round($summary['bookings'] / $summary['clicks'] * 100, 2) : null;
+        $summary['roas'] = $summary['spend'] > 0 ? round($summary['order_amount'] / $summary['spend'], 2) : null;
+        $summary['data_status'] = 'ok';
+
+        return $summary;
+    }
+
+    private function buildDailyOtaServiceQualitySummary(array $rows): array
+    {
+        $summary = [
+            'avg_psi_score' => 0.0,
+            'avg_service_score' => 0.0,
+            'sample_count' => 0,
+            'data_status' => 'pending',
+        ];
+        $psiScores = [];
+        $serviceScores = [];
+
+        foreach ($rows as $row) {
+            if (!in_array($this->normalizeDailyOtaSupplementDataType((string)($row['data_type'] ?? '')), ['quality', 'service', 'service_quality', 'psi'], true)) {
+                continue;
+            }
+
+            [$raw] = $this->decodeOnlineDataQualityRaw($row['raw_data'] ?? null);
+            $raw = $this->dailyOtaSupplementRawDetail($raw);
+            $psi = $this->dailyOtaSupplementFirstNumber($row, $raw, ['data_value', 'dataValue', 'psi_score', 'psiScore', 'psi', 'PSI', 'serviceQualityScore', 'qualityScore']);
+            $serviceScore = $this->dailyOtaSupplementFirstNumber($row, $raw, ['service_score', 'serviceScore', 'dayReportServiceScore', 'service_score_value']);
+
+            if ($psi !== null && $psi > 0) {
+                $psiScores[] = $psi;
+            }
+            if ($serviceScore !== null && $serviceScore > 0) {
+                $serviceScores[] = $serviceScore;
+            }
+            if (($psi !== null && $psi > 0) || ($serviceScore !== null && $serviceScore > 0)) {
+                $summary['sample_count']++;
+            }
+        }
+
+        if ($summary['sample_count'] <= 0) {
+            return $summary;
+        }
+
+        $summary['avg_psi_score'] = $this->avgDailyOtaSupplementNumbers($psiScores);
+        $summary['avg_service_score'] = $this->avgDailyOtaSupplementNumbers($serviceScores);
+        $summary['data_status'] = 'ok';
+
+        return $summary;
+    }
+
+    private function normalizeDailyOtaSupplementDataType(string $value): string
+    {
+        $value = strtolower(trim($value));
+        if (in_array($value, ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns'], true)) {
+            return 'advertising';
+        }
+        if (in_array($value, ['quality', 'service', 'service_quality', 'psi'], true)) {
+            return $value;
+        }
+        if (in_array($value, ['review', 'reviews', 'comment', 'comments'], true)) {
+            return 'review';
+        }
+
+        return $value;
+    }
+
+    private function dailyOtaSupplementRawDetail(array $raw): array
+    {
+        return is_array($raw['row'] ?? null) ? array_merge($raw, $raw['row']) : $raw;
+    }
+
+    private function dailyOtaSupplementFirstNumber(array $row, array $raw, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            foreach ([$row, $raw] as $source) {
+                if (!array_key_exists($key, $source)) {
+                    continue;
+                }
+                $num = $this->onlineDataQualityNumber($source[$key]);
+                if ($num !== null) {
+                    return $num;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function avgDailyOtaSupplementNumbers(array $values): float
+    {
+        $values = array_values(array_filter($values, static fn($value): bool => is_numeric($value)));
+        if (empty($values)) {
+            return 0.0;
+        }
+
+        return round(array_sum(array_map('floatval', $values)) / count($values), 2);
     }
 
     /**
@@ -10623,8 +11074,6 @@ JAVASCRIPT;
             ]);
         }
 
-        // 点评接口当前不纳入默认自动抓取计划，保留单独手动入口。
-
         $meituanCookies = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['cookies', 'cookie'], ''));
         $meituanPartnerId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['partner_id', 'partnerId'], ''));
         $meituanPoiId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['poi_id', 'poiId'], ''));
@@ -10871,6 +11320,8 @@ JAVASCRIPT;
 
     private function executeCtripCommentsAutoFetchTask(string $label, array $body, int $hotelId, string $dataDate): array
     {
+        return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
+
         $requestUrl = trim((string)($body['request_url'] ?? ''));
         $cookies = trim((string)($body['cookies'] ?? ''));
         $token = trim((string)($body['spidertoken'] ?? $body['token'] ?? ''));
@@ -11040,7 +11491,7 @@ JAVASCRIPT;
         $capturedCounts = [
             'business' => count($this->extractCtripCapturedSection($payload, 'business')),
             'traffic' => count($this->extractCtripCapturedSection($payload, 'traffic')),
-            'reviews' => count($this->extractCtripCapturedComments($payload)),
+            'reviews' => 0,
         ];
         $detailParts = [
             "概况 {$saveResult['business_saved']}",
@@ -11091,12 +11542,8 @@ JAVASCRIPT;
         }
         $modules[] = ['module' => 'browser_traffic', 'saved_count' => $trafficSaved, 'success' => $trafficSaved > 0];
 
-        $reviewRows = $this->extractCtripCapturedComments($payload);
         $reviewSaved = 0;
-        if (!empty($reviewRows)) {
-            $reviewSaved = $this->parseAndSaveCtripComments($reviewRows, $payload, $requestHotelId, $dataDate, $hotelId);
-            $modules[] = ['module' => 'browser_reviews', 'saved_count' => $reviewSaved, 'success' => $reviewSaved > 0];
-        }
+        $modules[] = ['module' => 'browser_reviews', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
 
         return [
             'saved_count' => $businessSaved + $trafficSaved + $reviewSaved,
@@ -11362,6 +11809,8 @@ JAVASCRIPT;
 
     private function executeMeituanCommentsAutoFetchTask(string $label, array $body, int $hotelId): array
     {
+        return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
+
         $cookies = trim((string)($body['cookies'] ?? ''));
         $partnerId = trim((string)($body['partner_id'] ?? ''));
         $poiId = trim((string)($body['poi_id'] ?? ''));
@@ -12969,6 +13418,7 @@ HTML;
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
 
         $requestUrl = $this->request->post('request_url', '');
         $hotelId = $this->request->post('hotel_id', '');
@@ -13150,6 +13600,8 @@ HTML;
 
     private function parseAndSaveCtripComments(array $comments, array $payload, string $requestHotelId, string $fallbackDate = '', ?int $systemHotelId = null): int
     {
+        return 0;
+
         if (empty($comments)) {
             return 0;
         }
@@ -13291,6 +13743,7 @@ HTML;
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
 
         $name = $this->request->post('name', '');
         $hotelId = $this->request->post('hotel_id', '');
@@ -13345,6 +13798,7 @@ HTML;
     public function getCtripCommentConfigList(): Response
     {
         $this->checkPermission();
+        return $this->success([]);
 
         $key = 'ctrip_comment_config_list';
         $list = $this->getConfigList($key);

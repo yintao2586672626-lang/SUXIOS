@@ -139,20 +139,20 @@ class RevenueResearchService
                 'name' => '异常检测',
                 'query' => 'hotel OTA anomaly detection STL ESD isolation forest conversion rate alert root cause',
                 'module' => '项目AI管理 / 运营管理 / 策见·预警推送',
-                'task' => '设计酒店 OTA 异常检测：订单、库存、价格、转化率、点评、接口失败码的规则阈值、误报率、发现时间和恢复时间指标。',
+                'task' => '设计酒店 OTA 异常检测：订单、库存、价格、转化率、广告投放、服务质量和接口失败码的规则阈值、误报率、发现时间和恢复时间指标。',
                 'rules' => [
-                    ['table' => 'online_daily_data', 'min_count' => 30, 'fields' => ['data_date', 'amount', 'quantity', 'book_order_num', 'comment_score'], 'label' => '日级经营、订单和点评指标', 'collect_from' => '平台数据自动获取'],
+                    ['table' => 'online_daily_data', 'min_count' => 30, 'fields' => ['data_date', 'amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num', 'raw_data'], 'label' => '日级经营、订单、流量和服务质量指标', 'collect_from' => '携程/美团业务、流量、订单、广告和服务质量数据采集'],
                     ['table' => 'operation_alerts', 'min_count' => 0, 'fields' => ['alert_type', 'level', 'message', 'raw_data'], 'label' => '运营预警落点', 'collect_from' => '运营管理预警表'],
                 ],
             ],
-            'review-topic' => [
-                'key' => 'review-topic',
-                'name' => '点评主题与服务缺口识别',
-                'query' => 'hotel review topic modeling BERT embedding service gap detection negative review recall',
-                'module' => '数据配置 / 携程点评 / 美团点评',
-                'task' => '基于酒店点评文本和评分，输出主题识别、差评召回、服务缺口、人工复核规则和整改闭环模板。',
+            'service-quality' => [
+                'key' => 'service-quality',
+                'name' => '服务质量与转化缺口识别',
+                'query' => 'hotel OTA service quality PSI traffic conversion service gap revenue impact',
+                'module' => '数据配置 / OTA 服务质量 / 运营管理',
+                'task' => '基于可采集的服务质量分、PSI、流量转化、订单和广告数据，输出影响转化的服务质量风险、人工复核规则和整改闭环模板。',
                 'rules' => [
-                    ['table' => 'online_daily_data', 'min_count' => 1, 'fields' => ['comment_text', 'review_text', 'comment_score', 'comment_time', 'reply_content'], 'label' => '点评文本、评分、入住日期和回复内容', 'collect_from' => '携程点评/美团点评浏览器采集'],
+                    ['table' => 'online_daily_data', 'min_count' => 1, 'fields' => ['data_date', 'amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'flow_rate', 'raw_data'], 'label' => '服务质量、流量转化和订单经营数据', 'collect_from' => '携程/美团服务质量、流量、订单和广告浏览器采集'],
                 ],
             ],
         ];
@@ -168,7 +168,7 @@ class RevenueResearchService
         return [
             $this->knowledgeUnitsSummary($product),
             $this->knowledgeBaseSummary($product, $hotelIds),
-            $this->tableSummary('online_daily_data', '平台日级数据', 'data_date', ['data_date', 'amount', 'quantity', 'book_order_num', 'comment_score', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num', 'raw_data'], $hotelIds),
+            $this->tableSummary('online_daily_data', '平台日级数据', 'data_date', ['data_date', 'amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num', 'raw_data'], $hotelIds),
             $this->tableSummary('daily_reports', '经营日报', 'report_date', ['report_date', 'occupancy_rate', 'revenue', 'room_count', 'guest_count', 'report_data'], $hotelIds),
             $this->tableSummary('demand_forecasts', '需求预测结果', 'forecast_date', ['forecast_date', 'predicted_occupancy', 'predicted_demand', 'confidence_score', 'historical_data'], $hotelIds),
             $this->tableSummary('price_suggestions', '定价建议', 'suggestion_date', ['suggestion_date', 'current_price', 'suggested_price', 'min_price', 'max_price', 'competitor_data', 'factors'], $hotelIds),
@@ -840,7 +840,7 @@ class RevenueResearchService
             '本地已有信息摘要：' . json_encode($localSources, JSON_UNESCAPED_UNICODE),
             '本地经营预测基线：' . json_encode($businessForecast, JSON_UNESCAPED_UNICODE),
             '本地缺口清单：' . json_encode($gaps, JSON_UNESCAPED_UNICODE),
-            '请输出经营预测结果。要求：1. ' . $sourceRule . ' 2. 对本地缺失数据只列补数要求，不假设已经存在；3. 所有建议必须能直接服务酒店生意，如调价、控房、投放、活动、点评整改或补数；4. 如果本地样本不足，必须明确置信度限制。',
+            '请输出经营预测结果。要求：1. ' . $sourceRule . ' 2. 对本地缺失数据只列补数要求，不假设已经存在；3. 所有建议必须能直接服务酒店生意，如调价、控房、投放、活动、服务质量整改或补数；4. 如果本地样本不足，必须明确置信度限制。',
         ]);
     }
 

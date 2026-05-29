@@ -21,9 +21,9 @@ CREATE TABLE IF NOT EXISTS `login_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='登录日志表';
 
 -- 用户表添加登录计数字段（如果不存在）
-SET @exist := (SELECT COUNT(*) FROM information_schema.columns 
+SET @exist := (SELECT COUNT(*) FROM information_schema.columns
     WHERE table_name = 'users' AND column_name = 'login_count' AND table_schema = DATABASE());
-SET @sql := IF(@exist = 0, 'ALTER TABLE users ADD COLUMN login_count INT UNSIGNED DEFAULT 0 COMMENT "登录次数" AFTER last_login_ip', 'SELECT "Column already exists"');
+SET @sql := IF(@exist = 0, 'ALTER TABLE users ADD COLUMN login_count INT UNSIGNED DEFAULT 0 COMMENT "登录次数" AFTER last_login_ip', 'DO 0');
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;

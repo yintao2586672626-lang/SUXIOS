@@ -337,6 +337,8 @@ class Agent extends Base
                         'has_traffic_data' => false,
                         'has_competitor_data' => false,
                         'has_comment_data' => false,
+                        'has_advertising_data' => false,
+                        'has_service_quality_data' => false,
                         'has_price_order_data' => false,
                         'has_daily_report_data' => false,
                         'last_sync_time' => $dataSet['last_sync_time'] ?? '',
@@ -357,13 +359,16 @@ class Agent extends Base
                         'order_conversion_analysis' => '',
                         'price_analysis' => '',
                         'competitor_analysis' => '',
+                        'advertising_analysis' => '',
+                        'service_quality_analysis' => '',
                         'comment_analysis' => '',
                         'actions' => [],
                     ],
-                    'missing_sections' => ['OTA历史数据', 'OTA流量数据', '竞对数据', '点评数据', '价格/房态/订单相关数据', '日报经营数据'],
+                    'missing_sections' => ['OTA历史数据', 'OTA流量数据', '竞对数据', '价格/房态/订单相关数据', '日报经营数据'],
                     'core_conclusion' => '暂无该酒店在该日期范围内的OTA数据，请先同步/抓取数据。',
                     'evidence_sources' => [],
                     'action_items' => [],
+                    'diagnosis_sections' => [],
                     'evidence_report' => [
                         'report_type' => 'daily_diagnosis_action_list',
                         'source_policy' => 'database_only',
@@ -421,13 +426,15 @@ class Agent extends Base
                 $result['diagnosis']['order_conversion_analysis'] ?? '',
                 $result['diagnosis']['price_analysis'] ?? '',
                 $result['diagnosis']['competitor_analysis'] ?? '',
-                $result['diagnosis']['comment_analysis'] ?? '',
+                $result['diagnosis']['advertising_analysis'] ?? '',
+                $result['diagnosis']['service_quality_analysis'] ?? '',
             ]));
             $result['recommended_actions'] = $result['diagnosis']['actions'] ?? [];
             $result['data_anomalies_needing_confirmation'] = $result['missing_sections'];
             $result['priority'] = $result['diagnosis']['priority'] ?? $result['priority'];
             $result['evidence_sources'] = $this->buildOtaDiagnosisEvidenceSources($dataSet, $result['metrics'] ?? []);
             $result['action_items'] = $this->buildOtaDiagnosisActionItems($result['recommended_actions'], $result['evidence_sources']);
+            $result['diagnosis_sections'] = $this->buildOtaDiagnosisSections($result['diagnosis'] ?? [], $result['missing_sections'] ?? []);
             $result['evidence_report'] = $this->buildOtaEvidenceReport($result);
             $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, $llmResult);
 
@@ -1985,7 +1992,9 @@ class Agent extends Base
         $avgSuggestedPrice = $this->average(array_map('floatval', array_column($priceSuggestions, 'suggested_price')));
         $dailyRevenue = array_sum(array_map('floatval', array_column($dailyReports, 'revenue')));
         $hasTraffic = ($totals['list_exposure'] + $totals['detail_visitors'] + $totals['order_visitors'] + $totals['submit_users']) > 0;
-        $hasComment = ($summary['averages']['comment_score'] > 0 || $summary['averages']['qunar_comment_score'] > 0);
+        $hasComment = false;
+        $hasAdvertising = (int)($totals['advertising_rows'] ?? 0) > 0;
+        $hasServiceQuality = (int)($totals['service_quality_rows'] ?? 0) > 0;
         $hasCompetitor = !empty($competitorPrices) || !empty($competitorAnalyses) || $this->hasCompareRows($rows);
         $hasPriceOrder = ((float) $totals['amount'] + (float) $totals['quantity'] + (float) $totals['book_order_num']) > 0 || !empty($priceSuggestions);
         $hasDaily = !empty($dailyReports);
@@ -1995,9 +2004,6 @@ class Agent extends Base
         }
         if (!$hasCompetitor) {
             $missingSections[] = '竞对数据';
-        }
-        if (!$hasComment) {
-            $missingSections[] = '点评数据';
         }
         if (!$hasPriceOrder) {
             $missingSections[] = '价格/房态/订单相关数据';
@@ -2023,8 +2029,20 @@ class Agent extends Base
             'detail_rate' => $rates['detail_rate'],
             'order_rate' => $rates['order_rate'],
             'submit_rate' => $rates['submit_rate'],
-            'comment_score' => $summary['averages']['comment_score'],
-            'qunar_comment_score' => $summary['averages']['qunar_comment_score'],
+            'comment_score' => 0.0,
+            'qunar_comment_score' => 0.0,
+            'advertising_spend' => round((float)($totals['advertising_spend'] ?? 0), 2),
+            'advertising_order_amount' => round((float)($totals['advertising_order_amount'] ?? 0), 2),
+            'advertising_bookings' => (int)($totals['advertising_bookings'] ?? 0),
+            'advertising_room_nights' => round((float)($totals['advertising_room_nights'] ?? 0), 2),
+            'advertising_impressions' => (int)round((float)($totals['advertising_impressions'] ?? 0)),
+            'advertising_clicks' => (int)round((float)($totals['advertising_clicks'] ?? 0)),
+            'advertising_roas' => $summary['averages']['advertising_roas'],
+            'avg_psi_score' => $summary['averages']['avg_psi_score'],
+            'avg_service_score' => $summary['averages']['avg_service_score'],
+            'avg_im_score' => $summary['averages']['avg_im_score'],
+            'avg_reply_rate' => $summary['averages']['avg_reply_rate'],
+            'hotel_collect' => (int)($totals['hotel_collect'] ?? 0),
             'daily_report_revenue' => round($dailyRevenue, 2),
             'competitor_avg_price' => $avgCompetitorPrice,
             'suggested_avg_price' => $avgSuggestedPrice,
@@ -2041,8 +2059,11 @@ class Agent extends Base
         if ($hasTraffic && $rates['order_rate'] > 0 && $rates['order_rate'] < 3) {
             $abnormal[] = '访问到订单转化偏低';
         }
-        if ($hasComment && max($summary['averages']['comment_score'], $summary['averages']['qunar_comment_score']) < 4.5) {
-            $abnormal[] = '点评评分低于 4.5';
+        if ($hasAdvertising && (float)($metrics['advertising_roas'] ?? 0) > 0 && (float)$metrics['advertising_roas'] < 3) {
+            $abnormal[] = 'OTA广告ROAS低于3';
+        }
+        if ($hasServiceQuality && (float)($metrics['avg_psi_score'] ?? 0) > 0 && (float)$metrics['avg_psi_score'] < 85) {
+            $abnormal[] = 'OTA服务质量分低于85';
         }
 
         $displayHotelName = trim((string) ($dataSet['hotel']['name'] ?? ''));
@@ -2065,8 +2086,10 @@ class Agent extends Base
             'order_conversion_analysis' => $hasTraffic ? sprintf('订单意向%d，提交用户%d，提交率%s%%。', $metrics['order_visitors'], $metrics['submit_users'], $metrics['submit_rate']) : '缺少订单转化数据。',
             'price_analysis' => $avgCompetitorPrice > 0 ? sprintf('竞对均价%s，本店ADR%s，需结合房型和日期校准价差。', $avgCompetitorPrice, $metrics['adr']) : ($avgSuggestedPrice > 0 ? sprintf('已有%d条定价建议，建议均价%s，可结合房态和订单转化复核。', count($priceSuggestions), $avgSuggestedPrice) : '缺少价格/房态/订单相关数据，暂不能判断价格竞争力。'),
             'competitor_analysis' => $hasCompetitor ? '已有竞对或对比数据，可继续关注价格、曝光和转化差距。' : '缺少竞对数据，无法判断同商圈机会。',
-            'comment_analysis' => $hasComment ? sprintf('携程评分%s，去哪儿评分%s。', $metrics['comment_score'], $metrics['qunar_comment_score']) : '缺少点评数据，无法判断评分和口碑影响。',
-            'actions' => $this->buildOtaDiagnosisActions($hasTraffic, $hasCompetitor, $hasComment, $metrics),
+            'advertising_analysis' => $hasAdvertising ? sprintf('OTA广告花费%s，归因订单金额%s，ROAS %s。', $metrics['advertising_spend'], $metrics['advertising_order_amount'], $metrics['advertising_roas']) : '缺少OTA广告数据，暂不评估投放效率。',
+            'service_quality_analysis' => $hasServiceQuality ? sprintf('OTA服务质量分%s，服务评分%s。', $metrics['avg_psi_score'], $metrics['avg_service_score']) : '缺少OTA服务质量数据，暂不评估服务质量对转化的影响。',
+            'comment_analysis' => '',
+            'actions' => $this->buildOtaDiagnosisActions($hasTraffic, $hasCompetitor, $hasAdvertising, $hasServiceQuality, $metrics),
         ];
 
         return [
@@ -2078,6 +2101,8 @@ class Agent extends Base
                 'has_traffic_data' => $hasTraffic,
                 'has_competitor_data' => $hasCompetitor,
                 'has_comment_data' => $hasComment,
+                'has_advertising_data' => $hasAdvertising,
+                'has_service_quality_data' => $hasServiceQuality,
                 'has_price_order_data' => $hasPriceOrder,
                 'has_daily_report_data' => $hasDaily,
                 'last_sync_time' => $dataSet['last_sync_time'] ?? '',
@@ -2092,13 +2117,14 @@ class Agent extends Base
             ],
             'metrics' => $metrics,
             'diagnosis' => $diagnosis,
+            'diagnosis_sections' => $this->buildOtaDiagnosisSections($diagnosis, array_values(array_unique($missingSections))),
             'missing_sections' => array_values(array_unique($missingSections)),
             'priority' => in_array('访问到订单转化偏低', $abnormal, true) || in_array('曝光到访问转化偏低', $abnormal, true) ? 'high' : 'medium',
             'source_summary' => $summary,
         ];
     }
 
-    private function buildOtaDiagnosisActions(bool $hasTraffic, bool $hasCompetitor, bool $hasComment, array $metrics): array
+    private function buildOtaDiagnosisActions(bool $hasTraffic, bool $hasCompetitor, bool $hasAdvertising, bool $hasServiceQuality, array $metrics): array
     {
         $actions = [];
         if ($hasTraffic && (float) ($metrics['detail_rate'] ?? 0) < 5) {
@@ -2110,11 +2136,14 @@ class Agent extends Base
         if ($hasCompetitor) {
             $actions[] = '对比竞对价格和曝光差距，优先处理同价位竞品压制的日期。';
         }
-        if ($hasComment && max((float) ($metrics['comment_score'] ?? 0), (float) ($metrics['qunar_comment_score'] ?? 0)) < 4.5) {
-            $actions[] = '跟进低分点评，补充近期好评和服务补救动作。';
+        if ($hasAdvertising && (float)($metrics['advertising_roas'] ?? 0) > 0 && (float)$metrics['advertising_roas'] < 3) {
+            $actions[] = '复核OTA广告投放词、出价和落地房型，ROAS低于3时先控预算再优化转化链路。';
+        }
+        if ($hasServiceQuality && (float)($metrics['avg_psi_score'] ?? 0) > 0 && (float)$metrics['avg_psi_score'] < 85) {
+            $actions[] = '把OTA服务质量分作为转化背景信号，先排查服务响应、到店履约和平台服务质量扣分项。';
         }
         if (empty($actions)) {
-            $actions[] = '先补齐缺失的数据源，再按曝光、访问、订单、点评顺序复盘。';
+            $actions[] = '先补齐缺失的数据源，再按曝光、访问、订单、广告效率、服务质量顺序复盘。';
         }
         return $actions;
     }
@@ -2224,6 +2253,87 @@ class Agent extends Base
         return array_values(array_filter($sources, static fn(array $source): bool => (string)($source['ref'] ?? '') !== '#'));
     }
 
+    private function buildOtaDiagnosisSections(array $diagnosis, array $missingSections): array
+    {
+        $sections = [
+            [
+                'key' => 'data_overview',
+                'title' => '数据概览',
+                'items' => $this->normalizeOtaDiagnosisItems($diagnosis['data_overview'] ?? []),
+            ],
+            [
+                'key' => 'abnormal_metrics',
+                'title' => '异常指标',
+                'items' => $this->normalizeOtaDiagnosisItems($diagnosis['abnormal_metrics'] ?? []),
+            ],
+            [
+                'key' => 'traffic',
+                'title' => '流量问题',
+                'items' => $this->normalizeOtaDiagnosisItems([
+                    $diagnosis['traffic_analysis'] ?? '',
+                    $diagnosis['exposure_analysis'] ?? '',
+                ]),
+            ],
+            [
+                'key' => 'conversion',
+                'title' => '转化问题',
+                'items' => $this->normalizeOtaDiagnosisItems([
+                    $diagnosis['visit_conversion_analysis'] ?? '',
+                    $diagnosis['order_conversion_analysis'] ?? '',
+                ]),
+            ],
+            [
+                'key' => 'price_competitor',
+                'title' => '价格/竞对问题',
+                'items' => $this->normalizeOtaDiagnosisItems([
+                    $diagnosis['price_analysis'] ?? '',
+                    $diagnosis['competitor_analysis'] ?? '',
+                ]),
+            ],
+            [
+                'key' => 'advertising_efficiency',
+                'title' => '广告效率',
+                'items' => $this->normalizeOtaDiagnosisItems($diagnosis['advertising_analysis'] ?? ''),
+            ],
+            [
+                'key' => 'service_quality',
+                'title' => '服务质量',
+                'items' => $this->normalizeOtaDiagnosisItems($diagnosis['service_quality_analysis'] ?? ''),
+            ],
+            [
+                'key' => 'actions',
+                'title' => '运营建议',
+                'items' => $this->normalizeOtaDiagnosisItems($diagnosis['actions'] ?? []),
+            ],
+            [
+                'key' => 'data_gaps',
+                'title' => '数据缺失提示',
+                'items' => $this->normalizeOtaDiagnosisItems($missingSections),
+            ],
+        ];
+
+        return array_values(array_filter($sections, static fn(array $section): bool => !empty($section['items'])));
+    }
+
+    private function normalizeOtaDiagnosisItems(mixed $value): array
+    {
+        $items = is_array($value) ? $value : [$value];
+        $normalized = [];
+        foreach ($items as $item) {
+            if (is_array($item)) {
+                foreach ($this->normalizeOtaDiagnosisItems($item) as $nested) {
+                    $normalized[] = $nested;
+                }
+                continue;
+            }
+            $text = trim((string)$item);
+            if ($text !== '') {
+                $normalized[] = $text;
+            }
+        }
+        return array_values(array_unique($normalized));
+    }
+
     private function buildOtaDiagnosisActionItems(array $actions, array $evidenceSources): array
     {
         $items = [];
@@ -2257,6 +2367,7 @@ class Agent extends Base
                 'possible_reasons' => $result['possible_reasons'] ?? [],
             ],
             'action_items' => $result['action_items'] ?? [],
+            'diagnosis_sections' => $result['diagnosis_sections'] ?? [],
             'evidence_sources' => $result['evidence_sources'] ?? [],
         ];
     }
@@ -2274,12 +2385,16 @@ class Agent extends Base
         if ((float)($row['list_exposure'] ?? 0) > 0 || (float)($row['detail_exposure'] ?? 0) > 0) {
             $tags[] = 'traffic';
         }
-        if ((float)($row['amount'] ?? 0) > 0 || (float)($row['quantity'] ?? 0) > 0 || (float)($row['book_order_num'] ?? 0) > 0) {
+        $isNonRevenueType = in_array($dataType, ['advertising', 'quality', 'review', 'ads', 'ad', 'campaign'], true);
+        if (!$isNonRevenueType && ((float)($row['amount'] ?? 0) > 0 || (float)($row['quantity'] ?? 0) > 0 || (float)($row['book_order_num'] ?? 0) > 0)) {
             $tags[] = 'revenue';
             $tags[] = 'order';
         }
-        if ((float)($row['comment_score'] ?? 0) > 0 || (float)($row['qunar_comment_score'] ?? 0) > 0) {
-            $tags[] = 'comment';
+        if (in_array($dataType, ['advertising', 'ads', 'ad', 'campaign'], true)) {
+            $tags[] = 'advertising';
+        }
+        if (in_array($dataType, ['quality', 'service', 'service_quality', 'psi'], true)) {
+            $tags[] = 'service_quality';
         }
         return array_values(array_unique($tags));
     }
@@ -2291,7 +2406,8 @@ class Agent extends Base
             'amount', 'quantity', 'book_order_num', 'adr', 'revenue', 'price', 'our_price', 'competitor_price',
             'current_price', 'suggested_price', 'list_exposure', 'detail_visitors', 'detail_exposure',
             'order_visitors', 'submit_users', 'order_filling_num', 'order_submit_num',
-            'detail_rate', 'order_rate', 'submit_rate', 'comment_score', 'qunar_comment_score',
+            'detail_rate', 'order_rate', 'submit_rate',
+            'advertising_spend', 'advertising_order_amount', 'advertising_roas', 'avg_psi_score', 'avg_service_score',
             'occupancy_rate', 'room_count', 'guest_count',
         ] as $field) {
             if (array_key_exists($field, $row) && $row[$field] !== null && $row[$field] !== '') {
@@ -2304,15 +2420,18 @@ class Agent extends Base
     private function selectOtaEvidenceRefsForAction(string $action, array $evidenceSources): array
     {
         $wantedTags = ['summary'];
+        if ($this->textContainsAny($action, ['广告', '投放', 'ROAS', 'roi', 'ad', 'ads', 'advertising', 'campaign'])) {
+            $wantedTags[] = 'advertising';
+        }
+        if ($this->textContainsAny($action, ['服务质量', '服务分', 'PSI', 'psi', 'service', 'quality'])) {
+            $wantedTags[] = 'service_quality';
+        }
         if ($this->textContainsAny($action, ['曝光', '访问', '流量', '列表', '详情', 'traffic', 'exposure'])) {
             $wantedTags[] = 'traffic';
         }
         if ($this->textContainsAny($action, ['价格', '竞对', 'ADR', '房型', '促销', 'price', 'competitor'])) {
             $wantedTags[] = 'price';
             $wantedTags[] = 'competitor';
-        }
-        if ($this->textContainsAny($action, ['点评', '评分', '口碑', 'comment', 'score'])) {
-            $wantedTags[] = 'comment';
         }
         if ($this->textContainsAny($action, ['订单', '下单', '转化', '间夜', 'order', 'conversion'])) {
             $wantedTags[] = 'order';
@@ -2505,19 +2624,34 @@ class Agent extends Base
                 'detail_visitors' => 0.0,
                 'order_visitors' => 0.0,
                 'submit_users' => 0.0,
+                'advertising_spend' => 0.0,
+                'advertising_order_amount' => 0.0,
+                'advertising_bookings' => 0,
+                'advertising_room_nights' => 0.0,
+                'advertising_impressions' => 0.0,
+                'advertising_clicks' => 0.0,
+                'advertising_rows' => 0,
+                'service_quality_rows' => 0,
+                'hotel_collect' => 0,
             ],
             'averages' => [
                 'comment_score' => 0.0,
                 'qunar_comment_score' => 0.0,
                 'adr' => 0.0,
+                'avg_psi_score' => null,
+                'avg_service_score' => null,
+                'avg_im_score' => null,
+                'avg_reply_rate' => null,
             ],
             'daily' => [],
             'dimensions' => [],
             'data_anomalies' => [],
         ];
 
-        $commentScores = [];
-        $qunarCommentScores = [];
+        $psiScores = [];
+        $serviceScores = [];
+        $imScores = [];
+        $replyRates = [];
         $invalidRawCount = 0;
         $zeroValueCount = 0;
 
@@ -2538,6 +2672,15 @@ class Agent extends Base
                     'detail_visitors' => 0.0,
                     'order_visitors' => 0.0,
                     'submit_users' => 0.0,
+                    'advertising_spend' => 0.0,
+                    'advertising_order_amount' => 0.0,
+                    'advertising_bookings' => 0,
+                    'advertising_room_nights' => 0.0,
+                    'advertising_impressions' => 0.0,
+                    'advertising_clicks' => 0.0,
+                    'advertising_rows' => 0,
+                    'service_quality_rows' => 0,
+                    'hotel_collect' => 0,
                 ];
             }
 
@@ -2556,24 +2699,7 @@ class Agent extends Base
             $quantity = (int) ($row['quantity'] ?? 0);
             $bookOrderNum = (int) ($row['book_order_num'] ?? 0);
             $dataValue = (float) ($row['data_value'] ?? 0);
-
-            $summary['totals']['amount'] += $amount;
-            $summary['totals']['quantity'] += $quantity;
-            $summary['totals']['book_order_num'] += $bookOrderNum;
-            $summary['totals']['data_value'] += $dataValue;
-            $summary['daily'][$date]['amount'] += $amount;
-            $summary['daily'][$date]['quantity'] += $quantity;
-            $summary['daily'][$date]['book_order_num'] += $bookOrderNum;
-            $summary['daily'][$date]['data_value'] += $dataValue;
-            $summary['dimensions'][$dimensionKey]['record_count']++;
-            $summary['dimensions'][$dimensionKey]['data_value'] += $dataValue;
-
-            if ((float) ($row['comment_score'] ?? 0) > 0) {
-                $commentScores[] = (float) $row['comment_score'];
-            }
-            if ((float) ($row['qunar_comment_score'] ?? 0) > 0) {
-                $qunarCommentScores[] = (float) $row['qunar_comment_score'];
-            }
+            $dataType = $this->normalizeOtaDiagnosisDataType((string)($row['data_type'] ?? ''));
 
             $raw = [];
             if (!empty($row['raw_data'])) {
@@ -2582,6 +2708,49 @@ class Agent extends Base
                     $raw = $decoded;
                 } else {
                     $invalidRawCount++;
+                }
+            }
+
+            if (!in_array($dataType, ['advertising', 'quality', 'review'], true)) {
+                $summary['totals']['amount'] += $amount;
+                $summary['totals']['quantity'] += $quantity;
+                $summary['totals']['book_order_num'] += $bookOrderNum;
+                $summary['daily'][$date]['amount'] += $amount;
+                $summary['daily'][$date]['quantity'] += $quantity;
+                $summary['daily'][$date]['book_order_num'] += $bookOrderNum;
+            }
+            $summary['totals']['data_value'] += $dataValue;
+            $summary['daily'][$date]['data_value'] += $dataValue;
+            $summary['dimensions'][$dimensionKey]['record_count']++;
+            $summary['dimensions'][$dimensionKey]['data_value'] += $dataValue;
+
+            if ($dataType === 'advertising') {
+                $advertising = $this->extractOtaAdvertisingMetrics($row, $raw);
+                foreach ($advertising as $key => $value) {
+                    $summary['totals'][$key] += $value;
+                    $summary['daily'][$date][$key] += $value;
+                }
+                $summary['totals']['advertising_rows']++;
+                $summary['daily'][$date]['advertising_rows']++;
+            }
+
+            if ($dataType === 'quality') {
+                $quality = $this->extractOtaQualityMetrics($row, $raw);
+                $summary['totals']['service_quality_rows']++;
+                $summary['daily'][$date]['service_quality_rows']++;
+                $summary['totals']['hotel_collect'] += (int)($quality['hotel_collect'] ?? 0);
+                $summary['daily'][$date]['hotel_collect'] += (int)($quality['hotel_collect'] ?? 0);
+                if ($quality['avg_psi_score'] !== null) {
+                    $psiScores[] = (float)$quality['avg_psi_score'];
+                }
+                if ($quality['avg_service_score'] !== null) {
+                    $serviceScores[] = (float)$quality['avg_service_score'];
+                }
+                if ($quality['avg_im_score'] !== null) {
+                    $imScores[] = (float)$quality['avg_im_score'];
+                }
+                if ($quality['avg_reply_rate'] !== null) {
+                    $replyRates[] = (float)$quality['avg_reply_rate'];
                 }
             }
 
@@ -2600,9 +2769,12 @@ class Agent extends Base
         $summary['hotel_names'] = array_values(array_keys($summary['hotel_names']));
         $summary['daily'] = array_values($summary['daily']);
         $summary['dimensions'] = $this->topDimensionStats($summary['dimensions']);
-        $summary['averages']['comment_score'] = $this->average($commentScores);
-        $summary['averages']['qunar_comment_score'] = $this->average($qunarCommentScores);
         $summary['averages']['adr'] = $this->percentSafeAverage($summary['totals']['amount'], $summary['totals']['quantity']);
+        $summary['averages']['avg_psi_score'] = $this->average($psiScores);
+        $summary['averages']['avg_service_score'] = $this->average($serviceScores);
+        $summary['averages']['avg_im_score'] = $this->average($imScores);
+        $summary['averages']['avg_reply_rate'] = $this->average($replyRates);
+        $summary['averages']['advertising_roas'] = $this->percentSafeAverage($summary['totals']['advertising_order_amount'], $summary['totals']['advertising_spend']);
         $summary['derived_rates'] = [
             'detail_rate' => $this->percentRate($summary['totals']['detail_visitors'], $summary['totals']['list_exposure']),
             'order_rate' => $this->percentRate($summary['totals']['order_visitors'], $summary['totals']['detail_visitors']),
@@ -2654,6 +2826,88 @@ class Agent extends Base
             'order_visitors' => (float) ($orderVisitors ?? 0),
             'submit_users' => (float) ($submitUsers ?? 0),
         ];
+    }
+
+    private function normalizeOtaDiagnosisDataType(string $value): string
+    {
+        $value = strtolower(trim($value));
+        if (in_array($value, ['review', 'reviews', 'comment', 'comments'], true)) {
+            return 'review';
+        }
+        if (in_array($value, ['ads', 'ad', 'advertising', 'campaign', 'campaigns'], true)) {
+            return 'advertising';
+        }
+        if (in_array($value, ['quality', 'service', 'service_quality', 'psi'], true)) {
+            return 'quality';
+        }
+        if (in_array($value, ['order', 'orders', 'order_list', 'order-list'], true)) {
+            return 'order';
+        }
+        return $value;
+    }
+
+    private function extractOtaAdvertisingMetrics(array $row, array $raw): array
+    {
+        $detail = $this->otaDiagnosisRawDetail($raw);
+        $spend = $this->readRowNumberFromKeys($row, ['amount', 'spend', 'cost', 'today_cost'])
+            ?? $this->readSummaryNumber($detail, ['spend', 'cost', 'todayCost', 'today_cost'], 0);
+        $orderAmount = $this->readSummaryNumber($detail, ['orderAmount', 'order_amount', 'bookAmount', 'saleAmount', 'revenue'], null);
+        if ($orderAmount === null) {
+            $roas = $this->readRowNumberFromKeys($row, ['data_value', 'roas'])
+                ?? $this->readSummaryNumber($detail, ['roas', 'roi'], null);
+            $orderAmount = $spend !== null && $roas !== null ? (float)$spend * (float)$roas : 0.0;
+        }
+
+        return [
+            'advertising_spend' => (float)($spend ?? 0),
+            'advertising_order_amount' => (float)$orderAmount,
+            'advertising_bookings' => (int)round($this->readRowNumberFromKeys($row, ['book_order_num', 'bookings', 'order_count'])
+                ?? $this->readSummaryNumber($detail, ['bookings', 'bookingCount', 'orderCount', 'orderQuantity'], 0)),
+            'advertising_room_nights' => (float)($this->readRowNumberFromKeys($row, ['quantity', 'room_nights'])
+                ?? $this->readSummaryNumber($detail, ['roomNights', 'room_nights', 'nights'], 0)),
+            'advertising_impressions' => (float)($this->readRowNumberFromKeys($row, ['list_exposure', 'impressions'])
+                ?? $this->readSummaryNumber($detail, ['impressions', 'exposure', 'listExposure'], 0)),
+            'advertising_clicks' => (float)($this->readRowNumberFromKeys($row, ['detail_exposure', 'clicks'])
+                ?? $this->readSummaryNumber($detail, ['clicks', 'clickCount', 'detailExposure'], 0)),
+        ];
+    }
+
+    /**
+     * @return array<string, float|int|null>
+     */
+    private function extractOtaQualityMetrics(array $row, array $raw): array
+    {
+        $detail = $this->otaDiagnosisRawDetail($raw);
+        $psiScore = $this->readSummaryNumber($detail, ['psiScore', 'psi_score'], null)
+            ?? $this->readRowNumberFromKeys($row, ['psi_score', 'data_value']);
+
+        return [
+            'avg_psi_score' => $psiScore,
+            'avg_service_score' => $this->readSummaryNumber($detail, ['serviceScore', 'service_score'], null)
+                ?? $this->readRowNumberFromKeys($row, ['service_score']),
+            'avg_im_score' => $this->readSummaryNumber($detail, ['imScore', 'im_score'], null)
+                ?? $this->readRowNumberFromKeys($row, ['im_score']),
+            'avg_reply_rate' => $this->readSummaryNumber($detail, ['replyRate', 'reply_rate'], null)
+                ?? $this->readRowNumberFromKeys($row, ['reply_rate']),
+            'hotel_collect' => (int)round($this->readSummaryNumber($detail, ['hotelCollect', 'hotel_collect'], 0)
+                ?? $this->readRowNumberFromKeys($row, ['hotel_collect']) ?? 0),
+        ];
+    }
+
+    private function otaDiagnosisRawDetail(array $raw): array
+    {
+        return is_array($raw['row'] ?? null) ? $raw['row'] : $raw;
+    }
+
+    private function readRowNumberFromKeys(array $row, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            $value = $this->readRowNumber($row, $key);
+            if ($value !== null) {
+                return $value;
+            }
+        }
+        return null;
     }
 
     private function readRowNumber(array $row, string $key): ?float
@@ -2724,7 +2978,7 @@ class Agent extends Base
         $knowledgeContext = $this->formatOtaKnowledgeContextForPrompt($summary);
         return "你是宿析OS酒店OTA经营分析顾问。只基于以下系统已入库数据摘要输出诊断，不要实时抓取OTA后台，不要把Cookie状态作为历史诊断失败原因，不要编造未提供的数据。\n"
             . "可使用知识库参考解释指标口径、诊断模板和行动拆解，但经营结论必须来自本次结构化摘要。\n"
-            . "必须返回 JSON，字段为 summary、data_overview、abnormal_metrics、traffic_analysis、exposure_analysis、visit_conversion_analysis、order_conversion_analysis、price_analysis、competitor_analysis、comment_analysis、actions、priority。\n"
+            . "必须返回 JSON，字段为 summary、data_overview、abnormal_metrics、traffic_analysis、exposure_analysis、visit_conversion_analysis、order_conversion_analysis、price_analysis、competitor_analysis、advertising_analysis、service_quality_analysis、actions、priority。\n"
             . "data_overview、abnormal_metrics、actions 必须是数组；priority 只能是 high、medium、low。\n"
             . "异常描述必须优先写成数据口径提示或需复核提示；除非历史日期多次同步仍异常，不输出严重异常、严重采集异常或违反基本漏斗逻辑。\n"
             . $knowledgeContext
@@ -2799,7 +3053,9 @@ class Agent extends Base
             'order_conversion_analysis' => (string) ($data['order_conversion_analysis'] ?? ''),
             'price_analysis' => (string) ($data['price_analysis'] ?? ''),
             'competitor_analysis' => (string) ($data['competitor_analysis'] ?? ''),
-            'comment_analysis' => (string) ($data['comment_analysis'] ?? ''),
+            'advertising_analysis' => (string) ($data['advertising_analysis'] ?? ''),
+            'service_quality_analysis' => (string) ($data['service_quality_analysis'] ?? ''),
+            'comment_analysis' => '',
             'actions' => array_values((array) ($data['actions'] ?? $data['recommended_actions'] ?? [])),
             'priority' => (string) ($data['priority'] ?? 'medium'),
         ];

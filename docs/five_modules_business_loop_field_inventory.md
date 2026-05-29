@@ -120,11 +120,11 @@ OTA 数据同步 -> 收益诊断 -> 运营建议 -> 动作追踪 -> 效果复盘
 | 场景 | 字段 | 说明 |
 |---|---|---|
 | 筛选 | `hotel_id`、`date` | 前端 `operationFilters`，用于全维数据和根因。 |
-| 全维数据输出 | `summary`、`ota`、`competitors`、`reviews`、`holiday`、`abnormal_flags` | `/operation/full-data` 返回。 |
+| 全维数据输出 | `summary`、`ota`、`competitors`、`service_quality`、`holiday`、`abnormal_flags` | `/operation/full-data` 返回。 |
 | `summary` | `revenue`、`orders`、`room_nights`、`adr`、`occ`、`revpar`、`data_status` | 来自 `daily_reports` + `online_daily_data`。 |
 | `ota` | `exposure`、`visitors`、`views`、`orders`、`view_rate`、`order_rate`、`data_status` | 来自 `online_daily_data.raw_data` 与 `book_order_num`。 |
 | `competitors` | `avg_price`、`avg_score`、`price_gap`、`score_gap`、`rank_position`、`data_status` | 优先 `competitor_analysis`，其次 `online_daily_data` 竞对行。 |
-| `reviews` | `score`、`review_count`、`negative_keywords`、`data_status` | 来自点评分和原始 JSON。 |
+| `service_quality` | `avg_psi_score`、`avg_service_score`、`sample_count`、`data_status` | 来自 `online_daily_data` 中 `quality/service_quality/psi` 行及原始 JSON。 |
 | 策略模拟入参 | `hotel_id`、`strategy_type`、`adjust_amount`、`discount_rate`、`start_date`、`end_date` | `strategy_type` 支持调价、促销、房量、竞对跟价、节假日。 |
 | 动作追踪入参 | `hotel_id`、`action_type`、`action_title`、`start_date`、`end_date`、`target_metric`、`target_change_rate`、`remark` | 写入 `operation_action_tracks`。 |
 
@@ -133,7 +133,7 @@ OTA 数据同步 -> 收益诊断 -> 运营建议 -> 动作追踪 -> 效果复盘
 | 表 | 字段重点 | 用途 |
 |---|---|---|
 | `daily_reports` | `hotel_id`、`report_date`、`report_data`、`occupancy_rate`、`room_count`、`guest_count`、`revenue` | 经营日报来源。 |
-| `online_daily_data` | `system_hotel_id`、`data_date`、`amount`、`quantity`、`book_order_num`、`comment_score`、`qunar_comment_score`、`raw_data`、`data_value`、`source`、`dimension`、`data_type` | OTA 与点评来源。 |
+| `online_daily_data` | `system_hotel_id`、`data_date`、`amount`、`quantity`、`book_order_num`、`list_exposure`、`detail_exposure`、`flow_rate`、`raw_data`、`data_value`、`source`、`dimension`、`data_type` | OTA 业务、流量、订单、广告与服务质量来源。 |
 | `competitor_analysis` | `hotel_id`、`analysis_date`、`our_price`、`competitor_price`、`price_difference`、`price_index`、`competitor_data` | 竞对价格来源。 |
 | `operation_alerts` | `hotel_id`、`alert_type`、`level`、`title`、`message`、`source`、`status`、`related_date`、`raw_data`、`deleted_at` | 预警持久化。 |
 | `operation_action_tracks` | `hotel_id`、`action_type`、`action_title`、`start_date`、`end_date`、`target_metric`、`target_change_rate`、`before_data_json`、`after_data_json`、`result_status`、`result_summary`、`status` | 策略动作追踪。 |

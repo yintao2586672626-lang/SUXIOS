@@ -180,7 +180,13 @@ class DailyReport extends Base
         $monthSum = $this->calculateMonthSum($monthReports);
         
         // 计算各项指标
-        $result = $this->calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays);
+        $onlineRowsStatus = null;
+        $onlineRows = $this->dailyOtaRows((int)$report->hotel_id, (string)$reportDate, $onlineRowsStatus);
+        $result = $this->calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays, $onlineRows);
+        if ($onlineRowsStatus === 'read_failed') {
+            $result['ota_channel_supplement']['data_status'] = 'read_failed';
+            $result['ota_channel_supplement']['data_error_code'] = 'online_daily_data_read_failed';
+        }
 
         // 超级管理员可查看映射与公式计算结果
         if ($this->currentUser->isSuperAdmin()) {
@@ -247,7 +253,7 @@ class DailyReport extends Base
         return [];
     }
 
-    private function calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays): array
+    private function calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays, array $onlineRows = []): array
     {
         // 辅助函数：安全获取数值
         $getVal = function($data, $key, $default = 0) {
@@ -593,7 +599,205 @@ class DailyReport extends Base
             
             // 原始数据
             'raw_data' => $reportData,
+            'ota_channel_supplement' => $this->buildDailyOtaSupplementSummary($onlineRows),
         ];
+    }
+
+    private function dailyOtaRows(int $hotelId, string $reportDate, ?string &$readStatus = null): array
+    {
+        $readStatus = 'pending';
+        if ($hotelId <= 0 || $reportDate === '') {
+            return [];
+        }
+
+        try {
+            $rows = Db::name('online_daily_data')
+                ->where('system_hotel_id', $hotelId)
+                ->where('data_date', $reportDate)
+                ->select()
+                ->toArray();
+            $readStatus = 'ok';
+            return $rows;
+        } catch (\Throwable $e) {
+            $readStatus = 'read_failed';
+            return [];
+        }
+    }
+
+    private function buildDailyOtaSupplementSummary(array $onlineRows): array
+    {
+        $advertising = $this->buildDailyOtaAdvertisingSummary($onlineRows);
+        $serviceQuality = $this->buildDailyOtaServiceQualitySummary($onlineRows);
+        $hasData = ($advertising['data_status'] ?? '') === 'ok' || ($serviceQuality['data_status'] ?? '') === 'ok';
+
+        return [
+            'scope' => 'ota_channel',
+            'source_table' => 'online_daily_data',
+            'data_status' => $hasData ? 'ok' : 'pending',
+            'data_notice' => 'ota_channel_only_not_whole_hotel_scope',
+            'advertising' => $advertising,
+            'service_quality' => $serviceQuality,
+        ];
+    }
+
+    private function buildDailyOtaAdvertisingSummary(array $onlineRows): array
+    {
+        $summary = [
+            'spend' => 0.0,
+            'order_amount' => 0.0,
+            'bookings' => 0,
+            'room_nights' => 0.0,
+            'impressions' => 0,
+            'clicks' => 0,
+            'ctr' => null,
+            'cvr' => null,
+            'roas' => null,
+            'sample_count' => 0,
+            'data_status' => 'pending',
+        ];
+
+        foreach ($onlineRows as $row) {
+            if ($this->normalizeDailyOtaDataType((string)($row['data_type'] ?? '')) !== 'advertising') {
+                continue;
+            }
+
+            $raw = $this->dailyOtaRawDetail($this->decodeDailyOtaRawData($row['raw_data'] ?? []));
+            $spend = $this->firstDailyOtaNumber($row, $raw, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend']) ?? 0.0;
+            $orderAmount = $this->firstDailyOtaNumber($row, $raw, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']) ?? 0.0;
+            $impressions = (int)round($this->firstDailyOtaNumber($row, $raw, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']) ?? 0.0);
+            $clicks = (int)round($this->firstDailyOtaNumber($row, $raw, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']) ?? 0.0);
+            $bookings = (int)round($this->firstDailyOtaNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']) ?? 0.0);
+            $roomNights = $this->firstDailyOtaNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'nights']) ?? 0.0;
+
+            $summary['spend'] += $spend;
+            $summary['order_amount'] += $orderAmount;
+            $summary['impressions'] += $impressions;
+            $summary['clicks'] += $clicks;
+            $summary['bookings'] += $bookings;
+            $summary['room_nights'] += $roomNights;
+            if ($spend > 0 || $orderAmount > 0 || $impressions > 0 || $clicks > 0 || $bookings > 0 || $roomNights > 0) {
+                $summary['sample_count']++;
+            }
+        }
+
+        if ($summary['sample_count'] <= 0) {
+            return $summary;
+        }
+
+        $summary['spend'] = round($summary['spend'], 2);
+        $summary['order_amount'] = round($summary['order_amount'], 2);
+        $summary['room_nights'] = round($summary['room_nights'], 2);
+        $summary['ctr'] = $summary['impressions'] > 0 ? round($summary['clicks'] / $summary['impressions'] * 100, 2) : null;
+        $summary['cvr'] = $summary['clicks'] > 0 ? round($summary['bookings'] / $summary['clicks'] * 100, 2) : null;
+        $summary['roas'] = $summary['spend'] > 0 ? round($summary['order_amount'] / $summary['spend'], 2) : null;
+        $summary['data_status'] = 'ok';
+
+        return $summary;
+    }
+
+    private function buildDailyOtaServiceQualitySummary(array $onlineRows): array
+    {
+        $summary = [
+            'avg_psi_score' => 0.0,
+            'avg_service_score' => 0.0,
+            'sample_count' => 0,
+            'data_status' => 'pending',
+        ];
+        $psiScores = [];
+        $serviceScores = [];
+
+        foreach ($onlineRows as $row) {
+            if (!in_array($this->normalizeDailyOtaDataType((string)($row['data_type'] ?? '')), ['quality', 'service', 'service_quality', 'psi'], true)) {
+                continue;
+            }
+
+            $raw = $this->dailyOtaRawDetail($this->decodeDailyOtaRawData($row['raw_data'] ?? []));
+            $psi = $this->firstDailyOtaNumber($row, $raw, ['data_value', 'dataValue', 'psi_score', 'psiScore', 'psi', 'PSI', 'serviceQualityScore', 'qualityScore']);
+            $serviceScore = $this->firstDailyOtaNumber($row, $raw, ['service_score', 'serviceScore', 'dayReportServiceScore', 'service_score_value']);
+
+            if ($psi !== null && $psi > 0) {
+                $psiScores[] = $psi;
+            }
+            if ($serviceScore !== null && $serviceScore > 0) {
+                $serviceScores[] = $serviceScore;
+            }
+            if (($psi !== null && $psi > 0) || ($serviceScore !== null && $serviceScore > 0)) {
+                $summary['sample_count']++;
+            }
+        }
+
+        if ($summary['sample_count'] <= 0) {
+            return $summary;
+        }
+
+        $summary['avg_psi_score'] = $this->avgDailyOtaNumbers($psiScores);
+        $summary['avg_service_score'] = $this->avgDailyOtaNumbers($serviceScores);
+        $summary['data_status'] = 'ok';
+
+        return $summary;
+    }
+
+    private function normalizeDailyOtaDataType(string $value): string
+    {
+        $value = strtolower(trim($value));
+        if (in_array($value, ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns'], true)) {
+            return 'advertising';
+        }
+        if (in_array($value, ['quality', 'service', 'service_quality', 'psi'], true)) {
+            return $value;
+        }
+        if (in_array($value, ['review', 'reviews', 'comment', 'comments'], true)) {
+            return 'review';
+        }
+        return $value;
+    }
+
+    private function decodeDailyOtaRawData($value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (is_object($value)) {
+            return get_object_vars($value);
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function dailyOtaRawDetail(array $raw): array
+    {
+        return is_array($raw['row'] ?? null) ? array_merge($raw, $raw['row']) : $raw;
+    }
+
+    private function firstDailyOtaNumber(array $row, array $raw, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            foreach ([$row, $raw] as $source) {
+                if (!array_key_exists($key, $source) || $source[$key] === null || $source[$key] === '') {
+                    continue;
+                }
+                $num = $this->normalizeNumber($source[$key]);
+                if ($num !== null) {
+                    return $num;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function avgDailyOtaNumbers(array $values): float
+    {
+        $values = array_values(array_filter($values, static fn($value): bool => is_numeric($value)));
+        if (empty($values)) {
+            return 0.0;
+        }
+
+        return round(array_sum(array_map('floatval', $values)) / count($values), 2);
     }
 
     /**

@@ -231,6 +231,9 @@ class User extends Base
             return $this->error('不能删除自己');
         }
 
+        $data = $this->requestData();
+        $forceDelete = $this->isForceDeleteRequested($data);
+
         $user = UserModel::find($id);
         if (!$user) {
             return $this->error('用户不存在');
@@ -254,12 +257,37 @@ class User extends Base
         }
 
         $references = $this->ensureUserCanBeDeleted($user);
-        if (!empty($references)) {
-            return $this->error('该用户存在关联数据，无法删除，请改为禁用账号', 409, ['references' => $references]);
+        if (!empty($references) && $forceDelete) {
+            if (!$this->currentUser->isSuperAdmin()) {
+                return $this->error('只有超级管理员可以强制删除用户', 403);
+            }
+
+            $blockedReferences = $this->forceDeleteBlockedReferences($references);
+            if (!empty($blockedReferences)) {
+                return $this->error('该用户存在不可自动解除的业务数据，无法强制删除', 409, [
+                    'references' => $blockedReferences,
+                ]);
+            }
+        }
+
+        if (!empty($references) && !$forceDelete) {
+            return $this->error('该用户存在关联数据，无法删除，超级管理员可以强制删除', 409, [
+                'references' => $references,
+                'can_force_delete' => $this->currentUser->isSuperAdmin(),
+            ]);
         }
 
         $username = $user->username;
-        $user->delete();
+        if ($forceDelete) {
+            Db::transaction(function () use ($user): void {
+                $userId = (int)$user->id;
+                $this->unlinkUserReferencesForForceDelete($userId);
+                $this->clearUserTokenCache($userId);
+                $user->delete();
+            });
+        } else {
+            $user->delete();
+        }
 
         OperationLog::record('user', 'delete', '删除用户: ' . $username, $this->currentUser->id);
 
@@ -304,6 +332,82 @@ class User extends Base
         return $references;
     }
 
+    private function isForceDeleteRequested(array $data): bool
+    {
+        $force = $data['force'] ?? $this->request->param('force', false);
+        return $force === true || $force === 1 || $force === '1' || $force === 'true';
+    }
+
+    private function forceDeleteBlockedReferences(array $references): array
+    {
+        $columns = $this->forceDeleteReferenceColumns();
+        $blocked = [];
+
+        foreach ($references as $reference) {
+            $table = (string)($reference['table'] ?? '');
+            $column = $columns[$table] ?? null;
+            if (!$column) {
+                $blocked[] = $reference;
+                continue;
+            }
+
+            if ($table === 'user_hotel_permissions') {
+                continue;
+            }
+
+            if (!$this->tableColumnNullable($table, $column)) {
+                $blocked[] = $reference;
+            }
+        }
+
+        return $blocked;
+    }
+
+    private function unlinkUserReferencesForForceDelete(int $userId): void
+    {
+        foreach ($this->forceDeleteReferenceColumns() as $table => $column) {
+            if (!$this->tableColumnExists($table, $column)) {
+                continue;
+            }
+
+            if ($table === 'user_hotel_permissions') {
+                Db::name($table)->where($column, $userId)->delete();
+                continue;
+            }
+
+            if ($this->tableColumnNullable($table, $column)) {
+                Db::name($table)->where($column, $userId)->update([$column => null]);
+            }
+        }
+    }
+
+    private function clearUserTokenCache(int $userId): void
+    {
+        $token = cache('user_token_' . $userId);
+        if (is_string($token) && $token !== '') {
+            cache('token_' . $token, null);
+        }
+        cache('user_token_' . $userId, null);
+    }
+
+    private function forceDeleteReferenceColumns(): array
+    {
+        return [
+            'daily_reports' => 'submitter_id',
+            'monthly_tasks' => 'submitter_id',
+            'user_hotel_permissions' => 'user_id',
+            'operation_logs' => 'user_id',
+            'login_logs' => 'user_id',
+            'quant_simulation_records' => 'created_by',
+            'strategy_simulation_records' => 'created_by',
+            'feasibility_reports' => 'created_by',
+            'expansion_records' => 'created_by',
+            'transfer_records' => 'created_by',
+            'maintenance_plans' => 'created_by',
+            'device_maintenance' => 'operator_id',
+        ];
+    }
+
     private function countReferenceRows(string $table, string $column, int $value): int
     {
         if (!$this->tableColumnExists($table, $column)) {
@@ -320,6 +424,23 @@ class User extends Base
 
         try {
             return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function tableColumnNullable(string $table, string $column): bool
+    {
+        $table = str_replace('`', '', $table);
+        $column = str_replace(['`', "'"], '', $column);
+
+        try {
+            $columns = Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'");
+            if (empty($columns)) {
+                return false;
+            }
+
+            return strtoupper((string)($columns[0]['Null'] ?? '')) === 'YES';
         } catch (\Throwable $e) {
             return false;
         }

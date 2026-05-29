@@ -69,6 +69,119 @@ final class AgentTest extends TestCase
         }
     }
 
+    public function testOtaDiagnosisUsesAdvertisingAndQualityWithoutCommentDependency(): void
+    {
+        $controller = $this->controller();
+        $dataSet = [
+            'hotel' => ['id' => 7, 'name' => 'Hotel Alpha'],
+            'online_rows' => [
+                [
+                    'id' => 41,
+                    'source' => 'ctrip',
+                    'data_type' => 'business',
+                    'data_date' => '2026-05-27',
+                    'hotel_name' => 'Hotel Alpha',
+                    'amount' => 1200,
+                    'quantity' => 6,
+                    'book_order_num' => 4,
+                    'raw_data' => '{}',
+                ],
+                [
+                    'id' => 42,
+                    'source' => 'ctrip',
+                    'data_type' => 'advertising',
+                    'data_date' => '2026-05-27',
+                    'hotel_name' => 'Hotel Alpha',
+                    'amount' => 256.75,
+                    'quantity' => 23,
+                    'book_order_num' => 16,
+                    'list_exposure' => 10000,
+                    'detail_exposure' => 320,
+                    'flow_rate' => 8.5,
+                    'data_value' => 7.35,
+                    'raw_data' => json_encode(['orderAmount' => 1888, 'campaignId' => 'campaign-1'], JSON_UNESCAPED_UNICODE),
+                ],
+                [
+                    'id' => 43,
+                    'source' => 'ctrip',
+                    'data_type' => 'quality',
+                    'data_date' => '2026-05-27',
+                    'hotel_name' => 'Hotel Alpha',
+                    'data_value' => 88.6,
+                    'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
+                ],
+            ],
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [['id' => 50, 'action' => 'sync', 'create_time' => '2026-05-27 10:00:00']],
+        ];
+
+        $result = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [
+            $dataSet,
+            7,
+            '7',
+            'Hotel Alpha',
+            'ctrip',
+            '2026-05-27',
+            '2026-05-27',
+            'all',
+        ]);
+
+        self::assertSame(1200.0, $result['metrics']['amount']);
+        self::assertSame(6, $result['metrics']['quantity']);
+        self::assertSame(4, $result['metrics']['book_order_num']);
+        self::assertSame(256.75, $result['metrics']['advertising_spend']);
+        self::assertSame(1888.0, $result['metrics']['advertising_order_amount']);
+        self::assertSame(7.35, $result['metrics']['advertising_roas']);
+        self::assertSame(88.6, $result['metrics']['avg_psi_score']);
+        self::assertSame(92.5, $result['metrics']['avg_service_score']);
+
+        self::assertTrue($result['data_summary']['has_advertising_data']);
+        self::assertTrue($result['data_summary']['has_service_quality_data']);
+        self::assertFalse($result['data_summary']['has_comment_data']);
+        self::assertArrayHasKey('advertising_analysis', $result['diagnosis']);
+        self::assertArrayHasKey('service_quality_analysis', $result['diagnosis']);
+        self::assertSame('', $result['diagnosis']['comment_analysis']);
+        self::assertStringNotContainsString('comment', strtolower(implode(' ', $result['diagnosis']['actions'])));
+
+        self::assertArrayHasKey('diagnosis_sections', $result);
+        $sectionKeys = array_column($result['diagnosis_sections'], 'key');
+        self::assertContains('advertising_efficiency', $sectionKeys);
+        self::assertContains('service_quality', $sectionKeys);
+        self::assertNotContains('comment', $sectionKeys);
+        self::assertNotContains('review', $sectionKeys);
+    }
+
+    public function testOtaDiagnosisPromptAndParserUseAdvertisingQualitySchema(): void
+    {
+        $controller = $this->controller();
+        $prompt = $this->invokeNonPublic($controller, 'buildOtaDiagnosisPrompt', [[
+            'metrics' => [
+                'advertising_spend' => 256.75,
+                'advertising_roas' => 7.35,
+                'avg_psi_score' => 88.6,
+            ],
+        ]]);
+
+        self::assertStringContainsString('advertising_analysis', $prompt);
+        self::assertStringContainsString('service_quality_analysis', $prompt);
+        self::assertStringNotContainsString('comment_analysis', $prompt);
+
+        $parsed = $this->invokeNonPublic($controller, 'parseOtaDiagnosisResult', [json_encode([
+            'summary' => 'ok',
+            'advertising_analysis' => 'ads ok',
+            'service_quality_analysis' => 'quality ok',
+            'comment_analysis' => 'legacy comment text must be ignored',
+            'actions' => [],
+        ], JSON_UNESCAPED_UNICODE)]);
+
+        self::assertSame('ads ok', $parsed['advertising_analysis']);
+        self::assertSame('quality ok', $parsed['service_quality_analysis']);
+        self::assertSame('', $parsed['comment_analysis']);
+    }
+
     /**
      * 覆盖 normalizeRequestedModelKey：
      * 验证默认模型、Pro 模式、历史别名和未知模型透传。

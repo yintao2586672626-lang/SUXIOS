@@ -38,7 +38,7 @@ return [
             // 用户名
             'username'        => env('DB_USER', 'root'),
             // 密码
-            'password'        => env('DB_PASS', 'z123123'),
+            'password'        => env('DB_PASS', ''),
             // 端口
             'hostport'        => env('DB_PORT', '3306'),
             // 数据库连接参数
@@ -61,7 +61,7 @@ return [
             // 是否需要断线重连
             'break_reconnect' => false,
             // 监听SQL
-            'trigger_sql'     => env('APP_DEBUG', true),
+            'trigger_sql'     => env('APP_DEBUG', false),
             // 开启字段缓存
             'fields_cache'    => false,
         ],

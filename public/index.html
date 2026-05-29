@@ -37,11 +37,11 @@
                     </div>
                     <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
                     <p class="login-slogan text-base font-medium tracking-wide">Hotel Intelligence Platform</p>
-                    <p class="login-copy">已开业酒店线上获客与收益增长中枢</p>
+                    <p class="login-copy">酒店经营与收益决策数据中枢</p>
                 </div>
                 
                 <!-- 登录表单 -->
-                <form @submit.prevent="handleLogin" class="space-y-5">
+                <form v-if="!registerMode" @submit.prevent="handleLogin" class="space-y-5">
                     <!-- 用户名输入 -->
                     <div class="input-group">
                         <label class="input-label block text-sm font-medium mb-2">
@@ -109,11 +109,104 @@
                         </template>
                     </button>
                 </form>
-                
-                <!-- 🌟 Slogan 展示 -->
+
+                <form v-else @submit.prevent="handleRegister" class="space-y-5">
+                    <div class="input-group">
+                        <label class="input-label block text-sm font-medium mb-2">
+                            <i class="fas fa-user-plus mr-2"></i>注册账号
+                        </label>
+                        <div class="relative">
+                            <i class="fas fa-at input-icon-prefix"></i>
+                            <input v-model="registerForm.username" @input="registerError = ''; registerSuccess = ''" type="text"
+                                name="register_username" autocomplete="username"
+                                data-testid="register-username"
+                                class="input-field w-full"
+                                placeholder="3-50 位字母、数字或下划线" required>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label block text-sm font-medium mb-2">
+                            <i class="fas fa-id-card mr-2"></i>姓名
+                        </label>
+                        <div class="relative">
+                            <i class="fas fa-signature input-icon-prefix"></i>
+                            <input v-model="registerForm.realname" @input="registerError = ''; registerSuccess = ''" type="text"
+                                name="register_realname" autocomplete="name"
+                                data-testid="register-realname"
+                                class="input-field w-full"
+                                placeholder="可选，默认使用用户名">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label block text-sm font-medium mb-2">
+                            <i class="fas fa-key mr-2"></i>密码
+                        </label>
+                        <div class="relative">
+                            <i class="fas fa-lock input-icon-prefix"></i>
+                            <input v-model="registerForm.password" @input="registerError = ''; registerSuccess = ''" type="password"
+                                name="register_password" autocomplete="new-password"
+                                data-testid="register-password"
+                                class="input-field w-full"
+                                placeholder="至少 6 位" required>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label block text-sm font-medium mb-2">
+                            <i class="fas fa-check-circle mr-2"></i>确认密码
+                        </label>
+                        <div class="relative">
+                            <i class="fas fa-lock input-icon-prefix"></i>
+                            <input v-model="registerForm.confirm_password" @input="registerError = ''; registerSuccess = ''" type="password"
+                                name="register_confirm_password" autocomplete="new-password"
+                                data-testid="register-confirm-password"
+                                class="input-field w-full"
+                                placeholder="再次输入密码" required>
+                        </div>
+                    </div>
+
+                    <div v-if="registerError" class="login-error flex items-center gap-3">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span>{{ registerError }}</span>
+                    </div>
+
+                    <div v-if="registerSuccess" class="rounded-lg px-4 py-3 bg-green-50 text-green-700 text-sm flex items-center gap-3">
+                        <i class="fas fa-check-circle"></i>
+                        <span>{{ registerSuccess }}</span>
+                    </div>
+
+                    <button type="submit" :disabled="registerLoading || !registerForm.username || !registerForm.password || !registerForm.confirm_password"
+                        data-testid="register-submit"
+                        class="btn-login w-full py-3.5 text-base flex items-center justify-center gap-2">
+                        <template v-if="registerLoading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>注册中...</span>
+                        </template>
+                        <template v-else>
+                            <i class="fas fa-user-plus"></i>
+                            <span>创建账号</span>
+                        </template>
+                    </button>
+                </form>
+
+                <div class="mt-5 text-center text-sm">
+                    <button v-if="!registerMode" type="button" @click="openRegisterForm"
+                        data-testid="open-register"
+                        class="text-blue-300 hover:text-blue-100 transition">
+                        没有账号？注册
+                    </button>
+                    <button v-else type="button" @click="closeRegisterForm"
+                        data-testid="close-register"
+                        class="text-blue-300 hover:text-blue-100 transition">
+                        已有账号？返回登录
+                    </button>
+                </div>
+
                 <div class="slogan-container text-center">
                     <p class="login-system-note">
-                        <i class="fas fa-chart-line"></i>OTA 数据 → 收益诊断 → 运营动作 → 效果复盘
+                        <i class="fas fa-chart-line"></i>OTA 数据驱动的运营收益闭环平台
                     </p>
                 </div>
                 
@@ -2846,20 +2939,22 @@
 
                             <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
                                 <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                                    <h3 class="font-bold text-gray-900 mb-4">口碑数据</h3>
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="font-bold text-gray-900">服务质量</h3>
+                                        <span class="text-xs px-2 py-1 rounded-full bg-teal-50 text-teal-600">{{ operationDataStatusText(operationFullData.service_quality?.data_status) }}</span>
+                                    </div>
                                     <div class="grid grid-cols-2 gap-3 mb-4">
                                         <div class="rounded-lg bg-gray-50 p-3">
-                                            <div class="text-xs text-gray-500">评分</div>
-                                            <div class="text-xl font-bold text-gray-900">{{ operationValue(operationFullData.reviews?.score) }}</div>
+                                            <div class="text-xs text-gray-500">PSI</div>
+                                            <div class="text-xl font-bold text-gray-900">{{ operationValue(operationFullData.service_quality?.avg_psi_score) }}</div>
                                         </div>
                                         <div class="rounded-lg bg-gray-50 p-3">
-                                            <div class="text-xs text-gray-500">点评数</div>
-                                            <div class="text-xl font-bold text-gray-900">{{ operationValue(operationFullData.reviews?.review_count) }}</div>
+                                            <div class="text-xs text-gray-500">服务分</div>
+                                            <div class="text-xl font-bold text-gray-900">{{ operationValue(operationFullData.service_quality?.avg_service_score) }}</div>
                                         </div>
                                     </div>
-                                    <div class="flex flex-wrap gap-2">
-                                        <span v-for="keyword in operationFullData.reviews?.negative_keywords || []" :key="keyword" class="px-2 py-1 bg-red-50 text-red-600 rounded-full text-xs">{{ keyword }}</span>
-                                        <span v-if="!(operationFullData.reviews?.negative_keywords || []).length" class="text-sm text-gray-400">暂无差评关键词</span>
+                                    <div class="rounded-lg bg-teal-50 text-teal-700 p-3 text-sm">
+                                        样本数 {{ operationValue(operationFullData.service_quality?.sample_count) }}。结合 OTA 流量、订单和广告数据判断服务质量对转化的影响。
                                     </div>
                                 </div>
 
@@ -2884,7 +2979,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold text-gray-900">策析·根因定位</h2>
-                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：基于经营、OTA、竞对与点评数据识别主要根因</p>
+                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：基于经营、OTA、竞对与服务质量数据识别主要根因</p>
                                 </div>
                                 <div class="flex flex-col sm:flex-row gap-3">
                                     <select v-model="operationFilters.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[160px]">
@@ -3671,16 +3766,16 @@
                                         <tr class="hover:bg-blue-50/30">
                                             <td class="px-4 py-4 align-top font-semibold text-gray-900">异常检测</td>
                                             <td class="px-4 py-4 align-top leading-relaxed">规则阈值 + STL/ESD 做第一层；多变量再上 Isolation Forest 或 One-Class SVM；根因分析配合 SHAP/贡献拆解。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">小时订单、库存、价格、转换率、点评异常、接口耗时、失败码。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">小时订单、库存、价格、转换率、广告投放、服务质量、接口耗时、失败码。</td>
                                             <td class="px-4 py-4 align-top leading-relaxed">Precision、Recall、误报率、平均发现时间、平均恢复时间。</td>
                                             <td class="px-4 py-4 align-top leading-relaxed">当先需要一个可运营预警系统，而不是一个“学术最优分类器”时优先。</td>
                                         </tr>
                                         <tr class="hover:bg-blue-50/30">
-                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">点评主题与服务缺口识别</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">中文分词 + 主题模型/BERT Embedding + 分类器；对回复场景可加排序或摘要模型。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">点评文本、评分、入住日期、房型、渠道、酒店标签、服务节点。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">Macro-F1、主题一致性、差评召回率、人工复核通过率。</td>
-                                            <td class="px-4 py-4 align-top leading-relaxed">当点评体量足够，且运营团队愿意基于主题做整改闭环时优先。</td>
+                                            <td class="px-4 py-4 align-top font-semibold text-gray-900">服务质量与转化缺口识别</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">规则阈值 + 趋势对比 + 转化漏斗归因；样本足够后再接入多变量异常检测。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">服务质量分、PSI、曝光、访问、转化率、订单、广告消耗、接口状态。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">转化提升率、异常召回率、误报率、整改完成率、复核通过率。</td>
+                                            <td class="px-4 py-4 align-top leading-relaxed">当不采集点评文本，但仍需要解释服务质量对 OTA 转化和收入的影响时优先。</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -4100,7 +4195,7 @@
                                 <table class="w-full">
                                     <thead>
                                         <tr class="bg-gradient-to-b from-gray-50 to-gray-100/80">
-                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ID</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">序号</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">用户名</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">姓名</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">角色</th>
@@ -4110,8 +4205,8 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr v-for="u in filteredUsers" :key="u.id" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
-                                            <td class="px-6 py-4 text-sm text-gray-500">{{ u.id }}</td>
+                                        <tr v-for="(u, index) in filteredUsers" :key="u.id" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
+                                            <td class="px-6 py-4 text-sm text-gray-500">{{ index + 1 }}</td>
                                             <td class="px-6 py-4 text-sm font-semibold text-gray-800">{{ u.username }}</td>
                                             <td class="px-6 py-4 text-sm text-gray-600">{{ u.realname || '-' }}</td>
                                             <td class="px-6 py-4">
@@ -6356,7 +6451,7 @@
                                 </div>
 
                                 <!-- 点评数据获取 -->
-                                <div v-if="false && onlineDataTab === 'ctrip-review'">
+                                <div v-if="false">
                                     <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-purple-800 mb-2">
                                             <i class="fas fa-comments mr-2"></i>携程点评数据获取
@@ -7147,7 +7242,6 @@
                                                         <option value="business">经营数据</option>
                                                         <option value="traffic">流量数据</option>
                                                         <option value="competitor">竞对数据</option>
-                                                        <option value="review">点评数据</option>
                                                         <option value="advertising">广告数据</option>
                                                     </select>
                                                 </div>
@@ -8976,7 +9070,7 @@
                                 </div>
 
                                 <!-- 点评数据获取 -->
-                                <div v-if="false && onlineDataTab === 'meituan-review'">
+                                <div v-if="false">
                                     <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-orange-800 mb-2">
                                             <i class="fas fa-comments mr-2"></i>美团差评数据获取
@@ -12147,46 +12241,6 @@
                                         </div>
                                     </div>
                                     
-                                    <!-- 携程点评 -->
-                                    <div @click="openDataConfigModal('ctrip-comments')" 
-                                        class="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
-                                        <div class="flex items-center justify-between mb-4">
-                                            <div class="w-12 h-12 rounded-full bg-purple-500 flex items-center justify-center">
-                                                <i class="fas fa-comments text-white text-xl"></i>
-                                            </div>
-                                            <span class="text-xs px-2 py-1 bg-purple-200 text-purple-700 rounded-full">暂缓</span>
-                                        </div>
-                                        <h4 class="font-semibold text-gray-800 mb-1">携程点评</h4>
-                                        <p class="text-sm text-gray-500">暂不纳入默认采集</p>
-                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
-                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">URL / Cookie / token</span></div>
-                                            <div class="flex justify-between gap-3"><span>状态</span><span class="text-gray-800">保留手动入口</span></div>
-                                        </div>
-                                        <div class="mt-3 text-xs text-purple-600">
-                                            <i class="fas fa-cog mr-1"></i>点击配置
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- 美团点评 -->
-                                    <div @click="openDataConfigModal('meituan-comments')" 
-                                        class="bg-gradient-to-br from-pink-50 to-pink-100 border border-pink-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
-                                        <div class="flex items-center justify-between mb-4">
-                                            <div class="w-12 h-12 rounded-full bg-pink-500 flex items-center justify-center">
-                                                <i class="fas fa-star text-white text-xl"></i>
-                                            </div>
-                                            <span class="text-xs px-2 py-1 bg-pink-200 text-pink-700 rounded-full">暂缓</span>
-                                        </div>
-                                        <h4 class="font-semibold text-gray-800 mb-1">美团点评</h4>
-                                        <p class="text-sm text-gray-500">暂不纳入默认采集</p>
-                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
-                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">Partner / POI / Cookie</span></div>
-                                            <div class="flex justify-between gap-3"><span>状态</span><span class="text-gray-800">保留手动入口</span></div>
-                                        </div>
-                                        <div class="mt-3 text-xs text-pink-600">
-                                            <i class="fas fa-cog mr-1"></i>点击配置
-                                        </div>
-                                    </div>
-                                    
                                     <!-- 携程广告 -->
                                     <div @click="openDataConfigModal('ctrip-ads')" 
                                         class="bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
@@ -12244,6 +12298,10 @@
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'platform-auto' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         平台自动获取
                                     </button>
+                                    <button @click="onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()"
+                                        :class="['px-6 py-3 font-medium', onlineDataTab === 'platform-sources' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                        数据源闭环
+                                    </button>
                                     <button @click="onlineDataTab = 'data'" 
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'data' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         数据记录
@@ -12254,6 +12312,161 @@
                                     </button>
                                 </div>
                                 
+                                <!-- 统一数据源闭环 -->
+                                <div v-if="onlineDataTab === 'platform-sources'" data-testid="platform-data-sources-panel" class="space-y-6">
+                                    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                                        <div class="xl:col-span-1 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                            <div class="flex items-center justify-between mb-4">
+                                                <h4 class="font-medium text-gray-800">数据源配置</h4>
+                                                <button @click="resetPlatformDataSourceForm" class="text-sm text-blue-600 hover:text-blue-700">新建</button>
+                                            </div>
+                                            <div class="space-y-3">
+                                                <input v-model.trim="platformDataSourceForm.name" class="w-full px-3 py-2 border rounded-lg" placeholder="数据源名称">
+                                                <select v-model="platformDataSourceForm.system_hotel_id" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">选择酒店</option>
+                                                    <option v-for="hotel in platformDataSourceHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || hotel.hotel_name }}</option>
+                                                </select>
+                                                <div class="grid grid-cols-2 gap-3">
+                                                    <select v-model="platformDataSourceForm.platform" class="px-3 py-2 border rounded-lg">
+                                                        <option value="ctrip">携程</option>
+                                                        <option value="meituan">美团</option>
+                                                        <option value="custom">自定义</option>
+                                                    </select>
+                                                    <select v-model="platformDataSourceForm.data_type" class="px-3 py-2 border rounded-lg">
+                                                        <option value="business">经营</option>
+                                                        <option value="traffic">流量</option>
+                                                        <option value="rank">排名</option>
+                                                        <option value="price">价格</option>
+                                                        <option value="market">市场信号</option>
+                                                    </select>
+                                                </div>
+                                                <select v-model="platformDataSourceForm.ingestion_method" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="manual">手工录入</option>
+                                                    <option value="import_json">JSON 导入</option>
+                                                    <option value="import_csv">CSV 导入</option>
+                                                    <option value="import_excel">Excel 导入</option>
+                                                    <option value="api">公开 API / 授权接口</option>
+                                                </select>
+                                                <textarea v-model="platformDataSourceForm.config_json" rows="5" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder='非敏感配置 JSON，例如 {"url":"https://api.example.com","method":"GET","allowed_hosts":["api.example.com"]}'></textarea>
+                                                <textarea v-model="platformDataSourceForm.secret_json" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-xs sensitive-mask" autocomplete="off" spellcheck="false" placeholder='敏感凭证 JSON，仅后端保存，例如 {"api_key":"...","cookies":"..."}'></textarea>
+                                                <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                                    <input v-model="platformDataSourceForm.enabled" type="checkbox" class="rounded">
+                                                    启用
+                                                </label>
+                                                <div v-if="platformDataSourceError" class="text-sm text-red-600">{{ platformDataSourceError }}</div>
+                                                <button @click="savePlatformDataSource" :disabled="platformDataSourceSaving" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
+                                                    <i class="fas fa-save mr-1"></i>{{ platformDataSourceSaving ? '保存中...' : '保存数据源' }}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="xl:col-span-2 space-y-4">
+                                            <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                                <div class="flex items-center justify-between p-4 border-b">
+                                                    <h4 class="font-medium text-gray-800">已配置数据源</h4>
+                                                    <button @click="loadPlatformDataSourcePanel" :disabled="platformDataSourceLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
+                                                        <i class="fas fa-sync-alt mr-1"></i>刷新
+                                                    </button>
+                                                </div>
+                                                <div v-if="platformDataSourceLoading" class="p-6 text-center text-gray-500">加载中...</div>
+                                                <div v-else-if="!platformDataSources.length" class="p-6 text-center text-gray-500">未配置数据源，请先保存合法 API、授权信息或导入来源。</div>
+                                                <div v-else class="overflow-x-auto">
+                                                    <table class="min-w-full text-sm">
+                                                        <thead class="bg-gray-50 text-gray-600">
+                                                            <tr>
+                                                                <th class="px-4 py-3 text-left">数据源</th>
+                                                                <th class="px-4 py-3 text-left">类型</th>
+                                                                <th class="px-4 py-3 text-left">状态</th>
+                                                                <th class="px-4 py-3 text-left">最近同步</th>
+                                                                <th class="px-4 py-3 text-right">操作</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody class="divide-y">
+                                                            <tr v-for="source in platformDataSources" :key="source.id">
+                                                                <td class="px-4 py-3">
+                                                                    <div class="font-medium text-gray-800">{{ source.name }}</div>
+                                                                    <div class="text-xs text-gray-500">酒店：{{ getHotelName(source.system_hotel_id) }} · {{ source.has_secret ? '已保存凭证' : '未保存凭证' }}</div>
+                                                                </td>
+                                                                <td class="px-4 py-3 text-gray-600">{{ source.platform }} / {{ source.data_type }} / {{ source.ingestion_method }}</td>
+                                                                <td class="px-4 py-3">
+                                                                    <span :class="['px-2 py-1 rounded-full text-xs', platformSourceStatusClass(source.status || source.last_sync_status)]">{{ source.status || source.last_sync_status || 'waiting_config' }}</span>
+                                                                    <div v-if="source.last_error" class="mt-1 text-xs text-red-600 max-w-xs truncate" :title="source.last_error">{{ source.last_error }}</div>
+                                                                </td>
+                                                                <td class="px-4 py-3 text-gray-600">{{ source.last_sync_time || '-' }}</td>
+                                                                <td class="px-4 py-3 text-right whitespace-nowrap">
+                                                                    <button @click="editPlatformDataSource(source)" class="px-2 py-1 text-blue-600 hover:text-blue-700">编辑</button>
+                                                                    <button @click="syncPlatformDataSource(source)" :disabled="platformDataSourceSyncingId === source.id" class="px-2 py-1 text-green-600 hover:text-green-700 disabled:text-gray-400">{{ platformDataSourceSyncingId === source.id ? '同步中' : '立即同步' }}</button>
+                                                                    <button @click="deletePlatformDataSource(source)" :disabled="platformDataSourceDeletingId === source.id" class="px-2 py-1 text-red-600 hover:text-red-700 disabled:text-gray-400">停用</button>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+
+                                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                                    <h4 class="font-medium text-gray-800 mb-3">手工 / 文件内容导入</h4>
+                                                    <select v-model="platformImportForm.data_source_id" class="w-full px-3 py-2 border rounded-lg mb-3">
+                                                        <option value="">选择数据源</option>
+                                                        <option v-for="source in platformDataSources" :key="source.id" :value="source.id">{{ source.name }}</option>
+                                                    </select>
+                                                    <textarea v-model="platformImportForm.rows_json" rows="7" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder='粘贴 JSON 数组，例如 [{"data_date":"2026-05-28","source":"ctrip","data_type":"traffic","hotel_id":"H001","metric_value":123}]'></textarea>
+                                                    <button @click="importPlatformDataRowsFromText" :disabled="platformDataImporting" class="mt-3 w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400">
+                                                        <i class="fas fa-file-import mr-1"></i>{{ platformDataImporting ? '导入中...' : '导入并入库' }}
+                                                    </button>
+                                                </div>
+                                                <div class="bg-white border border-gray-200 rounded-lg p-4">
+                                                    <div class="flex items-center justify-between mb-3">
+                                                        <h4 class="font-medium text-gray-800">同步日志</h4>
+                                                        <button @click="loadPlatformSyncLogs" class="text-sm text-blue-600 hover:text-blue-700">刷新日志</button>
+                                                    </div>
+                                                    <div v-if="!platformSyncLogs.length" class="text-sm text-gray-500">暂无同步日志。</div>
+                                                    <div v-else class="space-y-2 max-h-72 overflow-y-auto">
+                                                        <div v-for="log in platformSyncLogs" :key="log.id" class="border rounded-lg p-3">
+                                                            <div class="flex justify-between gap-3 text-sm">
+                                                                <span :class="log.level === 'error' ? 'text-red-600' : (log.level === 'warning' ? 'text-amber-600' : 'text-gray-700')">{{ log.event }}</span>
+                                                                <span class="text-xs text-gray-400">{{ log.create_time }}</span>
+                                                            </div>
+                                                            <div class="text-xs text-gray-600 mt-1">{{ log.message || '-' }}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                                                <div class="flex items-center justify-between mb-3">
+                                                    <h4 class="font-medium text-gray-800">最近同步任务</h4>
+                                                    <button @click="loadPlatformSyncTasks" class="text-sm text-blue-600 hover:text-blue-700">刷新任务</button>
+                                                </div>
+                                                <div v-if="!platformSyncTasks.length" class="text-sm text-gray-500">暂无同步任务。</div>
+                                                <div v-else class="overflow-x-auto">
+                                                    <table class="min-w-full text-sm">
+                                                        <thead class="bg-gray-50 text-gray-600">
+                                                            <tr>
+                                                                <th class="px-3 py-2 text-left">任务</th>
+                                                                <th class="px-3 py-2 text-left">来源</th>
+                                                                <th class="px-3 py-2 text-left">状态</th>
+                                                                <th class="px-3 py-2 text-left">结果</th>
+                                                                <th class="px-3 py-2 text-left">重试时间</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody class="divide-y">
+                                                            <tr v-for="task in platformSyncTasks" :key="task.id">
+                                                                <td class="px-3 py-2">#{{ task.id }}</td>
+                                                                <td class="px-3 py-2">{{ task.platform }} / {{ task.data_type }} / {{ task.trigger_type }}</td>
+                                                                <td class="px-3 py-2"><span :class="['px-2 py-1 rounded-full text-xs', platformTaskStatusClass(task.status)]">{{ task.status }}</span></td>
+                                                                <td class="px-3 py-2 text-gray-600">{{ task.message || '-' }}</td>
+                                                                <td class="px-3 py-2 text-gray-500">{{ task.next_retry_at || '-' }}</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- 快速获取Cookies -->
                                 <div v-if="onlineDataTab === 'quick'">
                                     <!-- 方法一：控制台代码（推荐） -->
@@ -12928,8 +13141,45 @@
                                         </button>
                                     </div>
                                     
-                                    <!-- 数据表格 -->
-                                    <div v-if="false && onlineDataQualitySummary" class="mb-4 rounded-lg border px-4 py-3" :class="onlineDataQualityStatusClass(onlineDataQualitySummary)">
+                                <!-- 数据表格 -->
+                                <div v-if="onlineDataSummary?.ota_channel_supplement" class="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-4" data-testid="online-data-ota-supplement">
+                                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 mb-3">
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-900">日报 OTA 补充摘要</div>
+                                            <div class="text-xs text-gray-500 mt-0.5">仅展示 OTA 渠道口径，不等同于全酒店经营口径。</div>
+                                        </div>
+                                        <span :class="['px-2 py-1 rounded-full text-xs', onlineDataSummary.ota_channel_supplement.data_status === 'ok' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600']">
+                                            {{ onlineDataSummary.ota_channel_supplement.data_status || 'pending' }}
+                                        </span>
+                                    </div>
+                                    <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+                                        <div class="rounded-lg border border-white bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">广告消耗</div>
+                                            <div class="mt-1 font-semibold text-gray-900">¥{{ formatNumber(onlineDataSummary.ota_channel_supplement.advertising?.spend) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-white bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">广告成交</div>
+                                            <div class="mt-1 font-semibold text-gray-900">¥{{ formatNumber(onlineDataSummary.ota_channel_supplement.advertising?.order_amount) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-white bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">ROAS</div>
+                                            <div class="mt-1 font-semibold text-gray-900">{{ formatNumber(onlineDataSummary.ota_channel_supplement.advertising?.roas) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-white bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">广告订单</div>
+                                            <div class="mt-1 font-semibold text-gray-900">{{ formatNumber(onlineDataSummary.ota_channel_supplement.advertising?.bookings) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-white bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">PSI</div>
+                                            <div class="mt-1 font-semibold text-gray-900">{{ formatNumber(onlineDataSummary.ota_channel_supplement.service_quality?.avg_psi_score) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-white bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">服务分</div>
+                                            <div class="mt-1 font-semibold text-gray-900">{{ formatNumber(onlineDataSummary.ota_channel_supplement.service_quality?.avg_service_score) }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="false && onlineDataQualitySummary" class="mb-4 rounded-lg border px-4 py-3" :class="onlineDataQualityStatusClass(onlineDataQualitySummary)">
                                         <div class="flex flex-wrap items-center justify-between gap-3">
                                             <div class="flex items-center gap-3">
                                                 <i class="fas fa-shield-alt"></i>
@@ -14542,7 +14792,7 @@
                     </div>
 
                     <!-- 携程点评配置 -->
-                    <div v-if="currentDataConfigType === 'ctrip-comments'">
+                    <div v-if="false">
                         <div class="bg-purple-50 p-3 rounded text-sm text-purple-700 mb-4">
                             <i class="fas fa-info-circle mr-2"></i>携程点评推荐使用浏览器 Profile 打开点评页并监听 getCommentList JSON；此配置仅作为人工抓包兼容入口，Cookie 和 spidertoken 为凭证，Request URL 与 Payload 仅用于复现请求。
                         </div>
@@ -14597,7 +14847,7 @@
                     </div>
                     
                     <!-- 美团点评配置 -->
-                    <div v-if="currentDataConfigType === 'meituan-comments'">
+                    <div v-if="false">
                         <div class="bg-pink-50 p-3 rounded text-sm text-pink-700 mb-4">
                             <i class="fas fa-info-circle mr-2"></i>配置美团点评手动接口抓取参数；mtgsig 仅在签名失败时填写。
                         </div>
@@ -15171,6 +15421,16 @@
             const savedUsername = hasRememberedAccount ? rememberedUsername : '';
             const savedPassword = '';
             const loginForm = ref({ username: savedUsername, password: savedPassword });
+            const registerMode = ref(false);
+            const registerLoading = ref(false);
+            const registerError = ref('');
+            const registerSuccess = ref('');
+            const registerForm = ref({
+                username: '',
+                realname: '',
+                password: '',
+                confirm_password: ''
+            });
             const rememberAccount = ref(hasRememberedAccount);
             const directorEntryVisible = ref(false);
             const directorEntryAnswer = ref('');
@@ -15191,6 +15451,28 @@
             // 线上数据获取
             const onlineDataTab = ref('ctrip-ranking');
             const shouldShowOnlineFetchResult = computed(() => ['ctrip', 'meituan', 'ctrip-traffic', 'meituan-traffic', 'custom'].includes(onlineDataTab.value));
+            const platformDataSources = ref([]);
+            const platformSyncTasks = ref([]);
+            const platformSyncLogs = ref([]);
+            const platformDataSourceLoading = ref(false);
+            const platformDataSourceSaving = ref(false);
+            const platformDataSourceSyncingId = ref(null);
+            const platformDataSourceDeletingId = ref(null);
+            const platformDataImporting = ref(false);
+            const platformDataSourceError = ref('');
+            const defaultPlatformDataSourceForm = () => ({
+                id: '',
+                name: '',
+                system_hotel_id: '',
+                platform: 'ctrip',
+                data_type: 'business',
+                ingestion_method: 'manual',
+                enabled: true,
+                config_json: '',
+                secret_json: '',
+            });
+            const platformDataSourceForm = ref(defaultPlatformDataSourceForm());
+            const platformImportForm = ref({ data_source_id: '', rows_json: '' });
             const downloadCenterTab = ref('overview'); // 下载中心子Tab: overview/ai/fetched；美团下载中心复用 traffic
             const fetchingData = ref(false);
             const onlineDataResult = ref(null);
@@ -15693,14 +15975,8 @@
             const meituanAiAnalysisResult = ref(''); // AI分析结果
             const meituanAiAnalysisHistory = ref([]); // AI分析历史记录
             const showMeituanAIAnalysis = ref(false); // 显示美团AI分析弹窗
-            // 初始化竞争强度分析（只在首次加载时生成）
-            const meituanCompetitionIntensity = ref((() => {
-                const r = Math.random();
-                if (r < 0.1) return '内卷加剧';
-                else if (r < 0.4) return '中度内卷';
-                else if (r < 0.9) return '高度内卷';
-                return '内卷红海';
-            })());
+            // 竞争强度必须来自真实竞对数据，未接入时展示明确空状态。
+            const meituanCompetitionIntensity = ref('待接入真实竞对数据');
             
             // 线上数据记录相关
             const formatDate = (date) => {
@@ -17673,9 +17949,12 @@
                     if (onlineDataFilter.value.data_type) {
                         params.append('data_type', onlineDataFilter.value.data_type);
                     }
+                    if (onlineDataFilter.value.hotel_id) {
+                        params.append('system_hotel_id', onlineDataFilter.value.hotel_id);
+                    }
                     const res = await request(`/online-data/daily-data-summary?${params}`);
                     if (res.code === 200) {
-                        onlineDataSummary.value = res.data?.total || null;
+                        onlineDataSummary.value = res.data || null;
                     }
                 } catch (error) {
                     console.error('加载汇总失败:', error);
@@ -17702,7 +17981,7 @@
             const refreshOnlineData = async () => {
                 try {
                     await loadOnlineDataList();
-                    onlineDataSummary.value = null;
+                    await loadOnlineDataSummary();
                     analysisData.value = { summary: null, chart_data: null, hotel_ranking: [] };
                 } catch (error) {
                     console.error('刷新数据失败:', error);
@@ -18042,6 +18321,9 @@
                 }
                 if (newTab === 'cookies') {
                     loadCookiesList();
+                }
+                if (newTab === 'platform-sources') {
+                    loadPlatformDataSourcePanel();
                 }
                 // 加载携程配置列表
                 if (newTab === 'ctrip-config' || newTab === 'ctrip-traffic' || newTab === 'ctrip-overview') {
@@ -18453,6 +18735,9 @@
                         if (item.path === 'online-data' && ['data', 'platform-auto'].includes(item.tab)) {
                             loadAutoFetchPanel();
                         }
+                        if (item.path === 'online-data' && item.tab === 'platform-sources') {
+                            loadPlatformDataSourcePanel();
+                        }
                     });
                 }
             };
@@ -18469,6 +18754,10 @@
             // 数据
             const hotels = ref([]);
             const permittedHotels = ref([]);
+            const platformDataSourceHotelOptions = computed(() => {
+                const pool = permittedHotels.value.length ? permittedHotels.value : hotels.value;
+                return (Array.isArray(pool) ? pool : []).filter(item => item && item.id);
+            });
             const users = ref([]);
             const knowledgeCenterUnits = ref([]);
             const knowledgeCenterLoading = ref(false);
@@ -18977,6 +19266,11 @@
                     const matchSearch = !searchUser.value || u.username.includes(searchUser.value) || (u.realname && u.realname.includes(searchUser.value));
                     const matchRole = !filterUserRoleId.value || u.role_id == filterUserRoleId.value;
                     return matchSearch && matchRole;
+                }).sort((a, b) => {
+                    const roleLevelA = Number(a.role?.level ?? a.role_id ?? 999);
+                    const roleLevelB = Number(b.role?.level ?? b.role_id ?? 999);
+                    if (roleLevelA !== roleLevelB) return roleLevelA - roleLevelB;
+                    return Number(a.id) - Number(b.id);
                 });
             });
 
@@ -19084,6 +19378,223 @@
                 }
             };
             const apiRequest = request;
+
+            const parsePlatformJsonField = (value, label) => {
+                const text = String(value || '').trim();
+                if (!text) return {};
+                try {
+                    const parsed = JSON.parse(text);
+                    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+                        throw new Error(`${label} 必须是 JSON 对象`);
+                    }
+                    return parsed;
+                } catch (error) {
+                    throw new Error(`${label} 格式错误: ${error.message}`);
+                }
+            };
+
+            const resetPlatformDataSourceForm = () => {
+                platformDataSourceForm.value = defaultPlatformDataSourceForm();
+                platformDataSourceError.value = '';
+            };
+
+            const loadPlatformDataSources = async () => {
+                platformDataSourceLoading.value = true;
+                try {
+                    const res = await request('/online-data/data-sources');
+                    if (res.code === 200) {
+                        platformDataSources.value = Array.isArray(res.data) ? res.data : [];
+                    } else {
+                        platformDataSources.value = [];
+                        showToast(res.message || '数据源加载失败', 'error');
+                    }
+                } catch (error) {
+                    platformDataSources.value = [];
+                    showToast('数据源加载失败: ' + error.message, 'error');
+                } finally {
+                    platformDataSourceLoading.value = false;
+                }
+            };
+
+            const loadPlatformSyncTasks = async () => {
+                try {
+                    const res = await request('/online-data/sync-tasks?limit=20');
+                    platformSyncTasks.value = res.code === 200 && Array.isArray(res.data) ? res.data : [];
+                } catch (error) {
+                    platformSyncTasks.value = [];
+                    console.error('同步任务加载失败:', error);
+                }
+            };
+
+            const loadPlatformSyncLogs = async () => {
+                try {
+                    const res = await request('/online-data/sync-logs?limit=20');
+                    platformSyncLogs.value = res.code === 200 && Array.isArray(res.data) ? res.data : [];
+                } catch (error) {
+                    platformSyncLogs.value = [];
+                    console.error('同步日志加载失败:', error);
+                }
+            };
+
+            const loadPlatformDataSourcePanel = async () => {
+                if (!hotels.value.length && typeof loadHotels === 'function') {
+                    await loadHotels();
+                }
+                await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs()]);
+            };
+
+            const savePlatformDataSource = async () => {
+                platformDataSourceError.value = '';
+                const form = platformDataSourceForm.value;
+                if (!String(form.name || '').trim()) {
+                    platformDataSourceError.value = '请填写数据源名称';
+                    return;
+                }
+                if (!form.system_hotel_id) {
+                    platformDataSourceError.value = '请选择酒店';
+                    return;
+                }
+                platformDataSourceSaving.value = true;
+                try {
+                    const body = {
+                        id: form.id || undefined,
+                        name: String(form.name || '').trim(),
+                        system_hotel_id: Number(form.system_hotel_id),
+                        platform: form.platform,
+                        data_type: form.data_type,
+                        ingestion_method: form.ingestion_method,
+                        enabled: form.enabled ? 1 : 0,
+                        config: parsePlatformJsonField(form.config_json, '非敏感配置'),
+                    };
+                    if (String(form.secret_json || '').trim()) {
+                        body.secret = parsePlatformJsonField(form.secret_json, '敏感凭证');
+                    }
+                    const res = await request('/online-data/data-sources', {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    });
+                    if (res.code === 200) {
+                        showToast(res.message || '数据源保存成功');
+                        resetPlatformDataSourceForm();
+                        await loadPlatformDataSourcePanel();
+                    } else {
+                        platformDataSourceError.value = res.message || '数据源保存失败';
+                    }
+                } catch (error) {
+                    platformDataSourceError.value = error.message || '数据源保存失败';
+                } finally {
+                    platformDataSourceSaving.value = false;
+                }
+            };
+
+            const editPlatformDataSource = (source) => {
+                platformDataSourceForm.value = {
+                    ...defaultPlatformDataSourceForm(),
+                    id: source.id || '',
+                    name: source.name || '',
+                    system_hotel_id: source.system_hotel_id || '',
+                    platform: source.platform || 'custom',
+                    data_type: source.data_type || 'business',
+                    ingestion_method: source.ingestion_method || 'manual',
+                    enabled: Number(source.enabled ?? 1) === 1,
+                    config_json: JSON.stringify(source.config || {}, null, 2),
+                    secret_json: '',
+                };
+                platformDataSourceError.value = source.has_secret ? '该数据源已有凭证；如不填写敏感凭证，保存时会保留原凭证。' : '';
+            };
+
+            const deletePlatformDataSource = async (source) => {
+                if (!confirm(`确认停用数据源「${source.name}」？`)) return;
+                platformDataSourceDeletingId.value = source.id;
+                try {
+                    const res = await request(`/online-data/data-sources/${source.id}`, { method: 'DELETE' });
+                    if (res.code === 200) {
+                        showToast(res.message || '数据源已停用');
+                        await loadPlatformDataSourcePanel();
+                    } else {
+                        showToast(res.message || '停用失败', 'error');
+                    }
+                } catch (error) {
+                    showToast('停用失败: ' + error.message, 'error');
+                } finally {
+                    platformDataSourceDeletingId.value = null;
+                }
+            };
+
+            const syncPlatformDataSource = async (source) => {
+                platformDataSourceSyncingId.value = source.id;
+                try {
+                    const res = await request(`/online-data/data-sources/${source.id}/sync`, {
+                        method: 'POST',
+                        body: JSON.stringify({ trigger_type: 'manual' }),
+                    });
+                    if (res.code === 200) {
+                        showToast(`同步完成：${res.data?.saved_count || 0} 条入库`);
+                    } else {
+                        showToast(res.message || '同步失败', 'error');
+                    }
+                    await loadPlatformDataSourcePanel();
+                } catch (error) {
+                    showToast('同步失败: ' + error.message, 'error');
+                    await Promise.all([loadPlatformSyncTasks(), loadPlatformSyncLogs()]);
+                } finally {
+                    platformDataSourceSyncingId.value = null;
+                }
+            };
+
+            const importPlatformDataRowsFromText = async () => {
+                if (!platformImportForm.value.data_source_id) {
+                    showToast('请选择数据源', 'error');
+                    return;
+                }
+                let rows;
+                try {
+                    rows = JSON.parse(String(platformImportForm.value.rows_json || '').trim());
+                } catch (error) {
+                    showToast('导入 JSON 格式错误: ' + error.message, 'error');
+                    return;
+                }
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    showToast('导入内容必须是非空 JSON 数组', 'error');
+                    return;
+                }
+                platformDataImporting.value = true;
+                try {
+                    const res = await request('/online-data/data-import', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            data_source_id: Number(platformImportForm.value.data_source_id),
+                            rows,
+                        }),
+                    });
+                    if (res.code === 200) {
+                        showToast(`导入完成：${res.data?.saved_count || 0} 条入库`);
+                        platformImportForm.value.rows_json = '';
+                        await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadOnlineDataList()]);
+                    } else {
+                        showToast(res.message || '导入失败', 'error');
+                    }
+                } catch (error) {
+                    showToast('导入失败: ' + error.message, 'error');
+                } finally {
+                    platformDataImporting.value = false;
+                }
+            };
+
+            const platformSourceStatusClass = (status) => {
+                if (status === 'success' || status === 'ready') return 'bg-emerald-50 text-emerald-700';
+                if (status === 'failed') return 'bg-red-50 text-red-700';
+                if (status === 'partial_success' || status === 'waiting_config') return 'bg-amber-50 text-amber-700';
+                if (status === 'disabled') return 'bg-gray-100 text-gray-500';
+                return 'bg-blue-50 text-blue-700';
+            };
+
+            const platformTaskStatusClass = (status) => {
+                if (status === 'success') return 'bg-emerald-50 text-emerald-700';
+                if (status === 'failed') return 'bg-red-50 text-red-700';
+                if (status === 'partial_success') return 'bg-amber-50 text-amber-700';
+                return 'bg-blue-50 text-blue-700';
+            };
 
             const lifecycleMetricLabels = {
                 reports: '可研报告',
@@ -19475,7 +19986,7 @@
                     ['经营日报', data.summary],
                     ['OTA数据', data.ota],
                     ['竞对数据', data.competitors],
-                    ['点评数据', data.reviews],
+                    ['服务质量数据', data.service_quality],
                 ]
                     .filter(([, item]) => (item?.data_status || '') !== 'ok')
                     .map(([label]) => label);
@@ -21118,6 +21629,94 @@
             };
 
             // 登录
+            const resetRegisterForm = () => {
+                registerForm.value = {
+                    username: '',
+                    realname: '',
+                    password: '',
+                    confirm_password: ''
+                };
+            };
+
+            const openRegisterForm = () => {
+                registerMode.value = true;
+                loginError.value = '';
+                registerError.value = '';
+                registerSuccess.value = '';
+                nextTick(() => {
+                    const usernameInput = document.querySelector('[data-testid="register-username"]');
+                    if (usernameInput) usernameInput.focus();
+                });
+            };
+
+            const closeRegisterForm = () => {
+                registerMode.value = false;
+                registerError.value = '';
+                registerSuccess.value = '';
+                resetRegisterForm();
+                nextTick(() => {
+                    const usernameInput = document.querySelector('[data-testid="login-username"]');
+                    if (usernameInput) usernameInput.focus();
+                });
+            };
+
+            const handleRegister = async () => {
+                if (registerLoading.value) {
+                    return;
+                }
+
+                const username = String(registerForm.value.username || '').trim();
+                const realname = String(registerForm.value.realname || '').trim();
+                const password = String(registerForm.value.password || '');
+                const confirmPassword = String(registerForm.value.confirm_password || '');
+
+                registerError.value = '';
+                registerSuccess.value = '';
+
+                if (!username || !password || !confirmPassword) {
+                    registerError.value = '请填写用户名、密码和确认密码';
+                    return;
+                }
+                if (password !== confirmPassword) {
+                    registerError.value = '两次输入的密码不一致';
+                    return;
+                }
+
+                registerLoading.value = true;
+                try {
+                    const res = await request('/auth/register', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            username,
+                            realname,
+                            password,
+                            confirm_password: confirmPassword
+                        })
+                    });
+
+                    if (res.code === 200) {
+                        loginForm.value.username = username;
+                        loginForm.value.password = '';
+                        registerSuccess.value = '注册成功，请登录';
+                        resetRegisterForm();
+                        setTimeout(() => {
+                            registerMode.value = false;
+                            registerSuccess.value = '';
+                            nextTick(() => {
+                                const passwordInput = document.querySelector('[data-testid="login-password"]');
+                                if (passwordInput) passwordInput.focus();
+                            });
+                        }, 600);
+                    } else {
+                        registerError.value = res.message || res.msg || '注册失败';
+                    }
+                } catch (error) {
+                    registerError.value = error?.data?.message || error?.data?.msg || error?.message || '注册失败';
+                } finally {
+                    registerLoading.value = false;
+                }
+            };
+
             const handleLogin = async () => {
                 if (loading.value) {
                     return;
@@ -22154,13 +22753,36 @@
             const otaDiagnosisResultSections = computed(() => {
                 const result = otaDiagnosisResult.value || {};
                 const diagnosis = result.diagnosis || {};
+                if (Array.isArray(result.diagnosis_sections) && result.diagnosis_sections.length > 0) {
+                    const iconMap = {
+                        data_overview: ['fas fa-exclamation-circle', 'text-orange-500'],
+                        abnormal_metrics: ['fas fa-search', 'text-blue-500'],
+                        traffic: ['fas fa-chart-line', 'text-indigo-500'],
+                        conversion: ['fas fa-filter', 'text-cyan-500'],
+                        price_competitor: ['fas fa-tags', 'text-purple-500'],
+                        advertising_efficiency: ['fas fa-bullhorn', 'text-amber-500'],
+                        service_quality: ['fas fa-concierge-bell', 'text-teal-500'],
+                        actions: ['fas fa-check-circle', 'text-green-500'],
+                        data_gaps: ['fas fa-clipboard-check', 'text-slate-500'],
+                    };
+                    return result.diagnosis_sections.map(section => {
+                        const [icon, iconClass] = iconMap[section.key] || ['fas fa-list-check', 'text-slate-500'];
+                        return {
+                            title: section.title || section.key || '诊断分组',
+                            icon,
+                            iconClass,
+                            items: normalizeOtaDiagnosisList(section.items),
+                        };
+                    });
+                }
                 return [
                     { title: '数据概览', icon: 'fas fa-exclamation-circle', iconClass: 'text-orange-500', items: normalizeOtaDiagnosisList(diagnosis.data_overview || result.main_problems) },
                     { title: '异常指标', icon: 'fas fa-search', iconClass: 'text-blue-500', items: normalizeOtaDiagnosisList(diagnosis.abnormal_metrics || result.possible_reasons) },
                     { title: '流量问题', icon: 'fas fa-chart-line', iconClass: 'text-indigo-500', items: normalizeOtaDiagnosisList(diagnosis.traffic_analysis || diagnosis.exposure_analysis) },
                     { title: '转化问题', icon: 'fas fa-filter', iconClass: 'text-cyan-500', items: normalizeOtaDiagnosisList([diagnosis.visit_conversion_analysis, diagnosis.order_conversion_analysis].filter(Boolean)) },
                     { title: '价格/竞对问题', icon: 'fas fa-tags', iconClass: 'text-purple-500', items: normalizeOtaDiagnosisList([diagnosis.price_analysis, diagnosis.competitor_analysis].filter(Boolean)) },
-                    { title: '点评问题', icon: 'fas fa-comment-dots', iconClass: 'text-yellow-500', items: normalizeOtaDiagnosisList(diagnosis.comment_analysis) },
+                    { title: '广告效率', icon: 'fas fa-bullhorn', iconClass: 'text-amber-500', items: normalizeOtaDiagnosisList(diagnosis.advertising_analysis) },
+                    { title: '服务质量', icon: 'fas fa-concierge-bell', iconClass: 'text-teal-500', items: normalizeOtaDiagnosisList(diagnosis.service_quality_analysis) },
                     { title: '运营建议', icon: 'fas fa-check-circle', iconClass: 'text-green-500', items: normalizeOtaDiagnosisList(diagnosis.actions || result.recommended_actions) },
                     { title: '数据缺失提示', icon: 'fas fa-clipboard-check', iconClass: 'text-slate-500', items: normalizeOtaDiagnosisList(result.missing_sections || result.data_anomalies_needing_confirmation) },
                 ];
@@ -22247,22 +22869,22 @@
                     name: '异常检测',
                     status: 'orchestrated',
                     statusText: '可编排',
-                    delivery: '读取经营波动和预警记录，预测收入、间夜、转化或点评异常风险。',
+                    delivery: '读取经营波动、流量转化、广告投放、服务质量和预警记录，识别收入、间夜、订单或转化异常风险。',
                     searchQuery: 'hotel OTA anomaly detection STL ESD isolation forest conversion rate alert root cause',
                     aiTask: '识别最近趋势中的异常信号，输出影响判断、排查优先级和恢复动作。',
                     moduleLabel: '项目AI管理 / 运营管理 / 策见·预警推送',
                     module: { page: 'ops-insight', loader: 'operation-alerts' },
                 },
                 {
-                    key: 'review-topic',
-                    name: '点评主题与服务缺口识别',
+                    key: 'service-quality',
+                    name: '服务质量与转化缺口识别',
                     status: 'orchestrated',
                     statusText: '可编排',
-                    delivery: '读取点评和评分数据，预测服务缺口对转化、评分和收入的影响。',
-                    searchQuery: 'hotel review topic modeling BERT embedding service gap detection negative review recall',
-                    aiTask: '输出高频差评主题、可能影响的经营指标、整改优先级和复核要求。',
-                    moduleLabel: '数据配置 / 携程点评 / 美团点评',
-                    module: { page: 'data-config' },
+                    delivery: '读取服务质量分、PSI、流量转化、订单和广告数据，判断服务质量对转化和收入的影响。',
+                    searchQuery: 'hotel OTA service quality PSI traffic conversion service gap revenue impact',
+                    aiTask: '输出服务质量风险、可能影响的经营指标、整改优先级和复核要求。',
+                    moduleLabel: '数据配置 / OTA 服务质量 / 运营管理',
+                    module: { page: 'online-data' },
                 },
             ];
             const revenueResearchStatusClass = (status) => ({
@@ -23820,14 +24442,8 @@
                         case 'meituan-traffic':
                             apiUrl = '/online-data/fetch-meituan-traffic';
                             break;
-                        case 'ctrip-comments':
-                            apiUrl = '/online-data/fetch-ctrip-comments';
-                            break;
                         case 'ctrip-ads':
                             apiUrl = '/online-data/fetch-ctrip-ads';
-                            break;
-                        case 'meituan-comments':
-                            apiUrl = '/online-data/fetch-meituan-comments';
                             break;
                         case 'meituan-ads':
                             apiUrl = '/online-data/fetch-meituan-ads';
@@ -24981,113 +25597,11 @@
                 }
             };
             const fetchCtripComments = async () => {
-                const form = ctripCommentForm.value;
-                form.requestUrl = (form.requestUrl || '').trim();
-                form.hotelId = (form.hotelId || '').trim();
-                form.spidertoken = (form.spidertoken || '').trim();
-                form.cookies = (form.cookies || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
-                form.payloadJson = (form.payloadJson || '').trim();
-
-                if (!form.requestUrl) {
-                    showToast('人工抓包入口需要 Network 里的 getCommentList 接口 Request URL；只有点评页地址时请点击上方“直接抓取点评并入库”。', 'error');
-                    return;
-                }
-                if (!form.spidertoken) {
-                    showToast('请输入 spidertoken', 'error');
-                    return;
-                }
-                if (!form.cookies) {
-                    showToast('请输入 Cookie', 'error');
-                    return;
-                }
-                if (!form.payloadJson) {
-                    showToast('请粘贴 getCommentList 原始 Payload JSON', 'error');
-                    return;
-                }
-
-                fetchingData.value = true;
-                try {
-                    const selectedConfig = getActiveCtripConfig();
-                    const res = await request('/online-data/fetch-ctrip-comments', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            request_url: form.requestUrl,
-                            hotel_id: form.hotelId,
-                            cookies: form.cookies,
-                            spidertoken: form.spidertoken,
-                            token: form.spidertoken,
-                            page_index: Number(form.pageIndex || 1),
-                            page_size: Number(form.pageSize || 50),
-                            payload_json: form.payloadJson,
-                            system_hotel_id: selectedCtripHotelId.value || user.value?.hotel_id || null,
-                        }),
-                    });
-
-                    if (res.code === 200) {
-                        ctripCommentResult.value = res.data;
-                        onlineDataResult.value = res.data;
-                        showRawData.value = false;
-                        const total = res.data?.total || res.data?.data?.length || 0;
-                        const savedCount = res.data?.saved_count || 0;
-                        showToast(`获取成功，共 ${total} 条点评，已保存 ${savedCount} 条`);
-                        await loadLatestCtripData({ silent: true });
-                    } else {
-                        await handleCtripFetchFailure(res.message || '获取失败');
-                    }
-                } catch (e) {
-                    await handleCtripFetchFailure('请求失败: ' + e.message);
-                } finally {
-                    fetchingData.value = false;
-                }
+                showToast('点评采集已禁用。当前只采集业务、流量、订单、广告和服务质量数据。', 'warning');
             };
 
             const runCtripCommentBrowserCapture = async () => {
-                const systemHotelId = selectedCtripHotelId.value || user.value?.hotel_id || null;
-                const hotelId = String(ctripCommentForm.value.hotelId || '').trim();
-                const profileId = String(ctripCommentBrowserCaptureForm.value.profileId || hotelId || systemHotelId || '').trim();
-                if (!systemHotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-                if (!profileId) {
-                    showToast('请填写浏览器 Profile ID 或 OTA酒店ID', 'error');
-                    return;
-                }
-
-                ctripCommentBrowserCaptureRunning.value = true;
-                fetchingData.value = true;
-                ctripCommentBrowserCaptureResult.value = null;
-                try {
-                    const res = await request('/online-data/capture-ctrip-comments-browser', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            hotel_id: hotelId,
-                            profile_id: profileId,
-                            hotel_name: getHotelNameById(systemHotelId),
-                            page_url: ctripCommentBrowserCaptureForm.value.pageUrl,
-                            api_keyword: ctripCommentBrowserCaptureForm.value.apiKeyword,
-                        }),
-                    });
-                    if (res.code === 200) {
-                        ctripCommentBrowserCaptureResult.value = res.data || {};
-                        ctripCommentResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        showRawData.value = false;
-                        showToast(res.message || `抓取完成，已入库 ${res.data?.saved_count || 0} 条`);
-                        await loadLatestCtripData({ silent: true });
-                        await refreshOnlineHistory();
-                    } else {
-                        showToast(res.message || '抓取失败', 'error');
-                    }
-                } catch (e) {
-                    const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
-                    showToast('抓取失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
-                    ctripCommentBrowserCaptureResult.value = e?.data?.data || { error: e.message };
-                } finally {
-                    ctripCommentBrowserCaptureRunning.value = false;
-                    fetchingData.value = false;
-                }
+                showToast('点评浏览器采集已禁用。请使用业务、流量、订单、广告和服务质量采集入口。', 'warning');
             };
 
             const fetchCtripOverviewData = async () => {
@@ -25564,89 +26078,8 @@
                 }
             };
 
-            const isMeituanCommentSignatureError = (message = '') => {
-                return /403|418|mtgsig|commentsInfo|signature|sign|token|签名|拒绝访问|过期/i.test(String(message || ''));
-            };
-
-            // 美团差评数据获取
             const fetchMeituanComments = async () => {
-                // 去除所有字段的前后空格和换行符
-                meituanCommentForm.value.partnerId = (meituanCommentForm.value.partnerId || '').trim();
-                meituanCommentForm.value.poiId = (meituanCommentForm.value.poiId || '').trim();
-                meituanCommentForm.value.requestUrl = (meituanCommentForm.value.requestUrl || '').trim();
-                meituanCommentForm.value.cookies = (meituanCommentForm.value.cookies || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
-                meituanCommentForm.value.mtgsig = (meituanCommentForm.value.mtgsig || '').trim();
-                meituanCommentForm.value.mtsiEbU = (meituanCommentForm.value.mtsiEbU || '').trim();
-                
-                debugLog('fetchMeituanComments called', meituanCommentForm.value);
-                if (!meituanCommentForm.value.partnerId) {
-                    showToast('请输入Partner ID（商家ID）', 'error');
-                    return;
-                }
-                if (!meituanCommentForm.value.poiId) {
-                    showToast('请输入POI ID（门店ID）', 'error');
-                    return;
-                }
-                if (!meituanCommentForm.value.cookies) {
-                    showToast('请输入Cookies', 'error');
-                    return;
-                }
-                fetchingCommentData.value = true;
-                meituanCommentResult.value = null;
-                meituanCommentSuccess.value = false; // 重置成功状态
-                
-                try {
-                    debugLog('发送请求到后端...');
-                    const res = await request('/online-data/fetch-meituan-comments', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            partner_id: meituanCommentForm.value.partnerId,
-                            poi_id: meituanCommentForm.value.poiId,
-                            request_url: meituanCommentForm.value.requestUrl,
-                            cookies: meituanCommentForm.value.cookies,
-                            mtgsig: meituanCommentForm.value.mtgsig,
-                            _mtsi_eb_u: meituanCommentForm.value.mtsiEbU,
-                            reply_type: meituanCommentForm.value.replyType,
-                            tag: meituanCommentForm.value.tag,
-                            limit: meituanCommentForm.value.limit,
-                            auto_save: true,
-                            system_hotel_id: meituanForm.value.hotelId || user.value?.hotel_id || null,
-                        }),
-                    });
-                    
-                    debugLog('后端返回:', res);
-                    
-                    if (res.code === 200) {
-                        meituanCommentResult.value = res.data;
-                        meituanCommentSuccess.value = true; // 设置成功状态
-                        const savedCount = res.data.saved_count || 0;
-                        const total = res.data.total || 0;
-                        if (savedCount > 0) {
-                            showToast(`获取成功！共 ${total} 条评论，已保存 ${savedCount} 条新评论`);
-                            await refreshOnlineHistory();
-                        } else if (total > 0) {
-                            showToast(`获取成功！共 ${total} 条评论，无新增评论`);
-                        } else {
-                    showToast('获取成功，待形成趋势样本');
-                        }
-                    } else {
-                        const message = res.message || '获取失败';
-                        console.error('获取失败:', message);
-                        if (isMeituanCommentSignatureError(message)) {
-                            showMeituanCommentAdvanced.value = true;
-                        }
-                        showToast(message, 'error');
-                    }
-                } catch (e) {
-                    const message = '请求失败: ' + (e && e.message ? e.message : e);
-                    console.error('请求异常:', e);
-                    if (isMeituanCommentSignatureError(message)) {
-                        showMeituanCommentAdvanced.value = true;
-                    }
-                    showToast(message, 'error');
-                } finally {
-                    fetchingCommentData.value = false;
-                }
+                showToast('点评采集已禁用。当前只采集业务、流量、订单、广告和服务质量数据。', 'warning');
             };
             
             // 格式化评论时间（美团返回毫秒时间戳）
@@ -28538,14 +28971,61 @@
                 }
             };
 
+            const formatUserDeleteReferences = (references = []) => {
+                return references.map(item => `${item.label || item.table} ${item.count}`).join('、');
+            };
+
+            const forceDeleteUser = async (u, references = []) => {
+                const referenceText = formatUserDeleteReferences(references);
+                if (!confirm(`用户"${u.username}"存在关联数据${referenceText ? `：${referenceText}` : ''}。确定强制删除该用户吗？历史日志会保留，但会解除用户关联。`)) {
+                    return false;
+                }
+
+                const res = await request(`/users/${u.id}`, {
+                    method: 'DELETE',
+                    body: JSON.stringify({ force: true }),
+                });
+                if (res.code === 200) {
+                    showToast('强制删除成功');
+                    await loadUsers();
+                    return true;
+                }
+
+                showToast(res.message || res.msg || '强制删除失败', 'error');
+                return false;
+            };
+
             const deleteUser = async (u) => {
                 if (!confirm(`确定要删除用户"${u.username}"吗？`)) return;
-                const res = await request(`/users/${u.id}`, { method: 'DELETE' });
-                if (res.code === 200) {
-                    showToast('删除成功');
-                    loadUsers();
-                } else {
-                    showToast(res.message || '删除失败', 'error');
+                try {
+                    const res = await request(`/users/${u.id}`, { method: 'DELETE' });
+                    if (res.code === 200) {
+                        showToast('删除成功');
+                        loadUsers();
+                    } else {
+                        showToast(res.message || res.msg || '删除失败', 'error');
+                    }
+                } catch (err) {
+                    console.error('删除用户失败:', err);
+                    const data = err?.data || {};
+                    const references = Array.isArray(data?.data?.references) ? data.data.references : [];
+                    const referenceText = formatUserDeleteReferences(references);
+                    const canForceDelete = data?.code === 409 && data?.data?.can_force_delete === true && user.value?.is_super_admin;
+
+                    if (canForceDelete) {
+                        try {
+                            const forced = await forceDeleteUser(u, references);
+                            if (forced) return;
+                        } catch (forceErr) {
+                            const forceData = forceErr?.data || {};
+                            const forceReferences = Array.isArray(forceData?.data?.references) ? forceData.data.references : [];
+                            const forceReferenceText = formatUserDeleteReferences(forceReferences);
+                            showToast(`${forceData.message || forceData.msg || forceErr.message || '强制删除失败'}${forceReferenceText ? `：${forceReferenceText}` : ''}`, 'error');
+                            return;
+                        }
+                    }
+
+                    showToast(`${data.message || data.msg || err.message || '删除失败'}${referenceText ? `：${referenceText}` : ''}`, 'error');
                 }
             };
 
@@ -31758,7 +32238,7 @@
                 weatherDemandHint, weatherDecisionTags, weatherDecisionInsights, weatherLocationName, selectedWeatherCity, weatherCityPickerOpen, weatherCityChoices, selectWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, weatherToday, weatherForecastDays, weatherImpactTone, weatherLoading, weatherError,
                 homeQuickEntries, hiddenHomeQuickEntries, homeQuickLayoutEditing, homeQuickLayoutSaving, homeQuickLayoutSaveHint, homeQuickDragKey, homeQuickDragOverKey, startHomeQuickDrag, enterHomeQuickDrag, dropHomeQuickDrag, endHomeQuickDrag, toggleHomeQuickEntry, resetHomeQuickLayout, saveHomeQuickLayout, openHomeQuickEntry,
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusClass, loadLifecycleOverview,
-                isLoggedIn, loading, loginError, user, token, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
+                isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
                 directorEntryVisible, directorEntryAnswer, directorEntryError,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 revenueResearchProducts, revenueResearchStatusClass, revenueResearchRuns, revenueResearchHotelId, revenueResearchHotelOptions, revenueResearchSteps, revenueResearchRunFor,
@@ -31794,14 +32274,14 @@
                 hotelForm, hotelCodeErrorText, hotelOtaConfig, hotelOtaConfigStatusText, userForm,
                 filteredHotels, filteredUsers,
                 permissionUser, userPermissions,
-                handleLogin, handleLogout, forgotPassword, openDirectorEntry, closeDirectorEntry, verifyDirectorEntry, showToast,
+                handleLogin, handleRegister, openRegisterForm, closeRegisterForm, handleLogout, forgotPassword, openDirectorEntry, closeDirectorEntry, verifyDirectorEntry, showToast,
                 openHotelModal, openHotelManagementForOta, saveHotel, deleteHotel, toggleHotelStatus,
                 openUserModal, saveUser, deleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, shouldShowOnlineFetchResult, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripOverviewForm, ctripOverviewResult, ctripOverviewFetching, ctripOverviewMetricCards, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripOverviewForm, ctripOverviewResult, ctripOverviewFetching, ctripOverviewMetricCards, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,

@@ -177,6 +177,67 @@ final class DailyReportTest extends TestCase
         self::assertSame($reportData, $detail['raw_data']);
     }
 
+    public function testDailyDetailBuildsOtaChannelSupplementWithoutReviews(): void
+    {
+        $controller = $this->controller();
+        $hotel = (object)['name' => 'OTA Hotel', 'salable_rooms_total' => 20];
+        $reportData = [
+            'xb_revenue' => 1000,
+            'xb_rooms' => 5,
+            'salable_rooms' => 20,
+        ];
+
+        $detail = $this->invokeNonPublic($controller, 'calculateReportDetail', [
+            $hotel,
+            $reportData,
+            [],
+            $reportData,
+            '2026-05-10',
+            10,
+            31,
+            [
+                [
+                    'data_type' => 'advertising',
+                    'amount' => '120.50',
+                    'data_value' => 4.8,
+                    'list_exposure' => 1000,
+                    'detail_exposure' => 80,
+                    'book_order_num' => 4,
+                    'quantity' => 5,
+                    'raw_data' => json_encode(['orderAmount' => 600, 'campaignId' => 'safe-campaign'], JSON_UNESCAPED_UNICODE),
+                ],
+                [
+                    'data_type' => 'ads',
+                    'raw_data' => json_encode(['cost' => 30, 'revenue' => 90, 'impressions' => 200, 'clicks' => 20, 'bookings' => 1], JSON_UNESCAPED_UNICODE),
+                ],
+                [
+                    'data_type' => 'quality',
+                    'data_value' => 88.6,
+                    'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
+                ],
+                [
+                    'data_type' => 'review',
+                    'comment_score' => 1.0,
+                    'raw_data' => json_encode(['content' => 'disabled review data'], JSON_UNESCAPED_UNICODE),
+                ],
+            ],
+        ]);
+
+        self::assertSame('ota_channel', $detail['ota_channel_supplement']['scope']);
+        self::assertSame('ok', $detail['ota_channel_supplement']['data_status']);
+        self::assertSame(150.5, $detail['ota_channel_supplement']['advertising']['spend']);
+        self::assertSame(690.0, $detail['ota_channel_supplement']['advertising']['order_amount']);
+        self::assertSame(5, $detail['ota_channel_supplement']['advertising']['bookings']);
+        self::assertSame(1200, $detail['ota_channel_supplement']['advertising']['impressions']);
+        self::assertSame(100, $detail['ota_channel_supplement']['advertising']['clicks']);
+        self::assertSame(4.58, $detail['ota_channel_supplement']['advertising']['roas']);
+        self::assertSame(1, $detail['ota_channel_supplement']['service_quality']['sample_count']);
+        self::assertSame(88.6, $detail['ota_channel_supplement']['service_quality']['avg_psi_score']);
+        self::assertSame(92.5, $detail['ota_channel_supplement']['service_quality']['avg_service_score']);
+        self::assertArrayNotHasKey('reviews', $detail['ota_channel_supplement']);
+        self::assertSame(200.0, $detail['day_adr']);
+    }
+
     public function testDerivedFieldsProtectImportMappingTotals(): void
     {
         $controller = $this->controller();

@@ -27,6 +27,8 @@ class OtaStandardEtlService
         $platforms = [];
         $dailyFacts = [];
         $trafficFacts = [];
+        $advertisingFacts = [];
+        $qualityFacts = [];
         $commentFacts = [];
         $rejectedRows = [];
 
@@ -36,7 +38,9 @@ class OtaStandardEtlService
                 continue;
             }
 
-            $raw = $this->sanitizeRawData($this->decodeJson($row['raw_data'] ?? []));
+            $decodedRaw = $this->decodeJson($row['raw_data'] ?? []);
+            $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $decodedRaw['data_type'] ?? 'business'));
+            $raw = $this->sanitizeRawData($decodedRaw, $dataType === 'order');
             $source = $this->platformKey($this->firstText($row, $raw, ['source', 'platform', 'ota_source', 'otaSource']));
             $date = $this->dateValue($row['data_date'] ?? $row['date'] ?? $raw['dataDate'] ?? $raw['date'] ?? '');
             $hotelId = trim((string)($row['hotel_id'] ?? $raw['hotelId'] ?? $raw['poiId'] ?? ''));
@@ -59,7 +63,10 @@ class OtaStandardEtlService
 
             $systemHotelId = (int)($row['system_hotel_id'] ?? $raw['system_hotel_id'] ?? 0);
             $hotelKey = $systemHotelId > 0 ? 'system:' . $systemHotelId : $source . ':' . $hotelId;
-            $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $raw['data_type'] ?? 'business'));
+            if ($dataType === 'review') {
+                $rejectedRows[] = ['index' => $index, 'reason' => 'comment_collection_disabled', 'data_type' => 'review'];
+                continue;
+            }
             $platforms[$source] = [
                 'platform_key' => $source,
                 'platform_name' => $this->platformName($source),
@@ -76,24 +83,30 @@ class OtaStandardEtlService
                 $trafficFacts[] = $this->trafficFact($row, $raw, $hotelKey, $source, $date);
                 continue;
             }
-            if ($dataType === 'review') {
-                $commentFacts[] = $this->commentFact($row, $raw, $hotelKey, $source, $date);
+            if ($dataType === 'advertising') {
+                $advertisingFacts[] = $this->advertisingFact($row, $raw, $hotelKey, $source, $date);
                 continue;
             }
-
+            if ($dataType === 'quality') {
+                $qualityFacts[] = $this->qualityFact($row, $raw, $hotelKey, $source, $date);
+                continue;
+            }
             $dailyFacts[] = $this->dailyFact($row, $raw, $hotelKey, $source, $date, $dataType);
         }
 
+        $acceptedCount = count($dailyFacts) + count($trafficFacts) + count($advertisingFacts) + count($qualityFacts) + count($commentFacts);
         return [
-            'status' => count($dailyFacts) + count($trafficFacts) + count($commentFacts) > 0 ? 'ready' : 'empty',
+            'status' => $acceptedCount > 0 ? 'ready' : 'empty',
             'dim_hotel' => array_values($hotels),
             'dim_platform' => array_values($platforms),
             'fact_ota_daily' => $dailyFacts,
             'fact_ota_traffic' => $trafficFacts,
+            'fact_ota_advertising' => $advertisingFacts,
+            'fact_ota_quality' => $qualityFacts,
             'fact_ota_comment' => $commentFacts,
             'data_quality' => [
                 'input_rows' => count($rows),
-                'accepted_rows' => count($dailyFacts) + count($trafficFacts) + count($commentFacts),
+                'accepted_rows' => $acceptedCount,
                 'rejected_rows' => $rejectedRows,
             ],
         ];
@@ -341,6 +354,65 @@ class OtaStandardEtlService
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
      */
+    private function advertisingFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
+    {
+        $detail = $this->rawDetail($raw);
+        $spend = $this->firstNumber($row, $detail, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend']);
+        $orderAmount = $this->firstNumber($row, $detail, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']);
+        $impressions = (int)round($this->firstNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']));
+        $clicks = (int)round($this->firstNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']));
+        $bookings = (int)round($this->firstNumber($row, $detail, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']));
+        $roomNights = $this->firstNumber($row, $detail, ['quantity', 'room_nights', 'roomNights', 'nights']);
+        $roas = $this->nullableNumber($row, $detail, ['data_value', 'dataValue', 'roas', 'roi']);
+
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'campaign_id' => (string)($detail['campaignId'] ?? $detail['campaign_id'] ?? $row['dimension'] ?? ''),
+            'spend' => round($spend, 2),
+            'order_amount' => round($orderAmount, 2),
+            'bookings' => $bookings,
+            'room_nights' => round($roomNights, 2),
+            'impressions' => $impressions,
+            'clicks' => $clicks,
+            'ctr' => $impressions > 0 ? round($clicks / $impressions * 100, 2) : $this->nullablePercent($row, $detail, ['ctr']),
+            'cvr' => $this->nullablePercent($row, $detail, ['flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate'])
+                ?? ($clicks > 0 ? round($bookings / $clicks * 100, 2) : null),
+            'roas' => $roas !== null ? round($roas, 2) : ($spend > 0 ? round($orderAmount / $spend, 2) : null),
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'advertising', $date),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function qualityFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
+    {
+        $detail = $this->rawDetail($raw);
+
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'service_score' => $this->nullableNumber($row, $detail, ['service_score', 'serviceScore']),
+            'psi_score' => $this->nullableNumber($row, $detail, ['data_value', 'dataValue', 'psi_score', 'psiScore', 'psi', 'PSI']),
+            'im_score' => $this->nullableNumber($row, $detail, ['im_score', 'imScore']),
+            'hotel_collect' => $this->nullableNumber($row, $detail, ['hotel_collect', 'hotelCollect', 'favoriteCount']),
+            'reply_rate' => $this->nullablePercent($row, $detail, ['reply_rate', 'replyRate', 'replyrate5m']),
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'quality', $date),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
     private function commentFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
     {
         $score = $this->nullableNumber($row, $raw, ['comment_score', 'commentScore', 'score', 'data_value', 'dataValue']);
@@ -494,10 +566,28 @@ class OtaStandardEtlService
         if (in_array($value, ['traffic', 'flow'], true)) {
             return 'traffic';
         }
+        if (in_array($value, ['order', 'orders', 'order_list', 'order-list'], true)) {
+            return 'order';
+        }
+        if (in_array($value, ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns'], true)) {
+            return 'advertising';
+        }
+        if (in_array($value, ['quality', 'service', 'service_quality', 'psi'], true)) {
+            return 'quality';
+        }
         if (in_array($value, ['review', 'reviews', 'comment', 'comments'], true)) {
             return 'review';
         }
         return $value !== '' ? $value : 'business';
+    }
+
+    /**
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function rawDetail(array $raw): array
+    {
+        return is_array($raw['row'] ?? null) ? array_merge($raw, $raw['row']) : $raw;
     }
 
     /**
@@ -621,18 +711,127 @@ class OtaStandardEtlService
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
      */
-    private function sanitizeRawData(array $raw): array
+    private function sanitizeRawData(array $raw, bool $orderContext = false): array
     {
+        $sanitized = [];
         foreach ($raw as $key => $value) {
-            if (preg_match('/cookie|token|authorization|mtgsig|password|secret/i', (string)$key)) {
-                unset($raw[$key]);
+            $keyText = (string)$key;
+            if (preg_match('/cookie|token|authorization|mtgsig|password|secret/i', $keyText)) {
                 continue;
             }
+
+            $childOrderContext = $orderContext || $this->isOrderContainerKey($keyText);
             if (is_array($value)) {
-                $raw[$key] = $this->sanitizeRawData($value);
+                $sanitized[$key] = $this->sanitizeRawData($value, $childOrderContext);
+                continue;
             }
+
+            if ($childOrderContext || $this->isOrderPiiKey($keyText)) {
+                $this->appendRedactedOrderField($sanitized, $keyText, $value);
+                continue;
+            }
+
+            $sanitized[$key] = $value;
         }
-        return $raw;
+        return $sanitized;
+    }
+
+    /**
+     * @param array<mixed> $target
+     */
+    private function appendRedactedOrderField(array &$target, string $key, mixed $value): void
+    {
+        if ($this->isOrderIdKey($key)) {
+            $text = trim((string)$value);
+            if ($text !== '') {
+                $target[$this->redactedOrderFieldName($key, 'hash')] = hash('sha256', 'ota_order|' . $text);
+            }
+            return;
+        }
+        if ($this->isPhoneKey($key)) {
+            $masked = $this->maskPhone((string)$value);
+            if ($masked !== '') {
+                $target[$this->redactedOrderFieldName($key, 'masked')] = $masked;
+            }
+            return;
+        }
+        if ($this->isGuestNameKey($key)) {
+            $masked = $this->maskName((string)$value);
+            if ($masked !== '') {
+                $target[$this->redactedOrderFieldName($key, 'masked')] = $masked;
+            }
+            return;
+        }
+        if ($this->isSensitiveOrderTextKey($key)) {
+            return;
+        }
+
+        $target[$key] = $value;
+    }
+
+    private function isOrderContainerKey(string $key): bool
+    {
+        return preg_match('/order[_-]?(list|rows|items|data|detail|details|info)|orders/i', $key) === 1;
+    }
+
+    private function isOrderPiiKey(string $key): bool
+    {
+        return $this->isOrderIdKey($key)
+            || $this->isPhoneKey($key)
+            || $this->isGuestNameKey($key)
+            || $this->isSensitiveOrderTextKey($key);
+    }
+
+    private function isOrderIdKey(string $key): bool
+    {
+        return preg_match('/^(order[_-]?(id|no|num|number|sn)|booking[_-]?(id|no|number))$/i', $key) === 1;
+    }
+
+    private function isPhoneKey(string $key): bool
+    {
+        return preg_match('/(phone|mobile|tel)$/i', $key) === 1;
+    }
+
+    private function isGuestNameKey(string $key): bool
+    {
+        return preg_match('/(guest|customer|contact|user|traveller|passenger)[_-]?name$/i', $key) === 1;
+    }
+
+    private function isSensitiveOrderTextKey(string $key): bool
+    {
+        return preg_match('/(certificate|credential|id[_-]?card|card[_-]?no|passport|remark|memo|note|address)/i', $key) === 1;
+    }
+
+    private function redactedOrderFieldName(string $key, string $suffix): string
+    {
+        if ($this->isOrderIdKey($key)) {
+            return 'order_id_hash';
+        }
+        $name = preg_replace('/(?<!^)[A-Z]/', '_$0', $key) ?? $key;
+        $name = strtolower((string)preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
+        $name = trim($name, '_');
+        return ($name !== '' ? $name : 'field') . '_' . $suffix;
+    }
+
+    private function maskPhone(string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', $value) ?? '';
+        if ($digits === '') {
+            return '';
+        }
+        if (strlen($digits) <= 4) {
+            return str_repeat('*', strlen($digits));
+        }
+        return str_repeat('*', strlen($digits) - 4) . substr($digits, -4);
+    }
+
+    private function maskName(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        return mb_substr($value, 0, 1) . '***';
     }
 
     private function tableExists(string $table): bool

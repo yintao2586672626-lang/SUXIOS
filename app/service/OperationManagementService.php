@@ -18,8 +18,8 @@ class OperationManagementService
     {
         $summary = $this->buildSummary($hotelIds, $hotelId, $date);
         $ota = $this->buildOta($hotelIds, $date);
-        $reviews = $this->buildReviews($hotelIds, $date);
-        $competitors = $this->buildCompetitors($hotelIds, $date, $summary, $reviews);
+        $serviceQuality = $this->buildServiceQuality($hotelIds, $date);
+        $competitors = $this->buildCompetitors($hotelIds, $date, $summary);
         $holiday = $this->buildHoliday($date);
         $abnormalFlags = [];
 
@@ -31,7 +31,7 @@ class OperationManagementService
             '经营日报' => $summary,
             'OTA数据' => $ota,
             '竞对数据' => $competitors,
-            '点评数据' => $reviews,
+            '服务质量数据' => $serviceQuality,
         ] as $module => $data) {
             if (($data['data_status'] ?? '') === self::DATA_PENDING) {
                 $abnormalFlags[] = $module . '为空，待接入真实数据';
@@ -42,7 +42,7 @@ class OperationManagementService
             'summary' => $summary,
             'ota' => $ota,
             'competitors' => $competitors,
-            'reviews' => $reviews,
+            'service_quality' => $serviceQuality,
             'holiday' => $holiday,
             'abnormal_flags' => array_values(array_unique($abnormalFlags)),
         ];
@@ -62,7 +62,7 @@ class OperationManagementService
         $todayOta = $fullData['ota'] ?? [];
         $summary = $fullData['summary'] ?? [];
         $competitors = $fullData['competitors'] ?? [];
-        $reviews = $fullData['reviews'] ?? [];
+        $serviceQuality = $fullData['service_quality'] ?? [];
         $holiday = $fullData['holiday'] ?? [];
         $rootCauses = [];
 
@@ -86,8 +86,10 @@ class OperationManagementService
             $rootCauses[] = $this->cause('price_high', '价格偏高', 5, 0.75, '本店价格高于竞对均价10%以上', '按房型检查价差，必要时做小幅跟价或活动补贴');
         }
 
-        if (($reviews['score'] ?? 0) > 0 && ($competitors['avg_score'] ?? 0) > 0 && $reviews['score'] < $competitors['avg_score'] - 0.1) {
-            $rootCauses[] = $this->cause('score_low', '评分偏低', 6, 0.72, '本店评分低于竞对均分0.1以上', '优先处理近期差评关键词和可评价订单转化');
+        $psiScore = (float)($serviceQuality['avg_psi_score'] ?? 0);
+        $serviceScore = (float)($serviceQuality['avg_service_score'] ?? 0);
+        if (($serviceQuality['data_status'] ?? '') === self::DATA_OK && (($psiScore > 0 && $psiScore < 80) || ($serviceScore > 0 && $serviceScore < 80))) {
+            $rootCauses[] = $this->cause('service_quality_low', '服务质量偏低', 6, 0.72, 'OTA服务质量或PSI低于80分', '优先复核服务质量扣分项、履约问题和影响转化的服务节点');
         }
 
         if (($holiday['days_left'] ?? 999) < 15 && ($holiday['data_status'] ?? '') === self::DATA_OK) {
@@ -102,7 +104,7 @@ class OperationManagementService
                 'problem_level' => 'data_insufficient',
                 'conclusion' => '数据不足，建议先补齐采集数据',
                 'root_causes' => [],
-                'next_actions' => ['补齐OTA曝光、访客、订单、竞对价格和点评数据'],
+                'next_actions' => ['补齐OTA曝光、访客、订单、竞对价格、广告和服务质量数据'],
             ];
         }
 
@@ -1704,7 +1706,7 @@ class OperationManagementService
         return $base;
     }
 
-    private function buildCompetitors(array $hotelIds, string $date, array $summary, array $reviews): array
+    private function buildCompetitors(array $hotelIds, string $date, array $summary): array
     {
         $base = [
             'avg_price' => 0,
@@ -1770,8 +1772,59 @@ class OperationManagementService
         $base['avg_price'] = $this->avg($prices);
         $base['avg_score'] = $this->avg($scores);
         $base['price_gap'] = $base['avg_price'] > 0 ? round((float)($summary['adr'] ?? 0) - $base['avg_price'], 2) : 0;
-        $base['score_gap'] = $base['avg_score'] > 0 ? round((float)($reviews['score'] ?? 0) - $base['avg_score'], 2) : 0;
+        $base['score_gap'] = 0;
         $base['rank_position'] = !empty($ranks) ? min($ranks) : null;
+        $base['data_status'] = self::DATA_OK;
+
+        return $base;
+    }
+
+    private function buildServiceQuality(array $hotelIds, string $date): array
+    {
+        return $this->buildServiceQualityFromRows($this->onlineRows($hotelIds, $date, $date));
+    }
+
+    private function buildServiceQualityFromRows(array $rows): array
+    {
+        $base = [
+            'avg_psi_score' => 0,
+            'avg_service_score' => 0,
+            'sample_count' => 0,
+            'data_status' => self::DATA_PENDING,
+        ];
+
+        $psiScores = [];
+        $serviceScores = [];
+        foreach ($rows as $row) {
+            $dataType = strtolower((string)($row['data_type'] ?? ''));
+            if (!in_array($dataType, ['quality', 'service', 'service_quality', 'psi'], true)) {
+                continue;
+            }
+
+            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
+            $psi = $this->firstNumericMetric($raw, ['psiScore', 'psi_score', 'psi', 'serviceQualityScore', 'qualityScore']);
+            if ($psi === null) {
+                $psi = $this->firstNumericMetric($row, ['data_value']);
+            }
+            $serviceScore = $this->firstNumericMetric($raw, ['serviceScore', 'service_score', 'dayReportServiceScore', 'service_score_value']);
+
+            if ($psi !== null && $psi > 0) {
+                $psiScores[] = $psi;
+            }
+            if ($serviceScore !== null && $serviceScore > 0) {
+                $serviceScores[] = $serviceScore;
+            }
+            if (($psi !== null && $psi > 0) || ($serviceScore !== null && $serviceScore > 0)) {
+                $base['sample_count']++;
+            }
+        }
+
+        if ($base['sample_count'] <= 0) {
+            return $base;
+        }
+
+        $base['avg_psi_score'] = $this->avg($psiScores);
+        $base['avg_service_score'] = $this->avg($serviceScores);
         $base['data_status'] = self::DATA_OK;
 
         return $base;
@@ -1998,8 +2051,10 @@ class OperationManagementService
         if (($full['competitors']['price_gap'] ?? 0) > 10) {
             $alerts[] = $this->alert($id++, $hotelId ?: ($hotelIds[0] ?? 0), 'price_high', 'medium', '价格偏高', '本店价格高于竞对均价', $date);
         }
-        if (($full['reviews']['score'] ?? 5) > 0 && ($full['reviews']['score'] ?? 5) < 4.5) {
-            $alerts[] = $this->alert($id++, $hotelId ?: ($hotelIds[0] ?? 0), 'review_risk', 'medium', '点评风险', '当前评分低于4.5', $date);
+        $psiScore = (float)($full['service_quality']['avg_psi_score'] ?? 0);
+        $serviceScore = (float)($full['service_quality']['avg_service_score'] ?? 0);
+        if (($full['service_quality']['data_status'] ?? '') === self::DATA_OK && (($psiScore > 0 && $psiScore < 80) || ($serviceScore > 0 && $serviceScore < 80))) {
+            $alerts[] = $this->alert($id++, $hotelId ?: ($hotelIds[0] ?? 0), 'service_quality_low', 'medium', '服务质量偏低', 'OTA服务质量或PSI低于80分', $date);
         }
         if (($full['holiday']['days_left'] ?? 999) < 15 && ($full['holiday']['data_status'] ?? '') === self::DATA_OK) {
             $alerts[] = $this->alert($id++, $hotelId ?: ($hotelIds[0] ?? 0), 'holiday_near', 'low', '节假日临近', '距离下个节假日不足15天', $date);
@@ -2150,7 +2205,7 @@ class OperationManagementService
             'traffic_zero' => '先检查OTA后台是否仍有曝光，再核对采集账号、Cookie和渠道上下架状态。',
             'conversion_low' => '优先复盘详情页首图、价格展示、可售房型和取消政策，必要时做小幅促销测试。',
             'price_high' => '按房型对比竞对可订价，先对高差价房型做小幅跟价或活动补贴。',
-            'review_risk' => '拉取近7天差评关键词，优先处理高频服务问题并跟进可评价订单。',
+            'service_quality_low' => '先复核OTA服务质量扣分项、履约问题和关键服务节点，再跟踪转化率是否恢复。',
             'holiday_near' => '提前确认节假日库存、底价和活动节奏，避免临近日期低价或无房。',
             default => $message !== ''
                 ? '先确认影响范围和责任模块，再安排负责人处理并在次日复盘数据变化。'
@@ -2202,10 +2257,10 @@ class OperationManagementService
                 'check_points' => ['按房型对齐竞品价格和权益', '确认高价是否由节假日、库存紧张或高评分支撑', '检查是否存在单渠道异常高价'],
                 'action_steps' => ['先处理明显高于竞品的房型', '用优惠权益替代直接降价时同步观察转化', '保留高需求日期的价格保护线'],
             ],
-            'score_low' => [
-                'impact' => '评分低会降低详情页信任和订单转化，尤其会放大价格劣势。',
-                'check_points' => ['查看近30天差评关键词和集中问题', '确认是否存在服务、卫生、设施类高频投诉', '对比竞对评分与点评数量差距'],
-                'action_steps' => ['先处理高频差评问题并形成整改记录', '推动可评价订单转化，补充近期正向评价', '复盘评分变化对浏览转化和订单转化的影响'],
+            'service_quality_low' => [
+                'impact' => '服务质量或PSI偏低会削弱OTA流量承接和订单转化，尤其在价格没有优势时更容易放大流失。',
+                'check_points' => ['查看服务质量分和PSI扣分项', '核对履约、房态、库存和接口异常是否集中出现', '对比低分日期的曝光、访客和订单转化变化'],
+                'action_steps' => ['先处理可控的履约和房态问题', '把服务质量扣分项拆成门店任务并指定负责人', '次日复看服务质量、转化率和订单是否恢复'],
             ],
             'holiday_near' => [
                 'impact' => '节假日临近会改变需求和价格弹性，库存、底价和活动节奏需要提前锁定。',
@@ -2215,7 +2270,7 @@ class OperationManagementService
         ];
 
         return $details[$type] ?? [
-            'impact' => '该根因会影响经营结果，需要结合经营、OTA、竞对和口碑数据复核。',
+            'impact' => '该根因会影响经营结果，需要结合经营、OTA、竞对和服务质量数据复核。',
             'check_points' => ['复核关联指标是否完整', '对比近7日和近30日趋势', '确认数据口径和酒店筛选是否一致'],
             'action_steps' => ['先补齐关键数据', '按影响最大指标优先处理', '执行后持续跟踪订单、收入和转化变化'],
         ];

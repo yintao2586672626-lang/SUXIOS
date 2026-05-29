@@ -16,11 +16,13 @@ Route::options('api/:any', function() {
     return response('', 204);
 })->pattern(['any' => '.*']);
 
-// ==================== 认证路由 ====================
-// 登录不需要认证
+// ==================== Auth routes ====================
+// Public auth endpoints.
 Route::post('api/auth/login', 'Auth/login');
+// Self-registration is disabled by Auth/register and kept routed for explicit 403.
+Route::post('api/auth/register', 'Auth/register');
 
-// 以下认证路由需要登录
+// Protected auth endpoints.
 Route::group('api/auth', function () {
     Route::post('logout', 'Auth/logout');
     Route::get('info', 'Auth/info');
@@ -159,6 +161,13 @@ Route::group('api/online-data', function () {
     Route::any('/auto-capture-ctrip-cookie', 'OnlineData/autoCaptureCtripCookie');
     Route::post('/save-ctrip-config-by-bookmark', 'OnlineData/saveCtripConfigByBookmark');
     // 线上数据管理
+    Route::get('/data-sources', 'OnlineData/dataSourceList');
+    Route::post('/data-sources/:id/sync', 'OnlineData/syncDataSource');
+    Route::post('/data-sources', 'OnlineData/saveDataSource');
+    Route::delete('/data-sources/:id', 'OnlineData/deleteDataSource');
+    Route::post('/data-import', 'OnlineData/importDataSourceRows');
+    Route::get('/sync-tasks', 'OnlineData/syncTaskList');
+    Route::get('/sync-logs', 'OnlineData/syncLogList');
     Route::post('/save-daily-data', 'OnlineData/saveDailyData');
     Route::post('/update-data', 'OnlineData/updateData');
     Route::post('/delete-data', 'OnlineData/deleteData');

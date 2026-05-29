@@ -1,15 +1,13 @@
+import { createHash } from 'node:crypto';
+
 export const PLATFORM_CONFIGS = {
   meituan: {
     label: 'Meituan eBooking',
     profilePrefix: 'meituan_profile',
     defaultSections: ['traffic', 'orders'],
-    allowedSections: ['reviews', 'traffic', 'ads', 'orders'],
+    allowedSections: ['traffic', 'ads', 'orders'],
     cookieDomains: ['me.meituan.com', 'eb.meituan.com', '.meituan.com', '.dianping.com'],
     sectionAliases: {
-      review: 'reviews',
-      reviews: 'reviews',
-      comment: 'reviews',
-      comments: 'reviews',
       traffic: 'traffic',
       flow: 'traffic',
       ads: 'ads',
@@ -18,8 +16,10 @@ export const PLATFORM_CONFIGS = {
       order: 'orders',
       orders: 'orders',
     },
+    blockedResponseRules: [
+      { section: 'reviews', keywords: ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics', 'comment-manage'] },
+    ],
     responseRules: [
-      { section: 'reviews', keywords: ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics'] },
       { section: 'traffic', keywords: ['businessdata', 'weighttraffic', 'traffic', 'peertrends'] },
       { section: 'ads', keywords: ['cureshops'] },
       { section: 'orders', keywords: ['/orders/list', '/order/unhandled/count', '/order-eb/'] },
@@ -29,7 +29,7 @@ export const PLATFORM_CONFIGS = {
     label: 'Ctrip eBooking',
     profilePrefix: 'ctrip_profile',
     defaultSections: ['business', 'traffic'],
-    allowedSections: ['business', 'traffic', 'reviews', 'orders'],
+    allowedSections: ['business', 'traffic', 'ads', 'orders'],
     cookieDomains: ['ebooking.ctrip.com', '.ctrip.com'],
     sectionAliases: {
       business: 'business',
@@ -37,13 +37,16 @@ export const PLATFORM_CONFIGS = {
       report: 'business',
       traffic: 'traffic',
       flow: 'traffic',
-      review: 'reviews',
-      reviews: 'reviews',
-      comment: 'reviews',
-      comments: 'reviews',
+      ads: 'ads',
+      ad: 'ads',
+      advertising: 'ads',
+      campaign: 'ads',
       order: 'orders',
       orders: 'orders',
     },
+    blockedResponseRules: [
+      { section: 'reviews', keywords: ['getcommentlist', 'commentlist', 'comment/', '/comment', 'review'] },
+    ],
     responseRules: [
       {
         section: 'business',
@@ -71,11 +74,24 @@ export const PLATFORM_CONFIGS = {
           'getstatdata',
         ],
       },
-      { section: 'reviews', keywords: ['getcommentlist', 'commentlist', 'review'] },
-      { section: 'orders', keywords: ['orderlist', 'orderdetail', 'booking'] },
+      {
+        section: 'ads',
+        keywords: [
+          'querycampaignsummaryreport',
+          'querycampaignreportlist',
+          'queryhomecampaignlist',
+          'queryrecommendbidprice',
+          'querypyramidcpcdiagnosis',
+          'pyramidad',
+          'promotion',
+        ],
+      },
+      { section: 'orders', keywords: ['queryorderlist', 'getorderlist', 'unprocessorderlist', 'orderdetail', '/order/'] },
     ],
   },
 };
+
+const DISABLED_COMMENT_SECTION_ALIASES = new Set(['review', 'reviews', 'comment', 'comments']);
 
 export function normalizePlatform(platform) {
   const key = String(platform || '').trim().toLowerCase();
@@ -99,6 +115,9 @@ export function normalizeCaptureSections(platform, value = '') {
     const token = item.trim();
     if (!token) {
       continue;
+    }
+    if (DISABLED_COMMENT_SECTION_ALIASES.has(token)) {
+      throw new Error('Comment/review capture is disabled by policy');
     }
     const section = config.sectionAliases[token] || '';
     if (!section || !config.allowedSections.includes(section)) {
@@ -234,6 +253,12 @@ export function classifyOtaResponse(platform, url, meta = {}) {
   }
 
   const rules = PLATFORM_CONFIGS[platformKey].responseRules;
+  for (const rule of PLATFORM_CONFIGS[platformKey].blockedResponseRules || []) {
+    if (rule.keywords.some((keyword) => value.includes(keyword))) {
+      return { capture: false, platform: platformKey, section: rule.section, reason: 'comment_collection_disabled' };
+    }
+  }
+
   for (const rule of rules) {
     if (rule.keywords.some((keyword) => value.includes(keyword))) {
       return { capture: true, platform: platformKey, section: rule.section, reason: 'url_keyword' };
@@ -241,6 +266,136 @@ export function classifyOtaResponse(platform, url, meta = {}) {
   }
 
   return { capture: false, platform: platformKey, section: '', reason: 'unmatched_url' };
+}
+
+export function sanitizeOtaPayloadForStorage(value, section = '') {
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const orderContext = normalizeCaptureSectionName(section) === 'orders';
+  return sanitizePayloadNode(value, orderContext);
+}
+
+function sanitizePayloadNode(value, orderContext) {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePayloadNode(item, orderContext));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (isSensitiveKey(key)) {
+      continue;
+    }
+
+    const childOrderContext = orderContext || isOrderContainerKey(key);
+    if (item && typeof item === 'object') {
+      result[key] = sanitizePayloadNode(item, childOrderContext);
+      continue;
+    }
+
+    if (childOrderContext || isOrderPiiKey(key)) {
+      appendRedactedOrderField(result, key, item);
+      continue;
+    }
+
+    result[key] = item;
+  }
+  return result;
+}
+
+function appendRedactedOrderField(target, key, value) {
+  if (isOrderIdKey(key)) {
+    const text = String(value ?? '').trim();
+    if (text) {
+      target[redactedFieldName(key, 'hash')] = createHash('sha256').update(`ota_order|${text}`).digest('hex');
+    }
+    return;
+  }
+  if (isPhoneKey(key)) {
+    const masked = maskPhone(value);
+    if (masked) {
+      target[redactedFieldName(key, 'masked')] = masked;
+    }
+    return;
+  }
+  if (isGuestNameKey(key)) {
+    const masked = maskName(value);
+    if (masked) {
+      target[redactedFieldName(key, 'masked')] = masked;
+    }
+    return;
+  }
+  if (isSensitiveOrderTextKey(key)) {
+    return;
+  }
+  target[key] = value;
+}
+
+function normalizeCaptureSectionName(section) {
+  const value = String(section || '').trim().toLowerCase();
+  return value === 'order' ? 'orders' : value;
+}
+
+function isSensitiveKey(key) {
+  return /cookie|authorization|token|api[-_]?key|secret|password|spidertoken|mtgsig/i.test(String(key || ''));
+}
+
+function isOrderContainerKey(key) {
+  return /order[_-]?(list|rows|items|data|detail|details|info)|orders/i.test(String(key || ''));
+}
+
+function isOrderPiiKey(key) {
+  return isOrderIdKey(key) || isPhoneKey(key) || isGuestNameKey(key) || isSensitiveOrderTextKey(key);
+}
+
+function isOrderIdKey(key) {
+  return /^(order[_-]?(id|no|num|number|sn)|booking[_-]?(id|no|number))$/i.test(String(key || ''));
+}
+
+function isPhoneKey(key) {
+  return /(phone|mobile|tel)$/i.test(String(key || ''));
+}
+
+function isGuestNameKey(key) {
+  return /(guest|customer|contact|user|traveller|passenger)[_-]?name$/i.test(String(key || ''));
+}
+
+function isSensitiveOrderTextKey(key) {
+  return /(certificate|credential|id[_-]?card|card[_-]?no|passport|remark|memo|note|address)/i.test(String(key || ''));
+}
+
+function redactedFieldName(key, suffix) {
+  if (isOrderIdKey(key)) {
+    return 'order_id_hash';
+  }
+  const name = String(key || 'field')
+    .replace(/(?<!^)[A-Z]/g, '_$&')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+  return `${name || 'field'}_${suffix}`;
+}
+
+function maskPhone(value) {
+  const digits = String(value ?? '').replace(/\D+/g, '');
+  if (!digits) {
+    return '';
+  }
+  if (digits.length <= 4) {
+    return '*'.repeat(digits.length);
+  }
+  return `${'*'.repeat(digits.length - 4)}${digits.slice(-4)}`;
+}
+
+function maskName(value) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return '';
+  }
+  return `${text.slice(0, 1)}***`;
 }
 
 function safeName(value) {

@@ -7,11 +7,137 @@ use app\model\User;
 use app\model\OperationLog;
 use app\model\LoginLog;
 use app\model\SystemConfig;
-use think\exception\ValidateException;
+use app\model\Role;
+use app\model\Hotel;
+use app\model\UserHotelPermission;
 use think\Response;
 
 class Auth extends Base
 {
+    /**
+     * Public self-registration.
+     *
+     * New accounts are always created with the lowest enabled role level and
+     * never accept role_id/status from the public request.
+     */
+    public function register(): Response
+    {
+        if (!$this->isEnabledConfigValue(SystemConfig::getValue(SystemConfig::KEY_ENABLE_REGISTRATION, '1'))) {
+            return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);
+        }
+
+        $data = $this->requestData();
+        $username = trim((string)($data['username'] ?? ''));
+        $password = (string)($data['password'] ?? '');
+        $confirmPassword = (string)($data['confirm_password'] ?? $data['password_confirm'] ?? '');
+        $realname = trim((string)($data['realname'] ?? $data['name'] ?? ''));
+        $email = trim((string)($data['email'] ?? ''));
+        $phone = trim((string)($data['phone'] ?? ''));
+        $hotelId = $data['hotel_id'] ?? null;
+        $ip = $this->request->ip();
+        $userAgent = $this->request->header('User-Agent', '');
+
+        if ($username === '' || !preg_match('/^[A-Za-z0-9_]{3,50}$/', $username)) {
+            return $this->error('用户名需为 3-50 位字母、数字或下划线');
+        }
+
+        if ($password === '') {
+            return $this->error('密码不能为空');
+        }
+
+        if ($confirmPassword !== '' && $confirmPassword !== $password) {
+            return $this->error('两次输入的密码不一致');
+        }
+
+        $passwordError = $this->validatePasswordPolicy($password, '密码');
+        if ($passwordError) {
+            return $this->error($passwordError);
+        }
+
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $this->error('邮箱格式不正确');
+        }
+
+        if ($phone !== '' && mb_strlen($phone) > 20) {
+            return $this->error('手机号最多 20 个字符');
+        }
+
+        if (User::where('username', $username)->find()) {
+            return $this->error('用户名已存在', 409);
+        }
+
+        $role = $this->resolveSelfRegistrationRole();
+        if (!$role) {
+            return $this->error('未配置基础用户角色，请管理员先配置普通用户角色', 422);
+        }
+
+        $resolvedHotelId = null;
+        if ($hotelId !== null && $hotelId !== '') {
+            if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
+                return $this->error('酒店 ID 不正确');
+            }
+            $hotel = Hotel::where('id', (int)$hotelId)
+                ->where('status', Hotel::STATUS_ENABLED)
+                ->find();
+            if (!$hotel) {
+                return $this->error('酒店不存在或已停用', 422);
+            }
+            $resolvedHotelId = (int)$hotelId;
+        }
+
+        try {
+            $user = new User();
+            $user->username = $username;
+            $user->password = $password;
+            $user->realname = $realname !== '' ? $realname : $username;
+            $user->email = $email;
+            $user->phone = $phone;
+            $user->role_id = (int)$role->id;
+            $user->hotel_id = $resolvedHotelId;
+            $user->status = User::STATUS_ENABLED;
+            $user->save();
+
+            if ($resolvedHotelId !== null) {
+                $permission = new UserHotelPermission();
+                $permission->user_id = (int)$user->id;
+                $permission->hotel_id = $resolvedHotelId;
+                $permission->can_view_report = 1;
+                $permission->can_fill_daily_report = 1;
+                $permission->can_fill_monthly_task = 1;
+                $permission->can_edit_report = 0;
+                $permission->can_delete_report = 0;
+                $permission->can_view_online_data = 1;
+                $permission->can_fetch_online_data = 0;
+                $permission->can_delete_online_data = 0;
+                $permission->is_primary = 1;
+                $permission->save();
+            }
+
+            LoginLog::record((int)$user->id, $username, 'register', 'success', null, $ip, $userAgent);
+            try {
+                OperationLog::record('auth', 'register', '用户自助注册: ' . $username, (int)$user->id, $resolvedHotelId);
+            } catch (\Throwable $logError) {
+                // Audit logging must not turn a completed registration into a failed account creation.
+            }
+
+            return $this->success([
+                'id' => (int)$user->id,
+                'username' => $user->username,
+                'realname' => $user->realname,
+                'role_id' => (int)$user->role_id,
+                'role_name' => $role->display_name,
+                'hotel_id' => $resolvedHotelId,
+            ], '注册成功');
+        } catch (\Throwable $e) {
+            try {
+                LoginLog::record(null, $username, 'register', 'failed', $e->getMessage(), $ip, $userAgent);
+            } catch (\Throwable $logError) {
+                // Preserve the public error boundary even if audit logging fails.
+            }
+            return $this->error('注册失败，请稍后重试或联系管理员', 500);
+        }
+    }
+
     /**
      * 登录
      */
@@ -119,6 +245,20 @@ class Auth extends Base
             'can_fetch_online_data' => $user->hasPermission('can_fetch_online_data'),
             'can_delete_online_data' => $user->hasPermission('can_delete_online_data'),
         ];
+    }
+
+    private function isEnabledConfigValue($value): bool
+    {
+        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'on', 'yes'], true);
+    }
+
+    private function resolveSelfRegistrationRole(): ?Role
+    {
+        return Role::where('status', Role::STATUS_ENABLED)
+            ->where('level', '>=', Role::HOTEL_STAFF)
+            ->order('level', 'desc')
+            ->order('id', 'asc')
+            ->find();
     }
 
     private function extractTokenFromAuthorizationHeader(string $authHeader): string

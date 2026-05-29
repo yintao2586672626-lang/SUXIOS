@@ -14,6 +14,25 @@ class OtaInsightAnalysisService
         $totals = (array)($metrics['totals'] ?? []);
         $traffic = (array)($metrics['traffic'] ?? []);
         $price = (array)($metrics['competitor_price'] ?? []);
+        $advertising = (array)($metrics['advertising'] ?? []);
+        $quality = (array)($metrics['quality'] ?? []);
+
+        $modules = [
+            $this->adrModule($totals),
+            $this->revparModule($totals),
+            $this->netRevparModule($totals),
+            $this->cancellationModule($totals),
+            $this->trafficModule($traffic),
+            $this->priceGapModule($price),
+        ];
+        foreach ([
+            $this->advertisingEfficiencyModule($advertising),
+            $this->serviceQualityModule($quality),
+        ] as $optionalModule) {
+            if ($optionalModule !== null) {
+                $modules[] = $optionalModule;
+            }
+        }
 
         return [
             'status' => ($metrics['status'] ?? '') === 'ready' ? 'ready' : 'insufficient_data',
@@ -21,16 +40,9 @@ class OtaInsightAnalysisService
             'model_policy' => [
                 'model_type' => 'deterministic_rules',
                 'excluded_models' => ['LSTM', 'ARIMA', 'neural_network'],
-                'reason' => 'Use transparent rules first for ADR, RevPAR, Net RevPAR, cancellation, traffic conversion, and competitor price gap.',
+                'reason' => 'Use transparent rules first for OTA ADR, RevPAR, Net RevPAR, cancellation, traffic conversion, competitor price gap, advertising efficiency, and service quality.',
             ],
-            'modules' => [
-                $this->adrModule($totals),
-                $this->revparModule($totals),
-                $this->netRevparModule($totals),
-                $this->cancellationModule($totals),
-                $this->trafficModule($traffic),
-                $this->priceGapModule($price),
-            ],
+            'modules' => $modules,
             'data_gaps' => $metrics['data_gaps'] ?? [],
         ];
     }
@@ -208,6 +220,93 @@ class OtaInsightAnalysisService
             [
                 'avg_price_gap' => (float)$gap,
                 'avg_price_gap_rate' => $gapRate,
+            ]
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $advertising
+     * @return array<string, mixed>|null
+     */
+    private function advertisingEfficiencyModule(array $advertising): ?array
+    {
+        if ((int)($advertising['rows'] ?? 0) <= 0) {
+            return null;
+        }
+
+        $spend = $advertising['spend'] ?? null;
+        $roas = $advertising['roas'] ?? null;
+        if ($spend === null || (float)$spend <= 0 || $roas === null) {
+            return $this->module(
+                'advertising_efficiency',
+                'missing_data',
+                'P1',
+                'OTA advertising efficiency cannot be evaluated because spend or ROAS is missing.',
+                'Backfill ad spend and attributed order amount before using advertising efficiency for channel actions.',
+                [
+                    'spend' => $spend,
+                    'roas' => $roas,
+                ]
+            );
+        }
+
+        $priority = (float)$roas < 1 ? 'P0' : ((float)$roas < 3 ? 'P1' : 'P2');
+        return $this->module(
+            'advertising_efficiency',
+            $priority === 'P2' ? 'available' : 'watch',
+            $priority,
+            'OTA advertising efficiency is calculated from standardized ad spend and attributed order amount.',
+            'Compare ROAS, booking count, and click conversion before increasing or reducing OTA ad budget.',
+            [
+                'spend' => (float)$spend,
+                'order_amount' => (float)($advertising['order_amount'] ?? 0),
+                'bookings' => (int)($advertising['bookings'] ?? 0),
+                'room_nights' => (float)($advertising['room_nights'] ?? 0),
+                'impressions' => (int)($advertising['impressions'] ?? 0),
+                'clicks' => (int)($advertising['clicks'] ?? 0),
+                'avg_ctr' => $advertising['avg_ctr'] ?? null,
+                'avg_cvr' => $advertising['avg_cvr'] ?? null,
+                'roas' => (float)$roas,
+            ]
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $quality
+     * @return array<string, mixed>|null
+     */
+    private function serviceQualityModule(array $quality): ?array
+    {
+        if ((int)($quality['rows'] ?? 0) <= 0) {
+            return null;
+        }
+
+        $psiScore = $quality['avg_psi_score'] ?? null;
+        $serviceScore = $quality['avg_service_score'] ?? null;
+        if ($psiScore === null && $serviceScore === null) {
+            return $this->module(
+                'service_quality',
+                'missing_data',
+                'P1',
+                'OTA service quality cannot be evaluated because PSI and service score are missing.',
+                'Backfill OTA service quality fields before linking quality signals to conversion and pricing actions.'
+            );
+        }
+
+        $score = $psiScore ?? $serviceScore;
+        $priority = (float)$score < 70 ? 'P0' : ((float)$score < 85 ? 'P1' : 'P2');
+        return $this->module(
+            'service_quality',
+            $priority === 'P2' ? 'available' : 'watch',
+            $priority,
+            'OTA service quality is calculated from standardized PSI and service quality facts.',
+            'Use service quality changes as OTA conversion context; do not mix them into room revenue or RevPAR calculations.',
+            [
+                'avg_psi_score' => $psiScore,
+                'avg_service_score' => $serviceScore,
+                'avg_im_score' => $quality['avg_im_score'] ?? null,
+                'avg_reply_rate' => $quality['avg_reply_rate'] ?? null,
+                'hotel_collect' => (int)($quality['hotel_collect'] ?? 0),
             ]
         );
     }

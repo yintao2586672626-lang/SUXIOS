@@ -7,6 +7,7 @@ import {
   classifyOtaResponse as classifyStandardOtaResponse,
   injectBrowserCookies as injectStandardBrowserCookies,
   normalizeCaptureSections as normalizeStandardCaptureSections,
+  sanitizeOtaPayloadForStorage,
 } from './lib/ota_capture_standard.mjs';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 
@@ -176,8 +177,9 @@ function registerResponseCapture(page, target) {
       return;
     }
 
-    const rows = normalizeCapturedList(body, section);
-    target.responses.push({ url, section, status, row_count: rows.length, data: body });
+    const safeBody = sanitizeOtaPayloadForStorage(body, section);
+    const rows = normalizeCapturedList(safeBody, section);
+    target.responses.push({ url, section, status, row_count: rows.length, data: safeBody });
     target[section].push(...rows.map(row => ({ ...row, _source_url: url })));
   });
 }
@@ -237,6 +239,9 @@ function normalizeCapturedList(value, section) {
 }
 
 async function collectDomFallback(page, target, section) {
+  if (section === 'orders') {
+    return;
+  }
   const rows = await page.evaluate(sectionName => {
     const text = (node) => (node?.innerText || node?.textContent || '').trim().replace(/\s+/g, ' ');
     const tableRows = Array.from(document.querySelectorAll('table tbody tr')).slice(0, 80).map((tr, index) => ({

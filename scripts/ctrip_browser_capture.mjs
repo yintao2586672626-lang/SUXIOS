@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import { sanitizeOtaPayloadForStorage } from './lib/ota_capture_standard.mjs';
 
 const URLS = {
   business: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true',
@@ -205,7 +206,8 @@ function registerResponseCapture(page, target) {
       return;
     }
 
-    const rows = normalizeRows(body, section, url);
+    const safeBody = sanitizeOtaPayloadForStorage(body, section);
+    const rows = normalizeRows(safeBody, section, url);
     target.responses.push({
       url,
       section,
@@ -213,7 +215,7 @@ function registerResponseCapture(page, target) {
       request_type: requestType,
       keyword_hit: Boolean(urlSection),
       row_count: rows.length,
-      data: body,
+      data: safeBody,
     });
 
     if (section === 'business') {
@@ -751,7 +753,7 @@ function parseArgs(argv) {
 }
 
 function normalizeSections(value) {
-  const allowed = new Set(['business', 'traffic', 'reviews']);
+  const allowed = new Set(['business', 'traffic']);
   const sections = String(value || '')
     .split(',')
     .map(item => item.trim().toLowerCase())

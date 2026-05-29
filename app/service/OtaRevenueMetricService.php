@@ -13,6 +13,8 @@ class OtaRevenueMetricService
     {
         $daily = $this->list($dataset['fact_ota_daily'] ?? []);
         $traffic = $this->list($dataset['fact_ota_traffic'] ?? []);
+        $advertising = $this->list($dataset['fact_ota_advertising'] ?? []);
+        $quality = $this->list($dataset['fact_ota_quality'] ?? []);
         $comments = $this->list($dataset['fact_ota_comment'] ?? []);
         $dataGaps = [];
 
@@ -166,9 +168,14 @@ class OtaRevenueMetricService
             $cancelRows ?: $directCancelRateRows,
             $cancelRoomNightRows
         );
+        $metricTrust['advertising.spend'] = $this->trust($advertising, 'sum(fact_ota_advertising.spend)');
+        $metricTrust['advertising.order_amount'] = $this->trust($advertising, 'sum(fact_ota_advertising.order_amount)');
+        $metricTrust['advertising.roas'] = $this->trust($advertising, 'sum(fact_ota_advertising.order_amount) / sum(fact_ota_advertising.spend)');
+        $metricTrust['quality.avg_psi_score'] = $this->trust($quality, 'avg(fact_ota_quality.psi_score)');
+        $metricTrust['quality.avg_service_score'] = $this->trust($quality, 'avg(fact_ota_quality.service_score)');
 
         return [
-            'status' => $daily || $traffic || $comments ? 'ready' : 'empty',
+            'status' => $daily || $traffic || $advertising || $quality || $comments ? 'ready' : 'empty',
             'generated_at' => date('Y-m-d H:i:s'),
             'fact_table' => [
                 'name' => 'fact_ota_daily',
@@ -204,6 +211,8 @@ class OtaRevenueMetricService
                 'list_exposure' => (int)round($this->sum($traffic, 'list_exposure')),
                 'detail_exposure' => (int)round($this->sum($traffic, 'detail_exposure')),
             ],
+            'advertising' => $this->advertisingSummary($advertising),
+            'quality' => $this->qualitySummary($quality),
             'competitor_price' => [
                 'rows' => count($priceRows),
                 'avg_our_price' => $this->average($priceRows, 'our_price'),
@@ -217,6 +226,45 @@ class OtaRevenueMetricService
             'data_gaps' => $dataGaps,
             'etl_quality' => $dataset['data_quality'] ?? [],
             'metric_trust' => $metricTrust,
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function advertisingSummary(array $rows): array
+    {
+        $spend = $this->sum($rows, 'spend');
+        $orderAmount = $this->sum($rows, 'order_amount');
+
+        return [
+            'rows' => count($rows),
+            'spend' => round($spend, 2),
+            'order_amount' => round($orderAmount, 2),
+            'bookings' => (int)round($this->sum($rows, 'bookings')),
+            'room_nights' => round($this->sum($rows, 'room_nights'), 2),
+            'impressions' => (int)round($this->sum($rows, 'impressions')),
+            'clicks' => (int)round($this->sum($rows, 'clicks')),
+            'avg_ctr' => $this->average($rows, 'ctr'),
+            'avg_cvr' => $this->average($rows, 'cvr'),
+            'roas' => $spend > 0 && $orderAmount > 0 ? round($orderAmount / $spend, 2) : $this->average($rows, 'roas'),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function qualitySummary(array $rows): array
+    {
+        return [
+            'rows' => count($rows),
+            'avg_psi_score' => $this->average($rows, 'psi_score'),
+            'avg_service_score' => $this->average($rows, 'service_score'),
+            'avg_im_score' => $this->average($rows, 'im_score'),
+            'avg_reply_rate' => $this->average($rows, 'reply_rate'),
+            'hotel_collect' => (int)round($this->sum($rows, 'hotel_collect')),
         ];
     }
 

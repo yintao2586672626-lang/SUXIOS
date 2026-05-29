@@ -11,6 +11,8 @@ use Throwable;
 class OpeningService
 {
     private LlmClient $client;
+    private int $actorUserId = 0;
+    private bool $actorIsSuperAdmin = false;
 
     private const STATUS_TODO = 'todo';
     private const STATUS_DOING = 'doing';
@@ -34,6 +36,15 @@ class OpeningService
     public function __construct(?LlmClient $client = null)
     {
         $this->client = $client ?: new LlmClient();
+    }
+
+    public function forActor(int $userId, bool $isSuperAdmin): self
+    {
+        $service = clone $this;
+        $service->actorUserId = max(0, $userId);
+        $service->actorIsSuperAdmin = $isSuperAdmin;
+
+        return $service;
     }
 
     public function tableExists(string $table): bool
@@ -81,9 +92,9 @@ class OpeningService
         return array_map([$this, 'normalizeProject'], $query->select()->toArray());
     }
 
-    public function updateProject(int $projectId, array $input, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
+    public function updateProject(int $projectId, array $input, array $hotelIds): array
     {
-        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
+        $project = $this->requireProject($projectId, $hotelIds, $this->actorUserId, $this->actorIsSuperAdmin);
         $data = [];
 
         foreach (['project_name', 'hotel_name', 'city', 'brand', 'positioning', 'manager_name'] as $field) {
@@ -113,12 +124,12 @@ class OpeningService
         $data['updated_at'] = $this->now();
         Db::name('opening_projects')->where('id', $project['id'])->update($data);
 
-        return $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
+        return $this->requireProject($projectId, $hotelIds, $this->actorUserId, $this->actorIsSuperAdmin);
     }
 
-    public function archiveProject(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): bool
+    public function archiveProject(int $projectId, array $hotelIds): bool
     {
-        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
+        $project = $this->requireProject($projectId, $hotelIds, $this->actorUserId, $this->actorIsSuperAdmin);
 
         return Db::name('opening_projects')
             ->where('id', $project['id'])
