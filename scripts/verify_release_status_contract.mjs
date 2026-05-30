@@ -37,6 +37,31 @@ const requiredDoNotClaimReadyPatterns = [
   /git state/i,
 ];
 
+const requiredSecurityScanPatterns = [
+  /subagents/i,
+  /Threat model/i,
+  /Finding discovery/i,
+  /Validation/i,
+  /Attack-path analysis/i,
+  /Markdown\s*\/\s*HTML final report/i,
+  /production configuration|生产配置/i,
+  /OTA credentials|OTA 凭证/i,
+  /tenant isolation|租户隔离/i,
+  /file import|文件导入/i,
+  /external HTTP|外部 HTTP/i,
+];
+
+const requiredDesignManifestKeys = [
+  'owner',
+  'last_reviewed_at',
+  'figma_url',
+  'canva_url',
+  'brand_kit_url',
+  'design_tokens_path',
+  'covered_flows',
+  'open_issues',
+];
+
 const issues = [];
 const passes = [];
 
@@ -73,10 +98,28 @@ function assertFileExists(relativePath) {
 
 function assertArrayContainsPatterns(values, patterns, label) {
   const joined = Array.isArray(values) ? values.join('\n') : '';
+  let missing = false;
   for (const pattern of patterns) {
     if (!pattern.test(joined)) {
       fail(`${label} does not mention required blocker pattern ${pattern}`);
+      missing = true;
     }
+  }
+  if (!missing) {
+    pass(`${label} covers required blocker patterns`);
+  }
+}
+
+function assertTextContainsPatterns(text, patterns, label) {
+  let missing = false;
+  for (const pattern of patterns) {
+    if (!pattern.test(text)) {
+      fail(`${label} does not mention required pattern ${pattern}`);
+      missing = true;
+    }
+  }
+  if (!missing) {
+    pass(`${label} covers required patterns`);
   }
 }
 
@@ -144,6 +187,43 @@ for (const jsonDoc of [
   'docs/ota_credential_rotation_attestation.example.json',
 ]) {
   readJson(jsonDoc);
+}
+
+const designManifestExample = readJson('docs/design_handoff_manifest.example.json');
+if (designManifestExample) {
+  let manifestComplete = true;
+  for (const key of requiredDesignManifestKeys) {
+    if (!(key in designManifestExample)) {
+      fail(`docs/design_handoff_manifest.example.json is missing ${key}`);
+      manifestComplete = false;
+    }
+  }
+  for (const flow of [
+    'login',
+    'ota-data',
+    'revenue-analysis',
+    'ai-decision',
+    'operations-management',
+    'investment-decision',
+  ]) {
+    if (!designManifestExample.covered_flows?.includes(flow)) {
+      fail(`docs/design_handoff_manifest.example.json covered_flows is missing ${flow}`);
+      manifestComplete = false;
+    }
+  }
+  if (manifestComplete) {
+    pass('docs/design_handoff_manifest.example.json covers required fields and flows');
+  }
+}
+
+try {
+  assertTextContainsPatterns(
+    readText('docs/codex_security_scan_authorization.md'),
+    requiredSecurityScanPatterns,
+    'docs/codex_security_scan_authorization.md',
+  );
+} catch (error) {
+  fail(`could not read Codex Security authorization doc: ${error.message}`);
 }
 
 try {
