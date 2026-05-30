@@ -100,6 +100,20 @@ function checkPrObject(pr) {
     addFailure('PR headRefOid is missing or not a 40-character commit sha.');
   }
 
+  if (pr.state === 'OPEN') {
+    addPass(`PR #${pr.number} is open.`);
+  } else {
+    addFailure(`PR #${pr.number ?? 'unknown'} is not open; current state is ${pr.state ?? 'missing'}.`);
+  }
+
+  if (pr.isDraft === false) {
+    addPass(`PR #${pr.number} is not draft.`);
+  } else if (pr.isDraft === true) {
+    addFailure(`PR #${pr.number ?? 'unknown'} is still draft; mark it ready for review before release handoff.`);
+  } else {
+    addFailure(`PR #${pr.number ?? 'unknown'} draft state is missing from release evidence.`);
+  }
+
   if (pr.mergeable === 'MERGEABLE') {
     addPass(`PR #${pr.number} is mergeable at ${pr.headRefOid}.`);
   } else {
@@ -211,7 +225,7 @@ function checkGitHubPr() {
     'view',
     prNumber,
     '--json',
-    'number,url,headRefOid,mergeable,statusCheckRollup',
+    'number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup',
   ]);
 
   if (result.status !== 0) {
@@ -220,7 +234,7 @@ function checkGitHubPr() {
       'view',
       prNumber,
       '--json',
-      'number,url,headRefOid,mergeable,statusCheckRollup',
+      'number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup',
     ], result)}`);
     return;
   }

@@ -112,7 +112,7 @@ if (chineseReport) {
       'backup-credential-shaped-fields': '本地备份存在 OTA 凭据形态字段',
       'ota-credential-rotation-attestation-missing': 'OTA 凭据轮换证明缺失',
       'codex-security-scan-missing': '正式 Codex Security 扫描缺失',
-      'local-git-state-open': '本地 Git 状态未关闭',
+      'local-git-state-open': 'GitHub / 本地交接状态未关闭',
     }[id];
     if (!chineseReport.includes(keyword)) {
       fail(`release_problem_report.zh-CN.md must mention ${keyword}`);

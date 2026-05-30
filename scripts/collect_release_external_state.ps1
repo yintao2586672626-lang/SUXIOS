@@ -33,7 +33,7 @@ $gitStatus = Invoke-ExternalCommand -Command "git" -Arguments @("status", "--sho
 $gitIndexLockPath = Join-Path (Get-Location) ".git/index.lock"
 $gitIndexLockItem = Get-Item -LiteralPath $gitIndexLockPath -ErrorAction SilentlyContinue
 
-$prArgs = @("pr", "view", $PrNumber, "--json", "number,url,headRefOid,mergeable,statusCheckRollup")
+$prArgs = @("pr", "view", $PrNumber, "--json", "number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup")
 $prOutput = & gh @prArgs 2>&1
 $prExitCode = $LASTEXITCODE
 $prJson = $null

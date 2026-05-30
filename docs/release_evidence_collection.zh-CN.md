@@ -16,7 +16,7 @@
 | 本地备份存在 OTA 凭据形态字段 | `@codex-security` | 清理后的 `database/backups` 状态；必要时附加仓库外加密归档记录。 | Cookie、Token、usertoken、usersign、签名、Authorization 明文。 | `npm run review:release-ota-credentials` |
 | OTA 凭据轮换证明缺失 | `@codex-security` | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 或 `docs/ota_credential_rotation_attestation.json`，结构参考 `docs/ota_credential_rotation_attestation.example.json`。 | 真实凭据值、可复用登录态、未脱敏平台返回。 | `npm run review:release-ota-credentials` |
 | 正式 Codex Security 扫描缺失 | `@codex-security` | `CODEX_SECURITY_SCAN_DIR` 或 `docs/security/codex-security/latest`，含 `scan_manifest.json`，结构参考 `docs/codex_security_scan_manifest.example.json`。 | 只放依赖审计结果、缺失 HTML 报告、缺失验证摘要、缺失攻击路径分析。 | `npm run review:release-security-scan` |
-| 本地 Git 状态未关闭 | `@github` | `RELEASE_EXTERNAL_STATE_FILE` 或 `docs/release_external_state_evidence.local.json`，结构参考 `docs/release_external_state_evidence.example.json`。 | 未解释的 dirty worktree、仍存在 `.git/index.lock`、未确认 PR checks。 | `npm run review:release-external-state` |
+| GitHub / 本地交接状态未关闭 | `@github` | `RELEASE_EXTERNAL_STATE_FILE` 或 `docs/release_external_state_evidence.local.json`，结构参考 `docs/release_external_state_evidence.example.json`。 | draft PR、未解释的 dirty worktree、仍存在 `.git/index.lock`、未确认 PR checks。 | `npm run review:release-external-state` |
 
 ## 采集步骤
 
@@ -52,7 +52,7 @@
 
 ### `@github`
 
-- 最终交接前必须确认 PR head、PR checks、merge state、`git ls-files database/backups`、`git status --short --branch`。
+- 最终交接前必须确认 PR head、open/draft state、PR checks、merge state、`git ls-files database/backups`、`git status --short --branch`。
 - `.git/index.lock` 只能在确认没有活跃 Git 进程后处理。
 - `docs/release_external_state_evidence.local.json` 是本地证据文件，必须保持 Git 忽略。
 

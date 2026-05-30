@@ -19,11 +19,13 @@
       "stdout": "## main...origin/main"
     },
     "gh_pr_view": {
-      "command": "gh pr view 1 --json number,url,headRefOid,mergeable,statusCheckRollup",
+      "command": "gh pr view 1 --json number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup",
       "exit_code": 0,
       "json": {
         "number": 1,
         "url": "https://github.com/OWNER/REPO/pull/1",
+        "state": "OPEN",
+        "isDraft": false,
         "headRefOid": "TODO: current PR head sha",
         "mergeable": "MERGEABLE",
         "statusCheckRollup": [

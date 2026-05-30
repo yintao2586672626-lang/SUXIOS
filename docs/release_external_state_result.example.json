@@ -12,11 +12,11 @@
   "warnings": [],
   "failures": [
     "git ls-files database/backups failed: external command execution is not permitted for git ls-files database/backups",
-    "external evidence is missing .git/index.lock state.",
     ".git/index.lock exists; local git index is not ready for release operations.",
     "local worktree is not clean and must be reviewed before release.",
+    "PR #1 is still draft; mark it ready for review before release handoff.",
     "git status --short --branch failed: external command execution is not permitted for git status --short --branch",
-    "gh pr view 1 failed: external command execution is not permitted for gh pr view 1 --json number,url,headRefOid,mergeable,statusCheckRollup",
+    "gh pr view 1 failed: external command execution is not permitted for gh pr view 1 --json number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup",
     "This runtime blocked Node child_process access to external commands. Run `npm run collect:release-external-state`, then rerun with RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json."
   ]
 }
