@@ -93,7 +93,7 @@
       "status": "open",
       "title": "Formal repo-wide Codex Security scan reports are missing",
       "evidence": "CODEX_SECURITY_SCAN_DIR and docs/security/codex-security/latest scan artifacts are not present",
-      "close_condition": "authorize subagents and complete threat model, finding discovery, validation, attack-path analysis, and final Markdown/HTML reports"
+      "close_condition": "authorize subagents and provide scan_manifest.json, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, and final Markdown/HTML reports"
     },
     {
       "id": "local-git-state-open",
