@@ -122,7 +122,7 @@
     ],
     "warnings": [
       "rerun after every PR update because GitHub state changes outside the repository",
-      "if Node child_process is unavailable, run scripts/collect_release_external_state.ps1 and set RELEASE_EXTERNAL_STATE_FILE to the captured JSON evidence"
+      "if Node child_process is unavailable, run npm run collect:release-external-state and set RELEASE_EXTERNAL_STATE_FILE to the captured JSON evidence"
     ]
   },
   "plugin_status": [
@@ -136,7 +136,7 @@
       ],
       "open": [
         "local worktree remains dirty because prior PR sync used GitHub API",
-        "review:release-external-state requires direct git/gh evidence from scripts/collect_release_external_state.ps1 or RELEASE_EXTERNAL_STATE_FILE before release"
+        "review:release-external-state requires direct git/gh evidence from npm run collect:release-external-state or RELEASE_EXTERNAL_STATE_FILE before release"
       ]
     },
     {
