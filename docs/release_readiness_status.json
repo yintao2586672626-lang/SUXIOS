@@ -43,7 +43,7 @@
       "status": "open",
       "title": "Production env is missing",
       "evidence": "review:release-readiness reports .env.production missing and RELEASE_ENV_FILE is not set",
-      "close_condition": "provide controlled production env outside the repository with APP_DEBUG=false, APP_TRACE=false, non-local DB_HOST, least-privilege DB_USER, and non-placeholder database and AI_CONFIG_SECRET values"
+      "close_condition": "provide controlled production env outside the repository with APP_DEBUG=false, APP_TRACE=false, non-local DB_HOST, least-privilege DB_USER, and non-placeholder database and AI_CONFIG_SECRET values; npm run review:release-env must pass first"
     },
     {
       "id": "llm-connectivity-attestation-missing",
@@ -192,7 +192,7 @@
     }
   ],
   "do_not_claim_ready_until": [
-    "production env is provided and passes review:release-readiness",
+    "production env is provided and passes review:release-env plus review:release-readiness",
     "production LLM connectivity attestation is provided and passes review:release-readiness",
     "real Figma/Canva/design-token handoff is present and passes review:release-readiness",
     "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-readiness no longer reports credential-shaped fields",
