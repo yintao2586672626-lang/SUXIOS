@@ -94,7 +94,7 @@
       "status": "open",
       "title": "Formal repo-wide Codex Security scan reports are missing",
       "evidence": "CODEX_SECURITY_SCAN_DIR and docs/security/codex-security/latest scan artifacts are not present",
-      "close_condition": "authorize subagents and provide scan_manifest.json, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, and final Markdown/HTML reports"
+      "close_condition": "authorize subagents, provide scan_manifest.json, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, final Markdown/HTML reports, and pass review:release-security-scan"
     },
     {
       "id": "local-git-state-open",
@@ -197,7 +197,7 @@
     "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
     "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-ota-credentials plus review:release-readiness no longer report credential-shaped fields",
     "OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
-    "formal Codex Security repo-wide scan is authorized, executed and produces markdown/html reports",
+    "formal Codex Security repo-wide scan is authorized, executed, produces markdown/html reports, and passes review:release-security-scan",
     "local git state is clean or contains only reviewed intentional changes"
   ]
 }
