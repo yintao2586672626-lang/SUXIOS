@@ -77,6 +77,16 @@ const requiredBlockerIds = [
   'local-git-state-open',
 ];
 
+const requiredBlockerScopes = {
+  'production-env-missing': ['@openai-developers'],
+  'llm-connectivity-attestation-missing': ['@openai-developers'],
+  'design-handoff-missing': ['@figma', '@canva'],
+  'backup-credential-shaped-fields': ['@codex-security'],
+  'ota-credential-rotation-attestation-missing': ['@codex-security'],
+  'codex-security-scan-missing': ['@codex-security'],
+  'local-git-state-open': ['@github'],
+};
+
 const requiredSecurityScanPatterns = [
   /subagents/i,
   /Threat model/i,
@@ -291,6 +301,12 @@ if (status) {
     }
     if (!Array.isArray(blocker.scope) || blocker.scope.length === 0) {
       fail(`blocker ${id} must declare at least one scope`);
+    } else {
+      const expectedScope = requiredBlockerScopes[id].slice().sort();
+      const actualScope = blocker.scope.slice().sort();
+      if (JSON.stringify(actualScope) !== JSON.stringify(expectedScope)) {
+        fail(`blocker ${id} scope must be ${expectedScope.join(', ')}`);
+      }
     }
   }
 }
