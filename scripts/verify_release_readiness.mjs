@@ -3,7 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDesignHandoff } from './lib/design_handoff_checks.mjs';
 import { checkLlmConnectivityAttestation as checkLlmAttestationFile } from './lib/llm_attestation_checks.mjs';
-import { checkProductionEnvFile, isPlaceholder } from './lib/release_env_checks.mjs';
+import { checkBackupCredentialFields, checkOtaCredentialRotationAttestation as checkOtaAttestationFile } from './lib/ota_credential_checks.mjs';
+import { checkProductionEnvFile } from './lib/release_env_checks.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -31,15 +32,6 @@ function readText(relativePath) {
   return fs.readFileSync(resolveInputPath(relativePath), 'utf8');
 }
 
-function readTextIfSafe(relativePath) {
-  const buffer = fs.readFileSync(resolveInputPath(relativePath));
-  if (buffer.includes(0)) {
-    addWarning(`Skipped binary-looking backup file during credential scan: ${relativePath}`);
-    return null;
-  }
-  return buffer.toString('utf8');
-}
-
 function resolveOutputPath(outputPath) {
   return path.isAbsolute(outputPath) ? outputPath : path.join(repoRoot, outputPath);
 }
@@ -50,36 +42,6 @@ function exists(relativePath) {
 
 function sleepMs(milliseconds) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
-}
-
-function isRedactedSecretValue(value) {
-  const text = String(value ?? '').trim();
-  return text === ''
-    || /TODO|CHANGE_ME|placeholder|redacted|masked|not stored|not included|secure record|internal ticket/i.test(text)
-    || /^\*+$/.test(text)
-    || /^<[^>]*redact[^>]*>$/i.test(text);
-}
-
-function findSensitiveFieldValues(value, sensitiveKeys, pathParts = []) {
-  const findings = [];
-  if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      findings.push(...findSensitiveFieldValues(item, sensitiveKeys, [...pathParts, String(index)]));
-    }
-    return findings;
-  }
-  if (!value || typeof value !== 'object') {
-    return findings;
-  }
-  for (const [key, child] of Object.entries(value)) {
-    const childPath = [...pathParts, key];
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (sensitiveKeys.has(normalizedKey) && typeof child === 'string' && !isRedactedSecretValue(child)) {
-      findings.push(childPath.join('.'));
-    }
-    findings.push(...findSensitiveFieldValues(child, sensitiveKeys, childPath));
-  }
-  return findings;
 }
 
 function checkEnvReadiness() {
@@ -113,34 +75,6 @@ function checkLlmConnectivityAttestation() {
   result.failures.forEach(addFailure);
 }
 
-function walkFiles(dir, output = []) {
-  const absolute = path.join(repoRoot, dir);
-  if (!fs.existsSync(absolute)) {
-    return output;
-  }
-
-  let entries = [];
-  try {
-    entries = fs.readdirSync(absolute, { withFileTypes: true });
-  } catch {
-    addWarning(`Skipped unreadable local path during release scan: ${dir}`);
-    return output;
-  }
-
-  for (const entry of entries) {
-    const relative = path.join(dir, entry.name).replace(/\\/g, '/');
-    if (entry.isDirectory()) {
-      if (['vendor', 'node_modules', '.git', 'runtime', '.pytest_cache'].includes(entry.name)) {
-        continue;
-      }
-      walkFiles(relative, output);
-    } else {
-      output.push(relative);
-    }
-  }
-  return output;
-}
-
 function checkDesignArtifacts() {
   const result = checkDesignHandoff({ repoRoot });
   result.passes.forEach(addPass);
@@ -149,126 +83,18 @@ function checkDesignArtifacts() {
 }
 
 function checkBackups() {
-  const gitignore = exists('.gitignore') ? readText('.gitignore') : '';
-  if (/^database\/backups\/\s*$/m.test(gitignore)) {
-    addPass('database/backups is listed in .gitignore.');
-  } else {
-    addFailure('database/backups is not listed in .gitignore.');
-  }
-
-  const gitattributes = exists('.gitattributes') ? readText('.gitattributes') : '';
-  if (/^database\/backups\/\*\s+export-ignore\s*$/m.test(gitattributes)) {
-    addPass('database/backups is excluded from git archive exports.');
-  } else {
-    addFailure('database/backups is not marked export-ignore in .gitattributes.');
-  }
-
-  addWarning('Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.');
-
-  const backupDir = path.join(repoRoot, 'database/backups');
-  if (!fs.existsSync(backupDir)) {
-    addPass('database/backups directory is absent.');
-    return;
-  }
-
-  const credentialPattern = /usertoken|usersign|cookie\s*[:=]|authorization\s*[:=]|Bearer\s+\S+|access[_-]?token|refresh[_-]?token|session[_-]?token|api[_-]?key/gi;
-  let credentialMatches = 0;
-  const credentialFiles = [];
-  for (const file of walkFiles('database/backups')) {
-    const text = readTextIfSafe(file);
-    if (text === null) {
-      continue;
-    }
-    const matches = text.match(credentialPattern);
-    if (matches) {
-      credentialFiles.push({ file, matches: matches.length });
-      credentialMatches += matches.length;
-    }
-  }
-
-  if (credentialMatches > 0) {
-    const fileSummary = credentialFiles
-      .map(({ file, matches }) => `${file} (${matches})`)
-      .join(', ');
-    addFailure(`database/backups contains OTA credential-shaped fields (${credentialMatches} matches across ${credentialFiles.length} files: ${fileSummary}). Rotate real credentials and exclude backups from release packages.`);
-  } else {
-    addPass('No OTA credential-shaped fields were found in database/backups text files.');
-  }
+  const result = checkBackupCredentialFields({ repoRoot });
+  result.passes.forEach(addPass);
+  result.warnings.forEach(addWarning);
+  result.failures.forEach(addFailure);
 }
 
 function checkOtaCredentialRotationAttestation() {
   const attestationPath = process.env.OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE || 'docs/ota_credential_rotation_attestation.json';
-  if (!exists(attestationPath)) {
-    addFailure(`OTA credential rotation attestation was not found: ${attestationPath}. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release.`);
-    return;
-  }
-
-  let attestation = null;
-  let raw = '';
-  try {
-    raw = readText(attestationPath);
-    attestation = JSON.parse(raw);
-  } catch (error) {
-    addFailure(`OTA credential rotation attestation is not valid JSON: ${error.message}`);
-    return;
-  }
-
-  if (/("?usertoken"?\s*[:=]\s*['"]?[^'",\s]{8,}|"?usersign"?\s*[:=]\s*['"]?[^'",\s]{8,}|"?cookie"?\s*[:=]\s*['"]?[^'",\s]{16,}|"?authorization"?\s*[:=]\s*['"]?[^'",\s]{8,}|Bearer\s+(?!redacted|masked|<redacted>)\S+)/i.test(raw)) {
-    addFailure('OTA credential rotation attestation appears to contain credential material; store only redacted evidence references.');
-  }
-  const otaSensitiveFields = findSensitiveFieldValues(
-    attestation,
-    new Set(['cookie', 'authorization', 'token', 'usertoken', 'usersign', 'signature', 'secret']),
-  );
-  if (otaSensitiveFields.length > 0) {
-    addFailure(`OTA credential rotation attestation contains unredacted sensitive fields: ${otaSensitiveFields.join(', ')}`);
-  }
-
-  const requiredStringFields = ['reviewed_at', 'reviewer'];
-  const missingFields = requiredStringFields.filter((field) => isPlaceholder(attestation[field]));
-  if (missingFields.length > 0) {
-    addFailure(`OTA credential rotation attestation is incomplete: ${missingFields.join(', ')}`);
-    return;
-  }
-
-  const platforms = Array.isArray(attestation.platforms) ? attestation.platforms : [];
-  if (attestation.redaction_checked !== true) {
-    addFailure('OTA credential rotation attestation must confirm redaction_checked=true.');
-  }
-  if (platforms.length === 0) {
-    addFailure('OTA credential rotation attestation must include at least one platform entry.');
-  }
-  for (const [index, platform] of platforms.entries()) {
-    const missingPlatformFields = ['platform', 'scope', 'action', 'evidence_ref'].filter((field) => isPlaceholder(platform?.[field]));
-    if (missingPlatformFields.length > 0) {
-      addFailure(`OTA credential rotation attestation platform entry ${index + 1} is incomplete: ${missingPlatformFields.join(', ')}`);
-    }
-    const action = String(platform?.action || '').trim();
-    if (!['rotated', 'invalidated', 'encrypted_archive', 'sanitized'].includes(action)) {
-      addFailure(`OTA credential rotation attestation platform entry ${index + 1} has unsupported action: ${action || 'missing'}`);
-    }
-  }
-
-  const cleanup = attestation.backup_cleanup || {};
-  const cleanupAction = String(cleanup.database_backups_action || '').trim();
-  if (!['deleted', 'encrypted_archive', 'sanitized'].includes(cleanupAction)) {
-    addFailure('OTA credential rotation attestation backup_cleanup.database_backups_action must be deleted, encrypted_archive, or sanitized.');
-  }
-  if (!Array.isArray(cleanup.paths_reviewed) || !cleanup.paths_reviewed.includes('database/backups')) {
-    addFailure('OTA credential rotation attestation backup_cleanup.paths_reviewed must include database/backups.');
-  }
-  if (isPlaceholder(cleanup.git_tracking_check)) {
-    addFailure('OTA credential rotation attestation backup_cleanup.git_tracking_check is missing or placeholder.');
-  }
-  if (isPlaceholder(cleanup.release_readiness_check)) {
-    addFailure('OTA credential rotation attestation backup_cleanup.release_readiness_check is missing or placeholder.');
-  }
-
-  if (failures.some((message) => message.includes('OTA credential rotation attestation'))) {
-    return;
-  }
-
-  addPass('OTA credential rotation attestation is present and complete.');
+  const result = checkOtaAttestationFile({ repoRoot, attestationPath });
+  result.passes.forEach(addPass);
+  result.warnings.forEach(addWarning);
+  result.failures.forEach(addFailure);
 }
 
 function checkReleasePackageScope() {
