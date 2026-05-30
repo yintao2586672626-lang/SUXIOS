@@ -52,7 +52,7 @@
       "status": "open",
       "title": "Production LLM connectivity attestation is missing",
       "evidence": "docs/llm_connectivity_attestation.json is missing and LLM_CONNECTIVITY_ATTESTATION_FILE is not set",
-      "close_condition": "run a production LlmClient connectivity smoke test using real ai_model_configs and provide a secret-free attestation JSON"
+      "close_condition": "run a production LlmClient connectivity smoke test using real ai_model_configs and provide a secret-free attestation JSON with redaction_checked=true"
     },
     {
       "id": "design-handoff-missing",
@@ -83,7 +83,7 @@
       "status": "open",
       "title": "OTA credential rotation attestation is missing",
       "evidence": "docs/ota_credential_rotation_attestation.json is missing and OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE is not set",
-      "close_condition": "provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, and release-readiness rerun"
+      "close_condition": "provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, release-readiness rerun, and redaction_checked=true"
     },
     {
       "id": "codex-security-scan-missing",
