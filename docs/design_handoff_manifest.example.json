@@ -1,0 +1,20 @@
+{
+  "owner": "TODO: design owner",
+  "last_reviewed_at": "TODO: YYYY-MM-DD",
+  "figma_url": "https://www.figma.com/file/TODO",
+  "canva_url": "https://www.canva.com/design/TODO",
+  "brand_kit_url": "https://www.canva.com/brand/TODO",
+  "design_tokens_path": "TODO: design-tokens.json or exported token file",
+  "covered_flows": [
+    "login",
+    "home-dashboard",
+    "ota-data",
+    "revenue-analysis",
+    "ai-decision",
+    "operations-management",
+    "investment-decision"
+  ],
+  "open_issues": [
+    "TODO: list unresolved design or brand issues before release"
+  ]
+}
