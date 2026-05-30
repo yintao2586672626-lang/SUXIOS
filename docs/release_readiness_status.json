@@ -19,6 +19,7 @@
     "status": "failing_as_expected",
     "open_failures": [
       "production env file not provided through .env.production or RELEASE_ENV_FILE",
+      "production LLM connectivity attestation not provided through LLM_CONNECTIVITY_ATTESTATION_FILE or docs/llm_connectivity_attestation.json",
       "Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json not provided",
       "database/backups contains OTA credential-shaped fields",
       "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest",
@@ -71,7 +72,7 @@
       ],
       "open": [
         "real production env has not been provided through .env.production or RELEASE_ENV_FILE",
-        "production ai_model_configs have not been verified with a real connectivity test"
+      "production ai_model_configs have not been verified with a real connectivity test"
       ]
     },
     {
@@ -115,6 +116,7 @@
   ],
   "do_not_claim_ready_until": [
     "production env is provided and passes review:release-readiness",
+    "production LLM connectivity attestation is provided and passes review:release-readiness",
     "real Figma/Canva/design-token handoff is present and passes review:release-readiness",
     "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-readiness no longer reports credential-shaped fields",
     "formal Codex Security repo-wide scan is authorized, executed and produces markdown/html reports",
