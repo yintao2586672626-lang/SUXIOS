@@ -775,6 +775,15 @@ if (externalEvidenceExample) {
       evidenceComplete = false;
     }
   }
+  const prJson = externalEvidenceExample.commands?.gh_pr_view?.json || {};
+  if (prJson.state !== 'OPEN') {
+    fail('docs/release_external_state_evidence.example.json gh_pr_view.json.state must be OPEN');
+    evidenceComplete = false;
+  }
+  if (prJson.isDraft !== false) {
+    fail('docs/release_external_state_evidence.example.json gh_pr_view.json.isDraft must be false');
+    evidenceComplete = false;
+  }
   if (evidenceComplete) {
     pass('docs/release_external_state_evidence.example.json covers required commands');
   }
