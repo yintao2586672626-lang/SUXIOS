@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-30T00:00:00.000Z",
+  "command": "npm run review:release-external-state",
+  "status": "failed",
+  "summary": {
+    "passed": 0,
+    "warnings": 0,
+    "failures": 6
+  },
+  "passes": [],
+  "warnings": [],
+  "failures": [
+    "git ls-files database/backups failed: external command execution is not permitted for git ls-files database/backups",
+    ".git/index.lock exists; local git index is not ready for release operations.",
+    "local worktree is not clean and must be reviewed before release.",
+    "git status --short --branch failed: external command execution is not permitted for git status --short --branch",
+    "gh pr view 1 failed: external command execution is not permitted for gh pr view 1 --json number,url,headRefOid,mergeable,statusCheckRollup",
+    "This runtime blocked Node child_process access to external commands. Run the listed git/gh commands directly and rerun with RELEASE_EXTERNAL_STATE_FILE pointing to a JSON evidence file."
+  ]
+}
