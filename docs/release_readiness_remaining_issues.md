@@ -12,10 +12,11 @@
 
 | 范围 | 状态 | 当前证据 |
 |---|---|---|
-| GitHub CI | 已通过 | PR `#1` head `266ab0f`，两个 `PHP Composer / verify` 均为 `SUCCESS` |
+| GitHub CI | 已通过 | PR `#1` 当前 head 的两个 `PHP Composer / verify` 均为 `SUCCESS` |
 | 数据库重建 | 已修复 | `database/init_full.sql` 不再依赖本地 `hotelx_dump.sql`，SQL schema contract 通过 |
 | 日报公式执行风险 | 已修复 | `DailyReport.php` 已移除 `eval`，改为四则运算解析器 |
 | Excel 解析命令执行风险 | 已修复 | `DailyReport.php` 已移除 `shell_exec`，改为 `proc_open` 数组命令 |
+| AI 调用入口 | 已收口 | 未使用的 `OpenAIClient` 已移除，生产 AI 路径为 `LlmClient` + 数据库加密模型配置 |
 | 采集报告误提交 | 已收口 | `.gitignore` 已忽略 `reports/ctrip_browser_capture_*.json` 与 `reports/meituan_browser_capture_*.json` |
 
 ## 仍存在的问题
@@ -29,15 +30,13 @@
 | 配置项 | 当前状态 | 风险 |
 |---|---|---|
 | `APP_DEBUG` | `true` | 生产环境不应开启调试 |
-| `OPENAI_API_KEY` | 空 | 依赖 `OpenAIClient` 的功能会报未配置 |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | 模型名已配置，但无 key 无法验证可用性 |
-| `AI_CONFIG_SECRET` | 已配置，长度 64 | 数据库模型密钥解密依赖该值，生产必须保持一致 |
+| `AI_CONFIG_SECRET` | 已配置，长度 64 | `LlmClient` 读取数据库加密模型密钥依赖该值，生产必须保持一致 |
 | `DB_PASS` | 空 | 生产数据库不应使用空密码 |
 
 处理要求：
 
 - 生产环境使用独立环境变量或部署密钥管理，不提交 `.env`。
-- 明确 OpenAI 调用入口：当前同时存在 `OpenAIClient` 的 `.env` key 路径和 `LlmClient` 的数据库模型配置路径。
+- OpenAI/LLM 生产入口已收口为 `LlmClient` + 数据库 `ai_model_configs` 加密配置；上线前仍需确认生产数据库已配置启用模型。
 - 上线前用真实生产配置做一次受控 API 连通性验证。
 
 ### 2. 完整 Codex Security 扫描未完成
@@ -49,7 +48,7 @@
 - `php scripts/verify_high_risk_security.php` 通过。
 - `npm audit --audit-level=moderate --json` 为 0 漏洞。
 - `rg` 确认 `app/` 与 `scripts/` 范围内未再命中 `eval(` / `shell_exec(`。
-- `npm run review:release-readiness` 已新增，当前输出 `2 passed, 4 warnings, 7 failures`，用于把发布阻断项显式暴露出来。
+- `npm run review:release-readiness` 已新增，当前输出 `3 passed, 4 warnings, 5 failures`，用于把发布阻断项显式暴露出来。
 
 未完成：
 
@@ -106,7 +105,7 @@
 
 当前状态：
 
-- 远端 PR 分支已更新到 `266ab0f`，CI 通过。
+- 远端 PR 分支 CI 通过，当前 head 以 GitHub PR #1 为准。
 - 本地存在残留 Git 进程和 `.git/index.lock`，普通本地 `git add/commit` 被阻断。
 - 因此本地 `git status` 仍显示远端已提交的改动为本地修改。
 
