@@ -6,7 +6,7 @@ Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 ## Current Conclusion
 
-The GitHub CI blocker is resolved on the current PR head, and the existing contract and review checks pass. The project is still not release-ready. `npm run review:release-readiness` currently reports 6 direct release-evidence failures, and the `@github` local-state blocker remains open through `git status --short --branch` plus `npm run review:release-external-state`.
+The GitHub CI blocker is resolved on the current PR head, and the existing contract and review checks pass. The project is still not release-ready. `npm run review:release-readiness` currently reports 7 failures: 6 release-evidence failures plus 1 local Git index/state failure. The `@github` local-state blocker remains open through `git status --short --branch` plus `npm run review:release-external-state`.
 
 Machine-readable status: `docs/release_readiness_status.json`.
 
