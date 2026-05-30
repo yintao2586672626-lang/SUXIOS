@@ -22,12 +22,23 @@ const requiredDocs = [
   'docs/ui-handoff/README.md',
 ];
 
+const requiredPackageScripts = [
+  'review:release-readiness',
+  'review:release-external-state',
+  'verify:release-status',
+];
+
 const requiredOpenFailurePatterns = [
   /production env/i,
   /figma|canva|design-token|design_handoff_manifest/i,
   /database\/backups|credential-shaped/i,
   /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
   /\.git\/index\.lock|git state/i,
+];
+
+const requiredExternalStateFailurePatterns = [
+  /worktree/i,
+  /\.git\/index\.lock/i,
 ];
 
 const requiredDoNotClaimReadyPatterns = [
@@ -176,11 +187,33 @@ if (status) {
     'release_readiness_check.open_failures',
   );
 
+  const externalStateCheck = status.external_state_check ?? {};
+  if (externalStateCheck.command !== 'npm run review:release-external-state') {
+    fail('external_state_check.command must be npm run review:release-external-state');
+  }
+  if (externalStateCheck.status !== 'failing_as_expected') {
+    fail('external_state_check.status must be failing_as_expected while local git blockers remain');
+  }
+  assertArrayContainsPatterns(
+    externalStateCheck.open_failures,
+    requiredExternalStateFailurePatterns,
+    'external_state_check.open_failures',
+  );
+
   assertArrayContainsPatterns(
     status.do_not_claim_ready_until,
     requiredDoNotClaimReadyPatterns,
     'do_not_claim_ready_until',
   );
+}
+
+const packageJson = readJson('package.json');
+if (packageJson) {
+  for (const scriptName of requiredPackageScripts) {
+    if (typeof packageJson.scripts?.[scriptName] !== 'string') {
+      fail(`package.json scripts is missing ${scriptName}`);
+    }
+  }
 }
 
 for (const jsonDoc of [
