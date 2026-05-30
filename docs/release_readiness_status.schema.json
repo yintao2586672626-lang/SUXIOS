@@ -29,6 +29,7 @@
         "enum": ["@github", "@openai-developers", "@codex-security", "@figma", "@canva"]
       },
       "minItems": 5,
+      "maxItems": 5,
       "uniqueItems": true
     },
     "overall_status": {
@@ -93,7 +94,8 @@
     },
     "plugin_status": {
       "type": "array",
-      "minItems": 5
+      "minItems": 5,
+      "maxItems": 5
     },
     "do_not_claim_ready_until": {
       "type": "array",
