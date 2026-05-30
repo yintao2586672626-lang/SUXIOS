@@ -34,6 +34,8 @@ const requiredDocs = [
   'scripts/lib/llm_attestation_checks.mjs',
   'scripts/verify_release_design.mjs',
   'scripts/lib/design_handoff_checks.mjs',
+  'scripts/verify_release_ota_credentials.mjs',
+  'scripts/lib/ota_credential_checks.mjs',
 ];
 
 const requiredPackageScripts = [
@@ -41,6 +43,7 @@ const requiredPackageScripts = [
   'review:release-env',
   'review:release-llm',
   'review:release-design',
+  'review:release-ota-credentials',
   'review:release-external-state',
   'collect:release-external-state',
   'review:release-external-state:local',
@@ -400,6 +403,28 @@ try {
 }
 
 try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_ota_credentials.mjs'),
+    [
+      /checkOtaCredentialRelease/,
+      /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/,
+      /Release OTA credential summary/,
+    ],
+    'scripts/verify_release_ota_credentials.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkBackupCredentialFields/,
+      /checkOtaAttestationFile/,
+    ],
+    'scripts/verify_release_readiness.mjs release OTA credential integration',
+  );
+} catch (error) {
+  fail(`could not read release OTA credential verifier scripts: ${error.message}`);
+}
+
+try {
   const workflow = readText('.github/workflows/php.yml');
   let missingWorkflowCommand = false;
   for (const command of requiredWorkflowCommands) {
@@ -509,6 +534,9 @@ if (status) {
   }
   if (!doNotClaimReadyText.includes('review:release-design')) {
     fail('do_not_claim_ready_until must mention review:release-design for Figma/Canva closure');
+  }
+  if (!doNotClaimReadyText.includes('review:release-ota-credentials')) {
+    fail('do_not_claim_ready_until must mention review:release-ota-credentials for OTA credential closure');
   }
 
   const blockers = Array.isArray(status.blockers) ? status.blockers : [];
@@ -885,6 +913,7 @@ try {
     'npm run review:release-env',
     'npm run review:release-llm',
     'npm run review:release-design',
+    'npm run review:release-ota-credentials',
     'npm run review:release-readiness',
     'npm run review:release-external-state',
     'LLM_CONNECTIVITY_ATTESTATION_FILE',
