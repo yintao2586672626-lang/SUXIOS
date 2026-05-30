@@ -33,6 +33,8 @@ const requiredDocs = [
 const requiredPackageScripts = [
   'review:release-readiness',
   'review:release-external-state',
+  'collect:release-external-state',
+  'review:release-external-state:local',
   'verify:release-status',
 ];
 
@@ -58,6 +60,13 @@ const requiredOpenFailurePatterns = [
 const requiredExternalStateFailurePatterns = [
   /worktree/i,
   /evidence|\.git\/index\.lock/i,
+];
+
+const requiredLocalExternalStateScriptFragments = [
+  'collect_release_external_state.ps1',
+  'RELEASE_EXTERNAL_STATE_FILE',
+  'verify_release_external_state.mjs',
+  'exit $LASTEXITCODE',
 ];
 
 const requiredDoNotClaimReadyPatterns = [
@@ -408,8 +417,8 @@ if (status) {
     'external_state_check.open_failures',
   );
   const externalStateWarnings = Array.isArray(externalStateCheck.warnings) ? externalStateCheck.warnings.join('\n') : '';
-  if (!externalStateWarnings.includes('scripts/collect_release_external_state.ps1')) {
-    fail('external_state_check.warnings must mention scripts/collect_release_external_state.ps1');
+  if (!externalStateWarnings.includes('npm run collect:release-external-state')) {
+    fail('external_state_check.warnings must mention npm run collect:release-external-state');
   }
 
   assertArrayContainsPatterns(
@@ -453,6 +462,12 @@ if (packageJson) {
   for (const scriptName of requiredPackageScripts) {
     if (typeof packageJson.scripts?.[scriptName] !== 'string') {
       fail(`package.json scripts is missing ${scriptName}`);
+    }
+  }
+  const localExternalStateScript = String(packageJson.scripts?.['review:release-external-state:local'] || '');
+  for (const fragment of requiredLocalExternalStateScriptFragments) {
+    if (!localExternalStateScript.includes(fragment)) {
+      fail(`package.json review:release-external-state:local must include ${fragment}`);
     }
   }
 }
@@ -699,6 +714,11 @@ if (externalStateResultExample) {
     requiredExternalStateFailurePatterns,
     'docs/release_external_state_result.example.json failures',
   );
+  const externalFailureText = Array.isArray(externalStateResultExample.failures) ? externalStateResultExample.failures.join('\n') : '';
+  if (!externalFailureText.includes('npm run collect:release-external-state')) {
+    fail('docs/release_external_state_result.example.json must mention npm run collect:release-external-state fallback');
+    resultComplete = false;
+  }
   if (resultComplete) {
     pass('docs/release_external_state_result.example.json covers required fields');
   }
