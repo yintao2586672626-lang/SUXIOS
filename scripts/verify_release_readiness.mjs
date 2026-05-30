@@ -575,6 +575,27 @@ function checkCodexSecurityScan() {
 }
 
 function checkTooling() {
+  const workflowPath = '.github/workflows/php.yml';
+  if (!exists(workflowPath)) {
+    addFailure('GitHub Actions workflow is missing: .github/workflows/php.yml.');
+  } else {
+    const workflow = readText(workflowPath);
+    const requiredWorkflowCommands = [
+      'composer audit --no-interaction',
+      'npm audit --audit-level=moderate',
+      'composer test',
+      'npm run verify:p0-guards',
+      'npm run review:non-security',
+      'npm run verify:release-status',
+    ];
+    const missingCommands = requiredWorkflowCommands.filter((command) => !workflow.includes(command));
+    if (missingCommands.length > 0) {
+      addFailure(`GitHub Actions workflow is missing release verification commands: ${missingCommands.join(', ')}.`);
+    } else {
+      addPass('GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts.');
+    }
+  }
+
   addWarning('Confirm GitHub Actions ran `composer audit --no-interaction` and `npm audit --audit-level=moderate` on the current PR head.');
 }
 
