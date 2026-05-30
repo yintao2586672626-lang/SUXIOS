@@ -14,6 +14,7 @@ const requiredScope = [
 const requiredDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_readiness_status.json',
+  'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
   'docs/design_handoff_manifest.example.json',
   'docs/ota_credential_rotation_checklist.md',
@@ -195,6 +196,12 @@ for (const doc of requiredDocs) {
 
 const status = readJson('docs/release_readiness_status.json');
 if (status) {
+  if (status.schema_version !== 1) {
+    fail('schema_version must be 1');
+  } else {
+    pass('schema_version is 1');
+  }
+
   if (status.overall_status !== 'not_release_ready') {
     fail(`overall_status must remain not_release_ready until blockers close; got ${status.overall_status}`);
   } else {
@@ -297,6 +304,7 @@ if (packageJson) {
 }
 
 for (const jsonDoc of [
+  'docs/release_readiness_status.schema.json',
   'docs/design_handoff_manifest.example.json',
   'docs/ota_credential_rotation_attestation.example.json',
   'docs/release_external_state_evidence.example.json',
