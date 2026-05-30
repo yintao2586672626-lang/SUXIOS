@@ -12,7 +12,7 @@
 
 | 范围 | 状态 | 当前证据 |
 |---|---|---|
-| GitHub CI | 已通过 | PR `#1` head `c1cc6f4`，两个 `PHP Composer / verify` 均为 `SUCCESS` |
+| GitHub CI | 已通过 | PR `#1` head `266ab0f`，两个 `PHP Composer / verify` 均为 `SUCCESS` |
 | 数据库重建 | 已修复 | `database/init_full.sql` 不再依赖本地 `hotelx_dump.sql`，SQL schema contract 通过 |
 | 日报公式执行风险 | 已修复 | `DailyReport.php` 已移除 `eval`，改为四则运算解析器 |
 | Excel 解析命令执行风险 | 已修复 | `DailyReport.php` 已移除 `shell_exec`，改为 `proc_open` 数组命令 |
@@ -49,6 +49,7 @@
 - `php scripts/verify_high_risk_security.php` 通过。
 - `npm audit --audit-level=moderate --json` 为 0 漏洞。
 - `rg` 确认 `app/` 与 `scripts/` 范围内未再命中 `eval(` / `shell_exec(`。
+- `npm run review:release-readiness` 已新增，当前输出 `2 passed, 4 warnings, 7 failures`，用于把发布阻断项显式暴露出来。
 
 未完成：
 
@@ -105,7 +106,7 @@
 
 当前状态：
 
-- 远端 PR 分支已更新到 `c1cc6f4`，CI 通过。
+- 远端 PR 分支已更新到 `266ab0f`，CI 通过。
 - 本地存在残留 Git 进程和 `.git/index.lock`，普通本地 `git add/commit` 被阻断。
 - 因此本地 `git status` 仍显示远端已提交的改动为本地修改。
 
@@ -118,6 +119,7 @@
 ## 发布前最低验收清单
 
 - GitHub PR checks 全绿。
+- `npm run review:release-readiness` 中除“需人工授权/生产密钥”的项外均已关闭，且失败项被逐条确认。
 - 生产 `.env`/密钥配置完成，`APP_DEBUG=false`。
 - OpenAI/LLM 至少一次真实连通性验证通过。
 - `composer audit` 与 `npm audit` 均可执行且无高危阻断。
