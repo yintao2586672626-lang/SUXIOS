@@ -32,12 +32,15 @@ const requiredDocs = [
   'scripts/lib/release_env_checks.mjs',
   'scripts/verify_release_llm.mjs',
   'scripts/lib/llm_attestation_checks.mjs',
+  'scripts/verify_release_design.mjs',
+  'scripts/lib/design_handoff_checks.mjs',
 ];
 
 const requiredPackageScripts = [
   'review:release-readiness',
   'review:release-env',
   'review:release-llm',
+  'review:release-design',
   'review:release-external-state',
   'collect:release-external-state',
   'review:release-external-state:local',
@@ -376,6 +379,27 @@ try {
 }
 
 try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_design.mjs'),
+    [
+      /checkDesignHandoff/,
+      /Release design handoff summary/,
+    ],
+    'scripts/verify_release_design.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkDesignHandoff/,
+      /result\.warnings\.forEach\(addWarning\)/,
+    ],
+    'scripts/verify_release_readiness.mjs release design integration',
+  );
+} catch (error) {
+  fail(`could not read release design verifier scripts: ${error.message}`);
+}
+
+try {
   const workflow = readText('.github/workflows/php.yml');
   let missingWorkflowCommand = false;
   for (const command of requiredWorkflowCommands) {
@@ -482,6 +506,9 @@ if (status) {
   }
   if (!doNotClaimReadyText.includes('review:release-llm')) {
     fail('do_not_claim_ready_until must mention review:release-llm for production LLM closure');
+  }
+  if (!doNotClaimReadyText.includes('review:release-design')) {
+    fail('do_not_claim_ready_until must mention review:release-design for Figma/Canva closure');
   }
 
   const blockers = Array.isArray(status.blockers) ? status.blockers : [];
@@ -857,6 +884,7 @@ try {
   for (const command of [
     'npm run review:release-env',
     'npm run review:release-llm',
+    'npm run review:release-design',
     'npm run review:release-readiness',
     'npm run review:release-external-state',
     'LLM_CONNECTIVITY_ATTESTATION_FILE',
