@@ -24,6 +24,10 @@ function readText(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function resolveOutputPath(outputPath) {
+  return path.isAbsolute(outputPath) ? outputPath : path.join(repoRoot, outputPath);
+}
+
 function exists(relativePath) {
   return fs.existsSync(path.join(repoRoot, relativePath));
 }
@@ -453,6 +457,27 @@ checkReleasePackageScope();
 checkCodexSecurityScan();
 checkTooling();
 checkGitEnvironment();
+
+const result = {
+  schema_version: 1,
+  generated_at: new Date().toISOString(),
+  command: 'npm run review:release-readiness',
+  status: failures.length > 0 ? 'failed' : 'passed',
+  summary: {
+    passed: passes.length,
+    warnings: warnings.length,
+    failures: failures.length,
+  },
+  passes,
+  warnings,
+  failures,
+};
+
+if (process.env.RELEASE_READINESS_RESULT_FILE) {
+  const outputPath = resolveOutputPath(process.env.RELEASE_READINESS_RESULT_FILE);
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+}
 
 for (const message of passes) {
   console.log(`PASS: ${message}`);
