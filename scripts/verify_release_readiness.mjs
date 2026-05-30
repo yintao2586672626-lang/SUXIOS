@@ -241,6 +241,45 @@ function checkReleasePackageScope() {
   }
 }
 
+function checkCodexSecurityScan() {
+  const configuredScanDir = process.env.CODEX_SECURITY_SCAN_DIR;
+  const candidateDirs = [
+    configuredScanDir,
+    'docs/security/codex-security/latest',
+    'security/codex-security/latest',
+  ].filter(Boolean);
+
+  const scanDir = candidateDirs.find((candidate) => {
+    return fs.existsSync(path.isAbsolute(candidate) ? candidate : path.join(repoRoot, candidate));
+  });
+
+  if (!scanDir) {
+    addFailure('Formal Codex Security scan reports were not found. Set CODEX_SECURITY_SCAN_DIR to a completed scan directory containing report.md and report.html before release.');
+    return;
+  }
+
+  const resolveScanPath = (relativePath) => {
+    const base = path.isAbsolute(scanDir) ? scanDir : path.join(repoRoot, scanDir);
+    return path.join(base, relativePath);
+  };
+
+  const requiredArtifacts = [
+    'report.md',
+    'report.html',
+    'artifacts/01_context/threat_model.md',
+    'artifacts/02_discovery/finding_discovery_report.md',
+    'artifacts/03_coverage/repository_coverage_ledger.md',
+  ];
+  const missingArtifacts = requiredArtifacts.filter((relativePath) => !fs.existsSync(resolveScanPath(relativePath)));
+
+  if (missingArtifacts.length > 0) {
+    addFailure(`Formal Codex Security scan is incomplete; missing artifacts: ${missingArtifacts.join(', ')}`);
+    return;
+  }
+
+  addPass('Formal Codex Security scan reports and core coverage artifacts are present.');
+}
+
 function checkTooling() {
   addWarning('Confirm GitHub Actions ran `composer audit --no-interaction` and `npm audit --audit-level=moderate` on the current PR head.');
 }
@@ -264,6 +303,7 @@ checkOpenAiEntrypoints();
 checkDesignArtifacts();
 checkBackups();
 checkReleasePackageScope();
+checkCodexSecurityScan();
 checkTooling();
 checkGitEnvironment();
 
