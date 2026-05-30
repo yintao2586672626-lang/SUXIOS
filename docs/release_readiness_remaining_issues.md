@@ -1,165 +1,129 @@
-# 上市前剩余问题清单
+# Pre-Release Remaining Issues
 
-更新时间：2026-05-30
+Updated: 2026-05-30
 
-范围：`@github`、`@openai-developers`、`@codex-security`、`@figma`、`@canva`
+Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
-## 当前结论
+## Current Conclusion
 
-项目的 GitHub CI 阻断已解除，核心测试和现有高风险安全脚本已通过。上市前仍不应直接发布，当前 `npm run review:release-readiness` 明确暴露 7 个硬阻断项。
+The GitHub CI blocker is resolved on the current PR head, and the existing contract and review checks pass. The project is still not release-ready. `npm run review:release-readiness` currently reports 7 hard failures that must stay visible until real evidence closes them.
 
-机器可读状态见 `docs/release_readiness_status.json`。
+Machine-readable status: `docs/release_readiness_status.json`.
 
-## 当前硬阻断矩阵
+## Current Hard Blocker Matrix
 
-| 序号 | 范围 | 阻断项 | 当前证据 | 关闭条件 |
+| # | Scope | Blocker | Current evidence | Close condition |
 |---:|---|---|---|---|
-| 1 | `@openai-developers` | 真实生产 env 未提供 | `review:release-readiness` 报告 `.env.production` 缺失，且未设置 `RELEASE_ENV_FILE` | 提供受控生产 env，`APP_DEBUG=false`，数据库与 `AI_CONFIG_SECRET` 非占位 |
-| 2 | `@openai-developers` | 生产 LLM 连通性证明未提供 | `docs/llm_connectivity_attestation.json` 缺失，且未设置 `LLM_CONNECTIVITY_ATTESTATION_FILE` | 用真实生产 `ai_model_configs` 完成连通性验证，并提供不含密钥的证明 JSON |
-| 3 | `@figma` / `@canva` | 真实设计源与 token 交付未提供 | 未发现真实 `docs/design_handoff_manifest.json`、Figma/Canva 源或 design token | 提供可访问 Figma、Canva、Brand Kit、`design_tokens_path` 和完整流程覆盖 |
-| 4 | `@codex-security` | 本地备份存在 OTA 凭证形态字段 | `review:release-readiness` 命中 `database/backups` 中 112 个凭证形态字段 | 删除、脱敏或加密归档本地备份，并复跑检查不再命中 |
-| 5 | `@codex-security` | OTA 凭证轮换证明未提供 | `docs/ota_credential_rotation_attestation.json` 缺失，且未设置 `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` | 提供轮换/失效/清理证明，且证明不含真实 Cookie、Token、签名或 Authorization |
-| 6 | `@codex-security` | 正式 repo-wide Codex Security 扫描报告未提供 | 未提供 `CODEX_SECURITY_SCAN_DIR` 或 `docs/security/codex-security/latest` 扫描产物 | 授权 subagents，完成 threat model、discovery、validation、attack-path，并输出 Markdown/HTML 报告 |
-| 7 | `@github` | 本地 Git 状态未关闭 | `.git/index.lock` 存在，本地 worktree 仍有未清理改动 | 清理 index lock，对齐本地和 PR，`review:release-external-state` 通过 |
+| 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env with `APP_DEBUG=false` and non-placeholder database and `AI_CONFIG_SECRET` values. |
+| 2 | `@openai-developers` | Production LLM connectivity attestation is missing | `docs/llm_connectivity_attestation.json` is missing and `LLM_CONNECTIVITY_ATTESTATION_FILE` is not set. | Run a production `LlmClient` connectivity smoke test using real `ai_model_configs` and provide a secret-free attestation JSON. |
+| 3 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json`, Figma source, Canva source, Brand Kit, or design-token artifact is present. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, and required flow coverage. |
+| 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 112 credential-shaped matches under `database/backups`. | Delete, sanitize, or encrypted-archive local backups and rerun the readiness check with no credential-shaped matches. |
+| 5 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, and readiness rerun. |
+| 6 | `@codex-security` | Formal repo-wide Codex Security scan is missing | `CODEX_SECURITY_SCAN_DIR` and `docs/security/codex-security/latest` scan artifacts are not present. | Authorize subagents and complete threat model, finding discovery, validation, attack-path analysis, and final Markdown/HTML reports. |
+| 7 | `@github` | Local Git state is not closed | `.git/index.lock` exists and the local worktree still contains unclosed changes. | Clear the index lock, align local worktree with the PR, and pass `review:release-external-state`. |
 
-## 已解除的阻断
+## Resolved Or Partially Controlled Items
 
-| 范围 | 状态 | 当前证据 |
+| Scope | Status | Evidence |
 |---|---|---|
-| GitHub CI | 已通过 | PR `#1` 当前 head 的两个 `PHP Composer / verify` 均为 `SUCCESS` |
-| 数据库重建 | 已修复 | `database/init_full.sql` 不再依赖本地 `hotelx_dump.sql`，SQL schema contract 通过 |
-| 日报公式执行风险 | 已修复 | `DailyReport.php` 已移除 `eval`，改为四则运算解析器 |
-| Excel 解析命令执行风险 | 已修复 | `DailyReport.php` 已移除 `shell_exec`，改为 `proc_open` 数组命令 |
-| AI 调用入口 | 已收口 | 未使用的 `OpenAIClient` 已移除，生产 AI 路径为 `LlmClient` + 数据库加密模型配置 |
-| 采集报告误提交 | 已收口 | `.gitignore` 已忽略 `reports/ctrip_browser_capture_*.json` 与 `reports/meituan_browser_capture_*.json` |
-| 发布包敏感路径 | 已收口 | `.gitattributes` 已将 `.env`、数据库备份、采集报告和截图资产标记为 `export-ignore` |
-| UI 代码侧交付清单 | 已补充 | `docs/ui-handoff/README.md` 已覆盖登录、OTA、收益分析、AI 决策、运营管理、投资决策的代码侧核对入口 |
-| 本地 Git index 锁 | 部分缓解 | `review:release-readiness` 可检测锁文件；本机仍会间歇出现 `.git/index.lock`，发布前必须复核 |
+| GitHub CI | Resolved on current PR head | PR `#1` has two successful `PHP Composer / verify` checks on the latest inspected head. |
+| Database rebuild | Fixed | `database/init_full.sql` no longer depends on local `hotelx_dump.sql`; SQL schema contracts pass in CI. |
+| Daily report formula execution risk | Fixed | `DailyReport.php` removed `eval` and uses an arithmetic parser path. |
+| Excel parsing command execution risk | Fixed | `DailyReport.php` removed `shell_exec` and uses array-form `proc_open`. |
+| AI request entrypoint | Controlled | Unused `OpenAIClient` was removed; production AI path is `LlmClient` with encrypted database model configuration. |
+| Release package sensitive paths | Controlled | `.gitignore` and `.gitattributes` exclude env files, backups, capture reports, and screenshot assets from normal tracking and archive exports. |
+| UI code-side handoff checklist | Added | `docs/ui-handoff/README.md` covers login, OTA data, revenue analysis, AI decision, operations management, and investment decision code-side review points. |
 
-## 仍存在的问题
+## Open Problem Details
 
-### 1. 生产环境配置未达发布状态
+### 1. Production Configuration Is Not Verified
 
-范围：`@openai-developers`、发布配置
+Scope: `@openai-developers`
 
-当前仓库只提供 `.example.production.env` 模板，未提供可验证的生产 env 文件。`npm run review:release-readiness` 默认检查 `.env.production`，也可以通过 `RELEASE_ENV_FILE` 指向受控生产配置文件。
+The repository only contains `.example.production.env`. It is a template and intentionally contains placeholder values. It cannot prove a production release configuration.
 
-| 配置项 | 当前状态 | 风险 |
-|---|---|---|
-| `.env.production` / `RELEASE_ENV_FILE` | 未提供真实文件 | 无法证明生产 `APP_DEBUG=false`、数据库密码非空、AI 密钥解密配置正确 |
-| `.example.production.env` | 已补充模板 | 只能作为填写参考；含 `CHANGE_ME` 占位值，不能作为生产配置验收 |
-| `AI_CONFIG_SECRET` | 本地 `.env` 已配置，长度 64 | 只能证明本地开发值存在，不能替代生产密钥验收 |
-| `LLM_CONNECTIVITY_ATTESTATION_FILE` / `docs/llm_connectivity_attestation.json` | 未提供真实连通性证明 | 无法证明生产 `ai_model_configs` 可解密并成功调用供应商模型 |
+Required close evidence:
 
-处理要求：
+- A controlled production env file exists outside git and is referenced through `RELEASE_ENV_FILE`, or `.env.production` exists in a controlled release workspace.
+- `APP_DEBUG=false`.
+- Database values are non-placeholder and non-empty.
+- `AI_CONFIG_SECRET` is present and non-placeholder.
+- `npm run review:release-readiness` no longer reports the production env failure.
 
-- 生产环境使用独立环境变量或部署密钥管理，不提交 `.env`。
-- 按 `.example.production.env` 和 `docs/deployment_env_checklist.md` 准备受控生产 env，并用 `RELEASE_ENV_FILE` 运行发布就绪检查。
-- OpenAI/LLM 生产入口已收口为 `LlmClient` + 数据库 `ai_model_configs` 加密配置；上线前仍需确认生产数据库已配置启用模型。
-- 上线前用真实生产配置做一次受控 API 连通性验证，并按 `docs/llm_connectivity_attestation.example.json` 记录；用 `LLM_CONNECTIVITY_ATTESTATION_FILE` 参与发布就绪检查。
+### 2. Production LLM Connectivity Is Not Proven
 
-### 2. 完整 Codex Security 扫描未完成
+Scope: `@openai-developers`
 
-范围：`@codex-security`
+The code path has been narrowed to `LlmClient` plus encrypted `ai_model_configs`, but no production connectivity attestation exists.
 
-已完成：
+Required close evidence:
 
-- `php scripts/verify_high_risk_security.php` 通过。
-- `npm audit --audit-level=moderate --json` 为 0 漏洞。
-- GitHub Actions 已加入 `composer audit --no-interaction` 与 `npm audit --audit-level=moderate`。
-- 当前 PR head 的两个 CI job 日志均显示：`composer audit --no-interaction` 返回无安全公告，`npm audit --audit-level=moderate` 返回 0 漏洞。
-- `rg` 确认 `app/` 与 `scripts/` 范围内未再命中 `eval(` / `shell_exec(`。
-- `npm run review:release-readiness` 已新增，用于把发布阻断项显式暴露出来。
-- 发布包敏感路径 ignore 规则已校验通过，覆盖 `.env`、生产 env、数据库备份、采集 profile、采集报告 JSON 和截图目录。
-- `.gitattributes` 已补充 `export-ignore`，用于 `git archive` 场景排除 `.env`、数据库备份、采集报告和截图资产。
+- A real production smoke test uses enabled `ai_model_configs`.
+- The attestation follows `docs/llm_connectivity_attestation.example.json`.
+- The attestation is referenced by `LLM_CONNECTIVITY_ATTESTATION_FILE` or stored as `docs/llm_connectivity_attestation.json`.
+- The attestation contains no real API key, token, Cookie, signature, or Authorization value.
 
-未完成：
+### 3. Formal Security Scan Is Not Complete
 
-- 正式 repo-wide Codex Security 扫描需要授权 subagents，当前未获得授权，因此没有完整扫描的 markdown/html 报告。
+Scope: `@codex-security`
 
-处理要求：
+Existing checks are useful but not enough for formal release security review. `verify_high_risk_security.php`, `composer audit`, and `npm audit` do not replace a repo-wide Codex Security scan.
 
-- 授权 subagents 后执行完整 security-scan 流程。
-- 提交本地改动后，确认当前 PR head 的 GitHub Actions 中 `composer audit` 与 `npm audit` 均通过。
-- 授权要求见 `docs/codex_security_scan_authorization.md`。
+Required close evidence:
 
-### 3. 本地备份目录存在 OTA 凭证形态数据
+- Subagents are authorized for formal scan work.
+- Threat model, finding discovery, validation, and attack-path analysis are completed.
+- `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest` contains `report.md` and `report.html`.
+- `npm run review:release-readiness` no longer reports the Codex Security scan failure.
 
-范围：`@codex-security`、OTA 数据安全
+### 4. Local OTA Backup Credential Risk Remains
 
-证据：
+Scope: `@codex-security`
 
-- `database/backups/` 被 `.gitignore` 忽略，当前未作为源码提交。
-- `git ls-files database/backups` 无输出，当前没有备份文件被 Git 跟踪。
-- `.gitattributes` 已将 `database/backups/*` 标记为 `export-ignore`。
-- 本地 `database/backups/*.sql` 中命中 `usertoken`、`usersign`、`cookies` 等携程认证字段。
-- 已补充 `docs/ota_credential_rotation_checklist.md` 和 `docs/ota_credential_rotation_attestation.example.json`，用于轮换和清理验收记录。
+`database/backups` is ignored and not tracked by Git, but local backup files still contain credential-shaped OTA fields. If those values are real, they must be treated as exposed in the local backup environment.
 
-风险：
+Required close evidence:
 
-- 如果这些是真实 OTA 凭证，应视为已暴露在本机备份中。
-- 若打包、迁移、部署时误带入 `database/backups/`，会造成严重凭证泄露。
+- Real OTA Cookie, Token, signature, and Authorization material is rotated or invalidated where applicable.
+- Local backup files are deleted, sanitized, or moved into controlled encrypted storage.
+- `git ls-files database/backups` remains empty.
+- `npm run review:release-readiness` no longer reports credential-shaped matches.
+- `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json` records the cleanup without exposing credentials.
 
-处理要求：
+### 5. Figma / Canva Source Handoff Is Missing
 
-- 不把 `database/backups/` 放入任何发布包。
-- 对真实 OTA Cookie/Token 执行轮换或失效处理。
-- 生产备份使用加密存储和最小权限访问。
-- 完成后按 `docs/ota_credential_rotation_checklist.md` 复扫，并基于 `docs/ota_credential_rotation_attestation.example.json` 创建受控证明；可通过 `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 指向该证明参与发布就绪检查。
-- 证明文件只保留内部工单、审计记录或安全存储引用，不粘贴真实 Cookie、Token、签名或 Authorization 内容。
+Scope: `@figma`, `@canva`
 
-### 4. Figma / Canva 真实设计源未归档
+The repository has code-side UI review documentation, but no real design source of truth. This blocks listing material review, brand consistency review, and design-to-code traceability.
 
-范围：`@figma`、`@canva`
+Required close evidence:
 
-证据：
+- `docs/design_handoff_manifest.json` is created from `docs/design_handoff_manifest.example.json`.
+- It includes accessible Figma URL, Canva URL, Brand Kit URL, `design_tokens_path`, owner, review date, covered flows, and open issues.
+- Covered flows include login, OTA data, revenue analysis, AI decision, operations management, and investment decision.
+- `npm run review:release-readiness` no longer reports the design handoff failure.
 
-- 已补充代码侧 UI handoff 清单：`docs/ui-handoff/README.md`。
-- 已补充设计交付 manifest 模板：`docs/design_handoff_manifest.example.json`。
-- 仓库内仍未发现 `.fig`、`.canva`、`.sketch`、`.xd`、`design-tokens.json` 或品牌规范源文件。
-- 代码中存在页面和样式，但仍没有 `docs/design_handoff_manifest.json` 或可追溯到 Figma/Canva 的真实设计源。
+### 6. Local Git State Must Be Closed Before Release
 
-风险：
+Scope: `@github`
 
-- 上市材料、品牌一致性、UI 验收和后续设计迭代缺少单一来源。
-- 无法证明当前界面与设计稿一致。
+The PR branch is the current source of truth, but the local worktree remains dirty and `.git/index.lock` exists. Do not claim local release readiness until the local and remote states are aligned and verified.
 
-处理要求：
+Required close evidence:
 
-- 补充 Figma/Canva 链接、导出稿、品牌规范、色彩/字体/组件 token。
-- 基于 `docs/design_handoff_manifest.example.json` 创建 `docs/design_handoff_manifest.json`，填写可访问的 Figma、Canva、Brand Kit 链接、负责人、`design_tokens_path` 和覆盖流程。
-- 建立 UI 走查清单：登录、首页、OTA 数据、收益分析、AI 决策、运营管理、投资决策。
-- 代码侧走查要求见 `docs/ui-handoff/README.md`；该文件只定义验收要求，不替代真实设计源。
+- `.git/index.lock` is removed only after confirming no active Git process owns it.
+- Local worktree is clean or contains only intentionally reviewed release changes.
+- `npm run review:release-external-state` passes, or `RELEASE_EXTERNAL_STATE_FILE` captures equivalent `git` and `gh` evidence.
+- GitHub Actions are green on the final PR head.
 
-### 5. 本地工作区仍有待提交改动
+## Minimum Release Gate
 
-范围：`@github`
-
-当前状态：
-
-- 远端 PR 分支 CI 通过，当前 head 以 GitHub PR #1 为准。
-- `.git/index.lock` 仍会间歇出现，普通本地 Git 操作可能被阻断。
-- 本地工作区仍有本轮审查和既有发布修复改动；远端 PR 已通过 GitHub API 同步，发布前需要统一 review、对齐本地和远端状态。
-- `npm run review:release-external-state` 已补充，用于发布前复核 PR checks、`git ls-files database/backups`、本地 worktree 和 `.git/index.lock`。
-- 如果当前 Node 运行环境禁止 `child_process` 调用外部命令，应直接运行该脚本输出中列出的 `git` / `gh` 命令，并按 `docs/release_external_state_evidence.example.json` 记录输出后，用 `RELEASE_EXTERNAL_STATE_FILE` 复跑验收。
-
-处理要求：
-
-- 对本轮改动做最终 review。
-- 提交后等待 GitHub Actions 中 PHPUnit、guard、contract、`composer audit`、`npm audit` 通过。
-- 发布前确认 `git status --short --branch` 仅包含预期改动或已完全干净。
-
-## 发布前最低验收清单
-
-- GitHub PR checks 全绿。
-- `npm run review:release-external-state` 通过。
-- `npm run review:release-readiness` 中除“需人工授权/生产密钥”的项外均已关闭，且失败项被逐条确认。
-- 生产 `.env`/密钥配置完成，`APP_DEBUG=false`。
-- OpenAI/LLM 至少一次真实连通性验证通过。
-- `LLM_CONNECTIVITY_ATTESTATION_FILE` 或 `docs/llm_connectivity_attestation.json` 通过发布就绪检查，且不包含真实密钥。
-- `composer audit` 与 `npm audit` 均可执行且无高危阻断。
-- Codex Security repo-wide 扫描完成并产出报告。
-- 发布包确认不包含 `.env`、`database/backups/`、本地采集 profile、采集报告 JSON、截图资产。
-- `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 或 `docs/ota_credential_rotation_attestation.json` 通过发布就绪检查，且不包含真实凭证。
-- Figma/Canva 或等价设计交付物完成归档。
-- OTA 指标对外展示继续标注 OTA 渠道口径，不把 OTA-only 数据表述为全酒店经营口径。
+- GitHub PR checks are green on the final head.
+- `npm run verify:release-status` passes.
+- `npm run review:release-external-state` passes.
+- `npm run review:release-readiness` passes with real evidence files, not placeholder templates.
+- Production env and LLM attestation are verified.
+- Formal Codex Security scan artifacts exist.
+- OTA credential rotation and backup cleanup are attested without exposing credentials.
+- Figma / Canva / Brand Kit / design-token handoff is present and reviewed.
+- OTA-only metrics remain clearly labeled as OTA channel scope, not whole-hotel operating scope.
