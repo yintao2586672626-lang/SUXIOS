@@ -21,6 +21,7 @@ const requiredDocs = [
   'docs/codex_security_scan_authorization.md',
   'docs/ui-handoff/README.md',
   'docs/release_external_state_evidence.example.json',
+  'docs/llm_connectivity_attestation.example.json',
 ];
 
 const requiredPackageScripts = [
@@ -31,6 +32,7 @@ const requiredPackageScripts = [
 
 const requiredOpenFailurePatterns = [
   /production env/i,
+  /LLM|connectivity|LLM_CONNECTIVITY_ATTESTATION_FILE/i,
   /figma|canva|design-token|design_handoff_manifest/i,
   /database\/backups|credential-shaped/i,
   /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
@@ -44,6 +46,7 @@ const requiredExternalStateFailurePatterns = [
 
 const requiredDoNotClaimReadyPatterns = [
   /production env/i,
+  /LLM|connectivity/i,
   /figma|canva|design-token/i,
   /OTA credentials|database\/backups/i,
   /Codex Security/i,
@@ -79,6 +82,21 @@ const requiredExternalEvidenceKeys = [
   'reviewed_at',
   'reviewer',
   'commands',
+];
+
+const requiredLlmAttestationKeys = [
+  'reviewed_at',
+  'reviewer',
+  'environment',
+  'provider',
+  'model_key',
+  'model_name',
+  'base_url',
+  'ai_model_config_enabled',
+  'ai_config_secret_checked',
+  'request',
+  'result',
+  'evidence_ref',
 ];
 
 const issues = [];
@@ -230,8 +248,27 @@ for (const jsonDoc of [
   'docs/design_handoff_manifest.example.json',
   'docs/ota_credential_rotation_attestation.example.json',
   'docs/release_external_state_evidence.example.json',
+  'docs/llm_connectivity_attestation.example.json',
 ]) {
   readJson(jsonDoc);
+}
+
+const llmAttestationExample = readJson('docs/llm_connectivity_attestation.example.json');
+if (llmAttestationExample) {
+  let attestationComplete = true;
+  for (const key of requiredLlmAttestationKeys) {
+    if (!(key in llmAttestationExample)) {
+      fail(`docs/llm_connectivity_attestation.example.json is missing ${key}`);
+      attestationComplete = false;
+    }
+  }
+  if (llmAttestationExample.result?.status === 'passed') {
+    fail('docs/llm_connectivity_attestation.example.json must remain a placeholder template, not a passing attestation');
+    attestationComplete = false;
+  }
+  if (attestationComplete) {
+    pass('docs/llm_connectivity_attestation.example.json covers required fields');
+  }
 }
 
 const externalEvidenceExample = readJson('docs/release_external_state_evidence.example.json');
