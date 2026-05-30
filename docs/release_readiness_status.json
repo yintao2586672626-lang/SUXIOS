@@ -53,7 +53,7 @@
       "status": "open",
       "title": "Production LLM connectivity attestation is missing",
       "evidence": "docs/llm_connectivity_attestation.json is missing and LLM_CONNECTIVITY_ATTESTATION_FILE is not set",
-      "close_condition": "run a production LlmClient connectivity smoke test using real ai_model_configs and provide a secret-free attestation JSON with redaction_checked=true"
+      "close_condition": "run a production LlmClient connectivity smoke test using real ai_model_configs, provide a secret-free attestation JSON with redaction_checked=true, and pass npm run review:release-llm"
     },
     {
       "id": "design-handoff-missing",
@@ -193,7 +193,7 @@
   ],
   "do_not_claim_ready_until": [
     "production env is provided and passes review:release-env plus review:release-readiness",
-    "production LLM connectivity attestation is provided and passes review:release-readiness",
+    "production LLM connectivity attestation is provided and passes review:release-llm plus review:release-readiness",
     "real Figma/Canva/design-token handoff is present and passes review:release-readiness",
     "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-readiness no longer reports credential-shaped fields",
     "OTA credential rotation attestation is provided and passes review:release-readiness",
