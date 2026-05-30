@@ -118,7 +118,9 @@ function checkEnvReadiness() {
 
   const env = parseEnv(readText(envFile));
   const appDebug = (env.get('APP_DEBUG') ?? '').toLowerCase();
+  const appTrace = (env.get('APP_TRACE') ?? '').toLowerCase();
   const aiConfigSecret = env.get('AI_CONFIG_SECRET') ?? '';
+  const dbHost = env.get('DB_HOST') ?? '';
   const dbPass = env.get('DB_PASS') ?? '';
   const dbUser = env.get('DB_USER') ?? '';
 
@@ -133,6 +135,11 @@ function checkEnvReadiness() {
     addPass('APP_DEBUG is false.');
   } else {
     addFailure('APP_DEBUG is not false; production must not expose debug mode.');
+  }
+  if (appTrace === 'false') {
+    addPass('APP_TRACE is false.');
+  } else {
+    addFailure('APP_TRACE is not false; production must not expose trace output.');
   }
 
   if (aiConfigSecret.length >= 32 && !isPlaceholder(aiConfigSecret)) {
@@ -149,6 +156,9 @@ function checkEnvReadiness() {
 
   if (/^root$/i.test(dbUser.trim())) {
     addFailure('DB_USER must not be root; production must use a least-privilege database user.');
+  }
+  if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|::1)$/i.test(dbHost.trim())) {
+    addFailure('DB_HOST must not point to localhost or loopback for production release evidence.');
   }
 }
 
