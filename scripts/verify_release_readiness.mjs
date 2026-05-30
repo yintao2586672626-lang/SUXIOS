@@ -147,6 +147,8 @@ function checkTooling() {
       'npm audit --audit-level=moderate',
       'composer test',
       'npm run verify:p0-guards',
+      'npm run review:functional-readiness',
+      'npm run review:release-issues',
       'npm run review:non-security',
       'npm run verify:release-status',
     ];
@@ -154,7 +156,7 @@ function checkTooling() {
     if (missingCommands.length > 0) {
       addFailure(`GitHub Actions workflow is missing release verification commands: ${missingCommands.join(', ')}.`);
     } else {
-      addPass('GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts.');
+      addPass('GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, non-security review, and release-status contracts.');
     }
   }
 

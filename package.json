@@ -8,6 +8,7 @@
     "verify:public-entry": "node scripts/verify_public_entry_guard.mjs",
     "verify:worktree": "node scripts/verify_worktree_guard.mjs",
     "review:non-security": "node scripts/verify_non_security_review.mjs",
+    "review:release-issues": "node scripts/verify_release_issue_register.mjs",
     "verify:transfer-p2": "node scripts/verify_transfer_p2.mjs",
     "verify:e2e-contracts": "node scripts/verify_e2e_contracts.mjs",
     "verify:shared-helpers": "node scripts/verify_shared_helpers_contract.mjs",

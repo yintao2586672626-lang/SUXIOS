@@ -28,6 +28,7 @@ Run these only after the isolated command for each closed blocker passes.
 | Release readiness | `npm run review:release-readiness` | Fails while any blocker above remains open. | Single release gate for production env, LLM, design handoff, OTA credentials, Codex Security scan, and local Git state. |
 | Status contract | `npm run verify:release-status` | Passes. | Confirms release docs, examples, scripts, and blocker contracts stay consistent. |
 | Functional readiness | `npm run review:functional-readiness` | Passes. | Confirms local structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
+| Issue register | `npm run review:release-issues` | Passes. | Confirms the current release issue register still lists all open blockers and acceptance commands. |
 | Non-security review | `npm run review:non-security` | Passes. | Confirms the non-security release review contract still passes. |
 
 ## Execution Rules

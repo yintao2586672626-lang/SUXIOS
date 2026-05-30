@@ -16,6 +16,7 @@ const requiredDocs = [
   'docs/release_blocker_close_plan.md',
   'docs/release_verification_command_matrix.md',
   'docs/release_functional_acceptance_matrix.md',
+  'docs/release_issue_register.md',
   'docs/release_readiness_status.json',
   'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
@@ -31,6 +32,7 @@ const requiredDocs = [
   'docs/release_readiness_result.example.json',
   'scripts/collect_release_external_state.ps1',
   'scripts/verify_release_functional_readiness.mjs',
+  'scripts/verify_release_issue_register.mjs',
   'scripts/verify_release_env.mjs',
   'scripts/lib/release_env_checks.mjs',
   'scripts/verify_release_llm.mjs',
@@ -46,6 +48,7 @@ const requiredDocs = [
 const requiredPackageScripts = [
   'review:release-readiness',
   'review:functional-readiness',
+  'review:release-issues',
   'review:release-env',
   'review:release-llm',
   'review:release-design',
@@ -67,6 +70,7 @@ const requiredVerificationMatrixCommands = [
   'npm run review:release-external-state:local',
   'npm run review:release-readiness',
   'npm run review:functional-readiness',
+  'npm run review:release-issues',
   'npm run verify:release-status',
   'npm run review:non-security',
 ];
@@ -77,6 +81,7 @@ const requiredWorkflowCommands = [
   'composer test',
   'npm run verify:p0-guards',
   'npm run review:functional-readiness',
+  'npm run review:release-issues',
   'npm run review:non-security',
   'npm run verify:release-status',
 ];
@@ -234,6 +239,7 @@ const asciiReleaseDocs = [
   'docs/release_blocker_close_plan.md',
   'docs/release_verification_command_matrix.md',
   'docs/release_functional_acceptance_matrix.md',
+  'docs/release_issue_register.md',
   'docs/release_readiness_status.json',
   'docs/codex_security_scan_authorization.md',
   'docs/release_readiness_result.example.json',
@@ -826,8 +832,8 @@ if (readinessResultExample) {
     resultComplete = false;
   }
   const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
-  if (!/GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts\./.test(readinessPasses)) {
-    fail('docs/release_readiness_result.example.json passes must include the GitHub Actions workflow coverage pass');
+  if (!/GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, non-security review, and release-status contracts\./.test(readinessPasses)) {
+    fail('docs/release_readiness_result.example.json passes must include the current GitHub Actions workflow coverage pass');
     resultComplete = false;
   }
   assertArrayContainsPatterns(
@@ -933,6 +939,9 @@ try {
   }
   if (!report.includes('docs/release_functional_acceptance_matrix.md')) {
     fail('release_readiness_remaining_issues.md must reference docs/release_functional_acceptance_matrix.md');
+  }
+  if (!report.includes('docs/release_issue_register.md')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_issue_register.md');
   }
   if (!report.includes('npm run review:functional-readiness')) {
     fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
@@ -1046,6 +1055,48 @@ try {
   }
 } catch (error) {
   fail(`could not read release functional acceptance matrix: ${error.message}`);
+}
+
+try {
+  const issueRegister = readText('docs/release_issue_register.md');
+  for (const id of requiredBlockerIds) {
+    if (!issueRegister.includes(id)) {
+      fail(`release_issue_register.md must mention ${id}`);
+    }
+  }
+  for (const scope of requiredScope) {
+    if (!issueRegister.includes(scope)) {
+      fail(`release_issue_register.md must mention ${scope}`);
+    }
+  }
+  for (const command of [
+    'npm run review:release-env',
+    'npm run review:release-llm',
+    'npm run review:release-design',
+    'npm run review:release-ota-credentials',
+    'npm run review:release-security-scan',
+    'npm run review:release-external-state',
+    'npm run review:release-readiness',
+    'npm run review:functional-readiness',
+    'npm run verify:release-status',
+  ]) {
+    if (!issueRegister.includes(command)) {
+      fail(`release_issue_register.md must mention ${command}`);
+    }
+  }
+  for (const phrase of [
+    'Status: not release-ready',
+    '4498 credential-shaped matches',
+    '.git/index.lock',
+    'Do not mark any issue closed from narrative evidence alone',
+    'Do not delete or sanitize local backup files without explicit operator approval',
+  ]) {
+    if (!issueRegister.includes(phrase)) {
+      fail(`release_issue_register.md must include ${phrase}`);
+    }
+  }
+} catch (error) {
+  fail(`could not read release issue register: ${error.message}`);
 }
 
 if (issues.length > 0) {

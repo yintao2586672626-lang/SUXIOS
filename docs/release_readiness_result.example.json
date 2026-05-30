@@ -13,7 +13,7 @@
     "database/backups is listed in .gitignore.",
     "database/backups is excluded from git archive exports.",
     "Release package sensitive-path ignore rules are present.",
-    "GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts."
+    "GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, non-security review, and release-status contracts."
   ],
   "warnings": [
     "Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.",
