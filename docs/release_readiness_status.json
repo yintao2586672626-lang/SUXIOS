@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "updated_at": "2026-05-30",
   "scope": [
     "@github",
