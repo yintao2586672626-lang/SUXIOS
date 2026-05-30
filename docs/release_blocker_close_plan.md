@@ -10,7 +10,7 @@ Source: `docs/release_readiness_status.json` `blockers`
 
 | Order | Blocker id | Scope | Close action | Acceptance evidence |
 |---:|---|---|---|---|
-| 1 | `local-git-state-open` | `@github` | Clear `.git/index.lock`, align local worktree with the PR branch, and recheck PR checks. | `npm run review:release-external-state` passes, or `RELEASE_EXTERNAL_STATE_FILE` proves the same checks passed. |
+| 1 | `local-git-state-open` | `@github` | Align local worktree with the PR branch, confirm `.git/index.lock` is absent, and recheck PR checks. | `npm run review:release-external-state` passes, or `RELEASE_EXTERNAL_STATE_FILE` proves the same checks passed. |
 | 2 | `production-env-missing` | `@openai-developers` | Prepare controlled production env outside git. | `RELEASE_ENV_FILE` points to a real production config and `npm run review:release-readiness` no longer reports missing production env. |
 | 3 | `llm-connectivity-attestation-missing` | `@openai-developers` | Test production `ai_model_configs` through the real `LlmClient` path. | `LLM_CONNECTIVITY_ATTESTATION_FILE` or `docs/llm_connectivity_attestation.json` passes review and contains no secret values. |
 | 4 | `backup-credential-shaped-fields` | `@codex-security` | Delete, sanitize, or encrypted-archive credential-shaped data under `database/backups`. | `npm run review:release-readiness` no longer reports credential-shaped matches. |
@@ -21,6 +21,7 @@ Source: `docs/release_readiness_status.json` `blockers`
 ## Close Rules
 
 - Rerun `npm run review:release-readiness` after closing each blocker.
+- When preserving evidence for review, run with `RELEASE_READINESS_RESULT_FILE=<controlled-path>` and archive the generated JSON result outside secret-bearing locations.
 - Do not store real keys, Cookie values, Token values, signatures, or Authorization headers in attestation files.
 - Keep each blocker in `open` status in `docs/release_readiness_status.json` until its acceptance command or evidence has passed.
 - Figma / Canva handoff cannot be screenshots only; it must include accessible source links, Brand Kit, and design token location.
