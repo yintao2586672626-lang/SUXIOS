@@ -55,6 +55,16 @@ const requiredDoNotClaimReadyPatterns = [
   /git state/i,
 ];
 
+const requiredReportBlockerPatterns = [
+  /真实生产 env|Production env/i,
+  /LLM_CONNECTIVITY_ATTESTATION_FILE|LLM 连通性/i,
+  /Figma|Canva|design token/i,
+  /database\/backups.*凭证|credential-shaped/i,
+  /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE|OTA 凭证轮换/i,
+  /CODEX_SECURITY_SCAN_DIR|Codex Security/i,
+  /\.git\/index\.lock|本地 Git 状态/i,
+];
+
 const requiredSecurityScanPatterns = [
   /subagents/i,
   /Threat model/i,
@@ -367,6 +377,11 @@ try {
   if (!report.includes('docs/release_readiness_status.json')) {
     fail('release_readiness_remaining_issues.md must reference docs/release_readiness_status.json');
   }
+  assertTextContainsPatterns(
+    report,
+    requiredReportBlockerPatterns,
+    'docs/release_readiness_remaining_issues.md',
+  );
   for (const plugin of requiredScope) {
     if (!report.includes(plugin)) {
       fail(`release_readiness_remaining_issues.md must mention ${plugin}`);
