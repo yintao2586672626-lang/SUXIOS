@@ -32,6 +32,64 @@
       "verify git status --short --branch before release"
     ]
   },
+  "blockers": [
+    {
+      "id": "production-env-missing",
+      "scope": ["@openai-developers"],
+      "status": "open",
+      "title": "真实生产 env 未提供",
+      "evidence": "review:release-readiness reports .env.production missing and RELEASE_ENV_FILE is not set",
+      "close_condition": "provide controlled production env with APP_DEBUG=false and non-placeholder database and AI_CONFIG_SECRET values"
+    },
+    {
+      "id": "llm-connectivity-attestation-missing",
+      "scope": ["@openai-developers"],
+      "status": "open",
+      "title": "生产 LLM 连通性证明未提供",
+      "evidence": "docs/llm_connectivity_attestation.json is missing and LLM_CONNECTIVITY_ATTESTATION_FILE is not set",
+      "close_condition": "run a production LlmClient connectivity smoke test using real ai_model_configs and provide a secret-free attestation JSON"
+    },
+    {
+      "id": "design-handoff-missing",
+      "scope": ["@figma", "@canva"],
+      "status": "open",
+      "title": "真实设计源与 design token 交付未提供",
+      "evidence": "no real docs/design_handoff_manifest.json, Figma/Canva source, or design-token artifact is present",
+      "close_condition": "provide accessible Figma, Canva, Brand Kit, design_tokens_path, and required flow coverage"
+    },
+    {
+      "id": "backup-credential-shaped-fields",
+      "scope": ["@codex-security"],
+      "status": "open",
+      "title": "本地 database/backups 存在 OTA 凭证形态字段",
+      "evidence": "review:release-readiness reports 112 credential-shaped matches in database/backups",
+      "close_condition": "delete, sanitize, or encrypted-archive local backups and rerun review:release-readiness with no credential-shaped matches"
+    },
+    {
+      "id": "ota-credential-rotation-attestation-missing",
+      "scope": ["@codex-security"],
+      "status": "open",
+      "title": "OTA 凭证轮换证明未提供",
+      "evidence": "docs/ota_credential_rotation_attestation.json is missing and OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE is not set",
+      "close_condition": "provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, and release-readiness rerun"
+    },
+    {
+      "id": "codex-security-scan-missing",
+      "scope": ["@codex-security"],
+      "status": "open",
+      "title": "正式 repo-wide Codex Security 扫描报告未提供",
+      "evidence": "CODEX_SECURITY_SCAN_DIR and docs/security/codex-security/latest scan artifacts are not present",
+      "close_condition": "authorize subagents and complete threat model, finding discovery, validation, attack-path analysis, and final Markdown/HTML reports"
+    },
+    {
+      "id": "local-git-state-open",
+      "scope": ["@github"],
+      "status": "open",
+      "title": "本地 Git 状态未关闭",
+      "evidence": ".git/index.lock exists and local worktree still contains unclosed changes",
+      "close_condition": "clear index lock, align local worktree with PR, and pass review:release-external-state"
+    }
+  ],
   "external_state_check": {
     "command": "npm run review:release-external-state",
     "status": "failing_as_expected",
