@@ -23,7 +23,7 @@
     "Production env file was not found: .env.production. Set RELEASE_ENV_FILE to a controlled production env file before release.",
     "Production LLM connectivity attestation was not found: docs/llm_connectivity_attestation.json. Set LLM_CONNECTIVITY_ATTESTATION_FILE to a controlled attestation JSON before release.",
     "Design handoff manifest was not found: docs/design_handoff_manifest.json. Standalone design-token files or screenshots do not prove Figma/Canva source handoff.",
-    "database/backups contains OTA credential-shaped fields (112 matches). Rotate real credentials and exclude backups from release packages.",
+    "database/backups contains OTA credential-shaped fields (4498 matches across 2 files). Rotate real credentials and exclude backups from release packages.",
     "OTA credential rotation attestation was not found: docs/ota_credential_rotation_attestation.json. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release.",
     "Formal Codex Security scan reports were not found. Set CODEX_SECURITY_SCAN_DIR to a completed scan directory containing report.md and report.html before release.",
     ".git/index.lock exists after retry; local git index is not ready for normal commit/pull flows."
