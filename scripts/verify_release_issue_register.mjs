@@ -57,6 +57,7 @@ function requireFile(relativePath) {
 }
 
 const register = requireFile('docs/release_issue_register.md');
+const chineseReport = requireFile('docs/release_problem_report.zh-CN.md');
 const statusText = requireFile('docs/release_readiness_status.json');
 const matrix = requireFile('docs/release_verification_command_matrix.md');
 
@@ -97,6 +98,48 @@ if (register) {
       fail(`release_issue_register.md must include rule/evidence: ${phrase}`);
     } else {
       pass(`release_issue_register.md includes ${phrase}`);
+    }
+  }
+}
+
+if (chineseReport) {
+  for (const id of requiredBlockerIds) {
+    const keyword = {
+      'production-env-missing': '生产环境配置缺失',
+      'llm-connectivity-attestation-missing': '生产 LLM 连通性未证明',
+      'design-handoff-missing': 'Figma / Canva 真实设计交付缺失',
+      'backup-credential-shaped-fields': '本地备份存在 OTA 凭据形态字段',
+      'ota-credential-rotation-attestation-missing': 'OTA 凭据轮换证明缺失',
+      'codex-security-scan-missing': '正式 Codex Security 扫描缺失',
+      'local-git-state-open': '本地 Git 状态未关闭',
+    }[id];
+    if (!chineseReport.includes(keyword)) {
+      fail(`release_problem_report.zh-CN.md must mention ${keyword}`);
+    } else {
+      pass(`release_problem_report.zh-CN.md mentions ${keyword}`);
+    }
+  }
+
+  for (const command of requiredCommands) {
+    if (!chineseReport.includes(command)) {
+      fail(`release_problem_report.zh-CN.md must mention ${command}`);
+    } else {
+      pass(`release_problem_report.zh-CN.md mentions ${command}`);
+    }
+  }
+
+  for (const phrase of [
+    '仍不能上线使用',
+    '7 failures',
+    '4498',
+    '.git/index.lock',
+    '不允许用口头说明替代验收命令',
+    '不允许把模板文件当作生产证据',
+  ]) {
+    if (!chineseReport.includes(phrase)) {
+      fail(`release_problem_report.zh-CN.md must include ${phrase}`);
+    } else {
+      pass(`release_problem_report.zh-CN.md includes ${phrase}`);
     }
   }
 }

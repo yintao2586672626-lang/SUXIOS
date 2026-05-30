@@ -8,6 +8,8 @@ Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 This register is the current release issue list. It is evidence-led and must stay aligned with `docs/release_readiness_status.json`, `docs/release_verification_command_matrix.md`, and `npm run review:release-readiness`.
 
+Chinese operator report: `docs/release_problem_report.zh-CN.md`.
+
 ## Blocking Issues
 
 | ID | Scope | Severity | Evidence | Acceptance command | Close condition |

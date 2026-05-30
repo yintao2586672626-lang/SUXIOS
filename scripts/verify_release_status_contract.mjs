@@ -17,6 +17,7 @@ const requiredDocs = [
   'docs/release_verification_command_matrix.md',
   'docs/release_functional_acceptance_matrix.md',
   'docs/release_issue_register.md',
+  'docs/release_problem_report.zh-CN.md',
   'docs/release_readiness_status.json',
   'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
@@ -942,6 +943,9 @@ try {
   }
   if (!report.includes('docs/release_issue_register.md')) {
     fail('release_readiness_remaining_issues.md must reference docs/release_issue_register.md');
+  }
+  if (!report.includes('docs/release_problem_report.zh-CN.md')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_problem_report.zh-CN.md');
   }
   if (!report.includes('npm run review:functional-readiness')) {
     fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
