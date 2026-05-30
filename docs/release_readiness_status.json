@@ -33,6 +33,7 @@
   "external_state_check": {
     "command": "npm run review:release-external-state",
     "status": "failing_as_expected",
+    "evidence_file_template": "docs/release_external_state_evidence.example.json",
     "resolved": [
       "GitHub PR checks are currently green on the latest inspected head",
       "database/backups is not tracked by git"
@@ -43,7 +44,7 @@
     ],
     "warnings": [
       "rerun after every PR update because GitHub state changes outside the repository",
-      "if Node child_process is unavailable, run the listed git and gh commands directly"
+      "if Node child_process is unavailable, run the listed git and gh commands directly and set RELEASE_EXTERNAL_STATE_FILE to the captured JSON evidence"
     ]
   },
   "plugin_status": [
