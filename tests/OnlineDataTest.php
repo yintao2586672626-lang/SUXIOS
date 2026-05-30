@@ -1760,23 +1760,23 @@ final class OnlineDataTest extends TestCase
     {
         $controller = $this->controller();
         $projectRoot = dirname(__DIR__);
-        $profileId = '987654321';
+        $profileId = 'phpunit_' . bin2hex(random_bytes(4));
         $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId;
 
         if (!is_dir($profileDir)) {
-            mkdir($profileDir, 0775, true);
+            self::assertTrue(mkdir($profileDir, 0775, true));
         }
 
         try {
             $resolved = $this->invokeNonPublic($controller, 'ctripProfileStoreIdFromConfig', [[
                 'node_id' => 'node-should-not-win',
                 'system_hotel_id' => $profileId,
-            ], (int)$profileId]);
+            ], 0]);
 
             self::assertSame($profileId, $resolved);
         } finally {
             if (is_dir($profileDir)) {
-                rmdir($profileDir);
+                @rmdir($profileDir);
             }
         }
     }
