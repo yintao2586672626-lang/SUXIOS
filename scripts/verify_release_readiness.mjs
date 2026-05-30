@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkLlmConnectivityAttestation as checkLlmAttestationFile } from './lib/llm_attestation_checks.mjs';
 import { checkProductionEnvFile, isPlaceholder } from './lib/release_env_checks.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -106,65 +107,9 @@ function checkOpenAiEntrypoints() {
 
 function checkLlmConnectivityAttestation() {
   const attestationPath = process.env.LLM_CONNECTIVITY_ATTESTATION_FILE || 'docs/llm_connectivity_attestation.json';
-  if (!exists(attestationPath)) {
-    addFailure(`Production LLM connectivity attestation was not found: ${attestationPath}. Set LLM_CONNECTIVITY_ATTESTATION_FILE to a controlled attestation JSON before release.`);
-    return;
-  }
-
-  let attestation = null;
-  let raw = '';
-  try {
-    raw = readText(attestationPath);
-    attestation = JSON.parse(raw);
-  } catch (error) {
-    addFailure(`Production LLM connectivity attestation is not valid JSON: ${error.message}`);
-    return;
-  }
-
-  if (/(sk-[A-Za-z0-9_-]{8,}|Bearer\s+(?!redacted|masked|<redacted>)\S+|"api[_-]?key"\s*:|"authorization"\s*:|"cookie"\s*:)/i.test(raw)) {
-    addFailure('Production LLM connectivity attestation appears to contain secret material; store only redacted evidence references.');
-  }
-  const llmSensitiveFields = findSensitiveFieldValues(
-    attestation,
-    new Set(['apikey', 'authorization', 'cookie', 'token', 'secret', 'clientsecret']),
-  );
-  if (llmSensitiveFields.length > 0) {
-    addFailure(`Production LLM connectivity attestation contains unredacted sensitive fields: ${llmSensitiveFields.join(', ')}`);
-  }
-
-  const requiredStringFields = [
-    'reviewed_at',
-    'reviewer',
-    'environment',
-    'provider',
-    'model_key',
-    'model_name',
-    'base_url',
-    'evidence_ref',
-  ];
-  const missingFields = requiredStringFields.filter((field) => isPlaceholder(attestation[field]));
-  if (missingFields.length > 0) {
-    addFailure(`Production LLM connectivity attestation is incomplete: ${missingFields.join(', ')}`);
-    return;
-  }
-
-  if (attestation.ai_model_config_enabled !== true) {
-    addFailure('Production LLM connectivity attestation must confirm ai_model_config_enabled=true.');
-  }
-  if (attestation.ai_config_secret_checked !== true) {
-    addFailure('Production LLM connectivity attestation must confirm ai_config_secret_checked=true.');
-  }
-  if (attestation.redaction_checked !== true) {
-    addFailure('Production LLM connectivity attestation must confirm redaction_checked=true.');
-  }
-
-  const result = attestation.result || {};
-  const responseStatus = Number(result.response_status ?? 0);
-  if (result.status !== 'passed' || responseStatus < 200 || responseStatus >= 300) {
-    addFailure('Production LLM connectivity attestation result must be passed with a 2xx response_status.');
-  } else {
-    addPass('Production LLM connectivity attestation is present and passed.');
-  }
+  const result = checkLlmAttestationFile({ repoRoot, attestationPath });
+  result.passes.forEach(addPass);
+  result.failures.forEach(addFailure);
 }
 
 function walkFiles(dir, output = []) {
