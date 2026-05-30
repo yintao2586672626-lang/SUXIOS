@@ -47,6 +47,7 @@
 
 - `php scripts/verify_high_risk_security.php` 通过。
 - `npm audit --audit-level=moderate --json` 为 0 漏洞。
+- GitHub Actions 已加入 `composer audit --no-interaction` 与 `npm audit --audit-level=moderate`。
 - `rg` 确认 `app/` 与 `scripts/` 范围内未再命中 `eval(` / `shell_exec(`。
 - `npm run review:release-readiness` 已新增，用于把发布阻断项显式暴露出来。
 - 发布包敏感路径 ignore 规则已校验通过，覆盖 `.env`、生产 env、数据库备份、采集 profile、采集报告 JSON 和截图目录。
@@ -55,12 +56,12 @@
 未完成：
 
 - 正式 repo-wide Codex Security 扫描需要授权 subagents，当前未获得授权，因此没有完整扫描的 markdown/html 报告。
-- `composer audit --no-interaction` 无法运行，本机未安装 `composer`，也没有 `composer.phar`。
+- 本机仍无法直接运行 `composer audit --no-interaction`，但当前 PR 已把该检查交给 GitHub Actions 执行。
 
 处理要求：
 
 - 授权 subagents 后执行完整 security-scan 流程。
-- 在 CI 或本机安装 Composer 后补跑 `composer audit`。
+- 确认当前 PR head 的 GitHub Actions 中 `composer audit` 与 `npm audit` 均通过。
 
 ### 3. 本地备份目录存在 OTA 凭证形态数据
 
