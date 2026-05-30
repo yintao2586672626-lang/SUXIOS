@@ -26,6 +26,7 @@ const requiredOpenFailurePatterns = [
   /production env/i,
   /figma|canva|design-token|design_handoff_manifest/i,
   /database\/backups|credential-shaped/i,
+  /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
   /\.git\/index\.lock|git state/i,
 ];
 
