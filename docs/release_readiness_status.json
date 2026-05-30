@@ -64,7 +64,7 @@
       "status": "open",
       "title": "Real Figma / Canva / design-token handoff is missing",
       "evidence": "no real docs/design_handoff_manifest.json, Figma/Canva source, or design-token artifact is present",
-      "close_condition": "provide accessible Figma, Canva, Brand Kit, design_tokens_path, required flow coverage, YYYY-MM-DD review date, and empty open_issues"
+      "close_condition": "provide accessible Figma, Canva, Brand Kit, design_tokens_path, required flow coverage, YYYY-MM-DD review date, empty open_issues, and pass npm run review:release-design"
     },
     {
       "id": "backup-credential-shaped-fields",
@@ -194,7 +194,7 @@
   "do_not_claim_ready_until": [
     "production env is provided and passes review:release-env plus review:release-readiness",
     "production LLM connectivity attestation is provided and passes review:release-llm plus review:release-readiness",
-    "real Figma/Canva/design-token handoff is present and passes review:release-readiness",
+    "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
     "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-readiness no longer reports credential-shaped fields",
     "OTA credential rotation attestation is provided and passes review:release-readiness",
     "formal Codex Security repo-wide scan is authorized, executed and produces markdown/html reports",
