@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const failures = [];
 const warnings = [];
@@ -41,6 +42,116 @@ function commandFailureMessage(command, args, result) {
   return result.stderr || result.error?.message || 'unknown error';
 }
 
+function parseLines(text) {
+  return String(text || '').split(/\r?\n/).filter(Boolean);
+}
+
+function checkTrackedBackupsOutput(stdout) {
+  if (String(stdout || '').trim() !== '') {
+    addFailure('database/backups contains git-tracked files; backups must not be tracked before release.');
+  } else {
+    addPass('database/backups has no git-tracked files.');
+  }
+}
+
+function checkGitStatusOutput(stdout) {
+  const lines = parseLines(stdout);
+  const changedLines = lines.filter((line) => !line.startsWith('## '));
+  if (changedLines.length > 0) {
+    addFailure(`local worktree is not clean (${changedLines.length} changed entries). Review, commit, or intentionally isolate them before release.`);
+  } else {
+    addPass('local worktree is clean.');
+  }
+}
+
+function checkPrObject(pr) {
+  if (!pr || typeof pr !== 'object') {
+    addFailure('PR evidence is missing or invalid.');
+    return;
+  }
+
+  if (/^[a-f0-9]{40}$/i.test(String(pr.headRefOid || ''))) {
+    addPass(`PR head sha is recorded: ${pr.headRefOid}.`);
+  } else {
+    addFailure('PR headRefOid is missing or not a 40-character commit sha.');
+  }
+
+  if (pr.mergeable === 'MERGEABLE') {
+    addPass(`PR #${pr.number} is mergeable at ${pr.headRefOid}.`);
+  } else {
+    addFailure(`PR #${pr.number ?? 'unknown'} is not mergeable; current mergeable state is ${pr.mergeable ?? 'missing'}.`);
+  }
+
+  const checks = Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : [];
+  if (checks.length === 0) {
+    addFailure(`PR #${pr.number ?? 'unknown'} has no status checks to verify.`);
+    return;
+  }
+
+  const incomplete = checks.filter((check) => check.status !== 'COMPLETED');
+  const failed = checks.filter((check) => check.status === 'COMPLETED' && check.conclusion !== 'SUCCESS');
+  if (incomplete.length > 0 || failed.length > 0) {
+    addFailure(`PR #${pr.number ?? 'unknown'} checks are not all green (${incomplete.length} incomplete, ${failed.length} failed).`);
+  } else {
+    addPass(`PR #${pr.number} status checks are all green (${checks.length} checks).`);
+  }
+
+  if (pr.url) {
+    addWarning(`Release external state was checked against ${pr.url}; rerun this command after every PR update.`);
+  }
+}
+
+function checkEvidenceMetadata(evidence) {
+  const reviewedAt = String(evidence.reviewed_at || '').trim();
+  const reviewer = String(evidence.reviewer || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(reviewedAt) || /TODO|CHANGE_ME|placeholder/i.test(reviewedAt)) {
+    addFailure('external state evidence reviewed_at must be a real review date.');
+  } else {
+    addPass('external state evidence has reviewed_at.');
+  }
+
+  if (reviewer === '' || /TODO|CHANGE_ME|placeholder/i.test(reviewer)) {
+    addFailure('external state evidence reviewer is missing or placeholder.');
+  } else {
+    addPass('external state evidence has reviewer.');
+  }
+}
+
+function checkEvidenceFile(evidencePath) {
+  let evidence;
+  try {
+    const resolvedPath = path.resolve(evidencePath);
+    evidence = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+  } catch (error) {
+    addFailure(`RELEASE_EXTERNAL_STATE_FILE is not readable JSON: ${error.message}`);
+    return;
+  }
+
+  checkEvidenceMetadata(evidence);
+
+  const commands = evidence.commands || {};
+  const trackedBackups = commands.git_ls_files_database_backups || {};
+  if (trackedBackups.exit_code !== 0) {
+    addFailure('external evidence command git ls-files database/backups did not exit 0.');
+  } else {
+    checkTrackedBackupsOutput(trackedBackups.stdout);
+  }
+
+  const gitStatus = commands.git_status_short_branch || {};
+  if (gitStatus.exit_code !== 0) {
+    addFailure('external evidence command git status --short --branch did not exit 0.');
+  } else {
+    checkGitStatusOutput(gitStatus.stdout);
+  }
+
+  const prView = commands.gh_pr_view || {};
+  if (prView.exit_code !== 0) {
+    addFailure('external evidence command gh pr view did not exit 0.');
+  } else {
+    checkPrObject(prView.json);
+  }
+}
+
 function checkTrackedBackups() {
   const result = run('git', ['ls-files', 'database/backups']);
   if (result.status !== 0) {
@@ -48,11 +159,7 @@ function checkTrackedBackups() {
     return;
   }
 
-  if (result.stdout !== '') {
-    addFailure('database/backups contains git-tracked files; backups must not be tracked before release.');
-  } else {
-    addPass('database/backups has no git-tracked files.');
-  }
+  checkTrackedBackupsOutput(result.stdout);
 }
 
 function checkGitWorktree() {
@@ -68,13 +175,7 @@ function checkGitWorktree() {
     return;
   }
 
-  const lines = result.stdout.split(/\r?\n/).filter(Boolean);
-  const changedLines = lines.filter((line) => !line.startsWith('## '));
-  if (changedLines.length > 0) {
-    addFailure(`local worktree is not clean (${changedLines.length} changed entries). Review, commit, or intentionally isolate them before release.`);
-  } else {
-    addPass('local worktree is clean.');
-  }
+  checkGitStatusOutput(result.stdout);
 }
 
 function checkGitHubPr() {
@@ -106,32 +207,16 @@ function checkGitHubPr() {
     return;
   }
 
-  if (pr.mergeable === 'MERGEABLE') {
-    addPass(`PR #${pr.number} is mergeable at ${pr.headRefOid}.`);
-  } else {
-    addFailure(`PR #${pr.number} is not mergeable; current mergeable state is ${pr.mergeable}.`);
-  }
-
-  const checks = Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : [];
-  if (checks.length === 0) {
-    addFailure(`PR #${pr.number} has no status checks to verify.`);
-    return;
-  }
-
-  const incomplete = checks.filter((check) => check.status !== 'COMPLETED');
-  const failed = checks.filter((check) => check.status === 'COMPLETED' && check.conclusion !== 'SUCCESS');
-  if (incomplete.length > 0 || failed.length > 0) {
-    addFailure(`PR #${pr.number} checks are not all green (${incomplete.length} incomplete, ${failed.length} failed).`);
-  } else {
-    addPass(`PR #${pr.number} status checks are all green (${checks.length} checks).`);
-  }
-
-  addWarning(`Release external state was checked against ${pr.url}; rerun this command after every PR update.`);
+  checkPrObject(pr);
 }
 
-checkTrackedBackups();
-checkGitWorktree();
-checkGitHubPr();
+if (process.env.RELEASE_EXTERNAL_STATE_FILE) {
+  checkEvidenceFile(process.env.RELEASE_EXTERNAL_STATE_FILE);
+} else {
+  checkTrackedBackups();
+  checkGitWorktree();
+  checkGitHubPr();
+}
 
 for (const message of passes) {
   console.log(`PASS: ${message}`);
@@ -143,7 +228,7 @@ for (const message of failures) {
   console.error(`FAIL: ${message}`);
 }
 if (commandExecutionUnavailable) {
-  console.error('FAIL: This runtime blocked Node child_process access to external commands. Run `git ls-files database/backups`, `git status --short --branch`, and `gh pr view <PR> --json statusCheckRollup,mergeable,headRefOid` directly before release.');
+  console.error('FAIL: This runtime blocked Node child_process access to external commands. Run the listed git/gh commands directly and rerun with RELEASE_EXTERNAL_STATE_FILE pointing to a JSON evidence file.');
 }
 
 const failureCount = failures.length + (commandExecutionUnavailable ? 1 : 0);
