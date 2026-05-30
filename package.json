@@ -26,6 +26,8 @@
     "review:release-external-state": "node scripts/verify_release_external_state.mjs",
     "collect:release-external-state": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/collect_release_external_state.ps1 -OutputPath docs/release_external_state_evidence.local.json",
     "review:release-external-state:local": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& { ./scripts/collect_release_external_state.ps1 -OutputPath docs/release_external_state_evidence.local.json; $env:RELEASE_EXTERNAL_STATE_FILE='docs/release_external_state_evidence.local.json'; node scripts/verify_release_external_state.mjs; exit $LASTEXITCODE }\"",
+    "slim:local:dry-run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean_project_local_artifacts.ps1",
+    "slim:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean_project_local_artifacts.ps1 -Apply",
     "meituan:capture": "node scripts/meituan_browser_capture.mjs",
     "type-check": "node scripts/verify_typecheck_or_skip.mjs",
     "type-check:watch": "node scripts/verify_typecheck_or_skip.mjs --watch",
