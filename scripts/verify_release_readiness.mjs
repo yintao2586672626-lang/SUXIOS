@@ -48,7 +48,6 @@ function checkEnvReadiness() {
 
   const env = parseEnv(readText('.env'));
   const appDebug = (env.get('APP_DEBUG') ?? '').toLowerCase();
-  const openAiKey = env.get('OPENAI_API_KEY') ?? '';
   const aiConfigSecret = env.get('AI_CONFIG_SECRET') ?? '';
   const dbPass = env.get('DB_PASS') ?? '';
 
@@ -56,12 +55,6 @@ function checkEnvReadiness() {
     addPass('APP_DEBUG is false.');
   } else {
     addFailure('APP_DEBUG is not false; production must not expose debug mode.');
-  }
-
-  if (openAiKey.length > 0) {
-    addPass('OPENAI_API_KEY is configured for env-based OpenAIClient.');
-  } else {
-    addFailure('OPENAI_API_KEY is empty; env-based OpenAIClient cannot be verified.');
   }
 
   if (aiConfigSecret.length >= 32) {
@@ -83,8 +76,10 @@ function checkOpenAiEntrypoints() {
 
   if (openAiClient.includes('OPENAI_API_KEY') && llmClient.includes('AI_CONFIG_SECRET')) {
     addFailure('Two AI configuration paths exist: OpenAIClient reads .env keys, while LlmClient reads encrypted DB model configs. Production entrypoint decision is required.');
+  } else if (llmClient.includes('AI_CONFIG_SECRET') && llmClient.includes('AiModelConfig::where')) {
+    addPass('Production AI client path is LlmClient with encrypted database model configs.');
   } else {
-    addPass('AI configuration path is singular or the legacy path was removed.');
+    addFailure('LlmClient database model configuration path was not detected.');
   }
 }
 
