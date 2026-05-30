@@ -21,7 +21,7 @@
     "open_failures": [
       "production env file not provided through .env.production or RELEASE_ENV_FILE",
       "production LLM connectivity attestation not provided through LLM_CONNECTIVITY_ATTESTATION_FILE or docs/llm_connectivity_attestation.json",
-      "Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json not provided",
+      "docs/design_handoff_manifest.json not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
       "database/backups contains OTA credential-shaped fields",
       "OTA credential rotation attestation not provided through OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE or docs/ota_credential_rotation_attestation.json",
       "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest"
