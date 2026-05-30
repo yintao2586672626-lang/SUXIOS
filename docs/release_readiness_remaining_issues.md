@@ -21,7 +21,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 | 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env with `APP_DEBUG=false` and non-placeholder database and `AI_CONFIG_SECRET` values. |
 | 2 | `@openai-developers` | Production LLM connectivity attestation is missing | `docs/llm_connectivity_attestation.json` is missing and `LLM_CONNECTIVITY_ATTESTATION_FILE` is not set. | Run a production `LlmClient` connectivity smoke test using real `ai_model_configs` and provide a secret-free attestation JSON. |
 | 3 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, and flow coverage. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, and required flow coverage. |
-| 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 112 credential-shaped matches under `database/backups`. | Delete, sanitize, or encrypted-archive local backups and rerun the readiness check with no credential-shaped matches. |
+| 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 4498 credential-shaped matches across 2 files under `database/backups`. | Delete, sanitize, or encrypted-archive local backups and rerun the readiness check with no credential-shaped matches across backup text files. |
 | 5 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, and readiness rerun. |
 | 6 | `@codex-security` | Formal repo-wide Codex Security scan is missing | `CODEX_SECURITY_SCAN_DIR` and `docs/security/codex-security/latest` scan artifacts are not present. | Authorize subagents and complete threat model, finding discovery, validation, attack-path analysis, and final Markdown/HTML reports. |
 | 7 | `@github` | Local Git state is not closed | `git status --short --branch` shows a dirty local worktree, and `review:release-external-state` still requires controlled external evidence. | Align local worktree with the PR, confirm `.git/index.lock` is absent, and pass `review:release-external-state`. |
@@ -84,14 +84,14 @@ Required close evidence:
 
 Scope: `@codex-security`
 
-`database/backups` is ignored and not tracked by Git, but local backup files still contain credential-shaped OTA fields. If those values are real, they must be treated as exposed in the local backup environment.
+`database/backups` is ignored and not tracked by Git, but local backup files still contain credential-shaped OTA fields. The release readiness scan checks text-readable backup files for Cookie, Authorization, Bearer, usertoken, usersign, access token, refresh token, session token, and API key shapes without printing values. If those values are real, they must be treated as exposed in the local backup environment.
 
 Required close evidence:
 
 - Real OTA Cookie, Token, signature, and Authorization material is rotated or invalidated where applicable.
 - Local backup files are deleted, sanitized, or moved into controlled encrypted storage.
 - `git ls-files database/backups` remains empty.
-- `npm run review:release-readiness` no longer reports credential-shaped matches.
+- `npm run review:release-readiness` no longer reports credential-shaped matches across `database/backups` text files.
 - `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json` records the cleanup without exposing credentials and confirms `redaction_checked=true`.
 
 ### 5. Figma / Canva Source Handoff Is Missing
