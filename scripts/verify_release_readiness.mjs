@@ -41,12 +41,13 @@ function parseEnv(content) {
 }
 
 function checkEnvReadiness() {
-  if (!exists('.env')) {
-    addFailure('.env is missing; production deployment config has not been verified.');
+  const envFile = process.env.RELEASE_ENV_FILE || '.env.production';
+  if (!exists(envFile)) {
+    addFailure(`Production env file was not found: ${envFile}. Set RELEASE_ENV_FILE to a controlled production env file before release.`);
     return;
   }
 
-  const env = parseEnv(readText('.env'));
+  const env = parseEnv(readText(envFile));
   const appDebug = (env.get('APP_DEBUG') ?? '').toLowerCase();
   const aiConfigSecret = env.get('AI_CONFIG_SECRET') ?? '';
   const dbPass = env.get('DB_PASS') ?? '';
@@ -108,7 +109,6 @@ function checkDesignArtifacts() {
     /\.(fig|sketch|xd|canva)$/i,
     /(^|\/)design-tokens\.json$/i,
     /(^|\/).*\.tokens\.json$/i,
-    /(^|\/)(figma|canva|brand|branding|design-system|ui-handoff)(\/|$)/i,
   ];
   const matches = walkFiles('.').filter((file) => designPatterns.some((pattern) => pattern.test(file)));
 
@@ -153,7 +153,7 @@ function checkBackups() {
 
 function checkTooling() {
   addWarning('Run `composer audit --no-interaction` outside this script; this script avoids spawning external commands.');
-  addWarning('Run `npm audit --audit-level=moderate --json` outside this script; the latest shell run passed with 0 vulnerabilities.');
+  addWarning('Run `npm audit --audit-level=moderate --json` outside this script and attach the current output to the release record.');
 }
 
 function checkGitEnvironment() {
