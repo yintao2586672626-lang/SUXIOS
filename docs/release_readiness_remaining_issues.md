@@ -6,9 +6,21 @@
 
 ## 当前结论
 
-项目的 GitHub CI 阻断已解除，核心测试和现有高风险安全脚本已通过。上市前仍不应直接发布，主要剩余问题集中在生产配置、完整安全审计、敏感本地备份和真实设计源归档。
+项目的 GitHub CI 阻断已解除，核心测试和现有高风险安全脚本已通过。上市前仍不应直接发布，当前 `npm run review:release-readiness` 明确暴露 7 个硬阻断项。
 
 机器可读状态见 `docs/release_readiness_status.json`。
+
+## 当前硬阻断矩阵
+
+| 序号 | 范围 | 阻断项 | 当前证据 | 关闭条件 |
+|---:|---|---|---|---|
+| 1 | `@openai-developers` | 真实生产 env 未提供 | `review:release-readiness` 报告 `.env.production` 缺失，且未设置 `RELEASE_ENV_FILE` | 提供受控生产 env，`APP_DEBUG=false`，数据库与 `AI_CONFIG_SECRET` 非占位 |
+| 2 | `@openai-developers` | 生产 LLM 连通性证明未提供 | `docs/llm_connectivity_attestation.json` 缺失，且未设置 `LLM_CONNECTIVITY_ATTESTATION_FILE` | 用真实生产 `ai_model_configs` 完成连通性验证，并提供不含密钥的证明 JSON |
+| 3 | `@figma` / `@canva` | 真实设计源与 token 交付未提供 | 未发现真实 `docs/design_handoff_manifest.json`、Figma/Canva 源或 design token | 提供可访问 Figma、Canva、Brand Kit、`design_tokens_path` 和完整流程覆盖 |
+| 4 | `@codex-security` | 本地备份存在 OTA 凭证形态字段 | `review:release-readiness` 命中 `database/backups` 中 112 个凭证形态字段 | 删除、脱敏或加密归档本地备份，并复跑检查不再命中 |
+| 5 | `@codex-security` | OTA 凭证轮换证明未提供 | `docs/ota_credential_rotation_attestation.json` 缺失，且未设置 `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` | 提供轮换/失效/清理证明，且证明不含真实 Cookie、Token、签名或 Authorization |
+| 6 | `@codex-security` | 正式 repo-wide Codex Security 扫描报告未提供 | 未提供 `CODEX_SECURITY_SCAN_DIR` 或 `docs/security/codex-security/latest` 扫描产物 | 授权 subagents，完成 threat model、discovery、validation、attack-path，并输出 Markdown/HTML 报告 |
+| 7 | `@github` | 本地 Git 状态未关闭 | `.git/index.lock` 存在，本地 worktree 仍有未清理改动 | 清理 index lock，对齐本地和 PR，`review:release-external-state` 通过 |
 
 ## 已解除的阻断
 
