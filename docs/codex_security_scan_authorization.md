@@ -1,24 +1,24 @@
-# Codex Security 正式扫描授权说明
+# Formal Codex Security Scan Authorization
 
-更新时间：2026-05-30
+Updated: 2026-05-30
 
-## 当前状态
+## Current State
 
-项目已通过现有高风险安全脚本、GitHub Actions 依赖审计和发布包敏感路径检查，但尚未执行 Codex Security repo-wide 正式扫描。
+The project has passed the existing high-risk security script, dependency audit checks, and release-package sensitive-path checks. It has not completed a formal repo-wide Codex Security scan.
 
-## 已有证据
+## Existing Evidence
 
-| 检查 | 当前证据 |
+| Check | Current evidence |
 |---|---|
-| 高风险安全脚本 | `php scripts/verify_high_risk_security.php` 通过 |
-| PHP 依赖审计 | GitHub Actions 执行 `composer audit --no-interaction`，返回无安全公告 |
-| Node 依赖审计 | GitHub Actions 执行 `npm audit --audit-level=moderate`，返回 0 漏洞 |
-| 发布包敏感路径 | `.gitignore` 与 `.gitattributes` 已覆盖 `.env`、数据库备份、采集报告、截图资产 |
-| 备份跟踪状态 | `git ls-files database/backups` 无输出 |
+| High-risk security script | `php scripts/verify_high_risk_security.php` passes in CI. |
+| PHP dependency audit | GitHub Actions runs `composer audit --no-interaction`. |
+| Node dependency audit | GitHub Actions runs `npm audit --audit-level=moderate`. |
+| Release package sensitive paths | `.gitignore` and `.gitattributes` exclude env files, backups, capture reports, and screenshot assets. |
+| Backup tracking state | `git ls-files database/backups` has no output in the latest local check. |
 
-## 仍需授权
+## Authorization Still Required
 
-正式 repo-wide Codex Security 扫描需要授权 subagents。授权后应按以下阶段执行：
+Formal repo-wide Codex Security work requires authorization for subagents. After authorization, the scan must include:
 
 1. Threat model
 2. Finding discovery
@@ -26,19 +26,33 @@
 4. Attack-path analysis
 5. Markdown / HTML final report
 
-## 扫描完成标准
+## Required Coverage
 
-- 每个 in-scope 文件或 worklist row 有完成记录或明确 deferred / suppressed / not_applicable 原因。
-- 每个候选 finding 有 discovery、validation、attack-path 记录，或明确 deferred 原因。
-- 输出最终 markdown 和 HTML 报告。
-- 报告中单独标注生产配置、OTA 凭证、AI 模型配置、租户隔离、文件导入、外部 HTTP 请求、报表导出、后台权限等高风险面。
+The final scan must explicitly cover at least these surfaces:
 
-## 不应替代正式扫描的内容
+- production configuration
+- OTA credentials
+- AI model configuration
+- tenant isolation
+- file import
+- external HTTP
+- report export
+- admin permissions
+- release packaging
+
+## Completion Standard
+
+- Every in-scope file or worklist row has a completed record or an explicit deferred / suppressed / not_applicable reason.
+- Every candidate finding has discovery, validation, and attack-path analysis records, or an explicit deferred reason.
+- Final `report.md` and `report.html` exist under `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest`.
+- `npm run review:release-readiness` no longer reports the formal Codex Security scan failure.
+
+## Not A Substitute
+
+The following checks are useful pre-release evidence, but they do not replace the formal repo-wide scan:
 
 - `verify_high_risk_security.php`
 - `npm audit`
 - `composer audit`
-- grep / rg 搜索
-- 人工问题清单
-
-这些是前置证据，不等于完整 repo-wide security-scan。
+- grep / rg searches
+- manual issue lists
