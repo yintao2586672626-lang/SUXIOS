@@ -18,6 +18,8 @@ Issue register: `docs/release_issue_register.md`.
 
 Chinese operator report: `docs/release_problem_report.zh-CN.md`.
 
+Evidence collection checklist: `docs/release_evidence_collection.zh-CN.md`.
+
 Optional command result evidence: set `RELEASE_READINESS_RESULT_FILE=<controlled-path>` when running `npm run review:release-readiness`. The generated JSON follows `docs/release_readiness_result.example.json` and is intended for audit handoff without embedding secrets.
 
 Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_FILE=<controlled-path>` when running `npm run review:release-external-state`. If Node child_process is blocked, generate equivalent command evidence with `npm run collect:release-external-state`, then rerun with `RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json`. On Windows, `npm run review:release-external-state:local` performs both steps. The result JSON follows `docs/release_external_state_result.example.json`.

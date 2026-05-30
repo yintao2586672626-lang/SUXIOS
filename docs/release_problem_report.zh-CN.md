@@ -6,6 +6,8 @@
 
 结论：当前项目功能结构已具备本地验收基础，但仍不能上线使用。`npm run review:release-readiness` 当前结果为 `5 passed, 3 warnings, 7 failures`，7 个失败项均为上线阻断。
 
+证据采集清单：`docs/release_evidence_collection.zh-CN.md`。
+
 ## 当前已受控但不足以上线
 
 | 范围 | 已受控证据 | 仍不能上线的原因 |

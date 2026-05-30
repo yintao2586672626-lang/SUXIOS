@@ -58,6 +58,7 @@ function requireFile(relativePath) {
 
 const register = requireFile('docs/release_issue_register.md');
 const chineseReport = requireFile('docs/release_problem_report.zh-CN.md');
+const evidenceChecklist = requireFile('docs/release_evidence_collection.zh-CN.md');
 const statusText = requireFile('docs/release_readiness_status.json');
 const matrix = requireFile('docs/release_verification_command_matrix.md');
 
@@ -140,6 +141,35 @@ if (chineseReport) {
       fail(`release_problem_report.zh-CN.md must include ${phrase}`);
     } else {
       pass(`release_problem_report.zh-CN.md includes ${phrase}`);
+    }
+  }
+}
+
+if (evidenceChecklist) {
+  for (const command of requiredCommands) {
+    if (!evidenceChecklist.includes(command)) {
+      fail(`release_evidence_collection.zh-CN.md must mention ${command}`);
+    } else {
+      pass(`release_evidence_collection.zh-CN.md mentions ${command}`);
+    }
+  }
+
+  for (const phrase of [
+    'RELEASE_ENV_FILE',
+    'LLM_CONNECTIVITY_ATTESTATION_FILE',
+    'docs/design_handoff_manifest.json',
+    'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
+    'CODEX_SECURITY_SCAN_DIR',
+    'RELEASE_EXTERNAL_STATE_FILE',
+    'docs/release_external_state_evidence.local.json',
+    'redaction_checked=true',
+    '未经明确授权不得删除或脱敏本地备份',
+    '不能替代正式扫描',
+  ]) {
+    if (!evidenceChecklist.includes(phrase)) {
+      fail(`release_evidence_collection.zh-CN.md must include ${phrase}`);
+    } else {
+      pass(`release_evidence_collection.zh-CN.md includes ${phrase}`);
     }
   }
 }

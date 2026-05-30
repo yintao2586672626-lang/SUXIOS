@@ -10,6 +10,8 @@ This register is the current release issue list. It is evidence-led and must sta
 
 Chinese operator report: `docs/release_problem_report.zh-CN.md`.
 
+Evidence collection checklist: `docs/release_evidence_collection.zh-CN.md`.
+
 ## Blocking Issues
 
 | ID | Scope | Severity | Evidence | Acceptance command | Close condition |
