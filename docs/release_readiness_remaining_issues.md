@@ -65,7 +65,7 @@ Required close evidence:
 - A real production smoke test uses enabled `ai_model_configs`.
 - The attestation follows `docs/llm_connectivity_attestation.example.json`.
 - The attestation is referenced by `LLM_CONNECTIVITY_ATTESTATION_FILE` or stored as `docs/llm_connectivity_attestation.json`.
-- The attestation contains no real API key, token, Cookie, signature, or Authorization value.
+- The attestation contains no real API key, token, Cookie, signature, Authorization value, or unredacted sensitive field, and it confirms `redaction_checked=true`.
 
 ### 3. Formal Security Scan Is Not Complete
 
@@ -92,7 +92,7 @@ Required close evidence:
 - Local backup files are deleted, sanitized, or moved into controlled encrypted storage.
 - `git ls-files database/backups` remains empty.
 - `npm run review:release-readiness` no longer reports credential-shaped matches.
-- `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json` records the cleanup without exposing credentials.
+- `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json` records the cleanup without exposing credentials and confirms `redaction_checked=true`.
 
 ### 5. Figma / Canva Source Handoff Is Missing
 
