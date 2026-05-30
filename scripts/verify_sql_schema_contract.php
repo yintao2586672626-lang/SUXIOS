@@ -84,20 +84,28 @@ function parse_options(array $argv): array
     return $options;
 }
 
-function project_sql_files(): array
+function init_full_sql_files(): array
 {
-    $files = [
-        'hotelx_dump.sql',
-        'database/login_logs.sql',
-        'database/complaint_tables.sql',
-        'database/update_system_config.sql',
-    ];
+    $sql = read_text('database/init_full.sql');
+    if (!preg_match_all('/^\s*SOURCE\s+(.+?);/im', $sql, $matches)) {
+        throw new RuntimeException('database/init_full.sql does not declare any SOURCE files.');
+    }
 
-    foreach (glob(__DIR__ . '/../database/migrations/*.sql') ?: [] as $path) {
-        $files[] = 'database/migrations/' . basename($path);
+    $files = [];
+    foreach ($matches[1] as $source) {
+        $file = trim($source, " \t\r\n'\"");
+        if (str_starts_with($file, './')) {
+            $file = substr($file, 2);
+        }
+        $files[] = str_replace('\\', '/', $file);
     }
 
     return array_values(array_unique($files));
+}
+
+function project_sql_files(): array
+{
+    return init_full_sql_files();
 }
 
 function trim_sql_line(string $line): string
@@ -661,7 +669,8 @@ try {
     $options = parse_options($argv);
     $sqlFiles = project_sql_files();
     $resources = parse_sql_resources($sqlFiles);
-    $dumpResources = parse_sql_resources(['hotelx_dump.sql']);
+    $baselineSqlFile = 'database/hotel_admin_mysql.sql';
+    $baselineResources = parse_sql_resources([$baselineSqlFile]);
     $modelMap = model_table_map();
     $criticalColumns = [
         'online_daily_data' => ['platform', 'compare_type', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'],
@@ -676,17 +685,19 @@ try {
 
     $sourceMissingTables = array_values(array_diff($requiredTables, array_keys($resources['schema'])));
     $sourceMissingColumns = missing_columns($resources['schema'], $refs['columns'], $requiredTables);
-    $dumpMissingTables = array_values(array_diff($requiredTables, array_keys($dumpResources['schema'])));
-    $dumpMissingColumns = missing_columns($dumpResources['schema'], $refs['columns'], $requiredTables);
+    $baselineMissingTables = array_values(array_diff($requiredTables, array_keys($baselineResources['schema'])));
+    $baselineMissingColumns = missing_columns($baselineResources['schema'], $refs['columns'], $requiredTables);
 
     $summary = [
         'database' => (string) $options['database'],
+        'source_sql_files' => $sqlFiles,
+        'baseline_sql_file' => $baselineSqlFile,
         'full_sql_table_count' => count($resources['schema']),
         'code_required_table_count' => count($requiredTables),
         'source_missing_tables' => $sourceMissingTables,
         'source_missing_columns' => $sourceMissingColumns,
-        'dump_missing_tables' => $dumpMissingTables,
-        'dump_missing_columns' => $dumpMissingColumns,
+        'baseline_missing_tables' => $baselineMissingTables,
+        'baseline_missing_columns' => $baselineMissingColumns,
         'actual_table_count' => null,
         'missing_tables_after' => $sourceMissingTables,
         'missing_columns_after' => $sourceMissingColumns,
@@ -745,7 +756,7 @@ try {
         $summary['missing_columns_after'] = missing_columns($actual['schema'], array_map(static fn(array $columns): array => array_fill_keys($columns, []), $resources['schema']), array_keys($resources['schema']));
         $summary['ota_missing'] = summarize_ota_fields($actual['schema'])['missing'];
         $summary['migration_success'] = empty($summary['errors']) && empty($summary['missing_tables_after']) && empty($summary['missing_columns_after']) && empty($summary['ota_missing']);
-    } elseif ($runDatabase && !$options['import']) {
+    } elseif ($runDatabase && !$options['import'] && !$options['validate-import']) {
         $pdo = pdo_database($options);
         $actual = inspect_database($pdo, (string) $options['database']);
         $summary['actual_table_count'] = count($actual['schema']);
@@ -760,8 +771,8 @@ try {
         echo "OK: SQL schema contract passed\n";
         echo "Full SQL tables: " . count($resources['schema']) . "\n";
         echo "Code-required tables: " . count($requiredTables) . "\n";
-        echo "hotelx_dump.sql base tables: " . count($dumpResources['schema']) . "\n";
-        echo "hotelx_dump.sql gaps covered by migrations: " . count($dumpMissingTables) . " tables, " . count($dumpMissingColumns) . " columns\n";
+        echo "Tracked baseline tables: " . count($baselineResources['schema']) . " ({$baselineSqlFile})\n";
+        echo "Baseline gaps covered by migrations: " . count($baselineMissingTables) . " tables, " . count($baselineMissingColumns) . " columns\n";
         echo "Optional table refs skipped: " . implode(', ', $optionalTables) . "\n";
         exit(empty($sourceMissingTables) && empty($sourceMissingColumns) ? 0 : 1);
     }

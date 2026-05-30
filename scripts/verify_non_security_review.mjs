@@ -22,13 +22,16 @@ if (!existsSync(join(root, servicePath))) {
 }
 
 const initFull = readText('database/init_full.sql', root);
-if (/SOURCE\s+\.\/database\/hotel_admin_mysql\.sql;/i.test(initFull)) {
-  failures.push('database/init_full.sql must not replay the legacy hotel_admin_mysql baseline after the full dump');
+if (/SOURCE\s+\.\/hotelx_dump\.sql;/i.test(initFull)) {
+  failures.push('database/init_full.sql must not depend on ignored local hotelx_dump.sql');
+}
+if (!/SOURCE\s+\.\/database\/hotel_admin_mysql\.sql;/i.test(initFull)) {
+  failures.push('database/init_full.sql must use the tracked sanitized baseline database/hotel_admin_mysql.sql');
 }
 
 const dumpBuilder = readText('scripts/build_hotelx_full_dump.ps1', root);
-if (dumpBuilder.includes('"database/hotel_admin_mysql.sql"')) {
-  failures.push('build_hotelx_full_dump.ps1 must not concatenate the legacy hotel_admin_mysql baseline into the full dump');
+if (dumpBuilder.includes('"hotelx_dump.sql"')) {
+  failures.push('build_hotelx_full_dump.ps1 must not concatenate ignored local hotelx_dump.sql into the full dump');
 }
 
 if (failures.length > 0) {

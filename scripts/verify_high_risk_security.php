@@ -182,6 +182,8 @@ assert_true(str_contains($competitorTaskSource, "OperationLog::record('competito
 assert_true(str_contains($competitorReportSource, "OperationLog::record('competitor', 'report'"), 'competitor report endpoint must write operation audit logs');
 assert_true(str_contains($dailyReportSource, 'EXPORT_BATCH_LIMIT'), 'daily report exports must have a batch download limit');
 assert_true(str_contains($dailyReportSource, 'SUXIOS Export Watermark'), 'daily report exports must include a user watermark');
+assert_true(!preg_match('/\beval\s*\(/', $dailyReportSource), 'daily report formulas must not use eval');
+assert_true(!preg_match('/\bshell_exec\s*\(/', $dailyReportSource), 'daily report Excel parsing must not use shell_exec');
 assert_true(str_contains($onlineSource, 'tenantIdForSystemHotel'), 'online daily data writes must populate tenant_id when available');
 assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync writes must populate tenant_id when available');
 assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');

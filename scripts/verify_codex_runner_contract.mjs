@@ -1,12 +1,12 @@
 import { createRequire } from 'node:module';
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
 const require = createRequire(import.meta.url);
 const runnerPath = path.join(root, 'scripts', 'codex_automation_runner.mjs');
-const contractOutput = path.join(root, 'runtime', 'codex-runner-contract');
+const contractOutput = path.join(root, 'runtime', 'codex-runner-contract', `${process.pid}-${Date.now()}`);
 const runId = 'contract-dry-run';
 const failures = [];
 
@@ -14,26 +14,19 @@ function assert(condition, message) {
   if (!condition) failures.push(message);
 }
 
-fs.rmSync(contractOutput, { recursive: true, force: true });
-
 assert(fs.existsSync(runnerPath), 'scripts/codex_automation_runner.mjs must exist');
 
 if (fs.existsSync(runnerPath)) {
-  const result = spawnSync(process.execPath, [
-    runnerPath,
+  const { runAutomation } = await import(pathToFileURL(runnerPath).href);
+  const { summary: dryRunSummary } = runAutomation([
     '--dry-run',
     '--profile=extreme',
     '--iterations=10',
     `--run-id=${runId}`,
     `--output-dir=${contractOutput}`,
-  ], {
-    cwd: root,
-    encoding: 'utf8',
-    shell: false,
-    timeout: 30000,
-  });
+  ]);
 
-  assert(result.status === 0, `runner dry-run should exit 0, got ${result.status}\n${result.stderr || result.stdout}`);
+  assert(dryRunSummary.status === 'passed', `runner dry-run should pass, got ${dryRunSummary.status}`);
 
   const summaryPath = path.join(contractOutput, runId, 'summary.json');
   const markdownPath = path.join(contractOutput, runId, 'summary.md');

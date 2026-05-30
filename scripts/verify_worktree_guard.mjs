@@ -11,7 +11,8 @@ const git = spawnSync('git', ['status', '--porcelain=v1'], {
 });
 
 if (git.status !== 0) {
-  console.error(git.stderr || 'git status failed.');
+  const detail = git.error ? String(git.error.message || git.error) : (git.stderr || 'unknown error');
+  console.error(`git status failed: ${detail}`);
   process.exit(git.status ?? 1);
 }
 

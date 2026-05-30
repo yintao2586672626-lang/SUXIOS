@@ -1147,16 +1147,118 @@ class DailyReport extends Base
             return null;
         }
 
-        try {
-            $result = @eval('return ' . $expr . ';');
-            if (!is_numeric($result) || is_nan($result) || is_infinite($result)) {
-                $error = '公式结果无效';
+        $result = $this->evaluateArithmeticExpression($expr);
+        if ($result === null || is_nan($result) || is_infinite($result)) {
+            $error = '公式结果无效';
+            return null;
+        }
+
+        return $result;
+    }
+
+    private function evaluateArithmeticExpression(string $expr): ?float
+    {
+        $pos = 0;
+        $value = $this->parseFormulaExpression($expr, $pos);
+        $this->skipFormulaWhitespace($expr, $pos);
+
+        return $value !== null && $pos === strlen($expr) ? $value : null;
+    }
+
+    private function parseFormulaExpression(string $expr, int &$pos): ?float
+    {
+        $value = $this->parseFormulaTerm($expr, $pos);
+        if ($value === null) {
+            return null;
+        }
+
+        while (true) {
+            $this->skipFormulaWhitespace($expr, $pos);
+            $operator = $expr[$pos] ?? '';
+            if ($operator !== '+' && $operator !== '-') {
+                return $value;
+            }
+            $pos++;
+
+            $right = $this->parseFormulaTerm($expr, $pos);
+            if ($right === null) {
                 return null;
             }
-            return (float)$result;
-        } catch (\Throwable $e) {
-            $error = '公式计算失败';
+
+            $value = $operator === '+' ? $value + $right : $value - $right;
+        }
+    }
+
+    private function parseFormulaTerm(string $expr, int &$pos): ?float
+    {
+        $value = $this->parseFormulaFactor($expr, $pos);
+        if ($value === null) {
             return null;
+        }
+
+        while (true) {
+            $this->skipFormulaWhitespace($expr, $pos);
+            $operator = $expr[$pos] ?? '';
+            if ($operator !== '*' && $operator !== '/') {
+                return $value;
+            }
+            $pos++;
+
+            $right = $this->parseFormulaFactor($expr, $pos);
+            if ($right === null) {
+                return null;
+            }
+
+            if ($operator === '/') {
+                if (abs($right) < 0.0000000001) {
+                    return null;
+                }
+                $value /= $right;
+            } else {
+                $value *= $right;
+            }
+        }
+    }
+
+    private function parseFormulaFactor(string $expr, int &$pos): ?float
+    {
+        $this->skipFormulaWhitespace($expr, $pos);
+        $char = $expr[$pos] ?? '';
+
+        if ($char === '+' || $char === '-') {
+            $pos++;
+            $value = $this->parseFormulaFactor($expr, $pos);
+            if ($value === null) {
+                return null;
+            }
+            return $char === '-' ? -$value : $value;
+        }
+
+        if ($char === '(') {
+            $pos++;
+            $value = $this->parseFormulaExpression($expr, $pos);
+            $this->skipFormulaWhitespace($expr, $pos);
+            if (($expr[$pos] ?? '') !== ')') {
+                return null;
+            }
+            $pos++;
+            return $value;
+        }
+
+        $remaining = substr($expr, $pos);
+        if (!preg_match('/^(?:\d+(?:\.\d*)?|\.\d+)/', $remaining, $match)) {
+            return null;
+        }
+
+        $pos += strlen($match[0]);
+        return (float)$match[0];
+    }
+
+    private function skipFormulaWhitespace(string $expr, int &$pos): void
+    {
+        $length = strlen($expr);
+        while ($pos < $length && ctype_space($expr[$pos])) {
+            $pos++;
         }
     }
 
@@ -2627,14 +2729,11 @@ PYTHON;
         file_put_contents($scriptPath, $pythonScript);
         
         // 执行Python脚本（兼容 Windows 上仅有 python 命令的情况）
-        $commands = [
-            sprintf('python3 %s %s 2>&1', escapeshellarg($scriptPath), escapeshellarg($filePath)),
-            sprintf('python %s %s 2>&1', escapeshellarg($scriptPath), escapeshellarg($filePath)),
-        ];
+        $commands = ['python3', 'python'];
         $lastOutput = '';
         foreach ($commands as $command) {
-            $output = shell_exec($command);
-            $lastOutput = $output ?? '';
+            $run = $this->runExcelParserCommand($command, $scriptPath, $filePath);
+            $lastOutput = $run['stdout'] !== '' ? $run['stdout'] : $run['stderr'];
             if (empty($lastOutput)) {
                 continue;
             }
@@ -2648,6 +2747,33 @@ PYTHON;
         }
         
         throw new \Exception('解析Excel失败：' . ($lastOutput ?: '未获取到解析结果，请检查Python环境'));
+    }
+
+    private function runExcelParserCommand(string $pythonBinary, string $scriptPath, string $filePath): array
+    {
+        $descriptorSpec = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = proc_open([$pythonBinary, $scriptPath, $filePath], $descriptorSpec, $pipes);
+        if (!is_resource($process)) {
+            return ['stdout' => '', 'stderr' => '无法启动Python解析进程', 'exit_code' => 1];
+        }
+
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($process);
+
+        return [
+            'stdout' => is_string($stdout) ? $stdout : '',
+            'stderr' => is_string($stderr) ? $stderr : '',
+            'exit_code' => $exitCode,
+        ];
     }
 
     /**

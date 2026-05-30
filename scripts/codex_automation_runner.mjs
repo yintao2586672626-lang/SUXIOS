@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
 const DEFAULT_ITERATIONS = 10;
@@ -357,8 +358,8 @@ function toMarkdown(summary) {
   ].join('\n');
 }
 
-function main() {
-  const options = parseArgs(process.argv.slice(2));
+export function runAutomation(argv = process.argv.slice(2)) {
+  const options = parseArgs(argv);
   const suites = selectedSuites(options);
   const plan = plannedCommands(options, suites);
   const runDir = path.join(options.outputDir, options.runId);
@@ -398,13 +399,21 @@ function main() {
   }
 
   const summary = summarize(options, runDir, results);
+  return { summary, runDir };
+}
+
+function main() {
+  const { summary, runDir } = runAutomation(process.argv.slice(2));
   console.log(`Codex automation runner ${summary.status}: ${path.join(runDir, 'summary.md')}`);
   process.exit(summary.status === 'passed' ? 0 : 1);
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error.stack || error.message || String(error));
-  process.exit(1);
+const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';
+if (import.meta.url === entryUrl) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error.stack || error.message || String(error));
+    process.exit(1);
+  }
 }
