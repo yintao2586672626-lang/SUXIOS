@@ -7,6 +7,10 @@ const warnings = [];
 const passes = [];
 let commandExecutionUnavailable = false;
 
+function resolveOutputPath(outputPath) {
+  return path.isAbsolute(outputPath) ? outputPath : path.resolve(outputPath);
+}
+
 function addPass(message) {
   passes.push(message);
 }
@@ -232,6 +236,33 @@ if (commandExecutionUnavailable) {
 }
 
 const failureCount = failures.length + (commandExecutionUnavailable ? 1 : 0);
+const resultFailures = commandExecutionUnavailable
+  ? [
+      ...failures,
+      'This runtime blocked Node child_process access to external commands. Run the listed git/gh commands directly and rerun with RELEASE_EXTERNAL_STATE_FILE pointing to a JSON evidence file.',
+    ]
+  : failures;
+const result = {
+  schema_version: 1,
+  generated_at: new Date().toISOString(),
+  command: 'npm run review:release-external-state',
+  status: failureCount > 0 ? 'failed' : 'passed',
+  summary: {
+    passed: passes.length,
+    warnings: warnings.length,
+    failures: failureCount,
+  },
+  passes,
+  warnings,
+  failures: resultFailures,
+};
+
+if (process.env.RELEASE_EXTERNAL_STATE_RESULT_FILE) {
+  const outputPath = resolveOutputPath(process.env.RELEASE_EXTERNAL_STATE_RESULT_FILE);
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+}
+
 console.log(`Release external-state summary: ${passes.length} passed, ${warnings.length} warnings, ${failureCount} failures.`);
 
 if (failureCount > 0) {
