@@ -22,7 +22,7 @@ Source: `docs/release_readiness_status.json` `blockers`
 
 - Rerun `npm run review:release-readiness` after closing each blocker.
 - When preserving evidence for review, run with `RELEASE_READINESS_RESULT_FILE=<controlled-path>` and archive the generated JSON result outside secret-bearing locations.
-- For GitHub/local-state review, run `npm run review:release-external-state` with `RELEASE_EXTERNAL_STATE_RESULT_FILE=<controlled-path>`; if Node child_process is blocked, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/collect_release_external_state.ps1 -OutputPath docs/release_external_state_evidence.local.json`, then rerun with `RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json`.
+- For GitHub/local-state review, run `npm run review:release-external-state` with `RELEASE_EXTERNAL_STATE_RESULT_FILE=<controlled-path>`; if Node child_process is blocked, run `npm run collect:release-external-state` (`scripts/collect_release_external_state.ps1`), then rerun with `RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json`. On Windows, `npm run review:release-external-state:local` performs both steps.
 - Do not store real keys, Cookie values, Token values, signatures, Authorization headers, or unredacted sensitive fields in attestation files.
 - Keep each blocker in `open` status in `docs/release_readiness_status.json` until its acceptance command or evidence has passed.
 - Figma / Canva handoff cannot be screenshots only; it must include accessible source links, Brand Kit, and design token location.
