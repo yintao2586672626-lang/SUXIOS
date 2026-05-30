@@ -24,14 +24,14 @@
       "Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json not provided",
       "database/backups contains OTA credential-shaped fields",
       "OTA credential rotation attestation not provided through OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE or docs/ota_credential_rotation_attestation.json",
-      "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest",
-      ".git/index.lock intermittently blocks local git state"
+      "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest"
     ],
     "warnings": [
       "verify git ls-files database/backups outside the script",
       "confirm GitHub Actions dependency audits on current PR head",
       "verify git status --short --branch before release"
-    ]
+    ],
+    "result_file_template": "docs/release_readiness_result.example.json"
   },
   "blockers": [
     {
@@ -102,8 +102,8 @@
       ],
       "status": "open",
       "title": "Local Git state is not closed",
-      "evidence": ".git/index.lock exists and local worktree still contains unclosed changes",
-      "close_condition": "clear index lock, align local worktree with PR, and pass review:release-external-state"
+      "evidence": "git status --short --branch shows a dirty local worktree; review:release-external-state still fails without a controlled evidence file",
+      "close_condition": "align local worktree with PR, confirm .git/index.lock is absent, and pass review:release-external-state"
     }
   ],
   "external_state_check": {
@@ -116,7 +116,7 @@
     ],
     "open_failures": [
       "local worktree is not clean",
-      ".git/index.lock intermittently blocks normal local git operations"
+      "external-state evidence file has not been provided for release handoff"
     ],
     "warnings": [
       "rerun after every PR update because GitHub state changes outside the repository",
@@ -134,7 +134,7 @@
       ],
       "open": [
         "local worktree remains dirty because prior PR sync used GitHub API",
-        ".git/index.lock appears intermittently and must be cleared before normal local commit or pull workflows"
+        "review:release-external-state requires direct git/gh evidence or RELEASE_EXTERNAL_STATE_FILE before release"
       ]
     },
     {
