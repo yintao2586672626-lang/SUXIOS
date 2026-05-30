@@ -27,6 +27,7 @@ const requiredDocs = [
   'docs/release_external_state_result.example.json',
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
+  'scripts/collect_release_external_state.ps1',
 ];
 
 const requiredPackageScripts = [
@@ -290,6 +291,32 @@ for (const doc of asciiReleaseDocs) {
 }
 
 try {
+  const gitignore = readText('.gitignore');
+  if (!gitignore.includes('docs/release_external_state_evidence.local.json')) {
+    fail('.gitignore must exclude local release external-state evidence output');
+  } else {
+    pass('.gitignore excludes local release external-state evidence output');
+  }
+} catch (error) {
+  fail(`could not read .gitignore: ${error.message}`);
+}
+
+try {
+  assertTextContainsPatterns(
+    readText('scripts/collect_release_external_state.ps1'),
+    [
+      /git.*ls-files.*database\/backups|database\/backups.*ls-files/s,
+      /git.*status.*--short.*--branch|--short.*--branch/s,
+      /gh.*pr.*view|pr.*view/s,
+      /ConvertTo-Json/i,
+    ],
+    'scripts/collect_release_external_state.ps1',
+  );
+} catch (error) {
+  fail(`could not read external-state collector script: ${error.message}`);
+}
+
+try {
   const workflow = readText('.github/workflows/php.yml');
   let missingWorkflowCommand = false;
   for (const command of requiredWorkflowCommands) {
@@ -380,6 +407,10 @@ if (status) {
     requiredExternalStateFailurePatterns,
     'external_state_check.open_failures',
   );
+  const externalStateWarnings = Array.isArray(externalStateCheck.warnings) ? externalStateCheck.warnings.join('\n') : '';
+  if (!externalStateWarnings.includes('scripts/collect_release_external_state.ps1')) {
+    fail('external_state_check.warnings must mention scripts/collect_release_external_state.ps1');
+  }
 
   assertArrayContainsPatterns(
     status.do_not_claim_ready_until,
@@ -753,6 +784,7 @@ try {
     'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
     'CODEX_SECURITY_SCAN_DIR',
     'docs/design_handoff_manifest.json',
+    'scripts/collect_release_external_state.ps1',
   ]) {
     if (!closePlan.includes(command)) {
       fail(`release_blocker_close_plan.md must mention ${command}`);
