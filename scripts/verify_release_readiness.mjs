@@ -314,12 +314,15 @@ function checkDesignArtifacts() {
   });
   const coveredFlows = Array.isArray(manifest.covered_flows) ? manifest.covered_flows : [];
   const missingFlows = requiredFlows.filter((flow) => !coveredFlows.includes(flow));
+  const openIssues = Array.isArray(manifest.open_issues) ? manifest.open_issues : null;
   const tokenPath = String(manifest.design_tokens_path ?? '').trim();
   const tokenPathIsUrl = /^https:\/\/\S+$/i.test(tokenPath);
   const tokenPathExists = tokenPath !== '' && !path.isAbsolute(tokenPath) && fs.existsSync(path.join(repoRoot, tokenPath));
 
   if (missingFields.length > 0) {
     addFailure(`Design handoff manifest is incomplete: ${missingFields.join(', ')}`);
+  } else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(manifest.last_reviewed_at))) {
+    addFailure('Design handoff manifest last_reviewed_at must use YYYY-MM-DD.');
   } else if (!/^https:\/\/(www\.)?figma\.com\//.test(String(manifest.figma_url))) {
     addFailure('Design handoff manifest figma_url must be a figma.com URL.');
   } else if (!/^https:\/\/(www\.)?canva\.com\//.test(String(manifest.canva_url))) {
@@ -330,8 +333,12 @@ function checkDesignArtifacts() {
     addFailure('Design handoff manifest design_tokens_path must be an HTTPS URL or a repo-relative existing token file.');
   } else if (missingFlows.length > 0) {
     addFailure(`Design handoff manifest covered_flows is incomplete: ${missingFlows.join(', ')}`);
+  } else if (!openIssues) {
+    addFailure('Design handoff manifest open_issues must be an array.');
+  } else if (openIssues.length > 0) {
+    addFailure('Design handoff manifest open_issues must be empty before release.');
   } else {
-    addPass('Design handoff manifest is present with Figma, Canva, brand-kit, token, and flow coverage references.');
+    addPass('Design handoff manifest is present with Figma, Canva, brand-kit, token, flow coverage, and no open design issues.');
   }
 
   if (matches.length > 0) {
