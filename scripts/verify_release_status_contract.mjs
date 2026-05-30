@@ -36,6 +36,8 @@ const requiredDocs = [
   'scripts/lib/design_handoff_checks.mjs',
   'scripts/verify_release_ota_credentials.mjs',
   'scripts/lib/ota_credential_checks.mjs',
+  'scripts/verify_release_security_scan.mjs',
+  'scripts/lib/security_scan_checks.mjs',
 ];
 
 const requiredPackageScripts = [
@@ -44,6 +46,7 @@ const requiredPackageScripts = [
   'review:release-llm',
   'review:release-design',
   'review:release-ota-credentials',
+  'review:release-security-scan',
   'review:release-external-state',
   'collect:release-external-state',
   'review:release-external-state:local',
@@ -425,6 +428,28 @@ try {
 }
 
 try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_security_scan.mjs'),
+    [
+      /checkSecurityScanReports/,
+      /CODEX_SECURITY_SCAN_DIR/,
+      /Release security scan summary/,
+    ],
+    'scripts/verify_release_security_scan.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkSecurityScanReports/,
+      /CODEX_SECURITY_SCAN_DIR/,
+    ],
+    'scripts/verify_release_readiness.mjs release security scan integration',
+  );
+} catch (error) {
+  fail(`could not read release security scan verifier scripts: ${error.message}`);
+}
+
+try {
   const workflow = readText('.github/workflows/php.yml');
   let missingWorkflowCommand = false;
   for (const command of requiredWorkflowCommands) {
@@ -537,6 +562,9 @@ if (status) {
   }
   if (!doNotClaimReadyText.includes('review:release-ota-credentials')) {
     fail('do_not_claim_ready_until must mention review:release-ota-credentials for OTA credential closure');
+  }
+  if (!doNotClaimReadyText.includes('review:release-security-scan')) {
+    fail('do_not_claim_ready_until must mention review:release-security-scan for Codex Security scan closure');
   }
 
   const blockers = Array.isArray(status.blockers) ? status.blockers : [];
@@ -914,6 +942,7 @@ try {
     'npm run review:release-llm',
     'npm run review:release-design',
     'npm run review:release-ota-credentials',
+    'npm run review:release-security-scan',
     'npm run review:release-readiness',
     'npm run review:release-external-state',
     'LLM_CONNECTIVITY_ATTESTATION_FILE',
