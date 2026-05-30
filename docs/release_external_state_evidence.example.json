@@ -1,0 +1,33 @@
+{
+  "reviewed_at": "TODO: YYYY-MM-DD",
+  "reviewer": "TODO: reviewer name",
+  "commands": {
+    "git_ls_files_database_backups": {
+      "command": "git ls-files database/backups",
+      "exit_code": 0,
+      "stdout": ""
+    },
+    "git_status_short_branch": {
+      "command": "git status --short --branch",
+      "exit_code": 0,
+      "stdout": "## main...origin/main"
+    },
+    "gh_pr_view": {
+      "command": "gh pr view 1 --json number,url,headRefOid,mergeable,statusCheckRollup",
+      "exit_code": 0,
+      "json": {
+        "number": 1,
+        "url": "https://github.com/OWNER/REPO/pull/1",
+        "headRefOid": "TODO: current PR head sha",
+        "mergeable": "MERGEABLE",
+        "statusCheckRollup": [
+          {
+            "name": "verify",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS"
+          }
+        ]
+      }
+    }
+  }
+}
