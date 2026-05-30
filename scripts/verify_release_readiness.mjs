@@ -52,6 +52,36 @@ function isPlaceholder(value) {
   return String(value ?? '').trim() === '' || /TODO|CHANGE_ME|example|your-|placeholder/i.test(String(value));
 }
 
+function isRedactedSecretValue(value) {
+  const text = String(value ?? '').trim();
+  return text === ''
+    || /TODO|CHANGE_ME|placeholder|redacted|masked|not stored|not included|secure record|internal ticket/i.test(text)
+    || /^\*+$/.test(text)
+    || /^<[^>]*redact[^>]*>$/i.test(text);
+}
+
+function findSensitiveFieldValues(value, sensitiveKeys, pathParts = []) {
+  const findings = [];
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      findings.push(...findSensitiveFieldValues(item, sensitiveKeys, [...pathParts, String(index)]));
+    }
+    return findings;
+  }
+  if (!value || typeof value !== 'object') {
+    return findings;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = [...pathParts, key];
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (sensitiveKeys.has(normalizedKey) && typeof child === 'string' && !isRedactedSecretValue(child)) {
+      findings.push(childPath.join('.'));
+    }
+    findings.push(...findSensitiveFieldValues(child, sensitiveKeys, childPath));
+  }
+  return findings;
+}
+
 function checkEnvReadiness() {
   const envFile = process.env.RELEASE_ENV_FILE || '.env.production';
   if (!exists(envFile)) {
@@ -120,8 +150,15 @@ function checkLlmConnectivityAttestation() {
     return;
   }
 
-  if (/(sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|"api_key"\s*:|"authorization"\s*:|"cookie"\s*:)/i.test(raw)) {
+  if (/(sk-[A-Za-z0-9_-]{8,}|Bearer\s+(?!redacted|masked|<redacted>)\S+|"api[_-]?key"\s*:|"authorization"\s*:|"cookie"\s*:)/i.test(raw)) {
     addFailure('Production LLM connectivity attestation appears to contain secret material; store only redacted evidence references.');
+  }
+  const llmSensitiveFields = findSensitiveFieldValues(
+    attestation,
+    new Set(['apikey', 'authorization', 'cookie', 'token', 'secret', 'clientsecret']),
+  );
+  if (llmSensitiveFields.length > 0) {
+    addFailure(`Production LLM connectivity attestation contains unredacted sensitive fields: ${llmSensitiveFields.join(', ')}`);
   }
 
   const requiredStringFields = [
@@ -145,6 +182,9 @@ function checkLlmConnectivityAttestation() {
   }
   if (attestation.ai_config_secret_checked !== true) {
     addFailure('Production LLM connectivity attestation must confirm ai_config_secret_checked=true.');
+  }
+  if (attestation.redaction_checked !== true) {
+    addFailure('Production LLM connectivity attestation must confirm redaction_checked=true.');
   }
 
   const result = attestation.result || {};
@@ -314,8 +354,15 @@ function checkOtaCredentialRotationAttestation() {
     return;
   }
 
-  if (/(usertoken\s*[:=]\s*['"]?[^'",\s]{8,}|usersign\s*[:=]\s*['"]?[^'",\s]{8,}|cookie\s*[:=]\s*['"]?[^'",\s]{16,}|Bearer\s+\S+)/i.test(raw)) {
+  if (/("?usertoken"?\s*[:=]\s*['"]?[^'",\s]{8,}|"?usersign"?\s*[:=]\s*['"]?[^'",\s]{8,}|"?cookie"?\s*[:=]\s*['"]?[^'",\s]{16,}|"?authorization"?\s*[:=]\s*['"]?[^'",\s]{8,}|Bearer\s+(?!redacted|masked|<redacted>)\S+)/i.test(raw)) {
     addFailure('OTA credential rotation attestation appears to contain credential material; store only redacted evidence references.');
+  }
+  const otaSensitiveFields = findSensitiveFieldValues(
+    attestation,
+    new Set(['cookie', 'authorization', 'token', 'usertoken', 'usersign', 'signature', 'secret']),
+  );
+  if (otaSensitiveFields.length > 0) {
+    addFailure(`OTA credential rotation attestation contains unredacted sensitive fields: ${otaSensitiveFields.join(', ')}`);
   }
 
   const requiredStringFields = ['reviewed_at', 'reviewer'];
@@ -326,6 +373,9 @@ function checkOtaCredentialRotationAttestation() {
   }
 
   const platforms = Array.isArray(attestation.platforms) ? attestation.platforms : [];
+  if (attestation.redaction_checked !== true) {
+    addFailure('OTA credential rotation attestation must confirm redaction_checked=true.');
+  }
   if (platforms.length === 0) {
     addFailure('OTA credential rotation attestation must include at least one platform entry.');
   }
