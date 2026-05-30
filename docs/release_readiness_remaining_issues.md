@@ -114,7 +114,7 @@
 处理要求：
 
 - 补充 Figma/Canva 链接、导出稿、品牌规范、色彩/字体/组件 token。
-- 基于 `docs/design_handoff_manifest.example.json` 创建 `docs/design_handoff_manifest.json`，填写可访问的 Figma、Canva、Brand Kit 链接和负责人。
+- 基于 `docs/design_handoff_manifest.example.json` 创建 `docs/design_handoff_manifest.json`，填写可访问的 Figma、Canva、Brand Kit 链接、负责人、`design_tokens_path` 和覆盖流程。
 - 建立 UI 走查清单：登录、首页、OTA 数据、收益分析、AI 决策、运营管理、投资决策。
 - 代码侧走查要求见 `docs/ui-handoff/README.md`；该文件只定义验收要求，不替代真实设计源。
 
