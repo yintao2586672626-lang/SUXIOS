@@ -80,6 +80,7 @@
 - `git ls-files database/backups` 无输出，当前没有备份文件被 Git 跟踪。
 - `.gitattributes` 已将 `database/backups/*` 标记为 `export-ignore`。
 - 本地 `database/backups/*.sql` 中命中 `usertoken`、`usersign`、`cookies` 等携程认证字段。
+- 已补充 `docs/ota_credential_rotation_checklist.md` 和 `docs/ota_credential_rotation_attestation.example.json`，用于轮换和清理验收记录。
 
 风险：
 
@@ -91,6 +92,7 @@
 - 不把 `database/backups/` 放入任何发布包。
 - 对真实 OTA Cookie/Token 执行轮换或失效处理。
 - 生产备份使用加密存储和最小权限访问。
+- 完成后按 `docs/ota_credential_rotation_checklist.md` 复扫并记录，不在文档中粘贴真实凭证。
 
 ### 4. Figma / Canva 真实设计源未归档
 
