@@ -30,6 +30,22 @@
       "verify git status --short --branch before release"
     ]
   },
+  "external_state_check": {
+    "command": "npm run review:release-external-state",
+    "status": "failing_as_expected",
+    "resolved": [
+      "GitHub PR checks are currently green on the latest inspected head",
+      "database/backups is not tracked by git"
+    ],
+    "open_failures": [
+      "local worktree is not clean",
+      ".git/index.lock intermittently blocks normal local git operations"
+    ],
+    "warnings": [
+      "rerun after every PR update because GitHub state changes outside the repository",
+      "if Node child_process is unavailable, run the listed git and gh commands directly"
+    ]
+  },
   "plugin_status": [
     {
       "plugin": "@github",
