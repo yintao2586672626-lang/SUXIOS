@@ -12,6 +12,8 @@ Machine-readable status: `docs/release_readiness_status.json`.
 
 Optional command result evidence: set `RELEASE_READINESS_RESULT_FILE=<controlled-path>` when running `npm run review:release-readiness`. The generated JSON follows `docs/release_readiness_result.example.json` and is intended for audit handoff without embedding secrets.
 
+Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_FILE=<controlled-path>` when running `npm run review:release-external-state`. The generated JSON follows `docs/release_external_state_result.example.json`.
+
 ## Current Hard Blocker Matrix
 
 | # | Scope | Blocker | Current evidence | Close condition |
