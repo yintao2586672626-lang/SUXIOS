@@ -20,6 +20,7 @@ const requiredDocs = [
   'docs/ota_credential_rotation_attestation.example.json',
   'docs/codex_security_scan_authorization.md',
   'docs/ui-handoff/README.md',
+  'docs/release_external_state_evidence.example.json',
 ];
 
 const requiredPackageScripts = [
@@ -72,6 +73,12 @@ const requiredDesignManifestKeys = [
   'design_tokens_path',
   'covered_flows',
   'open_issues',
+];
+
+const requiredExternalEvidenceKeys = [
+  'reviewed_at',
+  'reviewer',
+  'commands',
 ];
 
 const issues = [];
@@ -191,6 +198,9 @@ if (status) {
   if (externalStateCheck.command !== 'npm run review:release-external-state') {
     fail('external_state_check.command must be npm run review:release-external-state');
   }
+  if (externalStateCheck.evidence_file_template !== 'docs/release_external_state_evidence.example.json') {
+    fail('external_state_check.evidence_file_template must reference docs/release_external_state_evidence.example.json');
+  }
   if (externalStateCheck.status !== 'failing_as_expected') {
     fail('external_state_check.status must be failing_as_expected while local git blockers remain');
   }
@@ -219,8 +229,33 @@ if (packageJson) {
 for (const jsonDoc of [
   'docs/design_handoff_manifest.example.json',
   'docs/ota_credential_rotation_attestation.example.json',
+  'docs/release_external_state_evidence.example.json',
 ]) {
   readJson(jsonDoc);
+}
+
+const externalEvidenceExample = readJson('docs/release_external_state_evidence.example.json');
+if (externalEvidenceExample) {
+  let evidenceComplete = true;
+  for (const key of requiredExternalEvidenceKeys) {
+    if (!(key in externalEvidenceExample)) {
+      fail(`docs/release_external_state_evidence.example.json is missing ${key}`);
+      evidenceComplete = false;
+    }
+  }
+  for (const commandKey of [
+    'git_ls_files_database_backups',
+    'git_status_short_branch',
+    'gh_pr_view',
+  ]) {
+    if (!(commandKey in (externalEvidenceExample.commands || {}))) {
+      fail(`docs/release_external_state_evidence.example.json commands is missing ${commandKey}`);
+      evidenceComplete = false;
+    }
+  }
+  if (evidenceComplete) {
+    pass('docs/release_external_state_evidence.example.json covers required commands');
+  }
 }
 
 const designManifestExample = readJson('docs/design_handoff_manifest.example.json');
