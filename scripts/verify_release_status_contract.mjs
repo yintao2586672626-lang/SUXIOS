@@ -13,6 +13,7 @@ const requiredScope = [
 
 const requiredDocs = [
   'docs/release_readiness_remaining_issues.md',
+  'docs/release_blocker_close_plan.md',
   'docs/release_readiness_status.json',
   'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
@@ -430,6 +431,29 @@ try {
   }
 } catch (error) {
   fail(`could not read release readiness report: ${error.message}`);
+}
+
+try {
+  const closePlan = readText('docs/release_blocker_close_plan.md');
+  for (const id of requiredBlockerIds) {
+    if (!closePlan.includes(id)) {
+      fail(`release_blocker_close_plan.md must mention ${id}`);
+    }
+  }
+  for (const command of [
+    'npm run review:release-readiness',
+    'npm run review:release-external-state',
+    'LLM_CONNECTIVITY_ATTESTATION_FILE',
+    'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
+    'CODEX_SECURITY_SCAN_DIR',
+    'docs/design_handoff_manifest.json',
+  ]) {
+    if (!closePlan.includes(command)) {
+      fail(`release_blocker_close_plan.md must mention ${command}`);
+    }
+  }
+} catch (error) {
+  fail(`could not read release blocker close plan: ${error.message}`);
 }
 
 if (issues.length > 0) {
