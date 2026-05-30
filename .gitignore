@@ -9,6 +9,7 @@
 node_modules/
 composer.phar
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *$py.class
 
