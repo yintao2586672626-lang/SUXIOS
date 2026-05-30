@@ -143,7 +143,6 @@
 | 文件 | 用途 | 处理建议 |
 |---|---|---|
 | `app/service/LlmClient.php` | LLM 调用抽象/统一客户端 | 保留 |
-| `app/service/OpenAIClient.php` | OpenAI 兼容接口客户端 | 保留 |
 | `app/service/ExternalSignalService.php` | 外部信号聚合服务 | 保留 |
 | `app/service/MacroSignalService.php` | 宏观信号计算服务 | 保留 |
 | `app/service/FeasibilityReportService.php` | 可行性报告生成服务 | 保留 |
