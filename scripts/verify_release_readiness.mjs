@@ -202,53 +202,54 @@ function checkDesignArtifacts() {
   const matches = walkFiles('.').filter((file) => designPatterns.some((pattern) => pattern.test(file)));
   const manifestPath = 'docs/design_handoff_manifest.json';
 
-  if (!exists(manifestPath) && matches.length === 0) {
-    addFailure('No Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json were found.');
+  if (!exists(manifestPath)) {
+    addFailure('Design handoff manifest was not found: docs/design_handoff_manifest.json. Standalone design-token files or screenshots do not prove Figma/Canva source handoff.');
+    if (matches.length > 0) {
+      addWarning(`Design source/token artifacts were found (${matches.length}), but docs/design_handoff_manifest.json is still required.`);
+    }
     return;
   }
 
-  if (exists(manifestPath)) {
-    let manifest = null;
-    try {
-      manifest = JSON.parse(readText(manifestPath));
-    } catch (error) {
-      addFailure(`Design handoff manifest is not valid JSON: ${error.message}`);
-      return;
-    }
+  let manifest = null;
+  try {
+    manifest = JSON.parse(readText(manifestPath));
+  } catch (error) {
+    addFailure(`Design handoff manifest is not valid JSON: ${error.message}`);
+    return;
+  }
 
-    const requiredStringFields = [
-      'owner',
-      'last_reviewed_at',
-      'figma_url',
-      'canva_url',
-      'brand_kit_url',
-      'design_tokens_path',
-    ];
-    const missingFields = requiredStringFields.filter((field) => {
-      const value = String(manifest[field] ?? '').trim();
-      return value === '' || value.includes('TODO') || value.includes('example.com');
-    });
-    const coveredFlows = Array.isArray(manifest.covered_flows) ? manifest.covered_flows : [];
-    const missingFlows = requiredFlows.filter((flow) => !coveredFlows.includes(flow));
-    const tokenPath = String(manifest.design_tokens_path ?? '').trim();
-    const tokenPathIsUrl = /^https:\/\/\S+$/i.test(tokenPath);
-    const tokenPathExists = tokenPath !== '' && !path.isAbsolute(tokenPath) && fs.existsSync(path.join(repoRoot, tokenPath));
+  const requiredStringFields = [
+    'owner',
+    'last_reviewed_at',
+    'figma_url',
+    'canva_url',
+    'brand_kit_url',
+    'design_tokens_path',
+  ];
+  const missingFields = requiredStringFields.filter((field) => {
+    const value = String(manifest[field] ?? '').trim();
+    return value === '' || value.includes('TODO') || value.includes('example.com');
+  });
+  const coveredFlows = Array.isArray(manifest.covered_flows) ? manifest.covered_flows : [];
+  const missingFlows = requiredFlows.filter((flow) => !coveredFlows.includes(flow));
+  const tokenPath = String(manifest.design_tokens_path ?? '').trim();
+  const tokenPathIsUrl = /^https:\/\/\S+$/i.test(tokenPath);
+  const tokenPathExists = tokenPath !== '' && !path.isAbsolute(tokenPath) && fs.existsSync(path.join(repoRoot, tokenPath));
 
-    if (missingFields.length > 0) {
-      addFailure(`Design handoff manifest is incomplete: ${missingFields.join(', ')}`);
-    } else if (!/^https:\/\/(www\.)?figma\.com\//.test(String(manifest.figma_url))) {
-      addFailure('Design handoff manifest figma_url must be a figma.com URL.');
-    } else if (!/^https:\/\/(www\.)?canva\.com\//.test(String(manifest.canva_url))) {
-      addFailure('Design handoff manifest canva_url must be a canva.com URL.');
-    } else if (!/^https:\/\/(www\.)?canva\.com\//.test(String(manifest.brand_kit_url))) {
-      addFailure('Design handoff manifest brand_kit_url must be a canva.com URL.');
-    } else if (!tokenPathIsUrl && !tokenPathExists) {
-      addFailure('Design handoff manifest design_tokens_path must be an HTTPS URL or a repo-relative existing token file.');
-    } else if (missingFlows.length > 0) {
-      addFailure(`Design handoff manifest covered_flows is incomplete: ${missingFlows.join(', ')}`);
-    } else {
-      addPass('Design handoff manifest is present with Figma, Canva, brand-kit, token, and flow coverage references.');
-    }
+  if (missingFields.length > 0) {
+    addFailure(`Design handoff manifest is incomplete: ${missingFields.join(', ')}`);
+  } else if (!/^https:\/\/(www\.)?figma\.com\//.test(String(manifest.figma_url))) {
+    addFailure('Design handoff manifest figma_url must be a figma.com URL.');
+  } else if (!/^https:\/\/(www\.)?canva\.com\//.test(String(manifest.canva_url))) {
+    addFailure('Design handoff manifest canva_url must be a canva.com URL.');
+  } else if (!/^https:\/\/(www\.)?canva\.com\//.test(String(manifest.brand_kit_url))) {
+    addFailure('Design handoff manifest brand_kit_url must be a canva.com URL.');
+  } else if (!tokenPathIsUrl && !tokenPathExists) {
+    addFailure('Design handoff manifest design_tokens_path must be an HTTPS URL or a repo-relative existing token file.');
+  } else if (missingFlows.length > 0) {
+    addFailure(`Design handoff manifest covered_flows is incomplete: ${missingFlows.join(', ')}`);
+  } else {
+    addPass('Design handoff manifest is present with Figma, Canva, brand-kit, token, and flow coverage references.');
   }
 
   if (matches.length > 0) {
