@@ -74,7 +74,7 @@
       "status": "open",
       "title": "Local database/backups contains OTA credential-shaped fields",
       "evidence": "review:release-readiness reports 4498 credential-shaped matches across database/backups/hotelx_after_tenant_security_20260529_161926.sql (2249) and database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql (2249)",
-      "close_condition": "delete, sanitize, or encrypted-archive local backups and rerun review:release-readiness with no credential-shaped matches across database/backups text files"
+      "close_condition": "delete, sanitize, or encrypted-archive local backups and pass review:release-ota-credentials plus review:release-readiness with no credential-shaped matches across database/backups text files"
     },
     {
       "id": "ota-credential-rotation-attestation-missing",
@@ -84,7 +84,7 @@
       "status": "open",
       "title": "OTA credential rotation attestation is missing",
       "evidence": "docs/ota_credential_rotation_attestation.json is missing and OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE is not set",
-      "close_condition": "provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, release-readiness rerun, and redaction_checked=true"
+      "close_condition": "provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, release-readiness rerun, redaction_checked=true, and pass review:release-ota-credentials"
     },
     {
       "id": "codex-security-scan-missing",
@@ -195,8 +195,8 @@
     "production env is provided and passes review:release-env plus review:release-readiness",
     "production LLM connectivity attestation is provided and passes review:release-llm plus review:release-readiness",
     "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
-    "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-readiness no longer reports credential-shaped fields",
-    "OTA credential rotation attestation is provided and passes review:release-readiness",
+    "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-ota-credentials plus review:release-readiness no longer report credential-shaped fields",
+    "OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
     "formal Codex Security repo-wide scan is authorized, executed and produces markdown/html reports",
     "local git state is clean or contains only reviewed intentional changes"
   ]
