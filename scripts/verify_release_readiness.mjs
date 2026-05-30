@@ -20,12 +20,16 @@ function addWarning(message) {
   warnings.push(message);
 }
 
+function resolveInputPath(filePath) {
+  return path.isAbsolute(filePath) ? filePath : path.join(repoRoot, filePath);
+}
+
 function readText(relativePath) {
-  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+  return fs.readFileSync(resolveInputPath(relativePath), 'utf8');
 }
 
 function readTextIfSafe(relativePath) {
-  const buffer = fs.readFileSync(path.join(repoRoot, relativePath));
+  const buffer = fs.readFileSync(resolveInputPath(relativePath));
   if (buffer.includes(0)) {
     addWarning(`Skipped binary-looking backup file during credential scan: ${relativePath}`);
     return null;
@@ -38,11 +42,11 @@ function resolveOutputPath(outputPath) {
 }
 
 function exists(relativePath) {
-  return fs.existsSync(path.join(repoRoot, relativePath));
+  return fs.existsSync(resolveInputPath(relativePath));
 }
 
 function isPathInsideRepo(filePath) {
-  const resolved = path.resolve(repoRoot, filePath);
+  const resolved = resolveInputPath(filePath);
   const relative = path.relative(repoRoot, resolved);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
