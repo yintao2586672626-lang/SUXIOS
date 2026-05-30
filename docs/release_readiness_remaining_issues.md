@@ -126,6 +126,8 @@
 - 远端 PR 分支 CI 通过，当前 head 以 GitHub PR #1 为准。
 - `.git/index.lock` 仍会间歇出现，普通本地 Git 操作可能被阻断。
 - 本地工作区仍有本轮审查和既有发布修复改动；远端 PR 已通过 GitHub API 同步，发布前需要统一 review、对齐本地和远端状态。
+- `npm run review:release-external-state` 已补充，用于发布前复核 PR checks、`git ls-files database/backups`、本地 worktree 和 `.git/index.lock`。
+- 如果当前 Node 运行环境禁止 `child_process` 调用外部命令，应直接运行该脚本输出中列出的 `git` / `gh` 命令完成验收。
 
 处理要求：
 
@@ -136,6 +138,7 @@
 ## 发布前最低验收清单
 
 - GitHub PR checks 全绿。
+- `npm run review:release-external-state` 通过。
 - `npm run review:release-readiness` 中除“需人工授权/生产密钥”的项外均已关闭，且失败项被逐条确认。
 - 生产 `.env`/密钥配置完成，`APP_DEBUG=false`。
 - OpenAI/LLM 至少一次真实连通性验证通过。
