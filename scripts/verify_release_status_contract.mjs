@@ -614,6 +614,15 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
+  if (readinessResultExample.summary?.passed !== 5) {
+    fail('docs/release_readiness_result.example.json summary.passed must match the current 5 release-readiness passes');
+    resultComplete = false;
+  }
+  const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
+  if (!/GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts\./.test(readinessPasses)) {
+    fail('docs/release_readiness_result.example.json passes must include the GitHub Actions workflow coverage pass');
+    resultComplete = false;
+  }
   assertArrayContainsPatterns(
     readinessResultExample.failures,
     requiredOpenFailurePatterns,
