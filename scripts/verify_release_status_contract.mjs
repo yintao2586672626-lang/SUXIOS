@@ -1,0 +1,171 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = process.cwd();
+
+const requiredScope = [
+  '@github',
+  '@openai-developers',
+  '@codex-security',
+  '@figma',
+  '@canva',
+];
+
+const requiredDocs = [
+  'docs/release_readiness_remaining_issues.md',
+  'docs/release_readiness_status.json',
+  'docs/deployment_env_checklist.md',
+  'docs/design_handoff_manifest.example.json',
+  'docs/ota_credential_rotation_checklist.md',
+  'docs/ota_credential_rotation_attestation.example.json',
+  'docs/codex_security_scan_authorization.md',
+  'docs/ui-handoff/README.md',
+];
+
+const requiredOpenFailurePatterns = [
+  /production env/i,
+  /figma|canva|design-token|design_handoff_manifest/i,
+  /database\/backups|credential-shaped/i,
+  /\.git\/index\.lock|git state/i,
+];
+
+const requiredDoNotClaimReadyPatterns = [
+  /production env/i,
+  /figma|canva|design-token/i,
+  /OTA credentials|database\/backups/i,
+  /Codex Security/i,
+  /git state/i,
+];
+
+const issues = [];
+const passes = [];
+
+function fail(message) {
+  issues.push(message);
+}
+
+function pass(message) {
+  passes.push(message);
+}
+
+function readText(relativePath) {
+  return fs.readFileSync(path.join(root, relativePath), 'utf8');
+}
+
+function readJson(relativePath) {
+  try {
+    return JSON.parse(readText(relativePath));
+  } catch (error) {
+    fail(`${relativePath} is not valid JSON: ${error.message}`);
+    return null;
+  }
+}
+
+function assertFileExists(relativePath) {
+  const absolutePath = path.join(root, relativePath);
+  if (!fs.existsSync(absolutePath)) {
+    fail(`${relativePath} is missing`);
+    return false;
+  }
+  pass(`${relativePath} exists`);
+  return true;
+}
+
+function assertArrayContainsPatterns(values, patterns, label) {
+  const joined = Array.isArray(values) ? values.join('\n') : '';
+  for (const pattern of patterns) {
+    if (!pattern.test(joined)) {
+      fail(`${label} does not mention required blocker pattern ${pattern}`);
+    }
+  }
+}
+
+for (const doc of requiredDocs) {
+  assertFileExists(doc);
+}
+
+const status = readJson('docs/release_readiness_status.json');
+if (status) {
+  if (status.overall_status !== 'not_release_ready') {
+    fail(`overall_status must remain not_release_ready until blockers close; got ${status.overall_status}`);
+  } else {
+    pass('overall_status is not_release_ready');
+  }
+
+  const scope = Array.isArray(status.scope) ? status.scope : [];
+  for (const plugin of requiredScope) {
+    if (!scope.includes(plugin)) {
+      fail(`scope is missing ${plugin}`);
+    }
+  }
+
+  const pluginStatus = Array.isArray(status.plugin_status) ? status.plugin_status : [];
+  for (const plugin of requiredScope) {
+    const entry = pluginStatus.find((candidate) => candidate?.plugin === plugin);
+    if (!entry) {
+      fail(`plugin_status is missing ${plugin}`);
+      continue;
+    }
+    for (const field of ['status', 'resolved', 'open']) {
+      if (!(field in entry)) {
+        fail(`plugin_status entry ${plugin} is missing ${field}`);
+      }
+    }
+    if (!Array.isArray(entry.resolved)) {
+      fail(`plugin_status entry ${plugin}.resolved must be an array`);
+    }
+    if (!Array.isArray(entry.open)) {
+      fail(`plugin_status entry ${plugin}.open must be an array`);
+    }
+  }
+
+  const releaseCheck = status.release_readiness_check ?? {};
+  if (releaseCheck.command !== 'npm run review:release-readiness') {
+    fail('release_readiness_check.command must be npm run review:release-readiness');
+  }
+  if (releaseCheck.status !== 'failing_as_expected') {
+    fail('release_readiness_check.status must be failing_as_expected while release blockers remain');
+  }
+  assertArrayContainsPatterns(
+    releaseCheck.open_failures,
+    requiredOpenFailurePatterns,
+    'release_readiness_check.open_failures',
+  );
+
+  assertArrayContainsPatterns(
+    status.do_not_claim_ready_until,
+    requiredDoNotClaimReadyPatterns,
+    'do_not_claim_ready_until',
+  );
+}
+
+for (const jsonDoc of [
+  'docs/design_handoff_manifest.example.json',
+  'docs/ota_credential_rotation_attestation.example.json',
+]) {
+  readJson(jsonDoc);
+}
+
+try {
+  const report = readText('docs/release_readiness_remaining_issues.md');
+  if (!report.includes('docs/release_readiness_status.json')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_readiness_status.json');
+  }
+  for (const plugin of requiredScope) {
+    if (!report.includes(plugin)) {
+      fail(`release_readiness_remaining_issues.md must mention ${plugin}`);
+    }
+  }
+} catch (error) {
+  fail(`could not read release readiness report: ${error.message}`);
+}
+
+if (issues.length > 0) {
+  console.error('Release status contract failed:');
+  for (const issue of issues) {
+    console.error(`- ${issue}`);
+  }
+  process.exit(1);
+}
+
+console.log(`Release status contract passed (${passes.length} structural checks).`);
