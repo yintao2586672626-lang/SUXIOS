@@ -626,7 +626,7 @@ if (externalStateResultExample) {
 }
 
 const designManifestExample = readJson('docs/design_handoff_manifest.example.json');
-if (designManifestExample) {
+  if (designManifestExample) {
   let manifestComplete = true;
   for (const key of requiredDesignManifestKeys) {
     if (!(key in designManifestExample)) {
@@ -646,6 +646,10 @@ if (designManifestExample) {
       fail(`docs/design_handoff_manifest.example.json covered_flows is missing ${flow}`);
       manifestComplete = false;
     }
+  }
+  if (!Array.isArray(designManifestExample.open_issues) || designManifestExample.open_issues.length !== 0) {
+    fail('docs/design_handoff_manifest.example.json open_issues must be an empty array');
+    manifestComplete = false;
   }
   if (manifestComplete) {
     pass('docs/design_handoff_manifest.example.json covers required fields and flows');
