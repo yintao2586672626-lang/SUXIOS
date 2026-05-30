@@ -37,7 +37,7 @@ const requiredPackageScripts = [
 const requiredOpenFailurePatterns = [
   /production env/i,
   /LLM|connectivity|LLM_CONNECTIVITY_ATTESTATION_FILE/i,
-  /figma|canva|design-token|design_handoff_manifest/i,
+  /figma|canva|design-token|design_handoff_manifest|design_handoff_manifest\.json/i,
   /database\/backups|credential-shaped/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
   /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
@@ -62,6 +62,7 @@ const requiredReportBlockerPatterns = [
   /Production env/i,
   /LLM_CONNECTIVITY_ATTESTATION_FILE|LLM connectivity/i,
   /Figma|Canva|design token/i,
+  /standalone design-token files or screenshots are not sufficient/i,
   /database\/backups|credential-shaped/i,
   /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE|OTA credential rotation/i,
   /CODEX_SECURITY_SCAN_DIR|Codex Security/i,
