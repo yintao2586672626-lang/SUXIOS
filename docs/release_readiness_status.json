@@ -72,8 +72,8 @@
       ],
       "status": "open",
       "title": "Local database/backups contains OTA credential-shaped fields",
-      "evidence": "review:release-readiness reports 112 credential-shaped matches in database/backups",
-      "close_condition": "delete, sanitize, or encrypted-archive local backups and rerun review:release-readiness with no credential-shaped matches"
+      "evidence": "review:release-readiness reports 4498 credential-shaped matches across 2 files in database/backups",
+      "close_condition": "delete, sanitize, or encrypted-archive local backups and rerun review:release-readiness with no credential-shaped matches across database/backups text files"
     },
     {
       "id": "ota-credential-rotation-attestation-missing",
