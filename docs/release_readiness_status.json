@@ -110,6 +110,7 @@
     "command": "npm run review:release-external-state",
     "status": "failing_as_expected",
     "evidence_file_template": "docs/release_external_state_evidence.example.json",
+    "result_file_template": "docs/release_external_state_result.example.json",
     "resolved": [
       "GitHub PR checks are currently green on the latest inspected head",
       "database/backups is not tracked by git"
