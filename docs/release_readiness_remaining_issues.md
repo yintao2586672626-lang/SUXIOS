@@ -127,7 +127,7 @@
 - `.git/index.lock` 仍会间歇出现，普通本地 Git 操作可能被阻断。
 - 本地工作区仍有本轮审查和既有发布修复改动；远端 PR 已通过 GitHub API 同步，发布前需要统一 review、对齐本地和远端状态。
 - `npm run review:release-external-state` 已补充，用于发布前复核 PR checks、`git ls-files database/backups`、本地 worktree 和 `.git/index.lock`。
-- 如果当前 Node 运行环境禁止 `child_process` 调用外部命令，应直接运行该脚本输出中列出的 `git` / `gh` 命令完成验收。
+- 如果当前 Node 运行环境禁止 `child_process` 调用外部命令，应直接运行该脚本输出中列出的 `git` / `gh` 命令，并按 `docs/release_external_state_evidence.example.json` 记录输出后，用 `RELEASE_EXTERNAL_STATE_FILE` 复跑验收。
 
 处理要求：
 
