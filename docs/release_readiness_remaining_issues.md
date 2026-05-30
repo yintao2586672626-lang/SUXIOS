@@ -8,6 +8,8 @@
 
 项目的 GitHub CI 阻断已解除，核心测试和现有高风险安全脚本已通过。上市前仍不应直接发布，主要剩余问题集中在生产配置、完整安全审计、敏感本地备份和真实设计源归档。
 
+机器可读状态见 `docs/release_readiness_status.json`。
+
 ## 已解除的阻断
 
 | 范围 | 状态 | 当前证据 |
@@ -20,7 +22,7 @@
 | 采集报告误提交 | 已收口 | `.gitignore` 已忽略 `reports/ctrip_browser_capture_*.json` 与 `reports/meituan_browser_capture_*.json` |
 | 发布包敏感路径 | 已收口 | `.gitattributes` 已将 `.env`、数据库备份、采集报告和截图资产标记为 `export-ignore` |
 | UI 代码侧交付清单 | 已补充 | `docs/ui-handoff/README.md` 已覆盖登录、OTA、收益分析、AI 决策、运营管理、投资决策的代码侧核对入口 |
-| 本地 Git index 锁 | 已清理 | `.git/index.lock` 当前不存在，`review:release-readiness` 可自动复核 |
+| 本地 Git index 锁 | 部分缓解 | `review:release-readiness` 可检测锁文件；本机仍会间歇出现 `.git/index.lock`，发布前必须复核 |
 
 ## 仍存在的问题
 
@@ -50,7 +52,6 @@
 已完成：
 
 - `php scripts/verify_high_risk_security.php` 通过。
-- `php C:\xampp\php\composer.phar audit --no-interaction` 返回无安全公告。
 - `npm audit --audit-level=moderate --json` 为 0 漏洞。
 - GitHub Actions 已加入 `composer audit --no-interaction` 与 `npm audit --audit-level=moderate`。
 - 当前 PR head 的两个 CI job 日志均显示：`composer audit --no-interaction` 返回无安全公告，`npm audit --audit-level=moderate` 返回 0 漏洞。
@@ -61,7 +62,6 @@
 
 未完成：
 
-- 正式 repo-wide Codex Security 扫描需要授权 subagents，当前未获得授权，因此没有完整扫描的 markdown/html 报告。
 - 正式 repo-wide Codex Security 扫描需要授权 subagents，当前未获得授权，因此没有完整扫描的 markdown/html 报告。
 
 处理要求：
@@ -124,8 +124,8 @@
 当前状态：
 
 - 远端 PR 分支 CI 通过，当前 head 以 GitHub PR #1 为准。
-- `.git/index.lock` 已清理，普通 Git index 操作不再被锁文件阻断。
-- 本地工作区仍有本轮审查和既有发布修复改动，发布前需要统一 review、提交并等待 CI。
+- `.git/index.lock` 仍会间歇出现，普通本地 Git 操作可能被阻断。
+- 本地工作区仍有本轮审查和既有发布修复改动；远端 PR 已通过 GitHub API 同步，发布前需要统一 review、对齐本地和远端状态。
 
 处理要求：
 
