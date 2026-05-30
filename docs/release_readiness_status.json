@@ -21,6 +21,7 @@
       "production env file not provided through .env.production or RELEASE_ENV_FILE",
       "Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json not provided",
       "database/backups contains OTA credential-shaped fields",
+      "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest",
       ".git/index.lock intermittently blocks local git state"
     ],
     "warnings": [
