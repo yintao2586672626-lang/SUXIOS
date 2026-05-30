@@ -30,7 +30,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 
 | Scope | Status | Evidence |
 |---|---|---|
-| GitHub CI | Resolved on current PR head | PR `#1` has two successful `PHP Composer / verify` checks on the latest inspected head. |
+| GitHub CI | Resolved on current PR head | PR `#1` has successful `PHP Composer / verify` checks; the workflow now includes dependency audits, PHPUnit, P0 guards, non-security review, and release-status contracts. |
 | Database rebuild | Fixed | `database/init_full.sql` no longer depends on local `hotelx_dump.sql`; SQL schema contracts pass in CI. |
 | Daily report formula execution risk | Fixed | `DailyReport.php` removed `eval` and uses an arithmetic parser path. |
 | Excel parsing command execution risk | Fixed | `DailyReport.php` removed `shell_exec` and uses array-form `proc_open`. |
