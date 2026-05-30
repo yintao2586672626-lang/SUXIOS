@@ -97,8 +97,9 @@
 证据：
 
 - 已补充代码侧 UI handoff 清单：`docs/ui-handoff/README.md`。
+- 已补充设计交付 manifest 模板：`docs/design_handoff_manifest.example.json`。
 - 仓库内仍未发现 `.fig`、`.canva`、`.sketch`、`.xd`、`design-tokens.json` 或品牌规范源文件。
-- 代码中存在页面和样式，但仍没有可追溯到 Figma/Canva 的真实设计源。
+- 代码中存在页面和样式，但仍没有 `docs/design_handoff_manifest.json` 或可追溯到 Figma/Canva 的真实设计源。
 
 风险：
 
@@ -108,6 +109,7 @@
 处理要求：
 
 - 补充 Figma/Canva 链接、导出稿、品牌规范、色彩/字体/组件 token。
+- 基于 `docs/design_handoff_manifest.example.json` 创建 `docs/design_handoff_manifest.json`，填写可访问的 Figma、Canva、Brand Kit 链接和负责人。
 - 建立 UI 走查清单：登录、首页、OTA 数据、收益分析、AI 决策、运营管理、投资决策。
 - 代码侧走查要求见 `docs/ui-handoff/README.md`；该文件只定义验收要求，不替代真实设计源。
 
