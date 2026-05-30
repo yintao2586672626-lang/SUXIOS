@@ -468,7 +468,7 @@ function checkCodexSecurityScan() {
   });
 
   if (!scanDir) {
-    addFailure('Formal Codex Security scan reports were not found. Set CODEX_SECURITY_SCAN_DIR to a completed scan directory containing report.md and report.html before release.');
+    addFailure('Formal Codex Security scan reports were not found. Set CODEX_SECURITY_SCAN_DIR to a completed scan directory containing scan_manifest.json, report.md, report.html, validation summary, attack-path analysis report, and coverage artifacts before release.');
     return;
   }
 
@@ -478,17 +478,54 @@ function checkCodexSecurityScan() {
   };
 
   const requiredArtifacts = [
+    'scan_manifest.json',
     'report.md',
     'report.html',
     'artifacts/01_context/threat_model.md',
     'artifacts/02_discovery/finding_discovery_report.md',
     'artifacts/03_coverage/repository_coverage_ledger.md',
+    'artifacts/03_coverage/reviewed_surfaces.md',
+    'artifacts/05_findings/validation_summary.md',
+    'artifacts/05_findings/attack_path_analysis_report.md',
   ];
   const missingArtifacts = requiredArtifacts.filter((relativePath) => !fs.existsSync(resolveScanPath(relativePath)));
 
   if (missingArtifacts.length > 0) {
     addFailure(`Formal Codex Security scan is incomplete; missing artifacts: ${missingArtifacts.join(', ')}`);
     return;
+  }
+
+  let manifest = null;
+  try {
+    manifest = JSON.parse(fs.readFileSync(resolveScanPath('scan_manifest.json'), 'utf8'));
+  } catch (error) {
+    addFailure(`Formal Codex Security scan manifest is not valid JSON: ${error.message}`);
+    return;
+  }
+
+  const phases = manifest.phases || {};
+  const requiredCompletedPhases = [
+    'threat_model',
+    'finding_discovery',
+    'validation',
+    'attack_path_analysis',
+    'final_report',
+  ];
+  const incompletePhases = requiredCompletedPhases.filter((phase) => phases[phase] !== 'completed');
+  if (manifest.scan_mode !== 'repository-wide') {
+    addFailure('Formal Codex Security scan manifest scan_mode must be repository-wide.');
+  }
+  if (manifest.subagents_authorized !== true) {
+    addFailure('Formal Codex Security scan manifest must confirm subagents_authorized=true.');
+  }
+  if (manifest.final_report_validated !== true) {
+    addFailure('Formal Codex Security scan manifest must confirm final_report_validated=true.');
+  }
+  if (manifest.report_html_rendered !== true) {
+    addFailure('Formal Codex Security scan manifest must confirm report_html_rendered=true.');
+  }
+  if (incompletePhases.length > 0) {
+    addFailure(`Formal Codex Security scan manifest has incomplete phases: ${incompletePhases.join(', ')}`);
   }
 
   addPass('Formal Codex Security scan reports and core coverage artifacts are present.');
