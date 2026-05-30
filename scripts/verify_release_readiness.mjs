@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkProductionEnvFile, isPlaceholder } from './lib/release_env_checks.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -45,30 +46,8 @@ function exists(relativePath) {
   return fs.existsSync(resolveInputPath(relativePath));
 }
 
-function isPathInsideRepo(filePath) {
-  const resolved = resolveInputPath(filePath);
-  const relative = path.relative(repoRoot, resolved);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
 function sleepMs(milliseconds) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
-}
-
-function parseEnv(content) {
-  const values = new Map();
-  for (const line of content.split(/\r?\n/)) {
-    const match = line.match(/^\s*([^#][A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
-    if (!match) {
-      continue;
-    }
-    values.set(match[1], match[2].replace(/^"|"$/g, '').trim());
-  }
-  return values;
-}
-
-function isPlaceholder(value) {
-  return String(value ?? '').trim() === '' || /TODO|CHANGE_ME|example|your-|placeholder/i.test(String(value));
 }
 
 function isRedactedSecretValue(value) {
@@ -103,63 +82,13 @@ function findSensitiveFieldValues(value, sensitiveKeys, pathParts = []) {
 
 function checkEnvReadiness() {
   const envFile = process.env.RELEASE_ENV_FILE || '.env.production';
-  if (!exists(envFile)) {
-    addFailure(`Production env file was not found: ${envFile}. Set RELEASE_ENV_FILE to a controlled production env file before release.`);
-    return;
-  }
-
-  const envBaseName = path.basename(envFile).toLowerCase();
-  if (envBaseName.includes('example') || envBaseName.includes('sample') || envBaseName.includes('template')) {
-    addFailure(`Production env file must not be an example/template file: ${envFile}.`);
-  }
-  if (process.env.RELEASE_ENV_FILE && isPathInsideRepo(envFile)) {
-    addFailure(`RELEASE_ENV_FILE must point to a controlled location outside the repository, not ${envFile}.`);
-  }
-
-  const env = parseEnv(readText(envFile));
-  const appDebug = (env.get('APP_DEBUG') ?? '').toLowerCase();
-  const appTrace = (env.get('APP_TRACE') ?? '').toLowerCase();
-  const aiConfigSecret = env.get('AI_CONFIG_SECRET') ?? '';
-  const dbHost = env.get('DB_HOST') ?? '';
-  const dbPass = env.get('DB_PASS') ?? '';
-  const dbUser = env.get('DB_USER') ?? '';
-
-  const placeholderFields = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS', 'AI_CONFIG_SECRET'].filter((field) => {
-    return isPlaceholder(env.get(field));
+  const result = checkProductionEnvFile({
+    repoRoot,
+    envFile,
+    requireOutsideRepo: Boolean(process.env.RELEASE_ENV_FILE),
   });
-  if (placeholderFields.length > 0) {
-    addFailure(`Production env contains missing or placeholder values: ${placeholderFields.join(', ')}`);
-  }
-
-  if (appDebug === 'false') {
-    addPass('APP_DEBUG is false.');
-  } else {
-    addFailure('APP_DEBUG is not false; production must not expose debug mode.');
-  }
-  if (appTrace === 'false') {
-    addPass('APP_TRACE is false.');
-  } else {
-    addFailure('APP_TRACE is not false; production must not expose trace output.');
-  }
-
-  if (aiConfigSecret.length >= 32 && !isPlaceholder(aiConfigSecret)) {
-    addPass('AI_CONFIG_SECRET is present with sufficient length.');
-  } else {
-    addFailure('AI_CONFIG_SECRET is missing or too short for encrypted AI model configs.');
-  }
-
-  if (dbPass.length > 0 && !isPlaceholder(dbPass)) {
-    addPass('DB_PASS is non-empty.');
-  } else {
-    addFailure('DB_PASS is empty; production database must not use an empty password.');
-  }
-
-  if (/^root$/i.test(dbUser.trim())) {
-    addFailure('DB_USER must not be root; production must use a least-privilege database user.');
-  }
-  if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|::1)$/i.test(dbHost.trim())) {
-    addFailure('DB_HOST must not point to localhost or loopback for production release evidence.');
-  }
+  result.passes.forEach(addPass);
+  result.failures.forEach(addFailure);
 }
 
 function checkOpenAiEntrypoints() {
