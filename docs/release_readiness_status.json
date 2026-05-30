@@ -42,7 +42,7 @@
       "status": "open",
       "title": "Production env is missing",
       "evidence": "review:release-readiness reports .env.production missing and RELEASE_ENV_FILE is not set",
-      "close_condition": "provide controlled production env outside the repository with APP_DEBUG=false, least-privilege DB_USER, and non-placeholder database and AI_CONFIG_SECRET values"
+      "close_condition": "provide controlled production env outside the repository with APP_DEBUG=false, APP_TRACE=false, non-local DB_HOST, least-privilege DB_USER, and non-placeholder database and AI_CONFIG_SECRET values"
     },
     {
       "id": "llm-connectivity-attestation-missing",
