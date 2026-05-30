@@ -65,6 +65,16 @@ const requiredReportBlockerPatterns = [
   /\.git\/index\.lock|本地 Git 状态/i,
 ];
 
+const requiredBlockerIds = [
+  'production-env-missing',
+  'llm-connectivity-attestation-missing',
+  'design-handoff-missing',
+  'backup-credential-shaped-fields',
+  'ota-credential-rotation-attestation-missing',
+  'codex-security-scan-missing',
+  'local-git-state-open',
+];
+
 const requiredSecurityScanPatterns = [
   /subagents/i,
   /Threat model/i,
@@ -252,6 +262,29 @@ if (status) {
     requiredDoNotClaimReadyPatterns,
     'do_not_claim_ready_until',
   );
+
+  const blockers = Array.isArray(status.blockers) ? status.blockers : [];
+  if (blockers.length !== requiredBlockerIds.length) {
+    fail(`blockers must contain exactly ${requiredBlockerIds.length} entries`);
+  }
+  for (const id of requiredBlockerIds) {
+    const blocker = blockers.find((candidate) => candidate?.id === id);
+    if (!blocker) {
+      fail(`blockers is missing ${id}`);
+      continue;
+    }
+    if (blocker.status !== 'open') {
+      fail(`blocker ${id} must remain open until proven closed`);
+    }
+    for (const field of ['title', 'evidence', 'close_condition']) {
+      if (typeof blocker[field] !== 'string' || blocker[field].trim() === '') {
+        fail(`blocker ${id} is missing ${field}`);
+      }
+    }
+    if (!Array.isArray(blocker.scope) || blocker.scope.length === 0) {
+      fail(`blocker ${id} must declare at least one scope`);
+    }
+  }
 }
 
 const packageJson = readJson('package.json');
