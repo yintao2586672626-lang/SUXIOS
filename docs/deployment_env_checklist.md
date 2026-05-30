@@ -4,12 +4,14 @@
 
 ## 使用方式
 
-生产配置不得提交到 Git。发布前在受控环境中准备独立 env 文件，并运行：
+生产配置不得提交到 Git。可从 `.example.production.env` 复制到受控位置，替换所有 `CHANGE_ME` 值后运行：
 
 ```powershell
 $env:RELEASE_ENV_FILE='D:\path\to\production.env'
 npm.cmd run review:release-readiness
 ```
+
+不要直接把 `.example.production.env` 当作生产配置使用；发布检查会拒绝 `TODO`、`CHANGE_ME`、`example` 等占位值。
 
 ## 必需项
 
