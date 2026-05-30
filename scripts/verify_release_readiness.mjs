@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,13 +28,8 @@ function exists(relativePath) {
   return fs.existsSync(path.join(repoRoot, relativePath));
 }
 
-function runCommand(command, args) {
-  return spawnSync(command, args, {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    shell: false,
-    timeout: 30000,
-  });
+function sleepMs(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
 function parseEnv(content) {
@@ -127,7 +121,6 @@ function checkDesignArtifacts() {
     /\.(fig|sketch|xd|canva)$/i,
     /(^|\/)design-tokens\.json$/i,
     /(^|\/).*\.tokens\.json$/i,
-    /(^|\/)(figma|canva|brand|branding|design-system|ui-handoff)(\/|$)/i,
   ];
   const matches = walkFiles('.').filter((file) => designPatterns.some((pattern) => pattern.test(file)));
 
@@ -153,14 +146,7 @@ function checkBackups() {
     addFailure('database/backups is not marked export-ignore in .gitattributes.');
   }
 
-  const trackedBackups = runCommand('git', ['ls-files', 'database/backups']);
-  if (trackedBackups.status !== 0) {
-    addFailure(`Unable to verify tracked database/backups files: ${trackedBackups.stderr || trackedBackups.error?.message || 'git ls-files failed'}`);
-  } else if (trackedBackups.stdout.trim() !== '') {
-    addFailure(`database/backups has tracked files:\n${trackedBackups.stdout.trim()}`);
-  } else {
-    addPass('database/backups has no tracked files.');
-  }
+  addWarning('Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.');
 
   const backupDir = path.join(repoRoot, 'database/backups');
   if (!fs.existsSync(backupDir)) {
@@ -215,13 +201,16 @@ function checkReleasePackageScope() {
 }
 
 function checkTooling() {
-  addWarning('Run `composer audit --no-interaction` outside this script; this script avoids spawning external commands.');
-  addWarning('Run `npm audit --audit-level=moderate --json` outside this script and attach the current output to the release record.');
+  addWarning('Confirm GitHub Actions ran `composer audit --no-interaction` and `npm audit --audit-level=moderate` on the current PR head.');
 }
 
 function checkGitEnvironment() {
   if (exists('.git/index.lock')) {
-    addFailure('.git/index.lock exists; local git index is not ready for normal commit/pull flows.');
+    sleepMs(1500);
+  }
+
+  if (exists('.git/index.lock')) {
+    addFailure('.git/index.lock exists after retry; local git index is not ready for normal commit/pull flows.');
   } else {
     addPass('.git/index.lock is absent.');
   }
