@@ -61,6 +61,7 @@ Use `docs/codex_security_scan_manifest.example.json` as the manifest shape. The 
 - Every in-scope file or worklist row has a completed record or an explicit deferred / suppressed / not_applicable reason.
 - Every candidate finding has discovery, validation, and attack-path analysis records, or an explicit deferred reason.
 - Final `report.md`, `report.html`, `scan_manifest.json`, validation summary, attack-path analysis report, and coverage artifacts exist under `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest`.
+- `npm run review:release-security-scan` passes for the completed scan directory.
 - `npm run review:release-readiness` no longer reports the formal Codex Security scan failure.
 
 ## Not A Substitute
