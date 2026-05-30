@@ -6,6 +6,8 @@ Scope: OTA data -> revenue analysis -> AI decision -> operations management -> i
 
 This matrix is a local functional gate. It does not close the external release blockers for production env, LLM connectivity, Figma, Canva, OTA credential cleanup, Codex Security scan, or local Git handoff.
 
+Current Chinese acceptance report: `docs/functional_acceptance_report.zh-CN.md`.
+
 ## Functional Chains
 
 | Chain | Business scope | Required local evidence | Command gate | Current status |
