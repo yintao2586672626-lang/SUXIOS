@@ -6,7 +6,7 @@
 
 ## 当前结论
 
-项目的 GitHub CI 阻断已解除，核心测试和现有高风险安全脚本已通过。上市前仍不应直接发布，主要剩余问题集中在生产配置、完整安全审计、敏感本地备份、设计交付物和本地 Git 环境。
+项目的 GitHub CI 阻断已解除，核心测试和现有高风险安全脚本已通过。上市前仍不应直接发布，主要剩余问题集中在生产配置、完整安全审计、敏感本地备份和真实设计源归档。
 
 ## 已解除的阻断
 
@@ -18,6 +18,9 @@
 | Excel 解析命令执行风险 | 已修复 | `DailyReport.php` 已移除 `shell_exec`，改为 `proc_open` 数组命令 |
 | AI 调用入口 | 已收口 | 未使用的 `OpenAIClient` 已移除，生产 AI 路径为 `LlmClient` + 数据库加密模型配置 |
 | 采集报告误提交 | 已收口 | `.gitignore` 已忽略 `reports/ctrip_browser_capture_*.json` 与 `reports/meituan_browser_capture_*.json` |
+| 发布包敏感路径 | 已收口 | `.gitattributes` 已将 `.env`、数据库备份、采集报告和截图资产标记为 `export-ignore` |
+| UI 代码侧交付清单 | 已补充 | `docs/ui-handoff/README.md` 已覆盖登录、OTA、收益分析、AI 决策、运营管理、投资决策的代码侧核对入口 |
+| 本地 Git index 锁 | 已清理 | `.git/index.lock` 当前不存在，`review:release-readiness` 可自动复核 |
 
 ## 仍存在的问题
 
@@ -48,6 +51,7 @@
 - `php scripts/verify_high_risk_security.php` 通过。
 - `npm audit --audit-level=moderate --json` 为 0 漏洞。
 - GitHub Actions 已加入 `composer audit --no-interaction` 与 `npm audit --audit-level=moderate`。
+- 当前 PR head 的两个 CI job 日志均显示：`composer audit --no-interaction` 返回无安全公告，`npm audit --audit-level=moderate` 返回 0 漏洞。
 - `rg` 确认 `app/` 与 `scripts/` 范围内未再命中 `eval(` / `shell_exec(`。
 - `npm run review:release-readiness` 已新增，用于把发布阻断项显式暴露出来。
 - 发布包敏感路径 ignore 规则已校验通过，覆盖 `.env`、生产 env、数据库备份、采集 profile、采集报告 JSON 和截图目录。
@@ -62,6 +66,7 @@
 
 - 授权 subagents 后执行完整 security-scan 流程。
 - 确认当前 PR head 的 GitHub Actions 中 `composer audit` 与 `npm audit` 均通过。
+- 授权要求见 `docs/codex_security_scan_authorization.md`。
 
 ### 3. 本地备份目录存在 OTA 凭证形态数据
 
@@ -85,14 +90,15 @@
 - 对真实 OTA Cookie/Token 执行轮换或失效处理。
 - 生产备份使用加密存储和最小权限访问。
 
-### 4. Figma / Canva 设计交付物缺失
+### 4. Figma / Canva 真实设计源未归档
 
 范围：`@figma`、`@canva`
 
 证据：
 
-- 仓库内未发现 `.fig`、`.canva`、`.sketch`、`.xd`、`design-tokens.json`、品牌规范或设计交付文档。
-- 代码中存在页面和样式，但没有可追溯到 Figma/Canva 的设计源。
+- 已补充代码侧 UI handoff 清单：`docs/ui-handoff/README.md`。
+- 仓库内仍未发现 `.fig`、`.canva`、`.sketch`、`.xd`、`design-tokens.json` 或品牌规范源文件。
+- 代码中存在页面和样式，但仍没有可追溯到 Figma/Canva 的真实设计源。
 
 风险：
 
@@ -105,21 +111,21 @@
 - 建立 UI 走查清单：登录、首页、OTA 数据、收益分析、AI 决策、运营管理、投资决策。
 - 代码侧走查要求见 `docs/ui-handoff/README.md`；该文件只定义验收要求，不替代真实设计源。
 
-### 5. 本地 Git 环境未完全恢复
+### 5. 本地工作区仍有待提交改动
 
 范围：`@github`
 
 当前状态：
 
 - 远端 PR 分支 CI 通过，当前 head 以 GitHub PR #1 为准。
-- 本地存在残留 Git 进程和 `.git/index.lock`，普通本地 `git add/commit` 被阻断。
-- 因此本地 `git status` 仍显示远端已提交的改动为本地修改。
+- `.git/index.lock` 已清理，普通 Git index 操作不再被锁文件阻断。
+- 本地工作区仍有本轮审查和既有发布修复改动，发布前需要统一 review、提交并等待 CI。
 
 处理要求：
 
-- 清理残留 Git 进程和 `.git/index.lock`。
-- 重新 `fetch` 后将本地分支对齐远端 `codex/five-modules-p1`。
-- 对齐前不要基于当前本地 index 继续做普通 Git 提交。
+- 对本轮改动做最终 review。
+- 提交后等待 GitHub Actions 中 PHPUnit、guard、contract、`composer audit`、`npm audit` 通过。
+- 发布前确认 `git status --short --branch` 仅包含预期改动或已完全干净。
 
 ## 发布前最低验收清单
 
