@@ -35,6 +35,15 @@ const requiredPackageScripts = [
   'verify:release-status',
 ];
 
+const requiredWorkflowCommands = [
+  'composer audit --no-interaction',
+  'npm audit --audit-level=moderate',
+  'composer test',
+  'npm run verify:p0-guards',
+  'npm run review:non-security',
+  'npm run verify:release-status',
+];
+
 const requiredOpenFailurePatterns = [
   /production env/i,
   /LLM|connectivity|LLM_CONNECTIVITY_ATTESTATION_FILE/i,
@@ -277,6 +286,22 @@ for (const doc of requiredDocs) {
 
 for (const doc of asciiReleaseDocs) {
   assertAsciiText(doc);
+}
+
+try {
+  const workflow = readText('.github/workflows/php.yml');
+  let missingWorkflowCommand = false;
+  for (const command of requiredWorkflowCommands) {
+    if (!workflow.includes(command)) {
+      fail(`.github/workflows/php.yml must run ${command}`);
+      missingWorkflowCommand = true;
+    }
+  }
+  if (!missingWorkflowCommand) {
+    pass('.github/workflows/php.yml covers required CI commands');
+  }
+} catch (error) {
+  fail(`could not read .github/workflows/php.yml: ${error.message}`);
 }
 
 const status = readJson('docs/release_readiness_status.json');
