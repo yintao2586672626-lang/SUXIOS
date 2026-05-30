@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-30T00:00:00.000Z",
+  "command": "npm run review:release-readiness",
+  "status": "failed",
+  "summary": {
+    "passed": 5,
+    "warnings": 3,
+    "failures": 6
+  },
+  "passes": [
+    "Production AI client path is LlmClient with encrypted database model configs.",
+    "database/backups is listed in .gitignore.",
+    "database/backups is excluded from git archive exports.",
+    "Release package sensitive-path ignore rules are present.",
+    ".git/index.lock is absent."
+  ],
+  "warnings": [
+    "Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.",
+    "Confirm GitHub Actions ran `composer audit --no-interaction` and `npm audit --audit-level=moderate` on the current PR head.",
+    "Run `git status --short --branch` before release; local cleanliness is intentionally verified outside this script."
+  ],
+  "failures": [
+    "Production env file was not found: .env.production. Set RELEASE_ENV_FILE to a controlled production env file before release.",
+    "Production LLM connectivity attestation was not found: docs/llm_connectivity_attestation.json. Set LLM_CONNECTIVITY_ATTESTATION_FILE to a controlled attestation JSON before release.",
+    "No Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json were found.",
+    "database/backups contains OTA credential-shaped fields (112 matches). Rotate real credentials and exclude backups from release packages.",
+    "OTA credential rotation attestation was not found: docs/ota_credential_rotation_attestation.json. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release.",
+    "Formal Codex Security scan reports were not found. Set CODEX_SECURITY_SCAN_DIR to a completed scan directory containing report.md and report.html before release."
+  ]
+}
