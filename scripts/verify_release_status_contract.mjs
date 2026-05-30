@@ -130,6 +130,7 @@ const requiredLlmAttestationKeys = [
   'base_url',
   'ai_model_config_enabled',
   'ai_config_secret_checked',
+  'redaction_checked',
   'request',
   'result',
   'evidence_ref',
@@ -138,6 +139,7 @@ const requiredLlmAttestationKeys = [
 const requiredOtaAttestationKeys = [
   'reviewed_at',
   'reviewer',
+  'redaction_checked',
   'platforms',
   'backup_cleanup',
 ];
@@ -459,6 +461,10 @@ if (llmAttestationExample) {
     fail('docs/llm_connectivity_attestation.example.json must remain a placeholder template, not a passing attestation');
     attestationComplete = false;
   }
+  if (llmAttestationExample.redaction_checked !== true) {
+    fail('docs/llm_connectivity_attestation.example.json redaction_checked must be true');
+    attestationComplete = false;
+  }
   if (attestationComplete) {
     pass('docs/llm_connectivity_attestation.example.json covers required fields');
   }
@@ -472,6 +478,10 @@ if (otaAttestationExample) {
       fail(`docs/ota_credential_rotation_attestation.example.json is missing ${key}`);
       otaAttestationComplete = false;
     }
+  }
+  if (otaAttestationExample.redaction_checked !== true) {
+    fail('docs/ota_credential_rotation_attestation.example.json redaction_checked must be true');
+    otaAttestationComplete = false;
   }
   const cleanup = otaAttestationExample.backup_cleanup || {};
   for (const key of ['database_backups_action', 'paths_reviewed', 'git_tracking_check', 'release_readiness_check']) {
