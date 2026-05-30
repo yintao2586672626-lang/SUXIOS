@@ -292,6 +292,71 @@ function checkBackups() {
   }
 }
 
+function checkOtaCredentialRotationAttestation() {
+  const attestationPath = process.env.OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE || 'docs/ota_credential_rotation_attestation.json';
+  if (!exists(attestationPath)) {
+    addFailure(`OTA credential rotation attestation was not found: ${attestationPath}. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release.`);
+    return;
+  }
+
+  let attestation = null;
+  let raw = '';
+  try {
+    raw = readText(attestationPath);
+    attestation = JSON.parse(raw);
+  } catch (error) {
+    addFailure(`OTA credential rotation attestation is not valid JSON: ${error.message}`);
+    return;
+  }
+
+  if (/(usertoken\s*[:=]\s*['"]?[^'",\s]{8,}|usersign\s*[:=]\s*['"]?[^'",\s]{8,}|cookie\s*[:=]\s*['"]?[^'",\s]{16,}|Bearer\s+\S+)/i.test(raw)) {
+    addFailure('OTA credential rotation attestation appears to contain credential material; store only redacted evidence references.');
+  }
+
+  const requiredStringFields = ['reviewed_at', 'reviewer'];
+  const missingFields = requiredStringFields.filter((field) => isPlaceholder(attestation[field]));
+  if (missingFields.length > 0) {
+    addFailure(`OTA credential rotation attestation is incomplete: ${missingFields.join(', ')}`);
+    return;
+  }
+
+  const platforms = Array.isArray(attestation.platforms) ? attestation.platforms : [];
+  if (platforms.length === 0) {
+    addFailure('OTA credential rotation attestation must include at least one platform entry.');
+  }
+  for (const [index, platform] of platforms.entries()) {
+    const missingPlatformFields = ['platform', 'scope', 'action', 'evidence_ref'].filter((field) => isPlaceholder(platform?.[field]));
+    if (missingPlatformFields.length > 0) {
+      addFailure(`OTA credential rotation attestation platform entry ${index + 1} is incomplete: ${missingPlatformFields.join(', ')}`);
+    }
+    const action = String(platform?.action || '').trim();
+    if (!['rotated', 'invalidated', 'encrypted_archive', 'sanitized'].includes(action)) {
+      addFailure(`OTA credential rotation attestation platform entry ${index + 1} has unsupported action: ${action || 'missing'}`);
+    }
+  }
+
+  const cleanup = attestation.backup_cleanup || {};
+  const cleanupAction = String(cleanup.database_backups_action || '').trim();
+  if (!['deleted', 'encrypted_archive', 'sanitized'].includes(cleanupAction)) {
+    addFailure('OTA credential rotation attestation backup_cleanup.database_backups_action must be deleted, encrypted_archive, or sanitized.');
+  }
+  if (!Array.isArray(cleanup.paths_reviewed) || !cleanup.paths_reviewed.includes('database/backups')) {
+    addFailure('OTA credential rotation attestation backup_cleanup.paths_reviewed must include database/backups.');
+  }
+  if (isPlaceholder(cleanup.git_tracking_check)) {
+    addFailure('OTA credential rotation attestation backup_cleanup.git_tracking_check is missing or placeholder.');
+  }
+  if (isPlaceholder(cleanup.release_readiness_check)) {
+    addFailure('OTA credential rotation attestation backup_cleanup.release_readiness_check is missing or placeholder.');
+  }
+
+  if (failures.some((message) => message.includes('OTA credential rotation attestation'))) {
+    return;
+  }
+
+  addPass('OTA credential rotation attestation is present and complete.');
+}
+
 function checkReleasePackageScope() {
   const gitignore = exists('.gitignore') ? readText('.gitignore') : '';
   const requiredIgnores = [
@@ -383,6 +448,7 @@ checkOpenAiEntrypoints();
 checkLlmConnectivityAttestation();
 checkDesignArtifacts();
 checkBackups();
+checkOtaCredentialRotationAttestation();
 checkReleasePackageScope();
 checkCodexSecurityScan();
 checkTooling();
