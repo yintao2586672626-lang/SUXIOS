@@ -16,7 +16,7 @@ Source: `docs/release_readiness_status.json` `blockers`
 | 4 | `backup-credential-shaped-fields` | `@codex-security` | Delete, sanitize, or encrypted-archive credential-shaped data under `database/backups`. | `npm run review:release-readiness` no longer reports credential-shaped matches. |
 | 5 | `ota-credential-rotation-attestation-missing` | `@codex-security` | Rotate or invalidate OTA Cookie, Token, signature, and Authorization material, then record cleanup results. | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json` passes review and contains no real credential values. |
 | 6 | `codex-security-scan-missing` | `@codex-security` | Authorize subagents and complete the formal repo-wide Codex Security scan. | `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest` contains `report.md`, `report.html`, and coverage artifacts. |
-| 7 | `design-handoff-missing` | `@figma` / `@canva` | Provide real Figma, Canva, Brand Kit, design token, and covered-flow handoff references. | `docs/design_handoff_manifest.json` passes `npm run review:release-readiness`. |
+| 7 | `design-handoff-missing` | `@figma` / `@canva` | Provide real Figma, Canva, Brand Kit, design token, and covered-flow handoff references in `docs/design_handoff_manifest.json`. | `docs/design_handoff_manifest.json` passes `npm run review:release-readiness`; standalone token files or screenshots do not close the blocker. |
 
 ## Close Rules
 
