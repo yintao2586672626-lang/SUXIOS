@@ -24,6 +24,7 @@ const requiredDocs = [
   'docs/ui-handoff/README.md',
   'docs/release_external_state_evidence.example.json',
   'docs/llm_connectivity_attestation.example.json',
+  'docs/release_readiness_result.example.json',
 ];
 
 const requiredPackageScripts = [
@@ -39,12 +40,11 @@ const requiredOpenFailurePatterns = [
   /database\/backups|credential-shaped/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
   /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
-  /\.git\/index\.lock|git state/i,
 ];
 
 const requiredExternalStateFailurePatterns = [
   /worktree/i,
-  /\.git\/index\.lock/i,
+  /evidence|\.git\/index\.lock/i,
 ];
 
 const requiredDoNotClaimReadyPatterns = [
@@ -140,11 +140,23 @@ const requiredOtaAttestationKeys = [
   'backup_cleanup',
 ];
 
+const requiredReadinessResultKeys = [
+  'schema_version',
+  'generated_at',
+  'command',
+  'status',
+  'summary',
+  'passes',
+  'warnings',
+  'failures',
+];
+
 const asciiReleaseDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_blocker_close_plan.md',
   'docs/release_readiness_status.json',
   'docs/codex_security_scan_authorization.md',
+  'docs/release_readiness_result.example.json',
 ];
 
 const issues = [];
@@ -221,6 +233,10 @@ function assertExactStringArray(actual, expected, label) {
 }
 
 function assertAsciiText(relativePath) {
+  if (!fs.existsSync(path.join(root, relativePath))) {
+    fail(`${relativePath} is missing`);
+    return;
+  }
   const text = readText(relativePath);
   const invalid = [...text].find((char) => char.charCodeAt(0) > 0x7f);
   if (invalid) {
@@ -285,6 +301,9 @@ if (status) {
   }
   if (releaseCheck.status !== 'failing_as_expected') {
     fail('release_readiness_check.status must be failing_as_expected while release blockers remain');
+  }
+  if (releaseCheck.result_file_template !== 'docs/release_readiness_result.example.json') {
+    fail('release_readiness_check.result_file_template must reference docs/release_readiness_result.example.json');
   }
   assertArrayContainsPatterns(
     releaseCheck.open_failures,
@@ -359,6 +378,7 @@ for (const jsonDoc of [
   'docs/ota_credential_rotation_attestation.example.json',
   'docs/release_external_state_evidence.example.json',
   'docs/llm_connectivity_attestation.example.json',
+  'docs/release_readiness_result.example.json',
 ]) {
   readJson(jsonDoc);
 }
@@ -402,6 +422,12 @@ if (releaseStatusSchema) {
     fail(`release readiness schema plugin_status.maxItems must be ${requiredScope.length}`);
   } else {
     pass('release readiness schema plugin_status.maxItems matches plugin scope count');
+  }
+
+  if (!schemaProperties.release_readiness_check?.required?.includes('result_file_template')) {
+    fail('release readiness schema release_readiness_check.required must include result_file_template');
+  } else {
+    pass('release readiness schema requires release readiness result file template');
   }
 }
 
@@ -465,6 +491,33 @@ if (externalEvidenceExample) {
   }
   if (evidenceComplete) {
     pass('docs/release_external_state_evidence.example.json covers required commands');
+  }
+}
+
+const readinessResultExample = readJson('docs/release_readiness_result.example.json');
+if (readinessResultExample) {
+  let resultComplete = true;
+  for (const key of requiredReadinessResultKeys) {
+    if (!(key in readinessResultExample)) {
+      fail(`docs/release_readiness_result.example.json is missing ${key}`);
+      resultComplete = false;
+    }
+  }
+  if (readinessResultExample.command !== 'npm run review:release-readiness') {
+    fail('docs/release_readiness_result.example.json command must be npm run review:release-readiness');
+    resultComplete = false;
+  }
+  if (!Array.isArray(readinessResultExample.failures) || readinessResultExample.failures.length < requiredOpenFailurePatterns.length) {
+    fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
+    resultComplete = false;
+  }
+  assertArrayContainsPatterns(
+    readinessResultExample.failures,
+    requiredOpenFailurePatterns,
+    'docs/release_readiness_result.example.json failures',
+  );
+  if (resultComplete) {
+    pass('docs/release_readiness_result.example.json covers required fields');
   }
 }
 
