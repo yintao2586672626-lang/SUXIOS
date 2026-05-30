@@ -23,6 +23,7 @@ const requiredDocs = [
   'docs/codex_security_scan_authorization.md',
   'docs/ui-handoff/README.md',
   'docs/release_external_state_evidence.example.json',
+  'docs/release_external_state_result.example.json',
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
 ];
@@ -151,12 +152,15 @@ const requiredReadinessResultKeys = [
   'failures',
 ];
 
+const requiredExternalStateResultKeys = requiredReadinessResultKeys;
+
 const asciiReleaseDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_blocker_close_plan.md',
   'docs/release_readiness_status.json',
   'docs/codex_security_scan_authorization.md',
   'docs/release_readiness_result.example.json',
+  'docs/release_external_state_result.example.json',
 ];
 
 const issues = [];
@@ -318,6 +322,9 @@ if (status) {
   if (externalStateCheck.evidence_file_template !== 'docs/release_external_state_evidence.example.json') {
     fail('external_state_check.evidence_file_template must reference docs/release_external_state_evidence.example.json');
   }
+  if (externalStateCheck.result_file_template !== 'docs/release_external_state_result.example.json') {
+    fail('external_state_check.result_file_template must reference docs/release_external_state_result.example.json');
+  }
   if (externalStateCheck.status !== 'failing_as_expected') {
     fail('external_state_check.status must be failing_as_expected while local git blockers remain');
   }
@@ -377,6 +384,7 @@ for (const jsonDoc of [
   'docs/design_handoff_manifest.example.json',
   'docs/ota_credential_rotation_attestation.example.json',
   'docs/release_external_state_evidence.example.json',
+  'docs/release_external_state_result.example.json',
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
 ]) {
@@ -428,6 +436,12 @@ if (releaseStatusSchema) {
     fail('release readiness schema release_readiness_check.required must include result_file_template');
   } else {
     pass('release readiness schema requires release readiness result file template');
+  }
+
+  if (!schemaProperties.external_state_check?.required?.includes('result_file_template')) {
+    fail('release readiness schema external_state_check.required must include result_file_template');
+  } else {
+    pass('release readiness schema requires external-state result file template');
   }
 }
 
@@ -518,6 +532,33 @@ if (readinessResultExample) {
   );
   if (resultComplete) {
     pass('docs/release_readiness_result.example.json covers required fields');
+  }
+}
+
+const externalStateResultExample = readJson('docs/release_external_state_result.example.json');
+if (externalStateResultExample) {
+  let resultComplete = true;
+  for (const key of requiredExternalStateResultKeys) {
+    if (!(key in externalStateResultExample)) {
+      fail(`docs/release_external_state_result.example.json is missing ${key}`);
+      resultComplete = false;
+    }
+  }
+  if (externalStateResultExample.command !== 'npm run review:release-external-state') {
+    fail('docs/release_external_state_result.example.json command must be npm run review:release-external-state');
+    resultComplete = false;
+  }
+  if (!Array.isArray(externalStateResultExample.failures) || externalStateResultExample.failures.length < requiredExternalStateFailurePatterns.length) {
+    fail(`docs/release_external_state_result.example.json failures must include at least ${requiredExternalStateFailurePatterns.length} entries`);
+    resultComplete = false;
+  }
+  assertArrayContainsPatterns(
+    externalStateResultExample.failures,
+    requiredExternalStateFailurePatterns,
+    'docs/release_external_state_result.example.json failures',
+  );
+  if (resultComplete) {
+    pass('docs/release_external_state_result.example.json covers required fields');
   }
 }
 
