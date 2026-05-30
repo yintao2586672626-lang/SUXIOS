@@ -49,6 +49,8 @@
 - `npm audit --audit-level=moderate --json` 为 0 漏洞。
 - `rg` 确认 `app/` 与 `scripts/` 范围内未再命中 `eval(` / `shell_exec(`。
 - `npm run review:release-readiness` 已新增，用于把发布阻断项显式暴露出来。
+- 发布包敏感路径 ignore 规则已校验通过，覆盖 `.env`、生产 env、数据库备份、采集 profile、采集报告 JSON 和截图目录。
+- `.gitattributes` 已补充 `export-ignore`，用于 `git archive` 场景排除 `.env`、数据库备份、采集报告和截图资产。
 
 未完成：
 
@@ -67,6 +69,8 @@
 证据：
 
 - `database/backups/` 被 `.gitignore` 忽略，当前未作为源码提交。
+- `git ls-files database/backups` 无输出，当前没有备份文件被 Git 跟踪。
+- `.gitattributes` 已将 `database/backups/*` 标记为 `export-ignore`。
 - 本地 `database/backups/*.sql` 中命中 `usertoken`、`usersign`、`cookies` 等携程认证字段。
 
 风险：
