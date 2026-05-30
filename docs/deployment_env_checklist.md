@@ -34,7 +34,7 @@ npm.cmd run review:release-readiness
 - `base_url` 指向授权供应商地址。
 - `model_name` 是实际可用模型。
 - `api_key_encrypted` 可被生产 `AI_CONFIG_SECRET` 解密。
-- 完成一次受控真实连通性验证，并保留失败/成功状态记录。
+- 完成一次受控真实连通性验证，并按 `docs/llm_connectivity_attestation.example.json` 记录状态；生产验收可通过 `LLM_CONNECTIVITY_ATTESTATION_FILE` 指向受控 JSON 文件。
 
 ## 不允许
 
