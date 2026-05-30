@@ -18,7 +18,8 @@ Do not point `RELEASE_ENV_FILE` at `.example.production.env`, a sample/template 
 | Key | Production requirement | Notes |
 |---|---|---|
 | `APP_DEBUG` | `false` | Debug output must be disabled. |
-| `DB_HOST` | Production database host | Do not use a local development database. |
+| `APP_TRACE` | `false` | Trace output must be disabled. |
+| `DB_HOST` | Production database host | Do not use `localhost`, `127.0.0.1`, `0.0.0.0`, or `::1`. |
 | `DB_NAME` | Production database name | Must match the release database. |
 | `DB_USER` | Least-privilege database user | Do not use `root`. |
 | `DB_PASS` | Non-empty strong password | Empty database passwords are blocked. |
