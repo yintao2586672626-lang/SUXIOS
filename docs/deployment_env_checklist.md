@@ -41,6 +41,15 @@ Before release, confirm:
 - A controlled real connectivity smoke test has passed.
 - The result is recorded using `docs/llm_connectivity_attestation.example.json` and checked through `LLM_CONNECTIVITY_ATTESTATION_FILE` or `docs/llm_connectivity_attestation.json`.
 
+Run the LLM evidence check independently before full release readiness:
+
+```powershell
+$env:LLM_CONNECTIVITY_ATTESTATION_FILE='D:\controlled\llm_connectivity_attestation.json'
+npm.cmd run review:release-llm
+```
+
+`review:release-llm` validates only the LLM connectivity attestation. `review:release-readiness` uses the same LLM attestation rules and then continues into design, backup, security-scan, and Git-state release blockers.
+
 ## Not Allowed
 
 - Committing `.env`, production env files, API keys, OTA Cookie/Token values, signatures, or Authorization headers to Git.
