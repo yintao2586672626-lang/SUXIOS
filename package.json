@@ -15,6 +15,7 @@
     "verify:codex-runner-contract": "node scripts/verify_codex_runner_contract.mjs",
     "verify:release-status": "node scripts/verify_release_status_contract.mjs",
     "verify:ota-data-batch": "node scripts/verify_ota_data_batch.mjs --input-dir=tests/fixtures/ota-data-batch",
+    "review:release-env": "node scripts/verify_release_env.mjs",
     "review:release-readiness": "node scripts/verify_release_readiness.mjs",
     "review:release-external-state": "node scripts/verify_release_external_state.mjs",
     "collect:release-external-state": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/collect_release_external_state.ps1 -OutputPath docs/release_external_state_evidence.local.json",
