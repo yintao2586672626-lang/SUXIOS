@@ -201,6 +201,18 @@ function assertTextContainsPatterns(text, patterns, label) {
   }
 }
 
+function assertExactStringArray(actual, expected, label) {
+  if (!Array.isArray(actual)) {
+    fail(`${label} must be an array`);
+    return;
+  }
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail(`${label} must be exactly ${JSON.stringify(expected)}; got ${JSON.stringify(actual)}`);
+    return;
+  }
+  pass(`${label} matches contract`);
+}
+
 for (const doc of requiredDocs) {
   assertFileExists(doc);
 }
@@ -328,6 +340,36 @@ for (const jsonDoc of [
   'docs/llm_connectivity_attestation.example.json',
 ]) {
   readJson(jsonDoc);
+}
+
+const releaseStatusSchema = readJson('docs/release_readiness_status.schema.json');
+if (releaseStatusSchema) {
+  const schemaProperties = releaseStatusSchema.properties || {};
+  const schemaScopeEnum = schemaProperties.scope?.items?.enum;
+  const schemaBlockerIdEnum = schemaProperties.blockers?.items?.properties?.id?.enum;
+  const schemaBlockerScopeEnum = schemaProperties.blockers?.items?.properties?.scope?.items?.enum;
+
+  assertExactStringArray(schemaScopeEnum, requiredScope, 'release readiness schema scope enum');
+  assertExactStringArray(schemaBlockerIdEnum, requiredBlockerIds, 'release readiness schema blocker id enum');
+  assertExactStringArray(schemaBlockerScopeEnum, requiredScope, 'release readiness schema blocker scope enum');
+
+  if (schemaProperties.overall_status?.const !== 'not_release_ready') {
+    fail('release readiness schema overall_status.const must be not_release_ready');
+  } else {
+    pass('release readiness schema overall_status.const is not_release_ready');
+  }
+
+  if (schemaProperties.blockers?.minItems !== requiredBlockerIds.length) {
+    fail(`release readiness schema blockers.minItems must be ${requiredBlockerIds.length}`);
+  } else {
+    pass('release readiness schema blockers.minItems matches blocker count');
+  }
+
+  if (schemaProperties.blockers?.maxItems !== requiredBlockerIds.length) {
+    fail(`release readiness schema blockers.maxItems must be ${requiredBlockerIds.length}`);
+  } else {
+    pass('release readiness schema blockers.maxItems matches blocker count');
+  }
 }
 
 const llmAttestationExample = readJson('docs/llm_connectivity_attestation.example.json');
