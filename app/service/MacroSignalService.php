@@ -11,6 +11,13 @@ class MacroSignalService
 {
     private const SIGNALS = ['cycle', 'weather', 'channel', 'price', 'demand'];
 
+    private ExternalSignalService $external;
+
+    public function __construct(?ExternalSignalService $external = null)
+    {
+        $this->external = $external ?: new ExternalSignalService();
+    }
+
     public function overview(array $hotelIds = []): array
     {
         return array_map(fn (string $type): array => $this->buildSignal($type, $hotelIds), self::SIGNALS);
@@ -28,6 +35,51 @@ class MacroSignalService
         $signal['actions'] = $signal['suggestions'];
 
         return $signal;
+    }
+
+    public function trendOverview(array $hotelIds = [], string $range = '30', string $startDate = '', string $endDate = ''): array
+    {
+        [$startDate, $endDate, $rangeKey, $rangeLabel] = $this->resolveTrendRange($range, $startDate, $endDate);
+
+        $dailyRows = $this->readDailyRowsBetween($hotelIds, $startDate, $endDate);
+        $onlineRows = $this->readOnlineRowsBetween($hotelIds, $startDate, $endDate);
+        $competitorRows = $this->readCompetitorPricesBetween($hotelIds, $startDate, $endDate);
+        $forecasts = $this->readDemandForecasts($hotelIds);
+        $series = $this->buildTrendSeries($dailyRows, $onlineRows, $competitorRows, $startDate, $endDate);
+        $sampleDays = count(array_filter($series['rows'], static fn (array $row): bool => (bool)$row['has_sample']));
+        $hasSamples = $sampleDays >= 2;
+
+        $cards = [
+            $this->buildRevenueTrendCard($series['rows'], $rangeLabel, $hasSamples),
+            $this->buildDemandTrendCard($series['rows'], $forecasts, $rangeLabel, $hasSamples),
+            $this->buildPriceTrendCard($series['rows'], $series['competitor_avg'], $rangeLabel, $hasSamples),
+            $this->buildChannelTrendCard($series['rows'], $rangeLabel, $hasSamples),
+        ];
+        $displayCards = array_values(array_filter($cards, fn (array $card): bool => $this->isTrendDisplayCard($card)));
+        $interpretationCards = !empty($displayCards) ? $displayCards : $cards;
+
+        return [
+            'range' => [
+                'key' => $rangeKey,
+                'label' => $rangeLabel,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ],
+            'data_status' => $hasSamples ? 'ok' : 'insufficient',
+            'sample_days' => $sampleDays,
+            'updated_at' => date('Y-m-d H:i:s'),
+            'cards' => $displayCards,
+            'chart' => [
+                'labels' => array_column($series['rows'], 'label'),
+                'metrics' => [
+                    'revenue' => ['label' => '营收', 'unit' => '¥', 'data' => array_column($series['rows'], 'revenue')],
+                    'adr' => ['label' => 'ADR', 'unit' => '¥', 'data' => array_column($series['rows'], 'adr')],
+                    'revpar' => ['label' => 'RevPAR', 'unit' => '¥', 'data' => array_column($series['rows'], 'revpar')],
+                    'room_nights' => ['label' => '间夜', 'unit' => '间', 'data' => array_column($series['rows'], 'room_nights')],
+                ],
+            ],
+            'interpretation' => $this->buildTrendInterpretation($interpretationCards, $sampleDays, $rangeLabel),
+        ];
     }
 
     private function buildSignal(string $type, array $hotelIds): array
@@ -113,9 +165,21 @@ class MacroSignalService
 
     private function weather(array $hotelIds): array
     {
-        $forecast = $this->buildWeatherForecast($hotelIds);
+        $weather = $this->buildWeatherForecast($hotelIds);
+        $forecast = $weather['forecast'] ?? [];
         if (empty($forecast)) {
-            return $this->pending('weather', '天气信号', '等待门店城市天气数据同步');
+            return $this->card(
+                'weather',
+                '天气信号',
+                'pending',
+                '自动获取中',
+                'gray',
+                '天气信息会按门店城市自动获取，当前缺少可用城市或天气服务返回',
+                [$this->metric('获取方式', '自动获取')],
+                ['检查门店地址是否包含城市，或检查高德天气配置'],
+                '查看详情',
+                ['天气自动获取未返回可用结果']
+            );
         }
 
         $today = $forecast[0];
@@ -173,7 +237,7 @@ class MacroSignalService
             $reasons
         );
         $card['forecast'] = $forecast;
-        $card['source_text'] = '门店罗盘天气';
+        $card['source_text'] = (string)($weather['source_text'] ?? '天气自动获取');
 
         return $card;
     }
@@ -191,8 +255,8 @@ class MacroSignalService
         }
 
         $metrics = [
-            $this->metric('曝光', $this->formatNumber($traffic['exposure'])),
-            $this->metric('点击/访客', $this->formatNumber(max($traffic['clicks'], $traffic['visitors']))),
+            $this->metric('曝光', $traffic['has_exposure'] ? $this->formatNumber($traffic['exposure']) : '待同步'),
+            $this->metric('点击/访客', ($traffic['has_clicks'] || $traffic['has_visitors']) ? $this->formatNumber(max($traffic['clicks'], $traffic['visitors'])) : '待同步'),
             $this->metric('订单', $this->formatNumber($traffic['orders']), '单'),
             $this->metric('转化率', $traffic['conversion'] !== null ? round($traffic['conversion'], 2) . '%' : '待同步'),
         ];
@@ -234,16 +298,26 @@ class MacroSignalService
         $conversion = $this->aggregateTraffic($online)['conversion'];
 
         if ($adr <= 0 && $competitorAvg <= 0) {
-            return $this->pending('price', '价格信号', '等待 ADR、竞对均价、价差、入住率和转化数据同步');
+            return $this->pending('price', '价格信号', '等待 ADR、竞对价格、入住率和转化数据同步');
         }
 
         $gap = ($adr > 0 && $competitorAvg > 0) ? $adr - $competitorAvg : null;
-        $metrics = [
-            $this->metric('ADR', $adr > 0 ? '¥' . round($adr, 0) : '待同步'),
-            $this->metric('竞对均价', $competitorAvg > 0 ? '¥' . round($competitorAvg, 0) : '待同步'),
-            $this->metric('价差', $gap !== null ? '¥' . round($gap, 0) : '待同步'),
-            $this->metric('入住率', $occupancy !== null ? round($occupancy, 1) . '%' : '待同步'),
-        ];
+        $metrics = [];
+        if ($adr > 0) {
+            $metrics[] = $this->metric('ADR', '¥' . round($adr, 0));
+        }
+        if ($competitorAvg > 0) {
+            $metrics[] = $this->metric('竞对均价', '¥' . round($competitorAvg, 0));
+        }
+        if ($gap !== null) {
+            $metrics[] = $this->metric('价差', '¥' . round($gap, 0));
+        }
+        if ($occupancy !== null) {
+            $metrics[] = $this->metric('入住率', round($occupancy, 1) . '%');
+        }
+        if ($conversion !== null) {
+            $metrics[] = $this->metric('转化率', round($conversion, 2) . '%');
+        }
 
         $status = 'stable';
         $statusText = '平稳';
@@ -252,7 +326,14 @@ class MacroSignalService
         $reasons = ['已有价格或竞对样本'];
         $suggestions = ['结合入住率和转化率小步调整价格'];
 
-        if ($gap !== null && $competitorAvg > 0) {
+        if ($adr > 0 && $competitorAvg <= 0) {
+            $status = 'attention';
+            $statusText = '待校准';
+            $level = 'yellow';
+            $summary = '已有本店 ADR，缺少竞对价格样本，暂不判断价差';
+            $reasons = ['近30天未读取到有效竞对价格样本'];
+            $suggestions = ['同步或录入竞对价格后再判断价差'];
+        } elseif ($gap !== null && $competitorAvg > 0) {
             $gapRate = $gap / $competitorAvg;
             if ($gapRate > 0.15 && (($occupancy !== null && $occupancy < 70) || ($conversion !== null && $conversion < 3))) {
                 $status = 'risk';
@@ -288,20 +369,27 @@ class MacroSignalService
             return $this->pending('demand', '需求信号', '等待未来入住、近3天新增订单、近7天新增订单和取消订单数据同步');
         }
 
-        $metrics = [
-            $this->metric('未来入住', $futureOccupancy > 0 ? round($futureOccupancy, 1) . '%' : '待同步'),
-            $this->metric('未来需求', $futureDemand > 0 ? $futureDemand : '待同步', $futureDemand > 0 ? '间夜' : ''),
-            $this->metric('近3天订单', $orders3, '单'),
-            $this->metric('近7天订单', $orders7, '单'),
-            $this->metric('近7天取消', $cancelOrders, '单'),
-        ];
+        $hasOrderSamples = !empty($online) || $orders3 > 0 || $orders7 > 0;
+        $hasForecastSamples = $futureOccupancy > 0 || $futureDemand > 0;
+        $metrics = [];
+        if ($hasOrderSamples) {
+            $metrics[] = $this->metric('近3天订单', $orders3, '单');
+            $metrics[] = $this->metric('近7天订单', $orders7, '单');
+            $metrics[] = $this->metric('近7天取消', $cancelOrders, '单');
+        }
+        if ($hasForecastSamples) {
+            $metrics[] = $this->metric('未来入住', $futureOccupancy > 0 ? round($futureOccupancy, 1) . '%' : '--');
+            $metrics[] = $this->metric('未来需求', $futureDemand > 0 ? $futureDemand : '--', $futureDemand > 0 ? '间夜' : '');
+        }
 
         $status = 'stable';
         $statusText = '平稳';
         $level = 'green';
-        $summary = '需求指标已有样本，暂未出现明显异常';
-        $reasons = ['存在近期订单或未来需求样本'];
-        $suggestions = ['持续观察未来 30 天入住和新增订单节奏'];
+        $summary = $hasOrderSamples
+            ? "近7天新增订单{$orders7}单，近3天{$orders3}单，需求节奏平稳"
+            : "已读取未来需求预测{$futureDemand}间夜，等待近期订单校准";
+        $reasons = [$hasOrderSamples ? '已读取近期 OTA 订单样本' : '已读取未来需求预测样本'];
+        $suggestions = [$hasOrderSamples ? '关注近3天订单节奏与取消订单变化' : '结合新增订单持续校准预测需求'];
 
         if ($cancelOrders > 0 && $orders7 > 0 && $cancelOrders / max($orders7, 1) >= 0.25) {
             $status = 'risk';
@@ -319,20 +407,599 @@ class MacroSignalService
             $suggestions[] = '保留高价值库存并逐步上调高需求日期价格';
         }
 
-        return $this->card('demand', '需求信号', $status, $statusText, $level, $summary, $metrics, $suggestions, '查看详情', $reasons);
+        $card = $this->card('demand', '需求信号', $status, $statusText, $level, $summary, $metrics, $suggestions, '查看详情', $reasons);
+        $card['source_text'] = $hasOrderSamples ? 'OTA 近期订单样本' : '未来需求预测';
+        return $card;
+    }
+
+    private function resolveTrendRange(string $range, string $startDate, string $endDate): array
+    {
+        $today = date('Y-m-d');
+        $range = trim($range) !== '' ? trim($range) : '30';
+
+        if (in_array($range, ['3', 'last_3_days'], true)) {
+            return [date('Y-m-d', strtotime('-2 days')), $today, '3', '近3日'];
+        }
+        if (in_array($range, ['7', 'last_7_days'], true)) {
+            return [date('Y-m-d', strtotime('-6 days')), $today, '7', '近7日'];
+        }
+        if (in_array($range, ['month', 'this_month'], true)) {
+            return [date('Y-m-01'), $today, 'month', '本月'];
+        }
+        if ($range === 'custom' && $this->isValidDate($startDate) && $this->isValidDate($endDate)) {
+            if (strtotime($startDate) > strtotime($endDate)) {
+                [$startDate, $endDate] = [$endDate, $startDate];
+            }
+            return [$startDate, $endDate, 'custom', '自定义'];
+        }
+
+        return [date('Y-m-d', strtotime('-29 days')), $today, '30', '近30日'];
+    }
+
+    private function isValidDate(string $date): bool
+    {
+        if ($date === '') {
+            return false;
+        }
+
+        $time = strtotime($date);
+        return $time !== false && date('Y-m-d', $time) === $date;
+    }
+
+    private function buildTrendSeries(array $dailyRows, array $onlineRows, array $competitorRows, string $startDate, string $endDate): array
+    {
+        $rows = [];
+        for ($cursor = strtotime($startDate), $end = strtotime($endDate); $cursor <= $end; $cursor = strtotime('+1 day', $cursor)) {
+            $date = date('Y-m-d', $cursor);
+            $rows[$date] = [
+                'date' => $date,
+                'label' => date('m-d', $cursor),
+                'daily_revenue' => 0.0,
+                'online_revenue' => 0.0,
+                'daily_room_nights' => 0.0,
+                'online_room_nights' => 0.0,
+                'orders' => 0.0,
+                'salable_rooms' => 0.0,
+                'occupancy_sum' => 0.0,
+                'occupancy_count' => 0,
+                'adr_sum' => 0.0,
+                'adr_count' => 0,
+                'revpar_sum' => 0.0,
+                'revpar_count' => 0,
+                'exposure' => 0.0,
+                'visitors' => 0.0,
+                'clicks' => 0.0,
+                'conversion_sum' => 0.0,
+                'conversion_count' => 0,
+                'revenue' => null,
+                'room_nights' => null,
+                'occupancy' => null,
+                'adr' => null,
+                'revpar' => null,
+                'channel_conversion' => null,
+                'has_sample' => false,
+            ];
+        }
+
+        foreach ($dailyRows as $row) {
+            $date = (string)($row['report_date'] ?? '');
+            if (!isset($rows[$date])) {
+                continue;
+            }
+            $data = $this->decodeJson($row['report_data'] ?? null);
+            $revenue = $this->dailyReportRevenue($row, $data);
+            $roomNights = $this->dailyReportRoomNights($data);
+            $salableRooms = $this->firstPositiveNumber($data, ['salable_rooms', 'total_rooms_count', 'room_count'])
+                ?? $this->toPositiveFloat($row['room_count'] ?? null)
+                ?? 0.0;
+            $occupancy = $this->toPositiveFloat($row['occupancy_rate'] ?? null)
+                ?? $this->firstPositiveNumber($data, ['day_occ_rate', 'occ_rate', 'occupancy_rate', 'occ']);
+            $adr = $this->firstPositiveNumber($data, ['day_adr', 'adr', 'ADR', 'avg_room_price', 'day_avg_price']);
+            $revpar = $this->firstPositiveNumber($data, ['day_revpar', 'revpar', 'RevPAR']);
+
+            $rows[$date]['daily_revenue'] += $revenue;
+            $rows[$date]['daily_room_nights'] += $roomNights;
+            $rows[$date]['salable_rooms'] += $salableRooms;
+            if ($occupancy !== null) {
+                $rows[$date]['occupancy_sum'] += $occupancy <= 1 ? $occupancy * 100 : $occupancy;
+                $rows[$date]['occupancy_count']++;
+            }
+            if ($adr !== null) {
+                $rows[$date]['adr_sum'] += $adr;
+                $rows[$date]['adr_count']++;
+            }
+            if ($revpar !== null) {
+                $rows[$date]['revpar_sum'] += $revpar;
+                $rows[$date]['revpar_count']++;
+            }
+        }
+
+        foreach ($onlineRows as $row) {
+            $date = (string)($row['data_date'] ?? '');
+            if (!isset($rows[$date])) {
+                continue;
+            }
+            $raw = $this->decodeJson($row['raw_data'] ?? null);
+            $amount = $this->toPositiveFloat($row['amount'] ?? null) ?? 0.0;
+            $quantity = $this->toPositiveFloat($row['quantity'] ?? null) ?? 0.0;
+            $orders = $this->toPositiveFloat($row['book_order_num'] ?? null)
+                ?? $this->firstPositiveNumber($raw, ['bookOrderNum', 'orderCount', 'orders', 'order_submit_num'])
+                ?? 0.0;
+            $dataValue = $this->toPositiveFloat($row['data_value'] ?? null) ?? 0.0;
+            $dimension = (string)($row['dimension'] ?? '');
+
+            $rows[$date]['online_revenue'] += $amount;
+            $rows[$date]['online_room_nights'] += $quantity;
+            $rows[$date]['orders'] += $orders;
+            $rows[$date]['exposure'] += $this->firstPositiveNumber($raw, ['exposure', 'exposureNum', 'showCount', 'impression', 'displayNum']) ?? 0.0;
+            $rows[$date]['clicks'] += $this->firstPositiveNumber($raw, ['clicks', 'clickNum', 'detailClickNum']) ?? 0.0;
+            $rows[$date]['visitors'] += $this->firstPositiveNumber($raw, ['visitors', 'visitorNum', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors', 'uv']) ?? 0.0;
+
+            $conversion = $this->firstPositiveNumber($raw, ['conversionRate', 'convertionRate', 'detailCR', 'qunarDetailCR', 'orderRate']);
+            if ($conversion !== null) {
+                $rows[$date]['conversion_sum'] += $conversion <= 1 ? $conversion * 100 : $conversion;
+                $rows[$date]['conversion_count']++;
+            }
+            if ($dataValue > 0) {
+                if (str_contains($dimension, '曝光')) {
+                    $rows[$date]['exposure'] += $dataValue;
+                } elseif (str_contains($dimension, '点击')) {
+                    $rows[$date]['clicks'] += $dataValue;
+                } elseif (str_contains($dimension, '浏览') || str_contains($dimension, '访客')) {
+                    $rows[$date]['visitors'] += $dataValue;
+                } elseif (str_contains($dimension, '转化')) {
+                    $rows[$date]['conversion_sum'] += $dataValue <= 1 ? $dataValue * 100 : $dataValue;
+                    $rows[$date]['conversion_count']++;
+                }
+            }
+        }
+
+        foreach ($rows as &$row) {
+            $revenue = $row['daily_revenue'] > 0 ? $row['daily_revenue'] : $row['online_revenue'];
+            $roomNights = $row['daily_room_nights'] > 0 ? $row['daily_room_nights'] : $row['online_room_nights'];
+            $row['revenue'] = $revenue > 0 ? round($revenue, 2) : null;
+            $row['room_nights'] = $roomNights > 0 ? round($roomNights, 2) : null;
+            $row['occupancy'] = $row['salable_rooms'] > 0 && $roomNights > 0
+                ? round(min(100, $roomNights / $row['salable_rooms'] * 100), 2)
+                : ($row['occupancy_count'] > 0 ? round($row['occupancy_sum'] / $row['occupancy_count'], 2) : null);
+            $row['adr'] = $roomNights > 0 && $revenue > 0
+                ? round($revenue / $roomNights, 2)
+                : ($row['adr_count'] > 0 ? round($row['adr_sum'] / $row['adr_count'], 2) : null);
+            $row['revpar'] = $row['salable_rooms'] > 0 && $revenue > 0
+                ? round($revenue / $row['salable_rooms'], 2)
+                : ($row['revpar_count'] > 0 ? round($row['revpar_sum'] / $row['revpar_count'], 2) : null);
+
+            $trafficBase = max($row['clicks'], $row['visitors']);
+            $row['channel_conversion'] = $row['conversion_count'] > 0
+                ? round($row['conversion_sum'] / $row['conversion_count'], 2)
+                : ($trafficBase > 0 && $row['orders'] > 0 ? round($row['orders'] / $trafficBase * 100, 2) : null);
+            $row['has_sample'] = $row['revenue'] !== null
+                || $row['room_nights'] !== null
+                || $row['orders'] > 0
+                || $row['occupancy'] !== null
+                || $row['adr'] !== null;
+        }
+        unset($row);
+
+        return [
+            'rows' => array_values($rows),
+            'competitor_avg' => $this->avgField($competitorRows, 'price'),
+        ];
+    }
+
+    private function dailyReportRevenue(array $row, array $data): float
+    {
+        $revenue = $this->toPositiveFloat($row['revenue'] ?? null)
+            ?? $this->firstPositiveNumber($data, ['day_total_revenue', 'total_revenue', 'room_revenue', 'day_room_revenue']);
+        if ($revenue !== null) {
+            return $revenue;
+        }
+
+        return $this->sumReportFields($data, [
+            'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
+            'booking_revenue', 'agoda_revenue', 'expedia_revenue',
+            'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue',
+            'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
+            'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',
+        ]);
+    }
+
+    private function dailyReportRoomNights(array $data): float
+    {
+        $rooms = $this->firstPositiveNumber($data, ['day_total_rooms', 'total_rooms', 'room_nights']);
+        if ($rooms !== null) {
+            return $rooms;
+        }
+
+        return $this->sumReportFields($data, [
+            'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms',
+            'booking_rooms', 'agoda_rooms', 'expedia_rooms',
+            'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
+            'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
+        ]);
+    }
+
+    private function sumReportFields(array $data, array $fields): float
+    {
+        $total = 0.0;
+        foreach ($fields as $field) {
+            $total += $this->toPositiveFloat($data[$field] ?? null) ?? 0.0;
+        }
+
+        return $total;
+    }
+
+    private function buildRevenueTrendCard(array $rows, string $rangeLabel, bool $hasSamples): array
+    {
+        if (!$hasSamples) {
+            return $this->trendPendingCard('revenue', '收益趋势', '等待线上数据或经营日报同步后生成收益趋势');
+        }
+
+        $values = array_column($rows, 'revenue');
+        $trend = $this->compareSeries($values);
+        $total = array_sum(array_map(static fn ($value): float => (float)($value ?? 0), $values));
+        $direction = $this->trendDirectionText($trend);
+        return [
+            'key' => 'revenue',
+            'name' => '收益趋势',
+            'value' => $this->formatMoneyShort($total),
+            'direction' => $direction,
+            'level' => $trend['level'],
+            'note' => "{$rangeLabel}营收{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']),
+            'source' => '来源：经营日报收入；无日报时取 OTA 成交额',
+            'spark' => $this->sparkline($values),
+            'change_rate' => $trend['change_rate'],
+        ];
+    }
+
+    private function buildDemandTrendCard(array $rows, array $forecasts, string $rangeLabel, bool $hasSamples): array
+    {
+        $orderValues = array_map(static fn (array $row): ?float => $row['orders'] > 0 ? (float)$row['orders'] : null, $rows);
+        $forecastDemand = (int)$this->sumField($forecasts, 'predicted_demand');
+        if (!$hasSamples && $forecastDemand <= 0) {
+            return $this->trendPendingCard('demand', '市场需求', '数据依据不足，暂不生成趋势判断');
+        }
+
+        $trend = $this->compareSeries($orderValues);
+        $orders = array_sum(array_map(static fn ($value): float => (float)($value ?? 0), $orderValues));
+        $direction = $this->trendDirectionText($trend);
+        $value = $orders > 0 ? (int)round($orders) . '单' : $forecastDemand . '间夜';
+        $note = $orders > 0
+            ? "{$rangeLabel}订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
+            : '已读取未来需求预测，等待订单样本校准';
+
+        return [
+            'key' => 'demand',
+            'name' => '市场需求',
+            'value' => $value,
+            'direction' => $orders > 0 ? $direction : '预测可用',
+            'level' => $orders > 0 ? $trend['level'] : 'blue',
+            'note' => $note,
+            'source' => '来源：OTA 订单数；无订单时取需求预测',
+            'spark' => $this->sparkline($orderValues),
+            'change_rate' => $trend['change_rate'],
+        ];
+    }
+
+    private function buildPriceTrendCard(array $rows, float $competitorAvg, string $rangeLabel, bool $hasSamples): array
+    {
+        $values = array_column($rows, 'adr');
+        $avgAdr = $this->avgNumeric($values);
+        if (!$hasSamples || $avgAdr <= 0) {
+            return $this->trendPendingCard('price', '价格竞争', '等待 ADR 或竞对价格同步后判断价格走势');
+        }
+
+        $priceBand = $this->priceBandFromSamples($values, $competitorAvg);
+        $trend = $this->compareSeries($values);
+        $direction = $this->trendDirectionText($trend);
+        $level = $trend['level'];
+        $note = "{$rangeLabel}ADR{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']);
+        $badge = $priceBand['label'];
+
+        if ($competitorAvg > 0) {
+            $gap = $avgAdr - $competitorAvg;
+            $gapRate = $gap / $competitorAvg;
+            if ($gapRate > 0.15) {
+                $badge = '高于竞对';
+                $level = 'yellow';
+            } elseif ($gapRate < -0.15) {
+                $badge = '低于竞对';
+                $level = 'blue';
+            } else {
+                $badge = '接近竞对';
+                $level = 'green';
+            }
+            $note = '本店ADR较竞对均价' . ($gap >= 0 ? '高' : '低') . '¥' . abs((int)round($gap)) . '，价格区间已纳入竞对均价校准';
+        }
+
+        return [
+            'key' => 'price',
+            'name' => '价格竞争',
+            'value' => $priceBand['value'],
+            'direction' => $badge,
+            'level' => $level,
+            'note' => $note,
+            'source' => '来源：经营日报/OTA 推算 ADR，对比竞对价格',
+            'spark' => $this->sparkline($values),
+            'change_rate' => $trend['change_rate'],
+            'trend_direction' => $direction,
+            'adr_avg' => round($avgAdr, 2),
+            'competitor_avg' => $competitorAvg > 0 ? round($competitorAvg, 2) : null,
+            'price_sample_count' => $priceBand['sample_count'],
+        ];
+    }
+
+    private function buildChannelTrendCard(array $rows, string $rangeLabel, bool $hasSamples): array
+    {
+        $conversionValues = array_column($rows, 'channel_conversion');
+        $avgConversion = $this->avgNumeric($conversionValues);
+        $orders = array_sum(array_map(static fn (array $row): float => (float)$row['orders'], $rows));
+        $exposure = array_sum(array_map(static fn (array $row): float => (float)$row['exposure'], $rows));
+        if (!$hasSamples || ($avgConversion <= 0 && $orders <= 0 && $exposure <= 0)) {
+            return $this->trendPendingCard('channel', '渠道表现', '等待 OTA 曝光、访客、转化和订单数据同步');
+        }
+
+        $trend = $this->compareSeries($avgConversion > 0 ? $conversionValues : array_map(static fn (array $row): ?float => $row['orders'] > 0 ? (float)$row['orders'] : null, $rows));
+        $direction = $this->trendDirectionText($trend);
+        $level = $trend['level'];
+        $value = $avgConversion > 0 ? round($avgConversion, 1) . '%' : (int)round($orders) . '单';
+        if ($avgConversion > 0 && $avgConversion < 3) {
+            $level = 'yellow';
+            $direction = '转化偏低';
+        }
+
+        return [
+            'key' => 'channel',
+            'name' => '渠道表现',
+            'value' => $value,
+            'direction' => $direction,
+            'level' => $level,
+            'note' => $avgConversion > 0
+                ? "{$rangeLabel}OTA平均转化率{$value}，持续跟踪曝光到订单效率"
+                : "{$rangeLabel}OTA订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']),
+            'source' => '来源：OTA 曝光、访客、转化和订单数据',
+            'spark' => $this->sparkline($avgConversion > 0 ? $conversionValues : array_column($rows, 'orders')),
+            'change_rate' => $trend['change_rate'],
+        ];
+    }
+
+    private function buildTrendInterpretation(array $cards, int $sampleDays, string $rangeLabel): array
+    {
+        if ($sampleDays < 2) {
+            return [
+                'level' => 'gray',
+                'judgement' => '等待数据形成判断',
+                'change' => '完成经营数据同步后生成趋势判断',
+                'action' => '进入酒店AI工具箱或数据中心，基于最新经营数据生成分析。',
+            ];
+        }
+
+        $priority = ['red' => 4, 'yellow' => 3, 'blue' => 2, 'green' => 1, 'gray' => 0];
+        usort($cards, static fn (array $a, array $b): int => ($priority[$b['level'] ?? 'gray'] ?? 0) <=> ($priority[$a['level'] ?? 'gray'] ?? 0));
+        $main = $cards[0];
+        $weak = array_values(array_filter($cards, static fn (array $card): bool => in_array($card['level'] ?? '', ['red', 'yellow'], true)));
+        $opportunity = array_values(array_filter($cards, static fn (array $card): bool => ($card['level'] ?? '') === 'blue'));
+
+        if (!empty($weak)) {
+            $action = '优先复核' . implode('、', array_column($weak, 'name')) . '，从价格、房态、渠道转化和数据完整性逐项排查。';
+        } elseif (!empty($opportunity)) {
+            $action = '保留高价值库存，结合高需求日期做小步提价或促销收口。';
+        } else {
+            $action = '维持当前经营节奏，继续每日同步 OTA、日报和竞对价格用于滚动判断。';
+        }
+
+        return [
+            'level' => $main['level'] ?? 'green',
+            'judgement' => ($main['name'] ?? '经营趋势') . '：' . ($main['direction'] ?? '平稳'),
+            'change' => "已读取{$rangeLabel}{$sampleDays}个有效样本；" . ($main['note'] ?? '趋势样本已形成。'),
+            'action' => $action,
+        ];
+    }
+
+    private function trendPendingCard(string $key, string $name, string $note): array
+    {
+        return [
+            'key' => $key,
+            'name' => $name,
+            'value' => '--',
+            'direction' => $key === 'demand' ? '数据不足' : '待同步',
+            'level' => 'gray',
+            'note' => $note,
+            'spark' => [30, 30, 30, 30, 30, 30, 30, 30, 30],
+            'change_rate' => null,
+        ];
+    }
+
+    private function isTrendDisplayCard(array $card): bool
+    {
+        $value = trim((string)($card['value'] ?? ''));
+        $direction = trim((string)($card['direction'] ?? ''));
+        if ($value === '' || in_array($value, ['--', '-', '待同步'], true)) {
+            return false;
+        }
+
+        return !in_array($direction, ['待同步', '数据不足'], true);
+    }
+
+    private function compareSeries(array $values): array
+    {
+        $values = array_values(array_filter($values, static fn ($value): bool => is_numeric($value) && (float)$value > 0));
+        if (count($values) < 2) {
+            return ['change_rate' => null, 'direction' => 'pending', 'level' => 'gray'];
+        }
+
+        $half = max(1, intdiv(count($values), 2));
+        $previous = $this->avgNumeric(array_slice($values, 0, $half));
+        $current = $this->avgNumeric(array_slice($values, -$half));
+        if ($previous <= 0) {
+            return ['change_rate' => null, 'direction' => 'stable', 'level' => 'green'];
+        }
+
+        $changeRate = ($current - $previous) / $previous * 100;
+        if ($changeRate > 8) {
+            return ['change_rate' => round($changeRate, 1), 'direction' => 'up', 'level' => 'blue'];
+        }
+        if ($changeRate < -8) {
+            return ['change_rate' => round($changeRate, 1), 'direction' => 'down', 'level' => 'yellow'];
+        }
+
+        return ['change_rate' => round($changeRate, 1), 'direction' => 'stable', 'level' => 'green'];
+    }
+
+    private function trendDirectionText(array $trend): string
+    {
+        return match ($trend['direction'] ?? 'pending') {
+            'up' => '上升',
+            'down' => '下降',
+            'stable' => '平稳',
+            default => '数据不足',
+        };
+    }
+
+    private function formatChangeRate(?float $rate): string
+    {
+        if ($rate === null) {
+            return '暂无可比变化';
+        }
+
+        return ($rate >= 0 ? '+' : '') . $rate . '%';
+    }
+
+    private function sparkline(array $values): array
+    {
+        $values = array_values(array_filter($values, static fn ($value): bool => is_numeric($value) && (float)$value > 0));
+        if (empty($values)) {
+            return [30, 30, 30, 30, 30, 30, 30, 30, 30];
+        }
+
+        $target = 9;
+        if (count($values) > $target) {
+            $step = count($values) / $target;
+            $sampled = [];
+            for ($i = 0; $i < $target; $i++) {
+                $sampled[] = (float)$values[(int)floor($i * $step)];
+            }
+            $values = $sampled;
+        }
+        while (count($values) < $target) {
+            array_unshift($values, $values[0]);
+        }
+
+        $min = min($values);
+        $max = max($values);
+        if ($max <= $min) {
+            return array_fill(0, $target, 46);
+        }
+
+        return array_map(static fn ($value): int => (int)round(24 + (((float)$value - $min) / ($max - $min)) * 52), $values);
+    }
+
+    private function avgNumeric(array $values): float
+    {
+        $values = array_values(array_filter($values, static fn ($value): bool => is_numeric($value) && (float)$value > 0));
+        return empty($values) ? 0.0 : array_sum($values) / count($values);
+    }
+
+    private function priceBandFromSamples(array $values, float $competitorAvg = 0.0): array
+    {
+        $samples = array_values(array_filter($values, static fn ($value): bool => is_numeric($value) && (float)$value > 0 && (float)$value < 5000));
+        $sampleCount = count($samples);
+        if ($competitorAvg > 0 && $competitorAvg < 5000) {
+            $samples[] = $competitorAvg;
+        }
+
+        if (empty($samples)) {
+            return ['value' => '--', 'label' => '待同步', 'sample_count' => 0];
+        }
+
+        sort($samples, SORT_NUMERIC);
+        if (count($samples) < 3) {
+            $price = (int)round(array_sum($samples) / count($samples));
+            return [
+                'value' => '¥' . $price,
+                'label' => $competitorAvg > 0 ? '竞对参考' : '待竞对校准',
+                'sample_count' => $sampleCount,
+            ];
+        }
+
+        $low = $this->percentile($samples, 0.25);
+        $high = $this->percentile($samples, 0.75);
+        if ($high <= $low) {
+            $margin = max(10.0, $low * 0.05);
+            $low -= $margin;
+            $high += $margin;
+        }
+
+        $lowRounded = max(1, (int)(floor($low / 10) * 10));
+        $highRounded = max($lowRounded + 10, (int)(ceil($high / 10) * 10));
+
+        return [
+            'value' => '¥' . $lowRounded . '-' . $highRounded,
+            'label' => $competitorAvg > 0 ? '含竞对校准' : 'ADR区间',
+            'sample_count' => $sampleCount,
+        ];
+    }
+
+    private function percentile(array $values, float $percentile): float
+    {
+        $values = array_values($values);
+        $count = count($values);
+        if ($count === 0) {
+            return 0.0;
+        }
+        if ($count === 1) {
+            return (float)$values[0];
+        }
+
+        $position = ($count - 1) * min(1.0, max(0.0, $percentile));
+        $lower = (int)floor($position);
+        $upper = (int)ceil($position);
+        if ($lower === $upper) {
+            return (float)$values[$lower];
+        }
+
+        $weight = $position - $lower;
+        return ((float)$values[$lower] * (1 - $weight)) + ((float)$values[$upper] * $weight);
+    }
+
+    private function formatMoneyShort(float $value): string
+    {
+        if ($value >= 10000) {
+            return '¥' . round($value / 10000, 1) . '万';
+        }
+
+        return '¥' . (int)round($value);
     }
 
     private function buildWeatherForecast(array $hotelIds): array
     {
         $location = $this->resolveWeatherLocation($hotelIds);
         if ($location === '') {
-            return [];
+            return ['forecast' => [], 'source_text' => '天气自动获取'];
         }
 
+        $result = $this->external->amapWeather($location);
+        if (($result['ok'] ?? false) === true) {
+            $forecast = $result['forecast'] ?? [];
+            return [
+                'forecast' => is_array($forecast) ? $forecast : [],
+                'source_text' => '高德天气自动获取',
+            ];
+        }
+
+        return [
+            'forecast' => $this->buildLocalWeatherFallback($location),
+            'source_text' => '系统按门店城市自动生成',
+        ];
+    }
+
+    private function buildLocalWeatherFallback(string $location): array
+    {
         $seed = abs((int)sprintf('%u', crc32($location)));
         $conditions = ['晴', '多云', '阴', '小雨', '阵雨', '中雨'];
         $winds = ['东风', '南风', '西风', '北风'];
         $forecast = [];
+
         for ($i = 0; $i < 7; $i++) {
             $date = strtotime('+' . $i . ' day');
             $forecast[] = [
@@ -437,6 +1104,47 @@ class MacroSignalService
         )->order('forecast_date', 'asc')->select()->toArray());
     }
 
+    private function readDailyRowsBetween(array $hotelIds, string $startDate, string $endDate): array
+    {
+        return $this->safeRows(fn () => $this->withHotelIds(
+            Db::name('daily_reports')
+                ->field('hotel_id,report_date,report_data,occupancy_rate,room_count,revenue')
+                ->whereBetween('report_date', [$startDate, $endDate]),
+            'hotel_id',
+            $hotelIds
+        )->order('report_date', 'asc')->select()->toArray());
+    }
+
+    private function readOnlineRowsBetween(array $hotelIds, string $startDate, string $endDate): array
+    {
+        return $this->safeRows(fn () => $this->withHotelIds(
+            Db::name('online_daily_data')
+                ->field('system_hotel_id,data_date,amount,quantity,book_order_num,raw_data,source,dimension,data_type,data_value')
+                ->whereBetween('data_date', [$startDate, $endDate]),
+            'system_hotel_id',
+            $hotelIds
+        )->order('data_date', 'asc')->select()->toArray());
+    }
+
+    private function readCompetitorPricesBetween(array $hotelIds, string $startDate, string $endDate): array
+    {
+        $start = $startDate . ' 00:00:00';
+        $end = $endDate . ' 23:59:59';
+
+        return $this->safeRows(fn () => $this->withHotelIds(
+            Db::name('competitor_price_log')
+                ->field('store_id,hotel_id,price,fetch_time,create_time')
+                ->where('price', '>', 0)
+                ->where(function ($query) use ($start, $end) {
+                    $query->whereBetween('fetch_time', [$start, $end])->whereOr(function ($subQuery) use ($start, $end) {
+                        $subQuery->whereNull('fetch_time')->whereBetween('create_time', [$start, $end]);
+                    });
+                }),
+            'store_id',
+            $hotelIds
+        )->order('id', 'desc')->limit(500)->select()->toArray());
+    }
+
     private function withHotelIds($query, string $field, array $hotelIds)
     {
         $hotelIds = array_values(array_map('intval', $hotelIds));
@@ -469,15 +1177,31 @@ class MacroSignalService
         $visitors = 0.0;
         $orders = 0.0;
         $conversionSamples = [];
+        $hasExposure = false;
+        $hasClicks = false;
+        $hasVisitors = false;
 
         foreach ($rows as $row) {
             $raw = $this->decodeJson($row['raw_data'] ?? null);
             $dimension = (string)($row['dimension'] ?? '');
-            $dataValue = $this->toFloat($row['data_value'] ?? null) ?? 0.0;
+            $rawDataValue = $this->toFloat($row['data_value'] ?? null);
+            $dataValue = $rawDataValue ?? 0.0;
 
-            $exposure += $this->firstNumber($raw, ['exposure', 'exposureNum', 'showCount', 'impression', 'displayNum']) ?? 0.0;
-            $clicks += $this->firstNumber($raw, ['clicks', 'clickNum', 'detailClickNum']) ?? 0.0;
-            $visitors += $this->firstNumber($raw, ['visitors', 'visitorNum', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors', 'uv']) ?? 0.0;
+            $exposureValue = $this->firstNumber($raw, ['exposure', 'exposureNum', 'showCount', 'impression', 'displayNum']);
+            if ($exposureValue !== null && $exposureValue > 0) {
+                $hasExposure = true;
+                $exposure += $exposureValue;
+            }
+            $clickValue = $this->firstNumber($raw, ['clicks', 'clickNum', 'detailClickNum']);
+            if ($clickValue !== null && $clickValue > 0) {
+                $hasClicks = true;
+                $clicks += $clickValue;
+            }
+            $visitorValue = $this->firstNumber($raw, ['visitors', 'visitorNum', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors', 'uv']);
+            if ($visitorValue !== null && $visitorValue > 0) {
+                $hasVisitors = true;
+                $visitors += $visitorValue;
+            }
             $orders += $this->toFloat($row['book_order_num'] ?? null) ?? 0.0;
 
             $conversion = $this->firstNumber($raw, ['conversionRate', 'convertionRate', 'detailCR', 'qunarDetailCR', 'orderRate']);
@@ -485,15 +1209,26 @@ class MacroSignalService
                 $conversionSamples[] = $conversion <= 1 ? $conversion * 100 : $conversion;
             }
 
-            if ($dataValue > 0) {
+            if ($rawDataValue !== null) {
                 if (str_contains($dimension, '曝光')) {
-                    $exposure += $dataValue;
+                    if ($dataValue > 0) {
+                        $hasExposure = true;
+                        $exposure += $dataValue;
+                    }
                 } elseif (str_contains($dimension, '点击')) {
-                    $clicks += $dataValue;
+                    if ($dataValue > 0) {
+                        $hasClicks = true;
+                        $clicks += $dataValue;
+                    }
                 } elseif (str_contains($dimension, '浏览') || str_contains($dimension, '访客')) {
-                    $visitors += $dataValue;
+                    if ($dataValue > 0) {
+                        $hasVisitors = true;
+                        $visitors += $dataValue;
+                    }
                 } elseif (str_contains($dimension, '转化')) {
-                    $conversionSamples[] = $dataValue <= 1 ? $dataValue * 100 : $dataValue;
+                    if ($dataValue > 0) {
+                        $conversionSamples[] = $dataValue <= 1 ? $dataValue * 100 : $dataValue;
+                    }
                 }
             }
         }
@@ -509,6 +1244,9 @@ class MacroSignalService
             'visitors' => $visitors,
             'orders' => $orders,
             'conversion' => $conversion,
+            'has_exposure' => $hasExposure,
+            'has_clicks' => $hasClicks,
+            'has_visitors' => $hasVisitors,
         ];
     }
 
@@ -667,6 +1405,18 @@ class MacroSignalService
         return null;
     }
 
+    private function firstPositiveNumber(array $data, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            $value = $this->toPositiveFloat($data[$key] ?? null);
+            if ($value !== null) {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
     private function toFloat($value): ?float
     {
         if ($value === null || $value === '') {
@@ -681,6 +1431,12 @@ class MacroSignalService
         }
 
         return null;
+    }
+
+    private function toPositiveFloat($value): ?float
+    {
+        $value = $this->toFloat($value);
+        return $value !== null && $value > 0 ? $value : null;
     }
 
     private function formatNumber(float $value): string

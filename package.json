@@ -1,1 +1,56 @@
-{"name": "hotelx-types", "version": "1.0.0", "description": "宿析OS - 酒店管理系统 TypeScript 类型定义", "private": true, "scripts": {"type-check": "tsc --noEmit", "type-check:watch": "tsc --noEmit --watch", "build": "tsc -p tsconfig.build.json"}, "devDependencies": {"typescript": "^5.5.0", "vue": "^3.4.0", "@types/node": "^22.0.0"}}
+{
+  "name": "hotelx-types",
+  "version": "1.0.0",
+  "description": "宿析OS - 酒店管理系统 TypeScript 类型定义",
+  "private": true,
+  "scripts": {
+    "verify:p0-guards": "node scripts/verify_worktree_guard.mjs && node scripts/verify_public_entry_guard.mjs && node scripts/verify_production_entry_hygiene.mjs && node scripts/verify_frontend_display_boundary.mjs",
+    "verify:public-entry": "node scripts/verify_public_entry_guard.mjs",
+    "verify:worktree": "node scripts/verify_worktree_guard.mjs",
+    "review:non-security": "node scripts/verify_non_security_review.mjs",
+    "review:release-issues": "node scripts/verify_release_issue_register.mjs",
+    "verify:transfer-p2": "node scripts/verify_transfer_p2.mjs",
+    "verify:e2e-contracts": "node scripts/verify_e2e_contracts.mjs",
+    "verify:shared-helpers": "node scripts/verify_shared_helpers_contract.mjs",
+    "verify:opening-batch-actions": "node scripts/verify_opening_batch_actions.mjs",
+    "verify:codex-runner-contract": "node scripts/verify_codex_runner_contract.mjs",
+    "verify:release-status": "node scripts/verify_release_status_contract.mjs",
+    "verify:ota-data-batch": "node scripts/verify_ota_data_batch.mjs --input-dir=tests/fixtures/ota-data-batch",
+    "review:functional-readiness": "node scripts/verify_release_functional_readiness.mjs",
+    "review:release-env": "node scripts/verify_release_env.mjs",
+    "review:release-llm": "node scripts/verify_release_llm.mjs",
+    "review:release-design": "node scripts/verify_release_design.mjs",
+    "review:release-ota-credentials": "node scripts/verify_release_ota_credentials.mjs",
+    "review:release-security-scan": "node scripts/verify_release_security_scan.mjs",
+    "review:release-readiness": "node scripts/verify_release_readiness.mjs",
+    "review:release-external-state": "node scripts/verify_release_external_state.mjs",
+    "collect:release-external-state": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/collect_release_external_state.ps1 -OutputPath docs/release_external_state_evidence.local.json",
+    "review:release-external-state:local": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& { ./scripts/collect_release_external_state.ps1 -OutputPath docs/release_external_state_evidence.local.json; $env:RELEASE_EXTERNAL_STATE_FILE='docs/release_external_state_evidence.local.json'; node scripts/verify_release_external_state.mjs; exit $LASTEXITCODE }\"",
+    "slim:local:dry-run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean_project_local_artifacts.ps1",
+    "slim:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean_project_local_artifacts.ps1 -Apply",
+    "meituan:capture": "node scripts/meituan_browser_capture.mjs",
+    "type-check": "node scripts/verify_typecheck_or_skip.mjs",
+    "type-check:watch": "node scripts/verify_typecheck_or_skip.mjs --watch",
+    "build": "node scripts/verify_typecheck_or_skip.mjs --build",
+    "test:e2e:daily": "node node_modules/@playwright/test/cli.js test tests/automation/daily-regression.spec.js --workers=1 --reporter=list",
+    "test:e2e:async": "node node_modules/@playwright/test/cli.js test tests/automation/async-page-guard.spec.js --workers=1 --reporter=list",
+    "test:e2e:edge": "node node_modules/@playwright/test/cli.js test tests/automation/edge-input-guard.spec.js --workers=1 --reporter=list",
+    "test:e2e:ui": "node node_modules/@playwright/test/cli.js test tests/automation/daily-regression.spec.js tests/automation/edge-input-guard.spec.js --workers=1 --reporter=list",
+    "test:e2e:module": "node node_modules/@playwright/test/cli.js test tests/automation/module-smoke.spec.js --workers=1 --reporter=list",
+    "test:e2e:full": "node node_modules/@playwright/test/cli.js test tests/automation/full-click-coverage.spec.js --workers=1 --reporter=list",
+    "test:e2e:full:bounded": "node scripts/run_full_click_bounded.mjs",
+    "test:e2e:business": "node node_modules/@playwright/test/cli.js test tests/automation/business-chains.spec.js --workers=1 --reporter=list",
+    "test:e2e:quick": "node node_modules/@playwright/test/cli.js test tests/automation/daily-regression.spec.js tests/automation/business-chains.spec.js tests/automation/async-page-guard.spec.js --workers=1 --reporter=list",
+    "codex:runner": "node scripts/codex_automation_runner.mjs --profile=extreme --iterations=10",
+    "codex:runner:quick": "node scripts/codex_automation_runner.mjs --profile=quick --iterations=1",
+    "codex:runner:dry": "node scripts/codex_automation_runner.mjs --profile=extreme --iterations=10 --dry-run"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "json2csv": "^6.0.0-alpha.2"
+  },
+  "dependencies": {
+    "cloakbrowser": "^0.3.31",
+    "playwright-core": "^1.60.0"
+  }
+}

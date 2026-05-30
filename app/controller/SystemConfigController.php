@@ -19,11 +19,25 @@ class SystemConfigController extends Base
         $configs = SystemConfig::getAllConfigs();
         $defaults = SystemConfig::getDefaultConfigs();
 
+        $requestedKey = trim((string)$this->request->get('key', ''));
+        if ($requestedKey !== '') {
+            if (!$this->canReadConfigKey($requestedKey)) {
+                abort(403, 'Forbidden');
+            }
+            return $this->success([
+                $requestedKey => $configs[$requestedKey] ?? $defaults[$requestedKey] ?? null,
+            ]);
+        }
+
         // 合并默认值
         foreach ($defaults as $key => $value) {
             if (!isset($configs[$key])) {
                 $configs[$key] = $value;
             }
+        }
+
+        if (!$this->currentUser->isSuperAdmin()) {
+            $configs = $this->filterPublicConfigs($configs);
         }
 
         return $this->success($configs);
@@ -36,7 +50,7 @@ class SystemConfigController extends Base
     {
         $this->checkSuperAdmin();
 
-        $data = $this->request->post();
+        $data = $this->requestData();
         
         // 支持自定义配置项（如数据配置）
         if (isset($data['config_key']) && isset($data['config_value'])) {
@@ -79,9 +93,48 @@ class SystemConfigController extends Base
     /**
      * 获取配置分组信息
      */
+    private function canReadConfigKey(string $key): bool
+    {
+        return $this->currentUser->isSuperAdmin() || in_array($key, $this->publicConfigKeys(), true);
+    }
+
+    private function filterPublicConfigs(array $configs): array
+    {
+        return array_intersect_key($configs, array_fill_keys($this->publicConfigKeys(), true));
+    }
+
+    private function publicConfigKeys(): array
+    {
+        return [
+            SystemConfig::KEY_SYSTEM_NAME,
+            SystemConfig::KEY_LOGO_URL,
+            SystemConfig::KEY_FAVICON_URL,
+            SystemConfig::KEY_SYSTEM_DESCRIPTION,
+            SystemConfig::KEY_SYSTEM_KEYWORDS,
+            SystemConfig::KEY_MENU_HOTEL,
+            SystemConfig::KEY_MENU_USERS,
+            SystemConfig::KEY_MENU_COMPASS,
+            SystemConfig::KEY_MENU_ONLINE_DATA,
+            SystemConfig::KEY_THEME,
+            SystemConfig::KEY_PRIMARY_COLOR,
+            SystemConfig::KEY_DATE_FORMAT,
+            SystemConfig::KEY_TIME_FORMAT,
+            SystemConfig::KEY_PAGE_SIZE_OPTIONS,
+            SystemConfig::KEY_DEFAULT_PAGE_SIZE,
+            SystemConfig::KEY_ENABLE_REGISTRATION,
+            SystemConfig::KEY_ENABLE_LOGIN_LOG,
+            SystemConfig::KEY_ENABLE_OPERATION_LOG,
+            SystemConfig::KEY_ENABLE_DATA_BACKUP,
+            SystemConfig::KEY_ENABLE_WECHAT_MINI,
+            SystemConfig::KEY_ENABLE_ONLINE_DATA,
+            SystemConfig::KEY_COMPLAINT_MINI_PAGE,
+            SystemConfig::KEY_COMPLAINT_MINI_USE_SCENE,
+        ];
+    }
+
     public function groups(): Response
     {
-        $this->checkPermission();
+        $this->checkSuperAdmin();
 
         return $this->success([
             'groups' => SystemConfig::getConfigGroups(),
@@ -152,7 +205,8 @@ class SystemConfigController extends Base
     {
         $this->checkSuperAdmin();
 
-        $group = $this->request->post('group', 'all');
+        $data = $this->requestData();
+        $group = $data['group'] ?? 'all';
         $defaults = SystemConfig::getDefaultConfigs();
         $descriptions = SystemConfig::getConfigDescriptions();
         $groups = SystemConfig::getConfigGroups();

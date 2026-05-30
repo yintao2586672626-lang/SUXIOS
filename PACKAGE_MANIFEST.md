@@ -68,7 +68,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `hotelx_dump.sql` | MySQL 数据库备份（2.2 MB，含完整 schema 和数据） |
+| `database/hotel_admin_mysql.sql` | MySQL 基础数据库备份（可提交版本，含核心 schema 和基础数据） |
 
 ---
 
@@ -249,5 +249,5 @@ debug.log
 | vendor/ | 2.7 MB（已安装） | ❌ 排除（需 composer install） |
 | hotel-frontend/node_modules | ❌ 不在 HOTEL 内 | N/A |
 | 调试脚本 | ~30 个文件 | ❌ 全部排除 |
-| 数据库备份 | hotelx_dump.sql | hotelx_dump.sql |
+| 数据库备份 | database/hotel_admin_mysql.sql | database/hotel_admin_mysql.sql |
 | 文档 | 0 个 | 6 个（README/AGENTS/PROJECT_HANDOFF/CODEX_START/DEV_LOG/PACKAGE_MANIFEST） |

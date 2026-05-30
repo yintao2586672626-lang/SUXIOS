@@ -1,0 +1,25 @@
+{
+  "reviewed_at": "TODO: YYYY-MM-DD",
+  "reviewer": "TODO: reviewer name",
+  "environment": "production",
+  "provider": "TODO: openai | deepseek | other configured provider",
+  "model_key": "TODO: ai_model_configs.model_key",
+  "model_name": "TODO: deployed model name",
+  "base_url": "TODO: configured provider base URL",
+  "ai_model_config_enabled": true,
+  "ai_config_secret_checked": true,
+  "redaction_checked": true,
+  "request": {
+    "entrypoint": "LlmClient",
+    "purpose": "Production connectivity smoke test",
+    "prompt_summary": "Short non-sensitive connectivity prompt"
+  },
+  "result": {
+    "status": "TODO: passed",
+    "response_status": 200,
+    "completed_at": "TODO: YYYY-MM-DDTHH:mm:ssZ",
+    "latency_ms": 0
+  },
+  "evidence_ref": "TODO: internal ticket, deployment log, or secure runbook reference",
+  "notes": "Do not place API keys, bearer tokens, cookies, raw provider secrets, Authorization headers, or unredacted secret fields in this file."
+}

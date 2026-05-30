@@ -18,6 +18,7 @@ class FeasibilityReport extends Model
 
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'input_json' => 'json',
         'snapshot_json' => 'json',
         'report_json' => 'json',

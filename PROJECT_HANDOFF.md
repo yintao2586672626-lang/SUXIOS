@@ -1,7 +1,7 @@
 # 宿析OS（SuXi OS）项目交接文档
 
 > 交接时间：2026-03-18
-> 项目路径：`d:\桌面\国际\JD-main\HOTEL\`
+> 项目路径：`D:\桌面\SUXIOS\宿析OS初始版\HOTEL\`
 > Git 远程：`https://github.com/yintao2586672626-lang/0412.git`
 > 注意：`hotel-frontend/`（Vite 重构版）从未提交 Git，仅本地存在。
 
@@ -12,8 +12,10 @@
 ### 1.1 项目定位
 
 - **名称**：宿析OS（SuXi OS）
-- **定位**：面向连锁酒店的 SaaS 管理平台，打通"线上数据 → 收益分析 → AI 决策 → 运维管理"全链路。
+- **定位**：面向连锁酒店的 SaaS 管理平台，第一阶段聚焦"OTA 数据 → 收益诊断 → 运营建议 → 动作追踪 → 效果复盘"主闭环。
 - **目标用户**：酒店业主、店长、前台运营、收益管理。
+- **AI 边界**：AI 作为诊断、解释和建议生成能力嵌入运营收益主闭环，不单独扩展为独立产品线。
+- **二期边界**：筹建、开业、扩张、转让、投资测算保留现有入口和记录能力，暂不作为第一阶段深闭环。
 
 ### 1.2 现状概览
 
@@ -23,7 +25,7 @@
 | 前端（单文件版） | ⚠️ 可用但难维护 | `public/index.html`，17,000 行 |
 | 前端（Vite 版） | ⚠️ 未合并 | `hotel-frontend/`，从未提交 Git |
 | 数据库 | ✅ 运行中 | MySQL（XAMPP），12 张核心表 |
-| 线上数据抓取 | ✅ 核心功能 | 携程/美团 Cookie 抓取已跑通 |
+| 线上数据抓取 | ✅ 核心功能 | 已形成直连 Cookie/API、CDP 临时监听、Profile + CDP 兜底三层路径 |
 | AI Agent | ⚠️ 框架就绪 | 三 Agent 模块已建，LLM 接入待完成 |
 
 ---
@@ -196,7 +198,7 @@ DB_CHARSET=utf8mb4
 
 ```bash
 # 1. 进入项目目录
-cd "d:\桌面\国际\JD-main\HOTEL\"
+cd "D:\桌面\SUXIOS\宿析OS初始版\HOTEL\"
 
 # 2. 安装 PHP 依赖
 composer install
@@ -204,7 +206,7 @@ composer install
 # 3. 配置 Apache 虚拟主机（XAMPP）
 # 编辑 C:\xampp\apache\conf\extra\httpd-vhosts.conf，添加：
 # <VirtualHost *:80>
-#     DocumentRoot "d:/桌面/国际/JD-main/HOTEL/public"
+#     DocumentRoot "D:/桌面/SUXIOS/宿析OS初始版/HOTEL/public"
 #     ServerName hotelx.local
 # </VirtualHost>
 # 编辑 C:\Windows\System32\drivers\etc\hosts，添加：
@@ -277,6 +279,21 @@ mysql -u root -e "USE hotelx; SHOW TABLES;"
 **关键权限项**：`can_view_report`、`can_fill_daily_report`、`can_fill_monthly_task`、`can_edit_report`、`can_delete_report`
 
 ### 6.3 线上数据抓取流程（⭐ 核心业务）
+
+当前推荐顺序见 `docs/ota_acquisition_decision_playbook.md`：
+
+1. 已确认接口：后端直连 Cookie/API，例如携程 `getDayReportCompeteHotelReport`、携程/美团流量概要接口。
+2. 接口不确定或参数复杂：用 CDP 临时监听页面，定位 URL、Payload、动态 token 和响应结构。
+3. 必须真实打开页面才有数据：使用门店独立 Profile + CDP 兜底，只用于复杂页面，不作为默认路径。
+
+Agent 工具边界：
+
+- 本地宿析OS页面验证：Browser / Playwright。
+- 真实 OTA 页面接口定位：Chrome / CDP。
+- Windows 桌面应用、XAMPP、文件选择器、可见登录窗口：Computer Use。
+- OpenAI API / Responses API / Agents SDK：OpenAI Developers，不替代 OTA 采集路径。
+
+旧版 Cookie/Bookmarklet 兼容路径仍保留：
 
 ```
 1. 管理员在携程/美团 ebooking 平台登录

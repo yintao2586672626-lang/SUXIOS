@@ -15,6 +15,7 @@ class StrategySimulationRecord extends Model
 
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'property_area' => 'float',
         'room_count' => 'integer',
         'monthly_rent' => 'float',

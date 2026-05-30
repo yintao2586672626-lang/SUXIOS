@@ -40,7 +40,7 @@ class AutoFetchOnlineData extends Command
             }
             
             // 检查运行时间
-            $scheduleTime = $status['schedule_time'] ?? '10:00';
+            $scheduleTime = $this->normalizeFetchScheduleTime((string)($status['schedule_time'] ?? '10:00')) ?? '10:00';
             if ($currentTime !== $scheduleTime) {
                 continue;
             }
@@ -59,10 +59,10 @@ class AutoFetchOnlineData extends Command
             
             if ($result['success']) {
                 $output->writeln("酒店 {$hotel['name']} 获取成功: {$result['message']}");
-                $this->updateStatus($hotelId, true, $result['message']);
+                $this->updateStatus($hotelId, true, $result['message'], $yesterday);
             } else {
                 $output->writeln("酒店 {$hotel['name']} 获取失败: {$result['message']}");
-                $this->updateStatus($hotelId, false, $result['message']);
+                $this->updateStatus($hotelId, false, $result['message'], $yesterday);
             }
             
             // 标记今天已执行
@@ -75,21 +75,8 @@ class AutoFetchOnlineData extends Command
     
     private function fetchDataForHotel(int $hotelId, string $dataDate): array
     {
-        // 获取Cookies
-        $cookiesKey = "online_data_cookies_{$hotelId}";
-        $cookiesList = Cache::get($cookiesKey, []);
-        
-        if (empty($cookiesList)) {
-            $cookiesList = Cache::get('online_data_cookies_list', []);
-        }
-        
-        $cookies = '';
-        foreach ($cookiesList as $item) {
-            if (strpos($item['name'], 'ctrip') !== false) {
-                $cookies = $item['cookies'];
-                break;
-            }
-        }
+        $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
+        $cookies = (string)($fetchConfig['cookies'] ?? '');
         
         if (empty($cookies)) {
             return ['success' => false, 'message' => '未配置Cookies'];
@@ -97,8 +84,8 @@ class AutoFetchOnlineData extends Command
         
         try {
             $result = $this->sendHttpRequest(
-                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                ['nodeId' => '24588', 'startDate' => $dataDate, 'endDate' => $dataDate],
+                (string)($fetchConfig['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
+                ['nodeId' => (string)($fetchConfig['node_id'] ?? '24588'), 'startDate' => $dataDate, 'endDate' => $dataDate],
                 $cookies
             );
             
@@ -113,6 +100,7 @@ class AutoFetchOnlineData extends Command
             }
             
             Log::info("自动获取线上数据成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
+            $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
             
             return ['success' => true, 'message' => "成功获取 {$savedCount} 条数据"];
             
@@ -121,9 +109,71 @@ class AutoFetchOnlineData extends Command
             return ['success' => false, 'message' => '异常: ' . $e->getMessage()];
         }
     }
+
+    private function resolveCtripFetchConfigForHotel(int $hotelId): array
+    {
+        try {
+            $raw = Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value');
+            $list = $raw ? json_decode((string)$raw, true) : [];
+            if (is_array($list)) {
+                foreach (array_values($list) as $config) {
+                    $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
+                    if ($configHotelId !== '' && (string)$hotelId === $configHotelId && !empty($config['cookies'])) {
+                        return $config;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('读取携程自动抓取配置失败', ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
+        }
+
+        $cookiesList = Cache::get("online_data_cookies_hotel_{$hotelId}", []);
+        if (empty($cookiesList)) {
+            $cookiesList = Cache::get("online_data_cookies_{$hotelId}", []);
+        }
+
+        foreach ($cookiesList as $item) {
+            if (!empty($item['cookies'])) {
+                return [
+                    'cookies' => $item['cookies'],
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                    'node_id' => '24588',
+                ];
+            }
+        }
+
+        return [];
+    }
+
+    private function normalizeFetchScheduleTime(string $scheduleTime): ?string
+    {
+        $scheduleTime = trim($scheduleTime);
+        if (!preg_match('/^([01]?[0-9]|2[0-3]):([0-5][0-9])$/', $scheduleTime, $matches)) {
+            return null;
+        }
+        return sprintf('%02d:%02d', (int)$matches[1], (int)$matches[2]);
+    }
+
+    private function ctripLatestFetchStatusKey(?int $hotelId): string
+    {
+        return $hotelId ? "online_data_ctrip_latest_fetch_{$hotelId}" : 'online_data_ctrip_latest_fetch';
+    }
+
+    private function updateCtripLatestFetchStatus(?int $hotelId, string $fetchedAt, string $dataDate, int $savedCount): void
+    {
+        Cache::set($this->ctripLatestFetchStatusKey($hotelId), [
+            'fetched_at' => $fetchedAt,
+            'data_date' => $dataDate,
+            'saved_count' => $savedCount,
+        ], 86400 * 30);
+    }
     
     private function sendHttpRequest(string $url, array $postData, string $cookies): array
     {
+        if (!$this->isAllowedCtripRequestUrl($url)) {
+            return ['success' => false, 'error' => '仅允许请求携程官方域名'];
+        }
+
         $headers = [
             'Accept: application/json, text/javascript, */*; q=0.01',
             'Content-Type: application/x-www-form-urlencoded; charset=UTF-8',
@@ -141,7 +191,7 @@ class AutoFetchOnlineData extends Command
                 'content' => http_build_query($postData),
                 'timeout' => 30,
             ],
-            'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+            'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
         ]);
         
         $response = @file_get_contents($url, false, $context);
@@ -151,6 +201,18 @@ class AutoFetchOnlineData extends Command
         }
         
         return ['success' => true, 'data' => json_decode($response, true), 'raw' => $response];
+    }
+
+    private function isAllowedCtripRequestUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return false;
+        }
+
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        return $scheme === 'https' && ($host === 'ctrip.com' || str_ends_with($host, '.ctrip.com'));
     }
     
     private function parseAndSaveData($responseData, $startDate, $endDate, int $hotelId): int
@@ -206,12 +268,46 @@ class AutoFetchOnlineData extends Command
         return $savedCount;
     }
     
-    private function updateStatus(int $hotelId, bool $success, string $message): void
+    private function updateStatus(int $hotelId, bool $success, string $message, ?string $dataDate = null): void
     {
         $statusKey = "online_data_auto_fetch_status_{$hotelId}";
         $status = Cache::get($statusKey, []);
-        $status['last_run_time'] = date('Y-m-d H:i:s');
+        if (!is_array($status)) {
+            $status = [];
+        }
+
+        $runAt = date('Y-m-d H:i:s');
+        $dataDate = $dataDate ?: date('Y-m-d', strtotime('-1 day'));
+        $runRecord = [
+            'run_at' => $runAt,
+            'data_date' => $dataDate,
+            'success' => $success,
+            'message' => $message,
+        ];
+
+        $status['last_run_time'] = $runAt;
+        $status['last_data_date'] = $dataDate;
         $status['last_result'] = ['success' => $success, 'message' => $message];
+
+        $recentRuns = $status['recent_runs'] ?? [];
+        $recentRuns = is_array($recentRuns) ? $recentRuns : [];
+        array_unshift($recentRuns, $runRecord);
+        $status['recent_runs'] = array_slice($recentRuns, 0, 10);
+
+        $failedRecords = $status['failed_records'] ?? [];
+        $failedRecords = is_array($failedRecords) ? $failedRecords : [];
+        $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate) {
+            return (string)($item['data_date'] ?? '') !== $dataDate;
+        }));
+        if (!$success) {
+            array_unshift($failedRecords, [
+                'data_date' => $dataDate,
+                'last_failed_at' => $runAt,
+                'message' => $message,
+            ]);
+        }
+        $status['failed_records'] = array_slice($failedRecords, 0, 30);
+
         Cache::set($statusKey, $status, 86400 * 30);
     }
 }

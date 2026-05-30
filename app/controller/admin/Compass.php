@@ -7,7 +7,6 @@ use app\controller\Base;
 use app\model\Hotel;
 use app\model\OperationLog;
 use app\model\SystemConfig;
-use think\facade\Db;
 use think\Response;
 
 class Compass extends Base
@@ -48,7 +47,8 @@ class Compass extends Base
         $data = $this->request->post();
         $order = $data['order'] ?? [];
         $hidden = $data['hidden'] ?? [];
-        if (!is_array($order) || !is_array($hidden)) {
+        $quickEntries = $data['quick_entries'] ?? [];
+        if (!is_array($order) || !is_array($hidden) || !is_array($quickEntries)) {
             return json(['code' => 400, 'message' => '参数错误']);
         }
 
@@ -58,10 +58,31 @@ class Compass extends Base
         if (empty($order)) {
             $order = $allowed;
         }
+        $defaultQuickEntries = $this->getDefaultQuickEntries();
+        $quickAllowed = $defaultQuickEntries['order'];
+        $quickOrder = $quickEntries['order'] ?? $quickAllowed;
+        $quickHidden = $quickEntries['hidden'] ?? [];
+        if (!is_array($quickOrder)) {
+            $quickOrder = $quickAllowed;
+        }
+        if (!is_array($quickHidden)) {
+            $quickHidden = [];
+        }
+        $quickOrder = array_values(array_filter($quickOrder, fn($key) => in_array($key, $quickAllowed, true)));
+        $quickHidden = array_values(array_filter($quickHidden, fn($key) => in_array($key, $quickAllowed, true)));
+        foreach ($quickAllowed as $key) {
+            if (!in_array($key, $quickOrder, true)) {
+                $quickOrder[] = $key;
+            }
+        }
 
         SystemConfig::setValue(self::LAYOUT_KEY, json_encode([
             'order' => $order,
             'hidden' => $hidden,
+            'quick_entries' => [
+                'order' => $quickOrder,
+                'hidden' => $quickHidden,
+            ],
         ], JSON_UNESCAPED_UNICODE), '门店罗盘板块布局');
 
         OperationLog::record('compass', 'update_layout', '更新门店罗盘板块排序', $this->currentUser->id);
@@ -87,15 +108,30 @@ class Compass extends Base
         }
         $order = isset($data['order']) && is_array($data['order']) ? $data['order'] : $default['order'];
         $hidden = isset($data['hidden']) && is_array($data['hidden']) ? $data['hidden'] : [];
+        $quickEntries = isset($data['quick_entries']) && is_array($data['quick_entries']) ? $data['quick_entries'] : $default['quick_entries'];
         $allowed = $default['order'];
         $order = array_values(array_filter($order, fn($key) => in_array($key, $allowed, true)));
         $hidden = array_values(array_filter($hidden, fn($key) => in_array($key, $allowed, true)));
         if (empty($order)) {
             $order = $default['order'];
         }
+        $quickAllowed = $default['quick_entries']['order'];
+        $quickOrder = isset($quickEntries['order']) && is_array($quickEntries['order']) ? $quickEntries['order'] : $quickAllowed;
+        $quickHidden = isset($quickEntries['hidden']) && is_array($quickEntries['hidden']) ? $quickEntries['hidden'] : [];
+        $quickOrder = array_values(array_filter($quickOrder, fn($key) => in_array($key, $quickAllowed, true)));
+        $quickHidden = array_values(array_filter($quickHidden, fn($key) => in_array($key, $quickAllowed, true)));
+        foreach ($quickAllowed as $key) {
+            if (!in_array($key, $quickOrder, true)) {
+                $quickOrder[] = $key;
+            }
+        }
         return [
             'order' => $order,
             'hidden' => $hidden,
+            'quick_entries' => [
+                'order' => $quickOrder,
+                'hidden' => $quickHidden,
+            ],
         ];
     }
 
@@ -103,6 +139,15 @@ class Compass extends Base
     {
         return [
             'order' => ['weather'],
+            'hidden' => [],
+            'quick_entries' => $this->getDefaultQuickEntries(),
+        ];
+    }
+
+    private function getDefaultQuickEntries(): array
+    {
+        return [
+            'order' => ['online-data', 'operation-diagnosis', 'strategy-simulation', 'ai-tools', 'hotel-management', 'system-settings'],
             'hidden' => [],
         ];
     }
@@ -175,162 +220,5 @@ class Compass extends Base
             return $matches[1];
         }
         return mb_substr($address, 0, 6);
-    }
-
-    private function getTodoList(): array
-    {
-        return [
-            ['title' => '检查今日入住预订确认', 'owner' => '前台', 'deadline' => '10:30', 'status' => '待处理'],
-            ['title' => '完成客房巡检与补货', 'owner' => '客房部', 'deadline' => '12:00', 'status' => '进行中'],
-            ['title' => '复盘昨日差评并回访', 'owner' => '店长', 'deadline' => '15:00', 'status' => '待处理'],
-            ['title' => '核对今日营收与账单', 'owner' => '财务', 'deadline' => '17:00', 'status' => '待处理'],
-        ];
-    }
-
-    private function getMetrics(int $hotelId): array
-    {
-        return [
-            'day' => $this->getMetricRange('day', $hotelId),
-            'week' => $this->getMetricRange('week', $hotelId),
-            'month' => $this->getMetricRange('month', $hotelId),
-        ];
-    }
-
-    private function getMetricRange(string $type, int $hotelId): array
-    {
-        [$start, $end] = $this->getDateRange($type);
-
-        $dailyQuery = Db::name('daily_reports')
-            ->whereBetween('report_date', [$start, $end]);
-        if ($hotelId) {
-            $dailyQuery->where('hotel_id', $hotelId);
-        }
-
-        $checkins = (int)$dailyQuery->sum('room_count');
-        $revenue = (float)$dailyQuery->sum('revenue');
-
-        $orderQuery = Db::name('online_daily_data')
-            ->whereBetween('data_date', [$start, $end]);
-        if ($hotelId) {
-            $orderQuery->where('system_hotel_id', $hotelId);
-        }
-        $orders = (int)$orderQuery->sum('book_order_num');
-
-        return [
-            'orders' => $orders,
-            'checkins' => $checkins,
-            'revenue' => round($revenue, 2),
-        ];
-    }
-
-    private function getAlerts(int $hotelId): array
-    {
-        $alerts = [];
-        $today = date('Y-m-d');
-
-        $reportQuery = Db::name('daily_reports')->where('report_date', $today);
-        if ($hotelId) {
-            $reportQuery->where('hotel_id', $hotelId);
-        }
-        $report = $reportQuery->order('id', 'desc')->find();
-        if ($report && isset($report['occupancy_rate']) && (float)$report['occupancy_rate'] >= 95) {
-            $alerts[] = [
-                'type' => '满房预警',
-                'level' => 'red',
-                'message' => '今日入住率 ' . $report['occupancy_rate'] . '%，建议检查价格与房态',
-            ];
-        }
-
-        $onlineQuery = Db::name('online_daily_data')->where('data_date', $today);
-        if ($hotelId) {
-            $onlineQuery->where('system_hotel_id', $hotelId);
-        }
-        $online = $onlineQuery->order('id', 'desc')->find();
-
-        $avgPriceToday = 0.0;
-        if ($online && (int)$online['quantity'] > 0) {
-            $avgPriceToday = (float)$online['amount'] / (int)$online['quantity'];
-        }
-
-        $avgPrice7 = $this->getOnlineAvgPrice($hotelId, 7);
-        if ($avgPriceToday > 0 && $avgPrice7 > 0 && $avgPriceToday < $avgPrice7 * 0.8) {
-            $alerts[] = [
-                'type' => '低价房预警',
-                'level' => 'yellow',
-                'message' => '今日均价低于近7日均价 20%，请关注价格策略',
-            ];
-        }
-
-        if ($online && ((float)$online['comment_score'] < 4.5 || (float)$online['qunar_comment_score'] < 4.5)) {
-            $alerts[] = [
-                'type' => '差评预警',
-                'level' => 'red',
-                'message' => '线上评分偏低，请及时复盘改进',
-            ];
-        }
-
-        if (empty($alerts)) {
-            $alerts[] = [
-                'type' => '预警状态',
-                'level' => 'yellow',
-                'message' => '暂无高优先级预警',
-            ];
-        }
-
-        return $alerts;
-    }
-
-    private function getHolidaySales(): array
-    {
-        return [
-            [
-                'name' => '三月三',
-                'days' => [
-                    ['date' => '03-03', 'king' => 42, 'twin' => 36, 'total' => 78],
-                    ['date' => '03-04', 'king' => 46, 'twin' => 40, 'total' => 86],
-                    ['date' => '03-05', 'king' => 38, 'twin' => 33, 'total' => 71],
-                ],
-            ],
-            [
-                'name' => '五一',
-                'days' => [
-                    ['date' => '05-01', 'king' => 58, 'twin' => 52, 'total' => 110],
-                    ['date' => '05-02', 'king' => 61, 'twin' => 54, 'total' => 115],
-                    ['date' => '05-03', 'king' => 55, 'twin' => 50, 'total' => 105],
-                ],
-            ],
-        ];
-    }
-
-    private function getOnlineAvgPrice(int $hotelId, int $days): float
-    {
-        $start = date('Y-m-d', strtotime('-' . ($days - 1) . ' day'));
-        $end = date('Y-m-d');
-        $query = Db::name('online_daily_data')->whereBetween('data_date', [$start, $end]);
-        if ($hotelId) {
-            $query->where('system_hotel_id', $hotelId);
-        }
-        $amount = (float)$query->sum('amount');
-        $quantity = (int)$query->sum('quantity');
-        if ($quantity <= 0) {
-            return 0.0;
-        }
-        return $amount / $quantity;
-    }
-
-    private function getDateRange(string $type): array
-    {
-        $today = date('Y-m-d');
-        if ($type === 'day') {
-            return [$today, $today];
-        }
-        if ($type === 'week') {
-            $start = date('Y-m-d', strtotime('monday this week'));
-            $end = date('Y-m-d', strtotime('sunday this week'));
-            return [$start, $end];
-        }
-        $start = date('Y-m-01');
-        $end = date('Y-m-t');
-        return [$start, $end];
     }
 }

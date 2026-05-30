@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\model;
 
+use think\facade\Db;
 use think\Model;
 
 class OperationLog extends Model
@@ -58,6 +59,9 @@ class OperationLog extends Model
         $log = new self();
         $log->user_id = $userId;
         $log->hotel_id = $hotelId;
+        if (self::hasColumn('tenant_id')) {
+            $log->tenant_id = $hotelId;
+        }
         $log->module = $module;
         $log->action = $action;
         $log->description = $description;
@@ -68,6 +72,21 @@ class OperationLog extends Model
         $log->save();
         
         return $log;
+    }
+
+    private static function hasColumn(string $column): bool
+    {
+        static $columns = null;
+        if ($columns === null) {
+            try {
+                $rows = Db::query('SHOW COLUMNS FROM operation_logs');
+                $columns = array_fill_keys(array_column($rows, 'Field'), true);
+            } catch (\Throwable $e) {
+                $columns = [];
+            }
+        }
+
+        return isset($columns[$column]);
     }
 
     /**

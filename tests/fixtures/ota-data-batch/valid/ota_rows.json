@@ -1,0 +1,19 @@
+[
+  {
+    "source": "ctrip",
+    "hotel_id": "1001",
+    "hotel_name": "Valid Hotel",
+    "data_date": "2026-05-17",
+    "amount": 1000,
+    "quantity": 5,
+    "adr": 200,
+    "raw_data": {
+      "hotelId": "1001",
+      "hotelName": "Valid Hotel",
+      "dataDate": "2026-05-17",
+      "amount": 1000,
+      "quantity": 5,
+      "bookOrderNum": 3
+    }
+  }
+]

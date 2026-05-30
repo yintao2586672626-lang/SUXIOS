@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-05-30",
+  "scope": [
+    "@github",
+    "@openai-developers",
+    "@codex-security",
+    "@figma",
+    "@canva"
+  ],
+  "overall_status": "not_release_ready",
+  "current_pr": {
+    "number": 1,
+    "status": "open",
+    "checks": "green_on_current_head",
+    "source_of_truth": "GitHub PR #1 current head"
+  },
+  "release_readiness_check": {
+    "command": "npm run review:release-readiness",
+    "status": "failing_as_expected",
+    "open_failures": [
+      "production env file not provided through .env.production or RELEASE_ENV_FILE",
+      "production LLM connectivity attestation not provided through LLM_CONNECTIVITY_ATTESTATION_FILE or docs/llm_connectivity_attestation.json",
+      "docs/design_handoff_manifest.json not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
+      "database/backups contains OTA credential-shaped fields",
+      "OTA credential rotation attestation not provided through OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE or docs/ota_credential_rotation_attestation.json",
+      "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest",
+      ".git/index.lock exists and local git index is not ready for normal release handoff"
+    ],
+    "warnings": [
+      "verify git ls-files database/backups outside the script",
+      "confirm GitHub Actions dependency audits on current PR head",
+      "verify git status --short --branch before release"
+    ],
+    "result_file_template": "docs/release_readiness_result.example.json"
+  },
+  "blockers": [
+    {
+      "id": "production-env-missing",
+      "scope": [
+        "@openai-developers"
+      ],
+      "status": "open",
+      "title": "Production env is missing",
+      "evidence": "review:release-readiness reports .env.production missing and RELEASE_ENV_FILE is not set",
+      "close_condition": "provide controlled production env outside the repository with APP_DEBUG=false, APP_TRACE=false, non-local DB_HOST, least-privilege DB_USER, and non-placeholder database and AI_CONFIG_SECRET values; npm run review:release-env must pass first"
+    },
+    {
+      "id": "llm-connectivity-attestation-missing",
+      "scope": [
+        "@openai-developers"
+      ],
+      "status": "open",
+      "title": "Production LLM connectivity attestation is missing",
+      "evidence": "docs/llm_connectivity_attestation.json is missing and LLM_CONNECTIVITY_ATTESTATION_FILE is not set",
+      "close_condition": "run a production LlmClient connectivity smoke test using real ai_model_configs, provide a secret-free attestation JSON with redaction_checked=true, and pass npm run review:release-llm"
+    },
+    {
+      "id": "design-handoff-missing",
+      "scope": [
+        "@figma",
+        "@canva"
+      ],
+      "status": "open",
+      "title": "Real Figma / Canva / design-token handoff is missing",
+      "evidence": "no real docs/design_handoff_manifest.json, Figma/Canva source, or design-token artifact is present",
+      "close_condition": "provide accessible Figma, Canva, Brand Kit, design_tokens_path, required flow coverage, YYYY-MM-DD review date, empty open_issues, and pass npm run review:release-design"
+    },
+    {
+      "id": "backup-credential-shaped-fields",
+      "scope": [
+        "@codex-security"
+      ],
+      "status": "open",
+      "title": "Local database/backups contains OTA credential-shaped fields",
+      "evidence": "review:release-readiness reports 4498 credential-shaped matches across database/backups/hotelx_after_tenant_security_20260529_161926.sql (2249) and database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql (2249)",
+      "close_condition": "delete, sanitize, or encrypted-archive local backups and pass review:release-ota-credentials plus review:release-readiness with no credential-shaped matches across database/backups text files"
+    },
+    {
+      "id": "ota-credential-rotation-attestation-missing",
+      "scope": [
+        "@codex-security"
+      ],
+      "status": "open",
+      "title": "OTA credential rotation attestation is missing",
+      "evidence": "docs/ota_credential_rotation_attestation.json is missing and OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE is not set",
+      "close_condition": "provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, release-readiness rerun, redaction_checked=true, and pass review:release-ota-credentials"
+    },
+    {
+      "id": "codex-security-scan-missing",
+      "scope": [
+        "@codex-security"
+      ],
+      "status": "open",
+      "title": "Formal repo-wide Codex Security scan reports are missing",
+      "evidence": "CODEX_SECURITY_SCAN_DIR and docs/security/codex-security/latest scan artifacts are not present",
+      "close_condition": "authorize subagents, provide scan_manifest.json, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, final Markdown/HTML reports, and pass review:release-security-scan"
+    },
+    {
+      "id": "local-git-state-open",
+      "scope": [
+        "@github"
+      ],
+      "status": "open",
+      "title": "Local Git state is not closed",
+      "evidence": "npm run collect:release-external-state plus RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json proves PR #1 is open, mergeable, has green checks, and database/backups is not tracked, but review:release-external-state still fails because PR #1 is draft, .git/index.lock exists, and the local worktree is dirty",
+      "close_condition": "mark PR #1 ready for review, align local worktree with PR, confirm .git/index.lock is absent, and pass review:release-external-state"
+    }
+  ],
+  "external_state_check": {
+    "command": "npm run review:release-external-state",
+    "status": "failing_as_expected",
+    "evidence_file_template": "docs/release_external_state_evidence.example.json",
+    "result_file_template": "docs/release_external_state_result.example.json",
+    "resolved": [
+      "GitHub PR checks are currently green on the latest inspected head",
+      "PR #1 is mergeable on the latest collected head",
+      "PR #1 is open",
+      "database/backups is not tracked by git",
+      "local external-state evidence can be collected with npm run collect:release-external-state when Node child_process is blocked"
+    ],
+    "open_failures": [
+      "PR #1 is still draft",
+      ".git/index.lock exists in local evidence",
+      "local worktree is not clean"
+    ],
+    "warnings": [
+      "rerun after every PR update because GitHub state changes outside the repository",
+      "if Node child_process is unavailable, run npm run collect:release-external-state and set RELEASE_EXTERNAL_STATE_FILE to the captured JSON evidence"
+    ]
+  },
+  "plugin_status": [
+    {
+      "plugin": "@github",
+      "status": "partial",
+      "resolved": [
+        "PR #1 is open and mergeable",
+        "current GitHub Actions verify checks pass",
+        "CI runs PHPUnit, guards, functional-readiness review, non-security review, release-status contracts, composer audit and npm audit",
+        "npm run collect:release-external-state captured PR head, PR checks, merge state, and database/backups tracking evidence"
+      ],
+      "open": [
+        "PR #1 remains draft and is not ready for release handoff",
+        "local worktree remains dirty because prior PR sync used GitHub API",
+        ".git/index.lock still exists and blocks normal local release operations"
+      ]
+    },
+    {
+      "plugin": "@openai-developers",
+      "status": "partial",
+      "resolved": [
+        "legacy env-based OpenAIClient was removed",
+        "production AI path is LlmClient with encrypted ai_model_configs",
+        ".example.production.env and deployment_env_checklist.md document required production configuration"
+      ],
+      "open": [
+        "real production env has not been provided through .env.production or RELEASE_ENV_FILE",
+        "production ai_model_configs have not been verified with a real connectivity test"
+      ]
+    },
+    {
+      "plugin": "@codex-security",
+      "status": "partial",
+      "resolved": [
+        "verify_high_risk_security.php passes",
+        "GitHub Actions composer audit reports no security advisories",
+        "GitHub Actions npm audit reports 0 vulnerabilities",
+        "release package sensitive paths are ignored and export-ignored",
+        "database/backups is not tracked by git"
+      ],
+      "open": [
+        "formal Codex Security repo-wide scan has not been run because subagent authorization is still required",
+        "local database/backups still contains OTA credential-shaped fields and requires rotation or cleanup"
+      ]
+    },
+    {
+      "plugin": "@figma",
+      "status": "open",
+      "resolved": [
+        "ui-handoff README documents code-side page coverage",
+        "design_handoff_manifest.example.json defines required Figma handoff metadata",
+        "release_functional_acceptance_matrix.md ties Figma to code-side UI handoff coverage"
+      ],
+      "open": [
+        "no real Figma URL, exported design source, or design token artifact is present",
+        "docs/design_handoff_manifest.json has not been created with real values"
+      ]
+    },
+    {
+      "plugin": "@canva",
+      "status": "open",
+      "resolved": [
+        "design_handoff_manifest.example.json defines required Canva and Brand Kit metadata",
+        "release_functional_acceptance_matrix.md ties Canva to the design handoff contract"
+      ],
+      "open": [
+        "no real Canva design URL, Brand Kit URL, or export artifact is present",
+        "release materials cannot be verified against a real Canva source"
+      ]
+    }
+  ],
+  "do_not_claim_ready_until": [
+    "production env is provided and passes review:release-env plus review:release-readiness",
+    "production LLM connectivity attestation is provided and passes review:release-llm plus review:release-readiness",
+    "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
+    "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-ota-credentials plus review:release-readiness no longer report credential-shaped fields",
+    "OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
+    "formal Codex Security repo-wide scan is authorized, executed, produces markdown/html reports, and passes review:release-security-scan",
+    "PR #1 is marked ready for review and local git state is clean or contains only reviewed intentional changes"
+  ]
+}

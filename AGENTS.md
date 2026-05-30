@@ -30,6 +30,8 @@
 16. 不写临时代码、伪代码、占位逻辑。
 17. 修改前先说明改动位置和最小方案。
 18. 修改后必须说明验证方式和风险点。
+19. 不凭空造事实；缺少数据、日志、接口返回、验证结果或明确证据时，必须如实说明未知，不得编造结论、数值、状态或来源。
+20. 不写兜底逻辑掩盖问题；禁止用静默失败、假成功、空数据默认值、宽泛 catch 或临时兼容分支隐藏真实错误，必要兜底必须暴露原因、保留可排查信号并说明风险。
 
 ### 输出格式
 
@@ -210,26 +212,22 @@ composer update
 
 ## 六、测试命令
 
-> ⚠️ **当前项目没有测试框架。**
+> 当前项目已有 PHPUnit、Playwright 自动化和 Node/PHP 合同校验脚本。Windows PowerShell 下优先使用 `C:\xampp\php\php.exe` 和 `npm.cmd`。
 
-- 无 PHPUnit（`phpunit.xml` 不存在）
-- 无功能测试
-- 无单元测试
+**常用验证命令**：
 
-**如果需要添加测试**：
-
-```bash
-# 安装 PHPUnit
-composer require --dev phpunit/phpunit
-
-# 生成 phpunit.xml 配置
-php vendor/bin/phpunit --generate-configuration
+```powershell
+C:\xampp\php\php.exe vendor\bin\phpunit --colors=never
+npm.cmd run verify:p0-guards
+npm.cmd run review:non-security
+npm.cmd run verify:e2e-contracts
+C:\xampp\php\php.exe scripts\verify_route_coverage.php
 ```
 
-**当前测试方式**：
-- 手动测试 API：`curl` 或 Postman
-- 测试脚本：`test-api.ps1`、`test-login.ps1`
-- 健康检查：`GET /api/health`
+**按需补充**：
+- `npm.cmd run type-check`：当前无 TS 输入时会跳过。
+- `node --check <file>`：检查单个 JS/MJS 语法。
+- `C:\xampp\php\php.exe -l <file>`：检查单个 PHP 文件语法。
 
 ---
 

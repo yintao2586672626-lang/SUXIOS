@@ -26,6 +26,18 @@ class HotelFieldTemplate extends Base
             abort(403, '需要超级管理员权限');
         }
     }
+
+    private function assertHotelAccess(int $hotelId): void
+    {
+        if ($this->currentUser->isSuperAdmin()) {
+            return;
+        }
+
+        $permittedIds = array_map('intval', $this->currentUser->getPermittedHotelIds());
+        if (!in_array($hotelId, $permittedIds, true)) {
+            abort(403, 'Forbidden');
+        }
+    }
     
     public function index(): Response
     {
@@ -34,8 +46,22 @@ class HotelFieldTemplate extends Base
         $flat = $this->request->param('flat', 0);
         
         $query = TemplateModel::with(['items', 'hotel']);
-        if ($hotelId) {
-            $query->where('hotel_id', $hotelId);
+        if ($this->currentUser->isSuperAdmin()) {
+            if ($hotelId) {
+                $query->where('hotel_id', $hotelId);
+            }
+        } else {
+            $permittedIds = array_map('intval', $this->currentUser->getPermittedHotelIds());
+            if (empty($permittedIds)) {
+                return $this->success([]);
+            }
+            if ($hotelId) {
+                $hotelId = (int)$hotelId;
+                $this->assertHotelAccess($hotelId);
+                $query->where('hotel_id', $hotelId);
+            } else {
+                $query->whereIn('hotel_id', $permittedIds);
+            }
         }
         
         $list = $query->order('id', 'desc')->select();
@@ -92,6 +118,7 @@ class HotelFieldTemplate extends Base
         if (!$template) {
             return $this->error('模板不存在');
         }
+        $this->assertHotelAccess((int)$template->hotel_id);
         
         // 添加hotel_name和格式化行号
         $template->hotel_name = $template->hotel ? $template->hotel->name : '';
@@ -118,8 +145,11 @@ class HotelFieldTemplate extends Base
     {
         $this->checkSuperAdmin();
         
-        $data = $this->request->post();
-        $hotelId = (int)$data['hotel_id'];
+        $data = $this->requestData();
+        $hotelId = (int)($data['hotel_id'] ?? 0);
+        if ($hotelId <= 0) {
+            return $this->error('请选择门店');
+        }
         $templateName = $data['template_name'] ?? '默认模板';
         
         if (TemplateModel::where('hotel_id', $hotelId)->where('template_name', $templateName)->find()) {
@@ -152,7 +182,7 @@ class HotelFieldTemplate extends Base
             return $this->error('模板不存在');
         }
         
-        $data = $this->request->put();
+        $data = $this->requestData();
         
         if (isset($data['template_name'])) {
             $template->template_name = $data['template_name'];
@@ -194,6 +224,11 @@ class HotelFieldTemplate extends Base
     public function items(int $id): Response
     {
         $this->checkPermission();
+        $template = TemplateModel::find($id);
+        if (!$template) {
+            return $this->error('模板不存在');
+        }
+        $this->assertHotelAccess((int)$template->hotel_id);
         $items = HotelFieldTemplateItem::getItemsByTemplate($id);
         return $this->success($items);
     }

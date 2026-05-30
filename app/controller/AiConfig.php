@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\model\AiModelConfig;
 use app\model\OperationLog;
+use app\service\LlmEndpoint;
 use think\facade\Db;
 use think\Response;
 
@@ -12,7 +13,7 @@ class AiConfig extends Base
 {
     public function models(): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $models = AiModelConfig::order('is_default', 'desc')
             ->order('id', 'asc')
@@ -27,7 +28,7 @@ class AiConfig extends Base
 
     public function createModel(): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $data = $this->request->param();
         $error = $this->validateModelPayload($data, true);
@@ -73,7 +74,7 @@ class AiConfig extends Base
 
     public function updateModel(int $id): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $model = AiModelConfig::find($id);
         if (!$model) {
@@ -125,7 +126,7 @@ class AiConfig extends Base
 
     public function deleteModel(int $id): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $model = AiModelConfig::find($id);
         if (!$model) {
@@ -143,7 +144,7 @@ class AiConfig extends Base
 
     public function testModel(int $id): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $model = AiModelConfig::find($id);
         if (!$model) {
@@ -161,7 +162,8 @@ class AiConfig extends Base
         $result = $this->testChatCompletion(
             (string) $model->base_url,
             (string) $model->model_name,
-            (string) $apiKey['api_key']
+            (string) $apiKey['api_key'],
+            (string) $model->provider
         );
         if (($result['ok'] ?? false) !== true) {
             return $this->error((string) $result['message'], (int) $result['code']);
@@ -176,12 +178,17 @@ class AiConfig extends Base
 
     public function quickSetupProvider(): Response
     {
-        $this->checkLogin();
+        $this->checkSuperAdmin();
 
         $provider = strtolower(trim((string) $this->request->param('provider', '')));
+        $baseUrlOverride = trim((string) $this->request->param('base_url', ''));
         $apiKey = trim((string) $this->request->param('api_key', ''));
-        if (!in_array($provider, ['deepseek', 'openai'], true)) {
-            return $this->error('provider 仅支持 deepseek/openai', 422);
+        $definitions = $this->providerModelDefinitions($provider, $baseUrlOverride);
+        if ($definitions === []) {
+            if ($this->requiresCustomQuickSetupBaseUrl($provider)) {
+                return $this->error('该模型族需要填写 OpenAI 兼容 Base URL 后才能快速配置', 422);
+            }
+            return $this->error('provider 不在当前快速接入范围内', 422);
         }
         if ($apiKey === '') {
             return $this->error('API Key 不能为空', 422);
@@ -201,7 +208,6 @@ class AiConfig extends Base
         $created = 0;
         $updated = 0;
         $models = [];
-        $definitions = $this->providerModelDefinitions($provider);
 
         Db::transaction(function () use ($provider, $definitions, $encryptedApiKey, $apiKeyMask, &$created, &$updated, &$models): void {
             if ($provider === 'deepseek') {
@@ -357,47 +363,95 @@ class AiConfig extends Base
         }
     }
 
-    private function providerModelDefinitions(string $provider): array
+    private function providerModelDefinitions(string $provider, string $baseUrlOverride = ''): array
     {
+        $provider = strtolower(trim($provider));
+        $baseUrlOverride = rtrim(trim($baseUrlOverride), '/');
+
         if ($provider === 'deepseek') {
+            $baseUrl = $baseUrlOverride !== '' ? $baseUrlOverride : 'https://api.deepseek.com/v1';
             return [
-                [
-                    'name' => 'DeepSeek 经济模式',
-                    'model_key' => 'deepseek_chat',
-                    'provider' => 'deepseek',
-                    'base_url' => 'https://api.deepseek.com/v1',
-                    'model_name' => 'deepseek-chat',
-                    'usage_scene' => 'ota_diagnosis',
-                    'is_default' => 1,
-                ],
-                [
-                    'name' => 'DeepSeek 深度推理',
-                    'model_key' => 'deepseek_reasoner',
-                    'provider' => 'deepseek',
-                    'base_url' => 'https://api.deepseek.com/v1',
-                    'model_name' => 'deepseek-reasoner',
-                    'usage_scene' => 'reasoning',
-                    'is_default' => 0,
-                ],
+                $this->quickModelDefinition('DeepSeek Chat', 'deepseek_chat', 'deepseek', $baseUrl, 'deepseek-chat', 'ota_diagnosis', 1),
+                $this->quickModelDefinition('DeepSeek Reasoner', 'deepseek_reasoner', 'deepseek', $baseUrl, 'deepseek-reasoner', 'reasoning'),
             ];
         }
 
-        $openAiModel = trim((string) env('OPENAI_MODEL', ''));
-        if ($openAiModel === '') {
-            $openAiModel = 'gpt-4.1-mini';
+        if ($provider === 'openai') {
+            $baseUrl = $baseUrlOverride !== '' ? $baseUrlOverride : 'https://api.openai.com/v1';
+            return [
+                $this->quickModelDefinition('OpenAI GPT', 'openai_gpt', 'openai', $baseUrl, $this->configEnv('OPENAI_MODEL', 'gpt-5.1'), 'general,agent,report'),
+                $this->quickModelDefinition('OpenAI Fast', 'openai_fast', 'openai', $baseUrl, $this->configEnv('OPENAI_FAST_MODEL', $this->configEnv('OPENAI_MODEL', 'gpt-5-mini')), 'report,web_search'),
+            ];
         }
 
-        return [
-            [
-                'name' => 'OpenAI 快速模式',
-                'model_key' => 'openai_fast',
-                'provider' => 'openai',
-                'base_url' => 'https://api.openai.com/v1',
-                'model_name' => $openAiModel,
-                'usage_scene' => 'report',
-                'is_default' => 0,
-            ],
+        $directProviders = [
+            'anthropic' => ['Anthropic Claude', 'anthropic_claude', 'https://api.anthropic.com/v1', 'ANTHROPIC_MODEL', 'claude-opus-4-7', 'long_context,code,report'],
+            'gemini' => ['Google Gemini', 'gemini_flash', 'https://generativelanguage.googleapis.com/v1beta/openai', 'GEMINI_MODEL', 'gemini-3.5-flash', 'multimodal,workspace,report'],
+            'xai' => ['xAI Grok', 'xai_grok', 'https://api.x.ai/v1', 'XAI_MODEL', 'grok-4.3', 'realtime,analysis,code'],
+            'mistral' => ['Mistral Large', 'mistral_large', 'https://api.mistral.ai/v1', 'MISTRAL_MODEL', 'mistral-large-latest', 'code,agent,low_cost'],
+            'cohere' => ['Cohere Command', 'cohere_command', 'https://api.cohere.ai/compatibility/v1', 'COHERE_MODEL', 'command-a-plus-05-2026', 'enterprise_search,rag'],
+            'perplexity' => ['Perplexity Sonar', 'perplexity_sonar', 'https://api.perplexity.ai/v1', 'PERPLEXITY_MODEL', 'sonar-pro', 'search,research'],
+            'nvidia' => ['NVIDIA Nemotron', 'nvidia_nemotron', 'https://integrate.api.nvidia.com/v1', 'NVIDIA_MODEL', 'nvidia/llama-3.1-nemotron-ultra-253b-v1', 'private_deploy,gpu,agent'],
         ];
+
+        if (isset($directProviders[$provider])) {
+            [$name, $modelKey, $baseUrl, $envKey, $defaultModel, $usageScene] = $directProviders[$provider];
+            return [
+                $this->quickModelDefinition($name, $modelKey, $provider, $baseUrlOverride !== '' ? $baseUrlOverride : $baseUrl, $this->configEnv($envKey, $defaultModel), $usageScene),
+            ];
+        }
+
+        $gatewayProviders = [
+            'meta_llama' => ['Meta Llama', 'meta_llama', 'META_LLAMA_MODEL', 'llama-4-maverick', 'open_source,private_deploy,research'],
+            'amazon_nova' => ['Amazon Nova', 'amazon_nova', 'AMAZON_NOVA_MODEL', 'amazon.nova-pro-v1:0', 'aws,enterprise,workflow'],
+            'microsoft_phi' => ['Microsoft Phi', 'microsoft_phi', 'MICROSOFT_PHI_MODEL', 'Phi-4-mini-instruct', 'edge,low_cost,education'],
+            'ibm_granite' => ['IBM Granite', 'ibm_granite', 'IBM_GRANITE_MODEL', 'ibm/granite-3-3-8b-instruct', 'governance,enterprise,knowledge'],
+        ];
+
+        if (isset($gatewayProviders[$provider])) {
+            if ($baseUrlOverride === '') {
+                return [];
+            }
+            [$name, $modelKey, $envKey, $defaultModel, $usageScene] = $gatewayProviders[$provider];
+            return [
+                $this->quickModelDefinition($name, $modelKey, $provider, $baseUrlOverride, $this->configEnv($envKey, $defaultModel), $usageScene),
+            ];
+        }
+
+        return [];
+    }
+
+    private function requiresCustomQuickSetupBaseUrl(string $provider): bool
+    {
+        return in_array(strtolower(trim($provider)), ['meta_llama', 'amazon_nova', 'microsoft_phi', 'ibm_granite'], true);
+    }
+
+    private function quickModelDefinition(string $name, string $modelKey, string $provider, string $baseUrl, string $modelName, string $usageScene, int $isDefault = 0): array
+    {
+        return [
+            'name' => $name,
+            'model_key' => $modelKey,
+            'provider' => $provider,
+            'base_url' => rtrim($baseUrl, '/'),
+            'model_name' => $modelName,
+            'usage_scene' => $usageScene,
+            'is_default' => $isDefault,
+        ];
+    }
+
+    private function configEnv(string $key, string $default): string
+    {
+        try {
+            $value = env($key, $default);
+        } catch (\Throwable $e) {
+            $value = getenv($key);
+            if ($value === false) {
+                $value = $default;
+            }
+        }
+
+        $value = trim((string) $value);
+        return $value !== '' ? $value : $default;
     }
 
     private function decryptModelApiKey(AiModelConfig $model): array
@@ -419,7 +473,7 @@ class AiConfig extends Base
         return ['ok' => true, 'api_key' => $apiKey];
     }
 
-    private function testChatCompletion(string $baseUrl, string $modelName, string $apiKey): array
+    private function testChatCompletion(string $baseUrl, string $modelName, string $apiKey, string $provider = ''): array
     {
         $payload = [
             'model' => $modelName,
@@ -442,7 +496,7 @@ class AiConfig extends Base
             ],
         ]);
 
-        $response = @file_get_contents(rtrim($baseUrl, '/') . '/chat/completions', false, $context);
+        $response = @file_get_contents(LlmEndpoint::chatCompletionUrl($baseUrl, $provider), false, $context);
         if ($response === false) {
             return ['ok' => false, 'message' => '网络请求失败', 'code' => 502];
         }
@@ -474,6 +528,14 @@ class AiConfig extends Base
     {
         if (!$this->currentUser) {
             abort(401, '未登录');
+        }
+    }
+
+    private function checkSuperAdmin(): void
+    {
+        $this->checkLogin();
+        if (!$this->currentUser->isSuperAdmin()) {
+            abort(403, '无权限操作');
         }
     }
 }

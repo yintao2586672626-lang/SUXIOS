@@ -144,6 +144,8 @@ class MigrateOnlineData extends Command
                     'source' => "VARCHAR(50) DEFAULT 'ctrip'",
                     'dimension' => 'VARCHAR(100) DEFAULT \'\'',
                     'data_type' => 'VARCHAR(50) DEFAULT \'\'',
+                    'validation_status' => "VARCHAR(20) DEFAULT 'normal'",
+                    'validation_flags' => 'TEXT',
                 ];
                 
                 foreach ($fieldsToAdd as $field => $definition) {

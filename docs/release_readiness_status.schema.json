@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "docs/release_readiness_status.schema.json",
+  "title": "SUXIOS release readiness status",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "updated_at",
+    "scope",
+    "overall_status",
+    "current_pr",
+    "release_readiness_check",
+    "blockers",
+    "external_state_check",
+    "plugin_status",
+    "do_not_claim_ready_until"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "enum": ["@github", "@openai-developers", "@codex-security", "@figma", "@canva"]
+      },
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true
+    },
+    "overall_status": {
+      "const": "not_release_ready"
+    },
+    "current_pr": {
+      "type": "object",
+      "required": ["number", "status", "checks", "source_of_truth"]
+    },
+    "release_readiness_check": {
+      "type": "object",
+      "required": ["command", "status", "open_failures", "warnings", "result_file_template"]
+    },
+    "blockers": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "required": ["id", "scope", "status", "title", "evidence", "close_condition"],
+        "properties": {
+          "id": {
+            "enum": [
+              "production-env-missing",
+              "llm-connectivity-attestation-missing",
+              "design-handoff-missing",
+              "backup-credential-shaped-fields",
+              "ota-credential-rotation-attestation-missing",
+              "codex-security-scan-missing",
+              "local-git-state-open"
+            ]
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "enum": ["@github", "@openai-developers", "@codex-security", "@figma", "@canva"]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "status": {
+            "const": "open"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          },
+          "close_condition": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "external_state_check": {
+      "type": "object",
+      "required": ["command", "status", "evidence_file_template", "result_file_template", "resolved", "open_failures", "warnings"]
+    },
+    "plugin_status": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5
+    },
+    "do_not_claim_ready_until": {
+      "type": "array",
+      "minItems": 7
+    }
+  }
+}

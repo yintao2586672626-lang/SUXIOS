@@ -83,7 +83,7 @@
 |------|------|
 | 现象 | 修改 PHP 代码后请求结果没有变化 |
 | 原因 | PHP OPcache 缓存了旧版本的中间件/控制器代码 |
-| 解决 | 开发环境关闭 OPcache；或调用 `curl http://hotelx.local/api/online-data/clear-cache` |
+| 解决 | 开发环境关闭 OPcache；或重启 PHP 服务并清理 `runtime/cache`、`runtime/temp` |
 
 ### 坑 6：hotel-frontend/ 从未提交 Git
 
@@ -112,7 +112,7 @@
 | 2 | 美团 API 返回空数据 | 日期格式用了 YYYY-MM-DD | 代码中已将美团日期转为 YYYYMMDD |
 | 3 | `public/index.html` 552 字节 | Vite build 覆盖 | `git checkout origin/main -- HOTEL/public/index.html` |
 | 4 | 数据库 Access denied | .env 被删除或密码不一致 | 确认 .env 中 DB_PASS=空 |
-| 5 | PHP 代码修改后不生效 | OPcache 缓存 | 关闭 OPcache 或调用 clear-cache 接口 |
+| 5 | PHP 代码修改后不生效 | OPcache 缓存 | 关闭 OPcache，或重启 PHP 服务并清理 ThinkPHP 运行缓存 |
 | 6 | hotel-frontend/ 无法从 Git 恢复 | 从未提交 Git | 使用本地版本，尽快纳入 Git |
 | 7 | PowerShell 中文路径乱码 | 脚本编码问题 | 改用 cmd /c 执行命令 |
 | 8 | CORS 跨域报错 | 前端从非预期域名访问 | ThinkPHP 已配置 options 预检路由 |
@@ -181,7 +181,7 @@
 ### PHP 开发
 
 - ⚠️ 开发环境建议关闭 OPcache（`php.ini` 中设置 `opcache.enable=0`）
-- ✅ 修改代码后如遇不生效，调用 `/api/online-data/clear-cache` 清除缓存
+- ✅ 修改代码后如遇不生效，重启 PHP 服务并清理 `runtime/cache`、`runtime/temp`
 - ✅ 清除 ThinkPHP 运行时缓存：`rm -rf runtime/cache/* runtime/temp/*`
 
 ---

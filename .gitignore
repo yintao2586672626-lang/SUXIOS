@@ -2,17 +2,34 @@
 .env
 .env.*
 !.example.env
+!.example.production.env
 .mcp.json
 
 # Dependencies
 /vendor/
 node_modules/
 composer.phar
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*$py.class
 
 # ThinkPHP runtime
 /runtime/
+/storage/meituan_profile_*/
+/storage/ctrip_profile_*/
 *.log
 debug.log
+
+# Test artifacts
+tests/report/
+test-results/
+output/
+reports/ctrip_capture_assets/
+reports/meituan_capture_assets/
+reports/ctrip_browser_capture_*.json
+reports/meituan_browser_capture_*.json
+docs/release_external_state_evidence.local.json
 
 # Git / IDE / OS
 /.git/
@@ -33,6 +50,7 @@ Desktop.ini
 /HOTEL/
 
 # Sensitive database backup
+database/backups/
 hotelx_dump.sql
 *_dump.sql
 *_backup*.sql
@@ -55,6 +73,13 @@ new_hash.txt
 commit.bat
 push.bat
 
+# Local tunnel tooling - do not expose development services
+ngrok.exe
+ngrok*.exe
+ngrok.yml
+ngrok*.yml
+.ngrok2/
+
 # Public debug / one-off tooling
 public/diag*.php
 public/fix_*.php
@@ -70,11 +95,13 @@ public/ui-design*.md
 public/ui-example.html
 
 # Public obsolete build leftovers
+public/assets/
 public/app-main.*
 public/app-styles.css
 public/app.js
+public/components.css
+public/enhanced-components.css
+public/tailwind-custom.css
 public/tailwind.min.css.bak
 public/nginx.htaccess
-
-# Optional: ignore Vite build leftovers only after confirming they are unused.
-# public/assets/
+.gstack/

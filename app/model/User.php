@@ -73,7 +73,12 @@ class User extends Model
      */
     public function isSuperAdmin(): bool
     {
-        return $this->role_id == 1;
+        if ((int)$this->role_id === Role::SUPER_ADMIN) {
+            return true;
+        }
+
+        $role = $this->role;
+        return $role && $role->hasPermission('all');
     }
 
     /**
@@ -81,7 +86,12 @@ class User extends Model
      */
     public function isHotelManager(): bool
     {
-        return $this->role_id == 2;
+        if ((int)$this->role_id === Role::HOTEL_MANAGER) {
+            return true;
+        }
+
+        $role = $this->role;
+        return $role && (int)$role->level === 2;
     }
 
     /**
@@ -89,7 +99,12 @@ class User extends Model
      */
     public function isStaff(): bool
     {
-        return $this->role_id == 3;
+        if ((int)$this->role_id === Role::HOTEL_STAFF) {
+            return true;
+        }
+
+        $role = $this->role;
+        return $role && (int)$role->level >= 3;
     }
 
     /**
@@ -108,17 +123,16 @@ class User extends Model
      */
     public function hasHotelPermission(int $hotelId, string $permission): bool
     {
+        if ($hotelId <= 0) {
+            return false;
+        }
+
         if ($this->isSuperAdmin()) {
             // 超级管理员也需要检查酒店是否启用
-            $hotel = Hotel::find($hotelId);
-            return $hotel && $hotel->status == Hotel::STATUS_ENABLED;
+            return $this->isHotelActive($hotelId);
         }
         
         // 非超级管理员必须关联酒店
-        if (empty($this->hotel_id)) {
-            return false;
-        }
-        
         // 检查角色是否拥有该权限
         $role = $this->role;
         if (!$role || !$role->hasPermission($permission)) {
@@ -126,8 +140,16 @@ class User extends Model
         }
         
         // 检查是否是有权限的酒店（包含启用状态检查）
-        $permittedIds = $this->getPermittedHotelIds();
-        return in_array($hotelId, $permittedIds);
+        if (!$this->isHotelActive($hotelId)) {
+            return false;
+        }
+
+        $permissionRecord = $this->hotelPermissionRecord($hotelId);
+        if ($permissionRecord !== null) {
+            return $this->permissionRecordAllows($permissionRecord, $permission);
+        }
+
+        return !empty($this->hotel_id) && (int)$this->hotel_id === $hotelId;
     }
     
     /**
@@ -141,18 +163,19 @@ class User extends Model
         }
         
         // 非超级管理员必须关联酒店
-        if (empty($this->hotel_id)) {
-            return false;
-        }
-        
         // 检查关联的酒店是否启用
-        $hotel = Hotel::find($this->hotel_id);
-        if (!$hotel || $hotel->status != Hotel::STATUS_ENABLED) {
+        $role = $this->role;
+        if (!$role || !$role->hasPermission($permission)) {
             return false;
         }
-        
-        $role = $this->role;
-        return $role && $role->hasPermission($permission);
+
+        foreach ($this->getPermittedHotelIds() as $hotelId) {
+            if ($this->hasHotelPermission((int)$hotelId, $permission)) {
+                return true;
+            }
+        }
+
+        return false;
     }
     
     /**
@@ -175,16 +198,54 @@ class User extends Model
         }
 
         // 非超级管理员只有自己关联的酒店
-        if (empty($this->hotel_id)) {
+        $hotelIds = [];
+        if (!empty($this->hotel_id)) {
+            $hotelIds[] = (int)$this->hotel_id;
+        }
+
+        if (!empty($this->id)) {
+            $permissionHotelIds = UserHotelPermission::where('user_id', (int)$this->id)->column('hotel_id');
+            foreach ($permissionHotelIds as $permissionHotelId) {
+                if ((int)$permissionHotelId > 0) {
+                    $hotelIds[] = (int)$permissionHotelId;
+                }
+            }
+        }
+
+        $hotelIds = array_values(array_unique(array_filter($hotelIds, static fn(int $id): bool => $id > 0)));
+        if (empty($hotelIds)) {
             return [];
         }
         
         // 检查关联的酒店是否启用
-        $hotel = Hotel::find($this->hotel_id);
-        if (!$hotel || $hotel->status != Hotel::STATUS_ENABLED) {
-            return [];
+        return array_values(array_map('intval', Hotel::where('status', Hotel::STATUS_ENABLED)->whereIn('id', $hotelIds)->column('id')));
+    }
+
+    private function isHotelActive(int $hotelId): bool
+    {
+        $hotel = Hotel::find($hotelId);
+        return $hotel && (int)$hotel->status === Hotel::STATUS_ENABLED;
+    }
+
+    private function hotelPermissionRecord(int $hotelId): ?array
+    {
+        if (empty($this->id)) {
+            return null;
         }
-        
-        return [$this->hotel_id];
+
+        $record = UserHotelPermission::where('user_id', (int)$this->id)
+            ->where('hotel_id', $hotelId)
+            ->find();
+
+        return $record ? $record->toArray() : null;
+    }
+
+    private function permissionRecordAllows(array $record, string $permission): bool
+    {
+        if (!array_key_exists($permission, $record)) {
+            return false;
+        }
+
+        return (int)$record[$permission] === 1;
     }
 }

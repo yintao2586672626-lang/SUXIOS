@@ -5,7 +5,11 @@ namespace app\controller;
 
 use app\model\OperationLog;
 use app\model\SystemConfig;
+use app\model\User as UserModel;
+use app\service\OtaTrafficUrlNormalizer;
+use app\service\PlatformDataSyncService;
 use think\Response;
+use think\exception\HttpException;
 use think\facade\Db;
 
 class OnlineData extends Base
@@ -20,6 +24,24 @@ class OnlineData extends Base
         return !in_array(strtolower(trim((string)$value)), ['0', 'false', 'no', 'off'], true);
     }
 
+    private function shouldLogOtaDebug(): bool
+    {
+        $value = env('OTA_DEBUG_LOG', false);
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    private function commentCollectionDisabledResponse(): Response
+    {
+        return $this->error('Comment/review data collection is disabled by policy.', 422, [
+            'disabled' => true,
+            'scope' => 'ota_comments',
+        ]);
+    }
+
     private function buildStreamSslOptions(): array
     {
         $verify = $this->shouldVerifyOtaSsl();
@@ -29,11 +51,131 @@ class OnlineData extends Base
         ];
     }
 
+    public function dataSourceList(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            return $this->success($service->listDataSources($this->currentUser, $this->request->get()));
+        } catch (\Throwable $e) {
+            return $this->error('获取数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function saveDataSource(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            $data = $service->saveDataSource($this->currentUser, $this->requestData());
+            OperationLog::record('online_data', 'save_data_source', '保存平台数据源: ' . ($data['name'] ?? ''), $this->currentUser->id, (int)($data['system_hotel_id'] ?? 0) ?: null);
+            return $this->success($data, '数据源保存成功');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('保存数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function deleteDataSource(int $id): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            $service->deleteDataSource($this->currentUser, (int)$id);
+            OperationLog::record('online_data', 'delete_data_source', '停用平台数据源ID: ' . $id, $this->currentUser->id);
+            return $this->success(['id' => (int)$id], '数据源已停用');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('删除数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function syncDataSource(int $id): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            $result = $service->syncDataSource($this->currentUser, (int)$id, $this->requestData());
+            OperationLog::record('online_data', 'sync_data_source', '同步平台数据源ID: ' . $id . '，状态: ' . $result['status'], $this->currentUser->id, null);
+            return $this->success($result, '同步任务已完成');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('同步数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function importDataSourceRows(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            $payload = $this->requestData();
+            $file = $this->request->file('file') ?: $this->request->file('import_file');
+            if ($file) {
+                $payload['rows'] = $service->parseImportFile($file->getPathname(), $file->getOriginalName());
+            }
+            $result = $service->importRows($this->currentUser, $payload);
+            OperationLog::record('online_data', 'import_data_source_rows', '导入平台数据，状态: ' . $result['status'], $this->currentUser->id, null);
+            return $this->success($result, '导入任务已完成');
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('导入数据失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function syncTaskList(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            return $this->success($service->listSyncTasks($this->currentUser, $this->request->get()));
+        } catch (\Throwable $e) {
+            return $this->error('获取同步任务失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function syncLogList(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $service = new PlatformDataSyncService();
+            return $this->success($service->listSyncLogs($this->currentUser, $this->request->get()));
+        } catch (\Throwable $e) {
+            return $this->error('获取同步日志失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function safeHttpCode(int $code): int
+    {
+        return $code >= 400 && $code <= 599 ? $code : 400;
+    }
+
     /**
      * 获取线上数据 - 携程ebooking接口
      */
     public function fetchCtrip(): Response
     {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
         $url = $this->request->post('url', 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport');
         $nodeId = $this->request->post('node_id', '24588');
         $cookies = $this->request->post('cookies', '');
@@ -87,6 +229,7 @@ class OnlineData extends Base
                 $result = $this->sendHttpRequest($url, $postData, $cookies, $authData);
 
                 if (!$result['success']) {
+                    $this->recordCookieAlert('ctrip', 'fetch-ctrip', (string)($result['error'] ?? ''), $systemHotelId ? (int)$systemHotelId : null);
                     return json([
                         'code' => 500,
                         'message' => $currentDate . ' 请求失败: ' . ($result['error'] ?? '请求失败'),
@@ -141,6 +284,7 @@ class OnlineData extends Base
                 ]);
             }
 
+            $fetchedAt = date('Y-m-d H:i:s');
             foreach ($dateResults as &$dateResult) {
                 if ($autoSave) {
                     $dateResult['saved_count'] = $this->parseAndSaveData(
@@ -154,6 +298,15 @@ class OnlineData extends Base
             }
             unset($dateResult);
 
+            $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
+            $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
+            if ($this->currentUser && isset($this->currentUser->id)) {
+                OperationLog::record('online_data', 'fetch_ctrip', "获取携程线上数据: {$savedCount}条", $this->currentUser->id, $systemHotelId);
+            }
+
+            $displayHotels = $this->buildCtripBusinessDisplayHotels(['date_results' => $dateResults]);
+            $displaySummary = $this->buildCtripBusinessDisplaySummary($displayHotels);
+
             return json([
                 'code' => 200,
                 'message' => '获取成功',
@@ -162,8 +315,12 @@ class OnlineData extends Base
                     'date_results' => $dateResults,
                     'raw_response' => $rawResponse,
                     'saved_count' => $savedCount,
+                    'fetched_at' => $fetchedAt,
                     'request_start_date' => $startDate,
                     'request_end_date' => $endDate,
+                    'display_hotels' => $displayHotels,
+                    'display_hotel_count' => count($displayHotels),
+                    'display_summary' => $displaySummary,
                 ]
             ]);
         } catch (\Exception $e) {
@@ -178,6 +335,7 @@ class OnlineData extends Base
     public function fetchMeituan(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
         
         // 默认使用竞对排名数据接口
         $url = $this->request->post('url', 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail');
@@ -191,7 +349,7 @@ class OnlineData extends Base
         $startDate = $this->request->post('start_date', '');
         $endDate = $this->request->post('end_date', '');
         $autoSave = $this->request->post('auto_save', true);
-        $systemHotelId = $this->request->post('system_hotel_id', null);
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
         
         if (empty($cookies)) {
             return $this->error('请提供登录Cookies');
@@ -279,6 +437,7 @@ class OnlineData extends Base
             $result = $this->sendMeituanRequest($url, $params, $cookies, $authData);
             
             if (!$result['success']) {
+                $this->recordCookieAlert('meituan', 'fetch-meituan', (string)($result['error'] ?? ''), $systemHotelId ? (int)$systemHotelId : null);
                 return $this->error('请求失败: ' . $result['error']);
             }
             
@@ -293,6 +452,8 @@ class OnlineData extends Base
             
             // 确保所有数据都是有效的UTF-8编码
             $responseData = $this->ensureUtf8($responseData);
+            $displayHotels = $this->buildMeituanBusinessDisplayHotels($responseData);
+            $displaySummary = $this->buildMeituanBusinessDisplaySummary($displayHotels, $this->buildMeituanBusinessDisplayContext());
             $rawResponse = substr($this->ensureUtf8String($result['raw'] ?? ''), 0, 1000);
             
             // 直接构建响应数据并使用JSON_INVALID_UTF8_SUBSTITUTE处理无效字符
@@ -303,6 +464,9 @@ class OnlineData extends Base
                     'data' => $responseData,
                     'raw_response' => $rawResponse,
                     'saved_count' => $savedCount,
+                    'display_hotels' => $displayHotels,
+                    'display_hotel_count' => count($displayHotels),
+                    'display_summary' => $displaySummary,
                 ],
                 'time' => time(),
             ];
@@ -333,9 +497,33 @@ class OnlineData extends Base
     /**
      * 获取携程流量数据
      */
+    public function meituanDisplayModel(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $rows = $this->request->post('display_hotels', []);
+            if (is_string($rows)) {
+                $decodedRows = json_decode($rows, true);
+                $rows = is_array($decodedRows) ? $decodedRows : [];
+            }
+
+            $displayHotels = $this->mergeMeituanBusinessDisplayHotels(is_array($rows) ? $rows : []);
+            return $this->success([
+                'display_hotels' => $displayHotels,
+                'display_hotel_count' => count($displayHotels),
+                'display_summary' => $this->buildMeituanBusinessDisplaySummary($displayHotels, $this->buildMeituanBusinessDisplayContext()),
+            ]);
+        } catch (\Throwable $e) {
+            return $this->error('构建美团展示模型失败: ' . $e->getMessage());
+        }
+    }
+
     public function fetchCtripTraffic(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
 
         $url = (string)$this->request->post('url', '');
         $platform = (string)$this->request->post('platform', 'Ctrip');
@@ -376,6 +564,7 @@ class OnlineData extends Base
 
             $result = $this->sendCtripJsonRequest($requestUrl, $postData, $cookies);
             if (!empty($result['error'])) {
+                $this->recordCookieAlert(strtolower($platform), 'fetch-ctrip-traffic', (string)$result['error'], $systemHotelId ? (int)$systemHotelId : null);
                 return $this->error($result['error'], 400, [
                     'http_code' => $result['http_code'],
                     'raw_response' => $result['raw_response'],
@@ -386,6 +575,7 @@ class OnlineData extends Base
             $responseData = $result['decoded_data'];
             $apiError = $this->getCtripTrafficApiError($responseData);
             if ($apiError !== '') {
+                $this->recordCookieAlert(strtolower($platform), 'fetch-ctrip-traffic', $apiError, $systemHotelId ? (int)$systemHotelId : null);
                 return $this->error($apiError, 400, [
                     'http_code' => $result['http_code'],
                     'raw_response' => $result['raw_response'],
@@ -393,6 +583,9 @@ class OnlineData extends Base
                 ]);
             }
 
+            $trafficRows = is_array($responseData) ? $this->extractCtripTrafficRows($responseData) : [];
+            $displayTrafficRows = $this->buildCtripTrafficDisplayRows($trafficRows);
+            $displayTrafficSummary = $this->buildCtripTrafficDisplaySummary($displayTrafficRows);
             $savedCount = 0;
             if ($autoSave && is_array($responseData)) {
                 $savedCount = $this->parseAndSaveTrafficData(
@@ -411,6 +604,9 @@ class OnlineData extends Base
             return $this->success([
                 'data' => $responseData,
                 'decoded_data' => $responseData,
+                'traffic_rows' => $trafficRows,
+                'display_traffic_rows' => $displayTrafficRows,
+                'display_traffic_summary' => $displayTrafficSummary,
                 'raw_response' => $result['raw_response'],
                 'http_code' => $result['http_code'],
                 'saved_count' => $savedCount,
@@ -420,6 +616,112 @@ class OnlineData extends Base
                 'request_url' => $requestUrl,
                 'derived_analysis' => $derivedAnalysis,
             ]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->error('请求异常: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * 直接获取携程金字塔广告数据
+     */
+    public function fetchCtripAds(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $url = trim((string)$this->request->post('url', ''));
+        $cookies = trim((string)$this->request->post('cookies', ''));
+        $payloadJson = (string)$this->request->post('payload_json', (string)$this->request->post('extra_params', ''));
+        $dateRange = (string)$this->request->post('date_range', 'yesterday');
+        $startDate = (string)$this->request->post('start_date', '');
+        $endDate = (string)$this->request->post('end_date', '');
+        $apiType = (string)$this->request->post('api_type', 'campaign_report');
+        $method = strtoupper(trim((string)$this->request->post('method', 'POST'))) ?: 'POST';
+        $autoSave = $this->request->post('auto_save', true);
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
+        $hotelId = trim((string)$this->request->post('hotel_id', ''));
+        $hotelName = trim((string)$this->request->post('hotel_name', ''));
+
+        if ($cookies === '') {
+            return $this->error('请提供携程 Cookie');
+        }
+        if ($url === '') {
+            return $this->error('请在广告配置中填写金字塔广告接口 URL（Network 中 pyramidad / promotion 的 XHR 或 fetch 请求地址）');
+        }
+        if (preg_match('#/toolcenter/cpc/pyramid(?:\?|$)#i', $url)) {
+            return $this->error('当前填写的是金字塔广告页面地址，不是数据接口。请填写 Network 中 pyramidad / promotion 的 JSON 请求 URL');
+        }
+        if (!$this->isCtripAdsApiUrl($url)) {
+            return $this->error('金字塔广告接口 URL 必须来自 Network 中 pyramidad / promotion 的 XHR 或 fetch 请求，不能使用竞品日报等 datacenter 接口');
+        }
+        if (!in_array($method, ['POST', 'GET'], true)) {
+            return $this->error('广告接口请求方式仅支持 POST 或 GET');
+        }
+
+        try {
+            [$startDate, $endDate] = $this->buildCtripAdsDateRange($dateRange, $startDate, $endDate);
+            $payload = $this->parseJsonParams($payloadJson);
+            $payload = $this->buildCtripAdsDirectPayload($payload, $startDate, $endDate, $apiType);
+            $campaignId = trim((string)$this->request->post('campaign_id', ''));
+            if ($campaignId !== '') {
+                $payload['campaignId'] = $payload['campaignId'] ?? $campaignId;
+                $payload['campaign_id'] = $payload['campaign_id'] ?? $campaignId;
+            }
+
+            $result = $this->sendCtripAdsRequest($url, $payload, $cookies, $method);
+            if (!empty($result['error'])) {
+                $this->recordCookieAlert('ctrip', 'fetch-ctrip-ads', (string)$result['error'], $systemHotelId ? (int)$systemHotelId : null);
+                return $this->error($result['error'], 400, [
+                    'http_code' => $result['http_code'],
+                    'raw_response' => $result['raw_response'],
+                    'decoded_data' => $result['decoded_data'],
+                    'request_url' => $result['request_url'] ?? $url,
+                    'request_payload' => $payload,
+                ]);
+            }
+
+            $responseData = is_array($result['decoded_data']) ? $result['decoded_data'] : [];
+            $capturedPayload = [
+                'hotel_id' => $hotelId,
+                'hotel_name' => $hotelName,
+                'captured_at' => date('Y-m-d H:i:s'),
+                'request_start_date' => $startDate,
+                'request_end_date' => $endDate,
+                'responses' => [[
+                    'url' => $result['request_url'] ?? $url,
+                    'section' => 'ads',
+                    'data' => $responseData,
+                ]],
+            ];
+            $ads = $this->extractCtripCapturedAds($capturedPayload);
+            $rows = $this->buildCtripCapturedAdRows($ads, $capturedPayload, $systemHotelId);
+            $savedCount = 0;
+            if ($autoSave) {
+                $savedCount = $this->saveCtripCapturedAdRows($rows);
+            }
+
+            if ($this->currentUser && isset($this->currentUser->id)) {
+                OperationLog::record('online_data', 'fetch_ctrip_ads', "获取携程广告数据: {$savedCount}条", $this->currentUser->id, $systemHotelId);
+            }
+
+            return $this->success([
+                'data' => $ads,
+                'rows' => $rows,
+                'metrics' => $this->summarizeCtripAdRows($rows),
+                'total' => count($ads),
+                'row_count' => count($rows),
+                'saved_count' => $savedCount,
+                'decoded_data' => $responseData,
+                'raw_response' => $result['raw_response'],
+                'http_code' => $result['http_code'],
+                'request_url' => $result['request_url'] ?? $url,
+                'request_method' => $method,
+                'request_payload' => $payload,
+                'request_start_date' => $startDate,
+                'request_end_date' => $endDate,
+            ], '获取成功');
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
         } catch (\Throwable $e) {
@@ -484,6 +786,96 @@ class OnlineData extends Base
         ];
     }
 
+    private function buildCtripTrafficDisplayRows($responseData): array
+    {
+        $rows = $this->extractCtripTrafficRows($responseData);
+        $displayRows = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $normalized = $this->normalizeAppTrafficRow($row);
+            if ($normalized === null) {
+                continue;
+            }
+
+            $metrics = $normalized['metrics'];
+            $hotelId = $this->readTrafficNumber($row, ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'nodeId', 'node_id'], null);
+            $compareType = $normalized['compare_type'] === 'self' ? 'self' : 'competitor_avg';
+            $displayRows[] = [
+                'date' => $normalized['date'],
+                'hotelId' => $hotelId !== null ? (int)$hotelId : ($compareType === 'competitor_avg' ? -1 : null),
+                'compareType' => $compareType,
+                'listExposure' => (float)$metrics['exposure'],
+                'detailExposure' => (float)$metrics['detail_visitors'],
+                'flowRate' => (float)$metrics['exposure_rate'],
+                'orderFillingNum' => (float)$metrics['order_visitors'],
+                'orderSubmitNum' => (float)$metrics['submit_users'],
+                'orderFillRate' => (float)$metrics['order_rate'],
+                'submitRate' => (float)$metrics['deal_rate'],
+            ];
+        }
+
+        usort($displayRows, function (array $left, array $right): int {
+            $dateCompare = strcmp((string)$left['date'], (string)$right['date']);
+            if ($dateCompare !== 0) {
+                return $dateCompare;
+            }
+            if ($left['compareType'] === $right['compareType']) {
+                return 0;
+            }
+            return $left['compareType'] === 'self' ? -1 : 1;
+        });
+
+        return $displayRows;
+    }
+
+    private function buildCtripTrafficDisplaySummary(array $rows): array
+    {
+        $summary = $this->emptyCtripTrafficDisplaySummary();
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $targetKey = ($row['compareType'] ?? '') === 'self' ? 'self' : 'avg';
+            $summary[$targetKey]['listExposure'] += (float)($row['listExposure'] ?? 0);
+            $summary[$targetKey]['detailExposure'] += (float)($row['detailExposure'] ?? 0);
+            $summary[$targetKey]['orderFillingNum'] += (float)($row['orderFillingNum'] ?? 0);
+            $summary[$targetKey]['orderSubmitNum'] += (float)($row['orderSubmitNum'] ?? 0);
+        }
+
+        foreach (['self', 'avg'] as $targetKey) {
+            $item = $summary[$targetKey];
+            $summary[$targetKey]['flowRate'] = $this->trafficRate($item['detailExposure'], $item['listExposure']);
+            $summary[$targetKey]['orderFillRate'] = $this->trafficRate($item['orderFillingNum'], $item['detailExposure']);
+            $summary[$targetKey]['submitRate'] = $this->trafficRate($item['orderSubmitNum'], $item['orderFillingNum']);
+        }
+
+        return $summary;
+    }
+
+    private function emptyCtripTrafficDisplaySummary(): array
+    {
+        return [
+            'self' => $this->emptyCtripTrafficDisplayMetrics(),
+            'avg' => $this->emptyCtripTrafficDisplayMetrics(),
+        ];
+    }
+
+    private function emptyCtripTrafficDisplayMetrics(): array
+    {
+        return [
+            'listExposure' => 0.0,
+            'detailExposure' => 0.0,
+            'flowRate' => 0.0,
+            'orderFillingNum' => 0.0,
+            'orderFillRate' => 0.0,
+            'orderSubmitNum' => 0.0,
+            'submitRate' => 0.0,
+        ];
+    }
+
     private function emptyAppTrafficDerivedAnalysis(): array
     {
         $base = $this->calculateAppTrafficDerivedMetrics([
@@ -515,27 +907,30 @@ class OnlineData extends Base
 
     private function normalizeAppTrafficRow(array $row): ?array
     {
-        $date = $row['date'] ?? $row['dataDate'] ?? $row['statDate'] ?? $row['data_date'] ?? '';
+        $date = $row['date'] ?? $row['dataDate'] ?? $row['statDate'] ?? $row['stat_date'] ?? $row['data_date'] ?? $row['reportDate'] ?? $row['day'] ?? '';
         if ($date === '' || strtotime((string)$date) === false) {
             return null;
         }
 
         $compareType = $row['compareType'] ?? $row['compare_type'] ?? null;
         if ($compareType === null) {
-            $hotelId = $row['hotelId'] ?? $row['hotel_id'] ?? null;
-            $compareType = is_numeric($hotelId) && (int)$hotelId > 0 ? 'self' : 'competitor';
+            $hotelId = $row['hotelId'] ?? $row['hotel_id'] ?? $row['HotelId'] ?? $row['hotelID'] ?? $row['nodeId'] ?? $row['node_id'] ?? null;
+            $compareText = strtolower((string)($row['type'] ?? $row['rankType'] ?? $row['name'] ?? $row['hotelName'] ?? ''));
+            $compareType = (str_contains($compareText, 'competitor') || str_contains($compareText, 'peer') || str_contains($compareText, 'avg') || str_contains($compareText, 'average'))
+                ? 'competitor'
+                : (is_numeric($hotelId) && (int)$hotelId > 0 ? 'self' : 'competitor');
         }
         $compareType = in_array($compareType, ['self', 'my'], true) ? 'self' : 'competitor';
         $prefix = $compareType === 'self' ? 'self' : 'competitor';
 
-        $exposure = $this->readTrafficNumber($row, ['listExposure', 'list_exposure', "{$prefix}_exposure", 'exposure', 'data_value']);
-        $detailVisitors = $this->readTrafficNumber($row, ['detailExposure', 'detail_exposure', "{$prefix}_detail_visitors", 'detail_visitors']);
-        $orderVisitors = $this->readTrafficNumber($row, ['orderFillingNum', 'order_filling_num', "{$prefix}_order_visitors", 'order_visitors']);
-        $submitUsers = $this->readTrafficNumber($row, ['orderSubmitNum', 'order_submit_num', "{$prefix}_submit_users", 'submit_users']);
+        $exposure = $this->readTrafficNumber($row, ['listExposure', 'list_exposure', "{$prefix}_exposure", 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view', 'data_value']);
+        $detailVisitors = $this->readTrafficNumber($row, ['detailExposure', 'detail_exposure', "{$prefix}_detail_visitors", 'detail_visitors', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views']);
+        $orderVisitors = $this->readTrafficNumber($row, ['orderFillingNum', 'order_filling_num', "{$prefix}_order_visitors", 'order_visitors', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks']);
+        $submitUsers = $this->readTrafficNumber($row, ['orderSubmitNum', 'order_submit_num', "{$prefix}_submit_users", 'submit_users', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders']);
 
-        $exposureRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['flowRate', 'flow_rate', "{$prefix}_exposure_rate", 'exposure_rate'], null));
-        $orderRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['orderFillRate', 'order_rate', "{$prefix}_order_rate"], null));
-        $dealRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['submitRate', 'deal_rate', "{$prefix}_deal_rate"], null));
+        $exposureRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['flowRate', 'flow_rate', "{$prefix}_exposure_rate", 'exposure_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], null));
+        $orderRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['orderFillRate', 'order_rate', "{$prefix}_order_rate", 'orderConversionRate'], null));
+        $dealRate = $this->normalizeTrafficPercent($this->readTrafficNumber($row, ['submitRate', 'deal_rate', "{$prefix}_deal_rate", 'submitConversionRate', 'dealRate'], null));
 
         return [
             'date' => date('Y-m-d', strtotime((string)$date)),
@@ -656,11 +1051,31 @@ class OnlineData extends Base
     private function readTrafficNumber(array $row, array $keys, ?float $default = 0.0): ?float
     {
         foreach ($keys as $key) {
-            if (array_key_exists($key, $row) && is_numeric($row[$key])) {
-                return (float)$row[$key];
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+            $number = $this->coerceTrafficNumber($row[$key]);
+            if ($number !== null) {
+                return $number;
             }
         }
         return $default;
+    }
+
+    private function coerceTrafficNumber($value): ?float
+    {
+        if (is_int($value) || is_float($value)) {
+            return (float)$value;
+        }
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $normalized = str_replace([',', '%', ' '], '', trim($value));
+        if ($normalized === '') {
+            return null;
+        }
+        return is_numeric($normalized) ? (float)$normalized : null;
     }
 
     private function normalizeTrafficPercent(?float $value): float
@@ -682,13 +1097,16 @@ class OnlineData extends Base
     public function fetchMeituanTraffic(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
 
-        $url = $this->request->post('url', '');
-        $cookies = $this->request->post('cookies', '');
+        $url = trim((string)$this->request->post('url', ''));
+        $cookies = trim((string)$this->request->post('cookies', ''));
+        $partnerId = trim((string)$this->request->post('partner_id', ''));
+        $poiId = trim((string)$this->request->post('poi_id', ''));
         $startDate = $this->request->post('start_date', '');
         $endDate = $this->request->post('end_date', '');
         $autoSave = $this->request->post('auto_save', true);
-        $systemHotelId = $this->request->post('system_hotel_id', null);
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
         $extraParamsStr = $this->request->post('extra_params', '');
 
         if (empty($url)) {
@@ -700,8 +1118,24 @@ class OnlineData extends Base
 
         try {
             $extraParams = $this->parseJsonParams($extraParamsStr);
+            $partnerId = $partnerId !== '' ? $partnerId : trim((string)($extraParams['partnerId'] ?? $extraParams['partner_id'] ?? ''));
+            $poiId = $poiId !== '' ? $poiId : trim((string)($extraParams['poiId'] ?? $extraParams['poi_id'] ?? ''));
 
-            $params = $extraParams;
+            if ($partnerId === '') {
+                return $this->error('请提供Partner ID（商家ID）');
+            }
+            if ($poiId === '') {
+                return $this->error('请提供POI ID（门店ID）');
+            }
+
+            $params = array_merge([
+                'deviceType' => 1,
+                'yodaReady' => 'h5',
+                'csecplatform' => 4,
+                'csecversion' => '4.2.0',
+            ], $extraParams);
+            $params['partnerId'] = $partnerId;
+            $params['poiId'] = $poiId;
             if ($startDate && $endDate) {
                 $params['startDate'] = str_replace('-', '', $startDate);
                 $params['endDate'] = str_replace('-', '', $endDate);
@@ -716,6 +1150,7 @@ class OnlineData extends Base
 
             $result = $this->sendMeituanRequest($url, $params, $cookies);
             if (!$result['success']) {
+                $this->recordCookieAlert('meituan', 'fetch-meituan-traffic', (string)($result['error'] ?? ''), $systemHotelId ? (int)$systemHotelId : null);
                 return $this->error('请求失败: ' . $result['error']);
             }
 
@@ -744,28 +1179,168 @@ class OnlineData extends Base
     }
 
     /**
+     * 获取美团订单数据（手动提供 Cookie + Network Request URL）
+     */
+    public function fetchMeituanOrders(): Response
+    {
+        return $this->fetchMeituanManualBusinessSection('orders');
+    }
+
+    /**
+     * 获取美团推广通广告数据（手动提供 Cookie + Network Request URL）
+     */
+    public function fetchMeituanAds(): Response
+    {
+        return $this->fetchMeituanManualBusinessSection('ads');
+    }
+
+    private function fetchMeituanManualBusinessSection(string $section): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $url = trim((string)$this->request->post('url', ''));
+        $cookies = trim((string)$this->request->post('cookies', ''));
+        $partnerId = trim((string)$this->request->post('partner_id', ''));
+        $poiId = trim((string)$this->request->post('poi_id', ''));
+        $shopId = trim((string)$this->request->post('shop_id', ''));
+        $startDate = (string)$this->request->post('start_date', '');
+        $endDate = (string)$this->request->post('end_date', '');
+        $method = strtoupper(trim((string)$this->request->post('method', 'GET'))) ?: 'GET';
+        $autoSave = $this->request->post('auto_save', true);
+        $payloadJson = (string)$this->request->post('payload_json', '');
+        $extraParamsStr = (string)$this->request->post('extra_params', '');
+        $hotelName = trim((string)$this->request->post('hotel_name', ''));
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
+
+        if ($url === '') {
+            return $this->error('请提供 Network 中的接口 Request URL');
+        }
+        if ($cookies === '') {
+            return $this->error('请提供登录 Cookies');
+        }
+        if (!in_array($method, ['GET', 'POST'], true)) {
+            return $this->error('请求方式仅支持 GET 或 POST');
+        }
+
+        try {
+            $extraParams = $this->parseJsonParams($extraParamsStr);
+            $payloadParams = $this->parseJsonParams($payloadJson);
+            $partnerId = $partnerId !== '' ? $partnerId : trim((string)($extraParams['partnerId'] ?? $extraParams['partner_id'] ?? $payloadParams['partnerId'] ?? $payloadParams['partner_id'] ?? ''));
+            $poiId = $poiId !== '' ? $poiId : trim((string)($extraParams['poiId'] ?? $extraParams['poi_id'] ?? $payloadParams['poiId'] ?? $payloadParams['poi_id'] ?? ''));
+            $shopId = $shopId !== '' ? $shopId : trim((string)($extraParams['shopId'] ?? $extraParams['shop_id'] ?? $payloadParams['shopId'] ?? $payloadParams['shop_id'] ?? $poiId));
+
+            if ($section === 'orders' && ($partnerId === '' || $poiId === '')) {
+                return $this->error('订单接口需要提供 Partner ID 和 POI ID');
+            }
+            if ($section === 'ads' && $shopId === '' && $poiId === '') {
+                return $this->error('广告接口需要提供 Shop ID 或 POI ID');
+            }
+
+            [$startDate, $endDate] = $this->normalizeMeituanManualDateRange($startDate, $endDate);
+            $params = array_merge([
+                'deviceType' => 1,
+                'yodaReady' => 'h5',
+                'csecplatform' => 4,
+                'csecversion' => '4.2.0',
+            ], $extraParams, $payloadParams);
+            if ($partnerId !== '') {
+                $params['partnerId'] = $partnerId;
+            }
+            if ($poiId !== '') {
+                $params['poiId'] = $poiId;
+            }
+            if ($shopId !== '') {
+                $params['shopId'] = $shopId;
+            }
+            $params['startDate'] = str_replace('-', '', $startDate);
+            $params['endDate'] = str_replace('-', '', $endDate);
+            $params['dateRange'] = $params['dateRange'] ?? 1;
+
+            $allowedHosts = $section === 'ads' ? ['dianping.com', 'meituan.com'] : ['meituan.com'];
+            $result = $this->sendMeituanManualRequest($url, $params, $cookies, $method, $allowedHosts, $section);
+            if (!empty($result['error'])) {
+                $this->recordCookieAlert('meituan', 'fetch-meituan-' . $section, (string)$result['error'], $systemHotelId ? (int)$systemHotelId : null);
+                return $this->error((string)$result['error'], 400, [
+                    'http_code' => $result['http_code'] ?? 0,
+                    'raw_response' => $result['raw_response'] ?? '',
+                    'decoded_data' => $result['decoded_data'] ?? null,
+                    'request_url' => $result['request_url'] ?? $url,
+                    'request_payload' => $params,
+                ]);
+            }
+
+            $responseData = is_array($result['decoded_data'] ?? null) ? $result['decoded_data'] : [];
+            $items = $this->normalizeMeituanCapturedList($responseData, $section);
+            $capturedPayload = [
+                'store_id' => $shopId ?: $poiId,
+                'poi_id' => $poiId ?: $shopId,
+                'poi_name' => $hotelName,
+                'system_hotel_id' => $systemHotelId ? (int)$systemHotelId : null,
+                'default_data_date' => $endDate ?: $startDate,
+                $section => $items,
+            ];
+            $rows = $this->buildMeituanCapturedDailyRows($capturedPayload, $systemHotelId ? (int)$systemHotelId : null);
+            $savedCount = ($autoSave && !empty($rows)) ? $this->saveMeituanCapturedDailyRows($rows) : 0;
+
+            if ($this->currentUser && isset($this->currentUser->id)) {
+                OperationLog::record(
+                    'online_data',
+                    'fetch_meituan_' . $section,
+                    '获取美团' . ($section === 'orders' ? '订单' : '广告') . '数据',
+                    $this->currentUser->id,
+                    $systemHotelId ? (int)$systemHotelId : null
+                );
+            }
+
+            return $this->success([
+                'data' => $items,
+                'rows' => $rows,
+                'total' => count($items),
+                'row_count' => count($rows),
+                'saved_count' => $savedCount,
+                'counts' => $this->summarizeMeituanCapturedRows($rows),
+                'decoded_data' => $responseData,
+                'raw_response' => $result['raw_response'] ?? '',
+                'http_code' => $result['http_code'] ?? 0,
+                'request_url' => $result['request_url'] ?? $url,
+                'request_method' => $method,
+                'request_payload' => $params,
+                'request_start_date' => $startDate,
+                'request_end_date' => $endDate,
+            ], $savedCount > 0 ? '获取成功' : '获取成功，但未解析到可入库数据');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->error('请求异常: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * 获取美团差评数据（优化版）
      * API: https://eb.meituan.com/api/v1/ebooking/comments/commentsInfo
      */
     public function fetchMeituanComments(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
 
-        $cookies = $this->request->post('cookies', '');
-        $partnerId = $this->request->post('partner_id', '');
-        $poiId = $this->request->post('poi_id', '');
-        $mtsiEbU = $this->request->post('mtsi_eb_u', ''); // _mtsi_eb_u 可选参数
+        $cookies = trim((string)$this->request->post('cookies', ''));
+        $partnerId = trim((string)$this->request->post('partner_id', ''));
+        $poiId = trim((string)$this->request->post('poi_id', ''));
+        $mtsiEbU = trim((string)$this->request->post('mtsi_eb_u', $this->request->post('_mtsi_eb_u', ''))); // _mtsi_eb_u 可选参数
         $replyType = $this->request->post('reply_type', '2'); // 2=差评/待回复
-        $tag = $this->request->post('tag', ''); // 标签筛选
+        $tag = trim((string)$this->request->post('tag', '')); // 标签筛选
         $limit = $this->request->post('limit', 50);
         $offset = $this->request->post('offset', 0);
         $platform = $this->request->post('platform', 1);
-        $mtgsig = $this->request->post('mtgsig', ''); // 美团签名（403/418时需要）
-        $requestUrl = $this->request->post('request_url', ''); // 自定义请求地址（可选）
+        $mtgsig = trim((string)$this->request->post('mtgsig', '')); // 美团签名（403/418时需要）
+        $requestUrl = trim((string)$this->request->post('request_url', '')); // 自定义请求地址（可选）
         $startDate = $this->request->post('start_date', ''); // 开始日期
         $endDate = $this->request->post('end_date', ''); // 结束日期
         $autoSave = $this->request->post('auto_save', true);
-        $systemHotelId = $this->request->post('system_hotel_id', null);
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
 
         if (empty($cookies)) {
             return $this->error('请提供登录Cookies');
@@ -776,20 +1351,10 @@ class OnlineData extends Base
         if (empty($poiId)) {
             return $this->error('请提供POI ID（门店ID）');
         }
-        
-        // 去除前后空格
-        $cookies = trim($cookies);
-        $partnerId = trim($partnerId);
-        $poiId = trim($poiId);
-        $mtsiEbU = trim($mtsiEbU);
-        $mtgsig = trim($mtgsig);
-        $requestUrl = trim($requestUrl);
-        $tag = trim($tag);
-
         try {
             // 生成随机traceid
             $traceId = '-' . rand(1000000000, 9999999999) . time();
-            
+
             // 如果有自定义请求地址，使用它；否则构建默认URL
             if (!empty($requestUrl) && filter_var($requestUrl, FILTER_VALIDATE_URL)) {
                 $fullUrl = $requestUrl;
@@ -810,12 +1375,12 @@ class OnlineData extends Base
                     'csecplatform' => 4,
                     'csecversion' => '4.2.0',
                 ];
-                
+
                 // 添加可选的 _mtsi_eb_u 参数
                 if (!empty($mtsiEbU)) {
                     $params['_mtsi_eb_u'] = $mtsiEbU;
                 }
-                
+
                 // 添加日期参数（如果有）
                 if (!empty($startDate)) {
                     $params['startDate'] = $startDate;
@@ -826,6 +1391,9 @@ class OnlineData extends Base
 
                 // 构建完整URL
                 $fullUrl = $url . '?' . http_build_query($params);
+            }
+            if (!$this->isAllowedOtaRequestUrl($fullUrl, ['meituan.com'])) {
+                return $this->error('仅允许请求美团官方域名');
             }
 
             // 基础请求头（模拟浏览器请求）
@@ -867,18 +1435,23 @@ class OnlineData extends Base
                 CURLOPT_ENCODING => 'gzip, deflate', // 自动处理gzip
                 CURLOPT_FOLLOWLOCATION => true,
             ]);
-            
+
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $curlError = curl_error($ch);
             curl_close($ch);
-            
+
             // 调试信息
             if ($response === false || $httpCode !== 200) {
                 $errorMsg = $curlError ?: "HTTP {$httpCode}";
-                if ($httpCode == 403) {
-                    return $this->error('美团API拒绝访问（403）。mtgsig签名已过期，请重新获取：在美团ebooking差评页面按F12 → Network → 刷新页面 → 找到commentsInfo请求 → 复制最新的mtgsig值');
+                if (in_array((int)$httpCode, [403, 418], true)) {
+                    $message = $mtgsig === ''
+                        ? "美团API拒绝访问（{$httpCode}）。当前点评接口需要 mtgsig 签名，请在美团ebooking差评页面按F12 → Network → 刷新页面 → 找到commentsInfo请求 → 复制最新mtgsig；如仍失败，可同时粘贴完整commentsInfo请求URL"
+                        : "美团API拒绝访问（{$httpCode}）。mtgsig签名无效或已过期，请重新获取：在美团ebooking差评页面按F12 → Network → 刷新页面 → 找到commentsInfo请求 → 复制最新的mtgsig值";
+                    $this->recordCookieAlert('meituan', 'fetch-meituan-comments', $message, $systemHotelId ? (int)$systemHotelId : null);
+                    return $this->error($message);
                 }
+                $this->recordCookieAlert('meituan', 'fetch-meituan-comments', $errorMsg, $systemHotelId ? (int)$systemHotelId : null);
                 return $this->error('请求美团API失败: ' . $errorMsg);
             }
 
@@ -900,8 +1473,13 @@ class OnlineData extends Base
                 $errorMsg = $data['msg'] ?? $data['message'] ?? '未知错误';
                 // 如果是签名相关错误，提示用户
                 if (strpos($errorMsg, '签名') !== false || strpos($errorMsg, 'sign') !== false || strpos($errorMsg, 'token') !== false) {
-                    return $this->error('美团API签名验证失败，请在美团ebooking页面打开开发者工具，复制请求头中的mtgsig值');
+                    $message = $mtgsig === ''
+                        ? '美团API签名验证失败，请在美团ebooking页面打开开发者工具，复制commentsInfo请求头中的mtgsig值后重试'
+                        : '美团API签名验证失败，当前mtgsig可能已过期，请复制commentsInfo请求头中的最新mtgsig值后重试';
+                    $this->recordCookieAlert('meituan', 'fetch-meituan-comments', $message, $systemHotelId ? (int)$systemHotelId : null);
+                    return $this->error($message);
                 }
+                $this->recordCookieAlert('meituan', 'fetch-meituan-comments', (string)$errorMsg, $systemHotelId ? (int)$systemHotelId : null);
                 return $this->error('美团API返回错误: ' . $errorMsg);
             }
 
@@ -935,8 +1513,2904 @@ class OnlineData extends Base
     /**
      * 解析并保存美团差评数据
      */
+    // Browser profile capture payload entrypoint.
+    public function saveMeituanCapturedData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $requestData = $this->requestData();
+        $payload = $requestData['payload'] ?? $requestData['captured_data'] ?? $requestData;
+        if (!is_array($payload)) {
+            return $this->error('Invalid Meituan captured payload');
+        }
+
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['hotel_id']
+            ?? $payload['system_hotel_id']
+            ?? $payload['hotel_id']
+            ?? null
+        );
+        $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        if (empty($rows)) {
+            return $this->success([
+                'saved_count' => 0,
+                'row_count' => 0,
+                'counts' => [],
+            ], 'No Meituan captured rows to save');
+        }
+
+        $savedCount = $this->saveMeituanCapturedDailyRows($rows);
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'save_meituan_captured_data',
+                'Save Meituan captured OTA data',
+                $this->currentUser->id,
+                $systemHotelId ? (int)$systemHotelId : null
+            );
+        }
+
+        return $this->success([
+            'saved_count' => $savedCount,
+            'row_count' => count($rows),
+            'counts' => $this->summarizeMeituanCapturedRows($rows),
+        ]);
+    }
+
+    // Launch local browser profile capture, then save the captured payload.
+    public function captureMeituanBrowserData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        @set_time_limit(0);
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['hotel_id']
+            ?? null
+        );
+        $storeId = trim((string)($requestData['store_id'] ?? $requestData['storeId'] ?? $requestData['poi_id'] ?? ''));
+        if ($storeId === '') {
+            return $this->error('请填写美团 Store ID / 门店 ID');
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return $this->error('未找到美团浏览器抓取脚本');
+        }
+
+        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        if ($nodeBinary === '') {
+            return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
+        }
+
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'meituan_capture';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return $this->error('无法创建美团抓取输出目录');
+        }
+
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_capture_' . $this->safeMeituanCaptureFilePart($storeId) . '_' . date('YmdHis') . '.json';
+        $timeoutSeconds = max(60, min(900, (int)($requestData['timeout_seconds'] ?? 600)));
+
+        $args = [
+            $nodeBinary,
+            $scriptPath,
+            '--store-id=' . $storeId,
+            '--output=' . $outputPath,
+            '--login-timeout-ms=' . (string)max(30000, min(600000, (int)($requestData['login_timeout_ms'] ?? 300000))),
+        ];
+        if ($systemHotelId) {
+            $args[] = '--system-hotel-id=' . (string)$systemHotelId;
+        }
+        $poiId = trim((string)($requestData['poi_id'] ?? $requestData['poiId'] ?? ''));
+        if ($poiId !== '') {
+            $args[] = '--poi-id=' . $poiId;
+        }
+        $poiName = trim((string)($requestData['poi_name'] ?? $requestData['poiName'] ?? ''));
+        if ($poiName !== '') {
+            $args[] = '--poi-name=' . $poiName;
+        }
+        $adsUrl = trim((string)($requestData['ads_url'] ?? $requestData['adsUrl'] ?? ''));
+        if ($adsUrl !== '') {
+            $args[] = '--ads-url=' . $adsUrl;
+        }
+        $captureSectionsValue = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? '';
+        $captureSections = is_array($captureSectionsValue)
+            ? implode(',', array_map('strval', $captureSectionsValue))
+            : trim((string)$captureSectionsValue);
+        if ($captureSections !== '') {
+            $captureSections = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $captureSections) ?: '';
+            if ($captureSections !== '') {
+                $args[] = '--sections=' . $captureSections;
+            }
+        }
+        $chromePath = $this->resolveMeituanCaptureChromePath();
+        if ($chromePath !== '') {
+            $args[] = '--chrome-path=' . $chromePath;
+        }
+
+        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
+        if (!$runResult['success']) {
+            return $this->error($runResult['message'], 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if (!is_file($outputPath)) {
+            return $this->error('抓取脚本已结束，但未生成结果文件', 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return $this->error('抓取结果 JSON 无法解析', 400, [
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if ($systemHotelId && empty($payload['system_hotel_id'])) {
+            $payload['system_hotel_id'] = $systemHotelId;
+        }
+        $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
+
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'capture_meituan_browser_data',
+                'Capture Meituan OTA data via local browser profile',
+                $this->currentUser->id,
+                $systemHotelId ? (int)$systemHotelId : null
+            );
+        }
+
+        return $this->success([
+            'saved_count' => $savedCount,
+            'row_count' => count($rows),
+            'counts' => $this->summarizeMeituanCapturedRows($rows),
+            'payload_counts' => [
+                'reviews' => $this->countMeituanPayloadSection($payload, 'reviews'),
+                'traffic' => $this->countMeituanPayloadSection($payload, 'traffic'),
+                'ads' => $this->countMeituanPayloadSection($payload, 'ads'),
+                'orders' => $this->countMeituanPayloadSection($payload, 'orders'),
+                'responses' => $this->countMeituanPayloadSection($payload, 'responses'),
+            ],
+            'output' => $outputPath,
+            'pages' => $payload['pages'] ?? [],
+            'screenshots' => $payload['screenshots'] ?? [],
+            'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+        ], $savedCount > 0 ? '美团浏览器抓取完成并已入库' : '美团浏览器抓取完成，但未解析到可入库数据');
+    }
+
+    // Launch a local Ctrip eBooking browser profile, capture getCommentList responses, then save reviews.
+    public function captureCtripCommentsBrowserData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
+        @set_time_limit(0);
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? ''));
+        $profileId = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? $hotelId));
+        if ($profileId === '' && $systemHotelId) {
+            $profileId = 'system_' . $systemHotelId;
+        }
+        if ($profileId === '') {
+            return $this->error('请填写携程 Profile ID / OTA酒店ID，或选择数据归属酒店');
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_comment_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return $this->error('未找到携程点评浏览器抓取脚本');
+        }
+
+        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        if ($nodeBinary === '') {
+            return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
+        }
+
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return $this->error('无法创建携程抓取输出目录');
+        }
+
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_comment_capture_' . $this->safeMeituanCaptureFilePart($profileId) . '_' . date('YmdHis') . '.json';
+        $timeoutSeconds = max(60, min(900, (int)($requestData['timeout_seconds'] ?? 600)));
+
+        $args = [
+            $nodeBinary,
+            $scriptPath,
+            '--profile-id=' . $profileId,
+            '--output=' . $outputPath,
+            '--login-timeout-ms=' . (string)max(30000, min(600000, (int)($requestData['login_timeout_ms'] ?? 300000))),
+        ];
+        if ($hotelId !== '') {
+            $args[] = '--hotel-id=' . $hotelId;
+        }
+        if ($systemHotelId) {
+            $args[] = '--system-hotel-id=' . (string)$systemHotelId;
+        }
+        $hotelName = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
+        if ($hotelName !== '') {
+            $args[] = '--hotel-name=' . $hotelName;
+        }
+        $pageUrl = trim((string)($requestData['page_url'] ?? $requestData['pageUrl'] ?? ''));
+        if ($pageUrl !== '') {
+            if (!$this->isAllowedOtaRequestUrl($pageUrl, ['ctrip.com'])) {
+                return $this->error('仅允许打开携程官方域名的点评页面');
+            }
+            $args[] = '--page-url=' . $pageUrl;
+        }
+        $apiKeyword = trim((string)($requestData['api_keyword'] ?? $requestData['apiKeyword'] ?? 'getCommentList'));
+        $apiKeyword = preg_replace('/[^a-zA-Z0-9_\-\/.]+/', '', $apiKeyword) ?: 'getCommentList';
+        $args[] = '--api-keyword=' . $apiKeyword;
+        $chromePath = $this->resolveMeituanCaptureChromePath();
+        if ($chromePath !== '') {
+            $args[] = '--chrome-path=' . $chromePath;
+        }
+
+        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
+        if (!$runResult['success']) {
+            return $this->error(str_replace('美团', '携程', $runResult['message']), 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if (!is_file($outputPath)) {
+            return $this->error('抓取脚本已结束，但未生成结果文件', 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return $this->error('抓取结果 JSON 无法解析', 400, [
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if ($systemHotelId && empty($payload['system_hotel_id'])) {
+            $payload['system_hotel_id'] = $systemHotelId;
+        }
+        if ($hotelId !== '' && empty($payload['hotel_id'])) {
+            $payload['hotel_id'] = $hotelId;
+        }
+        $comments = $this->extractCtripCapturedComments($payload);
+        $requestHotelId = $hotelId !== '' ? $hotelId : (string)($payload['hotel_id'] ?? $profileId);
+        $savedCount = $this->parseAndSaveCtripComments(
+            $comments,
+            array_merge($payload, ['hotelId' => $requestHotelId]),
+            $requestHotelId,
+            '',
+            $systemHotelId
+        );
+
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'capture_ctrip_comments_browser',
+                'Capture Ctrip comment data via local browser profile',
+                $this->currentUser->id,
+                $systemHotelId ? (int)$systemHotelId : null
+            );
+        }
+
+        return $this->success([
+            'data' => $comments,
+            'total' => count($comments),
+            'saved_count' => $savedCount,
+            'row_count' => count($comments),
+            'counts' => ['review' => count($comments)],
+            'payload_counts' => [
+                'reviews' => count($comments),
+                'responses' => $this->countCtripPayloadSection($payload, 'responses'),
+                'xhr_urls' => $this->countCtripPayloadSection($payload, 'xhr_urls'),
+            ],
+            'output' => $outputPath,
+            'pages' => $payload['pages'] ?? [],
+            'xhr_urls' => array_slice($payload['xhr_urls'] ?? [], 0, 20),
+            'screenshots' => $payload['screenshots'] ?? [],
+            'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+        ], $savedCount > 0 ? '携程点评浏览器抓取完成并已入库' : '携程点评浏览器抓取完成，但未解析到可入库点评');
+    }
+
+    public function captureCtripBrowserData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        @set_time_limit(0);
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        if (!$systemHotelId) {
+            return $this->error('请选择数据归属酒店');
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
+        if ($dataDate === '') {
+            $dataDate = date('Y-m-d', strtotime('-1 day'));
+        }
+
+        $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? ''));
+        $profileId = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? $hotelId));
+        if ($profileId === '') {
+            $profileId = 'system_' . (string)$systemHotelId;
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return $this->error('未找到携程浏览器 Profile 采集脚本');
+        }
+
+        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        if ($nodeBinary === '') {
+            return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
+        }
+
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return $this->error('无法创建携程采集输出目录');
+        }
+
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_capture_' . $this->safeMeituanCaptureFilePart($profileId) . '_' . date('YmdHis') . '.json';
+        $timeoutSeconds = max(60, min(900, (int)($requestData['timeout_seconds'] ?? 600)));
+
+        $args = [
+            $nodeBinary,
+            $scriptPath,
+            '--profile-id=' . $profileId,
+            '--system-hotel-id=' . (string)$systemHotelId,
+            '--data-date=' . $dataDate,
+            '--output=' . $outputPath,
+            '--login-timeout-ms=' . (string)max(30000, min(600000, (int)($requestData['login_timeout_ms'] ?? 300000))),
+        ];
+        if ($hotelId !== '') {
+            $args[] = '--hotel-id=' . $hotelId;
+        }
+        $hotelName = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
+        if ($hotelName !== '') {
+            $args[] = '--hotel-name=' . $hotelName;
+        }
+        $sectionsValue = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? 'business,traffic';
+        $sectionsRaw = is_array($sectionsValue)
+            ? implode(',', array_map('strval', $sectionsValue))
+            : trim((string)$sectionsValue);
+        $sectionsRaw = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $sectionsRaw) ?: 'business,traffic';
+        $sectionsList = array_values(array_unique(array_filter(
+            array_map(static fn($item): string => strtolower(trim((string)$item)), preg_split('/[,\s]+/', $sectionsRaw) ?: []),
+            static fn(string $item): bool => in_array($item, ['business', 'traffic'], true)
+        )));
+        $sections = implode(',', $sectionsList) ?: 'business,traffic';
+        $args[] = '--sections=' . $sections;
+        $chromePath = $this->resolveMeituanCaptureChromePath();
+        if ($chromePath !== '') {
+            $args[] = '--chrome-path=' . $chromePath;
+        }
+
+        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
+        if (!$runResult['success']) {
+            return $this->error(str_replace('美团', '携程', $runResult['message']), 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if (!is_file($outputPath)) {
+            return $this->error('采集脚本已结束，但未生成结果文件', 400, [
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return $this->error('采集结果 JSON 无法解析', 400, [
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
+        if (empty($payload['system_hotel_id'])) {
+            $payload['system_hotel_id'] = $systemHotelId;
+        }
+        if ($hotelId !== '' && empty($payload['hotel_id'])) {
+            $payload['hotel_id'] = $hotelId;
+        }
+        if (empty($payload['default_data_date'])) {
+            $payload['default_data_date'] = $dataDate;
+        }
+
+        $requestHotelId = $hotelId !== '' ? $hotelId : (string)($payload['hotel_id'] ?? $profileId);
+        $saveResult = $this->saveCtripBrowserProfilePayload($payload, (int)$systemHotelId, $dataDate, $requestHotelId);
+        $savedCount = (int)$saveResult['saved_count'];
+        $capturedCounts = [
+            'business' => count($this->extractCtripCapturedSection($payload, 'business')),
+            'traffic' => count($this->extractCtripCapturedSection($payload, 'traffic')),
+            'responses' => $this->countCtripPayloadSection($payload, 'responses'),
+            'xhr_urls' => $this->countCtripPayloadSection($payload, 'xhr_urls'),
+        ];
+
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'capture_ctrip_browser',
+                'Capture Ctrip OTA data via local browser profile',
+                $this->currentUser->id,
+                (int)$systemHotelId
+            );
+        }
+        if ($savedCount > 0) {
+            $this->updateCtripLatestFetchStatus((int)$systemHotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
+        }
+
+        return $this->success([
+            'saved_count' => $savedCount,
+            'row_count' => array_sum(array_intersect_key($capturedCounts, array_flip(['business', 'traffic']))),
+            'counts' => [
+                'business' => (int)$saveResult['business_saved'],
+                'traffic' => (int)$saveResult['traffic_saved'],
+            ],
+            'captured_counts' => $capturedCounts,
+            'modules' => $saveResult['modules'],
+            'output' => $outputPath,
+            'pages' => $payload['pages'] ?? [],
+            'xhr_urls' => array_slice($payload['xhr_urls'] ?? [], 0, 20),
+            'screenshots' => $payload['screenshots'] ?? [],
+            'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+        ], $savedCount > 0 ? '携程浏览器 Profile 采集完成并已入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
+    }
+
+    public function fetchCtripOverviewData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? $requestData['node_id'] ?? ''));
+        $hotelName = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
+        $cookies = trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''));
+        $requestUrls = $this->normalizeCtripOverviewRequestUrls($requestData['request_urls'] ?? $requestData['requestUrls'] ?? $requestData['url'] ?? '');
+        $payloadJson = trim((string)($requestData['payload_json'] ?? $requestData['payloadJson'] ?? ''));
+        $method = strtoupper(trim((string)($requestData['method'] ?? 'GET')));
+        $spidertoken = trim((string)($requestData['spidertoken'] ?? $requestData['token'] ?? ''));
+        $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
+        if ($dataDate === '') {
+            $dataDate = date('Y-m-d', strtotime('-1 day'));
+        }
+
+        if ($cookies === '') {
+            return $this->error('请提供携程 Cookie');
+        }
+        if (empty($requestUrls)) {
+            return $this->error('请填写 Network 中今日概况相关 JSON 接口 Request URL');
+        }
+        if ($method !== 'GET' && $method !== 'POST') {
+            return $this->error('今日概况接口请求方式仅支持 POST 或 GET');
+        }
+
+        try {
+            $basePayload = $payloadJson !== '' ? $this->parseJsonParams($payloadJson) : [];
+        } catch (\Throwable $e) {
+            return $this->error('Payload JSON格式错误');
+        }
+        $basePayload = $this->buildCtripOverviewRequestPayload($basePayload, $hotelId, $dataDate);
+
+        $responses = [];
+        $errors = [];
+        $xhrUrls = [];
+        foreach ($requestUrls as $requestUrl) {
+            if (preg_match('#/datacenter/inland/businessreport/outline(?:\?|$)#i', $requestUrl)) {
+                $errors[] = '不能填写今日概况页面地址，请填写 Network 中的 JSON 接口 URL';
+                continue;
+            }
+            if (!$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com'])) {
+                $errors[] = '仅允许请求携程官方域名: ' . $requestUrl;
+                continue;
+            }
+            if (!$this->isCtripOverviewApiUrl($requestUrl)) {
+                $errors[] = '今日概况接口 URL 必须命中指定接口: ' . $requestUrl;
+                continue;
+            }
+
+            $result = $this->sendCtripOverviewRequest($requestUrl, $basePayload, $cookies, $method, $spidertoken);
+            $xhrUrls[] = ['url' => $requestUrl, 'status' => (int)($result['http_code'] ?? 0), 'request_type' => strtolower($method)];
+            if (!empty($result['error'])) {
+                $errors[] = $result['error'];
+                continue;
+            }
+            $responses[] = [
+                'url' => $requestUrl,
+                'section' => 'business',
+                'status' => (int)($result['http_code'] ?? 200),
+                'request_type' => strtolower($method),
+                'data' => $result['decoded_data'] ?? [],
+            ];
+        }
+
+        if (empty($responses) && !empty($errors)) {
+            return $this->error('携程今日概况接口请求失败: ' . implode('；', array_slice($errors, 0, 3)), 400, [
+                'errors' => $errors,
+                'request_urls' => $requestUrls,
+            ]);
+        }
+
+        $overviewHotelId = $hotelId !== ''
+            ? $hotelId
+            : $this->inferCtripOverviewHotelIdFromResponses($responses, $systemHotelId ? (string)$systemHotelId : '');
+
+        $payload = [
+            'hotel_id' => $overviewHotelId,
+            'hotel_name' => $hotelName,
+            'system_hotel_id' => $systemHotelId,
+            'default_data_date' => $dataDate,
+            'source' => 'ctrip_manual_overview',
+            'captured_at' => date('Y-m-d H:i:s'),
+            'responses' => $responses,
+            'xhr_urls' => $xhrUrls,
+        ];
+        $overviewRows = $this->collectCtripOverviewRows($payload, $overviewHotelId, $dataDate);
+        $savedCount = $this->saveCtripOverviewRows($overviewRows, $dataDate, $systemHotelId ? (int)$systemHotelId : null);
+
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'fetch_ctrip_overview',
+                'Fetch Ctrip today overview by manual cookie and API URL',
+                $this->currentUser->id,
+                $systemHotelId ? (int)$systemHotelId : null
+            );
+        }
+
+        return $this->success([
+            'data' => $overviewRows,
+            'total' => count($overviewRows),
+            'saved_count' => $savedCount,
+            'row_count' => count($overviewRows),
+            'counts' => ['overview' => count($overviewRows)],
+            'metrics' => $this->summarizeCtripOverviewRows($overviewRows),
+            'payload_counts' => [
+                'responses' => count($responses),
+                'xhr_urls' => count($xhrUrls),
+            ],
+            'request_urls' => $requestUrls,
+            'errors' => $errors,
+        ], $savedCount > 0 ? '携程今日概况获取完成并已入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
+    }
+
+    private function resolveMeituanCaptureNodeBinary(): string
+    {
+        $configured = trim((string)(getenv('NODE_BINARY') ?: env('NODE_BINARY', '')));
+        $candidates = array_filter([
+            $configured,
+            'C:\\Program Files\\nodejs\\node.exe',
+            'C:\\Program Files (x86)\\nodejs\\node.exe',
+            getenv('USERPROFILE') ? getenv('USERPROFILE') . '\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe' : '',
+            'node',
+        ]);
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === 'node' || is_file($candidate)) {
+                return $candidate;
+            }
+        }
+        return '';
+    }
+
+    private function countMeituanPayloadSection(array $payload, string $section): int
+    {
+        return isset($payload[$section]) && is_array($payload[$section]) ? count($payload[$section]) : 0;
+    }
+
+    private function countCtripPayloadSection(array $payload, string $section): int
+    {
+        return isset($payload[$section]) && is_array($payload[$section]) ? count($payload[$section]) : 0;
+    }
+
+    private function normalizeCtripOverviewRequestUrls($value): array
+    {
+        if (is_array($value)) {
+            $items = $value;
+        } else {
+            $items = preg_split('/[\r\n,]+/', (string)$value) ?: [];
+        }
+
+        $urls = [];
+        foreach ($items as $item) {
+            $url = trim((string)$item);
+            if ($url !== '') {
+                $urls[] = $url;
+            }
+        }
+        return array_values(array_unique($urls));
+    }
+
+    private function isCtripOverviewApiUrl(string $url): bool
+    {
+        $normalized = strtolower(trim($url));
+        foreach ($this->ctripOverviewApiKeywords() as $keyword) {
+            if (str_contains($normalized, strtolower($keyword))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function ctripOverviewApiKeywords(): array
+    {
+        return [
+            'getDayReportRealTimeDate',
+            'fetchMarketOverViewV2',
+            'getDayReportFlowCompete',
+            'getDayReportServerQuantity',
+            'fetchCurrentHotelSeqInfoV1',
+            'fetchVisitorTitleV2',
+            'fetchCapacityOverViewV4',
+            'queryFlowTransforNewV1',
+            'queryFlowTransforNew',
+            'queryScanFlowDetailsV2',
+            'queryHomePageRealTimeData',
+            'getDayReportCompeteHotelReport',
+            'getFlowData',
+            'getTrafficData',
+            'getStatData',
+            'getCompeteHotelReportV1',
+            'getHotWordsV1',
+            'getHotHotelsV1',
+            'getFlowHotelsV1',
+            'getHotRoomsV1',
+            'getUserBehaviorV1',
+            'getTrafficReportV1',
+            'getLastWeekReportV1',
+        ];
+    }
+
+    private function buildCtripOverviewRequestPayload(array $payload, string $hotelId, string $dataDate): array
+    {
+        foreach ([
+            'dataDate' => $dataDate,
+            'date' => $dataDate,
+            'startDate' => $dataDate,
+            'endDate' => $dataDate,
+            'statDate' => $dataDate,
+            'bizDate' => $dataDate,
+        ] as $key => $value) {
+            if (!array_key_exists($key, $payload) || $payload[$key] === '' || $payload[$key] === null) {
+                $payload[$key] = $value;
+            }
+        }
+        if ($hotelId !== '') {
+            foreach (['hotelId', 'nodeId', 'masterHotelId'] as $key) {
+                if (!array_key_exists($key, $payload) || $payload[$key] === '' || $payload[$key] === null) {
+                    $payload[$key] = $hotelId;
+                }
+            }
+        }
+        return $payload;
+    }
+
+    private function sendCtripOverviewRequest(string $url, array $payload, string $cookies, string $method, string $spidertoken = ''): array
+    {
+        $emptyResult = [
+            'http_code' => 0,
+            'raw_response' => '',
+            'decoded_data' => null,
+            'error' => '',
+        ];
+
+        if (!function_exists('curl_init')) {
+            return array_merge($emptyResult, ['error' => '服务器未启用 cURL，无法请求携程今日概况接口']);
+        }
+
+        $method = strtoupper($method) === 'GET' ? 'GET' : 'POST';
+        $requestUrl = $url;
+        $jsonPayload = '';
+        if ($method === 'GET') {
+            $query = http_build_query($payload);
+            if ($query !== '') {
+                $requestUrl .= (str_contains($requestUrl, '?') ? '&' : '?') . $query;
+            }
+        } else {
+            $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
+            if ($jsonPayload === false) {
+                return array_merge($emptyResult, ['error' => '请求 Body JSON 编码失败: ' . json_last_error_msg()]);
+            }
+        }
+
+        $headers = [
+            'Accept: application/json, text/javascript, */*; q=0.01',
+            'Accept-Encoding: gzip, deflate, br',
+            'Accept-Language: zh-CN,zh;q=0.9',
+            'Content-Type: application/json',
+            'Origin: https://ebooking.ctrip.com',
+            'Referer: https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true',
+            'X-Requested-With: XMLHttpRequest',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Cookie: ' . $cookies,
+        ];
+        if ($spidertoken !== '') {
+            $headers[] = 'spidertoken: ' . $spidertoken;
+        }
+
+        $ch = curl_init($requestUrl);
+        $options = [
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => false,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_ENCODING => '',
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => $this->shouldVerifyOtaSsl(),
+            CURLOPT_SSL_VERIFYHOST => $this->shouldVerifyOtaSsl() ? 2 : 0,
+        ];
+        if ($method === 'POST') {
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = $jsonPayload;
+        }
+        curl_setopt_array($ch, $options);
+
+        $rawResponse = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $curlErrno = curl_errno($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+
+        if ($rawResponse === false) {
+            return [
+                'http_code' => $httpCode,
+                'raw_response' => '',
+                'decoded_data' => null,
+                'error' => '请求携程今日概况接口失败: ' . ($curlError ?: 'cURL 错误 ' . $curlErrno),
+            ];
+        }
+
+        $result = [
+            'http_code' => $httpCode,
+            'raw_response' => $rawResponse,
+            'decoded_data' => null,
+            'error' => '',
+        ];
+
+        if ($httpCode !== 200) {
+            $result['error'] = in_array($httpCode, [301, 302], true)
+                ? 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie'
+                : '携程今日概况接口 HTTP 错误: ' . $httpCode;
+            return $result;
+        }
+        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $rawResponse)) {
+            $result['error'] = '携程今日概况接口返回页面而非 JSON，请检查 Cookie / Request URL / Payload';
+            return $result;
+        }
+
+        $decodedData = json_decode($rawResponse, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $result['error'] = '携程今日概况接口 JSON 解析失败，请检查 Request URL / Payload';
+            return $result;
+        }
+
+        $result['decoded_data'] = $decodedData;
+        return $result;
+    }
+
+    private function inferCtripOverviewHotelIdFromResponses(array $responses, string $fallback = ''): string
+    {
+        foreach ($responses as $response) {
+            if (!is_array($response)) {
+                continue;
+            }
+            $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? [];
+            if (!is_array($data)) {
+                continue;
+            }
+            $payload = $data['data'] ?? $data;
+            $directHotelId = $this->firstMeituanValue(is_array($payload) ? $payload : [], [
+                'masterhotelid',
+                'masterHotelId',
+                'hotelId',
+                'hotel_id',
+                'nodeId',
+                'node_id',
+            ], '');
+            if ($directHotelId !== '' && is_numeric($directHotelId) && (int)$directHotelId > 0) {
+                return (string)$directHotelId;
+            }
+            foreach ($this->flattenCtripOverviewCandidateRows($payload) as $row) {
+                $hotelId = $this->firstMeituanValue($row, ['hotelId', 'hotel_id', 'masterHotelId', 'masterhotelid'], '');
+                $hotelName = trim((string)($row['hotelName'] ?? $row['hotel_name'] ?? ''));
+                if ($hotelName === '我的酒店' && $hotelId !== '' && is_numeric($hotelId) && (int)$hotelId > 0) {
+                    return (string)$hotelId;
+                }
+            }
+        }
+
+        foreach ($responses as $response) {
+            if (!is_array($response)) {
+                continue;
+            }
+            $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? [];
+            $payload = is_array($data) ? ($data['data'] ?? $data) : [];
+            foreach ($this->flattenCtripOverviewCandidateRows($payload) as $row) {
+                $hotelId = $this->firstMeituanValue($row, ['hotelId', 'hotel_id', 'masterHotelId', 'masterhotelid'], '');
+                if ($hotelId !== '' && is_numeric($hotelId) && (int)$hotelId > 0) {
+                    return (string)$hotelId;
+                }
+            }
+        }
+
+        return $fallback;
+    }
+
+    private function flattenCtripOverviewCandidateRows($value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        if ($this->isSequentialArray($value)) {
+            $rows = [];
+            foreach ($value as $item) {
+                if (is_array($item)) {
+                    $rows = array_merge($rows, $this->flattenCtripOverviewCandidateRows($item));
+                }
+            }
+            return $rows;
+        }
+
+        $rows = [];
+        if (array_key_exists('hotelId', $value) || array_key_exists('hotel_id', $value) || array_key_exists('masterHotelId', $value) || array_key_exists('masterhotelid', $value)) {
+            $rows[] = $value;
+        }
+        foreach (['list', 'rows', 'hotelList', 'flowHotelItemVos', 'data'] as $key) {
+            if (isset($value[$key]) && is_array($value[$key])) {
+                $rows = array_merge($rows, $this->flattenCtripOverviewCandidateRows($value[$key]));
+            }
+        }
+        return $rows;
+    }
+
+    private function collectCtripOverviewRows(array $payload, string $requestHotelId, string $dataDate): array
+    {
+        $rows = $this->extractCtripOverviewSpecialRows($payload, $requestHotelId, $dataDate);
+        $rows = array_merge($rows, $this->extractCtripCapturedSection($payload, 'business'));
+        if (empty($rows)) {
+            foreach ($this->extractCtripCapturedResponseData($payload, 'business') as $responseData) {
+                $rows = array_merge($rows, $this->extractCtripBusinessDataList($responseData));
+            }
+        }
+
+        $deduped = [];
+        $seen = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $row = $this->normalizeCtripOverviewRow($row, $requestHotelId, $dataDate);
+            $identity = (string)($row['_fingerprint'] ?? md5(json_encode($row, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)));
+            if (isset($seen[$identity])) {
+                continue;
+            }
+            $seen[$identity] = true;
+            $deduped[] = $row;
+        }
+        return $this->mergeCtripOverviewRows($deduped);
+    }
+
+    private function extractCtripOverviewSpecialRows(array $payload, string $requestHotelId, string $dataDate): array
+    {
+        $rows = [];
+        foreach (($payload['responses'] ?? []) as $response) {
+            if (!is_array($response)) {
+                continue;
+            }
+            $url = strtolower((string)($response['url'] ?? ''));
+            $responseData = $response['data'] ?? $response['body'] ?? $response['json'] ?? [];
+            if (!is_array($responseData)) {
+                continue;
+            }
+            $data = $responseData['data'] ?? $responseData;
+            if (str_contains($url, 'getcompetehotelreportv1')) {
+                $rows[] = $this->buildCtripCompeteHotelOverviewRow($data, $requestHotelId, $dataDate);
+                continue;
+            }
+            if (str_contains($url, 'gethotwordsv1')) {
+                $rows[] = $this->buildCtripStringListOverviewRow($data, $requestHotelId, $dataDate, '_overview_hot_words', 'hot_words_count', 'top_hot_word');
+                continue;
+            }
+            if (str_contains($url, 'gethothotelsv1')) {
+                $rows[] = $this->buildCtripStringListOverviewRow($data, $requestHotelId, $dataDate, '_overview_hot_hotels', 'hot_hotels_count', 'top_hot_hotel');
+                continue;
+            }
+            if (str_contains($url, 'getflowhotelsv1')) {
+                $rows[] = $this->buildCtripFlowHotelsOverviewRow($data, $requestHotelId, $dataDate);
+                continue;
+            }
+            if (str_contains($url, 'getuserbehaviorv1')) {
+                $rows[] = $this->buildCtripUserBehaviorOverviewRow($data, $requestHotelId, $dataDate);
+                continue;
+            }
+            if (str_contains($url, 'gettrafficreportv1')) {
+                $rows[] = $this->buildCtripTrafficReportOverviewRow($data, $requestHotelId, $dataDate);
+                continue;
+            }
+            if (str_contains($url, 'getlastweekreportv1')) {
+                $rows[] = $this->buildCtripLastWeekReportOverviewRow($data, $requestHotelId, $dataDate);
+                continue;
+            }
+            if (isset($data['hotRooms']) && is_array($data['hotRooms'])) {
+                $rows[] = $this->buildCtripHotRoomsOverviewRow($data['hotRooms'], $requestHotelId, $dataDate);
+            }
+        }
+
+        return array_values(array_filter($rows, static fn($row): bool => is_array($row) && !empty($row)));
+    }
+
+    private function ctripOverviewBaseRow(string $requestHotelId, string $dataDate, array $extra = []): array
+    {
+        return array_merge([
+            'hotelId' => $requestHotelId,
+            'dataDate' => $dataDate,
+            '_overview_compare_type' => 'self',
+        ], $extra);
+    }
+
+    private function buildCtripCompeteHotelOverviewRow($data, string $requestHotelId, string $dataDate): array
+    {
+        $list = is_array($data) && $this->isSequentialArray($data) ? $data : [];
+        $self = [];
+        foreach ($list as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = (string)($item['hotelId'] ?? $item['hotel_id'] ?? $item['masterHotelId'] ?? '');
+            $hotelName = (string)($item['hotelName'] ?? $item['hotel_name'] ?? '');
+            if (($requestHotelId !== '' && $hotelId === $requestHotelId) || $hotelName === '我的酒店') {
+                $self = $item;
+                break;
+            }
+        }
+
+        return $this->ctripOverviewBaseRow($requestHotelId, $dataDate, [
+            'hotelName' => (string)($self['hotelName'] ?? '我的酒店'),
+            'compete_hotel_count' => count($list),
+            'amount_rank' => (int)$this->meituanNumber($self, ['amount'], 0),
+            'quantity_rank' => (int)$this->meituanNumber($self, ['quantity'], 0),
+            'book_order_num_rank' => (int)$this->meituanNumber($self, ['bookOrderNum'], 0),
+            'comment_score_rank' => (int)$this->meituanNumber($self, ['commentScore'], 0),
+            'visitor_rank' => (int)$this->meituanNumber($self, ['totalDetailNum'], 0),
+            'conversion_rank' => (int)$this->meituanNumber($self, ['convertionRate'], 0),
+            '_overview_compete_hotel_rank_list' => $list,
+        ]);
+    }
+
+    private function buildCtripStringListOverviewRow($data, string $requestHotelId, string $dataDate, string $listKey, string $countKey, string $topKey): array
+    {
+        $items = is_array($data) ? array_values(array_filter(array_map('strval', $data), static fn(string $item): bool => trim($item) !== '')) : [];
+        return $this->ctripOverviewBaseRow($requestHotelId, $dataDate, [
+            $listKey => $items,
+            $countKey => count($items),
+            $topKey => $items[0] ?? '',
+        ]);
+    }
+
+    private function buildCtripFlowHotelsOverviewRow($data, string $requestHotelId, string $dataDate): array
+    {
+        $items = is_array($data['flowHotelItemVos'] ?? null) ? $data['flowHotelItemVos'] : [];
+        $lossOrder = is_array($data['lossOrderVo'] ?? null) ? $data['lossOrderVo'] : [];
+        $top = is_array($items[0] ?? null) ? $items[0] : [];
+        return $this->ctripOverviewBaseRow($requestHotelId, $dataDate, [
+            '_overview_flow_hotels' => $items,
+            'flow_lost_order_num' => (int)$this->meituanNumber($lossOrder, ['ordernum'], 0),
+            'flow_lost_room_nights' => (int)$this->meituanNumber($lossOrder, ['ordquantity'], 0),
+            'flow_lost_amount' => $this->meituanNumber($lossOrder, ['ordamount'], 0),
+            'top_flow_hotel' => (string)($top['hotelName'] ?? ''),
+            'top_flow_hotel_browse_rate' => $this->normalizeMeituanPercentValue($top['proportion'] ?? null) ?? 0.0,
+            'top_flow_hotel_order_rate' => $this->normalizeMeituanPercentValue($top['orderPro'] ?? null) ?? 0.0,
+        ]);
+    }
+
+    private function buildCtripHotRoomsOverviewRow(array $hotRooms, string $requestHotelId, string $dataDate): array
+    {
+        $top = is_array($hotRooms[0] ?? null) ? $hotRooms[0] : [];
+        return $this->ctripOverviewBaseRow($requestHotelId, $dataDate, [
+            '_overview_hot_rooms' => $hotRooms,
+            'top_hot_room' => (string)($top['roomShortName'] ?? $top['roomName'] ?? ''),
+            'top_hot_room_nights' => (int)$this->meituanNumber($top, ['saleRoomNights'], 0),
+            'top_hot_room_sale_percent' => $this->normalizeMeituanPercentValue($top['salePercent'] ?? null) ?? 0.0,
+        ]);
+    }
+
+    private function buildCtripUserBehaviorOverviewRow($data, string $requestHotelId, string $dataDate): array
+    {
+        $data = is_array($data) ? $data : [];
+        return $this->ctripOverviewBaseRow($requestHotelId, $dataDate, [
+            'last_week_comment_score' => $this->meituanNumber($data, ['lastWeekCommentScore'], 0),
+            'before_last_week_comment_score' => $this->meituanNumber($data, ['beforeLastWeekCommentScore'], 0),
+            'last_week_good_add' => (int)$this->meituanNumber($data, ['lastWeekGoodAdd'], 0),
+            'before_last_week_good_add' => (int)$this->meituanNumber($data, ['beforeLastWeekGoodAdd'], 0),
+            'last_week_bad_add' => (int)$this->meituanNumber($data, ['lastWeekBadAdd'], 0),
+            'before_last_week_bad_add' => (int)$this->meituanNumber($data, ['beforeLastWeekBadAdd'], 0),
+            'last_week_price_score' => $this->meituanNumber($data, ['lastWeekPriceScore'], 0),
+            'before_last_week_price_score' => $this->meituanNumber($data, ['beforeLastWeekPriceScore'], 0),
+            'last_week_price_score_change' => $this->meituanNumber($data, ['lastWeekPriceScoreProportion'], 0),
+            'last_week_str' => (string)($data['lastWeekStr'] ?? ''),
+            'before_last_week_str' => (string)($data['beforeLastWeekStr'] ?? ''),
+        ]);
+    }
+
+    private function buildCtripTrafficReportOverviewRow($data, string $requestHotelId, string $dataDate): array
+    {
+        $myHotel = is_array($data['myHotel'] ?? null) ? $data['myHotel'] : [];
+        $avg = is_array($data['competeHotelAvg'] ?? null) ? $data['competeHotelAvg'] : [];
+        $top = is_array($data['topCompeteHotel'] ?? null) ? $data['topCompeteHotel'] : [];
+        return $this->ctripOverviewBaseRow($requestHotelId, $dataDate, array_merge(
+            $this->mapCtripTrafficReportPrefix($myHotel, 'weekly_self'),
+            $this->mapCtripTrafficReportPrefix($avg, 'weekly_competitor'),
+            $this->mapCtripTrafficReportPrefix($top, 'top_competitor')
+        ));
+    }
+
+    private function mapCtripTrafficReportPrefix(array $data, string $prefix): array
+    {
+        return [
+            "{$prefix}_list_exposure" => (int)$this->meituanNumber($data, ['totalListExposure'], 0),
+            "{$prefix}_detail_exposure" => (int)$this->meituanNumber($data, ['totalDetailExposure'], 0),
+            "{$prefix}_order_filling_num" => (int)$this->meituanNumber($data, ['orderFillingNum'], 0),
+            "{$prefix}_order_submit_num" => (int)$this->meituanNumber($data, ['orderSubmitNum'], 0),
+            "{$prefix}_flow_rate" => $this->normalizeMeituanPercentValue($data['listTransforDetailRate'] ?? null) ?? 0.0,
+            "{$prefix}_order_fill_rate" => $this->normalizeMeituanPercentValue($data['detailTransforOrderFillRate'] ?? null) ?? 0.0,
+            "{$prefix}_deal_rate" => $this->normalizeMeituanPercentValue($data['orderFillTransforOrderSubmitRate'] ?? null) ?? 0.0,
+        ];
+    }
+
+    private function buildCtripLastWeekReportOverviewRow($data, string $requestHotelId, string $dataDate): array
+    {
+        $data = is_array($data) ? $data : [];
+        return $this->ctripOverviewBaseRow($requestHotelId, $dataDate, [
+            'last_week_str' => (string)($data['lastWeekStr'] ?? ''),
+            'before_last_week_str' => (string)($data['beforeLastWeekStr'] ?? ''),
+            'last_week_checkout_room_nights' => (int)$this->meituanNumber($data, ['lastWeekCheckoutRoomNights'], 0),
+            'last_week_checkout_sales' => $this->meituanNumber($data, ['lastWeekCheckoutSales'], 0),
+            'last_week_checkout_room_price' => $this->meituanNumber($data, ['lastWeekCheckoutRoomPrice'], 0),
+            'last_week_book_quantity' => (int)$this->meituanNumber($data, ['lastWeekBookQuantity'], 0),
+            'last_week_book_room_nights' => (int)$this->meituanNumber($data, ['lastWeekBookRoomNights'], 0),
+            'last_week_book_sales' => $this->meituanNumber($data, ['lastWeekBookSales'], 0),
+        ]);
+    }
+
+    private function normalizeCtripOverviewRow(array $row, string $requestHotelId, string $dataDate): array
+    {
+        $rawHotelId = (string)$this->firstMeituanValue($row, [
+            'hotelId',
+            'hotel_id',
+            'HotelId',
+            'hotelID',
+            'masterhotelid',
+            'masterHotelId',
+            'nodeId',
+            'node_id',
+        ], '');
+        $compareType = strtolower((string)$this->firstMeituanValue($row, [
+            '_overview_compare_type',
+            'compareType',
+            'compare_type',
+            'type',
+        ], ''));
+        if (!in_array($compareType, ['self', 'my', 'competitor', 'avg', 'average', 'peer'], true)) {
+            $compareType = is_numeric($rawHotelId) && (int)$rawHotelId < 0 ? 'competitor' : 'self';
+        }
+        $compareType = in_array($compareType, ['competitor', 'avg', 'average', 'peer'], true) ? 'competitor' : 'self';
+        $row['_overview_compare_type'] = $compareType;
+        if ($rawHotelId !== '') {
+            $row['_overview_source_hotel_id'] = $rawHotelId;
+        }
+
+        if ($requestHotelId !== '' && ($compareType === 'competitor' || empty($row['hotelId']) && empty($row['hotel_id']) && empty($row['HotelId']))) {
+            $row['hotelId'] = $requestHotelId;
+        } elseif ($rawHotelId !== '' && empty($row['hotelId']) && empty($row['hotel_id']) && empty($row['HotelId'])) {
+            $row['hotelId'] = $rawHotelId;
+        }
+        if ($dataDate !== '' && empty($row['dataDate']) && empty($row['data_date']) && empty($row['date'])) {
+            $row['dataDate'] = $dataDate;
+        }
+
+        $prefix = $compareType === 'competitor' ? 'competitor' : 'self';
+        $fieldMap = [
+            "{$prefix}_list_exposure" => ['listExposure', 'list_exposure', 'exposure', 'exposureCount'],
+            "{$prefix}_detail_exposure" => ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv'],
+            "{$prefix}_order_filling_num" => ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'clickNum'],
+            "{$prefix}_order_submit_num" => ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum'],
+        ];
+        foreach ($fieldMap as $target => $aliases) {
+            $value = $this->firstMeituanValue($row, $aliases, null);
+            if ($value !== null && $value !== '') {
+                $row[$target] = $this->meituanNumber($row, $aliases, 0);
+            }
+        }
+
+        $listExposure = (float)($row["{$prefix}_list_exposure"] ?? 0);
+        $detailExposure = (float)($row["{$prefix}_detail_exposure"] ?? 0);
+        $orderFillingNum = (float)($row["{$prefix}_order_filling_num"] ?? 0);
+        $orderSubmitNum = (float)($row["{$prefix}_order_submit_num"] ?? 0);
+        if ($listExposure > 0 && $detailExposure > 0) {
+            $row["{$prefix}_flow_rate"] = round($detailExposure / $listExposure * 100, 2);
+        } else {
+            $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($row, ['flowRate', 'flow_rate'], null));
+            if ($flowRate !== null) {
+                $row["{$prefix}_flow_rate"] = $flowRate;
+            }
+        }
+        if ($detailExposure > 0 && $orderFillingNum > 0) {
+            $row["{$prefix}_order_fill_rate"] = round($orderFillingNum / $detailExposure * 100, 2);
+        }
+        if ($orderFillingNum > 0) {
+            $row["{$prefix}_deal_rate"] = round($orderSubmitNum / $orderFillingNum * 100, 2);
+        }
+
+        return $row;
+    }
+
+    private function mergeCtripOverviewRows(array $rows): array
+    {
+        $merged = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $compareType = (string)($row['_overview_compare_type'] ?? '');
+            $hotelId = (string)($row['hotelId'] ?? $row['hotel_id'] ?? $row['HotelId'] ?? '');
+            $dataDate = (string)($row['dataDate'] ?? $row['data_date'] ?? $row['date'] ?? '');
+            $key = $hotelId . '|' . $dataDate;
+            if (!isset($merged[$key])) {
+                $merged[$key] = [
+                    'hotelId' => $hotelId,
+                    'hotelName' => (string)($row['hotelName'] ?? $row['hotel_name'] ?? $row['HotelName'] ?? $row['name'] ?? ''),
+                    'dataDate' => $dataDate,
+                    '_overview_rows' => [],
+                ];
+            }
+            $merged[$key]['_overview_rows'][] = $row;
+            foreach ($row as $field => $value) {
+                if ($compareType === 'competitor' && in_array($field, ['listExposure', 'detailExposure', 'flowRate', 'orderFillingNum', 'orderSubmitNum'], true)) {
+                    continue;
+                }
+                if ($value === null || $value === '' || (is_array($value) && empty($value))) {
+                    continue;
+                }
+                $current = $merged[$key][$field] ?? null;
+                if ($current === null || $current === '' || (is_numeric($current) && (float)$current === 0.0 && is_numeric($value) && (float)$value !== 0.0)) {
+                    $merged[$key][$field] = $value;
+                }
+            }
+        }
+        return array_values($merged);
+    }
+
+    private function saveCtripOverviewRows(array $rows, string $dataDate, ?int $systemHotelId = null): int
+    {
+        if (empty($rows)) {
+            return 0;
+        }
+        return $this->parseAndSaveData(['data' => $rows], $dataDate, $dataDate, $systemHotelId);
+    }
+
+    private function summarizeCtripOverviewRows(array $rows): array
+    {
+        $summary = [
+            'yesterday_uv' => 0,
+            'order_count' => 0,
+            'amount' => 0.0,
+            'room_nights' => 0,
+            'avg_price' => 0.0,
+            'conversion_rate' => 0.0,
+            'competitor_uv' => 0,
+            'competitor_orders' => 0,
+            'competitor_amount' => 0.0,
+            'psi' => 0.0,
+            'hotel_score' => 0.0,
+            'reply_rate' => 0.0,
+            'favorite_count' => 0,
+            'visitor_rank' => 0,
+            'self_list_exposure' => 0,
+            'self_detail_exposure' => 0,
+            'self_order_filling_num' => 0,
+            'self_order_submit_num' => 0,
+            'self_flow_rate' => 0.0,
+            'self_order_fill_rate' => 0.0,
+            'self_deal_rate' => 0.0,
+            'competitor_list_exposure' => 0,
+            'competitor_detail_exposure' => 0,
+            'competitor_order_filling_num' => 0,
+            'competitor_order_submit_num' => 0,
+            'competitor_flow_rate' => 0.0,
+            'competitor_order_fill_rate' => 0.0,
+            'competitor_deal_rate' => 0.0,
+            'compete_hotel_count' => null,
+            'amount_rank' => null,
+            'quantity_rank' => null,
+            'book_order_num_rank' => null,
+            'comment_score_rank' => null,
+            'conversion_rank' => null,
+            'hot_words_count' => null,
+            'top_hot_word' => '',
+            'hot_hotels_count' => null,
+            'top_hot_hotel' => '',
+            'flow_lost_order_num' => null,
+            'flow_lost_room_nights' => null,
+            'flow_lost_amount' => null,
+            'top_flow_hotel' => '',
+            'top_flow_hotel_browse_rate' => null,
+            'top_flow_hotel_order_rate' => null,
+            'top_hot_room' => '',
+            'top_hot_room_nights' => null,
+            'top_hot_room_sale_percent' => null,
+            'last_week_comment_score' => null,
+            'last_week_good_add' => null,
+            'last_week_bad_add' => null,
+            'last_week_price_score' => null,
+            'last_week_checkout_room_nights' => null,
+            'last_week_checkout_sales' => null,
+            'last_week_checkout_room_price' => null,
+            'last_week_book_quantity' => null,
+            'last_week_book_room_nights' => null,
+            'last_week_book_sales' => null,
+            'weekly_self_list_exposure' => null,
+            'weekly_self_detail_exposure' => null,
+            'weekly_self_order_filling_num' => null,
+            'weekly_self_order_submit_num' => null,
+            'weekly_self_flow_rate' => null,
+            'weekly_self_order_fill_rate' => null,
+            'weekly_self_deal_rate' => null,
+            'weekly_competitor_list_exposure' => null,
+            'weekly_competitor_detail_exposure' => null,
+            'weekly_competitor_order_filling_num' => null,
+            'weekly_competitor_order_submit_num' => null,
+            'weekly_competitor_flow_rate' => null,
+            'weekly_competitor_order_fill_rate' => null,
+            'weekly_competitor_deal_rate' => null,
+            'top_competitor_list_exposure' => null,
+            'top_competitor_detail_exposure' => null,
+            'top_competitor_order_filling_num' => null,
+            'top_competitor_order_submit_num' => null,
+            'top_competitor_flow_rate' => null,
+            'top_competitor_order_fill_rate' => null,
+            'top_competitor_deal_rate' => null,
+        ];
+        $avgPriceValues = [];
+        $conversionValues = [];
+        $psiValues = [];
+        $hotelScoreValues = [];
+        $replyRateValues = [];
+        $visitorRanks = [];
+        $rankValues = [
+            'amount_rank' => [],
+            'quantity_rank' => [],
+            'book_order_num_rank' => [],
+            'comment_score_rank' => [],
+            'conversion_rank' => [],
+        ];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $amount = $this->meituanNumber($row, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额'], 0);
+            $roomNights = (int)$this->meituanNumber($row, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚'], 0);
+            $orders = (int)$this->meituanNumber($row, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings', '成交订单数', '订单数'], 0);
+
+            $summary['amount'] += $amount;
+            $summary['room_nights'] += $roomNights;
+            $summary['order_count'] += $orders;
+            $summary['yesterday_uv'] += (int)$this->meituanNumber($row, ['yesterday_uv', 'yesterdayUv', 'yesterdayUV', 'uv', 'UV', 'visitorCount', 'detailUv', 'totalDetailNum', 'visitors', '昨日UV', '访客数'], 0);
+            $summary['competitor_uv'] += (int)$this->meituanNumber($row, ['competitor_uv', 'competitorUv', 'competitorUV', 'competeUv', 'competeUV', 'peerUv', 'peerUV', 'comhtluv', '竞品UV'], 0);
+            $summary['competitor_orders'] += (int)$this->meituanNumber($row, ['competitor_orders', 'competitorOrders', 'competitorOrderNum', 'competeOrderNum', 'peerOrderNum', 'ordquantity', '竞品订单', '竞品订单数'], 0);
+            $summary['competitor_amount'] += $this->meituanNumber($row, ['competitor_amount', 'competitorAmount', 'competitorRevenue', 'competeAmount', 'peerAmount', 'ordamount', '竞品收入', '竞品成交收入'], 0);
+            $summary['favorite_count'] += (int)$this->meituanNumber($row, ['favorite_count', 'favoriteCount', 'collectCount', 'hotelCollect', '收藏数', '收藏量'], 0);
+            $summary['self_list_exposure'] += (int)$this->meituanNumber($row, ['self_list_exposure'], 0);
+            $summary['self_detail_exposure'] += (int)$this->meituanNumber($row, ['self_detail_exposure'], 0);
+            $summary['self_order_filling_num'] += (int)$this->meituanNumber($row, ['self_order_filling_num'], 0);
+            $summary['self_order_submit_num'] += (int)$this->meituanNumber($row, ['self_order_submit_num'], 0);
+            $summary['competitor_list_exposure'] += (int)$this->meituanNumber($row, ['competitor_list_exposure'], 0);
+            $summary['competitor_detail_exposure'] += (int)$this->meituanNumber($row, ['competitor_detail_exposure'], 0);
+            $summary['competitor_order_filling_num'] += (int)$this->meituanNumber($row, ['competitor_order_filling_num'], 0);
+            $summary['competitor_order_submit_num'] += (int)$this->meituanNumber($row, ['competitor_order_submit_num'], 0);
+
+            foreach (array_keys($rankValues) as $rankKey) {
+                $rank = (int)$this->meituanNumber($row, [$rankKey], 0);
+                if ($rank > 0) {
+                    $rankValues[$rankKey][] = $rank;
+                }
+            }
+            foreach (['compete_hotel_count', 'hot_words_count', 'hot_hotels_count'] as $countKey) {
+                $count = (int)$this->meituanNumber($row, [$countKey], 0);
+                if ($count > 0) {
+                    $summary[$countKey] = max((int)($summary[$countKey] ?? 0), $count);
+                }
+            }
+            foreach (['top_hot_word', 'top_hot_hotel', 'top_flow_hotel', 'top_hot_room'] as $textKey) {
+                $text = trim((string)($row[$textKey] ?? ''));
+                if ($text !== '' && (string)($summary[$textKey] ?? '') === '') {
+                    $summary[$textKey] = $text;
+                }
+            }
+            foreach ([
+                'flow_lost_order_num',
+                'flow_lost_room_nights',
+                'top_hot_room_nights',
+                'last_week_good_add',
+                'last_week_bad_add',
+                'last_week_checkout_room_nights',
+                'last_week_book_quantity',
+                'last_week_book_room_nights',
+            ] as $intKey) {
+                $rawValue = $this->firstMeituanValue($row, [$intKey], null);
+                if ($rawValue !== null) {
+                    $value = (int)$this->meituanNumber($row, [$intKey], 0);
+                    $summary[$intKey] = (int)($summary[$intKey] ?? 0) + $value;
+                }
+            }
+            foreach ([
+                'flow_lost_amount',
+                'top_flow_hotel_browse_rate',
+                'top_flow_hotel_order_rate',
+                'top_hot_room_sale_percent',
+                'last_week_comment_score',
+                'last_week_price_score',
+                'last_week_checkout_sales',
+                'last_week_checkout_room_price',
+                'last_week_book_sales',
+            ] as $numberKey) {
+                $rawValue = $this->firstMeituanValue($row, [$numberKey], null);
+                if ($rawValue !== null && $summary[$numberKey] === null) {
+                    $summary[$numberKey] = $this->meituanNumber($row, [$numberKey], 0);
+                }
+            }
+            foreach (['weekly_self', 'weekly_competitor', 'top_competitor'] as $prefix) {
+                foreach (['list_exposure', 'detail_exposure', 'order_filling_num', 'order_submit_num'] as $metricKey) {
+                    $summaryKey = $prefix . '_' . $metricKey;
+                    $rawValue = $this->firstMeituanValue($row, [$summaryKey], null);
+                    if ($rawValue !== null) {
+                        $value = (int)$this->meituanNumber($row, [$summaryKey], 0);
+                        $summary[$summaryKey] = (int)($summary[$summaryKey] ?? 0) + $value;
+                    }
+                }
+                foreach (['flow_rate', 'order_fill_rate', 'deal_rate'] as $rateKey) {
+                    $summaryKey = $prefix . '_' . $rateKey;
+                    $value = $this->normalizeMeituanPercentValue($this->firstMeituanValue($row, [$summaryKey], null));
+                    if ($value !== null && $summary[$summaryKey] === null) {
+                        $summary[$summaryKey] = $value;
+                    }
+                }
+            }
+
+            $avgPrice = $this->meituanNumber($row, ['avg_price', 'avgPrice', 'averagePrice', 'adr', 'ADR', '均价', '平均房价'], 0);
+            if ($avgPrice > 0) {
+                $avgPriceValues[] = $avgPrice;
+            }
+            $conversionRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($row, ['closeRate', 'conversion_rate', 'conversionRate', 'convertionRate', 'bookRate', '成交率', '转化率'], null));
+            if ($conversionRate !== null) {
+                $conversionValues[] = $conversionRate;
+            }
+            $psi = $this->meituanNumber($row, ['psi', 'PSI', 'psiScore', 'serviceScore', 'service_score', 'PSI值'], 0);
+            if ($psi > 0) {
+                $psiValues[] = $psi;
+            }
+            $hotelScore = $this->meituanNumber($row, ['hotel_score', 'hotelScore', 'ctripRatingall', 'ctrip_rating_all', '酒店评分', '酒店点评分'], 0);
+            if ($hotelScore > 0) {
+                $hotelScoreValues[] = $hotelScore;
+            }
+            $replyRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($row, ['reply_rate', 'replyRate', 'replyrate5m', '回复率', '5分钟回复率'], null));
+            if ($replyRate !== null) {
+                $replyRateValues[] = $replyRate;
+            }
+            $visitorRank = (int)$this->meituanNumber($row, ['visitor_rank', 'visitorRank', 'uvRank', '访客排名'], 0);
+            if ($visitorRank > 0) {
+                $visitorRanks[] = $visitorRank;
+            }
+        }
+
+        if ($summary['room_nights'] > 0) {
+            $summary['avg_price'] = round($summary['amount'] / $summary['room_nights'], 2);
+        } elseif (!empty($avgPriceValues)) {
+            $summary['avg_price'] = round(array_sum($avgPriceValues) / count($avgPriceValues), 2);
+        }
+        if (!empty($conversionValues)) {
+            $summary['conversion_rate'] = round(array_sum($conversionValues) / count($conversionValues), 2);
+        }
+        if (!empty($psiValues)) {
+            $summary['psi'] = round(array_sum($psiValues) / count($psiValues), 2);
+        }
+        if (!empty($hotelScoreValues)) {
+            $summary['hotel_score'] = round(array_sum($hotelScoreValues) / count($hotelScoreValues), 2);
+        }
+        if (!empty($replyRateValues)) {
+            $summary['reply_rate'] = round(array_sum($replyRateValues) / count($replyRateValues), 2);
+        }
+        if (!empty($visitorRanks)) {
+            $summary['visitor_rank'] = min($visitorRanks);
+        }
+        foreach ($rankValues as $rankKey => $values) {
+            if (!empty($values)) {
+                $summary[$rankKey] = min($values);
+            }
+        }
+        $summary['self_flow_rate'] = $this->trafficRate((float)$summary['self_detail_exposure'], (float)$summary['self_list_exposure']);
+        $summary['self_order_fill_rate'] = $this->trafficRate((float)$summary['self_order_filling_num'], (float)$summary['self_detail_exposure']);
+        $summary['self_deal_rate'] = $this->trafficRate((float)$summary['self_order_submit_num'], (float)$summary['self_order_filling_num']);
+        $summary['competitor_flow_rate'] = $this->trafficRate((float)$summary['competitor_detail_exposure'], (float)$summary['competitor_list_exposure']);
+        $summary['competitor_order_fill_rate'] = $this->trafficRate((float)$summary['competitor_order_filling_num'], (float)$summary['competitor_detail_exposure']);
+        $summary['competitor_deal_rate'] = $this->trafficRate((float)$summary['competitor_order_submit_num'], (float)$summary['competitor_order_filling_num']);
+        foreach (['weekly_self', 'weekly_competitor', 'top_competitor'] as $prefix) {
+            if ($summary[$prefix . '_flow_rate'] === null && (float)($summary[$prefix . '_list_exposure'] ?? 0) > 0) {
+                $summary[$prefix . '_flow_rate'] = $this->trafficRate((float)($summary[$prefix . '_detail_exposure'] ?? 0), (float)($summary[$prefix . '_list_exposure'] ?? 0));
+            }
+            if ($summary[$prefix . '_order_fill_rate'] === null && (float)($summary[$prefix . '_detail_exposure'] ?? 0) > 0) {
+                $summary[$prefix . '_order_fill_rate'] = $this->trafficRate((float)($summary[$prefix . '_order_filling_num'] ?? 0), (float)($summary[$prefix . '_detail_exposure'] ?? 0));
+            }
+            if ($summary[$prefix . '_deal_rate'] === null && (float)($summary[$prefix . '_order_filling_num'] ?? 0) > 0) {
+                $summary[$prefix . '_deal_rate'] = $this->trafficRate((float)($summary[$prefix . '_order_submit_num'] ?? 0), (float)($summary[$prefix . '_order_filling_num'] ?? 0));
+            }
+        }
+        $summary['amount'] = round($summary['amount'], 2);
+        $summary['competitor_amount'] = round($summary['competitor_amount'], 2);
+        if ($summary['flow_lost_amount'] !== null) {
+            $summary['flow_lost_amount'] = round((float)$summary['flow_lost_amount'], 2);
+        }
+        foreach (['last_week_checkout_sales', 'last_week_checkout_room_price', 'last_week_book_sales'] as $moneyKey) {
+            if ($summary[$moneyKey] !== null) {
+                $summary[$moneyKey] = round((float)$summary[$moneyKey], 2);
+            }
+        }
+        return $summary;
+    }
+
+    private function buildCtripAdsDirectPayload(array $payload, string $startDate, string $endDate, string $apiType): array
+    {
+        foreach ([
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'beginDate' => $startDate,
+            'statStartDate' => $startDate,
+            'statEndDate' => $endDate,
+            'apiType' => $apiType,
+        ] as $key => $value) {
+            if (!array_key_exists($key, $payload) || $payload[$key] === '' || $payload[$key] === null) {
+                $payload[$key] = $value;
+            }
+        }
+        return $payload;
+    }
+
+    private function buildCtripAdsDateRange(string $dateRange, string $startDate, string $endDate, ?int $now = null): array
+    {
+        $today = $this->ctripAdsClock($now)->format('Y-m-d');
+        $reportEndDate = $this->ctripAdsReportEndDate($now);
+        switch ($dateRange) {
+            case 'today_realtime':
+            case 'today':
+            case '0':
+                return [$today, $today];
+            case 'last_7_days':
+            case '7':
+                return [date('Y-m-d', strtotime($reportEndDate . ' -6 days')), $reportEndDate];
+            case 'last_30_days':
+            case '30':
+                return [date('Y-m-d', strtotime($reportEndDate . ' -29 days')), $reportEndDate];
+            case 'custom':
+                if ($startDate === '' || $endDate === '') {
+                    throw new \InvalidArgumentException('请选择自定义开始日期和结束日期');
+                }
+                break;
+            case 'yesterday':
+            case '1':
+            default:
+                $startDate = $reportEndDate;
+                $endDate = $reportEndDate;
+                break;
+        }
+
+        if (strtotime($startDate) === false || strtotime($endDate) === false || strtotime($startDate) > strtotime($endDate)) {
+            throw new \InvalidArgumentException('日期范围无效');
+        }
+        return [$startDate, $endDate];
+    }
+
+    private function ctripAdsReportEndDate(?int $now = null): string
+    {
+        $clock = $this->ctripAdsClock($now);
+        $offsetDays = (int)$clock->format('G') < 7 ? 2 : 1;
+        return $clock->modify('-' . $offsetDays . ' days')->format('Y-m-d');
+    }
+
+    private function ctripAdsClock(?int $now = null): \DateTimeImmutable
+    {
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        if ($now === null) {
+            return new \DateTimeImmutable('now', $timezone);
+        }
+        return (new \DateTimeImmutable('@' . $now))->setTimezone($timezone);
+    }
+
+    private function isCtripAdsApiUrl(string $url): bool
+    {
+        $normalized = strtolower(trim($url));
+        return str_contains($normalized, 'pyramidad')
+            || str_contains($normalized, 'promotion')
+            || str_contains($normalized, '/toolcenter/api/cpc/')
+            || str_contains($normalized, 'querycampaignreportlist');
+    }
+
+    private function extractCtripCapturedAds(array $payload): array
+    {
+        $rows = [];
+        foreach (['ads', 'advertising', 'adData'] as $key) {
+            if (array_key_exists($key, $payload)) {
+                $rows = array_merge($rows, $this->normalizeCtripCapturedAdList($payload[$key]));
+            }
+        }
+
+        if (isset($payload['responses']) && is_array($payload['responses'])) {
+            foreach ($payload['responses'] as $response) {
+                if (!is_array($response)) {
+                    continue;
+                }
+                $url = strtolower((string)($response['url'] ?? ''));
+                $section = strtolower((string)($response['section'] ?? $response['type'] ?? ''));
+                if ($section !== 'ads' && !$this->isCtripAdsApiUrl($url)) {
+                    continue;
+                }
+                $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? [];
+                $rows = array_merge($rows, $this->normalizeCtripCapturedAdList($data));
+            }
+        }
+
+        $seen = [];
+        $deduped = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $identity = json_encode([
+                $this->firstMeituanValue($row, ['campaignId', 'campaign_id', 'planId', 'plan_id', 'adId', 'id'], ''),
+                $this->firstMeituanValue($row, ['campaign_name', 'campaignName', 'promotionName', 'planName', 'adName', 'name'], ''),
+                $this->firstMeituanValue($row, ['stat_date', 'statDate', 'dataDate', 'date'], ''),
+                $this->firstMeituanValue($row, ['exposure_count', 'exposureCount', 'exposure', 'impression'], ''),
+                $this->firstMeituanValue($row, ['click_count', 'clickCount', 'clicks', 'click'], ''),
+                $this->firstMeituanValue($row, ['cost_amount', 'costAmount', 'cost', 'consume', 'spend'], ''),
+                $row['_dom_text'] ?? '',
+            ], JSON_UNESCAPED_UNICODE);
+            if (isset($seen[$identity])) {
+                continue;
+            }
+            $seen[$identity] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
+    }
+
+    private function normalizeCtripCapturedAdList($value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        if ($this->isSequentialArray($value)) {
+            return array_values(array_filter($value, static fn($item): bool => is_array($item)));
+        }
+
+        $paths = [
+            ['data', 'list'],
+            ['data', 'rows'],
+            ['data', 'items'],
+            ['data', 'details'],
+            ['data', 'campaignList'],
+            ['data', 'promotionList'],
+            ['data', 'adList'],
+            ['data', 'records'],
+            ['result', 'list'],
+            ['result', 'rows'],
+            ['result', 'items'],
+            ['list'],
+            ['rows'],
+            ['items'],
+            ['campaignList'],
+            ['promotionList'],
+            ['adList'],
+            ['records'],
+            ['data'],
+        ];
+        foreach ($paths as $path) {
+            $nested = $this->readNestedMeituanValue($value, $path);
+            if (is_array($nested)) {
+                $rows = $this->normalizeCtripCapturedAdList($nested);
+                if (!empty($rows)) {
+                    return $rows;
+                }
+            }
+        }
+
+        return $this->looksLikeCtripCapturedAdRow($value) ? [$value] : [];
+    }
+
+    private function looksLikeCtripCapturedAdRow(array $value): bool
+    {
+        foreach (['exposure', 'exposureCount', 'impression', 'impressions', 'click', 'clickCount', 'clicks', 'cost', 'consume', 'spend', 'todayCost', 'cashCost', 'bonusCost', 'orderNum', 'bookingNum', 'bookings', 'campaignName', 'promotionName', 'planName', '曝光', '曝光量', '展现量', '点击', '点击量', '消耗', '费用', '花费', '预订量', '成交数', '推广名称', '计划名称'] as $key) {
+            if (array_key_exists($key, $value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function buildCtripCapturedAdRows(array $ads, array $payload, ?int $systemHotelId = null): array
+    {
+        $context = [
+            'system_hotel_id' => $systemHotelId,
+            'hotel_id' => (string)$this->firstMeituanValue($payload, ['hotel_id', 'hotelId', 'profile_id', 'profileId'], ''),
+            'hotel_name' => (string)$this->firstMeituanValue($payload, ['hotel_name', 'hotelName'], ''),
+            'captured_at' => (string)$this->firstMeituanValue($payload, ['captured_at', 'capturedAt'], date('Y-m-d H:i:s')),
+            'request_start_date' => (string)$this->firstMeituanValue($payload, ['request_start_date', 'requestStartDate'], ''),
+            'request_end_date' => (string)$this->firstMeituanValue($payload, ['request_end_date', 'requestEndDate'], ''),
+        ];
+        $rows = [];
+        foreach ($ads as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $row = $this->normalizeCtripCapturedAdRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+        return $rows;
+    }
+
+    private function normalizeCtripCapturedAdRow(array $item, array $context): ?array
+    {
+        $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'exposure', 'impression', 'impressions', 'showNum', 'showCount', 'displayCount', 'pv', '曝光', '曝光量', '展现量', '展示量'], 0);
+        $clicks = (int)$this->meituanNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click', '点击', '点击量'], 0);
+        $orders = (int)$this->meituanNumber($item, ['booking_count', 'bookingCount', 'bookingNum', 'bookings', 'orderNum', 'order_count', 'orderCount', 'dealNum', 'transactionNum', 'conversionNum', '预订量', '预订数', '成交数', '成交量', '成交订单数'], 0);
+        $nights = (int)$this->meituanNumber($item, ['nights', 'nightNum', 'roomNights', 'room_nights', 'quantity', '间夜', '成交间夜'], 0);
+        $cost = $this->meituanNumber($item, ['cost_amount', 'costAmount', 'cost', 'todayCost', 'cashCost', 'consume', 'consumption', 'spend', 'fee', 'expense', 'amount', 'totalCost', '消耗', '费用', '花费', '广告费', '消耗金额', '消费金额'], 0.0);
+        if ($exposure <= 0 && $clicks <= 0 && $orders <= 0 && $cost <= 0 && empty($item['_dom_text'])) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['effectTime', 'effect_time', 'stat_date', 'statDate', 'data_date', 'dataDate', 'date', 'reportDate', 'day', '日期', '统计日期'], ''))
+            ?: ($this->normalizeOnlineDataDate($context['request_end_date'] ?? '') ?: date('Y-m-d'));
+        $identity = (string)$this->firstMeituanValue($item, ['campaignId', 'campaign_id', 'planId', 'plan_id', 'adId', 'id', 'campaign_name', 'campaignName', 'promotionName', 'planName', 'adName', 'name', '推广名称', '计划名称', '广告名称', '广告计划'], '');
+        if ($identity === '') {
+            $identity = substr(md5(json_encode($item, JSON_UNESCAPED_UNICODE)), 0, 12);
+        }
+
+        $raw = $item;
+        $raw['_capture_context'] = array_filter([
+            'profile_id' => $context['hotel_id'] ?? '',
+            'captured_at' => $context['captured_at'] ?? '',
+            'request_start_date' => $context['request_start_date'] ?? '',
+            'request_end_date' => $context['request_end_date'] ?? '',
+        ], static fn($value): bool => $value !== null && $value !== '');
+
+        return [
+            'hotel_id' => (string)$this->firstMeituanValue($item, ['hotel_id', 'hotelId'], $context['hotel_id'] ?? ''),
+            'hotel_name' => (string)$this->firstMeituanValue($item, ['hotel_name', 'hotelName'], $context['hotel_name'] ?? ''),
+            'system_hotel_id' => $context['system_hotel_id'] ?? null,
+            'data_date' => $dataDate,
+            'amount' => round($cost, 2),
+            'quantity' => $nights,
+            'book_order_num' => $orders,
+            'comment_score' => 0,
+            'qunar_comment_score' => 0,
+            'data_value' => $exposure,
+            'source' => 'ctrip',
+            'data_type' => 'advertising',
+            'dimension' => 'ads:' . $identity,
+            'platform' => 'Ctrip',
+            'compare_type' => 'self',
+            'list_exposure' => $exposure,
+            'detail_exposure' => $clicks,
+            'flow_rate' => round($this->trafficRate((float)$clicks, (float)$exposure), 2),
+            'order_filling_num' => $clicks,
+            'order_submit_num' => $orders,
+            'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+        ];
+    }
+
+    private function summarizeCtripAdRows(array $rows): array
+    {
+        $summary = [
+            'exposure' => 0,
+            'clicks' => 0,
+            'orders' => 0,
+            'cost' => 0.0,
+            'click_rate' => 0.0,
+            'cost_per_click' => 0.0,
+            'cost_per_order' => 0.0,
+        ];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $summary['exposure'] += (int)($row['list_exposure'] ?? 0);
+            $summary['clicks'] += (int)($row['detail_exposure'] ?? 0);
+            $summary['orders'] += (int)($row['book_order_num'] ?? $row['order_submit_num'] ?? 0);
+            $summary['cost'] += (float)($row['amount'] ?? 0);
+        }
+        $summary['cost'] = round($summary['cost'], 2);
+        $summary['click_rate'] = round($this->trafficRate((float)$summary['clicks'], (float)$summary['exposure']), 2);
+        $summary['cost_per_click'] = $summary['clicks'] > 0 ? round($summary['cost'] / $summary['clicks'], 2) : 0.0;
+        $summary['cost_per_order'] = $summary['orders'] > 0 ? round($summary['cost'] / $summary['orders'], 2) : 0.0;
+        return $summary;
+    }
+
+    private function saveCtripCapturedAdRows(array $rows): int
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        $savedCount = 0;
+        $now = date('Y-m-d H:i:s');
+        foreach ($rows as $row) {
+            if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
+                continue;
+            }
+            if (isset($columns['update_time'])) {
+                $row['update_time'] = $now;
+            }
+            $query = Db::name('online_daily_data')
+                ->where('source', 'ctrip')
+                ->where('data_type', 'advertising')
+                ->where('data_date', (string)$row['data_date'])
+                ->where('dimension', (string)($row['dimension'] ?? ''));
+            if (!empty($row['hotel_id'])) {
+                $query->where('hotel_id', (string)$row['hotel_id']);
+            } else {
+                $query->where('hotel_name', (string)($row['hotel_name'] ?? ''));
+            }
+            if (array_key_exists('system_hotel_id', $row) && $row['system_hotel_id'] !== null) {
+                $query->where('system_hotel_id', (int)$row['system_hotel_id']);
+            } else {
+                $query->whereNull('system_hotel_id');
+            }
+            $exists = $query->find();
+            if (!$exists && isset($columns['create_time'])) {
+                $row['create_time'] = $now;
+            }
+            $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
+            if ($exists) {
+                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+            } else {
+                Db::name('online_daily_data')->insert($data);
+            }
+            $savedCount++;
+        }
+        return $savedCount;
+    }
+
+    private function extractCtripCapturedSection(array $payload, string $section): array
+    {
+        $rows = [];
+        foreach ($this->ctripCapturedSectionAliases($section) as $key) {
+            if (array_key_exists($key, $payload)) {
+                $rows = array_merge($rows, $this->normalizeCtripCapturedSectionList($payload[$key], $section));
+            }
+        }
+
+        if (isset($payload['responses']) && is_array($payload['responses'])) {
+            foreach ($payload['responses'] as $response) {
+                if (!is_array($response) || !$this->ctripCaptureResponseMatchesSection($response, $section)) {
+                    continue;
+                }
+                if ($section === 'business' && $this->isCtripOverviewSpecialResponse($response)) {
+                    continue;
+                }
+                $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? [];
+                $rows = array_merge($rows, $this->normalizeCtripCapturedSectionList($data, $section));
+            }
+        }
+
+        $seen = [];
+        $deduped = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $identity = (string)($row['_fingerprint'] ?? md5(json_encode($row, JSON_UNESCAPED_UNICODE)));
+            if (isset($seen[$identity])) {
+                continue;
+            }
+            $seen[$identity] = true;
+            $deduped[] = $row;
+        }
+        return $deduped;
+    }
+
+    private function isCtripOverviewSpecialResponse(array $response): bool
+    {
+        $url = strtolower((string)($response['url'] ?? ''));
+        foreach ([
+            'getcompetehotelreportv1',
+            'gethotwordsv1',
+            'gethothotelsv1',
+            'getflowhotelsv1',
+            'getuserbehaviorv1',
+            'gettrafficreportv1',
+            'getlastweekreportv1',
+        ] as $needle) {
+            if (str_contains($url, $needle)) {
+                return true;
+            }
+        }
+
+        $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? [];
+        return is_array($data) && isset($data['data']['hotRooms']) && is_array($data['data']['hotRooms']);
+    }
+
+    private function ctripCapturedSectionAliases(string $section): array
+    {
+        return match ($section) {
+            'business' => ['business', 'overview', 'hotelList', 'marketOverview'],
+            'traffic' => ['traffic', 'businessData', 'peerTrends', 'rankList', 'categoryRankList', 'competitionRankList'],
+            default => [$section],
+        };
+    }
+
+    private function normalizeCtripCapturedSectionList($value, string $section): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        if ($this->isSequentialArray($value)) {
+            $rows = [];
+            foreach ($value as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                if ($this->looksLikeCtripCapturedSectionRow($item, $section)) {
+                    $rows[] = $item;
+                } else {
+                    $rows = array_merge($rows, $this->normalizeCtripCapturedSectionList($item, $section));
+                }
+            }
+            return $rows;
+        }
+
+        if ($this->looksLikeCtripCapturedSectionRow($value, $section)) {
+            return [$value];
+        }
+
+        foreach ($this->ctripCapturedListPaths($section) as $path) {
+            $nested = $this->readNestedMeituanValue($value, $path);
+            if (is_array($nested)) {
+                $rows = $this->normalizeCtripCapturedSectionList($nested, $section);
+                if (!empty($rows)) {
+                    return $rows;
+                }
+            }
+        }
+
+        $rows = [];
+        foreach ($value as $nested) {
+            if (is_array($nested)) {
+                $rows = array_merge($rows, $this->normalizeCtripCapturedSectionList($nested, $section));
+            }
+        }
+        return $rows;
+    }
+
+    private function ctripCapturedListPaths(string $section): array
+    {
+        return match ($section) {
+            'traffic' => [
+                ['data', 'list'],
+                ['data', 'rows'],
+                ['data', 'traffic'],
+                ['data', 'businessData'],
+                ['data', 'peerTrends'],
+                ['data', 'rankList'],
+                ['data', 'ranking'],
+                ['data', 'rankData'],
+                ['data', 'categoryRank'],
+                ['data', 'categoryRankList'],
+                ['data', 'competitionRank'],
+                ['data', 'competitionRankList'],
+                ['data', 'competeRank'],
+                ['data', 'competeRankList'],
+                ['data', 'scanFlowDetails'],
+                ['data', 'flowData'],
+                ['data', 'trafficData'],
+                ['data', 'statData'],
+                ['result', 'list'],
+                ['result', 'rows'],
+                ['result', 'rankList'],
+                ['list'],
+                ['rows'],
+                ['rankList'],
+                ['categoryRankList'],
+                ['competitionRankList'],
+                ['data'],
+            ],
+            default => [
+                ['data', 'hotelList'],
+                ['data', 'list'],
+                ['data', 'rows'],
+                ['data', 'overview'],
+                ['data', 'marketOverview'],
+                ['data', 'flowHotelItemVos'],
+                ['data', 'hotRooms'],
+                ['result', 'hotelList'],
+                ['result', 'list'],
+                ['hotelList'],
+                ['list'],
+                ['rows'],
+                ['data'],
+            ],
+        };
+    }
+
+    private function looksLikeCtripCapturedSectionRow(array $value, string $section): bool
+    {
+        $keys = $section === 'traffic'
+            ? $this->ctripTrafficRowKeys()
+            : [
+                'amount', 'totalAmount', 'saleAmount', '成交收入', '成交金额',
+                'quantity', 'roomNights', '成交间夜',
+                'bookOrderNum', 'orderCount', '订单数',
+                'closeRate', 'averagePrice',
+                'ordamount', 'ordquantity', 'comhtluv',
+                'lossOrderVo', 'flowHotelItemVos', 'hotRooms',
+                'lastWeekCommentScore', 'lastWeekCheckoutRoomNights', 'lastWeekBookQuantity',
+                'totalListExposure', 'totalDetailExposure',
+                'listExposure', 'detailExposure', 'flowRate', 'orderFillingNum', 'orderSubmitNum',
+                'commentScore', 'uv', 'yesterdayUv', '昨日UV',
+                'psi', 'PSI', 'serviceScore', 'ctripRatingall',
+                'replyRate', 'replyrate5m', '回复率',
+                'favoriteCount', 'hotelCollect', '收藏数',
+                'visitorRank', '访客排名',
+            ];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function ctripTrafficRowKeys(): array
+    {
+        return [
+            'listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount',
+            'PV', 'pv', 'pageView', 'pageViews', 'page_view',
+            'detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount',
+            'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views',
+            'orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'clickNum', 'clicks',
+            'orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'orderNum',
+            'bookOrderNum', 'dealNum', 'orders',
+            'flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate',
+            'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr',
+            'rank', 'ranking', 'rankNo', 'rankIndex', 'competitionRank', 'competitorRank',
+            'competeRank', 'categoryRank', 'cateRank', 'categoryRanking', 'rankJson',
+            'rawRankJson', 'rankingJson',
+        ];
+    }
+
+    private function ctripCaptureResponseMatchesSection(array $response, string $section): bool
+    {
+        $type = strtolower((string)($response['type'] ?? $response['section'] ?? ''));
+        if ($type !== '' && in_array($type, $this->ctripCapturedSectionAliases($section), true)) {
+            return true;
+        }
+
+        $url = strtolower((string)($response['url'] ?? ''));
+        if ($url === '') {
+            return false;
+        }
+
+        $needles = $section === 'traffic'
+            ? ['queryscanflowdetailsv2', 'queryflowtransfornew', 'queryhomepagerealtimedata', 'getflowdata', 'gettrafficdata', 'getstatdata']
+            : ['getdayreportrealtimedate', 'fetchmarketoverviewv2', 'getdayreportflowcompete', 'getdayreportserverquantity', 'fetchcurrenthotelseqinfov1', 'fetchvisitortitlev2', 'fetchcapacityoverviewv4', 'queryflowtransfornewv1', 'getcompetehotelreportv1', 'gethotwordsv1', 'gethothotelsv1', 'getflowhotelsv1', 'gethotroomsv1', 'getuserbehaviorv1', 'gettrafficreportv1', 'getlastweekreportv1', 'getdayreportcompetehotelreport'];
+        foreach ($needles as $needle) {
+            if (str_contains($url, $needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function extractCtripCapturedComments(array $payload): array
+    {
+        $rows = [];
+        foreach (['reviews', 'comments', 'commentList'] as $key) {
+            if (array_key_exists($key, $payload)) {
+                $rows = array_merge($rows, $this->normalizeCtripCapturedCommentList($payload[$key]));
+            }
+        }
+
+        if (isset($payload['responses']) && is_array($payload['responses'])) {
+            foreach ($payload['responses'] as $response) {
+                if (!is_array($response)) {
+                    continue;
+                }
+                $url = strtolower((string)($response['url'] ?? ''));
+                $section = strtolower((string)($response['section'] ?? $response['type'] ?? ''));
+                if ($section !== 'reviews' && !str_contains($url, 'getcommentlist')) {
+                    continue;
+                }
+                $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? [];
+                $rows = array_merge($rows, $this->normalizeCtripCapturedCommentList($data));
+            }
+        }
+
+        $seen = [];
+        $deduped = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $identity = $this->extractCtripCommentId($row);
+            if ($identity === '') {
+                $identity = md5(json_encode([
+                    $row['content'] ?? $row['commentContent'] ?? $row['_dom_text'] ?? '',
+                    $row['user_name'] ?? $row['userName'] ?? '',
+                    $row['comment_time'] ?? $row['commentTime'] ?? '',
+                ], JSON_UNESCAPED_UNICODE));
+            }
+            if (isset($seen[$identity])) {
+                continue;
+            }
+            $seen[$identity] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
+    }
+
+    private function normalizeCtripCapturedCommentList($value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        if ($this->isSequentialArray($value)) {
+            return array_values(array_filter($value, static fn($item): bool => is_array($item)));
+        }
+
+        $paths = [
+            ['data', 'commentList'],
+            ['data', 'comments'],
+            ['data', 'list'],
+            ['data', 'rows'],
+            ['result', 'commentList'],
+            ['result', 'comments'],
+            ['result', 'list'],
+            ['commentList'],
+            ['comments'],
+            ['list'],
+            ['rows'],
+            ['data'],
+        ];
+        foreach ($paths as $path) {
+            $nested = $this->readNestedMeituanValue($value, $path);
+            if (is_array($nested)) {
+                $rows = $this->normalizeCtripCapturedCommentList($nested);
+                if (!empty($rows)) {
+                    return $rows;
+                }
+            }
+        }
+
+        return $this->looksLikeCtripCapturedCommentRow($value) ? [$value] : [];
+    }
+
+    private function looksLikeCtripCapturedCommentRow(array $value): bool
+    {
+        foreach (['review_id', 'reviewId', 'comment_id', 'commentId', 'id', 'commentContent', 'reviewContent', 'content', 'comment', 'score', 'rating', 'totalScore', 'commentScore'] as $key) {
+            if (array_key_exists($key, $value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function resolveMeituanCaptureChromePath(): string
+    {
+        $configured = trim((string)(getenv('CHROME_PATH') ?: env('CHROME_PATH', '')));
+        if ($configured !== '' && is_file($configured)) {
+            return $configured;
+        }
+        return '';
+    }
+
+    private function runMeituanCaptureProcess(array $args, string $cwd, int $timeoutSeconds): array
+    {
+        $command = implode(' ', array_map('escapeshellarg', $args));
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $process = proc_open($command, $descriptors, $pipes, $cwd);
+        if (!is_resource($process)) {
+            return ['success' => false, 'message' => '无法启动美团抓取进程', 'stdout' => '', 'stderr' => ''];
+        }
+
+        fclose($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $stdout = '';
+        $stderr = '';
+        $startedAt = time();
+        $timedOut = false;
+
+        while (true) {
+            $stdout .= (string)stream_get_contents($pipes[1]);
+            $stderr .= (string)stream_get_contents($pipes[2]);
+            $status = proc_get_status($process);
+            if (!$status['running']) {
+                break;
+            }
+            if (time() - $startedAt > $timeoutSeconds) {
+                $timedOut = true;
+                proc_terminate($process);
+                break;
+            }
+            usleep(250000);
+        }
+
+        $stdout .= (string)stream_get_contents($pipes[1]);
+        $stderr .= (string)stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($process);
+
+        if ($timedOut) {
+            return [
+                'success' => false,
+                'message' => '美团浏览器抓取超时，请确认弹出的浏览器已完成登录并能访问 eBooking 页面',
+                'stdout' => $stdout,
+                'stderr' => $stderr,
+            ];
+        }
+        if ($exitCode !== 0 && $exitCode !== -1) {
+            return [
+                'success' => false,
+                'message' => '美团浏览器抓取失败，退出码 ' . $exitCode,
+                'stdout' => $stdout,
+                'stderr' => $stderr,
+            ];
+        }
+
+        return ['success' => true, 'message' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    private function safeMeituanCaptureFilePart(string $value): string
+    {
+        $safe = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $value) ?: 'default';
+        return substr($safe, 0, 80);
+    }
+
+    private function createAutoFetchCookieFile(string $projectRoot, string $platform, int $hotelId, string $cookies): string
+    {
+        $cookies = trim($cookies);
+        if ($cookies === '') {
+            return '';
+        }
+
+        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ota_cookie_injection';
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return '';
+        }
+
+        try {
+            $suffix = bin2hex(random_bytes(6));
+        } catch (\Throwable $e) {
+            $suffix = str_replace('.', '', uniqid('', true));
+        }
+
+        $path = $dir . DIRECTORY_SEPARATOR . $this->safeMeituanCaptureFilePart($platform . '_' . $hotelId . '_' . $suffix) . '.txt';
+        return file_put_contents($path, $cookies, LOCK_EX) === false ? '' : $path;
+    }
+
+    private function removeAutoFetchCookieFile(string $path): void
+    {
+        if ($path !== '' && is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    private function trimMeituanCaptureLog(string $value): string
+    {
+        $value = trim($value);
+        if (mb_strlen($value) <= 2000) {
+            return $value;
+        }
+        return mb_substr($value, -2000);
+    }
+
+    private function buildMeituanCapturedDailyRows(array $payload, ?int $systemHotelId = null): array
+    {
+        $context = $this->buildMeituanCaptureContext($payload, $systemHotelId);
+        $rows = [];
+
+        foreach ($this->extractMeituanCapturedSection($payload, 'traffic') as $item) {
+            $row = $this->normalizeMeituanCapturedTrafficRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
+        foreach ($this->extractMeituanCapturedSection($payload, 'ads') as $item) {
+            $row = $this->normalizeMeituanCapturedAdsRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
+        foreach ($this->extractMeituanCapturedSection($payload, 'orders') as $item) {
+            $row = $this->normalizeMeituanCapturedOrderRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function buildMeituanCaptureContext(array $payload, ?int $systemHotelId): array
+    {
+        return [
+            'system_hotel_id' => $systemHotelId,
+            'store_id' => (string)$this->firstMeituanValue($payload, ['store_id', 'storeId'], ''),
+            'poi_id' => (string)$this->firstMeituanValue($payload, ['poi_id', 'poiId', 'hotel_id', 'hotelId'], ''),
+            'poi_name' => (string)$this->firstMeituanValue($payload, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'store_name', 'storeName'], ''),
+            'captured_at' => (string)$this->firstMeituanValue($payload, ['captured_at', 'capturedAt', 'scraped_at', 'scrapedAt'], date('Y-m-d H:i:s')),
+            'default_data_date' => (string)$this->firstMeituanValue($payload, ['default_data_date', 'defaultDataDate', 'data_date', 'dataDate'], date('Y-m-d')),
+        ];
+    }
+
+    private function extractMeituanCapturedSection(array $payload, string $section): array
+    {
+        $rows = [];
+        foreach ($this->meituanCapturedSectionAliases($section) as $key) {
+            if (array_key_exists($key, $payload)) {
+                $rows = array_merge($rows, $this->normalizeMeituanCapturedList($payload[$key], $section));
+            }
+        }
+
+        if (isset($payload['responses']) && is_array($payload['responses'])) {
+            foreach ($payload['responses'] as $response) {
+                if (!is_array($response) || !$this->meituanCaptureResponseMatchesSection($response, $section)) {
+                    continue;
+                }
+                $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? [];
+                $rows = array_merge($rows, $this->normalizeMeituanCapturedList($data, $section));
+            }
+        }
+
+        return $rows;
+    }
+
+    private function meituanCapturedSectionAliases(string $section): array
+    {
+        return match ($section) {
+            'reviews' => ['reviews', 'review', 'comments', 'commentList', 'commentsInfo'],
+            'traffic' => ['traffic', 'businessData', 'business_data', 'weightTraffic', 'weight_traffic', 'peerTrends', 'peer_trends'],
+            'ads' => ['ads', 'advertising', 'adData', 'cureShops', 'cure_shops'],
+            'orders' => ['orders', 'orderList', 'order_list'],
+            default => [$section],
+        };
+    }
+
+    private function meituanCaptureResponseMatchesSection(array $response, string $section): bool
+    {
+        $type = strtolower((string)($response['type'] ?? $response['section'] ?? ''));
+        if ($type !== '' && in_array($type, $this->meituanCapturedSectionAliases($section), true)) {
+            return true;
+        }
+
+        $url = strtolower((string)($response['url'] ?? ''));
+        if ($url === '') {
+            return false;
+        }
+
+        $needles = match ($section) {
+            'reviews' => ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics'],
+            'traffic' => ['businessdata', 'weighttraffic', 'traffic', 'peertrends'],
+            'ads' => ['cureshops'],
+            'orders' => ['/orders/list', '/order/unhandled/count'],
+            default => [],
+        };
+
+        foreach ($needles as $needle) {
+            if (str_contains($url, $needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function normalizeMeituanCapturedList($value, string $section): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        if ($this->isSequentialArray($value)) {
+            return array_values(array_filter($value, static fn($item): bool => is_array($item)));
+        }
+
+        foreach ($this->meituanCapturedListPaths($section) as $path) {
+            $nested = $this->readNestedMeituanValue($value, $path);
+            if (is_array($nested)) {
+                $list = $this->normalizeMeituanCapturedList($nested, $section);
+                if (!empty($list)) {
+                    return $list;
+                }
+            }
+        }
+
+        return $this->looksLikeMeituanCapturedRow($value, $section) ? [$value] : [];
+    }
+
+    private function meituanCapturedListPaths(string $section): array
+    {
+        return match ($section) {
+            'reviews' => [
+                ['data', 'commentList'],
+                ['data', 'comments'],
+                ['data', 'list'],
+                ['commentList'],
+                ['comments'],
+                ['list'],
+                ['data'],
+            ],
+            'traffic' => [
+                ['data', 'businessData'],
+                ['data', 'weightTraffic'],
+                ['data', 'weight_traffic'],
+                ['data', 'traffic'],
+                ['data', 'peerTrends'],
+                ['data', 'list'],
+                ['data', 'rows'],
+                ['businessData'],
+                ['weightTraffic'],
+                ['weight_traffic'],
+                ['traffic'],
+                ['peerTrends'],
+                ['list'],
+                ['rows'],
+                ['data'],
+            ],
+            'ads' => [
+                ['data', 'cureShops'],
+                ['data', 'list'],
+                ['data', 'rows'],
+                ['cureShops'],
+                ['list'],
+                ['rows'],
+                ['data'],
+            ],
+            'orders' => [
+                ['data', 'orders'],
+                ['data', 'list'],
+                ['data', 'orderList'],
+                ['orders'],
+                ['orderList'],
+                ['list'],
+                ['data'],
+            ],
+            default => [['data'], ['list']],
+        };
+    }
+
+    private function looksLikeMeituanCapturedRow(array $value, string $section): bool
+    {
+        $keys = match ($section) {
+            'reviews' => ['review_id', 'reviewId', 'commentId', 'comment', 'content', 'commentContent'],
+            'traffic' => ['exposure_count', 'exposureCount', 'page_views', 'pageViews', 'unique_visitors', 'businessData', 'weightTraffic'],
+            'ads' => ['cureShops', 'exposure_count', 'click_count', 'adId', 'campaignId'],
+            'orders' => ['order_id', 'orderId', 'orderStatus', 'order_status', 'total_amount', 'totalAmount'],
+            default => [],
+        };
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function normalizeMeituanCapturedReviewRow(array $item, array $context): ?array
+    {
+        $reviewId = (string)$this->firstMeituanValue($item, ['review_id', 'reviewId', 'comment_id', 'commentId', 'id', 'orderId'], '');
+        $content = (string)$this->firstMeituanValue($item, ['content', 'comment', 'commentContent', 'review_content'], '');
+        $reply = (string)$this->firstMeituanValue($item, ['reply', 'bizReply', 'merchantReply', 'replyContent'], '');
+        if ($reviewId === '' && $content === '' && $reply === '') {
+            return null;
+        }
+
+        $score = $this->normalizeMeituanScore($this->firstMeituanValue($item, ['score', 'star', 'rating', 'totalScore'], 0));
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['review_time', 'reviewTime', 'commentTime', 'createTime', 'stay_date', 'stayDate'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $isNegative = $this->meituanBool($this->firstMeituanValue($item, ['is_negative', 'isNegative', 'badComment'], false))
+            || ($score > 0 && $score < 3.0);
+        $identity = $reviewId !== '' ? $reviewId : substr(md5(json_encode($item, JSON_UNESCAPED_UNICODE)), 0, 12);
+
+        return $this->baseMeituanCapturedRow($item, $context, [
+            'data_date' => $dataDate,
+            'amount' => 0,
+            'quantity' => 1,
+            'book_order_num' => 0,
+            'comment_score' => $score,
+            'data_value' => $score,
+            'data_type' => 'review',
+            'dimension' => 'review:' . ($isNegative ? 'negative' : 'normal') . ':' . $identity,
+        ]);
+    }
+
+    private function normalizeMeituanCapturedTrafficRow(array $item, array $context): ?array
+    {
+        $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'listExposure', 'impression', 'impressions', 'exposure'], 0);
+        $pageViews = (int)$this->meituanNumber($item, ['page_views', 'pageViews', 'detailExposure', 'detailVisitors', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'uv', 'UV', 'pv', 'views'], 0);
+        $clicks = (int)$this->meituanNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click'], 0);
+        $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['conversion_rate', 'conversionRate', 'flowRate', 'orderRate'], null));
+        if ($conversion === null) {
+            $conversion = $this->trafficRate((float)($pageViews ?: $clicks), (float)$exposure);
+        }
+
+        if ($exposure <= 0 && $pageViews <= 0 && $clicks <= 0) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+
+        return $this->baseMeituanCapturedRow($item, $context, [
+            'data_date' => $dataDate,
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'comment_score' => 0,
+            'data_value' => $exposure,
+            'data_type' => 'traffic',
+            'dimension' => 'traffic',
+            'platform' => 'Meituan',
+            'compare_type' => 'self',
+            'list_exposure' => $exposure,
+            'detail_exposure' => $pageViews ?: $clicks,
+            'flow_rate' => round($conversion, 2),
+            'order_filling_num' => $clicks,
+            'order_submit_num' => (int)$this->meituanNumber($item, ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers'], 0),
+        ]);
+    }
+
+    private function normalizeMeituanCapturedAdsRow(array $item, array $context): ?array
+    {
+        $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'], 0);
+        $clicks = (int)$this->meituanNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click'], 0);
+        $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['conversion_rate', 'conversionRate', 'flowRate', 'orderRate'], null));
+        if ($conversion === null) {
+            $conversion = $this->trafficRate((float)$clicks, (float)$exposure);
+        }
+
+        if ($exposure <= 0 && $clicks <= 0) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+
+        return $this->baseMeituanCapturedRow($item, $context, [
+            'data_date' => $dataDate,
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'comment_score' => 0,
+            'data_value' => $exposure,
+            'data_type' => 'advertising',
+            'dimension' => 'ads',
+            'platform' => 'Meituan',
+            'compare_type' => 'self',
+            'list_exposure' => $exposure,
+            'detail_exposure' => $clicks,
+            'flow_rate' => round($conversion, 2),
+            'order_filling_num' => $clicks,
+            'order_submit_num' => 0,
+        ]);
+    }
+
+    private function normalizeMeituanCapturedOrderRow(array $item, array $context): ?array
+    {
+        $orderId = (string)$this->firstMeituanValue($item, ['order_id', 'orderId', 'id'], '');
+        $status = (string)$this->firstMeituanValue($item, ['order_status', 'orderStatus', 'status'], 'unknown');
+        $amount = $this->meituanNumber($item, ['total_amount', 'totalAmount', 'amount', 'payAmount', 'pay_amount'], 0.0);
+        $roomCount = (int)$this->meituanNumber($item, ['room_count', 'roomCount', 'rooms'], 1.0);
+        $nights = (int)$this->meituanNumber($item, ['nights', 'night_count', 'nightCount'], 0.0);
+        if ($nights <= 0) {
+            $nights = $this->calculateMeituanOrderNights($item);
+        }
+        $roomCount = max(1, $roomCount);
+        $nights = max(1, $nights);
+
+        if ($orderId === '' && $amount <= 0) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['order_time', 'orderTime', 'createTime', 'check_in_date', 'checkInDate'], ''))
+            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $identity = $orderId !== ''
+            ? $this->hashOnlineOrderIdentifier($orderId)
+            : hash('sha256', 'ota_order_fallback|' . json_encode($item, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+
+        return $this->baseMeituanCapturedRow($item, $context, [
+            'data_date' => $dataDate,
+            'amount' => round($amount, 2),
+            'quantity' => $roomCount * $nights,
+            'book_order_num' => (int)$this->meituanNumber($item, ['order_count', 'orderCount'], 1.0),
+            'comment_score' => 0,
+            'data_value' => $this->meituanNumber($item, ['avg_price', 'avgPrice'], $amount > 0 ? round($amount / ($roomCount * $nights), 2) : 0.0),
+            'data_type' => 'order',
+            'dimension' => 'order:' . $status . ':' . $identity,
+            'platform' => 'Meituan',
+            'compare_type' => 'self',
+        ]);
+    }
+
+    private function baseMeituanCapturedRow(array $item, array $context, array $fields): array
+    {
+        $hotelId = (string)$this->firstMeituanValue($item, ['poi_id', 'poiId', 'hotel_id', 'hotelId', 'shopId', 'shop_id'], $context['poi_id'] ?: $context['store_id']);
+        $hotelName = (string)$this->firstMeituanValue($item, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'shopName', 'shop_name', 'name'], $context['poi_name']);
+        $raw = $this->sanitizeOnlineOrderRawData($item, ($fields['data_type'] ?? '') === 'order');
+        $raw['_capture_context'] = array_filter([
+            'store_id' => $context['store_id'] ?? '',
+            'poi_id' => $context['poi_id'] ?? '',
+            'captured_at' => $context['captured_at'] ?? '',
+        ], static fn($value): bool => $value !== null && $value !== '');
+
+        return array_merge([
+            'hotel_id' => $hotelId,
+            'hotel_name' => $hotelName,
+            'system_hotel_id' => $context['system_hotel_id'] ?? null,
+            'source' => 'meituan',
+            'qunar_comment_score' => 0,
+            'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+        ], $fields);
+    }
+
+    /**
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function sanitizeOnlineOrderRawData(array $raw, bool $orderContext = false): array
+    {
+        $sanitized = [];
+        foreach ($raw as $key => $value) {
+            $keyText = (string)$key;
+            if ($this->isOnlineSensitiveConfigKey($keyText)) {
+                continue;
+            }
+
+            $childOrderContext = $orderContext || $this->isOnlineOrderContainerKey($keyText);
+            if (is_array($value)) {
+                $sanitized[$key] = $this->sanitizeOnlineOrderRawData($value, $childOrderContext);
+                continue;
+            }
+
+            if ($childOrderContext || $this->isOnlineOrderPiiKey($keyText)) {
+                $this->appendRedactedOnlineOrderField($sanitized, $keyText, $value, $childOrderContext);
+                continue;
+            }
+
+            $sanitized[$key] = $value;
+        }
+        return $sanitized;
+    }
+
+    /**
+     * @param array<string|int, mixed> $target
+     */
+    private function appendRedactedOnlineOrderField(array &$target, string $key, mixed $value, bool $orderContext): void
+    {
+        if ($this->isOnlineOrderIdKey($key, $orderContext)) {
+            $text = trim((string)$value);
+            if ($text !== '') {
+                $target[$this->redactedOnlineOrderFieldName($key, 'hash')] = $this->hashOnlineOrderIdentifier($text);
+            }
+            return;
+        }
+        if ($this->isOnlinePhoneKey($key)) {
+            $masked = $this->maskOnlinePhone((string)$value);
+            if ($masked !== '') {
+                $target[$this->redactedOnlineOrderFieldName($key, 'masked')] = $masked;
+            }
+            return;
+        }
+        if ($this->isOnlineGuestNameKey($key, $orderContext)) {
+            $masked = $this->maskOnlineName((string)$value);
+            if ($masked !== '') {
+                $target[$this->redactedOnlineOrderFieldName($key, 'masked')] = $masked;
+            }
+            return;
+        }
+        if ($this->isOnlineSensitiveOrderTextKey($key)) {
+            return;
+        }
+
+        $target[$key] = $value;
+    }
+
+    private function isOnlineSensitiveConfigKey(string $key): bool
+    {
+        return preg_match('/cookie|token|authorization|mtgsig|password|secret|spidertoken|csrf|session/i', $key) === 1;
+    }
+
+    private function isOnlineOrderContainerKey(string $key): bool
+    {
+        return preg_match('/order[_-]?(list|rows|items|data|detail|details|info)|orders/i', $key) === 1;
+    }
+
+    private function isOnlineOrderPiiKey(string $key): bool
+    {
+        return $this->isOnlineOrderIdKey($key, false)
+            || $this->isOnlinePhoneKey($key)
+            || $this->isOnlineGuestNameKey($key, false)
+            || $this->isOnlineSensitiveOrderTextKey($key);
+    }
+
+    private function isOnlineOrderIdKey(string $key, bool $orderContext): bool
+    {
+        if ($orderContext && preg_match('/^(id|sn)$/i', $key) === 1) {
+            return true;
+        }
+        return preg_match('/^(order[_-]?(id|no|num|number|sn)|booking[_-]?(id|no|number))$/i', $key) === 1;
+    }
+
+    private function isOnlinePhoneKey(string $key): bool
+    {
+        return preg_match('/(phone|mobile|tel)$/i', $key) === 1;
+    }
+
+    private function isOnlineGuestNameKey(string $key, bool $orderContext): bool
+    {
+        if ($orderContext && preg_match('/^(name|full[_-]?name)$/i', $key) === 1) {
+            return true;
+        }
+        return preg_match('/(guest|customer|contact|user|traveller|passenger)[_-]?name$/i', $key) === 1;
+    }
+
+    private function isOnlineSensitiveOrderTextKey(string $key): bool
+    {
+        return preg_match('/(certificate|credential|id[_-]?card|card[_-]?no|passport|remark|memo|note|address)/i', $key) === 1;
+    }
+
+    private function redactedOnlineOrderFieldName(string $key, string $suffix): string
+    {
+        if ($this->isOnlineOrderIdKey($key, true)) {
+            return 'order_id_hash';
+        }
+        $name = preg_replace('/(?<!^)[A-Z]/', '_$0', $key) ?? $key;
+        $name = strtolower((string)preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
+        $name = trim($name, '_');
+        return ($name !== '' ? $name : 'field') . '_' . $suffix;
+    }
+
+    private function hashOnlineOrderIdentifier(string $value): string
+    {
+        return hash('sha256', 'ota_order|' . $value);
+    }
+
+    private function maskOnlinePhone(string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', $value) ?? '';
+        if ($digits === '') {
+            return '';
+        }
+        if (strlen($digits) <= 4) {
+            return str_repeat('*', strlen($digits));
+        }
+        return str_repeat('*', strlen($digits) - 4) . substr($digits, -4);
+    }
+
+    private function maskOnlineName(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        return mb_substr($value, 0, 1) . '***';
+    }
+
+    private function saveMeituanCapturedDailyRows(array $rows): int
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        $savedCount = 0;
+        $now = date('Y-m-d H:i:s');
+
+        foreach ($rows as $row) {
+            if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
+                continue;
+            }
+
+            if (isset($columns['update_time'])) {
+                $row['update_time'] = $now;
+            }
+
+            $query = Db::name('online_daily_data')
+                ->where('source', 'meituan')
+                ->where('data_type', (string)$row['data_type'])
+                ->where('data_date', (string)$row['data_date'])
+                ->where('dimension', (string)($row['dimension'] ?? ''));
+
+            if (!empty($row['hotel_id'])) {
+                $query->where('hotel_id', (string)$row['hotel_id']);
+            } else {
+                $query->where('hotel_name', (string)($row['hotel_name'] ?? ''));
+            }
+
+            if (array_key_exists('system_hotel_id', $row) && $row['system_hotel_id'] !== null) {
+                $query->where('system_hotel_id', (int)$row['system_hotel_id']);
+            } else {
+                $query->whereNull('system_hotel_id');
+            }
+
+            $exists = $query->find();
+            if (!$exists && isset($columns['create_time'])) {
+                $row['create_time'] = $now;
+            }
+
+            $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
+            if ($exists) {
+                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+            } else {
+                Db::name('online_daily_data')->insert($data);
+            }
+            $savedCount++;
+        }
+
+        return $savedCount;
+    }
+
+    private function summarizeMeituanCapturedRows(array $rows): array
+    {
+        $counts = [];
+        foreach ($rows as $row) {
+            $type = (string)($row['data_type'] ?? 'unknown');
+            $counts[$type] = ($counts[$type] ?? 0) + 1;
+        }
+        ksort($counts);
+        return $counts;
+    }
+
+    private function firstMeituanValue(array $data, array $keys, $default = null)
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $data) && $data[$key] !== null && $data[$key] !== '') {
+                return $data[$key];
+            }
+        }
+        return $default;
+    }
+
+    private function meituanNumber(array $data, array $keys, float $default = 0.0): float
+    {
+        $value = $this->firstMeituanValue($data, $keys, null);
+        if (is_string($value)) {
+            $value = str_replace([',', '%', '￥', '¥', '元', ' '], '', trim($value));
+        }
+        return is_numeric($value) ? (float)$value : $default;
+    }
+
+    private function normalizeMeituanPercentValue($value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_string($value)) {
+            $value = str_replace([',', '%'], '', trim($value));
+        }
+        if (!is_numeric($value)) {
+            return null;
+        }
+        return round($this->normalizeTrafficPercent((float)$value), 2);
+    }
+
+    private function normalizeMeituanScore($value): float
+    {
+        if (is_string($value)) {
+            $value = str_replace([',', '%'], '', trim($value));
+        }
+        if (!is_numeric($value)) {
+            return 0.0;
+        }
+        $score = (float)$value;
+        if ($score > 5 && $score <= 50) {
+            return round($score / 10, 1);
+        }
+        if ($score > 50 && $score <= 100) {
+            return round($score / 20, 1);
+        }
+        return round($score, 1);
+    }
+
+    private function calculateMeituanOrderNights(array $item): int
+    {
+        $checkIn = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['check_in_date', 'checkInDate'], ''));
+        $checkOut = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['check_out_date', 'checkOutDate'], ''));
+        if ($checkIn === '' || $checkOut === '') {
+            return 0;
+        }
+        $start = strtotime($checkIn);
+        $end = strtotime($checkOut);
+        if ($start === false || $end === false || $end <= $start) {
+            return 0;
+        }
+        return (int)max(1, floor(($end - $start) / 86400));
+    }
+
+    private function readNestedMeituanValue(array $data, array $path)
+    {
+        $current = $data;
+        foreach ($path as $key) {
+            if (!is_array($current) || !array_key_exists($key, $current)) {
+                return null;
+            }
+            $current = $current[$key];
+        }
+        return $current;
+    }
+
+    private function isSequentialArray(array $value): bool
+    {
+        if ($value === []) {
+            return true;
+        }
+        return array_keys($value) === range(0, count($value) - 1);
+    }
+
+    private function meituanBool($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (int)$value === 1;
+        }
+        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'y'], true);
+    }
+
+    /**
+     * Parse and save Meituan comment API data.
+     */
     private function parseAndSaveMeituanComments(array $comments, string $poiId, string $partnerId, ?int $systemHotelId = null): int
     {
+        return 0;
+
         $savedCount = 0;
         $dataDate = date('Y-m-d');
 
@@ -999,6 +4473,7 @@ class OnlineData extends Base
                     'create_time' => date('Y-m-d H:i:s'),
                     'update_time' => date('Y-m-d H:i:s'),
                 ];
+                $insertData = $this->applyOnlineDailyDataValidationFields($insertData);
 
                 $inserted = Db::name('online_daily_data')->insertGetId($insertData);
                 if ($inserted) {
@@ -1069,6 +4544,10 @@ class OnlineData extends Base
      */
     private function sendMeituanRequest(string $url, array $params, string $cookies, array $authData = []): array
     {
+        if (!$this->isAllowedOtaRequestUrl($url, ['meituan.com'])) {
+            return ['success' => false, 'error' => '仅允许请求美团官方域名'];
+        }
+
         $fullUrl = $url;
         if (!empty($params)) {
             $fullUrl .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($params);
@@ -1168,6 +4647,139 @@ class OnlineData extends Base
             'http_code' => $httpCode,
         ];
     }
+
+    private function normalizeMeituanManualDateRange(string $startDate, string $endDate): array
+    {
+        $start = $this->normalizeOnlineDataDate($startDate);
+        $end = $this->normalizeOnlineDataDate($endDate);
+        if ($start === '' && $end === '') {
+            $start = date('Y-m-d', strtotime('-1 day'));
+            $end = $start;
+        } elseif ($start === '') {
+            $start = $end;
+        } elseif ($end === '') {
+            $end = $start;
+        }
+        if (strtotime($start) === false || strtotime($end) === false || strtotime($start) > strtotime($end)) {
+            throw new \InvalidArgumentException('日期范围无效');
+        }
+        return [$start, $end];
+    }
+
+    private function sendMeituanManualRequest(string $url, array $params, string $cookies, string $method, array $allowedHostSuffixes, string $section): array
+    {
+        $emptyResult = [
+            'http_code' => 0,
+            'raw_response' => '',
+            'decoded_data' => null,
+            'request_url' => $url,
+            'error' => '',
+        ];
+        if (!$this->isAllowedOtaRequestUrl($url, $allowedHostSuffixes)) {
+            return array_merge($emptyResult, ['error' => '仅允许请求美团/点评官方业务域名']);
+        }
+
+        $lowerUrl = strtolower($url);
+        if ($section === 'orders' && str_contains($lowerUrl, '/order-eb/index.html')) {
+            return array_merge($emptyResult, ['error' => '请填写 Network 中 /orders/list 等 JSON 接口 Request URL，不要填写订单页面 URL']);
+        }
+        if ($section === 'ads' && str_contains($lowerUrl, '/shopdiy/account/pccpcentry')) {
+            return array_merge($emptyResult, ['error' => '请填写 Network 中 cureShops 等 JSON 接口 Request URL，不要填写推广通入口页面 URL']);
+        }
+
+        $method = strtoupper($method) === 'POST' ? 'POST' : 'GET';
+        $requestUrl = $url;
+        $content = '';
+        if ($method === 'GET') {
+            if (!empty($params)) {
+                $requestUrl .= (str_contains($requestUrl, '?') ? '&' : '?') . http_build_query($params);
+            }
+        } else {
+            $content = json_encode($params, JSON_UNESCAPED_UNICODE);
+            if ($content === false) {
+                return array_merge($emptyResult, ['error' => '请求 Body JSON 编码失败: ' . json_last_error_msg()]);
+            }
+        }
+
+        $parts = parse_url($url);
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $origin = str_contains($host, 'dianping.com') ? 'https://ebmidas.dianping.com' : 'https://eb.meituan.com';
+        $referer = $section === 'ads'
+            ? 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry'
+            : 'https://eb.meituan.com/';
+        $headers = [
+            'Cookie: ' . $cookies,
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept: application/json, text/plain, */*',
+            'Accept-Language: zh-CN,zh;q=0.9',
+            'Origin: ' . $origin,
+            'Referer: ' . $referer,
+        ];
+        if ($method === 'POST') {
+            $headers[] = 'Content-Type: application/json;charset=UTF-8';
+            $headers[] = 'Content-Length: ' . strlen($content);
+        }
+
+        $context = stream_context_create([
+            'http' => [
+                'method' => $method,
+                'header' => implode("\r\n", $headers),
+                'content' => $method === 'POST' ? $content : '',
+                'timeout' => 30,
+                'ignore_errors' => true,
+            ],
+            'ssl' => $this->buildStreamSslOptions(),
+        ]);
+        $rawResponse = @file_get_contents($requestUrl, false, $context);
+        $httpCode = 0;
+        if (isset($http_response_header)) {
+            foreach ($http_response_header as $header) {
+                if (preg_match('/HTTP\/\d+\.?\d*\s+(\d+)/', $header, $matches)) {
+                    $httpCode = (int)$matches[1];
+                    break;
+                }
+            }
+        }
+
+        $result = array_merge($emptyResult, [
+            'http_code' => $httpCode,
+            'request_url' => $requestUrl,
+            'raw_response' => $rawResponse === false ? '' : (string)$rawResponse,
+        ]);
+        if ($rawResponse === false) {
+            $error = error_get_last();
+            $result['error'] = is_array($error) ? (string)($error['message'] ?? '请求失败') : '请求失败';
+            return $result;
+        }
+        if ($httpCode > 0 && $httpCode !== 200) {
+            $result['error'] = in_array($httpCode, [301, 302, 401, 403], true)
+                ? 'Cookie 可能已失效或无权限，请重新登录美团后台后复制 Cookie'
+                : '美团接口 HTTP 错误: ' . $httpCode;
+            return $result;
+        }
+        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', (string)$rawResponse)) {
+            $result['error'] = '接口返回 HTML 页面，请填写 Network 中的 JSON 接口 Request URL';
+            return $result;
+        }
+
+        $sanitizedResponse = $this->sanitizeJsonString((string)$rawResponse);
+        $decodedData = json_decode($sanitizedResponse, true);
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decodedData)) {
+            $result['error'] = 'JSON 解析失败: ' . json_last_error_msg();
+            return $result;
+        }
+        $decodedData = $this->ensureUtf8($decodedData);
+        $businessCode = $decodedData['code'] ?? $decodedData['status'] ?? null;
+        $businessMsg = $decodedData['msg'] ?? $decodedData['message'] ?? $decodedData['data']['msg'] ?? '';
+        if ($businessCode !== null && !in_array((string)$businessCode, ['0', '200', 'success', 'SUCCESS'], true)) {
+            $result['decoded_data'] = $decodedData;
+            $result['error'] = '美团接口返回错误: ' . ($businessMsg ?: ('状态码: ' . (string)$businessCode));
+            return $result;
+        }
+
+        $result['decoded_data'] = $decodedData;
+        return $result;
+    }
     
     /**
      * 清理JSON字符串中的无效UTF-8字符
@@ -1208,14 +4820,14 @@ class OnlineData extends Base
         try {
             $dataList = [];
             
-            // 记录原始响应结构用于调试
-            \think\facade\Log::info('美团数据解析 - 完整响应: ' . json_encode($responseData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-            \think\facade\Log::info('美团数据解析 - 原始响应结构: ' . json_encode([
-                'keys' => array_keys($responseData),
-                'data_keys' => isset($responseData['data']) && is_array($responseData['data']) ? array_keys($responseData['data']) : 'not_array',
-                'data_type' => isset($responseData['data']) ? gettype($responseData['data']) : 'not_set',
-                'data_value' => isset($responseData['data']) ? (is_array($responseData['data']) ? 'is_array' : $responseData['data']) : 'not_set',
-            ], JSON_UNESCAPED_UNICODE));
+            if ($this->shouldLogOtaDebug()) {
+                \think\facade\Log::info('美团数据解析 - 原始响应结构: ' . json_encode([
+                    'keys' => array_keys($responseData),
+                    'data_keys' => isset($responseData['data']) && is_array($responseData['data']) ? array_keys($responseData['data']) : 'not_array',
+                    'data_type' => isset($responseData['data']) ? gettype($responseData['data']) : 'not_set',
+                    'data_value_type' => isset($responseData['data']) ? gettype($responseData['data']) : 'not_set',
+                ], JSON_UNESCAPED_UNICODE));
+            }
             
             // 美团竞对排名数据结构解析
             // 实际结构: { data: { peerRankData: [{ dimName, roundRanks: [...], aiMetricName }] } }
@@ -1282,7 +4894,7 @@ class OnlineData extends Base
             $dataDate = $startDate ?: date('Y-m-d', strtotime('-1 day'));
             
             // 记录第一个数据项的字段结构
-            if (!empty($dataList[0])) {
+            if ($this->shouldLogOtaDebug() && !empty($dataList[0])) {
                 \think\facade\Log::info('美团数据解析 - 首条数据字段: ' . json_encode(array_keys($dataList[0]), JSON_UNESCAPED_UNICODE));
                 \think\facade\Log::info('美团数据解析 - 首条数据样例: ' . json_encode($dataList[0], JSON_UNESCAPED_UNICODE));
             }
@@ -1384,6 +4996,7 @@ class OnlineData extends Base
                     'data_type' => 'business',
                     'raw_data' => json_encode(['poiName' => $hotelName, 'dataValue' => $dataValue, 'rankType' => $rankType], JSON_UNESCAPED_UNICODE),
                 ];
+                $data = $this->applyOnlineDailyDataValidationFields($data);
                 
                 if ($exists) {
                     Db::name('online_daily_data')
@@ -1434,11 +5047,16 @@ class OnlineData extends Base
             $hotelName = $item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? '';
             
             // 尝试多种字段名获取其他数据
-            $amount = floatval($item['amount'] ?? $item['Amount'] ?? $item['totalAmount'] ?? $item['total_amount'] ?? $item['saleAmount'] ?? 0);
-            $quantity = intval($item['quantity'] ?? $item['Quantity'] ?? $item['roomNights'] ?? $item['room_nights'] ?? $item['checkOutQuantity'] ?? 0);
-            $bookOrderNum = intval($item['bookOrderNum'] ?? $item['book_order_num'] ?? $item['orderCount'] ?? $item['order_count'] ?? 0);
-            $commentScore = floatval($item['commentScore'] ?? $item['comment_score'] ?? $item['score'] ?? $item['avgScore'] ?? 0);
+            $amount = $this->meituanNumber($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额'], 0);
+            $quantity = (int)$this->meituanNumber($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚'], 0);
+            $bookOrderNum = (int)$this->meituanNumber($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings', '成交订单数', '订单数'], 0);
+            $commentScore = floatval($item['commentScore'] ?? $item['comment_score'] ?? $item['score'] ?? $item['avgScore'] ?? $item['ctripRatingall'] ?? 0);
             $qunarCommentScore = floatval($item['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? $item['qunarScore'] ?? 0);
+            $listExposure = (int)$this->meituanNumber($item, ['self_list_exposure', 'listExposure', 'list_exposure'], 0);
+            $detailExposure = (int)$this->meituanNumber($item, ['self_detail_exposure', 'detailExposure', 'detail_exposure'], 0);
+            $orderFillingNum = (int)$this->meituanNumber($item, ['self_order_filling_num', 'orderFillingNum', 'order_filling_num'], 0);
+            $orderSubmitNum = (int)$this->meituanNumber($item, ['self_order_submit_num', 'orderSubmitNum', 'order_submit_num'], 0);
+            $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['self_flow_rate', 'flowRate', 'flow_rate'], null)) ?? 0.0;
             
             // 如果有日期字段，优先使用接口返回日期；没有返回时使用请求日期
             $itemDate = $item['dataDate']
@@ -1487,7 +5105,23 @@ class OnlineData extends Base
             if (isset($columns['update_time'])) {
                 $data['update_time'] = $now;
             }
-            
+            if (isset($columns['list_exposure'])) {
+                $data['list_exposure'] = $listExposure;
+            }
+            if (isset($columns['detail_exposure'])) {
+                $data['detail_exposure'] = $detailExposure;
+            }
+            if (isset($columns['flow_rate'])) {
+                $data['flow_rate'] = $flowRate;
+            }
+            if (isset($columns['order_filling_num'])) {
+                $data['order_filling_num'] = $orderFillingNum;
+            }
+            if (isset($columns['order_submit_num'])) {
+                $data['order_submit_num'] = $orderSubmitNum;
+            }
+            $data = $this->applyOnlineDailyDataValidationFields($data, $columns);
+
             if ($exists) {
                 Db::name('online_daily_data')
                     ->where('id', $exists['id'])
@@ -1535,6 +5169,858 @@ class OnlineData extends Base
         }
 
         return $this->extractHotelData($responseData);
+    }
+
+    private function buildCtripBusinessDisplayHotels($responseData): array
+    {
+        if (is_array($responseData) && isset($responseData['date_results']) && is_array($responseData['date_results'])) {
+            $hotelMap = [];
+            foreach ($responseData['date_results'] as $dateResult) {
+                if (!is_array($dateResult)) {
+                    continue;
+                }
+                foreach ($this->buildCtripBusinessDisplayHotels($dateResult['data'] ?? []) as $hotel) {
+                    $this->mergeCtripBusinessDisplayHotel($hotelMap, $hotel, true);
+                }
+            }
+            return $this->sortBusinessDisplayHotels($hotelMap, 'quantity');
+        }
+
+        $hotelMap = [];
+        foreach ($this->extractCtripBusinessDataList($responseData) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotel = $this->ctripBusinessDisplayHotelFromItem($item);
+            if ($hotel !== null) {
+                $this->mergeCtripBusinessDisplayHotel($hotelMap, $hotel, false);
+            }
+        }
+
+        return $this->sortBusinessDisplayHotels($hotelMap, 'quantity');
+    }
+
+    private function ctripBusinessDisplayHotelFromItem(array $item): ?array
+    {
+        if (isset($item['raw_data']) && is_string($item['raw_data']) && $item['raw_data'] !== '') {
+            $raw = json_decode($item['raw_data'], true);
+            if (is_array($raw)) {
+                $item = array_replace($raw, $item);
+            }
+        }
+
+        $hotelId = (string)($item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? $item['id'] ?? '');
+        $hotelName = (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? '');
+        if ($hotelId === '' && $hotelName === '') {
+            return null;
+        }
+
+        return [
+            'hotelId' => $hotelId,
+            'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
+            'amount' => $this->numberFromKeys($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']),
+            'quantity' => (int)$this->numberFromKeys($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'checkInQuantity']),
+            'bookOrderNum' => (int)$this->numberFromKeys($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']),
+            'totalOrderNum' => (int)$this->numberFromKeys($item, ['totalOrderNum', 'total_order_num', 'bookOrderNum', 'book_order_num', 'orderCount', 'order_count']),
+            'commentScore' => $this->numberFromKeys($item, ['commentScore', 'comment_score', 'score', 'avgScore']),
+            'qunarCommentScore' => $this->numberFromKeys($item, ['qunarCommentScore', 'qunar_comment_score', 'qunarScore']),
+            'totalDetailNum' => (int)$this->numberFromKeys($item, ['totalDetailNum', 'total_detail_num', 'detailVisitors', 'exposure', 'exposureCount', 'pv', 'pageView', 'viewCount']),
+            'qunarDetailVisitors' => (int)$this->numberFromKeys($item, ['qunarDetailVisitors', 'qunar_detail_visitors', 'views', 'uv', 'visitorCount', 'detailUv']),
+            'convertionRate' => $this->numberFromKeys($item, ['convertionRate', 'convertion_rate', 'conversionRate']),
+            'qunarDetailCR' => $this->numberFromKeys($item, ['qunarDetailCR', 'qunar_detail_cr']),
+            'amountRank' => (int)$this->numberFromKeys($item, ['amountRank', 'amount_rank'], 0),
+            'quantityRank' => (int)$this->numberFromKeys($item, ['quantityRank', 'quantity_rank'], 0),
+            'commentScoreRank' => (int)$this->numberFromKeys($item, ['commentScoreRank', 'comment_score_rank'], 0),
+            'qunarDetailCRRank' => (int)$this->numberFromKeys($item, ['qunarDetailCRRank', 'qunar_detail_cr_rank'], 0),
+        ];
+    }
+
+    private function mergeCtripBusinessDisplayHotel(array &$hotelMap, array $hotel, bool $sumValues): void
+    {
+        $key = (string)($hotel['hotelId'] ?? '') . '_' . (string)($hotel['hotelName'] ?? '');
+        if (!isset($hotelMap[$key])) {
+            $hotelMap[$key] = $hotel;
+            return;
+        }
+
+        foreach (['amount', 'quantity', 'bookOrderNum', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
+            $hotelMap[$key][$field] = $sumValues
+                ? (float)($hotelMap[$key][$field] ?? 0) + (float)($hotel[$field] ?? 0)
+                : max((float)($hotelMap[$key][$field] ?? 0), (float)($hotel[$field] ?? 0));
+        }
+        foreach (['quantity', 'bookOrderNum', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
+            $hotelMap[$key][$field] = (int)($hotelMap[$key][$field] ?? 0);
+        }
+        foreach (['commentScore', 'qunarCommentScore', 'convertionRate', 'qunarDetailCR'] as $field) {
+            $hotelMap[$key][$field] = max((float)($hotelMap[$key][$field] ?? 0), (float)($hotel[$field] ?? 0));
+        }
+        foreach (['amountRank', 'quantityRank', 'commentScoreRank', 'qunarDetailCRRank'] as $field) {
+            $existing = (int)($hotelMap[$key][$field] ?? 0);
+            $incoming = (int)($hotel[$field] ?? 0);
+            if ($incoming > 0) {
+                $hotelMap[$key][$field] = $existing === 0 ? $incoming : min($existing, $incoming);
+            }
+        }
+    }
+
+    private function buildMeituanBusinessDisplayHotels($responseData): array
+    {
+        $hotelMap = [];
+        foreach ($this->extractMeituanBusinessRankRows($responseData) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = (string)($item['poiId'] ?? $item['poi_id'] ?? $item['shopId'] ?? $item['shop_id'] ?? $item['hotelId'] ?? '');
+            $hotelName = (string)($item['poiName'] ?? $item['poi_name'] ?? $item['shopName'] ?? $item['shop_name'] ?? $item['hotelName'] ?? $item['name'] ?? '');
+            if ($hotelId === '' && $hotelName === '') {
+                continue;
+            }
+
+            $key = $hotelId . '_' . $hotelName;
+            if (!isset($hotelMap[$key])) {
+                $hotelMap[$key] = [
+                    'poiId' => $hotelId,
+                    'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
+                    'roomNights' => 0.0,
+                    'roomRevenue' => 0.0,
+                    'salesRoomNights' => 0.0,
+                    'sales' => 0.0,
+                    'viewConversion' => 0.0,
+                    'payConversion' => 0.0,
+                    'exposure' => 0.0,
+                    'views' => 0.0,
+                    'rank' => 0,
+                ];
+            }
+
+            $metricType = $this->classifyMeituanBusinessDisplayMetric((string)($item['_dimName'] ?? $item['dimension'] ?? ''), (string)($item['_aiMetricName'] ?? $item['aiMetricName'] ?? ''), (string)($item['rankType'] ?? $item['rank_type'] ?? ''));
+            $value = $this->numberFromKeys($item, ['dataValue', 'data_value', 'monthRoomNights', 'month_room_nights']);
+            if ($metricType !== '') {
+                $hotelMap[$key][$metricType] = max((float)($hotelMap[$key][$metricType] ?? 0), $value);
+            }
+            $rank = (int)$this->numberFromKeys($item, ['rank', 'ranking'], 0);
+            if ($rank > 0) {
+                $existingRank = (int)($hotelMap[$key]['rank'] ?? 0);
+                $hotelMap[$key]['rank'] = $existingRank === 0 ? $rank : min($existingRank, $rank);
+            }
+        }
+
+        return $this->sortBusinessDisplayHotels($hotelMap, 'roomNights');
+    }
+
+    private function mergeMeituanBusinessDisplayHotels(array $rows): array
+    {
+        $hotelMap = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $poiId = (string)($row['poiId'] ?? $row['poi_id'] ?? $row['hotelId'] ?? '');
+            $hotelName = (string)($row['hotelName'] ?? $row['hotel_name'] ?? $row['poiName'] ?? '');
+            if ($poiId === '' && $hotelName === '') {
+                continue;
+            }
+            $key = $poiId . '_' . $hotelName;
+            if (!isset($hotelMap[$key])) {
+                $hotelMap[$key] = [
+                    'poiId' => $poiId,
+                    'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
+                    'roomNights' => 0.0,
+                    'roomRevenue' => 0.0,
+                    'salesRoomNights' => 0.0,
+                    'sales' => 0.0,
+                    'viewConversion' => 0.0,
+                    'payConversion' => 0.0,
+                    'exposure' => 0.0,
+                    'views' => 0.0,
+                    'rank' => 0,
+                ];
+            }
+
+            foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'viewConversion', 'payConversion', 'exposure', 'views'] as $field) {
+                $hotelMap[$key][$field] = max((float)($hotelMap[$key][$field] ?? 0), (float)($row[$field] ?? 0));
+            }
+            $rank = (int)($row['rank'] ?? 0);
+            if ($rank > 0) {
+                $existingRank = (int)($hotelMap[$key]['rank'] ?? 0);
+                $hotelMap[$key]['rank'] = $existingRank === 0 ? $rank : min($existingRank, $rank);
+            }
+        }
+
+        return $this->sortBusinessDisplayHotels($hotelMap, 'roomNights');
+    }
+
+    private function extractMeituanBusinessRankRows($responseData): array
+    {
+        if (!is_array($responseData)) {
+            return [];
+        }
+        foreach ([
+            $responseData['data']['peerRankData'] ?? null,
+            $responseData['data']['data']['peerRankData'] ?? null,
+            $responseData['peerRankData'] ?? null,
+        ] as $peerRankData) {
+            if (is_array($peerRankData)) {
+                $rows = [];
+                foreach ($peerRankData as $rankData) {
+                    if (!is_array($rankData) || !isset($rankData['roundRanks']) || !is_array($rankData['roundRanks'])) {
+                        continue;
+                    }
+                    foreach ($rankData['roundRanks'] as $item) {
+                        if (!is_array($item)) {
+                            continue;
+                        }
+                        $item['_dimName'] = $rankData['dimName'] ?? '';
+                        $item['_aiMetricName'] = $rankData['aiMetricName'] ?? '';
+                        $rows[] = $item;
+                    }
+                }
+                return $rows;
+            }
+        }
+
+        foreach ([
+            $responseData['data']['roundrank'] ?? null,
+            $responseData['data']['rankList'] ?? null,
+            $responseData['data']['list'] ?? null,
+            $responseData['data'] ?? null,
+            $responseData['list'] ?? null,
+            $responseData['roundrank'] ?? null,
+        ] as $rows) {
+            if (is_array($rows) && isset($rows[0]) && is_array($rows[0])) {
+                return $rows;
+            }
+        }
+
+        return [];
+    }
+
+    private function classifyMeituanBusinessDisplayMetric(string $dimName, string $metricName, string $rankType): string
+    {
+        $upperMetric = strtoupper($metricName);
+        $combined = $dimName . '|' . $upperMetric;
+        if (str_contains($upperMetric, 'P_RZ_NIGHT_COUNT') || str_contains($upperMetric, 'NIGHT_COUNT') || str_contains($upperMetric, 'ROOM_NIGHT') || str_contains($combined, '间夜')) {
+            return str_contains($upperMetric, 'P_XS') ? 'salesRoomNights' : 'roomNights';
+        }
+        if (str_contains($upperMetric, 'P_RZ_ROOM_PAY') || str_contains($combined, '房费') || str_contains($combined, '收入')) {
+            return 'roomRevenue';
+        }
+        if ((str_contains($upperMetric, 'P_XS') && str_contains($upperMetric, 'AMT')) || str_contains($combined, '销售额')) {
+            return 'sales';
+        }
+        if (str_contains($upperMetric, 'VIEW_CONVERT') || str_contains($combined, '浏览转化')) {
+            return 'viewConversion';
+        }
+        if (str_contains($upperMetric, 'PAY_CONVERT') || str_contains($combined, '支付转化')) {
+            return 'payConversion';
+        }
+        if (str_contains($upperMetric, 'EXPOSURE') || str_contains($combined, '曝光') || $rankType === 'P_LL') {
+            return 'exposure';
+        }
+        if (str_contains($upperMetric, 'VIEW') || str_contains($combined, '浏览')) {
+            return 'views';
+        }
+        return '';
+    }
+
+    private function numberFromKeys(array $data, array $keys, float $default = 0.0): float
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $data) && $data[$key] !== null && $data[$key] !== '') {
+                $value = is_string($data[$key]) ? str_replace([',', '%', ' '], '', trim($data[$key])) : $data[$key];
+                return is_numeric($value) ? (float)$value : $default;
+            }
+        }
+        return $default;
+    }
+
+    private function sortBusinessDisplayHotels(array $hotelMap, string $sortField): array
+    {
+        $rows = array_values($hotelMap);
+        usort($rows, static fn(array $a, array $b): int => ((float)($b[$sortField] ?? 0)) <=> ((float)($a[$sortField] ?? 0)));
+        return $this->enrichMeituanBusinessDisplayMetrics($this->enrichCtripBusinessDisplayMetrics($rows));
+    }
+
+    private function enrichCtripBusinessDisplayMetrics(array $rows): array
+    {
+        $adrValues = [];
+        foreach ($rows as $row) {
+            if (!$this->isCtripBusinessDisplayRow($row)) {
+                continue;
+            }
+            $amount = (float)($row['amount'] ?? 0);
+            $quantity = (int)($row['quantity'] ?? 0);
+            if ($amount > 0 && $quantity > 0) {
+                $adrValues[] = $amount / $quantity;
+            }
+        }
+        $circleAdr = count($adrValues) > 0 ? array_sum($adrValues) / count($adrValues) : 0.0;
+
+        foreach ($rows as &$row) {
+            if (!$this->isCtripBusinessDisplayRow($row)) {
+                continue;
+            }
+
+            $amount = (float)($row['amount'] ?? 0);
+            $quantity = (int)($row['quantity'] ?? 0);
+            $bookOrderNum = (int)($row['bookOrderNum'] ?? 0);
+            $totalDetailNum = (int)($row['totalDetailNum'] ?? 0);
+
+            $adr = $quantity > 0 ? round($amount / $quantity, 2) : 0.0;
+            $ari = $circleAdr > 0 && $adr > 0 ? round($adr / $circleAdr * 100, 2) : 0.0;
+            $sci = $ari > 0 ? round($ari * log(max(1, $quantity)), 2) : 0.0;
+            $bookingRate = $totalDetailNum > 0 ? round($bookOrderNum / $totalDetailNum * 100, 2) : 0.0;
+
+            $row['adr'] = $adr;
+            $row['adrText'] = $quantity > 0 ? number_format($adr, 2, '.', '') : '-';
+            $row['ari'] = $ari;
+            $row['ariText'] = $ari > 0 ? number_format($ari, 1, '.', '') : '-';
+            $row['sci'] = $sci;
+            $row['sciText'] = $sci > 0 ? number_format($sci, 0, '.', '') : '-';
+            $row['bookingRate'] = $bookingRate;
+            $row['bookingRateText'] = $totalDetailNum > 0 ? number_format($bookingRate, 1, '.', '') . '%' : '-';
+            $row['displayMetricStatus'] = [
+                'adr' => $quantity > 0 ? 'ok' : 'missing_quantity',
+                'ari' => $circleAdr > 0 && $adr > 0 ? 'ok' : ($circleAdr > 0 ? 'missing_adr' : 'missing_circle_adr'),
+                'sci' => $sci > 0 ? 'ok' : 'missing_ari',
+                'bookingRate' => $totalDetailNum > 0 ? 'ok' : 'missing_total_detail_num',
+            ];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function enrichMeituanBusinessDisplayMetrics(array $rows): array
+    {
+        foreach ($rows as &$row) {
+            if (!$this->isMeituanBusinessDisplayRow($row)) {
+                continue;
+            }
+
+            $roomNights = (float)($row['roomNights'] ?? 0);
+            $roomRevenue = (float)($row['roomRevenue'] ?? 0);
+            $salesRoomNights = (float)($row['salesRoomNights'] ?? 0);
+            $sales = (float)($row['sales'] ?? 0);
+            $views = (float)($row['views'] ?? 0);
+            $viewConversion = (float)($row['viewConversion'] ?? 0);
+            $payConversion = (float)($row['payConversion'] ?? 0);
+
+            $avgRoomPrice = $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : 0.0;
+            $avgSalesPrice = $salesRoomNights > 0 ? round($sales / $salesRoomNights, 2) : 0.0;
+            $orderCount = $views > 0 && $payConversion > 0 ? (int)round($views * $payConversion) : 0;
+            $absoluteConversion = $viewConversion > 0 && $payConversion > 0 ? round($viewConversion * $payConversion, 4) : 0.0;
+
+            $row['avgRoomPrice'] = $avgRoomPrice;
+            $row['avgRoomPriceText'] = $avgRoomPrice > 0 ? number_format($avgRoomPrice, 0, '.', ',') : '-';
+            $row['avgSalesPrice'] = $avgSalesPrice;
+            $row['avgSalesPriceText'] = $avgSalesPrice > 0 ? number_format($avgSalesPrice, 0, '.', ',') : '-';
+            $row['orderCount'] = $orderCount;
+            $row['orderCountText'] = $orderCount > 0 ? number_format($orderCount) : '-';
+            $row['absoluteConversion'] = $absoluteConversion;
+            $row['absoluteConversionText'] = $absoluteConversion > 0 ? number_format($absoluteConversion * 100, 2, '.', '') . '%' : '-';
+            $row['viewConversionText'] = $viewConversion > 0 ? number_format($viewConversion * 100, 2, '.', '') . '%' : '-';
+            $row['payConversionText'] = $payConversion > 0 ? number_format($payConversion * 100, 2, '.', '') . '%' : '-';
+            $row['displayMetricStatus'] = [
+                'avgRoomPrice' => $roomNights > 0 ? 'ok' : 'missing_room_nights',
+                'avgSalesPrice' => $salesRoomNights > 0 ? 'ok' : 'missing_sales_room_nights',
+                'orderCount' => $views > 0 && $payConversion > 0 ? 'ok' : 'missing_views_or_pay_conversion',
+                'absoluteConversion' => $viewConversion > 0 && $payConversion > 0 ? 'ok' : 'missing_conversion',
+            ];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function buildMeituanBusinessDisplaySummary(array $rows, array $context = []): array
+    {
+        $rows = array_values(array_filter($this->enrichMeituanBusinessDisplayMetrics($rows), fn($row): bool => is_array($row) && $this->isMeituanBusinessDisplayRow($row)));
+        if (empty($rows)) {
+            return $this->emptyMeituanBusinessDisplaySummary();
+        }
+
+        $hotelCount = count($rows);
+        $totalRoomNights = $this->sumBusinessRows($rows, 'roomNights');
+        $totalRoomRevenue = $this->sumBusinessRows($rows, 'roomRevenue');
+        $totalSalesRoomNights = $this->sumBusinessRows($rows, 'salesRoomNights');
+        $totalSales = $this->sumBusinessRows($rows, 'sales');
+        $totalExposure = $this->sumBusinessRows($rows, 'exposure');
+        $totalViews = $this->sumBusinessRows($rows, 'views');
+        $totalOrderCount = (int)$this->sumBusinessRows($rows, 'orderCount');
+        $avgRoomPrice = $totalRoomNights > 0 ? round($totalRoomRevenue / $totalRoomNights, 2) : 0.0;
+        $avgSalesPrice = $totalSalesRoomNights > 0 ? round($totalSales / $totalSalesRoomNights, 2) : 0.0;
+        $avgViewConversionRate = $this->avgBusinessRows($rows, 'viewConversion') * 100;
+        $avgPayConversionRate = $this->avgBusinessRows($rows, 'payConversion') * 100;
+        $avgAbsoluteConversionRate = $this->avgBusinessRows($rows, 'absoluteConversion') * 100;
+        $revenueHhi = $this->hhiBusinessRows($rows, 'sales');
+        $visitHhi = $this->hhiBusinessRows($rows, 'views');
+        $operationFocus = $revenueHhi > 0 && $visitHhi > 0 && $revenueHhi - $visitHhi > 0 ? '提高转化率' : ($revenueHhi > 0 && $visitHhi > 0 ? '抢夺流量' : '-');
+        $marketInventory = $this->meituanBusinessMarketInventory($context);
+        $marketVitalityRate = $marketInventory > 0 ? round($totalRoomNights / $marketInventory * 100, 2) : 0.0;
+        $priceSigma = $this->meituanBusinessPriceSigma($rows);
+        $marketPriceSignal = $this->meituanBusinessMarketPriceSignal($avgRoomPrice, $avgSalesPrice);
+        $inventoryTurnoverRate = $totalRoomNights > 0 ? round($totalSalesRoomNights / $totalRoomNights * 100, 2) : 0.0;
+
+        return [
+            'status' => 'success',
+            'metrics' => [
+                'hotelCount' => $hotelCount,
+                'marketInventory' => $marketInventory,
+                'marketVitalityRate' => $marketVitalityRate,
+                'priceSigma' => $priceSigma,
+                'marketPriceSignal' => $marketPriceSignal,
+                'inventoryTurnoverRate' => $inventoryTurnoverRate,
+                'revenueConcentration' => $revenueHhi,
+                'visitConcentration' => $visitHhi,
+                'operationFocus' => $operationFocus,
+                'totalRoomNights' => round($totalRoomNights, 2),
+                'totalRoomRevenue' => round($totalRoomRevenue, 2),
+                'totalSalesRoomNights' => round($totalSalesRoomNights, 2),
+                'totalSales' => round($totalSales, 2),
+                'totalExposure' => round($totalExposure, 2),
+                'totalViews' => round($totalViews, 2),
+                'totalOrderCount' => $totalOrderCount,
+                'avgRoomPrice' => $avgRoomPrice,
+                'avgSalesPrice' => $avgSalesPrice,
+                'avgViewConversionRate' => round($avgViewConversionRate, 2),
+                'avgPayConversionRate' => round($avgPayConversionRate, 2),
+                'avgAbsoluteConversionRate' => round($avgAbsoluteConversionRate, 2),
+            ],
+            'cards' => [
+                $this->businessSummaryCard('hotelCount', '酒店总数', number_format($hotelCount), 'text-gray-700', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('marketInventory', '市场总库存', $marketInventory > 0 ? number_format($marketInventory) : '-', 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
+                $this->businessSummaryCard('marketVitalityRate', '市场活力', $marketVitalityRate > 0 ? number_format($marketVitalityRate, 2, '.', '') . '%' : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200', $this->meituanBusinessVitalityLevel($marketVitalityRate)),
+                $this->businessSummaryCard('priceSigma', '竞争健康度', $priceSigma > 0 ? number_format($priceSigma, 2, '.', '') . '%' : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $this->meituanBusinessPriceSigmaLevel($priceSigma)),
+                $this->businessSummaryCard('marketPriceSignal', '市场价格预估', $marketPriceSignal, 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('inventoryTurnoverRate', '库存周转率', $inventoryTurnoverRate > 0 ? number_format($inventoryTurnoverRate, 2, '.', '') . '%' : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200'),
+                $this->businessSummaryCard('revenueConcentration', '收益集中度', $revenueHhi > 0 ? number_format($revenueHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+                $this->businessSummaryCard('visitConcentration', '浏览/访客集中度', $visitHhi > 0 ? number_format($visitHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+                $this->businessSummaryCard('operationFocus', '运营重心', $operationFocus, 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
+                $this->businessSummaryCard('totalRoomNights', '总入住间夜', number_format($totalRoomNights), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalRoomRevenue', '总房费收入', '楼' . number_format((float)floor($totalRoomRevenue)), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalSalesRoomNights', '总销售间夜', number_format($totalSalesRoomNights), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalSales', '总销售额', '楼' . number_format((float)floor($totalSales)), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalExposure', '总曝光量', number_format($totalExposure), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalViews', '总浏览量', number_format($totalViews), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalOrderCount', '总订单量', number_format($totalOrderCount), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('avgViewConversionRate', '平均浏览转化率', number_format($avgViewConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->businessSummaryCard('avgPayConversionRate', '平均支付转化率', number_format($avgPayConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->businessSummaryCard('avgAbsoluteConversionRate', '绝对转化率', number_format($avgAbsoluteConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+            ],
+        ];
+    }
+
+    private function buildCtripBusinessDisplaySummary(array $rows): array
+    {
+        $rows = array_values(array_filter($rows, fn($row): bool => is_array($row) && $this->isCtripBusinessDisplayRow($row)));
+        if (empty($rows)) {
+            return $this->emptyCtripBusinessDisplaySummary();
+        }
+
+        $hotelCount = count($rows);
+        $totalAmount = round($this->sumCtripBusinessRows($rows, 'amount'), 2);
+        $totalQuantity = (int)$this->sumCtripBusinessRows($rows, 'quantity');
+        $totalDetailNum = (int)$this->sumCtripBusinessRows($rows, 'totalDetailNum');
+        $totalQunarDetailVisitors = (int)$this->sumCtripBusinessRows($rows, 'qunarDetailVisitors');
+        $totalOrderNum = (int)$this->sumCtripBusinessRows($rows, 'totalOrderNum');
+        $adr = $totalQuantity > 0 ? round($totalAmount / $totalQuantity, 2) : 0.0;
+        $avgAri = $this->avgCtripBusinessRows($rows, 'ari');
+        $avgSci = $this->avgCtripBusinessRows($rows, 'sci');
+        $trafficValue = ($totalDetailNum + $totalQunarDetailVisitors) > 0 ? round($totalAmount / ($totalDetailNum + $totalQunarDetailVisitors), 2) : 0.0;
+        $revenueHhi = $this->hhiCtripBusinessRows($rows, 'amount');
+        $visitHhi = $this->hhiCtripBusinessRows($rows, 'totalDetailNum');
+        $priceSigma = $this->priceSigmaCtripBusinessRows($rows);
+        $ctripReviewImpact = $this->reviewImpactCtripBusinessRows($rows, 'commentScore', 'convertionRate');
+        $qunarReviewImpact = $this->reviewImpactCtripBusinessRows($rows, 'qunarCommentScore', 'qunarDetailCR');
+
+        $ariLevel = $this->levelForCtripBusinessMetric($avgAri, [
+            [80, '价格偏低', 'text-red-600'],
+            [95, '略低于均价', 'text-orange-600'],
+            [110, '价格合理', 'text-green-600'],
+            [130, '价格偏高', 'text-yellow-600'],
+            [INF, '溢价优势', 'text-blue-600'],
+        ]);
+        $sciLevel = $this->levelForCtripBusinessMetric($avgSci, [
+            [150, '极弱', 'text-red-600'],
+            [260, '偏弱', 'text-orange-600'],
+            [370, '中等', 'text-green-600'],
+            [480, '较强', 'text-yellow-600'],
+            [INF, '极强', 'text-blue-600'],
+        ]);
+        $revenueLevel = $this->levelForCtripBusinessMetric($revenueHhi, [
+            [500, '低度内卷', 'text-yellow-600'],
+            [800, '中度内卷', 'text-orange-600'],
+            [INF, '寡头市场', 'text-red-600'],
+        ]);
+        $visitLevel = $this->levelForCtripBusinessMetric($visitHhi, [
+            [400, '低度内卷', 'text-yellow-600'],
+            [700, '中度内卷', 'text-orange-600'],
+            [INF, '高度内卷', 'text-red-600'],
+        ]);
+        $priceLevel = $this->levelForCtripBusinessMetric($priceSigma, [
+            [3, '健康', 'text-green-600'],
+            [8, '良好', 'text-emerald-600'],
+            [15, '激烈', 'text-orange-600'],
+            [INF, '恶化', 'text-red-600'],
+        ]);
+
+        $metrics = [
+            'hotelCount' => $hotelCount,
+            'totalAmount' => $totalAmount,
+            'totalQuantity' => $totalQuantity,
+            'adr' => $adr,
+            'avgAri' => $avgAri,
+            'avgSci' => $avgSci,
+            'totalDetailNum' => $totalDetailNum,
+            'totalQunarDetailVisitors' => $totalQunarDetailVisitors,
+            'totalOrderNum' => $totalOrderNum,
+            'trafficValue' => $trafficValue,
+            'revenueConcentration' => $revenueHhi,
+            'visitConcentration' => $visitHhi,
+            'priceSigma' => $priceSigma,
+            'ctripReviewImpact' => $ctripReviewImpact,
+            'qunarReviewImpact' => $qunarReviewImpact,
+        ];
+
+        return [
+            'status' => 'success',
+            'metrics' => $metrics,
+            'cards' => [
+                $this->ctripBusinessSummaryCard('hotelCount', '酒店总数', number_format($hotelCount), 'text-gray-700', 'bg-blue-50 border border-blue-200'),
+                $this->ctripBusinessSummaryCard('totalAmount', '总销售额', '¥' . number_format((float)round($totalAmount)), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->ctripBusinessSummaryCard('totalQuantity', '总间夜量', number_format($totalQuantity), 'text-yellow-600', 'bg-yellow-50 border border-yellow-200'),
+                $this->ctripBusinessSummaryCard('adr', '平均房价(ADR)', $adr > 0 ? '¥' . number_format($adr, 2, '.', ',') : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->ctripBusinessSummaryCard('avgAri', '平均房价指数(ARI)', $avgAri > 0 ? number_format($avgAri, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $ariLevel),
+                $this->ctripBusinessSummaryCard('avgSci', '商圈综合竞争力指数(SCI)', $avgSci > 0 ? number_format($avgSci, 0, '.', ',') : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200', $sciLevel),
+                $this->ctripBusinessSummaryCard('totalDetailNum', '携程APP总访客量', number_format($totalDetailNum), 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
+                $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', number_format($totalQunarDetailVisitors), 'text-teal-600', 'bg-teal-50 border border-teal-200'),
+                $this->ctripBusinessSummaryCard('totalOrderNum', '全渠道AI预计总间夜数', number_format($totalOrderNum), 'text-yellow-600', 'bg-yellow-50 border border-yellow-200'),
+                $this->ctripBusinessSummaryCard('trafficValue', '流量价值效率', $trafficValue > 0 ? '¥' . number_format($trafficValue, 2, '.', ',') : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->ctripBusinessSummaryCard('revenueConcentration', '收益集中度', number_format($revenueHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $revenueLevel),
+                $this->ctripBusinessSummaryCard('visitConcentration', '浏览/访客集中度', number_format($visitHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $visitLevel),
+                $this->ctripBusinessSummaryCard('priceSigma', '竞争健康度', $priceSigma > 0 ? number_format($priceSigma, 2, '.', '') . '%' : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $priceLevel),
+                $this->ctripBusinessSummaryCard('ctripReviewImpact', '携程点评分-转化率影响因子(R)', $ctripReviewImpact > 0 ? number_format($ctripReviewImpact, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+                $this->ctripBusinessSummaryCard('qunarReviewImpact', '去哪儿点评分-转化率影响因子(R)', $qunarReviewImpact > 0 ? number_format($qunarReviewImpact, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+            ],
+        ];
+    }
+
+    private function emptyCtripBusinessDisplaySummary(): array
+    {
+        return [
+            'status' => 'empty',
+            'metrics' => [
+                'hotelCount' => 0,
+                'totalAmount' => 0.0,
+                'totalQuantity' => 0,
+                'adr' => 0.0,
+                'avgAri' => 0.0,
+                'avgSci' => 0.0,
+                'totalDetailNum' => 0,
+                'totalQunarDetailVisitors' => 0,
+                'totalOrderNum' => 0,
+                'trafficValue' => 0.0,
+                'revenueConcentration' => 0.0,
+                'visitConcentration' => 0.0,
+                'priceSigma' => 0.0,
+                'ctripReviewImpact' => 0.0,
+                'qunarReviewImpact' => 0.0,
+            ],
+            'cards' => [],
+        ];
+    }
+
+    private function businessSummaryCard(string $key, string $label, string $value, string $valueClass, string $panelClass, array $level = []): array
+    {
+        return $this->ctripBusinessSummaryCard($key, $label, $value, $valueClass, $panelClass, $level);
+    }
+
+    private function ctripBusinessSummaryCard(string $key, string $label, string $value, string $valueClass, string $panelClass, array $level = []): array
+    {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'value' => $value,
+            'valueClass' => $valueClass,
+            'panelClass' => $panelClass,
+            'level' => (string)($level['level'] ?? ''),
+            'levelClass' => (string)($level['levelClass'] ?? ''),
+        ];
+    }
+
+    private function sumCtripBusinessRows(array $rows, string $field): float
+    {
+        $sum = 0.0;
+        foreach ($rows as $row) {
+            $sum += (float)($row[$field] ?? 0);
+        }
+        return $sum;
+    }
+
+    private function sumBusinessRows(array $rows, string $field): float
+    {
+        return $this->sumCtripBusinessRows($rows, $field);
+    }
+
+    private function avgCtripBusinessRows(array $rows, string $field): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row[$field] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        return count($values) > 0 ? round(array_sum($values) / count($values), 2) : 0.0;
+    }
+
+    private function avgBusinessRows(array $rows, string $field): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row[$field] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        return count($values) > 0 ? array_sum($values) / count($values) : 0.0;
+    }
+
+    private function hhiCtripBusinessRows(array $rows, string $field): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row[$field] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        $total = array_sum($values);
+        if ($total <= 0) {
+            return 0.0;
+        }
+        $hhi = 0.0;
+        foreach ($values as $value) {
+            $share = $value / $total;
+            $hhi += $share * $share;
+        }
+        return round($hhi * 10000, 2);
+    }
+
+    private function hhiBusinessRows(array $rows, string $field): float
+    {
+        return $this->hhiCtripBusinessRows($rows, $field);
+    }
+
+    private function meituanBusinessMarketInventory(array $context): int
+    {
+        $roomCount = (int)($context['competitor_room_count'] ?? $context['market_inventory'] ?? $context['marketInventory'] ?? 0);
+        if ($roomCount <= 0) {
+            return 0;
+        }
+        return $roomCount * $this->resolveMeituanBusinessDisplayDays($context);
+    }
+
+    private function resolveMeituanBusinessDisplayDays(array $context): int
+    {
+        $dateRanges = $context['date_ranges'] ?? [];
+        if (is_string($dateRanges)) {
+            $decodedDateRanges = json_decode($dateRanges, true);
+            $dateRanges = is_array($decodedDateRanges) ? $decodedDateRanges : [$dateRanges];
+        }
+        if (!is_array($dateRanges)) {
+            $dateRanges = [];
+        }
+        if (!empty($context['date_range'])) {
+            $dateRanges[] = (string)$context['date_range'];
+        }
+
+        $dateRanges = array_map(static fn($value): string => (string)$value, $dateRanges);
+        if (in_array('0', $dateRanges, true) || in_array('1', $dateRanges, true)) {
+            return 1;
+        }
+        if (in_array('7', $dateRanges, true)) {
+            return 7;
+        }
+        if (in_array('30', $dateRanges, true)) {
+            return 30;
+        }
+        if (in_array('custom', $dateRanges, true)) {
+            $start = strtotime((string)($context['start_date'] ?? ''));
+            $end = strtotime((string)($context['end_date'] ?? ''));
+            if ($start !== false && $end !== false && $end >= $start) {
+                return max(1, (int)floor(($end - $start) / 86400) + 1);
+            }
+        }
+        return 1;
+    }
+
+    private function meituanBusinessPriceSigma(array $rows): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row['avgRoomPrice'] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        if (count($values) < 2) {
+            return 0.0;
+        }
+        $avg = array_sum($values) / count($values);
+        if ($avg <= 0) {
+            return 0.0;
+        }
+        $variance = 0.0;
+        foreach ($values as $value) {
+            $variance += ($value - $avg) ** 2;
+        }
+        return round(sqrt($variance / count($values)) / max($avg, 1) * 100, 2);
+    }
+
+    private function meituanBusinessMarketPriceSignal(float $avgRoomPrice, float $avgSalesPrice): string
+    {
+        if ($avgRoomPrice <= 0 || $avgSalesPrice <= 0) {
+            return '-';
+        }
+        $ratio = $avgSalesPrice / $avgRoomPrice;
+        if ($ratio >= 1.05) {
+            return '销售价偏高';
+        }
+        if ($ratio <= 0.95) {
+            return '销售价偏低';
+        }
+        return '价格稳定';
+    }
+
+    private function meituanBusinessVitalityLevel(float $value): array
+    {
+        return $this->levelForCtripBusinessMetric($value, [
+            [50, '偏低', 'text-orange-600'],
+            [90, '活跃', 'text-green-600'],
+            [INF, '高活跃', 'text-blue-600'],
+        ]);
+    }
+
+    private function meituanBusinessPriceSigmaLevel(float $value): array
+    {
+        return $this->levelForCtripBusinessMetric($value, [
+            [5, '健康', 'text-green-600'],
+            [12, '波动', 'text-orange-600'],
+            [INF, '分化', 'text-red-600'],
+        ]);
+    }
+
+    private function priceSigmaCtripBusinessRows(array $rows): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $value = (float)($row['adr'] ?? 0);
+            if ($value > 0) {
+                $values[] = $value;
+            }
+        }
+        if (count($values) < 2) {
+            return 0.0;
+        }
+        $avg = array_sum($values) / count($values);
+        if ($avg <= 0) {
+            return 0.0;
+        }
+        $variance = 0.0;
+        foreach ($values as $value) {
+            $variance += ($value - $avg) ** 2;
+        }
+        return round(sqrt($variance / count($values)) / max($avg, 1) * 100, 2);
+    }
+
+    private function reviewImpactCtripBusinessRows(array $rows, string $scoreField, string $rateField): float
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            $score = (float)($row[$scoreField] ?? 0);
+            $rate = (float)($row[$rateField] ?? 0);
+            if ($score > 0 && $rate > 0) {
+                $values[] = $score / max($rate, 0.01) * 100;
+            }
+        }
+        return count($values) > 0 ? round(array_sum($values) / count($values), 2) : 0.0;
+    }
+
+    private function levelForCtripBusinessMetric(float $value, array $ranges): array
+    {
+        if ($value <= 0) {
+            return ['level' => '数据不足', 'levelClass' => 'text-gray-500'];
+        }
+        foreach ($ranges as $range) {
+            if ($value < (float)$range[0] || (float)$range[0] === INF) {
+                return ['level' => (string)$range[1], 'levelClass' => (string)$range[2]];
+            }
+        }
+        return ['level' => '', 'levelClass' => ''];
+    }
+
+    private function emptyMeituanBusinessDisplaySummary(): array
+    {
+        return [
+            'status' => 'empty',
+            'metrics' => [
+                'hotelCount' => 0,
+                'marketInventory' => 0,
+                'marketVitalityRate' => 0.0,
+                'priceSigma' => 0.0,
+                'marketPriceSignal' => '-',
+                'inventoryTurnoverRate' => 0.0,
+                'revenueConcentration' => 0.0,
+                'visitConcentration' => 0.0,
+                'operationFocus' => '-',
+                'totalRoomNights' => 0.0,
+                'totalRoomRevenue' => 0.0,
+                'totalSalesRoomNights' => 0.0,
+                'totalSales' => 0.0,
+                'totalExposure' => 0.0,
+                'totalViews' => 0.0,
+                'totalOrderCount' => 0,
+                'avgRoomPrice' => 0.0,
+                'avgSalesPrice' => 0.0,
+                'avgViewConversionRate' => 0.0,
+                'avgPayConversionRate' => 0.0,
+                'avgAbsoluteConversionRate' => 0.0,
+            ],
+            'cards' => [],
+        ];
+    }
+
+    private function buildMeituanBusinessDisplayContext(): array
+    {
+        $dateRanges = $this->request->post('date_ranges', $this->request->post('date_range', []));
+        if (is_string($dateRanges)) {
+            $decodedDateRanges = json_decode($dateRanges, true);
+            $dateRanges = is_array($decodedDateRanges) ? $decodedDateRanges : [$dateRanges];
+        }
+
+        return [
+            'competitor_room_count' => (int)$this->request->post('competitor_room_count', 0),
+            'date_ranges' => is_array($dateRanges) ? array_values($dateRanges) : [],
+            'date_range' => $this->request->post('date_range', ''),
+            'start_date' => (string)$this->request->post('start_date', ''),
+            'end_date' => (string)$this->request->post('end_date', ''),
+        ];
+    }
+
+    private function isCtripBusinessDisplayRow(array $row): bool
+    {
+        return array_key_exists('hotelId', $row)
+            && array_key_exists('amount', $row)
+            && array_key_exists('quantity', $row);
+    }
+
+    private function isMeituanBusinessDisplayRow(array $row): bool
+    {
+        return array_key_exists('poiId', $row)
+            && array_key_exists('roomNights', $row)
+            && array_key_exists('roomRevenue', $row);
     }
 
     private function buildCtripBusinessFingerprint($responseData): string
@@ -1652,6 +6138,7 @@ class OnlineData extends Base
     public function fetchCustom(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
         
         $url = $this->request->post('url', '');
         $method = $this->request->post('method', 'GET');
@@ -1660,6 +6147,9 @@ class OnlineData extends Base
         
         if (empty($url)) {
             return $this->error('请提供URL');
+        }
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com', 'meituan.com'])) {
+            return $this->error('仅允许请求携程或美团官方域名');
         }
         
         try {
@@ -1682,20 +6172,28 @@ class OnlineData extends Base
     
     /**
      * 接收来自书签脚本的Cookies（跨域请求）
-     * 不需要常规认证，通过URL中的token识别用户
+     * 不需要常规认证，通过 Authorization 头中的 token 识别用户
      */
     public function receiveCookies(): Response
     {
-        // 允许跨域请求
-        header('Access-Control-Allow-Origin: *');
+        $origin = $this->resolveCookieCorsOrigin();
+        if ($this->request->header('Origin', '') !== '' && $origin === '') {
+            return json(['code' => 403, 'message' => 'Origin not allowed', 'data' => null], 403);
+        }
+
+        // 允许受信来源跨域请求
+        if ($origin !== '') {
+            header('Access-Control-Allow-Origin: ' . $origin);
+        }
         header('Access-Control-Allow-Methods: POST, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization');
+        header('Vary: Origin');
         
         if ($this->request->method() === 'OPTIONS') {
-            return response('', 204);
+            return response('', 204, $this->cookieCorsHeaders($origin));
         }
         
-        $token = $this->request->param('token', '');
+        $token = $this->extractTokenFromAuthorizationHeader((string)$this->request->header('Authorization', ''));
         $name = $this->request->post('name', 'ctrip_auto');
         $cookies = $this->request->post('cookies', '');
         $source = $this->request->post('source', '');
@@ -1720,7 +6218,23 @@ class OnlineData extends Base
         }
         
         // 保存Cookies配置
-        $key = 'online_data_cookies_list';
+        $user = UserModel::find($userId);
+        if (!$user) {
+            return $this->corsError('Token user not found');
+        }
+
+        $hotelId = null;
+        if ($user->isSuperAdmin()) {
+            $requestHotelId = $this->request->post('hotel_id', $this->request->post('system_hotel_id', null));
+            $hotelId = is_numeric($requestHotelId) && (int)$requestHotelId > 0 ? (int)$requestHotelId : null;
+        } else {
+            if (empty($user->hotel_id)) {
+                return $this->corsError('User is not bound to a hotel');
+            }
+            $hotelId = (int)$user->hotel_id;
+        }
+
+        $key = $hotelId ? "online_data_cookies_hotel_{$hotelId}" : 'online_data_cookies_global';
         $list = $this->getConfigList($key);
         $list[$name] = [
             'name' => $name,
@@ -1728,10 +6242,12 @@ class OnlineData extends Base
             'source' => $source,
             'update_time' => date('Y-m-d H:i:s'),
             'user_id' => $userId,
+            'hotel_id' => $hotelId,
+            'system_hotel_id' => $hotelId,
         ];
         $this->setConfigList($key, $list);
         
-        OperationLog::record('online_data', 'receive_cookies', '通过书签脚本获取Cookies: ' . $name, (int)$userId);
+        OperationLog::record('online_data', 'receive_cookies', '通过书签脚本获取Cookies: ' . $name, (int)$userId, $hotelId);
         
         return $this->corsSuccess([
             'name' => $name,
@@ -1756,19 +6272,80 @@ class OnlineData extends Base
 
         return null;
     }
+
+    private function extractTokenFromAuthorizationHeader(string $authHeader): string
+    {
+        $authHeader = trim($authHeader);
+        if ($authHeader === '') {
+            return '';
+        }
+
+        if (preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return $authHeader;
+    }
+
+    private function resolveCookieCorsOrigin(): string
+    {
+        $origin = trim((string)$this->request->header('Origin', ''));
+        if ($origin === '') {
+            return '';
+        }
+
+        if (in_array($origin, $this->cookieAllowedOrigins(), true)) {
+            return $origin;
+        }
+
+        $host = strtolower((string)parse_url($origin, PHP_URL_HOST));
+        foreach (['.ctrip.com', '.ctripcorp.com', '.meituan.com', '.dianping.com'] as $suffix) {
+            if ($host !== '' && str_ends_with($host, $suffix)) {
+                return $origin;
+            }
+        }
+
+        return '';
+    }
+
+    private function cookieAllowedOrigins(): array
+    {
+        $configured = trim((string)env('ONLINE_DATA_COOKIE_ALLOWED_ORIGINS', ''));
+        $origins = $configured === '' ? [] : array_map('trim', explode(',', $configured));
+        $origins[] = $this->request->scheme() . '://' . $this->request->host(true);
+        $origins[] = 'https://ebooking.ctrip.com';
+        $origins[] = 'https://eb.meituan.com';
+        $origins[] = 'https://e.meituan.com';
+        $origins[] = 'https://e.dianping.com';
+
+        return array_values(array_unique(array_filter($origins)));
+    }
+
+    private function cookieCorsHeaders(?string $origin = null): array
+    {
+        $origin = $origin ?? $this->resolveCookieCorsOrigin();
+        $headers = [
+            'Access-Control-Allow-Methods' => 'POST, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Content-Type, Authorization',
+            'Vary' => 'Origin',
+        ];
+        if ($origin !== '') {
+            $headers['Access-Control-Allow-Origin'] = $origin;
+        }
+
+        return $headers;
+    }
     
     /**
      * 返回CORS错误响应
      */
-    private function corsError(string $message): Response
+    private function corsError(string $message, int $status = 400): Response
     {
         return json([
-            'code' => 400,
+            'code' => $status,
             'message' => $message,
             'data' => null,
-        ])->header([
-            'Access-Control-Allow-Origin' => '*',
-        ]);
+        ], $status)->header($this->cookieCorsHeaders());
     }
     
     /**
@@ -1780,9 +6357,7 @@ class OnlineData extends Base
             'code' => 200,
             'message' => '操作成功',
             'data' => $data,
-        ])->header([
-            'Access-Control-Allow-Origin' => '*',
-        ]);
+        ])->header($this->cookieCorsHeaders());
     }
     
     /**
@@ -1792,19 +6367,11 @@ class OnlineData extends Base
     {
         $this->checkPermission();
         
-        $token = $this->request->get('token', '');
+        $token = $this->extractTokenFromAuthorizationHeader((string)$this->request->header('Authorization', ''));
         if (empty($token)) {
-            return $this->error('缺少Token');
+            return $this->error('缺少Token', 401);
         }
-        
-        // 获取完整的 baseUrl（包含协议）
-        $scheme = $this->request->scheme(); // http 或 https
-        $host = $this->request->host(true);
-        $baseUrl = $scheme . '://' . $host;
-        
-        // 生成智能书签脚本 - 从网络请求中获取真正的Cookie
-                // 涔︾鑴氭湰锛氭嫤鎴猣etch璇锋眰锛屾崟鑾稢ookie骞朵繚瀛?
-        $script = "(function(){alert(\"bookmarklet\");})();";
+        $script = $this->buildCookieBookmarkletScript($token, 'ctrip_auto');
         
         // 压缩脚本
         $script = preg_replace('/\s+/', ' ', $script);
@@ -1819,6 +6386,40 @@ class OnlineData extends Base
             ],
         ]);
     }
+
+    private function buildCookieBookmarkletScript(string $token, string $defaultName): string
+    {
+        $apiUrl = $this->request->domain() . '/api/online-data/receive-cookies';
+        $apiUrlJson = json_encode($apiUrl, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $authHeaderJson = json_encode('Bearer ' . $token, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $defaultNameJson = json_encode($defaultName, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return <<<JAVASCRIPT
+(function(){
+  try{
+    var cookies=document.cookie||'';
+    if(!cookies){alert('未读取到 Cookie，请确认已登录当前 OTA 后台');return;}
+    var name=prompt('请输入配置名称',{$defaultNameJson}+'_'+new Date().toLocaleDateString());
+    if(!name){return;}
+    var form=new FormData();
+    form.append('name',name);
+    form.append('cookies',cookies);
+    form.append('source',location.hostname);
+    fetch({$apiUrlJson},{
+      method:'POST',
+      mode:'cors',
+      body:form,
+      headers:{'Authorization':{$authHeaderJson}}
+    }).then(function(response){return response.json();}).then(function(result){
+      if(result.code===200){alert('Cookies 已保存：'+name);return;}
+      alert('保存失败：'+(result.message||'未知错误'));
+    }).catch(function(error){alert('请求失败：'+error.message);});
+  }catch(error){
+    alert('脚本执行失败：'+error.message);
+  }
+})();
+JAVASCRIPT;
+    }
     
     /**
      * 保存Cookies配置（按门店隔离）
@@ -1826,10 +6427,11 @@ class OnlineData extends Base
     public function saveCookies(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
         
         $name = $this->request->post('name', '');
         $cookies = $this->request->post('cookies', '');
-        $hotelId = $this->request->post('hotel_id', '');
+        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', null));
         
         if (empty($name) || empty($cookies)) {
             return $this->error('名称和Cookies不能为空');
@@ -1837,7 +6439,7 @@ class OnlineData extends Base
         
         // 非超级管理员只能保存自己酒店的Cookies
         if (!$this->currentUser->isSuperAdmin()) {
-            $hotelId = $this->currentUser->hotel_id;
+            $hotelId = $this->resolveOnlineDataSystemHotelId(null);
             if (empty($hotelId)) {
                 return $this->error('您未关联酒店，无法保存Cookies');
             }
@@ -1877,7 +6479,7 @@ class OnlineData extends Base
             }
             $key = "online_data_cookies_hotel_{$hotelId}";
             $list = $this->getConfigList($key);
-            return $this->success(array_values($list));
+            return $this->success(array_map([$this, 'sanitizeSecretConfig'], array_values($list)));
         }
         
         // 超级管理员查看所有Cookies（全局 + 所有酒店）
@@ -1900,7 +6502,36 @@ class OnlineData extends Base
             }
         }
         
-        return $this->success($allCookies);
+        return $this->success(array_map([$this, 'sanitizeSecretConfig'], $allCookies));
+    }
+
+    public function getCookiesDetail(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $name = trim((string)$this->request->get('name', ''));
+        if ($name === '') {
+            return $this->error('Cookies name is required.');
+        }
+
+        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->get('hotel_id', null));
+        $keys = [];
+        if ($hotelId) {
+            $keys[] = "online_data_cookies_hotel_{$hotelId}";
+        }
+        if ($this->currentUser->isSuperAdmin()) {
+            $keys[] = 'online_data_cookies_global';
+        }
+
+        foreach (array_unique($keys) as $key) {
+            $list = $this->getConfigList($key);
+            if (isset($list[$name])) {
+                return $this->success($list[$name]);
+            }
+        }
+
+        return $this->error('Cookies config not found.', 404);
     }
     
     /**
@@ -1909,9 +6540,10 @@ class OnlineData extends Base
     public function deleteCookies(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
         
         $name = $this->request->post('name', '');
-        $hotelId = $this->request->post('hotel_id', '');
+        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', null));
         
         if (empty($name)) {
             return $this->error('名称不能为空');
@@ -1919,9 +6551,9 @@ class OnlineData extends Base
         
         // 非超级管理员只能删除自己酒店的Cookies
         if (!$this->currentUser->isSuperAdmin()) {
-            $hotelId = $this->currentUser->hotel_id;
+            $hotelId = $this->resolveOnlineDataSystemHotelId(null);
         }
-        
+
         // 构建key
         $key = $hotelId ? "online_data_cookies_hotel_{$hotelId}" : "online_data_cookies_global";
         $list = $this->getConfigList($key);
@@ -1930,19 +6562,80 @@ class OnlineData extends Base
             $this->setConfigList($key, $list);
             return $this->success(null, '删除成功');
         }
-        
-        // 如果指定了酒店但没找到，尝试从全局删除
-        if ($hotelId) {
-            $globalKey = "online_data_cookies_global";
-            $globalList = $this->getConfigList($globalKey);
-            if (isset($globalList[$name])) {
-                unset($globalList[$name]);
-                $this->setConfigList($globalKey, $globalList);
-                return $this->success(null, '删除成功');
+
+        return $this->error('Cookies配置不存在');
+    }
+
+    /**
+     * 批量删除Cookies配置（按门店隔离）
+     */
+    public function batchDeleteCookies(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
+
+        $items = $this->request->post('items', []);
+        if (empty($items) || !is_array($items)) {
+            return $this->error('请选择要删除的Cookies配置');
+        }
+
+        $deletedCount = 0;
+        $skippedCount = 0;
+        $changedLists = [];
+        $isSuperAdmin = $this->currentUser->isSuperAdmin();
+        $userHotelId = $isSuperAdmin ? null : $this->resolveOnlineDataSystemHotelId(null);
+
+        if (!$isSuperAdmin && empty($userHotelId)) {
+            return $this->error('您未关联酒店，无法删除Cookies配置');
+        }
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                $skippedCount++;
+                continue;
+            }
+
+            $name = trim((string)($item['name'] ?? ''));
+            if ($name === '') {
+                $skippedCount++;
+                continue;
+            }
+
+            if ($isSuperAdmin) {
+                $rawHotelId = $item['hotel_id'] ?? null;
+                $hasHotelId = $rawHotelId !== null && trim((string)$rawHotelId) !== '';
+                $hotelId = $this->resolveOnlineDataSystemHotelId($rawHotelId);
+                if ($hasHotelId && empty($hotelId)) {
+                    $skippedCount++;
+                    continue;
+                }
+            } else {
+                $hotelId = $userHotelId;
+            }
+
+            $key = $hotelId ? "online_data_cookies_hotel_{$hotelId}" : 'online_data_cookies_global';
+            if (!array_key_exists($key, $changedLists)) {
+                $changedLists[$key] = $this->getConfigList($key);
+            }
+
+            if (isset($changedLists[$key][$name])) {
+                unset($changedLists[$key][$name]);
+                $deletedCount++;
+            } else {
+                $skippedCount++;
             }
         }
-        
-        return $this->error('Cookies配置不存在');
+
+        foreach ($changedLists as $key => $list) {
+            $this->setConfigList($key, $list);
+        }
+
+        OperationLog::record('online_data', 'batch_delete_cookies', '批量删除Cookies配置: ' . $deletedCount . '条', $this->currentUser->id);
+
+        return $this->success([
+            'deleted_count' => $deletedCount,
+            'skipped_count' => $skippedCount,
+        ], $deletedCount > 0 ? '删除成功' : '未删除任何Cookies配置');
     }
     
     /**
@@ -1951,6 +6644,7 @@ class OnlineData extends Base
     public function saveMeituanConfig(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
         
         $config = [
             'url' => $this->request->post('url', 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail'),
@@ -1963,11 +6657,11 @@ class OnlineData extends Base
             'update_time' => date('Y-m-d H:i:s'),
         ];
         
-        $hotelId = $this->request->post('hotel_id', '');
+        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', null));
         
         // 非超级管理员只能保存自己酒店的配置
         if (!$this->currentUser->isSuperAdmin()) {
-            $hotelId = $this->currentUser->hotel_id;
+            $hotelId = $this->resolveOnlineDataSystemHotelId(null);
         }
         
         // 构建存储key
@@ -1998,7 +6692,7 @@ class OnlineData extends Base
             if ($raw) {
                 $decoded = json_decode((string)$raw, true);
                 if (is_array($decoded)) {
-                    return $this->success($decoded);
+                    return $this->success($this->sanitizeSecretConfig($decoded));
                 }
             }
         }
@@ -2018,7 +6712,7 @@ class OnlineData extends Base
             ];
         }
         
-        return $this->success($globalConfig);
+        return $this->success($this->sanitizeSecretConfig($globalConfig));
     }
 
     /**
@@ -2027,6 +6721,7 @@ class OnlineData extends Base
     public function saveMeituanConfigItem(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
 
         $id = $this->request->post('id', '');
         $name = $this->request->post('name', '');
@@ -2053,9 +6748,8 @@ class OnlineData extends Base
             $authData = json_decode($authDataStr, true) ?: [];
         }
 
-        // 获取配置列表 - 直接查 system_config 表
         $key = 'meituan_config_list';
-        $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+        $raw = SystemConfig::getValue($key, '[]');
         $list = $raw ? json_decode($raw, true) : [];
         if (!is_array($list)) {
             $list = [];
@@ -2065,10 +6759,12 @@ class OnlineData extends Base
         if (empty($id)) {
             $id = 'meituan_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
         }
+        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', $list[$id]['hotel_id'] ?? ($list[$id]['system_hotel_id'] ?? null)));
+        $hotelIdValue = $hotelId !== null ? (string)$hotelId : '';
 
-        // 非超级管理员：编辑时只能改自己的配置
-        if (!$this->currentUser->isSuperAdmin() && !empty($id) && isset($list[$id])) {
-            if (($list[$id]['user_id'] ?? '') != $this->currentUser->id) {
+        // 非超级管理员可维护本人创建或本人酒店绑定的配置
+        if (!empty($id) && isset($list[$id])) {
+            if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
                 return $this->error('无权修改此配置');
             }
         }
@@ -2076,9 +6772,11 @@ class OnlineData extends Base
         // 非超级管理员删除时也只能删自己的
         $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
 
-        $list[$id] = [
+        $config = [
             'id' => $id,
             'name' => $name,
+            'hotel_id' => $hotelIdValue,
+            'system_hotel_id' => $hotelId,
             'partner_id' => $partnerId,
             'poi_id' => $poiId,
             'cookies' => $cookies,
@@ -2089,17 +6787,15 @@ class OnlineData extends Base
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => $list[$id]['created_at'] ?? date('Y-m-d H:i:s'),
         ];
+        $config = $this->normalizeOtaConfigHotelBinding($config, 'meituan');
+        $list[$id] = $config;
 
-        // 写回 system_config 表
         $encoded = json_encode($list, JSON_UNESCAPED_UNICODE);
-        \think\facade\Db::name('system_config')->where('config_key', $key)->update([
-            'config_value' => $encoded,
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
+        SystemConfig::setValue($key, $encoded, '美团配置列表');
 
         OperationLog::record('online_data', 'save_meituan_config', "保存美团配置: {$name}", $this->currentUser->id);
 
-        return $this->success($list[$id], '配置保存成功');
+        return $this->success($this->sanitizeSecretConfig($config), '配置保存成功');
     }
 
     /**
@@ -2114,35 +6810,52 @@ class OnlineData extends Base
 
         try {
             $key = 'meituan_config_list';
-            // 与 getCtripConfigList 保持一致：直接查 system_config 表（注意是单数表，美团数据在此表）
-            $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+            $raw = SystemConfig::getValue($key, '[]');
             $list = $raw ? json_decode($raw, true) : [];
             if (!is_array($list)) {
                 $list = [];
             }
+            $list = $this->normalizeStoredOtaConfigList('system_config', $key, $list, 'meituan');
 
-            // 权限控制：超级管理员看到全部，VIP用户只能看到自己保存的配置
-            $isAdmin = ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin());
-            if (!$isAdmin) {
-                $uid = $this->currentUser ? $this->currentUser->id : null;
-                $myList = [];
-                foreach ($list as $item) {
-                    $itemId = $item['user_id'] ?? null;
-                    if ($uid !== null && $itemId !== null && strval($itemId) === strval($uid)) {
-                        $myList[] = $item;
-                    }
-                }
-                $list = $myList;
-            }
+            $list = $this->filterOtaConfigListForCurrentUser($list);
 
             usort($list, function($a, $b) {
                 return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
             });
 
-            return $this->success(array_values($list));
+            return $this->success(array_map([$this, 'sanitizeSecretConfig'], array_values($list)));
         } catch (\Throwable $e) {
-            return json(['code' => 500, 'message' => '内部错误: ' . $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine()]);
+            \think\facade\Log::error('获取美团配置列表失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('获取美团配置列表失败', 500);
         }
+    }
+
+    public function getMeituanConfigDetail(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $id = trim((string)$this->request->get('id', ''));
+        if ($id === '') {
+            return $this->error('Config id is required.');
+        }
+
+        $key = 'meituan_config_list';
+        $raw = SystemConfig::getValue($key, '[]');
+        $list = $raw ? json_decode((string)$raw, true) : [];
+        if (!is_array($list)) {
+            $list = [];
+        }
+        $list = $this->normalizeStoredOtaConfigList('system_config', $key, $list, 'meituan');
+
+        if (!isset($list[$id])) {
+            return $this->error('Config not found.', 404);
+        }
+        if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
+            return $this->error('Forbidden', 403);
+        }
+
+        return $this->success($list[$id]);
     }
 
     /**
@@ -2151,6 +6864,7 @@ class OnlineData extends Base
     public function deleteMeituanConfig(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
 
         $id = $this->request->param('id', '');
         if (empty($id)) {
@@ -2158,33 +6872,25 @@ class OnlineData extends Base
         }
 
         $key = 'meituan_config_list';
-        // 与读取保持一致：直接查 system_config 表
-        $raw = \think\facade\Db::name('system_config')->where('config_key', $key)->value('config_value');
+        $raw = SystemConfig::getValue($key, '[]');
         $list = $raw ? json_decode($raw, true) : [];
         if (!is_array($list)) {
             $list = [];
         }
+        $list = $this->normalizeStoredOtaConfigList('system_config', $key, $list, 'meituan');
 
         if (!isset($list[$id])) {
             return $this->error('配置不存在');
         }
 
-        // 非超级管理员只能删除自己的配置
-        if (!$this->currentUser->isSuperAdmin()) {
-            if (($list[$id]['user_id'] ?? null) != $this->currentUser->id) {
-                return $this->error('无权删除此配置');
-            }
+        if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
+            return $this->error('无权删除此配置');
         }
 
         $name = $list[$id]['name'] ?? '';
         unset($list[$id]);
-        // 写回 system_config 表
         $encoded = json_encode($list, JSON_UNESCAPED_UNICODE);
-        \think\facade\Db::name('system_config')->update([
-            'config_key' => $key,
-            'config_value' => $encoded,
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
+        SystemConfig::setValue($key, $encoded, '美团配置列表');
 
         OperationLog::record('online_data', 'delete_meituan_config', "删除美团配置: {$name}", $this->currentUser->id);
 
@@ -2197,11 +6903,13 @@ class OnlineData extends Base
     public function saveMeituanCommentConfig(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
 
         $name = $this->request->post('name', '');
         $partnerId = $this->request->post('partner_id', '');
         $poiId = $this->request->post('poi_id', '');
-        $mtsiEbU = $this->request->post('mtsi_eb_u', '');
+        $mtsiEbU = $this->request->post('mtsi_eb_u', $this->request->post('_mtsi_eb_u', ''));
         $cookies = $this->request->post('cookies', '');
         $mtgsig = $this->request->post('mtgsig', '');
         $requestUrl = $this->request->post('request_url', '');
@@ -2212,17 +6920,25 @@ class OnlineData extends Base
         if (empty($partnerId) || empty($poiId)) {
             return $this->error('Partner ID 和 POI ID 不能为空');
         }
+        if ($requestUrl !== '' && !$this->isAllowedOtaRequestUrl($requestUrl, ['meituan.com'])) {
+            return $this->error('仅允许保存美团官方域名请求地址');
+        }
 
         // 获取配置列表
         $key = 'meituan_comment_config_list';
         $list = $this->getConfigList($key);
 
         $id = md5($name . $partnerId . $poiId);
+        $originalConfig = $list[$id] ?? [];
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', $originalConfig['system_hotel_id'] ?? null));
+        $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
         $list[$id] = [
             'id' => $id,
             'name' => $name,
             'partner_id' => $partnerId,
             'poi_id' => $poiId,
+            'system_hotel_id' => $systemHotelId,
+            'user_id' => $userId,
             'mtsi_eb_u' => $mtsiEbU,
             'cookies' => $cookies,
             'mtgsig' => $mtgsig,
@@ -2235,7 +6951,7 @@ class OnlineData extends Base
 
         OperationLog::record('online_data', 'save_meituan_comment_config', "保存美团点评配置: {$name}", $this->currentUser->id);
 
-        return $this->success($list[$id], '配置保存成功');
+        return $this->success($this->sanitizeSecretConfig($list[$id]), '配置保存成功');
     }
 
     /**
@@ -2244,9 +6960,11 @@ class OnlineData extends Base
     public function getMeituanCommentConfigList(): Response
     {
         $this->checkPermission();
+        return $this->success([]);
 
         $key = 'meituan_comment_config_list';
         $list = $this->getConfigList($key);
+        $list = $this->filterOtaConfigListForCurrentUser($list);
 
         // 按更新时间降序排序
         $list = array_values($list);
@@ -2256,7 +6974,7 @@ class OnlineData extends Base
             return strcmp($timeB, $timeA);
         });
 
-        return $this->success($list);
+        return $this->success(array_map([$this, 'sanitizeSecretConfig'], $list));
     }
 
     /**
@@ -2336,6 +7054,9 @@ JAVASCRIPT;
      */
     public function saveCtripConfig(): Response
     {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
         try {
             $id = trim((string)$this->request->post('id', ''));
             $name = trim((string)$this->request->post('name', ''));
@@ -2357,7 +7078,7 @@ JAVASCRIPT;
                 if (!isset($list[$id])) {
                     return $this->error('配置不存在');
                 }
-                if (!$this->currentUser->isSuperAdmin() && ($list[$id]['user_id'] ?? null) != $this->currentUser->id) {
+                if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
                     return $this->error('无权修改此配置');
                 }
             } else {
@@ -2367,17 +7088,22 @@ JAVASCRIPT;
             // 非超级管理员保存时记录 user_id；超级管理员编辑旧配置时保留原归属
             $originalConfig = $list[$id] ?? [];
             $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
+            $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', $originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null)));
+            $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
 
             $config = array_merge($originalConfig, [
                 'id' => $id,
                 'name' => $name,
                 'cookies' => $cookies,
+                'hotel_id' => $hotelIdValue,
+                'system_hotel_id' => $resolvedHotelId,
                 'url' => $this->request->post('url', $originalConfig['url'] ?? ''),
                 'node_id' => $this->request->post('node_id', $originalConfig['node_id'] ?? ''),
                 'user_id' => $userId,
                 'update_time' => date('Y-m-d H:i:s'),
                 'created_at' => $originalConfig['created_at'] ?? date('Y-m-d H:i:s'),
             ]);
+            $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
 
             $list[$id] = $config;
             
@@ -2398,7 +7124,7 @@ JAVASCRIPT;
                 ]);
             }
 
-            return json(['code' => 200, 'message' => '配置保存成功', 'data' => $config]);
+            return json(['code' => 200, 'message' => '配置保存成功', 'data' => $this->sanitizeSecretConfig($config)]);
         } catch (\Exception $e) {
             \think\facade\Log::error('保存携程配置异常: ' . $e->getMessage());
             return json(['code' => 500, 'message' => '保存失败: ' . $e->getMessage()]);
@@ -2422,29 +7148,47 @@ JAVASCRIPT;
             if (!is_array($list)) {
                 $list = [];
             }
+            $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
 
-            // 非超级管理员只能看到自己保存的配置（排除无user_id的旧数据）
-            $isAdmin = ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin());
-            if (!$isAdmin) {
-                $uid = $this->currentUser ? $this->currentUser->id : null;
-                $myList = [];
-                foreach ($list as $item) {
-                    $itemId = $item['user_id'] ?? null;
-                    if ($uid !== null && $itemId !== null && strval($itemId) === strval($uid)) {
-                        $myList[] = $item;
-                    }
-                }
-                $list = $myList;
-            }
+            $list = $this->filterOtaConfigListForCurrentUser($list);
 
             usort($list, function($a, $b) {
                 return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
             });
 
-            return $this->success(array_values($list));
+            return $this->success(array_map([$this, 'sanitizeSecretConfig'], array_values($list)));
         } catch (\Throwable $e) {
-            return json(['code' => 500, 'message' => '内部错误: ' . $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine()]);
+            \think\facade\Log::error('获取携程配置列表失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('获取携程配置列表失败', 500);
         }
+    }
+
+    public function getCtripConfigDetail(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $id = trim((string)$this->request->get('id', ''));
+        if ($id === '') {
+            return $this->error('Config id is required.');
+        }
+
+        $key = 'ctrip_config_list';
+        $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
+        $list = $raw ? json_decode((string)$raw, true) : [];
+        if (!is_array($list)) {
+            $list = [];
+        }
+        $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
+
+        if (!isset($list[$id])) {
+            return $this->error('Config not found.', 404);
+        }
+        if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
+            return $this->error('Forbidden', 403);
+        }
+
+        return $this->success($list[$id]);
     }
 
     /**
@@ -2453,6 +7197,7 @@ JAVASCRIPT;
     public function deleteCtripConfig(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
 
         $id = $this->request->param('id', '');
         if (empty($id)) {
@@ -2466,16 +7211,14 @@ JAVASCRIPT;
         }
 
         $list = json_decode($existing['config_value'], true) ?: [];
+        $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
 
         if (!isset($list[$id])) {
             return $this->error('配置不存在');
         }
 
-        // 非超级管理员只能删除自己的配置
-        if (!$this->currentUser->isSuperAdmin()) {
-            if (($list[$id]['user_id'] ?? null) != $this->currentUser->id) {
-                return $this->error('无权删除此配置');
-            }
+        if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
+            return $this->error('无权删除此配置');
         }
 
         $name = $list[$id]['name'] ?? '';
@@ -2495,10 +7238,20 @@ JAVASCRIPT;
      */
     public function generateCtripBookmarklet(): Response
     {
-        // 简单测试 - 直接返回成功
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $token = $this->extractTokenFromAuthorizationHeader((string)$this->request->header('Authorization', ''));
+        if ($token === '') {
+            return $this->error('缺少Token', 401);
+        }
+
+        $script = $this->buildCookieBookmarkletScript($token, 'ctrip_config');
+        $script = preg_replace('/\s+/', ' ', $script);
+
         return $this->success([
-            'script' => 'test',
-            'bookmarklet' => 'javascript:test',
+            'script' => $script,
+            'bookmarklet' => 'javascript:' . $script,
         ]);
     }
 
@@ -2549,6 +7302,9 @@ JAVASCRIPT;
             return $this->success([]);
         }
 
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
         // 获取请求数据
         $rawInput = file_get_contents('php://input');
         $data = json_decode($rawInput, true);
@@ -2561,6 +7317,9 @@ JAVASCRIPT;
         $cookies = $data['cookies'] ?? '';
         $authData = $data['auth_data'] ?? [];
         $uid = $data['uid'] ?? null;
+        $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($data['hotel_id'] ?? ($data['system_hotel_id'] ?? null));
+        $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
+        $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
 
         if (empty($cookies)) {
             return $this->error('Cookie不能为空');
@@ -2597,18 +7356,22 @@ JAVASCRIPT;
             ];
         }
 
-        $list[$id] = [
+        $config = [
             'id' => $id,
             'name' => $name,
-            'hotel_id' => null,
+            'hotel_id' => $hotelIdValue,
+            'system_hotel_id' => $resolvedHotelId,
             'hotel_name' => '',
             'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
             'node_id' => '24588',
             'cookies' => $cookies,
             'auth_data' => $authData,
+            'user_id' => $userId,
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => date('Y-m-d H:i:s'),
         ];
+        $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
+        $list[$id] = $config;
 
         $this->setConfigList($key, $list);
 
@@ -2628,6 +7391,10 @@ JAVASCRIPT;
      */
     private function sendHttpRequest(string $url, array $postData, string $cookies, array $authData = []): array
     {
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com'])) {
+            return ['success' => false, 'error' => '仅允许请求携程官方域名'];
+        }
+
         // 从authData中提取cookieObj
         $cookieObj = $authData['cookieObj'] ?? [];
         
@@ -2753,6 +7520,10 @@ JAVASCRIPT;
             'error' => '',
         ];
 
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com'])) {
+            return array_merge($emptyResult, ['error' => '仅允许请求携程官方域名']);
+        }
+
         if (!function_exists('curl_init')) {
             return array_merge($emptyResult, ['error' => '服务器未启用 cURL，无法请求携程流量接口']);
         }
@@ -2837,6 +7608,114 @@ JAVASCRIPT;
         return $result;
     }
 
+    private function sendCtripAdsRequest(string $url, array $params, string $cookies, string $method = 'POST'): array
+    {
+        $emptyResult = [
+            'http_code' => 0,
+            'raw_response' => '',
+            'decoded_data' => null,
+            'request_url' => $url,
+            'error' => '',
+        ];
+
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com'])) {
+            return array_merge($emptyResult, ['error' => '仅允许请求携程官方域名']);
+        }
+        if (!$this->isCtripAdsApiUrl($url)) {
+            return array_merge($emptyResult, ['error' => '金字塔广告接口 URL 必须来自 Network 中 pyramidad / promotion 的 XHR 或 fetch 请求']);
+        }
+        if (!function_exists('curl_init')) {
+            return array_merge($emptyResult, ['error' => '服务器未启用 cURL，无法请求携程广告接口']);
+        }
+
+        $method = strtoupper($method) === 'GET' ? 'GET' : 'POST';
+        $requestUrl = $url;
+        $jsonPayload = '';
+        if ($method === 'GET') {
+            if (!empty($params)) {
+                $query = http_build_query($params);
+                $requestUrl .= (str_contains($requestUrl, '?') ? '&' : '?') . $query;
+            }
+        } else {
+            $jsonPayload = json_encode($params, JSON_UNESCAPED_UNICODE);
+            if ($jsonPayload === false) {
+                return array_merge($emptyResult, ['error' => '请求 Body JSON 编码失败: ' . json_last_error_msg()]);
+            }
+        }
+
+        $headers = [
+            'Accept: application/json, text/javascript, */*; q=0.01',
+            'Accept-Encoding: gzip, deflate, br',
+            'Accept-Language: zh-CN,zh;q=0.9',
+            'Content-Type: application/json',
+            'Origin: https://ebooking.ctrip.com',
+            'Referer: https://ebooking.ctrip.com/toolcenter/cpc/pyramid',
+            'X-Requested-With: XMLHttpRequest',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Cookie: ' . $cookies,
+        ];
+
+        $ch = curl_init($requestUrl);
+        $options = [
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => false,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_ENCODING => '',
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => $this->shouldVerifyOtaSsl(),
+            CURLOPT_SSL_VERIFYHOST => $this->shouldVerifyOtaSsl() ? 2 : 0,
+        ];
+        if ($method === 'POST') {
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = $jsonPayload;
+        } else {
+            $options[CURLOPT_HTTPGET] = true;
+        }
+        curl_setopt_array($ch, $options);
+
+        $rawResponse = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $curlErrno = curl_errno($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+
+        $result = [
+            'http_code' => $httpCode,
+            'raw_response' => $rawResponse === false ? '' : (string)$rawResponse,
+            'decoded_data' => null,
+            'request_url' => $requestUrl,
+            'error' => '',
+        ];
+
+        if ($rawResponse === false) {
+            $result['error'] = '请求携程广告接口失败: ' . ($curlError ?: 'cURL 错误 ' . $curlErrno);
+            return $result;
+        }
+        if ($httpCode !== 200) {
+            if (in_array($httpCode, [301, 302], true)) {
+                $result['error'] = 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie';
+            } else {
+                $result['error'] = '携程广告接口 HTTP 错误: ' . $httpCode;
+            }
+            return $result;
+        }
+        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', (string)$rawResponse)) {
+            $result['error'] = '携程广告接口返回了页面 HTML。请填写 Network 中 pyramidad / promotion 的 JSON 请求 URL，而不是金字塔广告页面地址';
+            return $result;
+        }
+
+        $decodedData = json_decode((string)$rawResponse, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $result['error'] = '携程广告接口返回异常，JSON 解析失败: ' . json_last_error_msg();
+            return $result;
+        }
+
+        $result['decoded_data'] = $decodedData;
+        return $result;
+    }
+
     /**
      * 识别携程流量接口业务错误
      */
@@ -2884,30 +7763,14 @@ JAVASCRIPT;
      */
     private function normalizeCtripTrafficUrl(string $url): string
     {
-        $url = trim($url);
-        if ($url === '') {
-            $url = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking';
-        }
-        $url = preg_replace('/\s+/', '', $url) ?? $url;
-        $url = preg_replace('/([?&]v=)([0-9.]+)[^&]*/i', '
-    private function sendCustomRequest($2', $url) ?? $url;
-        $random = rtrim(rtrim(sprintf('%.12F', mt_rand() / mt_getrandmax()), '0'), '.');
-        if (stripos($url, 'queryFlowTransforNewV1') === false) {
-            throw new \InvalidArgumentException('Request URL 必须是 queryFlowTransforNewV1 接口');
-        }
-        if (stripos($url, 'hostType=') === false) {
-            $url .= (strpos($url, '?') === false ? '?' : '&') . 'hostType=Ebooking';
-        }
-        if (preg_match('/([?&])v=[^&]*/i', $url)) {
-            return preg_replace('/([?&])v=[^&]*/i', '
-    private function sendCustomRequest(v=' . $random, $url) ?? $url;
-        }
-        return $url . (strpos($url, '?') === false ? '?' : '&') . 'v=' . $random;
+        return OtaTrafficUrlNormalizer::normalizeCtripTrafficUrl($url);
     }
 
-    private function buildCtripTrafficDateRange(string $dateRange, string $startDate, string $endDate): array
+    private function buildCtripTrafficDateRange(string $dateRange, string $startDate, string $endDate, ?int $now = null): array
     {
-        $today = date('Y-m-d');
+        $baseTime = $now ?? time();
+        $today = date('Y-m-d', $baseTime);
+        $settledEndDate = date('Y-m-d', strtotime('-1 day', $baseTime));
         switch ($dateRange) {
             case 'today_realtime':
             case 'today':
@@ -2915,10 +7778,10 @@ JAVASCRIPT;
                 return [$today, $today];
             case 'last_7_days':
             case '7':
-                return [date('Y-m-d', strtotime('-6 days')), $today];
+                return [date('Y-m-d', strtotime($settledEndDate . ' -6 days')), $settledEndDate];
             case 'last_30_days':
             case '30':
-                return [date('Y-m-d', strtotime('-29 days')), $today];
+                return [date('Y-m-d', strtotime($settledEndDate . ' -29 days')), $settledEndDate];
             case 'custom':
                 if ($startDate === '' || $endDate === '') {
                     throw new \InvalidArgumentException('请选择自定义开始日期和结束日期');
@@ -2928,8 +7791,7 @@ JAVASCRIPT;
             case '1':
             default:
                 if ($startDate === '' || $endDate === '') {
-                    $yesterday = date('Y-m-d', strtotime('-1 day'));
-                    return [$yesterday, $yesterday];
+                    return [$settledEndDate, $settledEndDate];
                 }
                 break;
         }
@@ -2945,23 +7807,220 @@ JAVASCRIPT;
         if (!is_array($responseData)) {
             return [];
         }
-        if (isset($responseData[0]) && is_array($responseData[0])) {
-            return $responseData;
+        return $this->extractCtripTrafficRowsRecursive($responseData);
+    }
+
+    private function extractCtripTrafficRowsRecursive(array $value, int $depth = 0): array
+    {
+        if ($depth > 8) {
+            return [];
         }
-        foreach ([['data'], ['data', 'list'], ['data', 'rows'], ['result'], ['result', 'data'], ['result', 'list'], ['list']] as $path) {
-            $current = $responseData;
-            foreach ($path as $key) {
-                if (!is_array($current) || !array_key_exists($key, $current)) {
-                    $current = null;
-                    break;
+
+        if ($this->isSequentialArray($value)) {
+            $rows = [];
+            foreach ($value as $item) {
+                if (!is_array($item)) {
+                    continue;
                 }
-                $current = $current[$key];
+                if ($this->looksLikeCtripTrafficDataRow($item)) {
+                    $rows[] = $item;
+                } else {
+                    $rows = array_merge($rows, $this->extractCtripTrafficRowsRecursive($item, $depth + 1));
+                }
             }
-            if (is_array($current) && isset($current[0]) && is_array($current[0])) {
-                return $current;
+            return $rows;
+        }
+
+        $expandedRows = $this->expandCtripTrafficDailySeries($value);
+        if (!empty($expandedRows)) {
+            return $expandedRows;
+        }
+
+        if ($this->looksLikeCtripTrafficDataRow($value)) {
+            return [$value];
+        }
+
+        foreach ($this->ctripCapturedListPaths('traffic') as $path) {
+            $nested = $this->readNestedMeituanValue($value, $path);
+            if (is_array($nested)) {
+                $rows = $this->extractCtripTrafficRowsRecursive($nested, $depth + 1);
+                if (!empty($rows)) {
+                    return $rows;
+                }
+            }
+        }
+
+        $rows = [];
+        foreach ($value as $nested) {
+            if (is_array($nested)) {
+                $rows = array_merge($rows, $this->extractCtripTrafficRowsRecursive($nested, $depth + 1));
+            }
+        }
+        return $rows;
+    }
+
+    private function expandCtripTrafficDailySeries(array $value): array
+    {
+        $dates = $this->readCtripTrafficDateSeries($value);
+        if (empty($dates)) {
+            return [];
+        }
+
+        $groups = $this->collectCtripTrafficSeriesGroups($value);
+        if (empty($groups)) {
+            $groups = [[
+                'data' => $value,
+                'compare_type' => $this->resolveCtripTrafficCompareType($value),
+            ]];
+        }
+
+        $rows = [];
+        foreach ($groups as $group) {
+            $groupData = is_array($group['data'] ?? null) ? $group['data'] : [];
+            $compareType = (string)($group['compare_type'] ?? $this->resolveCtripTrafficCompareType($groupData));
+            $hotelId = $groupData['hotelId'] ?? $groupData['hotel_id'] ?? $groupData['nodeId'] ?? $groupData['node_id'] ?? null;
+
+            foreach ($dates as $index => $date) {
+                if (strtotime((string)$date) === false) {
+                    continue;
+                }
+
+                $row = [
+                    'date' => date('Y-m-d', strtotime((string)$date)),
+                    'compareType' => $compareType,
+                    'listExposure' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['listExposure'], ['list_exposure'], ['totalListExposure'], ['exposure'], ['exposureCount'], ['impressions'], ['showCount'], ['PV'], ['pv'], ['pageView'], ['pageViews'], ['page_view'],
+                    ]),
+                    'detailExposure' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['detailExposure'], ['detail_exposure'], ['totalDetailExposure'], ['detailVisitors'], ['detailUv'], ['visitorCount'], ['UV'], ['uv'], ['uniqueVisitors'], ['unique_visitors'], ['views'],
+                    ]),
+                    'flowRate' => round($this->normalizeTrafficPercent($this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['flowRate'], ['flow_rate'], ['listTransforDetailRate'], ['conversionRate'], ['conversion_rate'], ['convertionRate'], ['convertRate'], ['transforRate'], ['transferRate'], ['transRate'], ['cvr'],
+                    ], null)), 2),
+                    'orderFillingNum' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['orderFillingNum'], ['order_filling_num'], ['orderVisitors'], ['clickCount'], ['click_count'], ['clickNum'], ['clicks'],
+                    ]),
+                    'orderSubmitNum' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
+                        ['orderSubmitNum'], ['order_submit_num'], ['submitUsers'], ['submitNum'], ['orderCount'], ['order_count'], ['orderNum'], ['bookOrderNum'], ['dealNum'], ['orders'],
+                    ]),
+                ];
+
+                if ($hotelId !== null && $hotelId !== '') {
+                    $row['hotelId'] = $hotelId;
+                } elseif ($compareType !== 'self') {
+                    $row['hotelId'] = -1;
+                }
+
+                if ($row['listExposure'] <= 0 && $row['detailExposure'] <= 0 && $row['orderFillingNum'] <= 0 && $row['orderSubmitNum'] <= 0) {
+                    continue;
+                }
+
+                $rows[] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function readCtripTrafficDateSeries(array $value): array
+    {
+        return $this->readCtripTrafficSeries($value, [
+            ['dateList'], ['date_list'], ['dates'], ['dataDates'], ['data_dates'], ['statDates'], ['stat_dates'],
+            ['xAxis', 'data'], ['xaxis', 'data'], ['xAxisData'], ['x_axis_data'], ['categories'], ['labels'],
+        ]);
+    }
+
+    private function collectCtripTrafficSeriesGroups(array $value): array
+    {
+        $groups = [];
+        foreach ([
+            'myHotel' => 'self',
+            'self' => 'self',
+            'currentHotel' => 'self',
+            'hotel' => 'self',
+            'mine' => 'self',
+            'competeHotelAvg' => 'competitor',
+            'competitorAvg' => 'competitor',
+            'competitorAverage' => 'competitor',
+            'competitor' => 'competitor',
+            'peerAvg' => 'competitor',
+            'competeAvg' => 'competitor',
+            'avg' => 'competitor',
+            'average' => 'competitor',
+        ] as $key => $compareType) {
+            if (isset($value[$key]) && is_array($value[$key])) {
+                $groups[] = ['data' => $value[$key], 'compare_type' => $compareType];
+            }
+        }
+        return $groups;
+    }
+
+    private function resolveCtripTrafficCompareType(array $value): string
+    {
+        $compareText = strtolower((string)($value['compareType'] ?? $value['compare_type'] ?? $value['type'] ?? $value['rankType'] ?? $value['name'] ?? $value['hotelName'] ?? ''));
+        $hotelId = $value['hotelId'] ?? $value['hotel_id'] ?? $value['nodeId'] ?? $value['node_id'] ?? null;
+        if (str_contains($compareText, 'self') || str_contains($compareText, 'my')) {
+            return 'self';
+        }
+        if (str_contains($compareText, 'competitor') || str_contains($compareText, 'peer') || str_contains($compareText, 'avg') || str_contains($compareText, 'average') || str_contains($compareText, 'compete')) {
+            return 'competitor';
+        }
+        return is_numeric($hotelId) && (int)$hotelId > 0 ? 'self' : 'competitor';
+    }
+
+    private function readCtripTrafficSeriesMetric(array $value, int $index, array $paths, ?float $default = 0.0): ?float
+    {
+        $series = $this->readCtripTrafficSeries($value, $paths);
+        if (isset($series[$index])) {
+            $number = $this->coerceTrafficNumber($series[$index]);
+            if ($number !== null) {
+                return $number;
+            }
+        }
+
+        return $default;
+    }
+
+    private function readCtripTrafficSeries(array $value, array $paths): array
+    {
+        foreach ($paths as $path) {
+            $series = $this->readNestedMeituanValue($value, $path);
+            if (is_array($series)) {
+                if ($this->isSequentialArray($series)) {
+                    return $series;
+                }
+                if (isset($series['data']) && is_array($series['data']) && $this->isSequentialArray($series['data'])) {
+                    return $series['data'];
+                }
+                if (isset($series['value']) && is_array($series['value']) && $this->isSequentialArray($series['value'])) {
+                    return $series['value'];
+                }
             }
         }
         return [];
+    }
+
+    private function looksLikeCtripTrafficDataRow(array $value): bool
+    {
+        $hasIdentity = array_key_exists('hotelId', $value)
+            || array_key_exists('hotel_id', $value)
+            || array_key_exists('nodeId', $value)
+            || array_key_exists('node_id', $value);
+        $hasDate = array_key_exists('date', $value)
+            || array_key_exists('dataDate', $value)
+            || array_key_exists('statDate', $value)
+            || array_key_exists('data_date', $value)
+            || array_key_exists('stat_date', $value);
+        if ($hasIdentity && $hasDate) {
+            return true;
+        }
+
+        foreach ($this->ctripTrafficRowKeys() as $key) {
+            if (array_key_exists($key, $value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function getOnlineDailyDataColumns(): array
@@ -2978,20 +8037,137 @@ JAVASCRIPT;
     private function filterOnlineDailyDataFields(array $data): array
     {
         $columns = $this->getOnlineDailyDataColumns();
+        if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
+            $data['tenant_id'] = $this->tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
+        }
         return array_intersect_key($data, $columns);
+    }
+
+    private function buildOnlineDailyDataValidationFields(array $data): array
+    {
+        $flags = [];
+        foreach (['source', 'hotel_id', 'data_date'] as $field) {
+            if (!isset($data[$field]) || trim((string)$data[$field]) === '') {
+                $flags[] = [
+                    'level' => 'error',
+                    'field' => $field,
+                    'message' => $field . ' is missing',
+                ];
+            }
+        }
+
+        foreach (['amount', 'quantity', 'book_order_num', 'data_value'] as $field) {
+            if (!array_key_exists($field, $data) || $data[$field] === '' || $data[$field] === null) {
+                continue;
+            }
+            if (!is_numeric($data[$field])) {
+                $flags[] = [
+                    'level' => 'error',
+                    'field' => $field,
+                    'message' => $field . ' must be numeric',
+                ];
+                continue;
+            }
+            if ((float)$data[$field] < 0) {
+                $flags[] = [
+                    'level' => 'error',
+                    'field' => $field,
+                    'message' => $field . ' must not be negative',
+                ];
+            }
+        }
+
+        $amount = isset($data['amount']) && is_numeric($data['amount']) ? (float)$data['amount'] : 0.0;
+        $quantity = isset($data['quantity']) && is_numeric($data['quantity']) ? (float)$data['quantity'] : null;
+        if ($amount > 0 && $quantity === 0.0) {
+            $flags[] = [
+                'level' => 'warning',
+                'field' => 'quantity',
+                'message' => 'amount exists but quantity is zero',
+            ];
+        }
+
+        $hasError = array_reduce($flags, static fn(bool $carry, array $flag): bool => $carry || ($flag['level'] ?? '') === 'error', false);
+        return [
+            'validation_status' => $hasError ? 'abnormal' : (empty($flags) ? 'normal' : 'warning'),
+            'validation_flags' => json_encode($flags, JSON_UNESCAPED_UNICODE),
+        ];
+    }
+
+    private function applyOnlineDailyDataValidationFields(array $data, ?array $columns = null): array
+    {
+        $columns = $columns ?? $this->getOnlineDailyDataColumns();
+        if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
+            $data['tenant_id'] = $this->tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
+        }
+        foreach ($this->buildOnlineDailyDataValidationFields($data) as $field => $value) {
+            if (isset($columns[$field])) {
+                $data[$field] = $value;
+            }
+        }
+        return $data;
+    }
+
+    private function tenantIdForSystemHotel($systemHotelId): ?int
+    {
+        if ($systemHotelId === null || $systemHotelId === '' || !is_numeric($systemHotelId) || (int)$systemHotelId <= 0) {
+            return null;
+        }
+
+        return (int)$systemHotelId;
     }
 
     private function resolveOnlineDataSystemHotelId($input): ?int
     {
+        if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds)) {
+                throw new HttpException(403, '无可访问酒店');
+            }
+
+            if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
+                $hotelId = (int)$input;
+                if (!in_array($hotelId, $permittedHotelIds, true)) {
+                    throw new HttpException(403, '无权访问该酒店');
+                }
+                return $hotelId;
+            }
+
+            if (count($permittedHotelIds) === 1) {
+                return $permittedHotelIds[0];
+            }
+
+            throw new HttpException(400, '请选择酒店');
+        }
+
         if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
             return (int)$input;
         }
 
-        if ($this->currentUser && !$this->currentUser->isSuperAdmin() && !empty($this->currentUser->hotel_id)) {
-            return (int)$this->currentUser->hotel_id;
+        return null;
+    }
+
+    private function isAllowedOtaRequestUrl(string $url, array $allowedHostSuffixes): bool
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return false;
         }
 
-        return null;
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        if ($scheme !== 'https' || $host === '') {
+            return false;
+        }
+
+        foreach ($allowedHostSuffixes as $suffix) {
+            $suffix = strtolower(ltrim($suffix, '.'));
+            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function sendCustomRequest(string $url, string $method, string $headersStr, string $body): array
@@ -3068,6 +8244,19 @@ JAVASCRIPT;
         // 非超级管理员必须有酒店关联
         $this->requireHotel();
     }
+
+    private function checkActionPermission(string $permission): void
+    {
+        if (!$this->currentUser) {
+            abort(401, '未登录');
+        }
+        if ($this->currentUser->isSuperAdmin()) {
+            return;
+        }
+        if (!$this->currentUser->hasPermission($permission)) {
+            abort(403, '无权限操作');
+        }
+    }
     
     /**
      * 保存线上数据到数据库
@@ -3075,18 +8264,20 @@ JAVASCRIPT;
     public function saveDailyData(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
         
         $dataList = $this->request->post('data', []);
         $dataDate = $this->request->post('data_date', date('Y-m-d', strtotime('-1 day')));
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
         
         if (empty($dataList)) {
             return $this->error('数据不能为空');
         }
         
         // 使用统一的解析和保存方法
-        $savedCount = $this->parseAndSaveData(['data' => $dataList], $dataDate, $dataDate);
+        $savedCount = $this->parseAndSaveData(['data' => $dataList], $dataDate, $dataDate, $systemHotelId);
         
-        OperationLog::record('online_data', 'save_daily', '保存线上数据: ' . $savedCount . '条', $this->currentUser->id);
+        OperationLog::record('online_data', 'save_daily', '保存线上数据: ' . $savedCount . '条', $this->currentUser->id, $systemHotelId);
         
         return $this->success(['saved_count' => $savedCount], '保存成功，共保存 ' . $savedCount . ' 条数据');
     }
@@ -3096,12 +8287,6 @@ JAVASCRIPT;
      */
     public function dailyDataList(): Response
     {
-        // 调试：测试代码是否更新
-        $debug = $this->request->get('debug', '');
-        if ($debug === 'test') {
-            return json(['code' => 200, 'message' => '代码已更新 v5', 'time' => date('Y-m-d H:i:s')]);
-        }
-        
         try {
             // 从请求中获取当前用户（中间件已注入）
             $currentUser = $this->request->user ?? null;
@@ -3114,7 +8299,8 @@ JAVASCRIPT;
             $startDate = $this->request->get('start_date', '');
             $endDate = $this->request->get('end_date', '');
             $source = $this->request->get('source', '');
-            $hotelId = $this->request->get('hotel_id', '');  // 酒店筛选
+            $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));  // 系统酒店筛选
+            $otaHotelId = trim((string)$this->request->get('ota_hotel_id', '')); // OTA平台酒店ID筛选
             $dataType = $this->request->get('data_type', ''); // 数据类型筛选
             $createStart = $this->request->get('create_start', ''); // 获取开始时间
             $createEnd = $this->request->get('create_end', ''); // 获取结束时间
@@ -3135,9 +8321,12 @@ JAVASCRIPT;
                 $query->where('source', $source);
             }
             
-            // 按酒店筛选（hotel_id 是平台酒店ID）
-            if (!empty($hotelId)) {
-                $query->where('hotel_id', $hotelId);
+            if ($hotelId !== '') {
+                $this->applyOnlineDailyDataHotelFilter($query, $hotelId);
+            }
+
+            if ($otaHotelId !== '') {
+                $query->where('hotel_id', $otaHotelId);
             }
             
             // 按数据类型筛选
@@ -3157,16 +8346,6 @@ JAVASCRIPT;
                 $query->where('create_time', '>=', $createStart . ' 00:00:00')
                       ->where('create_time', '<=', $createEnd . ' 23:59:59');
             }
-            
-            // 调试：记录筛选条件和SQL
-            $debugInfo = [
-                'createStart' => $createStart,
-                'createEnd' => $createEnd,
-                'source' => $source,
-                'hotelId' => $hotelId,
-                'raw_create_start' => $this->request->get('create_start', ''),
-                'raw_create_end' => $this->request->get('create_end', ''),
-            ];
             
             // 非超级管理员只能看自己酒店的数据
             if (!$currentUser->isSuperAdmin()) {
@@ -3189,13 +8368,13 @@ JAVASCRIPT;
             
             // 解析 raw_data 添加排名等额外字段
             foreach ($list as &$item) {
-                // 计算 total_order_num（全渠道总订单 = 携程预订订单 × 1.2-1.3随机值）
                 $bookOrderNum = intval($item['book_order_num'] ?? 0);
-                $item['total_order_num'] = intval($bookOrderNum * (1.2 + mt_rand(0, 10) / 100));
-                
+                $rawTotalOrderNum = 0;
+
                 if (!empty($item['raw_data'])) {
                     $rawData = json_decode($item['raw_data'], true);
                     if ($rawData) {
+                        $rawTotalOrderNum = intval($rawData['totalOrderNum'] ?? $rawData['total_order_num'] ?? 0);
                         // 添加排名字段
                         $item['amount_rank'] = $rawData['amountRank'] ?? null;
                         $item['quantity_rank'] = $rawData['quantityRank'] ?? null;
@@ -3208,8 +8387,10 @@ JAVASCRIPT;
                         $item['qunar_detail_cr'] = $rawData['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? null;
                     }
                 }
+                $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
+                $item['data_quality'] = $this->buildOnlineDataQuality($item);
             }
-            
+
             return $this->success([
                 'list' => $list,
                 'pagination' => [
@@ -3217,11 +8398,322 @@ JAVASCRIPT;
                     'page' => $page,
                     'page_size' => $pageSize,
                 ],
-                'debug' => $debugInfo,
+                'data_quality_summary' => $this->buildOnlineDataQualitySummary($list),
             ]);
         } catch (\Throwable $e) {
-            // 使用 Throwable 捕获所有错误
-            return $this->error('获取数据列表失败: ' . $e->getMessage() . ' 在 ' . $e->getFile() . ':' . $e->getLine());
+            \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('获取数据列表失败', 500);
+        }
+    }
+
+    private function buildOnlineDataQualitySummary(array $rows): array
+    {
+        $checkedRecords = count($rows);
+        $issueRecords = 0;
+        $missingCount = 0;
+        $abnormalCount = 0;
+        $errorCount = 0;
+        $warningCount = 0;
+        $prompts = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $quality = isset($row['data_quality']) && is_array($row['data_quality'])
+                ? $row['data_quality']
+                : $this->buildOnlineDataQuality($row);
+
+            if (($quality['status'] ?? 'ok') !== 'ok') {
+                $issueRecords++;
+            }
+            $missingCount += count($quality['missing_metrics'] ?? []);
+            $abnormalCount += count($quality['abnormal_metrics'] ?? []);
+            $errorCount += (int)($quality['error_count'] ?? 0);
+            $warningCount += (int)($quality['warning_count'] ?? 0);
+            foreach (($quality['prompts'] ?? []) as $prompt) {
+                $prompt = trim((string)$prompt);
+                if ($prompt !== '' && !in_array($prompt, $prompts, true)) {
+                    $prompts[] = $prompt;
+                }
+            }
+        }
+
+        $status = 'ok';
+        if ($errorCount > 0) {
+            $status = 'error';
+        } elseif ($issueRecords > 0) {
+            $status = 'warning';
+        }
+
+        return [
+            'status' => $status,
+            'checked_records' => $checkedRecords,
+            'ok_records' => max(0, $checkedRecords - $issueRecords),
+            'issue_records' => $issueRecords,
+            'missing_count' => $missingCount,
+            'abnormal_count' => $abnormalCount,
+            'error_count' => $errorCount,
+            'warning_count' => $warningCount,
+            'top_prompts' => array_slice($prompts, 0, 6),
+        ];
+    }
+
+    private function buildOnlineDataQuality(array $row): array
+    {
+        [$raw, $rawError] = $this->decodeOnlineDataQualityRaw($row['raw_data'] ?? null);
+        $source = strtolower(trim((string)($row['source'] ?? '')));
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if ($dataType === '') {
+            $dataType = 'business';
+        }
+
+        $missing = [];
+        $abnormal = [];
+
+        $this->addOnlineDataMissingMetric($missing, $row, $raw, 'hotel_id', '酒店ID', ['hotel_id'], ['hotelId', 'hotel_id', 'poiId', 'poi_id']);
+        $this->addOnlineDataMissingMetric($missing, $row, $raw, 'hotel_name', '酒店名称', ['hotel_name'], ['hotelName', 'hotel_name', 'poiName', 'poi_name']);
+        $this->addOnlineDataMissingMetric($missing, $row, $raw, 'data_date', '数据日期', ['data_date'], ['dataDate', 'data_date', 'date', 'statDate']);
+        $this->addOnlineDataMissingMetric($missing, $row, $raw, 'source', '数据来源', ['source'], []);
+
+        if ($source === 'meituan') {
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'data_value', '指标值', ['data_value'], ['dataValue', 'data_value', 'monthRoomNights']);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'dimension', '榜单维度', ['dimension'], ['dimension', 'dimName', '_dimName']);
+        } elseif ($dataType === 'traffic') {
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'exposure', '曝光', ['list_exposure', 'exposure_count', 'exposure', 'data_value'], ['listExposure', 'exposure', 'exposure_count']);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'detail_visitors', '浏览/访客', ['detail_exposure', 'click_count', 'total_detail_num'], ['detailExposure', 'totalDetailNum', 'views', 'visitorCount']);
+        } else {
+            $requireRaw = !empty($raw);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'amount', '营业额', ['amount'], ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount'], $requireRaw);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'quantity', '间夜', ['quantity'], ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity'], $requireRaw);
+            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'book_order_num', '订单数', ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings'], $requireRaw);
+        }
+
+        if ($rawError !== null) {
+            $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'raw_data_json', 'raw_data', '原始JSON', null, '原始数据无法解析');
+        }
+
+        foreach ([
+            'amount' => '营业额',
+            'quantity' => '间夜',
+            'book_order_num' => '订单数',
+            'data_value' => '指标值',
+        ] as $key => $label) {
+            $value = $this->onlineDataQualityNumber($row[$key] ?? null);
+            if ($value !== null && $value < 0) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('error', $key . '_negative', $key, $label, $value, $label . '不能为负数');
+            }
+        }
+
+        $amount = $this->onlineDataQualityFirstNumber($row, $raw, ['amount'], ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']);
+        $quantity = $this->onlineDataQualityFirstNumber($row, $raw, ['quantity'], ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity']);
+        $orders = $this->onlineDataQualityFirstNumber($row, $raw, ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings']);
+
+        if ($source !== 'meituan' && $dataType !== 'traffic') {
+            if ($amount !== null && $amount > 0 && ($quantity === null || $quantity <= 0)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_denominator_zero', 'quantity', '间夜', $quantity, '营业额存在但间夜为0，ADR无法计算');
+            }
+            if ($quantity !== null && $quantity > 0 && ($amount === null || $amount <= 0)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'amount_missing_for_quantity', 'amount', '营业额', $amount, '间夜存在但营业额为0');
+            }
+            if ($orders !== null && $orders > 0 && ($quantity === null || $quantity <= 0)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'orders_without_room_nights', 'book_order_num', '订单数', $orders, '订单数存在但间夜为0');
+            }
+            if ($amount !== null && $quantity !== null && $quantity > 0) {
+                $adr = round($amount / $quantity, 2);
+                if ($adr > 5000) {
+                    $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_high', 'adr', 'ADR', $adr, 'ADR高于常规阈值');
+                }
+            }
+        }
+
+        foreach ([
+            'comment_score' => '点评分',
+            'qunar_comment_score' => '去哪儿评分',
+        ] as $key => $label) {
+            $score = $this->onlineDataQualityNumber($row[$key] ?? null);
+            if ($score !== null && ($score < 0 || $score > 5)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'comment_score_range', $key, $label, $score, $label . '应在0到5之间');
+            }
+        }
+
+        foreach ([
+            ['convertion_rate', '浏览转化率', ['convertion_rate'], ['convertionRate', 'conversionRate']],
+            ['qunar_detail_cr', '去哪儿转化率', ['qunar_detail_cr'], ['qunarDetailCR', 'qunarDetailConversionRate']],
+        ] as [$key, $label, $rowKeys, $rawKeys]) {
+            $rate = $this->onlineDataQualityFirstNumber($row, $raw, $rowKeys, $rawKeys);
+            if ($rate !== null && ($rate < 0 || $rate > 100)) {
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', $key . '_range', $key, $label, $rate, $label . '应在0到100之间');
+            }
+        }
+
+        $this->appendOnlineDataTrafficAnomalies($abnormal, $row, $raw);
+
+        $errorCount = count(array_filter([...$missing, ...$abnormal], static fn($issue): bool => ($issue['level'] ?? '') === 'error'));
+        $warningCount = count($missing) + count($abnormal) - $errorCount;
+        $status = $errorCount > 0 ? 'error' : ($warningCount > 0 ? 'warning' : 'ok');
+        $prompts = $this->buildOnlineDataQualityPrompts($missing, $abnormal);
+
+        return [
+            'status' => $status,
+            'status_label' => $status === 'ok' ? '完整' : ($status === 'error' ? '异常' : '需复核'),
+            'score' => max(0, 100 - count($missing) * 12 - count($abnormal) * 18),
+            'missing_metrics' => $missing,
+            'abnormal_metrics' => $abnormal,
+            'missing_count' => count($missing),
+            'abnormal_count' => count($abnormal),
+            'error_count' => $errorCount,
+            'warning_count' => $warningCount,
+            'prompts' => $prompts,
+            'summary' => empty($prompts) ? '数据完整' : implode('；', $prompts),
+        ];
+    }
+
+    private function decodeOnlineDataQualityRaw($rawData): array
+    {
+        if (is_array($rawData)) {
+            return [$rawData, null];
+        }
+        if ($rawData === null || $rawData === '') {
+            return [[], null];
+        }
+        if (!is_string($rawData)) {
+            return [[], 'raw_data is not string'];
+        }
+        $decoded = json_decode($rawData, true);
+        if (!is_array($decoded)) {
+            return [[], json_last_error_msg()];
+        }
+        return [$decoded, null];
+    }
+
+    private function addOnlineDataMissingMetric(array &$missing, array $row, array $raw, string $key, string $label, array $rowKeys, array $rawKeys, bool $requireRaw = false): void
+    {
+        if ($this->onlineDataQualityMetricPresent($row, $raw, $rowKeys, $rawKeys, $requireRaw)) {
+            return;
+        }
+        $missing[] = [
+            'level' => 'warning',
+            'key' => $key,
+            'label' => $label,
+            'message' => '缺失' . $label,
+        ];
+    }
+
+    private function onlineDataQualityMetricPresent(array $row, array $raw, array $rowKeys, array $rawKeys, bool $requireRaw = false): bool
+    {
+        if (!$requireRaw) {
+            foreach ($rowKeys as $key) {
+                if (array_key_exists($key, $row) && !$this->onlineDataQualityBlank($row[$key])) {
+                    return true;
+                }
+            }
+        }
+        foreach ($rawKeys as $key) {
+            if (array_key_exists($key, $raw) && !$this->onlineDataQualityBlank($raw[$key])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function onlineDataQualityBlank($value): bool
+    {
+        return $value === null || $value === '';
+    }
+
+    private function onlineDataQualityNumber($value): ?float
+    {
+        if (is_int($value) || is_float($value)) {
+            return is_finite((float)$value) ? (float)$value : null;
+        }
+        if (is_string($value)) {
+            $normalized = trim(str_replace([',', '%'], '', $value));
+            if ($normalized === '' || !is_numeric($normalized)) {
+                return null;
+            }
+            return (float)$normalized;
+        }
+        return null;
+    }
+
+    private function onlineDataQualityFirstNumber(array $row, array $raw, array $rowKeys, array $rawKeys): ?float
+    {
+        foreach ($rowKeys as $key) {
+            if (array_key_exists($key, $row)) {
+                $value = $this->onlineDataQualityNumber($row[$key]);
+                if ($value !== null) {
+                    return $value;
+                }
+            }
+        }
+        foreach ($rawKeys as $key) {
+            if (array_key_exists($key, $raw)) {
+                $value = $this->onlineDataQualityNumber($raw[$key]);
+                if ($value !== null) {
+                    return $value;
+                }
+            }
+        }
+        return null;
+    }
+
+    private function makeOnlineDataAbnormalIssue(string $level, string $code, string $key, string $label, $value, string $message): array
+    {
+        return [
+            'level' => $level,
+            'code' => $code,
+            'key' => $key,
+            'label' => $label,
+            'value' => $value,
+            'message' => $message,
+        ];
+    }
+
+    private function appendOnlineDataTrafficAnomalies(array &$abnormal, array $row, array $raw): void
+    {
+        $exposure = $this->onlineDataQualityFirstNumber($row, $raw, ['list_exposure', 'exposure_count', 'exposure', 'data_value'], ['listExposure', 'exposure', 'exposure_count']);
+        $views = $this->onlineDataQualityFirstNumber($row, $raw, ['detail_exposure', 'click_count', 'total_detail_num'], ['detailExposure', 'totalDetailNum', 'views', 'visitorCount']);
+        $orderVisitors = $this->onlineDataQualityFirstNumber($row, $raw, ['order_filling_num', 'order_visitors'], ['orderFillingNum', 'order_visitors']);
+        $submitUsers = $this->onlineDataQualityFirstNumber($row, $raw, ['order_submit_num', 'submit_users'], ['orderSubmitNum', 'submit_users']);
+
+        if ($exposure !== null && $views !== null && $exposure > 0 && $views > $exposure) {
+            $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'views_gt_exposure', 'detail_visitors', '浏览/访客', $views, '浏览/访客大于曝光');
+        }
+        if ($views !== null && $orderVisitors !== null && $views > 0 && $orderVisitors > $views) {
+            $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'orders_gt_views', 'order_visitors', '订单页访客', $orderVisitors, '订单页访客大于浏览/访客');
+        }
+        if ($orderVisitors !== null && $submitUsers !== null && $orderVisitors > 0 && $submitUsers > $orderVisitors) {
+            $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'submit_gt_orders', 'submit_users', '提交用户', $submitUsers, '提交用户大于订单页访客');
+        }
+    }
+
+    private function buildOnlineDataQualityPrompts(array $missing, array $abnormal): array
+    {
+        $prompts = [];
+        if (!empty($missing)) {
+            $labels = array_values(array_unique(array_map(static fn($issue): string => (string)($issue['label'] ?? $issue['key'] ?? ''), $missing)));
+            $labels = array_filter($labels, static fn($label): bool => $label !== '');
+            $prompts[] = '缺失：' . implode('、', array_slice($labels, 0, 6));
+        }
+        if (!empty($abnormal)) {
+            $messages = array_values(array_unique(array_map(static fn($issue): string => (string)($issue['message'] ?? $issue['label'] ?? ''), $abnormal)));
+            $messages = array_filter($messages, static fn($message): bool => $message !== '');
+            $prompts[] = '异常：' . implode('、', array_slice($messages, 0, 6));
+        }
+        return $prompts;
+    }
+
+    private function applyOnlineDailyDataHotelFilter($query, string $hotelId): void
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        if (isset($columns['system_hotel_id']) && is_numeric($hotelId)) {
+            $query->where('system_hotel_id', (int)$hotelId);
+            return;
+        }
+
+        if (isset($columns['hotel_id'])) {
+            $query->where('hotel_id', $hotelId);
         }
     }
 
@@ -3248,20 +8740,16 @@ JAVASCRIPT;
             $this->applyOnlineHistoryFilters($query, $currentUser);
             $this->applyOnlineHistoryKeywordFilter($query, $keyword);
 
-            $total = (int)(clone $query)->count();
-            $summary = $this->buildOnlineHistorySummaryFromQuery(clone $query, $total);
-
             $rows = (clone $query)->order('create_time', 'desc')
                 ->order('id', 'desc')
-                ->limit(($page - 1) * $pageSize, $pageSize)
                 ->select()
                 ->toArray();
 
             $hotelMap = $this->getConfiguredHotelNameMap();
-            $historyList = [];
-            foreach ($rows as $row) {
-                $historyList[] = $this->normalizeOnlineHistoryRow($row, $hotelMap);
-            }
+            $historyGroups = $this->mergeOnlineHistoryRows($rows, $hotelMap);
+            $total = count($historyGroups);
+            $summary = $this->buildOnlineHistorySummary($historyGroups);
+            $historyList = array_slice($historyGroups, ($page - 1) * $pageSize, $pageSize);
 
             return $this->success([
                 'list' => $historyList,
@@ -3421,6 +8909,10 @@ JAVASCRIPT;
 
         $fetchedAt = $this->maxOnlineRowsFetchedAt($rows, $columns);
 
+        $decodedRows = $this->decodeOnlineRawRows($rows);
+        $displayHotels = $section === 'rank' ? $this->buildCtripBusinessDisplayHotels($decodedRows) : [];
+        $displayTrafficRows = $section === 'traffic' ? $this->buildCtripTrafficDisplayRows($decodedRows) : [];
+
         return [
             'data_type' => $section,
             'data_type_label' => $labelMap[$section] ?? $section,
@@ -3430,7 +8922,11 @@ JAVASCRIPT;
             'data_date' => (string)($latest['data_date'] ?? ''),
             'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
             'total' => count($rows),
-            'rows' => $this->decodeOnlineRawRows($rows),
+            'rows' => $decodedRows,
+            'display_hotels' => $displayHotels,
+            'display_summary' => $section === 'rank' ? $this->buildCtripBusinessDisplaySummary($displayHotels) : $this->emptyCtripBusinessDisplaySummary(),
+            'display_traffic_rows' => $displayTrafficRows,
+            'display_traffic_summary' => $section === 'traffic' ? $this->buildCtripTrafficDisplaySummary($displayTrafficRows) : $this->emptyCtripTrafficDisplaySummary(),
         ];
     }
 
@@ -3446,6 +8942,10 @@ JAVASCRIPT;
             'fetched_at' => '',
             'total' => 0,
             'rows' => [],
+            'display_hotels' => [],
+            'display_summary' => $this->emptyCtripBusinessDisplaySummary(),
+            'display_traffic_rows' => [],
+            'display_traffic_summary' => $this->emptyCtripTrafficDisplaySummary(),
         ];
     }
 
@@ -3464,6 +8964,13 @@ JAVASCRIPT;
             if ($sectionDataDate !== '' && ($dataDate === '' || strcmp($sectionDataDate, $dataDate) > 0)) {
                 $dataDate = $sectionDataDate;
             }
+        }
+
+        $fetchStatus = $this->getCtripLatestFetchStatus($hotelId);
+        if (!empty($fetchStatus['fetched_at']) && ($fetchedAt === '' || strcmp((string)$fetchStatus['fetched_at'], $fetchedAt) >= 0)) {
+            $fetchedAt = (string)$fetchStatus['fetched_at'];
+            $dataDate = (string)($fetchStatus['data_date'] ?? $dataDate);
+            $total = max($total, (int)($fetchStatus['saved_count'] ?? 0));
         }
 
         return [
@@ -3520,15 +9027,7 @@ JAVASCRIPT;
     private function applyCtripHotelScope($query, string $hotelId, $currentUser, array $columns): void
     {
         if ($hotelId !== '') {
-            if (isset($columns['system_hotel_id'], $columns['hotel_id'])) {
-                $query->where(function ($q) use ($hotelId) {
-                    if (is_numeric($hotelId)) {
-                        $q->where('system_hotel_id', (int)$hotelId)->whereOr('hotel_id', $hotelId);
-                    } else {
-                        $q->where('hotel_id', $hotelId);
-                    }
-                });
-            } elseif (isset($columns['system_hotel_id']) && is_numeric($hotelId)) {
+            if (isset($columns['system_hotel_id']) && is_numeric($hotelId)) {
                 $query->where('system_hotel_id', (int)$hotelId);
             } elseif (isset($columns['hotel_id'])) {
                 $query->where('hotel_id', $hotelId);
@@ -3547,14 +9046,25 @@ JAVASCRIPT;
 
     private function applyCtripLatestBatchScope($query, array $latest, string $hotelId, array $columns): void
     {
-        if ($hotelId !== '' || !isset($columns['system_hotel_id'])) {
-            return;
+        if ($hotelId === '' && isset($columns['system_hotel_id'])) {
+            if (isset($latest['system_hotel_id']) && $latest['system_hotel_id'] !== null && $latest['system_hotel_id'] !== '') {
+                $query->where('system_hotel_id', (int)$latest['system_hotel_id']);
+            } else {
+                $query->whereNull('system_hotel_id');
+            }
         }
-        if (isset($latest['system_hotel_id']) && $latest['system_hotel_id'] !== null && $latest['system_hotel_id'] !== '') {
-            $query->where('system_hotel_id', (int)$latest['system_hotel_id']);
-            return;
+
+        $this->applyOnlineLatestFetchTimeScope($query, $latest, $columns);
+    }
+
+    private function applyOnlineLatestFetchTimeScope($query, array $latest, array $columns): void
+    {
+        foreach (['update_time', 'create_time'] as $column) {
+            if (isset($columns[$column]) && !empty($latest[$column])) {
+                $query->where($column, (string)$latest[$column]);
+                return;
+            }
         }
-        $query->whereNull('system_hotel_id');
     }
 
     private function orderOnlineDataByFetchTime($query, array $columns, string $direction = 'desc')
@@ -3764,15 +9274,8 @@ JAVASCRIPT;
 
     private function applyOnlineHistoryHotelIdFilter($query, array $columns, string $hotelId): void
     {
-        if (isset($columns['system_hotel_id'], $columns['hotel_id'])) {
-            $query->where(function ($q) use ($hotelId) {
-                $q->where('system_hotel_id', intval($hotelId))->whereOr('hotel_id', $hotelId);
-            });
-            return;
-        }
-
-        if (isset($columns['system_hotel_id'])) {
-            $query->where('system_hotel_id', intval($hotelId));
+        if (isset($columns['system_hotel_id']) && is_numeric($hotelId)) {
+            $query->where('system_hotel_id', (int)$hotelId);
             return;
         }
 
@@ -3922,6 +9425,228 @@ JAVASCRIPT;
         $item['metrics_summary'] = $this->buildHistoryMetricSummary($row, $rawData);
 
         return $item;
+    }
+
+    private function mergeOnlineHistoryRows(array $rows, array $hotelMap): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $item = $this->normalizeOnlineHistoryRow($row, $hotelMap);
+            $groupKey = $this->buildOnlineHistoryMergeKey($item);
+
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = $item;
+                $groups[$groupKey]['record_count'] = 0;
+                $groups[$groupKey]['raw_record_count'] = 0;
+                $groups[$groupKey]['hotel_count'] = 0;
+                $groups[$groupKey]['record_ids'] = [];
+                $groups[$groupKey]['merged_hotel_names'] = [];
+                $groups[$groupKey]['merged_ota_hotel_ids'] = [];
+                $groups[$groupKey]['merged_batch_nos'] = [];
+                $groups[$groupKey]['_dedupe_key_map'] = [];
+                $groups[$groupKey]['_hotel_name_map'] = [];
+                $groups[$groupKey]['_ota_hotel_id_map'] = [];
+                $groups[$groupKey]['_batch_no_map'] = [];
+                $groups[$groupKey]['_raw_samples'] = [];
+                $groups[$groupKey]['_amount_total'] = 0.0;
+                $groups[$groupKey]['_quantity_total'] = 0.0;
+                $groups[$groupKey]['_order_total'] = 0.0;
+                $groups[$groupKey]['_data_value_total'] = 0.0;
+                $groups[$groupKey]['_failed_count'] = 0;
+                $groups[$groupKey]['_empty_count'] = 0;
+                $groups[$groupKey]['_success_count'] = 0;
+            }
+
+            $this->appendOnlineHistoryGroupRow($groups[$groupKey], $item);
+        }
+
+        $historyGroups = [];
+        foreach ($groups as $group) {
+            $historyGroups[] = $this->finalizeOnlineHistoryGroup($group);
+        }
+        return $historyGroups;
+    }
+
+    private function buildOnlineHistoryMergeKey(array $item): string
+    {
+        return implode('|', [
+            (string)($item['data_date'] ?? ''),
+            (string)($item['platform'] ?? ''),
+            (string)($item['data_type'] ?? ''),
+            (string)($item['hotel_id'] ?? ''),
+            (string)($item['dimension'] ?? ''),
+            (string)($item['compare_type'] ?? ''),
+        ]);
+    }
+
+    private function appendOnlineHistoryGroupRow(array &$group, array $item): void
+    {
+        $group['raw_record_count']++;
+        $group['record_ids'][] = (int)($item['id'] ?? 0);
+
+        $hotelName = trim((string)($item['hotel_name'] ?? ''));
+        $otaHotelId = trim((string)($item['ota_hotel_id'] ?? ''));
+        $hotelKey = $otaHotelId !== '' ? $otaHotelId : $hotelName;
+        $dedupeKey = $hotelKey !== '' ? $hotelKey : 'record-' . (string)($item['id'] ?? '');
+        $batchNo = trim((string)($item['batch_no'] ?? ''));
+        if ($batchNo !== '' && !isset($group['_batch_no_map'][$batchNo])) {
+            $group['_batch_no_map'][$batchNo] = $batchNo;
+        }
+
+        if (isset($group['_dedupe_key_map'][$dedupeKey])) {
+            return;
+        }
+        $group['_dedupe_key_map'][$dedupeKey] = true;
+        $group['record_count']++;
+
+        if ($hotelKey !== '' && !isset($group['_hotel_name_map'][$hotelKey])) {
+            $group['_hotel_name_map'][$hotelKey] = $hotelName !== '' ? $hotelName : $hotelKey;
+        }
+        if ($otaHotelId !== '' && !isset($group['_ota_hotel_id_map'][$otaHotelId])) {
+            $group['_ota_hotel_id_map'][$otaHotelId] = $otaHotelId;
+        }
+        if (!empty($item['is_my_hotel'])) {
+            $group['is_my_hotel'] = true;
+        }
+
+        $status = (string)($item['status'] ?? '');
+        if ($status === 'failed') {
+            $group['_failed_count']++;
+        } elseif ($status === 'empty') {
+            $group['_empty_count']++;
+        } else {
+            $group['_success_count']++;
+        }
+
+        $group['_amount_total'] += (float)($item['amount'] ?? 0);
+        $group['_quantity_total'] += (float)($item['quantity'] ?? 0);
+        $group['_order_total'] += (float)($item['book_order_num'] ?? $item['order_submit_num'] ?? 0);
+        $group['_data_value_total'] += (float)($item['data_value'] ?? 0);
+
+        if (count($group['_raw_samples']) < 5) {
+            $rawData = (string)($item['raw_data'] ?? '');
+            $decodedRaw = $rawData !== '' ? json_decode($rawData, true) : null;
+            $group['_raw_samples'][] = [
+                'id' => (int)($item['id'] ?? 0),
+                'hotel_name' => $hotelName,
+                'ota_hotel_id' => $otaHotelId,
+                'metrics_summary' => (string)($item['metrics_summary'] ?? ''),
+                'raw_data' => is_array($decodedRaw) ? $decodedRaw : $rawData,
+            ];
+        }
+    }
+
+    private function finalizeOnlineHistoryGroup(array $group): array
+    {
+        $hotelNames = array_values($group['_hotel_name_map'] ?? []);
+        $otaHotelIds = array_values($group['_ota_hotel_id_map'] ?? []);
+        $batchNos = array_values($group['_batch_no_map'] ?? []);
+        $recordCount = (int)($group['record_count'] ?? 1);
+        $rawRecordCount = (int)($group['raw_record_count'] ?? $recordCount);
+        $hotelCount = count($hotelNames);
+        $failedCount = (int)($group['_failed_count'] ?? 0);
+        $emptyCount = (int)($group['_empty_count'] ?? 0);
+        $successCount = (int)($group['_success_count'] ?? 0);
+
+        $group['hotel_count'] = $hotelCount;
+        $group['merged_hotel_names'] = $hotelNames;
+        $group['merged_ota_hotel_ids'] = $otaHotelIds;
+        $group['merged_batch_nos'] = $batchNos;
+
+        if ($recordCount > 1 || $rawRecordCount > 1) {
+            $group['hotel_name'] = $hotelCount > 1 ? '全部酒店（' . $hotelCount . '家）' : ($hotelNames[0] ?? $group['hotel_name'] ?? '-');
+            $group['ota_hotel_id'] = count($otaHotelIds) > 1 ? '多个' : ($otaHotelIds[0] ?? $group['ota_hotel_id'] ?? '');
+            $group['metrics_summary'] = $this->buildMergedHistoryMetricSummary($group);
+            $group['raw_data'] = $this->buildMergedHistoryRawData($group);
+        }
+
+        if ($failedCount > 0) {
+            $group['status'] = 'failed';
+        } elseif ($successCount > 0) {
+            $group['status'] = 'success';
+        } elseif ($emptyCount > 0) {
+            $group['status'] = 'empty';
+        }
+        $group['status_label'] = $this->historyStatusLabel((string)($group['status'] ?? ''));
+
+        unset(
+            $group['_dedupe_key_map'],
+            $group['_hotel_name_map'],
+            $group['_ota_hotel_id_map'],
+            $group['_batch_no_map'],
+            $group['_raw_samples'],
+            $group['_amount_total'],
+            $group['_quantity_total'],
+            $group['_order_total'],
+            $group['_data_value_total'],
+            $group['_failed_count'],
+            $group['_empty_count'],
+            $group['_success_count']
+        );
+
+        return $group;
+    }
+
+    private function buildMergedHistoryMetricSummary(array $group): string
+    {
+        $recordCount = (int)($group['record_count'] ?? 0);
+        $rawRecordCount = (int)($group['raw_record_count'] ?? $recordCount);
+        $hotelCount = (int)($group['hotel_count'] ?? 0);
+        $amountTotal = (float)($group['_amount_total'] ?? 0);
+        $quantityTotal = (float)($group['_quantity_total'] ?? 0);
+        $orderTotal = (float)($group['_order_total'] ?? 0);
+        $dataValueTotal = (float)($group['_data_value_total'] ?? 0);
+        $failedCount = (int)($group['_failed_count'] ?? 0);
+
+        $metrics = [];
+        if ($rawRecordCount > $recordCount && $recordCount > 0) {
+            $metrics[] = '合并 ' . number_format($rawRecordCount) . ' 条为 ' . number_format($recordCount) . ' 条';
+        } elseif ($recordCount > 0) {
+            $metrics[] = '合并 ' . number_format($recordCount) . ' 条';
+        }
+        if ($hotelCount > 0) {
+            $metrics[] = number_format($hotelCount) . ' 家酒店';
+        }
+        if ($quantityTotal > 0) {
+            $metrics[] = '间夜 ' . number_format($quantityTotal);
+        }
+        if ($orderTotal > 0) {
+            $metrics[] = '订单 ' . number_format($orderTotal);
+        }
+        if ($amountTotal > 0 && $quantityTotal > 0) {
+            $metrics[] = '均房价 ¥' . number_format($amountTotal / $quantityTotal, 2);
+        } elseif ($amountTotal > 0) {
+            $metrics[] = '金额 ¥' . number_format($amountTotal, 2);
+        }
+        if ($dataValueTotal > 0 && $amountTotal <= 0 && $quantityTotal <= 0 && $orderTotal <= 0) {
+            $metrics[] = '指标值 ' . number_format($dataValueTotal, 2);
+        }
+        if ($failedCount > 0) {
+            $metrics[] = '异常 ' . number_format($failedCount) . ' 条';
+        }
+
+        return empty($metrics) ? '-' : implode(' / ', $metrics);
+    }
+
+    private function buildMergedHistoryRawData(array $group): string
+    {
+        $payload = [
+            'merged' => true,
+            'batch_no' => (string)($group['batch_no'] ?? ''),
+            'data_date' => (string)($group['data_date'] ?? ''),
+            'platform' => (string)($group['platform_label'] ?? $group['platform'] ?? ''),
+            'data_type' => (string)($group['data_type_label'] ?? $group['data_type'] ?? ''),
+            'record_count' => (int)($group['record_count'] ?? 0),
+            'raw_record_count' => (int)($group['raw_record_count'] ?? $group['record_count'] ?? 0),
+            'hotel_count' => (int)($group['hotel_count'] ?? 0),
+            'record_ids' => $group['record_ids'] ?? [],
+            'batch_nos' => $group['merged_batch_nos'] ?? [],
+            'hotel_names' => $group['merged_hotel_names'] ?? [],
+            'ota_hotel_ids' => $group['merged_ota_hotel_ids'] ?? [],
+            'sample_records' => $group['_raw_samples'] ?? [],
+        ];
+
+        return json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
     }
 
     private function buildHistoryHotelDisplayName(array $row, array $hotelMap): string
@@ -4129,32 +9854,6 @@ JAVASCRIPT;
         return empty($metrics) ? '-' : implode(' / ', $metrics);
     }
 
-    private function onlineHistoryMatchesKeyword(array $item, string $keyword): bool
-    {
-        $needle = mb_strtolower(trim($keyword));
-        if ($needle === '') {
-            return true;
-        }
-
-        $haystack = [
-            $item['hotel_name'] ?? '',
-            $item['original_hotel_name'] ?? '',
-            $item['ota_hotel_id'] ?? '',
-            $item['batch_no'] ?? '',
-            $item['platform'] ?? '',
-            $item['platform_label'] ?? '',
-            $item['data_type'] ?? '',
-            $item['data_type_label'] ?? '',
-            $item['fetch_time'] ?? '',
-        ];
-
-        foreach ($haystack as $value) {
-            if ($value !== '' && mb_strpos(mb_strtolower((string)$value), $needle) !== false) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private function buildOnlineHistorySummary(array $historyList): array
     {
@@ -4194,6 +9893,22 @@ JAVASCRIPT;
         $startDate = $this->request->get('start_date', date('Y-m-d', strtotime('-7 days')));
         $endDate = $this->request->get('end_date', date('Y-m-d'));
         $dataType = $this->request->get('data_type', '');
+        $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));
+        $permittedHotelIds = [];
+        if (!$this->currentUser->isSuperAdmin()) {
+            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
+            if (empty($permittedHotelIds)) {
+                return $this->success([
+                    'daily' => [],
+                    'total' => [
+                        'total_amount' => 0,
+                        'total_quantity' => 0,
+                        'total_book_order_num' => 0,
+                        'avg_comment_score' => 0,
+                    ],
+                ]);
+            }
+        }
         
         // 按日期汇总
         $dailyQuery = Db::name('online_daily_data')
@@ -4201,6 +9916,12 @@ JAVASCRIPT;
             ->where('data_date', '>=', $startDate)
             ->where('data_date', '<=', $endDate);
         $this->applyDataTypeFilter($dailyQuery, $dataType);
+        if ($hotelId !== '') {
+            $this->applyOnlineDailyDataHotelFilter($dailyQuery, $hotelId);
+        }
+        if (!$this->currentUser->isSuperAdmin()) {
+            $dailyQuery->whereIn('system_hotel_id', $permittedHotelIds);
+        }
         $dailySummary = $dailyQuery->group('data_date')
             ->order('data_date', 'desc')
             ->select()
@@ -4212,12 +9933,194 @@ JAVASCRIPT;
             ->where('data_date', '>=', $startDate)
             ->where('data_date', '<=', $endDate);
         $this->applyDataTypeFilter($totalQuery, $dataType);
+        if ($hotelId !== '') {
+            $this->applyOnlineDailyDataHotelFilter($totalQuery, $hotelId);
+        }
+        if (!$this->currentUser->isSuperAdmin()) {
+            $totalQuery->whereIn('system_hotel_id', $permittedHotelIds);
+        }
         $totalSummary = $totalQuery->find();
+
+        $supplementQuery = Db::name('online_daily_data')
+            ->where('data_date', '>=', $startDate)
+            ->where('data_date', '<=', $endDate);
+        $this->applyDataTypeFilter($supplementQuery, $dataType);
+        if ($hotelId !== '') {
+            $this->applyOnlineDailyDataHotelFilter($supplementQuery, $hotelId);
+        }
+        if (!$this->currentUser->isSuperAdmin()) {
+            $supplementQuery->whereIn('system_hotel_id', $permittedHotelIds);
+        }
+        $supplementRows = $supplementQuery->select()->toArray();
         
         return $this->success([
             'daily' => $dailySummary,
             'total' => $totalSummary,
+            'ota_channel_supplement' => $this->buildDailyOtaSupplementSummary($supplementRows),
         ]);
+    }
+
+    private function buildDailyOtaSupplementSummary(array $rows): array
+    {
+        $advertising = $this->buildDailyOtaAdvertisingSummary($rows);
+        $serviceQuality = $this->buildDailyOtaServiceQualitySummary($rows);
+        $hasData = ($advertising['data_status'] ?? '') === 'ok' || ($serviceQuality['data_status'] ?? '') === 'ok';
+
+        return [
+            'scope' => 'ota_channel',
+            'source_table' => 'online_daily_data',
+            'data_status' => $hasData ? 'ok' : 'pending',
+            'data_notice' => 'ota_channel_only_not_whole_hotel_scope',
+            'advertising' => $advertising,
+            'service_quality' => $serviceQuality,
+        ];
+    }
+
+    private function buildDailyOtaAdvertisingSummary(array $rows): array
+    {
+        $summary = [
+            'spend' => 0.0,
+            'order_amount' => 0.0,
+            'bookings' => 0,
+            'room_nights' => 0.0,
+            'impressions' => 0,
+            'clicks' => 0,
+            'ctr' => null,
+            'cvr' => null,
+            'roas' => null,
+            'sample_count' => 0,
+            'data_status' => 'pending',
+        ];
+
+        foreach ($rows as $row) {
+            if ($this->normalizeDailyOtaSupplementDataType((string)($row['data_type'] ?? '')) !== 'advertising') {
+                continue;
+            }
+
+            [$raw] = $this->decodeOnlineDataQualityRaw($row['raw_data'] ?? null);
+            $raw = $this->dailyOtaSupplementRawDetail($raw);
+            $spend = $this->dailyOtaSupplementFirstNumber($row, $raw, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend']) ?? 0.0;
+            $orderAmount = $this->dailyOtaSupplementFirstNumber($row, $raw, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']) ?? 0.0;
+            $impressions = (int)round($this->dailyOtaSupplementFirstNumber($row, $raw, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']) ?? 0.0);
+            $clicks = (int)round($this->dailyOtaSupplementFirstNumber($row, $raw, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']) ?? 0.0);
+            $bookings = (int)round($this->dailyOtaSupplementFirstNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']) ?? 0.0);
+            $roomNights = $this->dailyOtaSupplementFirstNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'nights']) ?? 0.0;
+
+            $summary['spend'] += $spend;
+            $summary['order_amount'] += $orderAmount;
+            $summary['impressions'] += $impressions;
+            $summary['clicks'] += $clicks;
+            $summary['bookings'] += $bookings;
+            $summary['room_nights'] += $roomNights;
+            if ($spend > 0 || $orderAmount > 0 || $impressions > 0 || $clicks > 0 || $bookings > 0 || $roomNights > 0) {
+                $summary['sample_count']++;
+            }
+        }
+
+        if ($summary['sample_count'] <= 0) {
+            return $summary;
+        }
+
+        $summary['spend'] = round($summary['spend'], 2);
+        $summary['order_amount'] = round($summary['order_amount'], 2);
+        $summary['room_nights'] = round($summary['room_nights'], 2);
+        $summary['ctr'] = $summary['impressions'] > 0 ? round($summary['clicks'] / $summary['impressions'] * 100, 2) : null;
+        $summary['cvr'] = $summary['clicks'] > 0 ? round($summary['bookings'] / $summary['clicks'] * 100, 2) : null;
+        $summary['roas'] = $summary['spend'] > 0 ? round($summary['order_amount'] / $summary['spend'], 2) : null;
+        $summary['data_status'] = 'ok';
+
+        return $summary;
+    }
+
+    private function buildDailyOtaServiceQualitySummary(array $rows): array
+    {
+        $summary = [
+            'avg_psi_score' => 0.0,
+            'avg_service_score' => 0.0,
+            'sample_count' => 0,
+            'data_status' => 'pending',
+        ];
+        $psiScores = [];
+        $serviceScores = [];
+
+        foreach ($rows as $row) {
+            if (!in_array($this->normalizeDailyOtaSupplementDataType((string)($row['data_type'] ?? '')), ['quality', 'service', 'service_quality', 'psi'], true)) {
+                continue;
+            }
+
+            [$raw] = $this->decodeOnlineDataQualityRaw($row['raw_data'] ?? null);
+            $raw = $this->dailyOtaSupplementRawDetail($raw);
+            $psi = $this->dailyOtaSupplementFirstNumber($row, $raw, ['data_value', 'dataValue', 'psi_score', 'psiScore', 'psi', 'PSI', 'serviceQualityScore', 'qualityScore']);
+            $serviceScore = $this->dailyOtaSupplementFirstNumber($row, $raw, ['service_score', 'serviceScore', 'dayReportServiceScore', 'service_score_value']);
+
+            if ($psi !== null && $psi > 0) {
+                $psiScores[] = $psi;
+            }
+            if ($serviceScore !== null && $serviceScore > 0) {
+                $serviceScores[] = $serviceScore;
+            }
+            if (($psi !== null && $psi > 0) || ($serviceScore !== null && $serviceScore > 0)) {
+                $summary['sample_count']++;
+            }
+        }
+
+        if ($summary['sample_count'] <= 0) {
+            return $summary;
+        }
+
+        $summary['avg_psi_score'] = $this->avgDailyOtaSupplementNumbers($psiScores);
+        $summary['avg_service_score'] = $this->avgDailyOtaSupplementNumbers($serviceScores);
+        $summary['data_status'] = 'ok';
+
+        return $summary;
+    }
+
+    private function normalizeDailyOtaSupplementDataType(string $value): string
+    {
+        $value = strtolower(trim($value));
+        if (in_array($value, ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns'], true)) {
+            return 'advertising';
+        }
+        if (in_array($value, ['quality', 'service', 'service_quality', 'psi'], true)) {
+            return $value;
+        }
+        if (in_array($value, ['review', 'reviews', 'comment', 'comments'], true)) {
+            return 'review';
+        }
+
+        return $value;
+    }
+
+    private function dailyOtaSupplementRawDetail(array $raw): array
+    {
+        return is_array($raw['row'] ?? null) ? array_merge($raw, $raw['row']) : $raw;
+    }
+
+    private function dailyOtaSupplementFirstNumber(array $row, array $raw, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            foreach ([$row, $raw] as $source) {
+                if (!array_key_exists($key, $source)) {
+                    continue;
+                }
+                $num = $this->onlineDataQualityNumber($source[$key]);
+                if ($num !== null) {
+                    return $num;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function avgDailyOtaSupplementNumbers(array $values): float
+    {
+        $values = array_values(array_filter($values, static fn($value): bool => is_numeric($value)));
+        if (empty($values)) {
+            return 0.0;
+        }
+
+        return round(array_sum(array_map('floatval', $values)) / count($values), 2);
     }
 
     /**
@@ -4252,7 +10155,7 @@ JAVASCRIPT;
                 $query->whereIn('system_hotel_id', $permittedHotelIds);
             }
             
-            $hotels = $query->select()->toArray();
+            $hotels = $this->mergeOnlineDataHotelList($query->select()->toArray());
             
             // 添加 id 字段用于前端筛选
             foreach ($hotels as &$hotel) {
@@ -4268,9 +10171,41 @@ JAVASCRIPT;
     /**
      * 自动获取并保存数据（每个门店独立运行，每天只获取一次）
      */
+    private function mergeOnlineDataHotelList(array $hotels): array
+    {
+        $merged = [];
+        foreach ($hotels as $hotel) {
+            if (!is_array($hotel)) {
+                continue;
+            }
+            $key = $this->onlineDataHotelKey($hotel);
+            if ($key === '') {
+                continue;
+            }
+
+            $mapKey = is_int($key) ? 'system:' . $key : 'ota:' . $key;
+            if (!isset($merged[$mapKey])) {
+                $hotel['id'] = $key;
+                if (!isset($hotel['ota_hotel_id'])) {
+                    $hotel['ota_hotel_id'] = $hotel['hotel_id'] ?? '';
+                }
+                $merged[$mapKey] = $hotel;
+                continue;
+            }
+
+            if (empty($merged[$mapKey]['hotel_name']) && !empty($hotel['hotel_name'])) {
+                $merged[$mapKey]['hotel_name'] = $hotel['hotel_name'];
+            }
+        }
+
+        return array_values($merged);
+    }
+
     public function autoFetch(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        @set_time_limit(0);
         
         $systemHotelId = $this->request->post('system_hotel_id', null);
         
@@ -4284,7 +10219,7 @@ JAVASCRIPT;
                 return $this->error('您未关联酒店，无法获取数据');
             }
             // 检查用户是否有该门店的权限
-            if (!$this->currentUser->hasHotelPermission((int)$systemHotelId, 'can_view_online_data')) {
+            if (!$this->currentUser->hasHotelPermission((int)$systemHotelId, 'can_fetch_online_data')) {
                 return $this->error('无权获取该门店的数据');
             }
         }
@@ -4293,114 +10228,59 @@ JAVASCRIPT;
             return $this->error('请选择要获取数据的门店');
         }
         
-        // 获取该门店的 cookies 配置
-        $cookiesKey = "online_data_cookies_hotel_{$systemHotelId}";
-        $cookiesList = $this->getConfigList($cookiesKey);
-        
-        // 取第一个有效的cookies配置（不再限制名称必须包含ctrip）
-        $cookies = '';
-        foreach ($cookiesList as $item) {
-            if (!empty($item['cookies'])) {
-                $cookies = $item['cookies'];
-                break;
-            }
-        }
-        
-        if (empty($cookies)) {
-            \think\facade\Log::warning('线上数据获取失败: 未配置Cookies', [
+        if (!$this->hasAnyPlatformFetchConfigForHotel((int)$systemHotelId)) {
+            \think\facade\Log::warning('平台数据自动获取失败: 未配置携程或美团凭证', [
                 'user_id' => $this->currentUser->id,
                 'hotel_id' => $systemHotelId
             ]);
-            return $this->error('未配置携程Cookies，请先在Cookies管理中添加');
+            return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
         }
         
         // 获取昨天的数据
         $yesterday = date('Y-m-d', strtotime('-1 day'));
-        
-        // 检查今天是否已经获取过该日期的数据（每天只获取一次）
-        $fetchRecordKey = "online_data_fetch_{$systemHotelId}_{$yesterday}";
-        $existingRecord = cache($fetchRecordKey);
-        if ($existingRecord) {
-            return $this->error("该门店 {$yesterday} 的数据今天已经获取过了，请勿重复获取");
+        $interactiveBrowser = filter_var(
+            $this->request->post('interactive_browser', $this->request->post('interactiveBrowser', false)),
+            FILTER_VALIDATE_BOOLEAN
+        );
+        $autoFetchModeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', null));
+        $fetchOptions = ['interactive_browser' => $interactiveBrowser];
+        if ($autoFetchModeRaw !== null && trim((string)$autoFetchModeRaw) !== '') {
+            $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
         }
         
         try {
-            $result = $this->sendHttpRequest(
-                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                ['nodeId' => '24588', 'startDate' => $yesterday, 'endDate' => $yesterday],
-                $cookies
-            );
-            
-            if (!$result['success']) {
-                \think\facade\Log::error('线上数据获取失败: ' . $result['error'], [
-                    'user_id' => $this->currentUser->id,
-                    'hotel_id' => $systemHotelId,
-                    'response' => $result['raw'] ?? null
-                ]);
-                
-                // 更新状态记录
-                $this->updateFetchStatus($systemHotelId, false, '请求失败: ' . $result['error']);
-                
-                return $this->error('请求失败: ' . $result['error']);
+            $result = $this->executeAutoFetch((int)$systemHotelId, $yesterday, $fetchOptions);
+            $this->updateFetchStatus((int)$systemHotelId, (bool)$result['success'], (string)$result['message'], $yesterday, [
+                'saved_count' => (int)($result['saved_count'] ?? 0),
+                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
+                'platform_results' => $result['platform_results'] ?? [],
+            ]);
+
+            if ($result['success']) {
+                OperationLog::record('online_data', 'auto_fetch', "平台数据自动获取: {$result['saved_count']}条 (门店ID: {$systemHotelId})", $this->currentUser->id);
+                return $this->success([
+                    'saved_count' => (int)($result['saved_count'] ?? 0),
+                    'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
+                    'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
+                    'platform_results' => $result['platform_results'] ?? [],
+                ], '自动获取成功');
             }
-            
-            $responseData = $result['data'];
-            
-            // 检查API返回的错误状态
-            $responseStatus = $responseData['responseStatus'] ?? $responseData['status'] ?? $responseData['code'] ?? null;
-            $errorMsg = $responseData['message'] ?? $responseData['msg'] ?? $responseData['errorMessage'] ?? null;
-            
-            // 如果有错误状态码
-            if ($responseStatus !== null && $responseStatus !== 0 && $responseStatus !== '0' && $responseStatus !== 200 && $responseStatus !== '200') {
-                $errorMsg = $errorMsg ?: "API返回错误状态: {$responseStatus}";
-                \think\facade\Log::error('线上数据获取: API返回错误', [
-                    'user_id' => $this->currentUser->id,
-                    'hotel_id' => $systemHotelId,
-                    'response_status' => $responseStatus,
-                    'error_msg' => $errorMsg,
-                    'response_data' => json_encode($responseData, JSON_UNESCAPED_UNICODE)
-                ]);
-                $this->updateFetchStatus($systemHotelId, false, $errorMsg);
-                return $this->error($errorMsg);
-            }
-            
-            // 使用统一的数据解析和保存方法（传入系统酒店ID）
-            $savedCount = $this->parseAndSaveData($responseData, $yesterday, $yesterday, $systemHotelId ? (int)$systemHotelId : null);
-            
-            if ($savedCount === 0) {
-                \think\facade\Log::warning('线上数据获取: 未获取到有效数据', [
-                    'user_id' => $this->currentUser->id,
-                    'hotel_id' => $systemHotelId,
-                    'response_data' => json_encode($responseData, JSON_UNESCAPED_UNICODE)
-                ]);
-                
-                $this->updateFetchStatus($systemHotelId, false, '未获取到有效数据，请检查Cookies是否有效');
-                
-                return $this->error('未获取到有效数据，请检查Cookies是否有效');
-            }
-            
-            // 标记今天已获取
-            cache($fetchRecordKey, [
-                'time' => date('Y-m-d H:i:s'),
-                'count' => $savedCount,
-                'user_id' => $this->currentUser->id
-            ], 86400); // 缓存24小时
-            
-            OperationLog::record('online_data', 'auto_fetch', "自动获取线上数据: {$savedCount}条 (门店ID: {$systemHotelId})", $this->currentUser->id);
-            
-            // 更新状态记录
-            $this->updateFetchStatus($systemHotelId, true, "成功获取 {$savedCount} 条数据");
-            
-            return $this->success(['saved_count' => $savedCount], '自动获取成功');
-            
+
+            return $this->error('自动获取失败: ' . $result['message'], 400, [
+                'saved_count' => (int)($result['saved_count'] ?? 0),
+                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
+                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
+                'platform_results' => $result['platform_results'] ?? [],
+            ]);
+
         } catch (\Exception $e) {
-            \think\facade\Log::error('线上数据获取异常: ' . $e->getMessage(), [
+            \think\facade\Log::error('平台数据自动获取异常: ' . $e->getMessage(), [
                 'user_id' => $this->currentUser->id,
                 'hotel_id' => $systemHotelId,
                 'trace' => $e->getTraceAsString()
             ]);
             
-            $this->updateFetchStatus($systemHotelId, false, '获取异常: ' . $e->getMessage());
+            $this->updateFetchStatus($systemHotelId, false, '获取异常: ' . $e->getMessage(), $yesterday);
             
             return $this->error('异常: ' . $e->getMessage());
         }
@@ -4409,16 +10289,477 @@ JAVASCRIPT;
     /**
      * 更新获取状态
      */
-    private function updateFetchStatus(?int $hotelId, bool $success, string $message): void
+    private function updateFetchStatus(?int $hotelId, bool $success, string $message, ?string $dataDate = null, array $details = []): void
     {
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
         $status = cache($statusKey) ?: [];
-        $status['last_run_time'] = date('Y-m-d H:i:s');
+        if (!is_array($status)) {
+            $status = [];
+        }
+
+        $runAt = date('Y-m-d H:i:s');
+        $dataDate = $dataDate ?: date('Y-m-d', strtotime('-1 day'));
+        $runRecord = [
+            'run_at' => $runAt,
+            'data_date' => $dataDate,
+            'success' => $success,
+            'message' => $message,
+        ];
+        if (array_key_exists('saved_count', $details)) {
+            $runRecord['saved_count'] = (int)$details['saved_count'];
+        }
+        if (!empty($details['auto_fetch_mode'])) {
+            $runRecord['auto_fetch_mode'] = $this->normalizeAutoFetchMode($details['auto_fetch_mode']);
+            $runRecord['auto_fetch_mode_label'] = $this->autoFetchModeLabel($runRecord['auto_fetch_mode']);
+        }
+        if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
+            $runRecord['platform_results'] = $details['platform_results'];
+        }
+
+        $status['last_run_time'] = $runAt;
+        $status['last_data_date'] = $dataDate;
         $status['last_result'] = [
             'success' => $success,
             'message' => $message
         ];
+        if (array_key_exists('saved_count', $details)) {
+            $status['last_result']['saved_count'] = (int)$details['saved_count'];
+        }
+        if (!empty($details['auto_fetch_mode'])) {
+            $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($details['auto_fetch_mode']);
+            $status['last_result']['auto_fetch_mode'] = $status['auto_fetch_mode'];
+            $status['last_result']['auto_fetch_mode_label'] = $this->autoFetchModeLabel($status['auto_fetch_mode']);
+        }
+        if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
+            $status['last_result']['platform_results'] = $details['platform_results'];
+        }
+
+        $recentRuns = $status['recent_runs'] ?? [];
+        $recentRuns = is_array($recentRuns) ? $recentRuns : [];
+        array_unshift($recentRuns, $runRecord);
+        $status['recent_runs'] = array_slice($recentRuns, 0, 10);
+
+        $failedRecords = $status['failed_records'] ?? [];
+        $failedRecords = is_array($failedRecords) ? $failedRecords : [];
+        $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate) {
+            return (string)($item['data_date'] ?? '') !== $dataDate;
+        }));
+        if (!$success) {
+            array_unshift($failedRecords, [
+                'data_date' => $dataDate,
+                'last_failed_at' => $runAt,
+                'message' => $message,
+            ]);
+        }
+        $status['failed_records'] = array_slice($failedRecords, 0, 30);
+
         cache($statusKey, $status, 86400 * 30);
+    }
+
+    private function normalizeFetchScheduleTime(string $scheduleTime): ?string
+    {
+        $scheduleTime = trim($scheduleTime);
+        if (!preg_match('/^([01]?[0-9]|2[0-3]):([0-5][0-9])$/', $scheduleTime, $matches)) {
+            return null;
+        }
+        return sprintf('%02d:%02d', (int)$matches[1], (int)$matches[2]);
+    }
+
+    private function resolveAutoFetchHotelId($hotelId): ?int
+    {
+        $hotelId = is_numeric($hotelId) ? (int)$hotelId : 0;
+        if ($this->currentUser->isSuperAdmin()) {
+            return $hotelId > 0 ? $hotelId : null;
+        }
+
+        $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        if (empty($permittedHotelIds)) {
+            return null;
+        }
+        if ($hotelId <= 0) {
+            return $permittedHotelIds[0];
+        }
+        return in_array($hotelId, $permittedHotelIds, true) ? $hotelId : null;
+    }
+
+    private function hasCtripFetchConfigForHotel(int $hotelId): bool
+    {
+        $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
+        if (trim((string)($fetchConfig['cookies'] ?? '')) !== '') {
+            return true;
+        }
+        if (!empty($fetchConfig) && $this->ctripProfileStoreIdFromConfig($fetchConfig, $hotelId) !== '') {
+            return true;
+        }
+        if ($this->ctripProfileExistsForConfig($fetchConfig, $hotelId)) {
+            return true;
+        }
+
+        $tasks = $this->buildAutoFetchConfigTaskPlan($hotelId, date('Y-m-d', strtotime('-1 day')), $fetchConfig, [], $this->getAutoFetchSavedDataConfigs());
+        return (bool)array_filter($tasks, static fn(array $task): bool => ($task['platform'] ?? '') === 'ctrip');
+    }
+
+    private function hasMeituanFetchConfigForHotel(int $hotelId): bool
+    {
+        $fetchConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
+        $apiStatus = $this->meituanAutoFetchConfigStatus($fetchConfig);
+        if (!empty($apiStatus['api_configured']) || $this->meituanProfileExistsForConfig($fetchConfig)) {
+            return true;
+        }
+
+        $tasks = $this->buildAutoFetchConfigTaskPlan($hotelId, date('Y-m-d', strtotime('-1 day')), [], $fetchConfig, $this->getAutoFetchSavedDataConfigs());
+        return (bool)array_filter($tasks, static fn(array $task): bool => ($task['platform'] ?? '') === 'meituan');
+    }
+
+    private function hasAnyPlatformFetchConfigForHotel(int $hotelId): bool
+    {
+        return $this->hasCtripFetchConfigForHotel($hotelId) || $this->hasMeituanFetchConfigForHotel($hotelId);
+    }
+
+    private function buildAutoFetchPlatformStatus(int $hotelId): array
+    {
+        $ctripConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
+        $meituanConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
+        $savedConfigs = $this->getAutoFetchSavedDataConfigs();
+        $runMode = $this->resolveAutoFetchRunMode($hotelId);
+        $ctripHasProfile = $this->ctripProfileExistsForConfig($ctripConfig, $hotelId);
+        $meituanHasProfile = $this->meituanProfileExistsForConfig($meituanConfig);
+        $meituanApiStatus = $this->meituanAutoFetchConfigStatus($meituanConfig);
+        $ctripMode = $this->resolvePlatformAutoFetchMode($ctripConfig, ['auto_fetch_mode' => $runMode], 'ctrip');
+        $meituanMode = $this->resolvePlatformAutoFetchMode($meituanConfig, ['auto_fetch_mode' => $runMode], 'meituan');
+        $ctripTasks = array_values(array_filter(
+            $this->buildAutoFetchConfigTaskPlan($hotelId, date('Y-m-d', strtotime('-1 day')), $ctripConfig, [], $savedConfigs),
+            static fn(array $task): bool => ($task['platform'] ?? '') === 'ctrip'
+        ));
+        $meituanTasks = array_values(array_filter(
+            $this->buildAutoFetchConfigTaskPlan($hotelId, date('Y-m-d', strtotime('-1 day')), [], $meituanConfig, $savedConfigs),
+            static fn(array $task): bool => ($task['platform'] ?? '') === 'meituan'
+        ));
+
+        return [
+            'ctrip' => [
+                'configured' => $this->hasCtripFetchConfigForHotel($hotelId),
+                'name' => (string)($ctripConfig['name'] ?? $ctripConfig['hotel_name'] ?? ''),
+                'mode' => $this->autoFetchModeLabel($ctripMode),
+                'auto_fetch_mode' => $ctripMode,
+                'cookie_configured' => trim((string)($ctripConfig['cookies'] ?? $ctripConfig['cookie'] ?? '')) !== '',
+                'profile_configured' => $ctripHasProfile,
+                'has_profile' => $ctripHasProfile,
+                'task_count' => count($ctripTasks),
+                'task_modules' => array_values(array_unique(array_map(static fn(array $task): string => (string)($task['module'] ?? ''), $ctripTasks))),
+                'next_action' => $this->autoFetchPlatformNextAction($ctripMode, trim((string)($ctripConfig['cookies'] ?? $ctripConfig['cookie'] ?? '')) !== '', $ctripHasProfile, count($ctripTasks)),
+                'entry_url' => 'https://ebooking.ctrip.com',
+            ],
+            'meituan' => [
+                'configured' => $this->hasMeituanFetchConfigForHotel($hotelId),
+                'name' => (string)($meituanConfig['name'] ?? $meituanConfig['hotel_name'] ?? ''),
+                'mode' => $this->autoFetchModeLabel($meituanMode),
+                'auto_fetch_mode' => $meituanMode,
+                'api_configured' => (bool)$meituanApiStatus['api_configured'],
+                'cookie_configured' => (bool)$meituanApiStatus['has_cookies'],
+                'partner_id_configured' => (bool)$meituanApiStatus['has_partner_id'],
+                'poi_id_configured' => (bool)$meituanApiStatus['has_poi_id'],
+                'profile_configured' => $meituanHasProfile,
+                'has_profile' => $meituanHasProfile,
+                'task_count' => count($meituanTasks),
+                'task_modules' => array_values(array_unique(array_map(static fn(array $task): string => (string)($task['module'] ?? ''), $meituanTasks))),
+                'missing_fields' => $meituanApiStatus['missing_fields'],
+                'missing_text' => $meituanApiStatus['missing_text'],
+                'next_action' => $this->autoFetchPlatformNextAction($meituanMode, (bool)$meituanApiStatus['api_configured'], $meituanHasProfile, count($meituanTasks)),
+                'entry_url' => 'https://eb.meituan.com',
+            ],
+        ];
+    }
+
+    private function autoFetchPlatformNextAction(string $mode, bool $hasCookie, bool $hasProfile, int $taskCount): string
+    {
+        $mode = $this->normalizeAutoFetchMode($mode);
+        if ($mode === 'cookie_config' && !$hasCookie && $taskCount === 0) {
+            return '补充 Cookie、Request URL、Payload 或平台 ID';
+        }
+        if ($mode === 'profile_browser' && !$hasProfile) {
+            return '先运行一次浏览器 Profile 登录采集';
+        }
+        if ($mode === 'hybrid_auto' && !$hasCookie && !$hasProfile && $taskCount === 0) {
+            return '至少配置 Cookie/接口参数或浏览器 Profile';
+        }
+        if ($mode === 'hybrid_auto' && !$hasProfile) {
+            return 'Cookie/配置可先跑；建议补建 Profile 处理动态页面';
+        }
+        if ($mode === 'hybrid_auto' && !$hasCookie && $taskCount === 0) {
+            return 'Profile 可先跑；建议补充 Cookie/接口配置提高稳定性';
+        }
+
+        return '配置可用';
+    }
+
+    private function autoFetchStatusKey(?int $hotelId): string
+    {
+        return $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
+    }
+
+    private function resolveAutoFetchRecordHotelIds($hotelIdRaw): array
+    {
+        $requestedHotelId = trim((string)$hotelIdRaw);
+        $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        if ($requestedHotelId !== '') {
+            $hotelId = (int)$requestedHotelId;
+            if ($hotelId <= 0 || !in_array($hotelId, $permittedHotelIds, true)) {
+                return [];
+            }
+            return [$hotelId];
+        }
+
+        return $permittedHotelIds;
+    }
+
+    private function getAutoFetchRecordHotelMap(array $hotelIds): array
+    {
+        $hotelIds = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
+        if (empty($hotelIds)) {
+            return [];
+        }
+
+        try {
+            $rows = Db::name('hotels')
+                ->whereIn('id', $hotelIds)
+                ->field('id,name')
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['id']] = (string)($row['name'] ?? ('门店ID ' . $row['id']));
+        }
+
+        return $map;
+    }
+
+    private function buildAutoFetchRecordRows(array $status, int $hotelId, string $hotelName, array $filters = []): array
+    {
+        $rows = [];
+        $runs = is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : [];
+        foreach ($runs as $runIndex => $run) {
+            if (!is_array($run)) {
+                continue;
+            }
+            $platformResults = is_array($run['platform_results'] ?? null) && !empty($run['platform_results'])
+                ? array_values($run['platform_results'])
+                : [[
+                    'platform' => '',
+                    'success' => (bool)($run['success'] ?? false),
+                    'message' => (string)($run['message'] ?? ''),
+                    'saved_count' => (int)($run['saved_count'] ?? 0),
+                ]];
+
+            foreach ($platformResults as $platformIndex => $platformResult) {
+                if (!is_array($platformResult)) {
+                    continue;
+                }
+                $record = $this->normalizeAutoFetchRecordRow($hotelId, $hotelName, $run, $platformResult, (int)$runIndex, (int)$platformIndex);
+                if ($this->matchesAutoFetchRecordFilters($record, $filters)) {
+                    $rows[] = $record;
+                }
+            }
+        }
+
+        return $rows;
+    }
+
+    private function normalizeAutoFetchRecordRow(int $hotelId, string $hotelName, array $run, array $platformResult, int $runIndex, int $platformIndex): array
+    {
+        $platform = strtolower(trim((string)($platformResult['platform'] ?? '')));
+        $success = (bool)($platformResult['success'] ?? false);
+        $skipped = (bool)($platformResult['skipped'] ?? false);
+        $status = $success ? 'success' : ($skipped ? 'skipped' : 'failed');
+        $runTime = (string)($run['run_time'] ?? '');
+        $dataDate = (string)($run['data_date'] ?? '');
+        $moduleSummary = $this->formatAutoFetchModuleSummary(is_array($platformResult['modules'] ?? null) ? $platformResult['modules'] : []);
+        $id = substr(sha1(implode('|', [$hotelId, $runTime, $dataDate, $platform, (string)$runIndex, (string)$platformIndex])), 0, 24);
+
+        return [
+            'id' => $id,
+            'hotel_id' => $hotelId,
+            'hotel_name' => $hotelName,
+            'run_time' => $runTime,
+            'data_date' => $dataDate,
+            'platform' => $platform,
+            'platform_label' => $platform === 'meituan' ? '美团' : ($platform === 'ctrip' ? '携程' : '全部平台'),
+            'status' => $status,
+            'status_label' => $status === 'success' ? '成功' : ($status === 'skipped' ? '跳过' : '失败'),
+            'saved_count' => (int)($platformResult['saved_count'] ?? 0),
+            'module_summary' => $moduleSummary !== '' ? $moduleSummary : '-',
+            'message' => (string)($platformResult['message'] ?? $run['message'] ?? '-'),
+            'run_message' => (string)($run['message'] ?? ''),
+            'auto_fetch_mode' => (string)($platformResult['auto_fetch_mode'] ?? $run['auto_fetch_mode'] ?? ''),
+            'mode_label' => (string)($platformResult['mode_label'] ?? $run['auto_fetch_mode_label'] ?? ''),
+        ];
+    }
+
+    private function formatAutoFetchModuleSummary(array $modules): string
+    {
+        $parts = [];
+        foreach ($modules as $module) {
+            if (!is_array($module)) {
+                continue;
+            }
+            $name = trim((string)($module['module'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $savedCount = (int)($module['saved_count'] ?? 0);
+            $state = !empty($module['success']) ? 'ok' : (!empty($module['skipped']) ? 'skip' : 'fail');
+            $strategy = trim((string)($module['strategy'] ?? ''));
+            $strategyText = $strategy !== '' ? $strategy . ':' : '';
+            $parts[] = $name . '[' . $strategyText . $state . ':' . $savedCount . ']';
+        }
+
+        return implode(' / ', $parts);
+    }
+
+    private function matchesAutoFetchRecordFilters(array $record, array $filters): bool
+    {
+        $startDate = trim((string)($filters['start_date'] ?? ''));
+        $endDate = trim((string)($filters['end_date'] ?? ''));
+        $source = trim((string)($filters['source'] ?? ''));
+        $status = trim((string)($filters['status'] ?? ''));
+        $dataDate = (string)($record['data_date'] ?? '');
+
+        if ($startDate !== '' && $dataDate !== '' && $dataDate < $startDate) {
+            return false;
+        }
+        if ($endDate !== '' && $dataDate !== '' && $dataDate > $endDate) {
+            return false;
+        }
+        if ($source !== '' && (string)($record['platform'] ?? '') !== $source) {
+            return false;
+        }
+        if ($status !== '' && (string)($record['status'] ?? '') !== $status) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function removeAutoFetchRecordIds(array $status, int $hotelId, array $idSet): array
+    {
+        $runs = is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : [];
+        $deletedCount = 0;
+        $newRuns = [];
+        foreach ($runs as $runIndex => $run) {
+            if (!is_array($run)) {
+                continue;
+            }
+            $platformResults = is_array($run['platform_results'] ?? null) ? array_values($run['platform_results']) : [];
+            if (empty($platformResults)) {
+                $record = $this->normalizeAutoFetchRecordRow($hotelId, '', $run, [
+                    'platform' => '',
+                    'success' => (bool)($run['success'] ?? false),
+                    'message' => (string)($run['message'] ?? ''),
+                    'saved_count' => (int)($run['saved_count'] ?? 0),
+                ], (int)$runIndex, 0);
+                if (isset($idSet[$record['id']])) {
+                    $deletedCount++;
+                    continue;
+                }
+                $newRuns[] = $run;
+                continue;
+            }
+
+            $newPlatformResults = [];
+            foreach ($platformResults as $platformIndex => $platformResult) {
+                if (!is_array($platformResult)) {
+                    continue;
+                }
+                $record = $this->normalizeAutoFetchRecordRow($hotelId, '', $run, $platformResult, (int)$runIndex, (int)$platformIndex);
+                if (isset($idSet[$record['id']])) {
+                    $deletedCount++;
+                    continue;
+                }
+                $newPlatformResults[] = $platformResult;
+            }
+            if (!empty($newPlatformResults)) {
+                $run['platform_results'] = $newPlatformResults;
+                $run['saved_count'] = array_sum(array_map(static fn(array $item): int => (int)($item['saved_count'] ?? 0), $newPlatformResults));
+                $newRuns[] = $run;
+            }
+        }
+
+        $status['recent_runs'] = $newRuns;
+        return [$status, $deletedCount];
+    }
+
+    private function rebuildAutoFetchStatusHistory(array $status): array
+    {
+        $runs = array_values(is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : []);
+        $status['recent_runs'] = $runs;
+        if (empty($runs)) {
+            $status['last_run_time'] = null;
+            $status['last_data_date'] = null;
+            $status['last_result'] = null;
+            return $status;
+        }
+
+        $latest = $runs[0];
+        $status['last_run_time'] = $latest['run_time'] ?? null;
+        $status['last_data_date'] = $latest['data_date'] ?? null;
+        $status['last_result'] = [
+            'success' => (bool)($latest['success'] ?? false),
+            'message' => (string)($latest['message'] ?? ''),
+            'saved_count' => (int)($latest['saved_count'] ?? 0),
+            'platform_results' => is_array($latest['platform_results'] ?? null) ? $latest['platform_results'] : [],
+        ];
+
+        return $status;
+    }
+
+    private function buildCtripAutoFetchMissedDates(int $hotelId, int $days = 7): array
+    {
+        $days = max(1, min($days, 30));
+        $endTimestamp = strtotime('-1 day');
+        $startTimestamp = strtotime('-' . $days . ' days');
+        if ($startTimestamp === false || $endTimestamp === false) {
+            return [];
+        }
+
+        $startDate = date('Y-m-d', $startTimestamp);
+        $endDate = date('Y-m-d', $endTimestamp);
+
+        try {
+            $rows = Db::name('online_daily_data')
+                ->where('system_hotel_id', $hotelId)
+                ->where('source', 'ctrip')
+                ->whereBetween('data_date', [$startDate, $endDate])
+                ->field('data_date,data_type')
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('读取携程自动抓取缺失日期失败', [
+                'hotel_id' => $hotelId,
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+
+        $existingSet = [];
+        foreach ($rows as $row) {
+            $dataType = trim((string)($row['data_type'] ?? ''));
+            if ($dataType === '' || $dataType === 'business') {
+                $existingSet[(string)$row['data_date']] = true;
+            }
+        }
+        $missedDates = [];
+        for ($timestamp = $startTimestamp; $timestamp <= $endTimestamp; $timestamp = strtotime('+1 day', $timestamp)) {
+            $date = date('Y-m-d', $timestamp);
+            if (!isset($existingSet[$date])) {
+                $missedDates[] = $date;
+            }
+        }
+
+        return array_reverse($missedDates);
     }
     
     /**
@@ -4432,17 +10773,22 @@ JAVASCRIPT;
         
         // 非超级管理员只能查看自己酒店的状态
         if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds)) {
+            $hotelId = $this->resolveAutoFetchHotelId($hotelId);
+            if ($hotelId === null) {
                 return $this->success([
                     'enabled' => false,
                     'last_run_time' => null,
                     'next_run_time' => '-',
                     'last_result' => null,
-                    'schedule_time' => '10:00'
+                    'schedule_time' => '10:00',
+                    'auto_fetch_mode' => 'hybrid_auto',
+                    'auto_fetch_mode_label' => '接口直连自动',
+                    'recent_runs' => [],
+                    'failed_records' => [],
+                    'missed_dates' => [],
+                    'missed_count' => 0,
                 ]);
             }
-            $hotelId = $permittedHotelIds[0];
         }
         
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
@@ -4451,8 +10797,15 @@ JAVASCRIPT;
             'last_run_time' => null,
             'next_run_time' => null,
             'last_result' => null,
-            'schedule_time' => '10:00'
+            'schedule_time' => '10:00',
+            'auto_fetch_mode' => 'hybrid_auto',
+            'recent_runs' => [],
+            'failed_records' => [],
+            'missed_dates' => [],
         ];
+        if (!is_array($status)) {
+            $status = [];
+        }
         
         // 确保必要字段存在
         if (!isset($status['enabled'])) {
@@ -4461,7 +10814,11 @@ JAVASCRIPT;
         if (!isset($status['schedule_time'])) {
             $status['schedule_time'] = '10:00';
         }
-        
+        $status['schedule_time'] = $this->normalizeFetchScheduleTime((string)$status['schedule_time']) ?? '10:00';
+        $status['auto_fetch_mode'] = $hotelId
+            ? $this->resolveAutoFetchRunMode((int)$hotelId, ['auto_fetch_mode' => $status['auto_fetch_mode'] ?? ''])
+            : $this->normalizeAutoFetchMode($status['auto_fetch_mode'] ?? 'hybrid_auto');
+        $status['auto_fetch_mode_label'] = $this->autoFetchModeLabel((string)$status['auto_fetch_mode']);
         // 计算下次运行时间
         if ($status['enabled']) {
             $scheduleTime = $status['schedule_time'];
@@ -4475,8 +10832,120 @@ JAVASCRIPT;
         } else {
             $status['next_run_time'] = '未开启';
         }
+
+        $status['recent_runs'] = array_values(is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : []);
+        $status['failed_records'] = array_values(is_array($status['failed_records'] ?? null) ? $status['failed_records'] : []);
+        $status['missed_dates'] = $hotelId ? $this->buildCtripAutoFetchMissedDates((int)$hotelId) : [];
+        $status['missed_count'] = count($status['missed_dates']);
+        $status['has_config'] = $hotelId ? $this->hasAnyPlatformFetchConfigForHotel((int)$hotelId) : false;
+        $status['platforms'] = $hotelId ? $this->buildAutoFetchPlatformStatus((int)$hotelId) : [
+            'ctrip' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://ebooking.ctrip.com'],
+            'meituan' => ['configured' => false, 'name' => '', 'mode' => $status['auto_fetch_mode_label'], 'auto_fetch_mode' => $status['auto_fetch_mode'], 'cookie_configured' => false, 'profile_configured' => false, 'has_profile' => false, 'task_count' => 0, 'task_modules' => [], 'entry_url' => 'https://eb.meituan.com'],
+        ];
         
         return $this->success($status);
+    }
+
+    public function autoFetchRecords(): Response
+    {
+        $this->checkPermission();
+
+        $hotelIdRaw = $this->request->get('hotel_id', '');
+        $hotelIds = $this->resolveAutoFetchRecordHotelIds($hotelIdRaw);
+        $hotelMap = $this->getAutoFetchRecordHotelMap($hotelIds);
+        $filters = [
+            'start_date' => trim((string)$this->request->get('start_date', '')),
+            'end_date' => trim((string)$this->request->get('end_date', '')),
+            'source' => trim((string)$this->request->get('source', '')),
+            'status' => trim((string)$this->request->get('status', '')),
+        ];
+        $page = max(1, (int)$this->request->get('page', 1));
+        $pageSize = max(1, min(100, (int)$this->request->get('page_size', 30)));
+
+        $rows = [];
+        foreach ($hotelIds as $hotelId) {
+            $status = cache($this->autoFetchStatusKey((int)$hotelId));
+            if (!is_array($status)) {
+                continue;
+            }
+            $rows = array_merge($rows, $this->buildAutoFetchRecordRows($status, (int)$hotelId, (string)($hotelMap[(int)$hotelId] ?? '门店ID ' . $hotelId), $filters));
+        }
+
+        usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['run_time'] ?? ''), (string)($a['run_time'] ?? '')));
+
+        $total = count($rows);
+        $list = array_slice($rows, ($page - 1) * $pageSize, $pageSize);
+
+        return $this->success([
+            'list' => $list,
+            'pagination' => [
+                'total' => $total,
+                'page' => $page,
+                'page_size' => $pageSize,
+            ],
+        ]);
+    }
+
+    public function batchDeleteAutoFetchRecords(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
+
+        $ids = $this->request->post('ids', []);
+        if (empty($ids) || !is_array($ids)) {
+            return $this->error('请选择要删除的抓取记录');
+        }
+
+        $idSet = array_fill_keys(array_values(array_filter(array_map('strval', $ids))), true);
+        if (empty($idSet)) {
+            return $this->error('无效的抓取记录ID');
+        }
+
+        $hotelIds = $this->resolveAutoFetchRecordHotelIds($this->request->post('hotel_id', ''));
+        $deletedCount = 0;
+        foreach ($hotelIds as $hotelId) {
+            $statusKey = $this->autoFetchStatusKey((int)$hotelId);
+            $status = cache($statusKey);
+            if (!is_array($status)) {
+                continue;
+            }
+            [$status, $count] = $this->removeAutoFetchRecordIds($status, (int)$hotelId, $idSet);
+            if ($count > 0) {
+                $deletedCount += $count;
+                cache($statusKey, $this->rebuildAutoFetchStatusHistory($status), 86400 * 30);
+            }
+        }
+
+        OperationLog::record('online_data', 'batch_delete_auto_fetch_records', '批量删除自动抓取记录: ' . $deletedCount . '条', $this->currentUser->id);
+
+        return $this->success(['deleted_count' => $deletedCount], '删除成功');
+    }
+
+    public function clearAutoFetchRecords(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
+
+        $hotelIds = $this->resolveAutoFetchRecordHotelIds($this->request->post('hotel_id', ''));
+        $clearedCount = 0;
+        foreach ($hotelIds as $hotelId) {
+            $statusKey = $this->autoFetchStatusKey((int)$hotelId);
+            $status = cache($statusKey);
+            if (!is_array($status)) {
+                continue;
+            }
+            $clearedCount += count(is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : []);
+            $status['recent_runs'] = [];
+            $status['failed_records'] = [];
+            $status['last_result'] = null;
+            $status['last_run_time'] = null;
+            $status['last_data_date'] = null;
+            cache($statusKey, $status, 86400 * 30);
+        }
+
+        OperationLog::record('online_data', 'clear_auto_fetch_records', '清空自动抓取历史记录: ' . $clearedCount . '条', $this->currentUser->id);
+
+        return $this->success(['cleared_count' => $clearedCount], '历史记录已清空');
     }
     
     /**
@@ -4485,22 +10954,28 @@ JAVASCRIPT;
     public function toggleAutoFetch(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
         
-        $enabled = $this->request->post('enabled', true);
-        $hotelId = $this->request->post('hotel_id', null);
+        $enabledRaw = $this->request->post('enabled', true);
+        $enabled = filter_var($enabledRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        $enabled = $enabled === null ? (bool)$enabledRaw : $enabled;
+        $hotelId = $this->resolveAutoFetchHotelId($this->request->post('hotel_id', null));
         
-        // 非超级管理员只能操作自己酒店的设置
-        if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds)) {
-                return $this->error('无权操作');
-            }
-            $hotelId = $permittedHotelIds[0];
+        if ($hotelId === null) {
+            return $this->error('请选择要设置自动抓取的酒店');
+        }
+        if (!$this->currentUser->hasHotelPermission((int)$hotelId, 'can_fetch_online_data')) {
+            return $this->error('无权操作该门店');
+        }
+        if ($enabled && !$this->hasAnyPlatformFetchConfigForHotel((int)$hotelId)) {
+            return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
         }
         
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
         $status = cache($statusKey) ?: [];
         $status['enabled'] = (bool)$enabled;
+        $modeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto'));
+        $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
         if (!isset($status['schedule_time'])) {
             $status['schedule_time'] = '10:00';
         }
@@ -4508,7 +10983,11 @@ JAVASCRIPT;
         
         OperationLog::record('online_data', 'toggle_auto_fetch', '切换自动获取状态: ' . ($enabled ? '开启' : '关闭') . " (门店ID: {$hotelId})", $this->currentUser->id);
         
-        return $this->success(['enabled' => $status['enabled']], $enabled ? '已开启自动获取' : '已关闭自动获取');
+        return $this->success([
+            'enabled' => $status['enabled'],
+            'auto_fetch_mode' => $status['auto_fetch_mode'],
+            'auto_fetch_mode_label' => $this->autoFetchModeLabel($status['auto_fetch_mode']),
+        ], $enabled ? '已开启自动获取' : '已关闭自动获取');
     }
     
     /**
@@ -4517,27 +10996,31 @@ JAVASCRIPT;
     public function setFetchSchedule(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
         
-        $hotelId = $this->request->post('hotel_id', null);
-        $scheduleTime = $this->request->post('schedule_time', '10:00');
+        $hotelId = $this->resolveAutoFetchHotelId($this->request->post('hotel_id', null));
+        $scheduleTime = $this->normalizeFetchScheduleTime((string)$this->request->post('schedule_time', '10:00'));
         
         // 验证时间格式
-        if (!preg_match('/^([01]?[0-9]|2[0-3]):([0-5][0-9])$/', $scheduleTime)) {
+        if ($scheduleTime === null) {
             return $this->error('时间格式错误，请使用 HH:MM 格式');
         }
         
-        // 非超级管理员只能操作自己酒店的设置
-        if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds)) {
-                return $this->error('无权操作');
-            }
-            $hotelId = $permittedHotelIds[0];
+        if ($hotelId === null) {
+            return $this->error('请选择要设置自动抓取的酒店');
+        }
+        if (!$this->currentUser->hasHotelPermission((int)$hotelId, 'can_fetch_online_data')) {
+            return $this->error('无权操作该门店');
+        }
+        if (!$this->hasAnyPlatformFetchConfigForHotel((int)$hotelId)) {
+            return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
         }
         
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
         $status = cache($statusKey) ?: [];
         $status['schedule_time'] = $scheduleTime;
+        $modeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto'));
+        $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
         if (!isset($status['enabled'])) {
             $status['enabled'] = false;
         }
@@ -4545,7 +11028,61 @@ JAVASCRIPT;
         
         OperationLog::record('online_data', 'set_schedule', "设置自动获取时间: {$scheduleTime} (门店ID: {$hotelId})", $this->currentUser->id);
         
-        return $this->success(['schedule_time' => $scheduleTime], "设置成功，将在每天 {$scheduleTime} 自动获取数据");
+        return $this->success([
+            'schedule_time' => $scheduleTime,
+            'auto_fetch_mode' => $status['auto_fetch_mode'],
+            'auto_fetch_mode_label' => $this->autoFetchModeLabel($status['auto_fetch_mode']),
+        ], "设置成功，将在每天 {$scheduleTime} 自动获取数据");
+    }
+
+    public function retryAutoFetch(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $hotelId = $this->resolveAutoFetchHotelId($this->request->post('hotel_id', $this->request->post('system_hotel_id', null)));
+        $dataDate = trim((string)$this->request->post('data_date', ''));
+
+        if ($hotelId === null) {
+            return $this->error('请选择要补抓的酒店');
+        }
+        if (!$this->currentUser->hasHotelPermission((int)$hotelId, 'can_fetch_online_data')) {
+            return $this->error('无权操作该门店');
+        }
+        if (!$this->hasAnyPlatformFetchConfigForHotel((int)$hotelId)) {
+            return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDate)) {
+            return $this->error('请选择要补抓的数据日期');
+        }
+        if (strtotime($dataDate) === false || strtotime($dataDate) > strtotime(date('Y-m-d'))) {
+            return $this->error('补抓日期不能晚于今天');
+        }
+
+        $autoFetchModeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', null));
+        $fetchOptions = [];
+        if ($autoFetchModeRaw !== null && trim((string)$autoFetchModeRaw) !== '') {
+            $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
+        }
+        $result = $this->executeAutoFetch((int)$hotelId, $dataDate, $fetchOptions);
+        $this->updateFetchStatus((int)$hotelId, (bool)$result['success'], (string)$result['message'], $dataDate, [
+            'saved_count' => (int)($result['saved_count'] ?? 0),
+            'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
+            'platform_results' => $result['platform_results'] ?? [],
+        ]);
+
+        if ($result['success']) {
+            OperationLog::record('online_data', 'retry_auto_fetch', "补抓平台数据: {$dataDate}，{$result['message']} (门店ID: {$hotelId})", $this->currentUser->id);
+            return $this->success([
+                'data_date' => $dataDate,
+                'saved_count' => (int)($result['saved_count'] ?? 0),
+                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
+                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
+                'platform_results' => $result['platform_results'] ?? [],
+            ], '补抓成功');
+        }
+
+        return $this->error('补抓失败: ' . $result['message']);
     }
     
     /**
@@ -4558,7 +11095,7 @@ JAVASCRIPT;
         $dimension = $this->request->get('dimension', 'day'); // day, week, month
         $startDate = $this->request->get('start_date', date('Y-m-d', strtotime('-30 days')));
         $endDate = $this->request->get('end_date', date('Y-m-d'));
-        $hotelId = $this->request->get('hotel_id', '');
+        $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));
         $dataType = $this->request->get('data_type', '');
         
         $query = Db::name('online_daily_data')
@@ -4566,15 +11103,16 @@ JAVASCRIPT;
             ->where('data_date', '<=', $endDate);
         
         // 非超级管理员只能看自己酒店的数据
+        if ($hotelId !== '') {
+            $this->applyOnlineDailyDataHotelFilter($query, $hotelId);
+        }
+
         if (!$this->currentUser->isSuperAdmin()) {
             $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
             if (empty($permittedHotelIds)) {
                 return $this->success(['aggregated' => [], 'summary' => [], 'chart_data' => [], 'hotel_ranking' => []]);
             }
             $query->whereIn('system_hotel_id', $permittedHotelIds);
-        } elseif ($hotelId) {
-            // 优先用 hotel_id 查询（携程酒店ID）
-            $query->where('hotel_id', $hotelId);
         }
 
         $this->applyDataTypeFilter($query, $dataType);
@@ -4599,7 +11137,7 @@ JAVASCRIPT;
             'total_orders' => $totalOrders,
             'avg_score' => count($validScores) > 0 ? array_sum($validScores) / count($validScores) : 0,
             'period_count' => $periodCount, // 维度周期数（天数/周数/月数）
-            'hotel_count' => count(array_unique(array_column($data, 'hotel_id'))),
+            'hotel_count' => count(array_unique(array_filter(array_map([$this, 'onlineDataHotelKey'], $data), static fn($value): bool => $value !== ''))),
             'avg_amount' => $periodCount > 0 ? $totalAmount / $periodCount : 0, // 平均每周期销售额
             'avg_quantity' => $periodCount > 0 ? $totalQuantity / $periodCount : 0, // 平均每周期房晚数
             'avg_data_value' => $periodCount > 0 ? $totalDataValue / $periodCount : 0, // 平均每周期月间夜
@@ -4747,7 +11285,10 @@ JAVASCRIPT;
         }
         
         foreach ($data as $item) {
-            $hotelId = $item['hotel_id'];
+            $hotelId = $this->onlineDataHotelKey($item);
+            if ($hotelId === '') {
+                continue;
+            }
             $date = $item['data_date'];
             
             // 根据维度生成周期key
@@ -4784,6 +11325,16 @@ JAVASCRIPT;
         return array_slice($hotels, 0, 10);
     }
 
+    private function onlineDataHotelKey(array $item)
+    {
+        $systemHotelId = $item['system_hotel_id'] ?? null;
+        if ($systemHotelId !== null && $systemHotelId !== '' && is_numeric($systemHotelId) && (int)$systemHotelId > 0) {
+            return (int)$systemHotelId;
+        }
+
+        return (string)($item['hotel_id'] ?? '');
+    }
+
     /**
      * 解析并保存流量数据
      */
@@ -4803,29 +11354,39 @@ JAVASCRIPT;
                         continue;
                     }
 
-                    $hotelId = $item['hotelId'] ?? null;
+                    $hotelId = $item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? $item['nodeId'] ?? $item['node_id'] ?? null;
+                    $compareText = strtolower((string)($item['compareType'] ?? $item['compare_type'] ?? $item['type'] ?? $item['rankType'] ?? $item['name'] ?? $item['hotelName'] ?? ''));
+                    $isCompetitor = str_contains($compareText, 'competitor')
+                        || str_contains($compareText, 'peer')
+                        || str_contains($compareText, 'avg')
+                        || str_contains($compareText, 'average')
+                        || (is_numeric($hotelId) && (int)$hotelId < 0);
                     if (!is_numeric($hotelId)) {
-                        continue;
+                        if ($isCompetitor) {
+                            $hotelId = -1;
+                        } elseif ($systemHotelId !== null) {
+                            $hotelId = $systemHotelId;
+                        } else {
+                            continue;
+                        }
                     }
                     $hotelId = (int)$hotelId;
                     if ($hotelId !== -1 && $hotelId <= 0) {
                         continue;
                     }
 
-                    $itemDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $startDate;
+                    $itemDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $item['reportDate'] ?? $item['day'] ?? $startDate;
                     if (!$itemDate || strtotime((string)$itemDate) === false) {
                         continue;
                     }
                     $itemDate = date('Y-m-d', strtotime((string)$itemDate));
-                    $compareType = $hotelId > 0 ? 'self' : 'competitor_avg';
-                    $hotelName = $compareType === 'self' ? '我的酒店' : '竞争圈平均';
-                    $listExposure = (int)($item['listExposure'] ?? 0);
-                    $detailExposure = (int)($item['detailExposure'] ?? 0);
-                    $flowRate = isset($item['flowRate']) && is_numeric($item['flowRate'])
-                        ? round((float)$item['flowRate'], 2)
-                        : ($listExposure > 0 ? round($detailExposure / $listExposure * 100, 2) : 0);
-                    $orderFillingNum = (int)($item['orderFillingNum'] ?? 0);
-                    $orderSubmitNum = (int)($item['orderSubmitNum'] ?? 0);
+                    $compareType = $isCompetitor || $hotelId < 0 ? 'competitor_avg' : 'self';
+                    $hotelName = (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? ($compareType === 'self' ? '????' : '?????'));
+                    $listExposure = (int)$this->readTrafficNumber($item, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view'], 0.0);
+                    $detailExposure = (int)$this->readTrafficNumber($item, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views'], 0.0);
+                    $flowRate = round($this->normalizeTrafficPercent($this->readTrafficNumber($item, ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], $listExposure > 0 ? $detailExposure / $listExposure * 100 : 0.0)), 2);
+                    $orderFillingNum = (int)$this->readTrafficNumber($item, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks'], 0.0);
+                    $orderSubmitNum = (int)$this->readTrafficNumber($item, ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'], 0.0);
 
                     $query = Db::name('online_daily_data')
                         ->where('data_date', $itemDate)
@@ -4847,7 +11408,7 @@ JAVASCRIPT;
                     }
 
                     $exists = $query->find();
-                    $data = $this->filterOnlineDailyDataFields([
+                    $data = $this->filterOnlineDailyDataFields($this->applyOnlineDailyDataValidationFields([
                         'hotel_id' => (string)$hotelId,
                         'hotel_name' => $hotelName,
                         'system_hotel_id' => $systemHotelId,
@@ -4869,7 +11430,7 @@ JAVASCRIPT;
                         'order_filling_num' => $orderFillingNum,
                         'order_submit_num' => $orderSubmitNum,
                         'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-                    ]);
+                    ]));
 
                     if ($exists) {
                         Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
@@ -4938,7 +11499,7 @@ JAVASCRIPT;
 
                 $exists = $query->find();
 
-                $data = $this->filterOnlineDailyDataFields([
+                $data = $this->filterOnlineDailyDataFields($this->applyOnlineDailyDataValidationFields([
                     'hotel_id' => $hotelId ? (string)$hotelId : '',
                     'hotel_name' => $hotelName,
                     'system_hotel_id' => $systemHotelId,
@@ -4953,7 +11514,7 @@ JAVASCRIPT;
                     'data_type' => 'traffic',
                     'dimension' => $dimension ?: 'traffic',
                     'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-                ]);
+                ]));
 
                 if ($exists) {
                     Db::name('online_daily_data')
@@ -5047,49 +11608,6 @@ JAVASCRIPT;
         $query->where('data_type', $dataType);
     }
 
-    /**
-     * 清除opcache缓存（开发调试用）
-     */
-    public function clearCache(): Response
-    {
-        $result = [];
-        
-        // 清除 opcache
-        if (function_exists('opcache_reset')) {
-            $result['opcache_reset'] = opcache_reset();
-        } else {
-            $result['opcache_reset'] = 'opcache not enabled';
-        }
-        
-        // 清除 ThinkPHP 缓存
-        try {
-            \think\facade\Cache::clear();
-            $result['think_cache_clear'] = true;
-        } catch (\Exception $e) {
-            $result['think_cache_clear'] = false;
-            $result['think_cache_error'] = $e->getMessage();
-        }
-        
-        // 删除运行时缓存文件
-        $runtimePath = root_path() . 'runtime/cache/';
-        if (is_dir($runtimePath)) {
-            $files = glob($runtimePath . '*');
-            $deleted = 0;
-            foreach ($files as $file) {
-                if (is_file($file) && unlink($file)) {
-                    $deleted++;
-                }
-            }
-            $result['runtime_cache_deleted'] = $deleted;
-        }
-        
-        return json([
-            'code' => 200,
-            'message' => '缓存已清除',
-            'data' => $result,
-            'time' => time()
-        ]);
-    }
 
     /**
      * 定时任务触发接口（供外部cron调用）
@@ -5099,7 +11617,10 @@ JAVASCRIPT;
     {
         // 简单的token验证
         $token = $this->request->header('X-Cron-Token') ?: $this->request->get('token');
-        $configToken = \think\facade\Env::get('CRON_TOKEN', 'auto-fetch-2024');
+        $configToken = trim((string)\think\facade\Env::get('CRON_TOKEN', ''));
+        if ($configToken === '') {
+            return json(['code' => 403, 'message' => 'CRON_TOKEN未配置'], 403);
+        }
         
         if ($token !== $configToken) {
             return json(['code' => 401, 'message' => 'Unauthorized'], 401);
@@ -5122,9 +11643,9 @@ JAVASCRIPT;
             if (empty($status['enabled'])) {
                 continue;
             }
-            
+
             // 检查运行时间
-            $scheduleTime = $status['schedule_time'] ?? '10:00';
+            $scheduleTime = $this->normalizeFetchScheduleTime((string)($status['schedule_time'] ?? '10:00')) ?? '10:00';
             if ($currentTime !== $scheduleTime) {
                 continue;
             }
@@ -5145,10 +11666,11 @@ JAVASCRIPT;
                 'message' => $result['message']
             ];
             
-            // 更新状态
-            $status['last_run_time'] = date('Y-m-d H:i:s');
-            $status['last_result'] = ['success' => $result['success'], 'message' => $result['message']];
-            cache($statusKey, $status, 86400 * 30);
+            $this->updateFetchStatus($hotelId, (bool)$result['success'], (string)$result['message'], $yesterday, [
+                'saved_count' => (int)($result['saved_count'] ?? 0),
+                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
+                'platform_results' => $result['platform_results'] ?? [],
+            ]);
             
             // 标记今天已执行
             cache($executedKey, true, 86400);
@@ -5166,58 +11688,1359 @@ JAVASCRIPT;
     /**
      * 执行自动获取
      */
-    private function executeAutoFetch(int $hotelId, string $dataDate): array
+    private function executeAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
-        // 获取Cookies
-        $cookiesKey = "online_data_cookies_hotel_{$hotelId}";
-        $cookiesList = $this->getConfigList($cookiesKey);
-        
-        if (empty($cookiesList)) {
-            $cookiesList = $this->getConfigList('online_data_cookies_list');
+        $options['auto_fetch_mode'] = $this->resolveAutoFetchRunMode($hotelId, $options);
+        $platformResults = [];
+        $totalSaved = 0;
+        $attempted = 0;
+        $successCount = 0;
+
+        if ($this->hasCtripFetchConfigForHotel($hotelId)) {
+            $attempted++;
+            try {
+                $result = $this->executeCtripAutoFetch($hotelId, $dataDate, $options);
+            } catch (\Throwable $e) {
+                $result = ['platform' => 'ctrip', 'success' => false, 'message' => '异常: ' . $e->getMessage(), 'saved_count' => 0];
+            }
+            $platformResults[] = $result;
+            $totalSaved += (int)($result['saved_count'] ?? 0);
+            if (!empty($result['success'])) {
+                $successCount++;
+            }
+        } else {
+            $platformResults[] = [
+                'platform' => 'ctrip',
+                'success' => false,
+                'skipped' => true,
+                'message' => '未配置携程凭证',
+                'saved_count' => 0,
+                'auto_fetch_mode' => $options['auto_fetch_mode'],
+                'mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
+            ];
         }
-        
-        $cookies = '';
-        foreach ($cookiesList as $item) {
-            if (strpos($item['name'], 'ctrip') !== false) {
-                $cookies = $item['cookies'];
-                break;
+
+        if ($this->hasMeituanFetchConfigForHotel($hotelId)) {
+            $attempted++;
+            try {
+                $result = $this->executeMeituanAutoFetch($hotelId, $dataDate, $options);
+            } catch (\Throwable $e) {
+                $result = ['platform' => 'meituan', 'success' => false, 'message' => '异常: ' . $e->getMessage(), 'saved_count' => 0];
+            }
+            $platformResults[] = $result;
+            $totalSaved += (int)($result['saved_count'] ?? 0);
+            if (!empty($result['success'])) {
+                $successCount++;
+            }
+        } else {
+            $message = '未配置美团 Partner ID / POI ID / Cookies';
+            $platformResults[] = [
+                'platform' => 'meituan',
+                'success' => false,
+                'skipped' => true,
+                'message' => $message,
+                'saved_count' => 0,
+                'auto_fetch_mode' => $options['auto_fetch_mode'],
+                'mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
+                'modules' => [
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'cookie_config'),
+                ],
+            ];
+        }
+
+        $messages = array_map(static function (array $item): string {
+            $label = ($item['platform'] ?? '') === 'meituan' ? '美团' : '携程';
+            return $label . ': ' . (string)($item['message'] ?? '-');
+        }, $platformResults);
+
+        if ($attempted === 0) {
+            return [
+                'success' => false,
+                'message' => '未配置任何平台抓取凭证',
+                'saved_count' => 0,
+                'auto_fetch_mode' => $options['auto_fetch_mode'],
+                'auto_fetch_mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
+                'platform_results' => $platformResults,
+            ];
+        }
+
+        return [
+            'success' => $successCount > 0,
+            'message' => implode('；', $messages),
+            'saved_count' => $totalSaved,
+            'auto_fetch_mode' => $options['auto_fetch_mode'],
+            'auto_fetch_mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
+            'platform_results' => $platformResults,
+        ];
+    }
+
+    private function getAutoFetchSavedDataConfigs(): array
+    {
+        return [
+            'ctrip-traffic' => $this->readSavedOtaDataConfig('ctrip-traffic'),
+            'meituan-traffic' => $this->readSavedOtaDataConfig('meituan-traffic'),
+            'ctrip-comments' => $this->readSavedOtaDataConfig('ctrip-comments'),
+            'meituan-comments' => $this->readSavedOtaDataConfig('meituan-comments'),
+        ];
+    }
+
+    private function readSavedOtaDataConfig(string $type): array
+    {
+        $key = 'data_config_' . str_replace('-', '_', $type);
+        $raw = SystemConfig::getValue($key, '');
+        if (is_array($raw)) {
+            return $raw;
+        }
+        $decoded = json_decode((string)$raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function firstAutoFetchConfigValue(array $config, array $keys, $default = '')
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $config)) {
+                continue;
+            }
+            $value = $config[$key];
+            if ($value === null || $value === '') {
+                continue;
+            }
+            if (is_array($value) && empty($value)) {
+                continue;
+            }
+            return $value;
+        }
+
+        return $default;
+    }
+
+    private function configValueToArray($value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if ($value === null || trim((string)$value) === '') {
+            return [];
+        }
+        $decoded = json_decode((string)$value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function meituanAutoFetchConfigStatus(array $config): array
+    {
+        $hasPartnerId = trim((string)$this->firstAutoFetchConfigValue($config, ['partner_id', 'partnerId'], '')) !== '';
+        $hasPoiId = trim((string)$this->firstAutoFetchConfigValue($config, ['poi_id', 'poiId'], '')) !== '';
+        $hasCookies = trim((string)$this->firstAutoFetchConfigValue($config, ['cookies', 'cookie'], '')) !== '';
+        $missingFields = [];
+
+        if (!$hasPartnerId) {
+            $missingFields[] = 'Partner ID';
+        }
+        if (!$hasPoiId) {
+            $missingFields[] = 'POI ID';
+        }
+        if (!$hasCookies) {
+            $missingFields[] = 'Cookies';
+        }
+
+        return [
+            'api_configured' => empty($missingFields),
+            'has_partner_id' => $hasPartnerId,
+            'has_poi_id' => $hasPoiId,
+            'has_cookies' => $hasCookies,
+            'missing_fields' => $missingFields,
+            'missing_text' => implode(' / ', $missingFields),
+        ];
+    }
+
+    private function normalizeAutoFetchMode($value): string
+    {
+        $mode = strtolower(str_replace(['-', ' '], '_', trim((string)$value)));
+        return match ($mode) {
+            'cookie', 'cookies', 'cookie_auto', 'cookie_config', 'config', 'api', 'direct_api' => 'cookie_config',
+            'profile', 'browser', 'browser_profile', 'profile_browser' => 'profile_browser',
+            default => 'hybrid_auto',
+        };
+    }
+
+    private function autoFetchModeLabel(string $mode): string
+    {
+        return match ($this->normalizeAutoFetchMode($mode)) {
+            'cookie_config' => 'Cookie/配置自动',
+            'profile_browser' => 'Profile 手动兜底',
+            default => '接口直连自动',
+        };
+    }
+
+    private function resolveAutoFetchRunMode(int $hotelId, array $options = []): string
+    {
+        foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
+            if (array_key_exists($key, $options) && trim((string)$options[$key]) !== '') {
+                return $this->normalizeAutoFetchMode($options[$key]);
             }
         }
-        
-        if (empty($cookies)) {
-            return ['success' => false, 'message' => '未配置Cookies'];
+
+        $status = cache($this->autoFetchStatusKey($hotelId));
+        if (is_array($status)) {
+            foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
+                if (array_key_exists($key, $status) && trim((string)$status[$key]) !== '') {
+                    return $this->normalizeAutoFetchMode($status[$key]);
+                }
+            }
+        }
+
+        return 'hybrid_auto';
+    }
+
+    private function resolvePlatformAutoFetchMode(array $config, array $options, string $platform): string
+    {
+        foreach ([
+            $platform . '_auto_fetch_mode',
+            $platform . '_auto_mode',
+            'auto_fetch_mode',
+            'autoMode',
+            'auto_mode',
+            'fetch_mode',
+        ] as $key) {
+            if (array_key_exists($key, $options) && trim((string)$options[$key]) !== '') {
+                return $this->normalizeAutoFetchMode($options[$key]);
+            }
+        }
+
+        foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
+            if (array_key_exists($key, $config) && trim((string)$config[$key]) !== '') {
+                return $this->normalizeAutoFetchMode($config[$key]);
+            }
+        }
+
+        return 'hybrid_auto';
+    }
+
+    private function shouldRunCookieConfigTasks(string $mode): bool
+    {
+        return $this->normalizeAutoFetchMode($mode) !== 'profile_browser';
+    }
+
+    private function shouldRunProfileBrowser(string $mode): bool
+    {
+        return $this->normalizeAutoFetchMode($mode) === 'profile_browser';
+    }
+
+    private function shouldRunProfileBrowserForCost(string $mode, int $savedCount): bool
+    {
+        $mode = $this->normalizeAutoFetchMode($mode);
+        if ($mode === 'cookie_config') {
+            return false;
+        }
+        if ($mode === 'profile_browser') {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function autoFetchStatusCode(array $result): string
+    {
+        if (!empty($result['success'])) {
+            return 'ok';
+        }
+
+        $message = strtolower((string)($result['message'] ?? ''));
+        if (!empty($result['skipped']) && str_contains($message, '当前策略')) {
+            return 'skipped';
+        }
+        if (str_contains($message, 'partner') || str_contains($message, 'poi')) {
+            return 'needs_config';
+        }
+        if (str_contains($message, 'cookie') || str_contains($message, '登录') || str_contains($message, '授权') || str_contains($message, '过期')) {
+            return 'needs_cookie';
+        }
+        if (str_contains($message, 'profile') || str_contains($message, '浏览器')) {
+            return 'needs_profile';
+        }
+        if (str_contains($message, 'payload') || str_contains($message, 'request_url') || str_contains($message, 'spidertoken')) {
+            return 'needs_payload';
+        }
+        if (!empty($result['skipped'])) {
+            return 'skipped';
+        }
+
+        return 'failed';
+    }
+
+    private function withAutoFetchResultMeta(array $result, string $strategy = '', string $module = ''): array
+    {
+        if ($module !== '' && empty($result['module'])) {
+            $result['module'] = $module;
+        }
+        if ($strategy !== '' && empty($result['strategy'])) {
+            $result['strategy'] = $strategy;
+        }
+        if (empty($result['status_code'])) {
+            $result['status_code'] = $this->autoFetchStatusCode($result);
+        }
+        if (empty($result['next_action'])) {
+            $result['next_action'] = match ($result['status_code']) {
+                'needs_config' => '补齐美团 Partner ID / POI ID / Cookies',
+                'needs_cookie' => '更新 Cookie 或重新登录 OTA 后台',
+                'needs_profile' => '建立或重新登录浏览器 Profile',
+                'needs_payload' => '补充 Request URL / Payload / 动态令牌',
+                default => '',
+            };
+        }
+
+        return $result;
+    }
+
+    private function isAutoFetchDataConfigUsable(array $config, int $hotelId): bool
+    {
+        if (empty($config)) {
+            return false;
+        }
+        $enabled = $config['enabled'] ?? true;
+        if ($enabled === false || $enabled === 0 || strtolower(trim((string)$enabled)) === 'false') {
+            return false;
+        }
+        $configHotelId = trim((string)$this->firstAutoFetchConfigValue($config, ['system_hotel_id', 'hotelId', 'hotel_id'], ''));
+        return $configHotelId === '' || $configHotelId === (string)$hotelId;
+    }
+
+    private function compactAutoFetchTaskBody(array $body): array
+    {
+        $compacted = [];
+        foreach ($body as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            if (is_array($value) && empty($value)) {
+                continue;
+            }
+            $compacted[$key] = $value;
+        }
+
+        return $compacted;
+    }
+
+    private function pushAutoFetchTask(array &$tasks, array $task): void
+    {
+        $body = $this->compactAutoFetchTaskBody($task['body'] ?? []);
+        foreach (($task['required'] ?? []) as $field) {
+            if (!array_key_exists($field, $body) || trim((string)$body[$field]) === '') {
+                return;
+            }
+        }
+        $task['body'] = $body;
+        unset($task['required']);
+        $task['strategy'] = $task['strategy'] ?? 'cookie_config';
+        $tasks[] = $task;
+    }
+
+    private function buildAutoFetchConfigTaskPlan(int $hotelId, string $dataDate, array $ctripConfig, array $meituanConfig, array $savedConfigs = []): array
+    {
+        $tasks = [];
+        $startDate = $dataDate;
+        $endDate = $dataDate;
+
+        $ctripCookies = trim((string)$this->firstAutoFetchConfigValue($ctripConfig, ['cookies', 'cookie'], ''));
+        if ($ctripCookies !== '') {
+            $this->pushAutoFetchTask($tasks, [
+                'platform' => 'ctrip',
+                'module' => 'business',
+                'label' => 'ctrip-business',
+                'required' => ['cookies', 'node_id'],
+                'body' => [
+                    'url' => $this->firstAutoFetchConfigValue($ctripConfig, ['url'], 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
+                    'node_id' => $this->firstAutoFetchConfigValue($ctripConfig, ['node_id', 'nodeId'], '24588'),
+                    'cookies' => $ctripCookies,
+                    'auth_data' => $this->firstAutoFetchConfigValue($ctripConfig, ['auth_data', 'authData'], []),
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'auto_save' => true,
+                    'system_hotel_id' => $hotelId,
+                ],
+            ]);
+        }
+
+        $ctripTrafficConfig = is_array($savedConfigs['ctrip-traffic'] ?? null) ? $savedConfigs['ctrip-traffic'] : [];
+        $ctripTrafficUsable = $this->isAutoFetchDataConfigUsable($ctripTrafficConfig, $hotelId);
+        $ctripTrafficCookies = trim((string)$this->firstAutoFetchConfigValue($ctripTrafficConfig, ['cookies', 'cookie'], $ctripCookies));
+        if ($ctripTrafficCookies !== '' && ($ctripTrafficUsable || $ctripCookies !== '')) {
+            $this->pushAutoFetchTask($tasks, [
+                'platform' => 'ctrip',
+                'module' => 'traffic',
+                'label' => 'ctrip-traffic',
+                'required' => ['cookies'],
+                'body' => [
+                    'url' => $this->firstAutoFetchConfigValue($ctripTrafficConfig, ['url'], ''),
+                    'platform' => $this->firstAutoFetchConfigValue($ctripTrafficConfig, ['platform'], 'Ctrip'),
+                    'date_range' => 'custom',
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'spiderkey' => $this->firstAutoFetchConfigValue($ctripTrafficConfig, ['spiderkey', 'spider_key'], ''),
+                    'cookies' => $ctripTrafficCookies,
+                    'extra_params' => $this->firstAutoFetchConfigValue($ctripTrafficConfig, ['extra_params', 'extraParams'], ''),
+                    'auto_save' => true,
+                    'system_hotel_id' => $hotelId,
+                ],
+            ]);
+        }
+
+        $meituanCookies = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['cookies', 'cookie'], ''));
+        $meituanPartnerId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['partner_id', 'partnerId'], ''));
+        $meituanPoiId = trim((string)$this->firstAutoFetchConfigValue($meituanConfig, ['poi_id', 'poiId'], ''));
+        if ($meituanCookies !== '' && $meituanPartnerId !== '' && $meituanPoiId !== '') {
+            foreach (['P_RZ', 'P_XS', 'P_ZH', 'P_LL'] as $rankType) {
+                $this->pushAutoFetchTask($tasks, [
+                    'platform' => 'meituan',
+                    'module' => 'ranking',
+                    'label' => 'meituan-' . $rankType,
+                    'required' => ['cookies', 'partner_id', 'poi_id'],
+                    'body' => [
+                        'url' => $this->firstAutoFetchConfigValue($meituanConfig, ['url'], 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail'),
+                        'partner_id' => $meituanPartnerId,
+                        'poi_id' => $meituanPoiId,
+                        'rank_type' => $rankType,
+                        'data_scope' => $this->firstAutoFetchConfigValue($meituanConfig, ['data_scope', 'dataScope'], 'vpoi'),
+                        'date_range' => 'custom',
+                        'cookies' => $meituanCookies,
+                        'auth_data' => $this->firstAutoFetchConfigValue($meituanConfig, ['auth_data', 'authData'], []),
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                        'auto_save' => true,
+                        'system_hotel_id' => $hotelId,
+                    ],
+                ]);
+            }
+        }
+
+        $meituanTrafficConfig = is_array($savedConfigs['meituan-traffic'] ?? null) ? $savedConfigs['meituan-traffic'] : [];
+        if ($this->isAutoFetchDataConfigUsable($meituanTrafficConfig, $hotelId)) {
+            $this->pushAutoFetchTask($tasks, [
+                'platform' => 'meituan',
+                'module' => 'traffic',
+                'label' => 'meituan-traffic',
+                'required' => ['url', 'cookies', 'partner_id', 'poi_id'],
+                'body' => [
+                    'url' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['url'], ''),
+                    'partner_id' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['partner_id', 'partnerId'], $meituanPartnerId),
+                    'poi_id' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['poi_id', 'poiId'], $meituanPoiId),
+                    'cookies' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['cookies', 'cookie'], $meituanCookies),
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'extra_params' => $this->firstAutoFetchConfigValue($meituanTrafficConfig, ['extra_params', 'extraParams'], ''),
+                    'auto_save' => true,
+                    'system_hotel_id' => $hotelId,
+                ],
+            ]);
+        }
+
+        return $tasks;
+    }
+
+    private function executeCtripAutoFetch(int $hotelId, string $dataDate, array $options = []): array
+    {
+        $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
+        $cookies = trim((string)($fetchConfig['cookies'] ?? $fetchConfig['cookie'] ?? ''));
+        $mode = $this->resolvePlatformAutoFetchMode($fetchConfig, $options, 'ctrip');
+        $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
+        $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
+        $taskPlanForConfig = $this->buildAutoFetchConfigTaskPlan($hotelId, $dataDate, $fetchConfig, [], $this->getAutoFetchSavedDataConfigs());
+        $hasConfiguredTask = (bool)array_filter($taskPlanForConfig, static fn(array $task): bool => ($task['platform'] ?? '') === 'ctrip');
+        $hasProfile = $this->ctripProfileExistsForConfig($fetchConfig, $hotelId);
+        $hasProfileSeed = !empty($fetchConfig) && $this->ctripProfileStoreIdFromConfig($fetchConfig, $hotelId) !== '';
+
+        $hasDirectConfig = $cookies !== '' || $hasConfiguredTask;
+        $hasProfileConfig = $runProfileBrowser && ($hasProfile || $hasProfileSeed);
+        if (!$hasDirectConfig && !$hasProfileConfig) {
+            $message = $runProfileBrowser
+                ? '未配置携程浏览器 Profile'
+                : '未配置携程 Cookie/接口配置';
+            return [
+                'platform' => 'ctrip',
+                'success' => false,
+                'message' => $message,
+                'saved_count' => 0,
+                'auto_fetch_mode' => $mode,
+                'mode_label' => $this->autoFetchModeLabel($mode),
+                'modules' => [
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], $runProfileBrowser ? 'profile_browser' : 'cookie_config'),
+                ],
+            ];
         }
         
+        $savedCount = 0;
+        $errors = [];
+        $modules = [];
+
+        if ($runCookieConfig) {
+            if ($cookies !== '') {
+                try {
+                    $result = $this->sendHttpRequest(
+                        (string)($fetchConfig['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
+                        ['nodeId' => (string)($fetchConfig['node_id'] ?? '24588'), 'startDate' => $dataDate, 'endDate' => $dataDate],
+                        $cookies
+                    );
+
+                    if (!empty($result['success'])) {
+                        $responseData = $result['data'] ?? [];
+                        $responseStatus = is_array($responseData) ? ($responseData['responseStatus'] ?? $responseData['status'] ?? $responseData['code'] ?? null) : null;
+                        if ($responseStatus !== null && $responseStatus !== 0 && $responseStatus !== '0' && $responseStatus !== 200 && $responseStatus !== '200') {
+                            $errorMsg = is_array($responseData) ? ($responseData['message'] ?? $responseData['msg'] ?? $responseData['errorMessage'] ?? null) : null;
+                            $errors[] = $errorMsg ?: "API返回错误状态: {$responseStatus}";
+                            $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
+                        } else {
+                            $moduleSaved = is_array($responseData) ? $this->parseAndSaveData($responseData, $dataDate, $dataDate, $hotelId) : 0;
+                            $savedCount += $moduleSaved;
+                            $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => $moduleSaved, 'success' => $moduleSaved > 0, 'message' => $moduleSaved > 0 ? 'ok' : '未解析到有效数据'], 'cookie_config');
+                            if ($moduleSaved === 0) {
+                                $errors[] = 'day_report_api 未解析到有效数据';
+                            }
+                        }
+                    } else {
+                        $errors[] = '请求失败: ' . (string)($result['error'] ?? '未知错误');
+                        $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
+                    }
+
+                } catch (\Exception $e) {
+                    \think\facade\Log::error("携程自动获取异常", ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
+                    $errors[] = '异常: ' . $e->getMessage();
+                    $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
+                }
+            } else {
+                $message = '未配置携程 Cookie';
+                if ($mode === 'cookie_config') {
+                    $errors[] = $message;
+                }
+                $modules[] = $this->withAutoFetchResultMeta(['module' => 'day_report_api', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'cookie_config');
+            }
+        } else {
+            $modules[] = $this->withAutoFetchResultMeta(['module' => 'cookie_config_tasks', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '当前策略仅使用浏览器 Profile'], 'cookie_config');
+        }
+
+        if ($runCookieConfig) {
+            foreach ($taskPlanForConfig as $task) {
+                if (($task['platform'] ?? '') !== 'ctrip' || ($task['module'] ?? '') === 'business') {
+                    continue;
+                }
+                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
+                $savedCount += (int)($taskResult['saved_count'] ?? 0);
+                $modules[] = $taskResult;
+                if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
+                    $errors[] = (string)($taskResult['message'] ?? (($task['label'] ?? 'task') . ' failed'));
+                }
+            }
+        }
+
+        if ($runProfileBrowser) {
+            $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
+            $browserResult = $runProfileByCost
+                ? $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']))
+                : [
+                    'success' => false,
+                    'skipped' => true,
+                    'message' => '当前策略未启动 Profile',
+                    'saved_count' => 0,
+                ];
+            if (empty($browserResult['skipped'])) {
+                $savedCount += (int)($browserResult['saved_count'] ?? 0);
+            }
+            $modules[] = $this->withAutoFetchResultMeta([
+                'module' => 'browser_profile',
+                'saved_count' => (int)($browserResult['saved_count'] ?? 0),
+                'success' => (bool)($browserResult['success'] ?? false),
+                'message' => (string)($browserResult['message'] ?? ''),
+                'skipped' => (bool)($browserResult['skipped'] ?? false),
+            ], 'profile_browser');
+
+            if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
+                $errors[] = 'browser ' . $browserResult['message'];
+            } elseif (!empty($browserResult['skipped'])) {
+                $errors[] = (string)$browserResult['message'];
+            }
+        }
+
+        if ($savedCount > 0) {
+            \think\facade\Log::info("携程自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
+            $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
+            
+            return ['platform' => 'ctrip', 'success' => true, 'message' => "成功获取 {$savedCount} 条数据", 'saved_count' => $savedCount, 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules];
+        }
+
+        $message = empty($errors)
+            ? '未获取到有效数据'
+            : '未获取到有效数据：' . implode('；', array_slice($errors, 0, 3));
+        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules];
+    }
+
+    private function executeAutoFetchTask(array $task, int $hotelId, string $dataDate): array
+    {
+        $body = is_array($task['body'] ?? null) ? $task['body'] : [];
+        $module = (string)($task['module'] ?? '');
+        $label = (string)($task['label'] ?? $module);
+        $strategy = (string)($task['strategy'] ?? 'cookie_config');
+
         try {
-            $result = $this->sendHttpRequest(
-                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                ['nodeId' => '24588', 'startDate' => $dataDate, 'endDate' => $dataDate],
-                $cookies
-            );
-            
-            if (!$result['success']) {
-                return ['success' => false, 'message' => '请求失败: ' . $result['error']];
-            }
-            
-            $savedCount = $this->parseAndSaveData($result['data'], $dataDate, $dataDate, $hotelId);
-            
-            if ($savedCount === 0) {
-                return ['success' => false, 'message' => '未获取到有效数据'];
-            }
-            
-            \think\facade\Log::info("定时任务自动获取线上数据成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
-            
-            return ['success' => true, 'message' => "成功获取 {$savedCount} 条数据"];
-            
-        } catch (\Exception $e) {
-            \think\facade\Log::error("定时任务自动获取异常", ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
-            return ['success' => false, 'message' => '异常: ' . $e->getMessage()];
+            $result = match (($task['platform'] ?? '') . ':' . $module) {
+                'ctrip:traffic' => $this->executeCtripTrafficAutoFetchTask($label, $body, $hotelId),
+                'ctrip:comments' => $this->executeCtripCommentsAutoFetchTask($label, $body, $hotelId, $dataDate),
+                'meituan:ranking' => $this->executeMeituanRankingAutoFetchTask($label, $body, $hotelId),
+                'meituan:traffic' => $this->executeMeituanTrafficAutoFetchTask($label, $body, $hotelId),
+                'meituan:comments' => $this->executeMeituanCommentsAutoFetchTask($label, $body, $hotelId),
+                default => ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'unsupported task'],
+            };
+            return $this->withAutoFetchResultMeta($result, $strategy, $label);
+        } catch (\Throwable $e) {
+            return $this->withAutoFetchResultMeta(['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $e->getMessage()], $strategy, $label);
         }
+    }
+
+    private function executeCtripTrafficAutoFetchTask(string $label, array $body, int $hotelId): array
+    {
+        $cookies = trim((string)($body['cookies'] ?? ''));
+        if ($cookies === '') {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'missing cookies'];
+        }
+
+        [$startDate, $endDate] = $this->buildCtripTrafficDateRange('custom', (string)($body['start_date'] ?? ''), (string)($body['end_date'] ?? ''));
+        $extraParams = $this->configValueToArray($body['extra_params'] ?? []);
+        $spiderkey = trim((string)($body['spiderkey'] ?? ($extraParams['spiderkey'] ?? '')));
+        $platform = ucfirst(strtolower((string)($body['platform'] ?? 'Ctrip')));
+        if (!in_array($platform, ['Ctrip', 'Qunar'], true)) {
+            $platform = 'Ctrip';
+        }
+
+        $postData = $extraParams;
+        $postData['platform'] = $platform;
+        $postData['startDate'] = $startDate;
+        $postData['endDate'] = $endDate;
+        $postData['fingerPrintKeys'] = $postData['fingerPrintKeys'] ?? '';
+        $postData['spiderkey'] = $spiderkey;
+        $postData['spiderVersion'] = $postData['spiderVersion'] ?? '2.0';
+
+        $result = $this->sendCtripJsonRequest($this->normalizeCtripTrafficUrl((string)($body['url'] ?? '')), $postData, $cookies);
+        if (!empty($result['error'])) {
+            $this->recordCookieAlert(strtolower($platform), 'auto-fetch-ctrip-traffic', (string)$result['error'], $hotelId);
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => (string)$result['error']];
+        }
+
+        $responseData = $result['decoded_data'];
+        $apiError = $this->getCtripTrafficApiError($responseData);
+        if ($apiError !== '') {
+            $this->recordCookieAlert(strtolower($platform), 'auto-fetch-ctrip-traffic', $apiError, $hotelId);
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $apiError];
+        }
+
+        $savedCount = is_array($responseData)
+            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, strtolower($platform), $hotelId, $platform)
+            : 0;
+        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
+    }
+
+    private function executeCtripCommentsAutoFetchTask(string $label, array $body, int $hotelId, string $dataDate): array
+    {
+        return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
+
+        $requestUrl = trim((string)($body['request_url'] ?? ''));
+        $cookies = trim((string)($body['cookies'] ?? ''));
+        $token = trim((string)($body['spidertoken'] ?? $body['token'] ?? ''));
+        $payload = $this->configValueToArray($body['payload_json'] ?? []);
+        $requestHotelId = trim((string)($body['hotel_id'] ?? $payload['hotelId'] ?? $payload['hotel_id'] ?? ''));
+
+        if ($requestUrl === '' || $cookies === '' || $token === '' || empty($payload)) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'missing ctrip comments config'];
+        }
+        if (!$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com'])) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'invalid ctrip comments url'];
+        }
+
+        $query = [];
+        if (!empty($body['_fxpcqlniredt'])) {
+            $query['_fxpcqlniredt'] = (string)$body['_fxpcqlniredt'];
+        }
+        if (!empty($body['x_trace_id'])) {
+            $query['x-traceID'] = (string)$body['x_trace_id'];
+        }
+        if (!empty($query)) {
+            $requestUrl .= (strpos($requestUrl, '?') === false ? '?' : '&') . http_build_query($query);
+        }
+
+        $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        if ($jsonPayload === false) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'payload encode failed'];
+        }
+
+        $headers = [
+            'Accept: application/json, text/plain, */*',
+            'Accept-Encoding: identity',
+            'Content-Type: application/json',
+            'Origin: https://ebooking.ctrip.com',
+            'Referer: https://ebooking.ctrip.com/comment/commentList?microJump=true',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Cookie: ' . $cookies,
+            'spidertoken: ' . $token,
+            'Content-Length: ' . strlen($jsonPayload),
+        ];
+
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'POST',
+                'header' => implode("\r\n", $headers),
+                'content' => $jsonPayload,
+                'timeout' => 30,
+                'ignore_errors' => true,
+            ],
+            'ssl' => $this->buildStreamSslOptions(),
+        ]);
+        $response = @file_get_contents($requestUrl, false, $context);
+        if ($response === false) {
+            $message = error_get_last()['message'] ?? 'request failed';
+            $this->recordCookieAlert('ctrip', 'auto-fetch-ctrip-comments', $message, $hotelId);
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $message];
+        }
+
+        $decodedResponse = substr($response, 0, 2) === "\x1f\x8b" ? gzdecode($response) : $response;
+        $data = json_decode((string)$decodedResponse, true);
+        if (!is_array($data)) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'invalid json'];
+        }
+        $comments = $data['data']['commentList']
+            ?? $data['data']['list']
+            ?? $data['data']['comments']
+            ?? $data['commentList']
+            ?? $data['comments']
+            ?? $data['data']
+            ?? [];
+        $comments = is_array($comments) ? $comments : [];
+        $savedCount = $this->parseAndSaveCtripComments($comments, $payload, $requestHotelId, $dataDate, $hotelId);
+        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
+    }
+
+    private function executeCtripBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false): array
+    {
+        $profileId = $this->ctripProfileStoreIdFromConfig($config, $hotelId);
+        if ($profileId === '') {
+            return ['success' => false, 'skipped' => true, 'message' => '未配置携程 Profile ID', 'saved_count' => 0];
+        }
+        if (!$this->ctripProfileExistsForConfig($config, $hotelId) && !$interactiveBrowser) {
+            return ['success' => false, 'skipped' => true, 'message' => "未找到 storage/ctrip_profile_{$profileId}", 'saved_count' => 0];
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return ['success' => false, 'skipped' => true, 'message' => '未找到携程浏览器采集脚本', 'saved_count' => 0];
+        }
+
+        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        if ($nodeBinary === '') {
+            return ['success' => false, 'skipped' => true, 'message' => '未找到 Node.js', 'saved_count' => 0];
+        }
+
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return ['success' => false, 'message' => '无法创建携程采集输出目录', 'saved_count' => 0];
+        }
+
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . $this->safeMeituanCaptureFilePart($profileId) . '_' . date('YmdHis') . '.json';
+        $sections = trim((string)($config['profile_sections'] ?? $config['capture_sections'] ?? 'business,traffic'));
+        $sections = $sections !== '' ? $sections : 'business,traffic';
+        $args = [
+            $nodeBinary,
+            $scriptPath,
+            '--profile-id=' . $profileId,
+            '--system-hotel-id=' . (string)$hotelId,
+            '--data-date=' . $dataDate,
+            '--output=' . $outputPath,
+            '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
+            '--sections=business,traffic',
+        ];
+        if ($sections !== 'business,traffic') {
+            $args[count($args) - 1] = '--sections=' . $sections;
+        }
+        $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
+
+        $ctripHotelId = trim((string)($config['ota_hotel_id'] ?? $config['ctrip_hotel_id'] ?? $config['hotelId'] ?? ''));
+        if ($ctripHotelId !== '') {
+            $args[] = '--hotel-id=' . $ctripHotelId;
+        }
+        $hotelName = trim((string)($config['hotel_name'] ?? $config['name'] ?? ''));
+        if ($hotelName !== '') {
+            $args[] = '--hotel-name=' . $hotelName;
+        }
+        $chromePath = $this->resolveMeituanCaptureChromePath();
+        if ($chromePath !== '') {
+            $args[] = '--chrome-path=' . $chromePath;
+        }
+
+        $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip', $hotelId, trim((string)($config['cookies'] ?? $config['cookie'] ?? '')));
+        if ($cookieFile !== '') {
+            $args[] = '--cookies-file=' . $cookieFile;
+        }
+
+        try {
+            $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 120);
+        } finally {
+            $this->removeAutoFetchCookieFile($cookieFile);
+        }
+        if (!$runResult['success']) {
+            return [
+                'success' => false,
+                'message' => str_replace('美团', '携程', (string)$runResult['message']),
+                'saved_count' => 0,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ];
+        }
+        if (!is_file($outputPath)) {
+            return ['success' => false, 'message' => '携程浏览器采集未生成结果文件', 'saved_count' => 0];
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return ['success' => false, 'message' => '携程浏览器采集结果 JSON 无法解析', 'saved_count' => 0];
+        }
+
+        if (empty($payload['system_hotel_id'])) {
+            $payload['system_hotel_id'] = $hotelId;
+        }
+        $requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? $profileId);
+        $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, $dataDate, $requestHotelId);
+        $savedCount = (int)$saveResult['saved_count'];
+        $capturedCounts = [
+            'business' => count($this->extractCtripCapturedSection($payload, 'business')),
+            'traffic' => count($this->extractCtripCapturedSection($payload, 'traffic')),
+            'reviews' => 0,
+        ];
+        $detailParts = [
+            "概况 {$saveResult['business_saved']}",
+            "流量 {$saveResult['traffic_saved']}",
+        ];
+        if ((int)($saveResult['review_saved'] ?? 0) > 0) {
+            $detailParts[] = "点评 {$saveResult['review_saved']}";
+        }
+
+        return [
+            'success' => $savedCount > 0,
+            'message' => $savedCount > 0
+                ? "Profile 真实采集入库 {$savedCount} 条（" . implode('，', $detailParts) . "）"
+                : 'Profile 真实采集未解析到可入库数据',
+            'saved_count' => $savedCount,
+            'row_count' => array_sum($capturedCounts),
+            'captured_counts' => $capturedCounts,
+            'modules' => $saveResult['modules'],
+            'output' => $outputPath,
+        ];
+    }
+
+    private function saveCtripBrowserProfilePayload(array $payload, int $hotelId, string $dataDate, string $requestHotelId): array
+    {
+        $modules = [];
+
+        $businessRows = $this->extractCtripCapturedSection($payload, 'business');
+        $businessSaved = 0;
+        if (!empty($businessRows)) {
+            $businessSaved = $this->parseAndSaveData(['data' => $businessRows], $dataDate, $dataDate, $hotelId);
+        }
+        if ($businessSaved === 0) {
+            foreach ($this->extractCtripCapturedResponseData($payload, 'business') as $responseData) {
+                $businessSaved += $this->parseAndSaveData($responseData, $dataDate, $dataDate, $hotelId);
+            }
+        }
+        $modules[] = ['module' => 'browser_business', 'saved_count' => $businessSaved, 'success' => $businessSaved > 0];
+
+        $trafficRows = $this->extractCtripCapturedSection($payload, 'traffic');
+        $trafficSaved = 0;
+        if (!empty($trafficRows)) {
+            $trafficSaved = $this->parseAndSaveTrafficData(['data' => ['list' => $trafficRows]], $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip');
+        }
+        if ($trafficSaved === 0) {
+            foreach ($this->extractCtripCapturedResponseData($payload, 'traffic') as $responseData) {
+                $trafficSaved += $this->parseAndSaveTrafficData($responseData, $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip');
+            }
+        }
+        $modules[] = ['module' => 'browser_traffic', 'saved_count' => $trafficSaved, 'success' => $trafficSaved > 0];
+
+        $reviewSaved = 0;
+        $modules[] = ['module' => 'browser_reviews', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
+
+        return [
+            'saved_count' => $businessSaved + $trafficSaved + $reviewSaved,
+            'business_saved' => $businessSaved,
+            'traffic_saved' => $trafficSaved,
+            'review_saved' => $reviewSaved,
+            'modules' => $modules,
+        ];
+    }
+
+    private function extractCtripCapturedResponseData(array $payload, string $section): array
+    {
+        $result = [];
+        foreach (($payload['responses'] ?? []) as $response) {
+            if (!is_array($response) || strtolower((string)($response['section'] ?? '')) !== $section) {
+                continue;
+            }
+            $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? null;
+            if (is_array($data)) {
+                $result[] = $data;
+            }
+        }
+        return $result;
+    }
+
+    private function executeMeituanAutoFetch(int $hotelId, string $dataDate, array $options = []): array
+    {
+        $config = $this->resolveMeituanFetchConfigForHotel($hotelId);
+        $cookies = trim((string)($config['cookies'] ?? $config['cookie'] ?? ''));
+        $partnerId = trim((string)($config['partner_id'] ?? $config['partnerId'] ?? ''));
+        $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
+        $apiStatus = $this->meituanAutoFetchConfigStatus($config);
+        $missingText = (string)$apiStatus['missing_text'];
+        $mode = $this->resolvePlatformAutoFetchMode($config, $options, 'meituan');
+        $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
+        $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
+        $taskPlanForConfig = $this->buildAutoFetchConfigTaskPlan($hotelId, $dataDate, [], $config, $this->getAutoFetchSavedDataConfigs());
+        $hasConfiguredTask = (bool)array_filter($taskPlanForConfig, static fn(array $task): bool => ($task['platform'] ?? '') === 'meituan');
+        $hasProfile = $this->meituanProfileExistsForConfig($config);
+        $hasProfileSeed = $this->meituanProfileStoreIdFromConfig($config) !== '';
+
+        $hasDirectConfig = ($cookies !== '' && $partnerId !== '' && $poiId !== '') || $hasConfiguredTask;
+        $hasProfileConfig = $runProfileBrowser && ($hasProfile || $hasProfileSeed);
+        if (!$hasDirectConfig && !$hasProfileConfig) {
+            $message = $runProfileBrowser
+                ? '未配置美团浏览器 Profile'
+                : ($missingText !== '' ? '未配置美团 ' . $missingText : '未配置美团 Partner ID / POI ID / Cookies');
+            return [
+                'platform' => 'meituan',
+                'success' => false,
+                'message' => $message,
+                'saved_count' => 0,
+                'auto_fetch_mode' => $mode,
+                'mode_label' => $this->autoFetchModeLabel($mode),
+                'modules' => [
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], $runProfileBrowser ? 'profile_browser' : 'cookie_config'),
+                ],
+            ];
+        }
+
+        $savedCount = 0;
+        $errors = [];
+        $modules = [];
+
+        if ($runCookieConfig && !empty($apiStatus['api_configured'])) {
+            $url = trim((string)($config['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail';
+            $authDataRaw = $config['auth_data'] ?? [];
+            try {
+                $authData = is_array($authDataRaw) ? $authDataRaw : $this->parseJsonParams((string)$authDataRaw);
+            } catch (\Throwable $e) {
+                $authData = [];
+            }
+            $baseParams = [
+                'dataScope' => $config['data_scope'] ?? 'vpoi',
+                'deviceType' => 1,
+                'yodaReady' => 'h5',
+                'csecplatform' => 4,
+                'csecversion' => '4.2.0',
+                'partnerId' => $partnerId,
+                'poiId' => $poiId,
+                'startDate' => str_replace('-', '', $dataDate),
+                'endDate' => str_replace('-', '', $dataDate),
+                'dateRange' => 1,
+            ];
+
+            foreach (['P_RZ', 'P_XS', 'P_ZH', 'P_LL'] as $rankType) {
+                try {
+                    $params = $baseParams;
+                    $params['rankType'] = $rankType;
+                    $result = $this->sendMeituanRequest($url, $params, $cookies, $authData);
+                    if (!$result['success']) {
+                        $errors[] = "{$rankType} " . (string)($result['error'] ?? '请求失败');
+                        $modules[] = $this->withAutoFetchResultMeta(['module' => $rankType, 'saved_count' => 0, 'success' => false, 'message' => end($errors)], 'cookie_config');
+                        continue;
+                    }
+                    $moduleSaved = is_array($result['data'] ?? null)
+                        ? $this->parseAndSaveMeituanData($result['data'], $dataDate, $dataDate, $hotelId)
+                        : 0;
+                    $savedCount += $moduleSaved;
+                    $modules[] = $this->withAutoFetchResultMeta(['module' => $rankType, 'saved_count' => $moduleSaved, 'success' => $moduleSaved > 0, 'message' => $moduleSaved > 0 ? 'ok' : '未解析到有效数据'], 'cookie_config');
+                } catch (\Throwable $e) {
+                    $errors[] = "{$rankType} " . $e->getMessage();
+                    $modules[] = $this->withAutoFetchResultMeta(['module' => $rankType, 'saved_count' => 0, 'success' => false, 'message' => $e->getMessage()], 'cookie_config');
+                }
+            }
+        } elseif ($runCookieConfig) {
+            $message = $missingText !== '' ? '缺少美团 ' . $missingText : '缺少美团 Partner ID / POI ID / Cookies';
+            if ($mode === 'cookie_config') {
+                $errors[] = $message;
+            }
+            $modules[] = $this->withAutoFetchResultMeta(['module' => 'ranking_api', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'cookie_config');
+        } else {
+            $modules[] = $this->withAutoFetchResultMeta(['module' => 'cookie_config_tasks', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '当前策略仅使用浏览器 Profile'], 'cookie_config');
+        }
+
+        if ($runCookieConfig) {
+            foreach ($taskPlanForConfig as $task) {
+                if (($task['platform'] ?? '') !== 'meituan' || ($task['module'] ?? '') === 'ranking') {
+                    continue;
+                }
+                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
+                $savedCount += (int)($taskResult['saved_count'] ?? 0);
+                $modules[] = $taskResult;
+                if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
+                    $errors[] = (string)($taskResult['message'] ?? (($task['label'] ?? 'task') . ' failed'));
+                }
+            }
+        }
+
+        if ($runProfileBrowser) {
+            $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
+            $browserResult = $runProfileByCost
+                ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']))
+                : [
+                    'success' => false,
+                    'skipped' => true,
+                    'message' => '当前策略未启动 Profile',
+                    'saved_count' => 0,
+                ];
+            if (empty($browserResult['skipped'])) {
+                $savedCount += (int)($browserResult['saved_count'] ?? 0);
+            }
+            $modules[] = $this->withAutoFetchResultMeta([
+                'module' => 'browser_profile',
+                'saved_count' => (int)($browserResult['saved_count'] ?? 0),
+                'success' => (bool)($browserResult['success'] ?? false),
+                'message' => (string)($browserResult['message'] ?? ''),
+                'skipped' => (bool)($browserResult['skipped'] ?? false),
+            ], 'profile_browser');
+
+            if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
+                $errors[] = 'browser ' . $browserResult['message'];
+            } elseif (!empty($browserResult['skipped'])) {
+                $errors[] = (string)$browserResult['message'];
+            }
+        }
+
+        if ($savedCount > 0) {
+            \think\facade\Log::info("美团自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
+            return [
+                'platform' => 'meituan',
+                'success' => true,
+                'message' => "成功获取 {$savedCount} 条数据",
+                'saved_count' => $savedCount,
+                'auto_fetch_mode' => $mode,
+                'mode_label' => $this->autoFetchModeLabel($mode),
+                'modules' => $modules,
+            ];
+        }
+
+        $message = empty($errors)
+            ? '未获取到有效数据'
+            : '未获取到有效数据：' . implode('；', array_slice($errors, 0, 3));
+        return [
+            'platform' => 'meituan',
+            'success' => false,
+            'message' => $message,
+            'saved_count' => 0,
+            'auto_fetch_mode' => $mode,
+            'mode_label' => $this->autoFetchModeLabel($mode),
+            'modules' => $modules,
+        ];
+    }
+
+    private function executeMeituanRankingAutoFetchTask(string $label, array $body, int $hotelId): array
+    {
+        $cookies = trim((string)($body['cookies'] ?? ''));
+        $partnerId = trim((string)($body['partner_id'] ?? ''));
+        $poiId = trim((string)($body['poi_id'] ?? ''));
+        $apiStatus = $this->meituanAutoFetchConfigStatus($body);
+        if (empty($apiStatus['api_configured'])) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . $apiStatus['missing_text']];
+        }
+
+        $params = [
+            'dataScope' => $body['data_scope'] ?? 'vpoi',
+            'deviceType' => 1,
+            'yodaReady' => 'h5',
+            'csecplatform' => 4,
+            'csecversion' => '4.2.0',
+            'partnerId' => $partnerId,
+            'poiId' => $poiId,
+            'rankType' => $body['rank_type'] ?? 'P_RZ',
+            'startDate' => str_replace('-', '', (string)($body['start_date'] ?? '')),
+            'endDate' => str_replace('-', '', (string)($body['end_date'] ?? '')),
+            'dateRange' => 1,
+        ];
+        $result = $this->sendMeituanRequest(
+            trim((string)($body['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
+            $params,
+            $cookies,
+            $this->configValueToArray($body['auth_data'] ?? [])
+        );
+        if (!$result['success']) {
+            $message = (string)($result['error'] ?? 'request failed');
+            $this->recordCookieAlert('meituan', 'auto-fetch-meituan-ranking', $message, $hotelId);
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $message];
+        }
+
+        $savedCount = is_array($result['data'] ?? null)
+            ? $this->parseAndSaveMeituanData($result['data'], (string)($body['start_date'] ?? ''), (string)($body['end_date'] ?? ''), $hotelId)
+            : 0;
+        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
+    }
+
+    private function executeMeituanTrafficAutoFetchTask(string $label, array $body, int $hotelId): array
+    {
+        $url = trim((string)($body['url'] ?? ''));
+        $cookies = trim((string)($body['cookies'] ?? ''));
+        $partnerId = trim((string)($body['partner_id'] ?? ''));
+        $poiId = trim((string)($body['poi_id'] ?? ''));
+        $apiStatus = $this->meituanAutoFetchConfigStatus($body);
+        if ($url === '' || empty($apiStatus['api_configured'])) {
+            $missing = $apiStatus['missing_fields'];
+            if ($url === '') {
+                array_unshift($missing, 'Request URL');
+            }
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . implode(' / ', $missing)];
+        }
+
+        $extraParams = $this->configValueToArray($body['extra_params'] ?? []);
+        $params = array_merge([
+            'deviceType' => 1,
+            'yodaReady' => 'h5',
+            'csecplatform' => 4,
+            'csecversion' => '4.2.0',
+        ], $extraParams);
+        $params['partnerId'] = $partnerId;
+        $params['poiId'] = $poiId;
+        $startDate = (string)($body['start_date'] ?? date('Y-m-d', strtotime('-1 day')));
+        $endDate = (string)($body['end_date'] ?? $startDate);
+        $params['startDate'] = str_replace('-', '', $startDate);
+        $params['endDate'] = str_replace('-', '', $endDate);
+        $params['dateRange'] = 1;
+
+        $result = $this->sendMeituanRequest($url, $params, $cookies);
+        if (!$result['success']) {
+            $message = (string)($result['error'] ?? 'request failed');
+            $this->recordCookieAlert('meituan', 'auto-fetch-meituan-traffic', $message, $hotelId);
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $message];
+        }
+
+        $responseData = $result['data'] ?? [];
+        $savedCount = is_array($responseData)
+            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, 'meituan', $hotelId)
+            : 0;
+        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
+    }
+
+    private function executeMeituanCommentsAutoFetchTask(string $label, array $body, int $hotelId): array
+    {
+        return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
+
+        $cookies = trim((string)($body['cookies'] ?? ''));
+        $partnerId = trim((string)($body['partner_id'] ?? ''));
+        $poiId = trim((string)($body['poi_id'] ?? ''));
+        $apiStatus = $this->meituanAutoFetchConfigStatus($body);
+        if (empty($apiStatus['api_configured'])) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . $apiStatus['missing_text']];
+        }
+
+        $requestUrl = trim((string)($body['request_url'] ?? ''));
+        if ($requestUrl !== '' && filter_var($requestUrl, FILTER_VALIDATE_URL)) {
+            $fullUrl = $requestUrl;
+        } else {
+            $params = [
+                'limit' => (int)($body['limit'] ?? 50),
+                'offset' => (int)($body['offset'] ?? 0),
+                'partnerId' => $partnerId,
+                'platform' => 1,
+                'poiId' => $poiId,
+                'prefetchIndex' => 1,
+                'replyType' => (string)($body['reply_type'] ?? '2'),
+                'reportStatus' => '',
+                'tag' => (string)($body['tag'] ?? ''),
+                'yodaReady' => 'h5',
+                'csecplatform' => 4,
+                'csecversion' => '4.2.0',
+            ];
+            if (!empty($body['_mtsi_eb_u'])) {
+                $params['_mtsi_eb_u'] = (string)$body['_mtsi_eb_u'];
+            }
+            if (!empty($body['start_date'])) {
+                $params['startDate'] = (string)$body['start_date'];
+            }
+            if (!empty($body['end_date'])) {
+                $params['endDate'] = (string)$body['end_date'];
+            }
+            $fullUrl = 'https://eb.meituan.com/api/v1/ebooking/comments/commentsInfo?' . http_build_query($params);
+        }
+        if (!$this->isAllowedOtaRequestUrl($fullUrl, ['meituan.com'])) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'invalid meituan comments url'];
+        }
+
+        $traceId = '-' . rand(1000000000, 9999999999) . time();
+        $headers = [
+            'Accept: application/json, text/plain, */*',
+            'Accept-Language: zh-CN,zh;q=0.9',
+            'Cookie: ' . $cookies,
+            'm-appkey: fe_hotel-fe-ebooking',
+            'm-traceid: ' . $traceId,
+            'Origin: https://eb.meituan.com',
+            'Referer: https://eb.meituan.com/ebk/feedback/feedback.html',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        ];
+        if (!empty($body['mtgsig'])) {
+            $headers[] = 'mtgsig: ' . (string)$body['mtgsig'];
+        }
+
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => implode("\r\n", $headers),
+                'timeout' => 30,
+                'ignore_errors' => true,
+            ],
+            'ssl' => $this->buildStreamSslOptions(),
+        ]);
+        $response = @file_get_contents($fullUrl, false, $context);
+        if ($response === false) {
+            $message = error_get_last()['message'] ?? 'request failed';
+            $this->recordCookieAlert('meituan', 'auto-fetch-meituan-comments', $message, $hotelId);
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $message];
+        }
+
+        $data = json_decode((string)$response, true);
+        if (!is_array($data)) {
+            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'invalid json'];
+        }
+        $comments = $data['data']['commentList'] ?? $data['data']['list'] ?? $data['data'] ?? [];
+        $comments = is_array($comments) ? $comments : [];
+        $savedCount = !empty($comments) ? $this->parseAndSaveMeituanComments($comments, $poiId, $partnerId, $hotelId) : 0;
+        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
+    }
+
+    private function executeMeituanBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false): array
+    {
+        $storeId = $this->meituanProfileStoreIdFromConfig($config);
+        if ($storeId === '') {
+            return ['success' => false, 'skipped' => true, 'message' => '未配置 Store ID / POI ID', 'saved_count' => 0];
+        }
+        if (!$this->meituanProfileExistsForConfig($config) && !$interactiveBrowser) {
+            return ['success' => false, 'skipped' => true, 'message' => '未发现本地美团浏览器 Profile，跳过浏览器采集', 'saved_count' => 0];
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs';
+        if (!is_file($scriptPath)) {
+            return ['success' => false, 'skipped' => true, 'message' => '未找到美团浏览器抓取脚本', 'saved_count' => 0];
+        }
+        $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+        if ($nodeBinary === '') {
+            return ['success' => false, 'skipped' => true, 'message' => '未找到 Node.js', 'saved_count' => 0];
+        }
+
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'meituan_capture';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            return ['success' => false, 'message' => '无法创建美团抓取输出目录', 'saved_count' => 0];
+        }
+
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_auto_' . $this->safeMeituanCaptureFilePart($storeId) . '_' . date('YmdHis') . '.json';
+        $args = [
+            $nodeBinary,
+            $scriptPath,
+            '--store-id=' . $storeId,
+            '--output=' . $outputPath,
+            '--system-hotel-id=' . (string)$hotelId,
+            '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
+        ];
+        $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
+        $sections = trim((string)($config['profile_sections'] ?? $config['capture_sections'] ?? 'traffic,orders'));
+        $args[] = '--sections=' . ($sections !== '' ? $sections : 'traffic,orders');
+        $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
+        if ($poiId !== '') {
+            $args[] = '--poi-id=' . $poiId;
+        }
+        $poiName = trim((string)($config['name'] ?? $config['hotel_name'] ?? ''));
+        if ($poiName !== '') {
+            $args[] = '--poi-name=' . $poiName;
+        }
+        $chromePath = $this->resolveMeituanCaptureChromePath();
+        if ($chromePath !== '') {
+            $args[] = '--chrome-path=' . $chromePath;
+        }
+
+        $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'meituan', $hotelId, trim((string)($config['cookies'] ?? $config['cookie'] ?? '')));
+        if ($cookieFile !== '') {
+            $args[] = '--cookies-file=' . $cookieFile;
+        }
+
+        try {
+            $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 180);
+        } finally {
+            $this->removeAutoFetchCookieFile($cookieFile);
+        }
+        if (!$runResult['success']) {
+            return ['success' => false, 'message' => $runResult['message'], 'saved_count' => 0];
+        }
+        if (!is_file($outputPath)) {
+            return ['success' => false, 'message' => '浏览器采集未生成结果文件', 'saved_count' => 0];
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return ['success' => false, 'message' => '浏览器采集结果 JSON 无法解析', 'saved_count' => 0];
+        }
+        $payload['system_hotel_id'] = $hotelId;
+        $payload['default_data_date'] = $dataDate;
+        $rows = $this->buildMeituanCapturedDailyRows($payload, $hotelId);
+        $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
+
+        return [
+            'success' => $savedCount > 0,
+            'message' => $savedCount > 0 ? "浏览器采集保存 {$savedCount} 条" : '浏览器采集未解析到指定日期数据',
+            'saved_count' => $savedCount,
+        ];
     }
 
     /**
      * 从系统配置读取列表
      */
+    private function sanitizeSecretConfig(array $item): array
+    {
+        foreach (['cookies', 'cookie'] as $field) {
+            if (array_key_exists($field, $item)) {
+                $value = (string)$item[$field];
+                $item['has_cookies'] = trim($value) !== '';
+                $item['cookies_preview'] = $this->maskSecretValue($value);
+                unset($item[$field]);
+            }
+        }
+
+        foreach (['token', 'spidertoken', 'mtgsig'] as $field) {
+            if (array_key_exists($field, $item)) {
+                $value = (string)$item[$field];
+                $item["has_{$field}"] = trim($value) !== '';
+                $item["{$field}_preview"] = $this->maskSecretValue($value);
+                unset($item[$field]);
+            }
+        }
+
+        return $item;
+    }
+
+    private function maskSecretValue(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $length = strlen($value);
+        if ($length <= 8) {
+            return str_repeat('*', $length);
+        }
+
+        return substr($value, 0, 4) . '...' . substr($value, -4);
+    }
+
     private function getConfigList(string $key): array
     {
         $raw = SystemConfig::getValue($key, '[]');
@@ -5225,6 +13048,367 @@ JAVASCRIPT;
         return is_array($data) ? $data : [];
     }
 
+    private function getStoredCtripConfigList(): array
+    {
+        try {
+            $raw = Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value');
+            $list = $raw ? json_decode((string)$raw, true) : [];
+            if (!is_array($list)) {
+                return [];
+            }
+            $list = $this->normalizeStoredOtaConfigList('system_configs', 'ctrip_config_list', $list, 'ctrip');
+            return array_values($list);
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function getStoredMeituanConfigList(): array
+    {
+        try {
+            $list = $this->getConfigList('meituan_config_list');
+            if (!is_array($list)) {
+                return [];
+            }
+            $list = $this->normalizeStoredOtaConfigList('system_config', 'meituan_config_list', $list, 'meituan');
+            return array_values($list);
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function filterOtaConfigListForCurrentUser(array $list): array
+    {
+        if (!$this->currentUser || !$this->currentUser->id) {
+            return [];
+        }
+
+        if (method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin()) {
+            return array_values($list);
+        }
+
+        $permittedHotelIdSet = $this->getCurrentUserPermittedHotelIdSet();
+        $visibleList = [];
+
+        foreach ($list as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            if ($this->isOtaConfigVisibleToCurrentUser($item, $permittedHotelIdSet)) {
+                $visibleList[] = $item;
+            }
+        }
+
+        return $visibleList;
+    }
+
+    private function isOtaConfigVisibleToCurrentUser(array $item, ?array $permittedHotelIdSet = null): bool
+    {
+        if (!$this->currentUser || !$this->currentUser->id) {
+            return false;
+        }
+
+        if (method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin()) {
+            return true;
+        }
+
+        $itemUserId = $item['user_id'] ?? null;
+        if ($itemUserId !== null && $itemUserId !== '' && (string)$itemUserId === (string)$this->currentUser->id) {
+            return true;
+        }
+
+        $permittedHotelIdSet = $permittedHotelIdSet ?? $this->getCurrentUserPermittedHotelIdSet();
+        $systemHotelId = trim((string)($item['system_hotel_id'] ?? ''));
+        if ($systemHotelId !== '' && isset($permittedHotelIdSet[$systemHotelId])) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function getCurrentUserPermittedHotelIdSet(): array
+    {
+        if (!$this->currentUser || !method_exists($this->currentUser, 'getPermittedHotelIds')) {
+            return [];
+        }
+
+        $hotelIds = array_map('strval', $this->currentUser->getPermittedHotelIds());
+        return array_fill_keys($hotelIds, true);
+    }
+
+    private function resolveCtripFetchConfigForHotel(int $hotelId): array
+    {
+        foreach ($this->getStoredCtripConfigList() as $config) {
+            $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
+            if ($configHotelId !== '' && (string)$hotelId === $configHotelId) {
+                return $config;
+            }
+        }
+
+        $cookiesList = $this->getConfigList("online_data_cookies_hotel_{$hotelId}");
+
+        foreach ($cookiesList as $item) {
+            if (!empty($item['cookies'])) {
+                return [
+                    'cookies' => $item['cookies'],
+                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                    'node_id' => '24588',
+                ];
+            }
+        }
+
+        return [];
+    }
+
+    private function resolveMeituanFetchConfigForHotel(int $hotelId): array
+    {
+        foreach ($this->getStoredMeituanConfigList() as $config) {
+            $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
+            if ($configHotelId !== '' && (string)$hotelId === $configHotelId) {
+                return $config;
+            }
+        }
+
+        return [];
+    }
+
+    private function ctripProfileStoreIdFromConfig(array $config, int $hotelId = 0): string
+    {
+        foreach (['profile_id', 'profileId'] as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        foreach ([(string)$hotelId, (string)($config['system_hotel_id'] ?? ''), (string)($config['hotel_id'] ?? '')] as $candidate) {
+            $candidate = trim($candidate);
+            if ($candidate !== '' && $this->ctripProfileDirExists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        foreach (['ota_hotel_id', 'ctrip_hotel_id', 'ctripHotelId', 'hotel_code', 'hotelCode', 'node_id', 'hotel_id', 'system_hotel_id'] as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return $hotelId > 0 ? (string)$hotelId : '';
+    }
+
+    private function ctripProfileExistsForConfig(array $config, int $hotelId = 0): bool
+    {
+        $profileId = $this->ctripProfileStoreIdFromConfig($config, $hotelId);
+        if ($profileId === '') {
+            return false;
+        }
+
+        return $this->ctripProfileDirExists($profileId);
+    }
+
+    private function ctripProfileDirExists(string $profileId): bool
+    {
+        $profileId = trim($profileId);
+        if ($profileId === '') {
+            return false;
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $this->safeMeituanCaptureFilePart($profileId);
+        return is_dir($profileDir);
+    }
+
+    private function meituanProfileStoreIdFromConfig(array $config): string
+    {
+        return trim((string)($config['store_id'] ?? $config['storeId'] ?? $config['poi_id'] ?? $config['poiId'] ?? ''));
+    }
+
+    private function meituanProfileExistsForConfig(array $config): bool
+    {
+        $storeId = $this->meituanProfileStoreIdFromConfig($config);
+        if ($storeId === '') {
+            return false;
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $this->safeMeituanCaptureFilePart($storeId);
+        return is_dir($profileDir);
+    }
+
+    private function ctripLatestFetchStatusKey(?int $hotelId): string
+    {
+        return $hotelId ? "online_data_ctrip_latest_fetch_{$hotelId}" : 'online_data_ctrip_latest_fetch';
+    }
+
+    private function updateCtripLatestFetchStatus(?int $hotelId, string $fetchedAt, string $dataDate, int $savedCount): void
+    {
+        cache($this->ctripLatestFetchStatusKey($hotelId), [
+            'fetched_at' => $fetchedAt,
+            'data_date' => $dataDate,
+            'saved_count' => $savedCount,
+        ], 86400 * 30);
+    }
+
+    private function getCtripLatestFetchStatus(string $hotelId): array
+    {
+        $statusKeyHotelId = is_numeric($hotelId) && (int)$hotelId > 0 ? (int)$hotelId : null;
+        $status = cache($this->ctripLatestFetchStatusKey($statusKeyHotelId)) ?: [];
+        return is_array($status) ? $status : [];
+    }
+
+
+    private function getHotelsForOtaConfigMatching(): array
+    {
+        try {
+            $rows = Db::name('hotels')
+                ->field('id,name,code,status')
+                ->order('status', 'desc')
+                ->order('id', 'asc')
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        $rows = array_values(array_filter($rows, static function ($row): bool {
+            return is_array($row) && trim((string)($row['name'] ?? '')) !== '';
+        }));
+
+        usort($rows, static function (array $a, array $b): int {
+            $statusCompare = (int)($b['status'] ?? 0) <=> (int)($a['status'] ?? 0);
+            if ($statusCompare !== 0) {
+                return $statusCompare;
+            }
+            return mb_strlen((string)($b['name'] ?? '')) <=> mb_strlen((string)($a['name'] ?? ''));
+        });
+
+        return $rows;
+    }
+
+    private function normalizeOtaConfigMatchText(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = preg_replace('/(携程|美团|ebooking|e-booking|ebk|数据源|配置|主账号|账号|cookie|cookies)/iu', '', $value) ?? $value;
+        $value = preg_replace('/[^\p{Han}a-z0-9]+/iu', '', $value) ?? $value;
+
+        return mb_strtolower($value, 'UTF-8');
+    }
+
+    private function findOtaConfigHotelMatch(array $config, array $hotels): ?array
+    {
+        $currentHotelId = trim((string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? ''));
+        if ($currentHotelId !== '') {
+            foreach ($hotels as $hotel) {
+                if ((string)($hotel['id'] ?? '') === $currentHotelId) {
+                    return $hotel;
+                }
+            }
+        }
+
+        $sourceParts = [
+            $config['hotel_name'] ?? '',
+            $config['name'] ?? '',
+            $config['config_name'] ?? '',
+            $config['remark'] ?? '',
+        ];
+        $source = trim(implode(' ', array_filter(array_map(static fn($part): string => trim((string)$part), $sourceParts))));
+        if ($source === '') {
+            return null;
+        }
+
+        foreach ($hotels as $hotel) {
+            $hotelName = trim((string)($hotel['name'] ?? ''));
+            if ($hotelName !== '' && mb_strpos($source, $hotelName, 0, 'UTF-8') !== false) {
+                return $hotel;
+            }
+        }
+
+        $normalizedSource = $this->normalizeOtaConfigMatchText($source);
+        if ($normalizedSource === '') {
+            return null;
+        }
+
+        foreach ($hotels as $hotel) {
+            $hotelName = $this->normalizeOtaConfigMatchText((string)($hotel['name'] ?? ''));
+            $hotelCode = $this->normalizeOtaConfigMatchText((string)($hotel['code'] ?? ''));
+            if ($hotelName !== '' && mb_strpos($normalizedSource, $hotelName, 0, 'UTF-8') !== false) {
+                return $hotel;
+            }
+            if ($hotelCode !== '' && mb_strpos($normalizedSource, $hotelCode, 0, 'UTF-8') !== false) {
+                return $hotel;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeOtaConfigHotelBinding(array $config, string $platform, ?array $hotels = null): array
+    {
+        $hotels = $hotels ?? $this->getHotelsForOtaConfigMatching();
+        $match = $this->findOtaConfigHotelMatch($config, $hotels);
+
+        if (!$match) {
+            $config['hotel_id'] = $config['hotel_id'] ?? '';
+            $config['hotel_name'] = $config['hotel_name'] ?? '';
+            return $config;
+        }
+
+        $hotelId = (string)($match['id'] ?? '');
+        if ($hotelId === '') {
+            return $config;
+        }
+
+        $config['hotel_id'] = $hotelId;
+        $config['system_hotel_id'] = $hotelId;
+        $config['hotel_name'] = (string)($match['name'] ?? $config['hotel_name'] ?? '');
+        $config['platform'] = $config['platform'] ?? $platform;
+
+        return $config;
+    }
+
+    private function normalizeStoredOtaConfigList(string $table, string $key, array $list, string $platform): array
+    {
+        if (empty($list)) {
+            return $list;
+        }
+
+        $hotels = $this->getHotelsForOtaConfigMatching();
+        if (empty($hotels)) {
+            return $list;
+        }
+
+        $changed = false;
+        $normalizedList = [];
+
+        foreach ($list as $index => $item) {
+            if (!is_array($item)) {
+                $normalizedList[$index] = $item;
+                continue;
+            }
+
+            $normalized = $this->normalizeOtaConfigHotelBinding($item, $platform, $hotels);
+            if ($normalized != $item) {
+                $changed = true;
+            }
+            $normalizedList[$index] = $normalized;
+        }
+
+        if ($changed) {
+            Db::name($table)->where('config_key', $key)->update([
+                'config_value' => json_encode($normalizedList, JSON_UNESCAPED_UNICODE),
+                'update_time' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        return $normalizedList;
+    }
 
     /**
      * 保存列表到系统配置
@@ -5234,14 +13418,710 @@ JAVASCRIPT;
         SystemConfig::setValue($key, json_encode($value, JSON_UNESCAPED_UNICODE), '在线数据Cookies配置');
     }
 
+    public function cookieStatus(): Response
+    {
+        $this->checkPermission();
+        return $this->success([
+            'list' => $this->buildCookieStatusRows(),
+            'alerts' => $this->getCookieAlerts(),
+            'warning_days' => $this->cookieWarningDays(),
+            'expire_days' => $this->cookieExpireDays(),
+            'reauthorize_entry' => $this->cookieReauthorizeEntry(),
+        ]);
+    }
+
+    public function collectionReliability(): Response
+    {
+        $this->checkPermission();
+
+        $hotelIdRaw = $this->request->get('hotel_id', $this->request->get('system_hotel_id', ''));
+        $hotelId = $this->resolveOnlineDataSystemHotelId($hotelIdRaw);
+        $days = max(1, min(90, (int)$this->request->get('days', 30)));
+        $endDate = trim((string)$this->request->get('end_date', date('Y-m-d')));
+        $startDate = trim((string)$this->request->get('start_date', date('Y-m-d', strtotime($endDate . ' -' . ($days - 1) . ' days'))));
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate)) {
+            return $this->error('日期格式错误，请使用 YYYY-MM-DD');
+        }
+        if (strtotime($startDate) === false || strtotime($endDate) === false || $startDate > $endDate) {
+            return $this->error('日期范围无效');
+        }
+        $periodDays = (int)floor((strtotime($endDate) - strtotime($startDate)) / 86400) + 1;
+
+        try {
+            $authorizationRows = $this->filterCollectionAuthorizationRows($this->buildCookieStatusRows(), $hotelId);
+            $alerts = $this->filterCollectionAlertsByHotel($this->getCookieAlerts(), $hotelId);
+            $collectionLogs = $this->buildCollectionLogRows($hotelId, $startDate, $endDate, 30);
+            $qualityRows = $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, 2000);
+
+            return $this->success([
+                'period' => [
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'days' => $periodDays,
+                ],
+                'hotel_id' => $hotelId,
+                'status_catalog' => $this->collectionReliabilityStatusCatalog(),
+                'authorization' => [
+                    'summary' => $this->buildCollectionAuthorizationSummary($authorizationRows),
+                    'list' => $authorizationRows,
+                    'reauthorize_entry' => $this->cookieReauthorizeEntry(),
+                ],
+                'failure_reasons' => $this->buildCollectionFailureReasons($alerts, $collectionLogs, 20),
+                'field_definitions' => $this->buildOtaCollectionFieldDefinitions(),
+                'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
+                'history_replay' => $this->buildCollectionHistoryReplayRows($hotelId, $startDate, $endDate, 30),
+                'data_quality' => $this->buildCollectionQualitySnapshot($qualityRows),
+                'pending_actions' => $this->buildCollectionPendingActions($authorizationRows, $alerts, $collectionLogs, $qualityRows),
+            ]);
+        } catch (\Throwable $e) {
+            return $this->error('采集可靠性查询失败: ' . $e->getMessage());
+        }
+    }
+
+    private function buildCookieStatusRows(): array
+    {
+        $rows = [];
+        $hotelIds = $this->visibleCookieHotelIds();
+
+        foreach ($this->getConfigList('online_data_cookies_global') as $item) {
+            $rows[] = $this->buildCookieHealth('generic', 'global', null, $item);
+        }
+
+        foreach ($hotelIds as $hotelId) {
+            foreach ($this->getConfigList("online_data_cookies_hotel_{$hotelId}") as $item) {
+                $rows[] = $this->buildCookieHealth('generic', 'hotel', (int)$hotelId, $item);
+            }
+        }
+
+        foreach ($this->getStoredCtripConfigList() as $item) {
+            $itemHotelId = (int)($item['hotel_id'] ?? $item['system_hotel_id'] ?? 0);
+            if ($this->canSeeCookieHotel($itemHotelId)) {
+                $rows[] = $this->buildCookieHealth('ctrip', $itemHotelId > 0 ? 'hotel' : 'global', $itemHotelId ?: null, $item);
+            }
+        }
+
+        foreach ($this->getConfigList('meituan_config_list') as $item) {
+            $itemHotelId = (int)($item['hotel_id'] ?? $item['system_hotel_id'] ?? 0);
+            if ($this->canSeeCookieHotel($itemHotelId)) {
+                $rows[] = $this->buildCookieHealth('meituan', $itemHotelId > 0 ? 'hotel' : 'global', $itemHotelId ?: null, $item);
+            }
+        }
+
+        usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['updated_at'] ?? ''), (string)($a['updated_at'] ?? '')));
+        return $rows;
+    }
+
+    private function buildCookieHealth(string $platform, string $scope, ?int $hotelId, array $item): array
+    {
+        $name = (string)($item['name'] ?? $item['hotel_name'] ?? $item['config_name'] ?? $platform);
+        $cookieValue = (string)($item['cookies'] ?? $item['cookie'] ?? '');
+        $updatedAt = (string)($item['update_time'] ?? $item['updated_at'] ?? $item['created_at'] ?? '');
+        $timestamp = $updatedAt !== '' ? strtotime($updatedAt) : false;
+        $ageDays = $timestamp ? max(0, (int)floor((time() - $timestamp) / 86400)) : null;
+        $hasAlert = false;
+        $alertMessage = '';
+        foreach ($this->getCookieAlerts() as $alert) {
+            if (($alert['platform'] ?? '') === $platform && (string)($alert['name'] ?? '') === $name) {
+                $hasAlert = true;
+                $alertMessage = (string)($alert['message'] ?? '');
+                break;
+            }
+        }
+        $status = $this->resolveCookieHealthState($cookieValue, $ageDays, $hasAlert, $this->cookieWarningDays(), $this->cookieExpireDays());
+        $reason = $status;
+        if ($cookieValue === '') {
+            $reason = 'empty';
+        } elseif ($ageDays === null && !$hasAlert) {
+            $reason = 'unknown';
+        }
+        $message = $hasAlert && $alertMessage !== ''
+            ? $alertMessage
+            : $this->cookieHealthMessage($platform, $reason, $ageDays);
+
+        return [
+            'platform' => $platform,
+            'scope' => $scope,
+            'hotel_id' => $hotelId,
+            'name' => $name,
+            'status' => $status,
+            'message' => $message,
+            'next_action' => $status === 'ok' ? '' : '重新登录OTA后台并通过书签脚本或配置页更新授权',
+            'updated_at' => $updatedAt,
+            'age_days' => $ageDays,
+            'has_cookie' => $cookieValue !== '',
+            'reauthorize_entry' => $this->cookieReauthorizeEntry(),
+        ];
+    }
+
+    private function resolveCookieHealthState(string $cookieValue, ?int $ageDays, bool $hasAlert, int $warningDays, int $expireDays): string
+    {
+        if ($hasAlert || $cookieValue === '') {
+            return 'expired';
+        }
+        if ($ageDays === null) {
+            return 'unknown';
+        }
+        if ($ageDays >= $expireDays) {
+            return 'expired';
+        }
+        if ($ageDays >= $warningDays) {
+            return 'warning';
+        }
+        return 'ok';
+    }
+
+    private function cookieHealthMessage(string $platform, string $reason, ?int $ageDays): string
+    {
+        $label = $this->otaPlatformLabel($platform);
+        return match ($reason) {
+            'empty' => $label . ' Cookie为空，请重新登录OTA后台后更新授权。',
+            'unknown' => $label . ' Cookie缺少更新时间，请重新保存一次配置以便系统判断有效期。',
+            'expired' => $label . ' Cookie已超过' . $this->cookieExpireDays() . '天有效期阈值，请重新授权。',
+            'warning' => $label . ' Cookie已使用' . (string)$ageDays . '天，接近' . $this->cookieExpireDays() . '天过期阈值，建议提前更新。',
+            default => $label . ' Cookie状态正常。',
+        };
+    }
+
+    private function cookieReauthorizeEntry(): string
+    {
+        return '/online-data?tab=cookies';
+    }
+
+    private function otaPlatformLabel(string $platform): string
+    {
+        return match (strtolower($platform)) {
+            'ctrip' => '携程',
+            'qunar' => '去哪儿',
+            'meituan' => '美团',
+            default => 'OTA',
+        };
+    }
+
+    private function visibleCookieHotelIds(): array
+    {
+        if (!$this->currentUser || !$this->currentUser->isSuperAdmin()) {
+            $hotelId = (int)($this->currentUser->hotel_id ?? 0);
+            return $hotelId > 0 ? [$hotelId] : [];
+        }
+
+        try {
+            return array_map('intval', \app\model\Hotel::column('id'));
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function canSeeCookieHotel(int $hotelId): bool
+    {
+        if ($hotelId <= 0 || !$this->currentUser || $this->currentUser->isSuperAdmin()) {
+            return true;
+        }
+        return (int)($this->currentUser->hotel_id ?? 0) === $hotelId;
+    }
+
+    private function cookieWarningDays(): int
+    {
+        return max(1, (int)SystemConfig::getValue('ota_cookie_warning_days', '5'));
+    }
+
+    private function cookieExpireDays(): int
+    {
+        return max($this->cookieWarningDays(), (int)SystemConfig::getValue('ota_cookie_expire_days', '14'));
+    }
+
+    private function isCookieAuthError(string $message): bool
+    {
+        return preg_match('/cookie|login|auth|unauthorized|forbidden|expired|302|401|403|html|登录|授权|过期|失效|权限/i', $message) === 1;
+    }
+
+    private function recordCookieAlert(string $platform, string $name, string $message, ?int $hotelId = null): void
+    {
+        if (!$this->isCookieAuthError($message)) {
+            return;
+        }
+
+        $alerts = $this->getCookieAlerts();
+        $key = md5($platform . '|' . $name . '|' . (string)$hotelId);
+        $alerts[$key] = [
+            'platform' => $platform,
+            'name' => $name,
+            'hotel_id' => $hotelId,
+            'message' => mb_substr($message, 0, 240),
+            'created_at' => date('Y-m-d H:i:s'),
+            'next_action' => '重新登录' . $this->otaPlatformLabel($platform) . '后台，复制最新Cookie或重新运行书签脚本。',
+            'reauthorize_entry' => $this->cookieReauthorizeEntry(),
+        ];
+        $alerts = array_slice($alerts, -50, null, true);
+        SystemConfig::setValue('ota_cookie_alerts', json_encode($alerts, JSON_UNESCAPED_UNICODE), 'OTA Cookie alerts');
+
+        try {
+            OperationLog::record('online_data', 'cookie_expired', 'OTA cookie needs reauthorization: ' . $platform . '/' . $name, $this->currentUser->id ?? null, $hotelId, $message);
+        } catch (\Throwable $e) {
+            // Alert storage must not block OTA fetching.
+        }
+    }
+
+    private function getCookieAlerts(): array
+    {
+        $raw = SystemConfig::getValue('ota_cookie_alerts', '{}');
+        $data = json_decode((string)$raw, true);
+        return is_array($data) ? $data : [];
+    }
+
+    private function filterCollectionAuthorizationRows(array $rows, ?int $hotelId): array
+    {
+        if ($hotelId === null) {
+            return array_values($rows);
+        }
+
+        return array_values(array_filter($rows, static function (array $row) use ($hotelId): bool {
+            $rowHotelId = (int)($row['hotel_id'] ?? 0);
+            return $rowHotelId === 0 || $rowHotelId === $hotelId;
+        }));
+    }
+
+    private function buildCollectionAuthorizationSummary(array $rows): array
+    {
+        $counts = [
+            'ok' => 0,
+            'warning' => 0,
+            'expired' => 0,
+            'unknown' => 0,
+            'waiting_config' => 0,
+            'failed' => 0,
+            'partial_success' => 0,
+            'success' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            $status = (string)($row['status'] ?? 'unknown');
+            if (!array_key_exists($status, $counts)) {
+                $status = 'unknown';
+            }
+            $counts[$status]++;
+        }
+
+        $overall = 'waiting_config';
+        if ($counts['expired'] > 0) {
+            $overall = 'expired';
+        } elseif ($counts['failed'] > 0) {
+            $overall = 'failed';
+        } elseif ($counts['partial_success'] > 0) {
+            $overall = 'partial_success';
+        } elseif ($counts['warning'] > 0 || $counts['unknown'] > 0) {
+            $overall = 'warning';
+        } elseif ($counts['ok'] > 0 || $counts['success'] > 0) {
+            $overall = 'ok';
+        }
+
+        return array_merge([
+            'overall_status' => $overall,
+            'total' => count($rows),
+        ], $counts);
+    }
+
+    private function collectionReliabilityStatusCatalog(): array
+    {
+        return ['ok', 'warning', 'expired', 'unknown', 'waiting_config', 'failed', 'partial_success', 'success'];
+    }
+
+    private function normalizeCollectionStatus(string $status): string
+    {
+        $status = strtolower(trim($status));
+        return match ($status) {
+            'ok', 'success', 'warning', 'expired', 'unknown', 'waiting_config', 'failed', 'partial_success' => $status,
+            'skip', 'skipped', 'empty', 'disabled' => 'waiting_config',
+            'partial' => 'partial_success',
+            'fail', 'error' => 'failed',
+            default => 'unknown',
+        };
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $logs
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeCollectionLogStatuses(array $logs): array
+    {
+        return array_map(function (array $log): array {
+            $rawStatus = (string)($log['status'] ?? '');
+            $log['raw_status'] = $rawStatus;
+            $log['status'] = $this->normalizeCollectionStatus($rawStatus);
+            return $log;
+        }, $logs);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $authorizationRows
+     * @param array<int, array<string, mixed>> $alerts
+     * @param array<int, array<string, mixed>> $collectionLogs
+     * @param array<int, array<string, mixed>> $qualityRows
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildCollectionPendingActions(array $authorizationRows, array $alerts, array $collectionLogs, array $qualityRows): array
+    {
+        $actions = [];
+        foreach ($authorizationRows as $row) {
+            $status = $this->normalizeCollectionStatus((string)($row['status'] ?? 'unknown'));
+            if ($status === 'ok' || $status === 'success') {
+                continue;
+            }
+            $actions[] = [
+                'type' => 'authorization',
+                'status' => $status,
+                'platform' => (string)($row['platform'] ?? ''),
+                'hotel_id' => $row['hotel_id'] ?? null,
+                'reason' => (string)($row['message'] ?? $status),
+                'action' => (string)($row['next_action'] ?? 'reauthorize OTA account'),
+                'entry' => (string)($row['reauthorize_entry'] ?? $this->cookieReauthorizeEntry()),
+            ];
+        }
+
+        foreach ($alerts as $alert) {
+            $actions[] = [
+                'type' => 'failure_reason',
+                'status' => 'expired',
+                'platform' => (string)($alert['platform'] ?? ''),
+                'hotel_id' => $alert['hotel_id'] ?? null,
+                'reason' => (string)($alert['message'] ?? ''),
+                'action' => (string)($alert['next_action'] ?? 'reauthorize OTA account'),
+                'entry' => (string)($alert['reauthorize_entry'] ?? $this->cookieReauthorizeEntry()),
+            ];
+        }
+
+        foreach ($collectionLogs as $log) {
+            $status = $this->normalizeCollectionStatus((string)($log['status'] ?? ''));
+            if (!in_array($status, ['failed', 'partial_success', 'waiting_config'], true)) {
+                continue;
+            }
+            $actions[] = [
+                'type' => 'collection',
+                'status' => $status,
+                'platform' => (string)($log['platform'] ?? ''),
+                'hotel_id' => $log['hotel_id'] ?? null,
+                'reason' => (string)($log['message'] ?? ''),
+                'action' => 'check authorization, field mapping, and platform response',
+                'entry' => '',
+            ];
+        }
+
+        foreach ($qualityRows as $row) {
+            $quality = $this->buildOnlineDataQuality($row);
+            if (($quality['status'] ?? 'ok') === 'ok') {
+                continue;
+            }
+            $actions[] = [
+                'type' => 'field_quality',
+                'status' => $this->normalizeCollectionStatus((string)($quality['status'] ?? 'warning')),
+                'platform' => (string)($row['source'] ?? ''),
+                'hotel_id' => $row['system_hotel_id'] ?? $row['hotel_id'] ?? null,
+                'reason' => (string)($quality['summary'] ?? ''),
+                'action' => 'review missing fields and raw payload mapping',
+                'entry' => '',
+            ];
+            if (count($actions) >= 20) {
+                break;
+            }
+        }
+
+        return array_slice($actions, 0, 20);
+    }
+
+    private function filterCollectionAlertsByHotel(array $alerts, ?int $hotelId): array
+    {
+        return array_values(array_filter($alerts, function (array $alert) use ($hotelId): bool {
+            $alertHotelId = (int)($alert['hotel_id'] ?? 0);
+            if ($hotelId !== null) {
+                return $alertHotelId === 0 || $alertHotelId === $hotelId;
+            }
+            return $alertHotelId === 0 || $this->canSeeCookieHotel($alertHotelId);
+        }));
+    }
+
+    private function buildCollectionLogRows(?int $hotelId, string $startDate, string $endDate, int $limit): array
+    {
+        $hotelIds = $hotelId !== null ? [$hotelId] : $this->resolveAutoFetchRecordHotelIds('');
+        if (empty($hotelIds)) {
+            $hotelIds = $this->visibleCookieHotelIds();
+        }
+
+        $hotelMap = $this->getAutoFetchRecordHotelMap($hotelIds);
+        $filters = [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ];
+        $rows = [];
+        foreach ($hotelIds as $id) {
+            $status = cache($this->autoFetchStatusKey((int)$id));
+            if (!is_array($status)) {
+                continue;
+            }
+            $rows = array_merge($rows, $this->buildAutoFetchRecordRows($status, (int)$id, (string)($hotelMap[(int)$id] ?? ('Hotel ID ' . $id)), $filters));
+        }
+
+        usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['run_time'] ?? ''), (string)($a['run_time'] ?? '')));
+        return array_slice($rows, 0, max(1, $limit));
+    }
+
+    private function buildCollectionFailureReasons(array $alerts, array $collectionLogs, int $limit): array
+    {
+        $rows = [];
+        foreach ($alerts as $alert) {
+            $rows[] = [
+                'type' => 'authorization',
+                'platform' => (string)($alert['platform'] ?? ''),
+                'hotel_id' => $alert['hotel_id'] ?? null,
+                'occurred_at' => (string)($alert['created_at'] ?? ''),
+                'reason' => (string)($alert['message'] ?? ''),
+                'next_action' => (string)($alert['next_action'] ?? ''),
+                'source_ref' => 'SystemConfig.ota_cookie_alerts',
+            ];
+        }
+
+        foreach ($collectionLogs as $log) {
+            if (($log['status'] ?? '') !== 'failed') {
+                continue;
+            }
+            $rows[] = [
+                'type' => 'collection',
+                'platform' => (string)($log['platform'] ?? ''),
+                'hotel_id' => $log['hotel_id'] ?? null,
+                'occurred_at' => (string)($log['run_time'] ?? ''),
+                'data_date' => (string)($log['data_date'] ?? ''),
+                'reason' => (string)($log['message'] ?? ''),
+                'next_action' => '检查授权、字段结构和平台接口返回后重试采集',
+                'source_ref' => 'cache.online_data_auto_fetch_status',
+                'record_id' => (string)($log['id'] ?? ''),
+            ];
+        }
+
+        usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['occurred_at'] ?? ''), (string)($a['occurred_at'] ?? '')));
+        return array_slice($rows, 0, max(1, $limit));
+    }
+
+    private function buildOtaCollectionFieldDefinitions(): array
+    {
+        return [
+            [
+                'source' => 'ctrip',
+                'module' => 'traffic',
+                'storage_table' => 'online_daily_data',
+                'fields' => [
+                    ['field' => 'list_exposure', 'label' => '列表页曝光量', 'source_fields' => ['myHotel.totalListExposure', 'totalListExposure', 'listExposure'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'detail_exposure', 'label' => '详情页访客量', 'source_fields' => ['myHotel.totalDetailExposure', 'totalDetailExposure', 'detailExposure'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'flow_rate', 'label' => '曝光转化率', 'source_fields' => ['listTransforDetailRate', 'flowRate'], 'calculation' => '详情页访客量 / 列表页曝光量 * 100', 'required' => false],
+                    ['field' => 'order_filling_num', 'label' => '订单页访客量', 'source_fields' => ['orderFillingNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                    ['field' => 'order_submit_num', 'label' => '订单提交人数', 'source_fields' => ['orderSubmitNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                ],
+            ],
+            [
+                'source' => 'ctrip',
+                'module' => 'business',
+                'storage_table' => 'online_daily_data',
+                'fields' => [
+                    ['field' => 'amount', 'label' => '营业额', 'source_fields' => ['amount', 'totalAmount', 'saleAmount'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'quantity', 'label' => '间夜量', 'source_fields' => ['quantity', 'roomNights', 'checkOutQuantity'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'book_order_num', 'label' => '订单数', 'source_fields' => ['bookOrderNum', 'orderCount', 'orders'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'comment_score', 'label' => '点评分', 'source_fields' => ['commentScore', 'score'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                ],
+            ],
+            [
+                'source' => 'meituan',
+                'module' => 'business',
+                'storage_table' => 'online_daily_data',
+                'fields' => [
+                    ['field' => 'data_value', 'label' => '榜单指标值', 'source_fields' => ['dataValue', 'monthRoomNights'], 'calculation' => '按美团榜单维度保存原始指标值', 'required' => true],
+                    ['field' => 'dimension', 'label' => '榜单维度', 'source_fields' => ['dimension', 'dimName', '_dimName'], 'calculation' => '平台维度名称直接入库', 'required' => true],
+                    ['field' => 'amount', 'label' => '营业额', 'source_fields' => ['amount', 'saleAmount'], 'calculation' => '如接口返回则直接入库', 'required' => false],
+                    ['field' => 'quantity', 'label' => '间夜量', 'source_fields' => ['quantity', 'roomNights'], 'calculation' => '如接口返回则直接入库', 'required' => false],
+                ],
+            ],
+            [
+                'source' => 'meituan',
+                'module' => 'traffic',
+                'storage_table' => 'online_daily_data',
+                'fields' => [
+                    ['field' => 'list_exposure', 'label' => '列表页曝光量', 'source_fields' => ['self_list_exposure', 'totalListExposure', 'listExposure'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'detail_exposure', 'label' => '详情页访客量', 'source_fields' => ['self_detail_exposure', 'totalDetailExposure', 'detailExposure'], 'calculation' => '平台原始值直接入库', 'required' => true],
+                    ['field' => 'flow_rate', 'label' => '曝光转化率', 'source_fields' => ['flowRate'], 'calculation' => '详情页访客量 / 列表页曝光量 * 100', 'required' => false],
+                    ['field' => 'order_filling_num', 'label' => '订单页访客量', 'source_fields' => ['self_order_filling_num', 'orderFillingNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                    ['field' => 'order_submit_num', 'label' => '订单提交人数', 'source_fields' => ['self_order_submit_num', 'orderSubmitNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
+                ],
+            ],
+        ];
+    }
+
+    private function loadCollectionQualityRows(?int $hotelId, string $startDate, string $endDate, int $limit): array
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        $fields = array_values(array_filter([
+            'id', 'system_hotel_id', 'hotel_id', 'hotel_name', 'source', 'data_type', 'data_date',
+            'amount', 'quantity', 'book_order_num', 'comment_score', 'qunar_comment_score', 'data_value',
+            'dimension', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+            'raw_data', 'validation_status', 'validation_flags', 'create_time', 'update_time',
+        ], static fn(string $field): bool => isset($columns[$field])));
+
+        if (empty($fields)) {
+            return [];
+        }
+
+        $query = Db::name('online_daily_data')
+            ->field($fields)
+            ->where('data_date', '>=', $startDate)
+            ->where('data_date', '<=', $endDate);
+
+        if (!$this->applyCollectionHotelScope($query, $hotelId, $columns)) {
+            return [];
+        }
+
+        return $query
+            ->order('data_date', 'desc')
+            ->order('id', 'desc')
+            ->limit(max(1, $limit))
+            ->select()
+            ->toArray();
+    }
+
+    private function buildCollectionHistoryReplayRows(?int $hotelId, string $startDate, string $endDate, int $limit): array
+    {
+        $rows = $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, $limit);
+        $result = [];
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            $quality = $this->buildOnlineDataQuality($row);
+            $result[] = [
+                'id' => $id,
+                'source_ref' => 'online_daily_data#' . $id,
+                'replay_api' => $id > 0 ? '/api/online-data/history/' . $id : '',
+                'data_date' => (string)($row['data_date'] ?? ''),
+                'source' => (string)($row['source'] ?? ''),
+                'data_type' => (string)($row['data_type'] ?? ''),
+                'system_hotel_id' => $row['system_hotel_id'] ?? null,
+                'hotel_id' => $row['hotel_id'] ?? null,
+                'hotel_name' => (string)($row['hotel_name'] ?? ''),
+                'quality_status' => (string)($quality['status'] ?? ''),
+                'quality_score' => (int)($quality['score'] ?? 0),
+                'metric_preview' => $this->buildCollectionMetricPreview($row),
+                'raw_data_available' => trim((string)($row['raw_data'] ?? '')) !== '',
+                'updated_at' => (string)($row['update_time'] ?? $row['create_time'] ?? ''),
+            ];
+        }
+        return $result;
+    }
+
+    private function applyCollectionHotelScope($query, ?int $hotelId, array $columns): bool
+    {
+        if ($hotelId !== null) {
+            if (isset($columns['system_hotel_id'])) {
+                $query->where('system_hotel_id', $hotelId);
+            } elseif (isset($columns['hotel_id'])) {
+                $query->where('hotel_id', (string)$hotelId);
+            }
+        }
+
+        if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
+            if (!isset($columns['system_hotel_id'])) {
+                return false;
+            }
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds)) {
+                return false;
+            }
+            $query->whereIn('system_hotel_id', $permittedHotelIds);
+        }
+
+        return true;
+    }
+
+    private function buildCollectionQualitySnapshot(array $rows): array
+    {
+        $summary = $this->buildOnlineDataQualitySummary($rows);
+        $checkedRecords = (int)($summary['checked_records'] ?? 0);
+        if ($checkedRecords === 0) {
+            return array_merge($summary, [
+                'status' => 'no_data',
+                'score' => 0,
+                'grade' => 'no_data',
+                'coverage_days' => 0,
+                'source_breakdown' => [],
+                'scoring_rule' => 'Average of per-record online_daily_data quality scores in the selected period.',
+            ]);
+        }
+
+        $scoreTotal = 0;
+        $dates = [];
+        $sourceBreakdown = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $quality = $this->buildOnlineDataQuality($row);
+            $scoreTotal += (int)($quality['score'] ?? 0);
+            $date = (string)($row['data_date'] ?? '');
+            if ($date !== '') {
+                $dates[$date] = true;
+            }
+            $source = (string)($row['source'] ?? 'unknown');
+            $type = (string)($row['data_type'] ?? 'business');
+            $key = $source . ':' . $type;
+            if (!isset($sourceBreakdown[$key])) {
+                $sourceBreakdown[$key] = [
+                    'source' => $source,
+                    'data_type' => $type,
+                    'records' => 0,
+                    'issue_records' => 0,
+                ];
+            }
+            $sourceBreakdown[$key]['records']++;
+            if (($quality['status'] ?? 'ok') !== 'ok') {
+                $sourceBreakdown[$key]['issue_records']++;
+            }
+        }
+
+        $score = round($scoreTotal / $checkedRecords, 1);
+        $status = (string)($summary['status'] ?? 'ok');
+        if ($score < 60 && $status !== 'error') {
+            $status = 'error';
+        } elseif ($score < 85 && $status === 'ok') {
+            $status = 'warning';
+        }
+
+        return array_merge($summary, [
+            'status' => $status,
+            'score' => $score,
+            'grade' => $score >= 90 ? 'A' : ($score >= 75 ? 'B' : ($score >= 60 ? 'C' : 'D')),
+            'coverage_days' => count($dates),
+            'source_breakdown' => array_values($sourceBreakdown),
+            'scoring_rule' => 'Average of per-record online_daily_data quality scores in the selected period.',
+        ]);
+    }
+
+    private function buildCollectionMetricPreview(array $row): array
+    {
+        $preview = [];
+        foreach ([
+            'amount', 'quantity', 'book_order_num', 'data_value', 'dimension',
+            'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+            'comment_score', 'qunar_comment_score',
+        ] as $field) {
+            if (array_key_exists($field, $row) && $row[$field] !== null && $row[$field] !== '') {
+                $preview[$field] = $row[$field];
+            }
+        }
+        return $preview;
+    }
+
+
     /**
      * 更新线上数据
      */
     public function updateData(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
 
-        $id = intval($this->request->post('id', 0));
+        $id = intval($this->request->param('id', 0));
         if ($id <= 0) {
             return $this->error('无效的数据ID');
         }
@@ -5290,8 +14170,9 @@ JAVASCRIPT;
     public function deleteData(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
 
-        $id = intval($this->request->post('id', 0));
+        $id = intval($this->request->param('id', 0));
         if ($id <= 0) {
             return $this->error('无效的数据ID');
         }
@@ -5325,6 +14206,7 @@ JAVASCRIPT;
     public function batchDelete(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
 
         $ids = $this->request->post('ids', []);
         if (empty($ids) || !is_array($ids)) {
@@ -5672,6 +14554,8 @@ HTML;
     public function fetchCtripComments(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
 
         $requestUrl = $this->request->post('request_url', '');
         $hotelId = $this->request->post('hotel_id', '');
@@ -5690,6 +14574,9 @@ HTML;
 
         if (empty($requestUrl)) {
             return $this->error('请求地址不能为空');
+        }
+        if (!$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com'])) {
+            return $this->error('仅允许请求携程官方域名');
         }
         if (empty($cookies)) {
             return $this->error('Cookies不能为空');
@@ -5771,7 +14658,9 @@ HTML;
 
             if ($response === false) {
                 $error = error_get_last();
-                return $this->error('请求失败: ' . ($error['message'] ?? 'Unknown error'));
+                $message = '请求失败: ' . ($error['message'] ?? 'Unknown error');
+                $this->recordCookieAlert('ctrip', 'fetch-ctrip-comments', $message, $systemHotelId);
+                return $this->error($message);
             }
 
             // 解压gzip响应
@@ -5792,14 +14681,18 @@ HTML;
             }
 
             if ($httpCode !== 200) {
-                return $this->error('HTTP错误: ' . $httpCode);
+                $message = 'HTTP错误: ' . $httpCode;
+                $this->recordCookieAlert('ctrip', 'fetch-ctrip-comments', $message, $systemHotelId);
+                return $this->error($message);
             }
 
             $data = json_decode($decodedResponse, true);
 
             if ($data === null) {
                 $snippet = trim(strip_tags(substr($decodedResponse, 0, 300)));
-                return $this->error('JSON解析失败，可能Cookie/spidertoken已失效，或Payload/Header与携程当前请求不一致。响应摘要: ' . $snippet);
+                $message = 'JSON解析失败，可能Cookie/spidertoken已失效，或Payload/Header与携程当前请求不一致。响应摘要: ' . $snippet;
+                $this->recordCookieAlert('ctrip', 'fetch-ctrip-comments', $message, $systemHotelId);
+                return $this->error($message);
             }
 
             // 解析评论数据
@@ -5844,6 +14737,8 @@ HTML;
 
     private function parseAndSaveCtripComments(array $comments, array $payload, string $requestHotelId, string $fallbackDate = '', ?int $systemHotelId = null): int
     {
+        return 0;
+
         if (empty($comments)) {
             return 0;
         }
@@ -5878,7 +14773,7 @@ HTML;
             }
             $exists = $query->find();
 
-            $data = $this->filterOnlineDailyDataFields([
+            $data = $this->filterOnlineDailyDataFields($this->applyOnlineDailyDataValidationFields([
                 'hotel_id' => $commentHotelId,
                 'hotel_name' => (string)($comment['hotelName'] ?? $comment['hotel_name'] ?? ''),
                 'system_hotel_id' => $systemHotelId,
@@ -5895,7 +14790,7 @@ HTML;
                 'platform' => 'Ctrip',
                 'compare_type' => 'self',
                 'raw_data' => json_encode($comment, JSON_UNESCAPED_UNICODE),
-            ]);
+            ]));
 
             if ($exists) {
                 Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
@@ -5920,7 +14815,7 @@ HTML;
 
     private function extractCtripCommentDate(array $comment, string $fallbackDate): string
     {
-        foreach (['commentTime', 'comment_time', 'createTime', 'create_time', 'submitTime', 'submit_time', 'checkOutDate', 'date'] as $field) {
+        foreach (['commentTime', 'comment_time', 'reviewTime', 'review_time', 'createTime', 'create_time', 'submitTime', 'submit_time', 'checkOutDate', 'date'] as $field) {
             if (!isset($comment[$field]) || $comment[$field] === '') {
                 continue;
             }
@@ -5937,6 +14832,15 @@ HTML;
         if ($value === null || $value === '') {
             return '';
         }
+        $rawText = trim((string)$value);
+        if (preg_match('/^(19|20)\d{6}$/', $rawText)) {
+            $year = (int)substr($rawText, 0, 4);
+            $month = (int)substr($rawText, 4, 2);
+            $day = (int)substr($rawText, 6, 2);
+            if (checkdate($month, $day, $year)) {
+                return sprintf('%04d-%02d-%02d', $year, $month, $day);
+            }
+        }
         if (is_numeric($value)) {
             $timestamp = (int)$value;
             if ($timestamp > 9999999999) {
@@ -5944,7 +14848,7 @@ HTML;
             }
             return date('Y-m-d', $timestamp);
         }
-        $text = trim((string)$value);
+        $text = $rawText;
         if (preg_match('/(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/', $text, $matches)) {
             return sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
         }
@@ -5954,9 +14858,16 @@ HTML;
 
     private function extractCtripCommentScore(array $comment): float
     {
-        foreach (['score', 'rating', 'rate', 'totalScore', 'overallScore', 'commentScore'] as $field) {
+        foreach (['score', 'rating', 'rate', 'totalScore', 'overallScore', 'commentScore', 'star'] as $field) {
             if (isset($comment[$field]) && is_numeric($comment[$field])) {
-                return (float)$comment[$field];
+                $score = (float)$comment[$field];
+                if ($score > 5 && $score <= 50) {
+                    return round($score / 10, 1);
+                }
+                if ($score > 50 && $score <= 100) {
+                    return round($score / 20, 1);
+                }
+                return round($score, 1);
             }
         }
         return 0.0;
@@ -5968,13 +14879,15 @@ HTML;
     public function saveCtripCommentConfig(): Response
     {
         $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+        return $this->commentCollectionDisabledResponse();
 
         $name = $this->request->post('name', '');
         $hotelId = $this->request->post('hotel_id', '');
         $masterHotelId = $this->request->post('master_hotel_id', '');
         $requestUrl = $this->request->post('request_url', '');
         $cookies = $this->request->post('cookies', '');
-        $token = $this->request->post('token', '');
+        $token = $this->request->post('spidertoken', '') ?: $this->request->post('token', '');
 
         if (empty($name)) {
             $name = '携程点评-' . $hotelId;
@@ -5983,16 +14896,24 @@ HTML;
         if (empty($hotelId)) {
             return $this->error('Hotel ID不能为空');
         }
+        if ($requestUrl !== '' && !$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com'])) {
+            return $this->error('仅允许保存携程官方域名请求地址');
+        }
 
         // 获取配置列表
         $key = 'ctrip_comment_config_list';
         $list = $this->getConfigList($key);
 
         $id = md5($name . $hotelId);
+        $originalConfig = $list[$id] ?? [];
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', $originalConfig['system_hotel_id'] ?? null));
+        $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
         $list[$id] = [
             'id' => $id,
             'name' => $name,
             'hotel_id' => $hotelId,
+            'system_hotel_id' => $systemHotelId,
+            'user_id' => $userId,
             'master_hotel_id' => $masterHotelId,
             'request_url' => $requestUrl,
             'cookies' => $cookies,
@@ -6005,7 +14926,7 @@ HTML;
 
         OperationLog::record('online_data', 'save_ctrip_comment_config', "保存携程点评配置: {$name}", $this->currentUser->id);
 
-        return $this->success($list[$id], '配置保存成功');
+        return $this->success($this->sanitizeSecretConfig($list[$id]), '配置保存成功');
     }
 
     /**
@@ -6014,9 +14935,11 @@ HTML;
     public function getCtripCommentConfigList(): Response
     {
         $this->checkPermission();
+        return $this->success([]);
 
         $key = 'ctrip_comment_config_list';
         $list = $this->getConfigList($key);
+        $list = $this->filterOtaConfigListForCurrentUser($list);
 
         // 按更新时间降序排序
         $list = array_values($list);
@@ -6026,6 +14949,6 @@ HTML;
             return strcmp($timeB, $timeA);
         });
 
-        return $this->success($list);
+        return $this->success(array_map([$this, 'sanitizeSecretConfig'], $list));
     }
 }

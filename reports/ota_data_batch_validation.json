@@ -1,0 +1,54 @@
+{
+  "input_dir": "tests\\fixtures\\ota-data-batch",
+  "strict": false,
+  "summary": {
+    "file_count": 1,
+    "failed_file_count": 0,
+    "warning_file_count": 0,
+    "checked_rows": 1,
+    "failed_records": 0,
+    "warning_records": 0,
+    "abnormal_record_count": 0,
+    "error_count": 0,
+    "warning_count": 0
+  },
+  "results": [
+    {
+      "file": "tests\\fixtures\\ota-data-batch\\valid\\ota_rows.json",
+      "source_name": "ota_rows.json",
+      "status": "pass",
+      "checked_rows": 1,
+      "abnormal_records": 0,
+      "error_count": 0,
+      "warning_count": 0,
+      "summary": {
+        "checked_rows": 1,
+        "passed_records": 1,
+        "failed_records": 0,
+        "warning_records": 0,
+        "abnormal_records": 0
+      },
+      "record_results": [
+        {
+          "index": 1,
+          "row": "1001",
+          "source": "ctrip",
+          "hotel_id": "1001",
+          "hotel_name": "Valid Hotel",
+          "data_date": "2026-05-17",
+          "status": "pass",
+          "abnormal": false,
+          "abnormal_level": "normal",
+          "abnormal_reasons": [],
+          "errors": [],
+          "warnings": [],
+          "calculated_metrics": {
+            "ADR": 200
+          }
+        }
+      ],
+      "errors": [],
+      "warnings": []
+    }
+  ]
+}

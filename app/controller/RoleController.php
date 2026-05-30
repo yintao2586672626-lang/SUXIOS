@@ -42,7 +42,7 @@ class RoleController extends Base
     {
         $this->checkSuperAdmin();
         
-        $data = $this->request->post();
+        $data = $this->requestData();
         
         $this->validate($data, [
             'name' => 'require|max:50',
@@ -88,14 +88,14 @@ class RoleController extends Base
         
         // 超级管理员角色(id=1)只能修改权限
         if ($id === 1) {
-            $data = $this->request->post();
+            $data = $this->requestData();
             $role->permissions = isset($data['permissions']) ? json_encode($data['permissions']) : '[]';
             $role->save();
             OperationLog::record('role', 'update', '更新超级管理员权限', $this->currentUser->id);
             return $this->success($role, '更新成功');
         }
         
-        $data = $this->request->post();
+        $data = $this->requestData();
         
         // 检查标识唯一性
         if (!empty($data['name']) && $data['name'] != $role->name) {

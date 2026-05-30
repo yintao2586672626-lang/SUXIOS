@@ -1,0 +1,3 @@
+numpy>=1.26
+torch>=2.2
+cloakbrowser==0.3.31

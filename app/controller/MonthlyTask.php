@@ -100,7 +100,7 @@ class MonthlyTask extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fill_monthly_task');
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         $this->validate($data, [
             'hotel_id' => 'require|integer',
@@ -134,6 +134,9 @@ class MonthlyTask extends Base
 
         $task = new MonthlyTaskModel();
         $task->hotel_id = $hotelId;
+        if ($this->monthlyTasksHasColumn('tenant_id')) {
+            $task->tenant_id = $hotelId;
+        }
         $task->year = $data['year'];
         $task->month = $data['month'];
         $task->task_data = $taskData;
@@ -164,14 +167,12 @@ class MonthlyTask extends Base
             return $this->error('无权编辑此任务');
         }
 
-        $data = $this->request->post();
+        $data = $this->requestData();
 
         // 提取任务数据
         $taskData = $this->extractTaskData($data);
         
-        // 合并原有数据
-        $existingData = $task->task_data ?? [];
-        $task->task_data = array_merge($existingData, $taskData);
+        $task->task_data = $taskData;
         $task->save();
 
         OperationLog::record('monthly_task', 'update', "更新月任务: {$task->year}年{$task->month}月", $this->currentUser->id, $task->hotel_id);
@@ -230,7 +231,7 @@ class MonthlyTask extends Base
         
         $taskData = [];
         foreach ($fieldNames as $field) {
-            if (isset($data[$field])) {
+            if (array_key_exists($field, $data)) {
                 // 转换为数值类型
                 $value = $data[$field];
                 if (is_string($value)) {
@@ -254,6 +255,21 @@ class MonthlyTask extends Base
         }
         // 非超级管理员必须有酒店关联
         $this->requireHotel();
+    }
+
+    private function monthlyTasksHasColumn(string $column): bool
+    {
+        static $columns = null;
+        if ($columns === null) {
+            try {
+                $rows = Db::query('SHOW COLUMNS FROM monthly_tasks');
+                $columns = array_fill_keys(array_column($rows, 'Field'), true);
+            } catch (\Throwable $e) {
+                $columns = [];
+            }
+        }
+
+        return isset($columns[$column]);
     }
 
     /**

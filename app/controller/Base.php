@@ -57,6 +57,7 @@ abstract class Base
      */
     protected function error(string $message = '操作失败', int $code = 400, $data = null): Response
     {
+        $httpStatus = ($code >= 100 && $code <= 599) ? $code : 400;
         $result = [
             'code' => $code,
             'message' => $message,
@@ -64,12 +65,50 @@ abstract class Base
             'time' => time(),
         ];
 
-        return json($result);
+        return json($result, $httpStatus);
     }
 
     /**
      * 分页数据响应
      */
+    protected function requestData(): array
+    {
+        $data = $this->request->post();
+
+        if (empty($data) && strtoupper((string)$this->request->method()) === 'PUT') {
+            $data = $this->request->put();
+        }
+
+        if (empty($data)) {
+            $raw = (string)$this->request->getContent();
+            if (trim($raw) !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $data = $decoded;
+                }
+            }
+        }
+
+        return is_array($data) ? $data : [];
+    }
+
+    protected function validatePasswordPolicy(string $password, string $label = 'Password'): ?string
+    {
+        $minLength = (int)\app\model\SystemConfig::getValue(\app\model\SystemConfig::KEY_PASSWORD_MIN_LENGTH, '6');
+        $minLength = max(6, $minLength);
+
+        if (strlen($password) < $minLength) {
+            return "{$label}至少{$minLength}个字符";
+        }
+
+        $requireSpecial = \app\model\SystemConfig::getValue(\app\model\SystemConfig::KEY_PASSWORD_REQUIRE_SPECIAL, '0');
+        if (in_array((string)$requireSpecial, ['1', 'true', 'on', 'yes'], true) && !preg_match('/[^A-Za-z0-9]/', $password)) {
+            return "{$label}必须包含特殊字符";
+        }
+
+        return null;
+    }
+
     protected function paginate($list, int $total, int $page, int $pageSize): Response
     {
         return $this->success([
@@ -119,7 +158,7 @@ abstract class Base
             abort(401, '未登录');
         }
         
-        if (!$this->currentUser->isSuperAdmin() && empty($this->currentUser->hotel_id)) {
+        if (!$this->currentUser->isSuperAdmin() && empty($this->currentUser->getPermittedHotelIds())) {
             abort(403, '您未关联酒店，请联系管理员');
         }
     }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\model;
 
+use think\facade\Db;
 use think\Model;
 
 /**
@@ -20,6 +21,7 @@ class LoginLog extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'user_id' => 'integer',
         'client_info' => 'json',
     ];
@@ -66,6 +68,9 @@ class LoginLog extends Model
             $log->ip_address = $ip;
             $log->user_agent = substr($userAgent, 0, 500);
             $log->client_info = $clientInfo ?: null;
+            if (self::hasColumn('tenant_id')) {
+                $log->tenant_id = self::tenantIdForUser($userId);
+            }
             return $log->save();
         } catch (\Exception $e) {
             // 记录日志失败不影响主流程
@@ -103,5 +108,44 @@ class LoginLog extends Model
             ->order('created_at', 'desc')
             ->find()
             ?->toArray();
+    }
+
+    private static function tenantIdForUser(?int $userId): ?int
+    {
+        if (!$userId || $userId <= 0) {
+            return null;
+        }
+
+        try {
+            $row = Db::name('users')->where('id', $userId)->field('tenant_id,hotel_id')->find();
+            if (!$row) {
+                return null;
+            }
+
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            if ($tenantId > 0) {
+                return $tenantId;
+            }
+
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            return $hotelId > 0 ? $hotelId : null;
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    private static function hasColumn(string $column): bool
+    {
+        static $columns = null;
+        if ($columns === null) {
+            try {
+                $rows = Db::query('SHOW COLUMNS FROM login_logs');
+                $columns = array_fill_keys(array_map(static fn(array $row): string => (string)$row['Field'], $rows), true);
+            } catch (\Exception $e) {
+                $columns = [];
+            }
+        }
+
+        return isset($columns[$column]);
     }
 }

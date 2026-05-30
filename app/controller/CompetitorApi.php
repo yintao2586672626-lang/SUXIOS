@@ -6,12 +6,13 @@ namespace app\controller;
 use app\model\CompetitorDevice;
 use app\model\CompetitorHotel;
 use app\model\CompetitorPriceLog;
+use app\model\OperationLog;
 use think\Response;
 use think\facade\Db;
 
 class CompetitorApi extends Base
 {
-    private const TASK_TOKEN = 'shop2025';
+    private const TASK_TOKEN_ENV = 'COMPETITOR_TASK_TOKEN';
     private const REPORT_TOKEN_ENV = 'COMPETITOR_REPORT_TOKEN';
 
     public function task(): Response
@@ -20,11 +21,36 @@ class CompetitorApi extends Base
         $platform = (string)$this->request->post('platform', '');
         $token = (string)$this->request->post('token', '');
 
-        if ($token !== self::TASK_TOKEN) {
-            return json(['code' => 403, 'message' => 'token无效', 'data' => null]);
+        $rateLimitResponse = $this->enforceExternalRateLimit('task', $this->externalRateLimitIdentity($deviceId, $platform), 30, 60);
+        if ($rateLimitResponse !== null) {
+            return $rateLimitResponse;
+        }
+
+        $expectedToken = $this->getTaskToken();
+        if ($expectedToken === '') {
+            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 未配置Token', null, null, 'missing_task_token', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+            ]);
+            return $this->apiError('未配置COMPETITOR_TASK_TOKEN', 403);
+        }
+
+        if ($token === '' || !hash_equals($expectedToken, $token)) {
+            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: token无效', null, null, 'invalid_task_token', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+            ]);
+            return $this->apiError('token无效', 403);
         }
         if ($deviceId === '' || $platform === '') {
-            return json(['code' => 400, 'message' => '参数不完整', 'data' => null]);
+            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 参数不完整', null, null, 'invalid_task_payload', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+            ]);
+            return $this->apiError('参数不完整', 400);
         }
 
         $now = date('Y-m-d H:i:s');
@@ -64,20 +90,18 @@ class CompetitorApi extends Base
             ];
         }, $list);
 
+        OperationLog::record('competitor', 'task', '领取竞对采集任务: ' . count($data) . '条', null, null, null, [
+            'audit_type' => 'acquisition',
+            'device_id' => $this->sanitizeExternalAuditText($deviceId),
+            'platform' => $this->sanitizeExternalAuditText($platform),
+            'task_count' => count($data),
+        ]);
+
         return json(['code' => 200, 'message' => 'ok', 'data' => $data]);
     }
 
     public function report(): Response
     {
-        $expectedToken = $this->getReportToken();
-        if ($expectedToken === '') {
-            return json(['code' => 403, 'message' => '未配置COMPETITOR_REPORT_TOKEN', 'data' => null]);
-        }
-
-        if (!$this->isValidReportToken($expectedToken)) {
-            return json(['code' => 403, 'message' => 'report_token无效', 'data' => null]);
-        }
-
         $storeId = (int)$this->request->post('store_id', 0);
         $hotelId = (int)$this->request->post('hotel_id', 0);
         $platform = (string)$this->request->post('platform', '');
@@ -86,10 +110,56 @@ class CompetitorApi extends Base
         $base64 = (string)$this->request->post('base64', '');
         $deviceId = (string)$this->request->post('device_id', '');
 
-        if ($storeId <= 0 || $hotelId <= 0 || $platform === '' || $city === '' || $deviceId === '') {
-            return json(['code' => 400, 'message' => '参数不完整', 'data' => null]);
+        $rateLimitResponse = $this->enforceExternalRateLimit('report', $this->externalRateLimitIdentity($deviceId, $platform), 60, 60);
+        if ($rateLimitResponse !== null) {
+            return $rateLimitResponse;
         }
 
+        $expectedToken = $this->getReportToken();
+        if ($expectedToken === '') {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 未配置Token', null, $hotelId > 0 ? $hotelId : null, 'missing_report_token', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+            ]);
+            return $this->apiError('未配置COMPETITOR_REPORT_TOKEN', 403);
+        }
+
+        if (!$this->isValidReportToken($expectedToken)) {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: report_token无效', null, $hotelId > 0 ? $hotelId : null, 'invalid_report_token', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+            ]);
+            return $this->apiError('report_token无效', 403);
+        }
+
+        if ($storeId <= 0 || $hotelId <= 0 || $platform === '' || $city === '' || $deviceId === '') {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 参数不完整', null, $hotelId > 0 ? $hotelId : null, 'invalid_report_payload', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'store_id' => $storeId,
+            ]);
+            return $this->apiError('参数不完整', 400);
+        }
+
+        $target = CompetitorHotel::where('id', $hotelId)
+            ->where('store_id', $storeId)
+            ->where('platform', $platform)
+            ->where('status', 1)
+            ->find();
+        if (!$target) {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 竞对酒店不存在或未启用', null, $hotelId, 'competitor_hotel_not_found', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'store_id' => $storeId,
+            ]);
+            return $this->apiError('竞对酒店不存在或未启用', 403);
+        }
+
+        $city = (string)($target->city ?? $city);
         $price = $this->extractPrice($priceText);
 
         $screenshotPath = '';
@@ -98,6 +168,7 @@ class CompetitorApi extends Base
         }
 
         $log = new CompetitorPriceLog();
+        $log->tenant_id = (int)($target->tenant_id ?? $target->store_id ?? 0);
         $log->store_id = $storeId;
         $log->hotel_id = $hotelId;
         $log->platform = $platform;
@@ -114,6 +185,15 @@ class CompetitorApi extends Base
             $device->last_time = date('Y-m-d H:i:s');
             $device->save();
         }
+
+        OperationLog::record('competitor', 'report', '上报竞对价格: ' . $hotelId, null, $hotelId, null, [
+            'audit_type' => 'operation',
+            'device_id' => $this->sanitizeExternalAuditText($deviceId),
+            'platform' => $this->sanitizeExternalAuditText($platform),
+            'store_id' => $storeId,
+            'price' => $price,
+            'price_log_id' => (int)$log->id,
+        ]);
 
         return json(['code' => 200, 'message' => 'ok', 'data' => ['id' => $log->id]]);
     }
@@ -133,30 +213,65 @@ class CompetitorApi extends Base
 
     private function getReportToken(): string
     {
-        $token = trim((string)env(self::REPORT_TOKEN_ENV, ''));
-        if ($token !== '') {
-            return $token;
-        }
-
-        return $this->isLocalOrDevEnvironment() ? self::TASK_TOKEN : '';
+        return trim((string)env(self::REPORT_TOKEN_ENV, ''));
     }
 
-    private function isLocalOrDevEnvironment(): bool
+    private function getTaskToken(): string
     {
-        $appEnv = strtolower(trim((string)env('APP_ENV', '')));
-        if (in_array($appEnv, ['local', 'dev', 'development'], true)) {
-            return true;
-        }
-        if ($appEnv !== '') {
-            return false;
+        return trim((string)env(self::TASK_TOKEN_ENV, ''));
+    }
+
+    private function apiError(string $message, int $status): Response
+    {
+        return json(['code' => $status, 'message' => $message, 'data' => null], $status);
+    }
+
+    private function enforceExternalRateLimit(string $scope, string $identity, int $limit, int $window): ?Response
+    {
+        $identity = $identity !== '' ? $identity : (string)$this->request->ip();
+        $key = sprintf('competitor_api_rate_%s_%s', $scope, sha1($identity . '|' . (string)$this->request->ip()));
+        $count = (int)cache($key);
+
+        if ($count >= $limit) {
+            OperationLog::record('competitor', 'external_rate_limited', '竞对公开接口触发限流: ' . $scope, null, null, 'HTTP 429', [
+                'audit_type' => 'operation',
+                'scope' => $scope,
+                'limit' => $limit,
+                'window' => $window,
+                'identity' => $this->sanitizeExternalAuditText($identity),
+            ]);
+
+            return json([
+                'code' => 429,
+                'message' => '请求过于频繁，请稍后再试',
+                'data' => [
+                    'retry_after' => $window,
+                    'limit' => $limit,
+                    'window' => $window,
+                ],
+            ], 429, ['Retry-After' => (string)$window]);
         }
 
-        $appDebug = env('APP_DEBUG', false);
-        if (is_bool($appDebug)) {
-            return $appDebug;
+        cache($key, $count + 1, $window + 5);
+        return null;
+    }
+
+    private function externalRateLimitIdentity(string $deviceId, string $platform): string
+    {
+        $deviceId = $this->sanitizeExternalAuditText($deviceId);
+        $platform = $this->sanitizeExternalAuditText($platform);
+
+        return trim($deviceId . '|' . $platform, '|');
+    }
+
+    private function sanitizeExternalAuditText(string $value): string
+    {
+        $value = trim($value);
+        if (mb_strlen($value, 'UTF-8') > 80) {
+            return mb_substr($value, 0, 80, 'UTF-8') . '...';
         }
 
-        return in_array(strtolower(trim((string)$appDebug)), ['1', 'true', 'yes', 'on'], true);
+        return $value;
     }
 
     private function extractPrice(string $text): float

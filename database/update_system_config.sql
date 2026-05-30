@@ -11,6 +11,29 @@ INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `creat
 SELECT 'menu_users_name', '用户管理', '用户管理菜单名称', NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `system_config` WHERE `config_key` = 'menu_users_name');
 
+-- 检查并添加注册与密码策略配置
+INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `create_time`, `update_time`)
+SELECT 'enable_registration', '1', '启用用户注册', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `system_config` WHERE `config_key` = 'enable_registration');
+
+UPDATE `system_config`
+SET `config_value` = '1', `update_time` = NOW()
+WHERE `config_key` = 'enable_registration'
+  AND LOWER(TRIM(COALESCE(`config_value`, ''))) IN ('', '0', 'false', 'off', 'no');
+
+INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `create_time`, `update_time`)
+SELECT 'password_min_length', '6', '密码最小长度', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `system_config` WHERE `config_key` = 'password_min_length');
+
+UPDATE `system_config`
+SET `config_value` = '6', `update_time` = NOW()
+WHERE `config_key` = 'password_min_length'
+  AND (TRIM(COALESCE(`config_value`, '')) = '' OR CAST(`config_value` AS UNSIGNED) < 6);
+
+INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `create_time`, `update_time`)
+SELECT 'password_require_special', '0', '密码要求特殊字符', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `system_config` WHERE `config_key` = 'password_require_special');
+
 -- 检查并添加微信小程序配置
 INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `create_time`, `update_time`)
 SELECT 'wechat_mini_appid', '', '微信小程序AppID', NOW(), NOW()
@@ -29,5 +52,4 @@ INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `creat
 SELECT 'complaint_mini_use_scene', '1', '吐槽码小程序使用scene', NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `system_config` WHERE `config_key` = 'complaint_mini_use_scene');
 
--- 查看当前所有配置
-SELECT * FROM `system_config` ORDER BY `id`;
+-- 初始化脚本不输出全量配置，避免打印 Cookie、Token、API Key 等敏感值。

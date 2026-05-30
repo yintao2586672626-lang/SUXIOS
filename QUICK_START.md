@@ -29,10 +29,10 @@ PATH 中的 php
 
 ## 数据库导入
 
-仓库已包含数据库备份：
+仓库已包含完整初始化入口：
 
 ```text
-hotelx_dump.sql
+database/init_full.sql
 ```
 
 创建数据库：
@@ -44,10 +44,12 @@ C:\xampp\mysql\bin\mysql.exe -u root -e "CREATE DATABASE IF NOT EXISTS hotelx CH
 导入数据：
 
 ```powershell
-C:\xampp\mysql\bin\mysql.exe -u root hotelx < hotelx_dump.sql
+C:\xampp\mysql\bin\mysql.exe -u root hotelx < database/init_full.sql
 ```
 
 如果 XAMPP 安装在 D 盘，请把命令中的 `C:\xampp` 改为 `D:\xampp`。
+
+`database/hotel_admin_mysql.sql` 是可提交的基础 dump；完整初始化必须使用 `database/init_full.sql`，它会补齐当前代码使用的迁移表和字段。
 
 ## 环境变量
 
@@ -123,6 +125,53 @@ http://127.0.0.1:8080/api/health
 {"status":"ok","time":"2026-05-08 07:23:11"}
 ```
 
+## Windows 验证命令
+
+在 PowerShell 中如果 `npm run ...` 被执行策略拦截，使用 `npm.cmd run ...`：
+
+```powershell
+npm.cmd run verify:p0-guards
+npm.cmd run test:e2e:quick
+```
+
+`test:e2e:edge` 是边界输入深度扫描，耗时明显高于 quick 回归，按需单独运行。
+
+如果 `composer` 不在 PATH，但 XAMPP PHP 可用，可直接运行本地 PHPUnit：
+
+```powershell
+C:\xampp\php\php.exe vendor\bin\phpunit --colors=never
+```
+
+当前 `type-check` 仅在仓库存在 `.ts` 或 `.d.ts` 输入时执行 TypeScript 编译；没有 TypeScript 输入时会显示 skipped，不能替代 `test:e2e:quick` 或 PHP 单元测试。
+
+## 进程排查
+
+如果多个端口都启动过开发服务，先确认当前项目的 PHP 进程：
+
+```powershell
+Get-CimInstance Win32_Process -Filter "name = 'php.exe'" | Select-Object ProcessId,CommandLine
+```
+
+只停止确认属于当前项目且不再使用的进程：
+
+```powershell
+Stop-Process -Id <ProcessId> -Force
+```
+
+## AI 与外部数据源配置
+
+`.env` 只保存本机配置，不提交到 GitHub。启用 AI 或外部数据源前，至少确认：
+
+```text
+AI_CONFIG_SECRET
+DEEPSEEK_API_KEY 或数据库中的 AI 模型密钥
+OPENAI_API_KEY 或数据库中的 OpenAI 兼容模型密钥
+AMAP_KEY / AMAP_WEB_API_KEY（需要外部地图和信号数据时）
+CRON_TOKEN（需要定时抓取入口时）
+```
+
+`config/llm.php` 默认读取 DeepSeek 配置；如果没有 `DEEPSEEK_API_KEY`，相关 LLM 能力会依赖数据库中的 AI 模型配置或显式报配置缺失。
+
 ## 常见问题
 
 ### 未找到 PHP
@@ -131,11 +180,11 @@ http://127.0.0.1:8080/api/health
 
 ### 未检测到 hotelx 数据库
 
-先执行数据库创建和 `hotelx_dump.sql` 导入。
+先执行数据库创建和 `database/init_full.sql` 导入。
 
 ### 核心表缺失
 
-说明数据库可能没有完整导入，重新确认 `hotelx_dump.sql` 是否导入成功。
+说明数据库可能没有完整导入，重新确认 `database/init_full.sql` 是否导入成功。
 
 ### 8080-8099 端口均不可用
 

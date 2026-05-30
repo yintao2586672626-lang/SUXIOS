@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS `hotel_field_template_items` (
 
 CREATE TABLE IF NOT EXISTS `competitor_hotel` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `tenant_id` INT UNSIGNED DEFAULT NULL,
     `store_id` INT UNSIGNED NOT NULL DEFAULT 0,
     `platform` VARCHAR(20) NOT NULL DEFAULT '',
     `city` VARCHAR(80) NOT NULL DEFAULT '',
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS `competitor_hotel` (
     INDEX `idx_platform` (`platform`),
     INDEX `idx_status` (`status`),
     INDEX `idx_city` (`city`),
+    INDEX `idx_competitor_hotel_tenant_store` (`tenant_id`, `store_id`, `status`),
     INDEX `idx_store_platform_status` (`store_id`, `platform`, `status`),
     INDEX `idx_hotel_code` (`hotel_code`),
     INDEX `idx_created_at` (`created_at`)
@@ -115,6 +117,7 @@ CREATE TABLE IF NOT EXISTS `competitor_wechat_robot` (
 
 CREATE TABLE IF NOT EXISTS `feasibility_reports` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `tenant_id` INT UNSIGNED DEFAULT NULL,
     `project_name` VARCHAR(120) NOT NULL,
     `input_json` LONGTEXT DEFAULT NULL,
     `snapshot_json` LONGTEXT DEFAULT NULL,
@@ -126,6 +129,7 @@ CREATE TABLE IF NOT EXISTS `feasibility_reports` (
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at` DATETIME DEFAULT NULL,
+    INDEX `idx_feasibility_reports_tenant_user` (`tenant_id`, `created_by`, `id`),
     INDEX `idx_created_by` (`created_by`),
     INDEX `idx_grade` (`conclusion_grade`),
     INDEX `idx_created_at` (`created_at`),

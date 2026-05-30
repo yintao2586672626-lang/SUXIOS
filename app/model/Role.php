@@ -42,11 +42,33 @@ class Role extends Model
      */
     public function getPermissionList(): array
     {
-        $permissions = $this->permissions;
+        return self::normalizePermissions($this->permissions);
+    }
+
+    public static function normalizePermissions($permissions): array
+    {
         if (empty($permissions)) {
             return [];
         }
-        return json_decode($permissions, true) ?: [];
+
+        $decoded = is_string($permissions) ? json_decode($permissions, true) : $permissions;
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $list = [];
+        foreach ($decoded as $key => $value) {
+            if (is_int($key)) {
+                $list[] = (string)$value;
+                continue;
+            }
+
+            if ($value) {
+                $list[] = (string)$key;
+            }
+        }
+
+        return array_values(array_unique($list));
     }
 
     /**
@@ -54,7 +76,30 @@ class Role extends Model
      */
     public function hasPermission(string $permission): bool
     {
-        $permissions = $this->getPermissionList();
-        return in_array('all', $permissions) || in_array($permission, $permissions);
+        return self::permissionListAllows($this->getPermissionList(), $permission);
+    }
+
+    public static function permissionListAllows(array $permissions, string $permission): bool
+    {
+        if (in_array('all', $permissions, true) || in_array($permission, $permissions, true)) {
+            return true;
+        }
+
+        $aliases = [
+            'can_view_report' => ['report_view'],
+            'can_fill_daily_report' => ['report_fill'],
+            'can_fill_monthly_task' => ['report_fill'],
+            'can_edit_report' => ['report_edit'],
+            'can_delete_report' => ['report_delete'],
+            'can_view_online_data' => ['hotel_view'],
+        ];
+
+        foreach ($aliases[$permission] ?? [] as $alias) {
+            if (in_array($alias, $permissions, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

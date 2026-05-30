@@ -1,6 +1,0 @@
-{
-	"dependencies": {
-		"coze-coding-dev-sdk": "^0.7.16",
-		"phpspreadsheet": "github:phpoffice/phpspreadsheet"
-	}
-}
