@@ -18,7 +18,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 
 | # | Scope | Blocker | Current evidence | Close condition |
 |---:|---|---|---|---|
-| 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env outside the repository with `APP_DEBUG=false`, least-privilege `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values. |
+| 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env outside the repository with `APP_DEBUG=false`, `APP_TRACE=false`, non-local `DB_HOST`, least-privilege `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values. |
 | 2 | `@openai-developers` | Production LLM connectivity attestation is missing | `docs/llm_connectivity_attestation.json` is missing and `LLM_CONNECTIVITY_ATTESTATION_FILE` is not set. | Run a production `LlmClient` connectivity smoke test using real `ai_model_configs` and provide a secret-free attestation JSON. |
 | 3 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, and flow coverage. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, and required flow coverage. |
 | 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 4498 credential-shaped matches across 2 files under `database/backups`. | Delete, sanitize, or encrypted-archive local backups and rerun the readiness check with no credential-shaped matches across backup text files. |
@@ -50,6 +50,8 @@ Required close evidence:
 
 - A controlled production env file exists outside the repository and is referenced through `RELEASE_ENV_FILE`, or `.env.production` exists in a controlled release workspace.
 - `APP_DEBUG=false`.
+- `APP_TRACE=false`.
+- `DB_HOST` does not point to localhost or loopback.
 - Database values are non-placeholder and non-empty.
 - `DB_USER` is not `root`.
 - `AI_CONFIG_SECRET` is present and non-placeholder.
