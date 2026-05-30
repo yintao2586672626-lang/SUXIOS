@@ -20,7 +20,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 |---:|---|---|---|---|
 | 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env outside the repository with `APP_DEBUG=false`, `APP_TRACE=false`, non-local `DB_HOST`, least-privilege `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values. |
 | 2 | `@openai-developers` | Production LLM connectivity attestation is missing | `docs/llm_connectivity_attestation.json` is missing and `LLM_CONNECTIVITY_ATTESTATION_FILE` is not set. | Run a production `LlmClient` connectivity smoke test using real `ai_model_configs` and provide a secret-free attestation JSON. |
-| 3 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, and flow coverage. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, and required flow coverage. |
+| 3 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, and empty `open_issues`. |
 | 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 4498 credential-shaped matches across 2 files under `database/backups`. | Delete, sanitize, or encrypted-archive local backups and rerun the readiness check with no credential-shaped matches across backup text files. |
 | 5 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, and readiness rerun. |
 | 6 | `@codex-security` | Formal repo-wide Codex Security scan is missing | `CODEX_SECURITY_SCAN_DIR` and `docs/security/codex-security/latest` scan artifacts are not present. | Authorize subagents and provide `scan_manifest.json`, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, and final Markdown/HTML reports. |
@@ -110,6 +110,8 @@ Required close evidence:
 - `docs/design_handoff_manifest.json` is created from `docs/design_handoff_manifest.example.json`; standalone design-token files or screenshots are not sufficient.
 - It includes accessible Figma URL, Canva URL, Brand Kit URL, `design_tokens_path`, owner, review date, covered flows, and open issues.
 - Covered flows include login, OTA data, revenue analysis, AI decision, operations management, and investment decision.
+- `last_reviewed_at` uses `YYYY-MM-DD`.
+- `open_issues` is an empty array before release.
 - `npm run review:release-readiness` no longer reports the design handoff failure.
 
 ### 6. Local Git State Must Be Closed Before Release
