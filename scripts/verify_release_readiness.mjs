@@ -44,6 +44,10 @@ function parseEnv(content) {
   return values;
 }
 
+function isPlaceholder(value) {
+  return String(value ?? '').trim() === '' || /TODO|CHANGE_ME|example|your-|placeholder/i.test(String(value));
+}
+
 function checkEnvReadiness() {
   const envFile = process.env.RELEASE_ENV_FILE || '.env.production';
   if (!exists(envFile)) {
@@ -56,19 +60,26 @@ function checkEnvReadiness() {
   const aiConfigSecret = env.get('AI_CONFIG_SECRET') ?? '';
   const dbPass = env.get('DB_PASS') ?? '';
 
+  const placeholderFields = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS', 'AI_CONFIG_SECRET'].filter((field) => {
+    return isPlaceholder(env.get(field));
+  });
+  if (placeholderFields.length > 0) {
+    addFailure(`Production env contains missing or placeholder values: ${placeholderFields.join(', ')}`);
+  }
+
   if (appDebug === 'false') {
     addPass('APP_DEBUG is false.');
   } else {
     addFailure('APP_DEBUG is not false; production must not expose debug mode.');
   }
 
-  if (aiConfigSecret.length >= 32) {
+  if (aiConfigSecret.length >= 32 && !isPlaceholder(aiConfigSecret)) {
     addPass('AI_CONFIG_SECRET is present with sufficient length.');
   } else {
     addFailure('AI_CONFIG_SECRET is missing or too short for encrypted AI model configs.');
   }
 
-  if (dbPass.length > 0) {
+  if (dbPass.length > 0 && !isPlaceholder(dbPass)) {
     addPass('DB_PASS is non-empty.');
   } else {
     addFailure('DB_PASS is empty; production database must not use an empty password.');
@@ -97,7 +108,7 @@ function walkFiles(dir, output = []) {
   let entries = [];
   try {
     entries = fs.readdirSync(absolute, { withFileTypes: true });
-  } catch (error) {
+  } catch {
     addWarning(`Skipped unreadable local path during release scan: ${dir}`);
     return output;
   }
@@ -123,8 +134,8 @@ function checkDesignArtifacts() {
     /(^|\/).*\.tokens\.json$/i,
   ];
   const matches = walkFiles('.').filter((file) => designPatterns.some((pattern) => pattern.test(file)));
-
   const manifestPath = 'docs/design_handoff_manifest.json';
+
   if (!exists(manifestPath) && matches.length === 0) {
     addFailure('No Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json were found.');
     return;
@@ -144,6 +155,7 @@ function checkDesignArtifacts() {
       const value = String(manifest[field] ?? '').trim();
       return value === '' || value.includes('TODO') || value.includes('example.com');
     });
+
     if (missingFields.length > 0) {
       addFailure(`Design handoff manifest is incomplete: ${missingFields.join(', ')}`);
     } else if (!/^https:\/\/(www\.)?figma\.com\//.test(String(manifest.figma_url))) {
