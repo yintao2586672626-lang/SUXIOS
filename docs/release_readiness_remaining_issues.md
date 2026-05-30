@@ -93,7 +93,8 @@
 - 不把 `database/backups/` 放入任何发布包。
 - 对真实 OTA Cookie/Token 执行轮换或失效处理。
 - 生产备份使用加密存储和最小权限访问。
-- 完成后按 `docs/ota_credential_rotation_checklist.md` 复扫并记录，不在文档中粘贴真实凭证。
+- 完成后按 `docs/ota_credential_rotation_checklist.md` 复扫，并基于 `docs/ota_credential_rotation_attestation.example.json` 创建受控证明；可通过 `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 指向该证明参与发布就绪检查。
+- 证明文件只保留内部工单、审计记录或安全存储引用，不粘贴真实 Cookie、Token、签名或 Authorization 内容。
 
 ### 4. Figma / Canva 真实设计源未归档
 
@@ -147,5 +148,6 @@
 - `composer audit` 与 `npm audit` 均可执行且无高危阻断。
 - Codex Security repo-wide 扫描完成并产出报告。
 - 发布包确认不包含 `.env`、`database/backups/`、本地采集 profile、采集报告 JSON、截图资产。
+- `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 或 `docs/ota_credential_rotation_attestation.json` 通过发布就绪检查，且不包含真实凭证。
 - Figma/Canva 或等价设计交付物完成归档。
 - OTA 指标对外展示继续标注 OTA 渠道口径，不把 OTA-only 数据表述为全酒店经营口径。
