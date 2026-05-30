@@ -114,7 +114,7 @@
     "result_file_template": "docs/release_external_state_result.example.json",
     "resolved": [
       "GitHub PR checks are currently green on the latest inspected head",
-      "PR #1 is mergeable at 568a09c902ee007643e56cc5075690c15439337d",
+      "PR #1 is mergeable on the latest collected head",
       "database/backups is not tracked by git",
       "local external-state evidence can be collected with npm run collect:release-external-state when Node child_process is blocked"
     ],
