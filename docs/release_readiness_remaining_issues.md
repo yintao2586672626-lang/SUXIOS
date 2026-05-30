@@ -25,17 +25,17 @@
 
 范围：`@openai-developers`、发布配置
 
-当前 `.env` 仍显示：
+当前仓库未提供可验证的生产 env 文件。`npm run review:release-readiness` 默认检查 `.env.production`，也可以通过 `RELEASE_ENV_FILE` 指向受控生产配置文件。
 
 | 配置项 | 当前状态 | 风险 |
 |---|---|---|
-| `APP_DEBUG` | `true` | 生产环境不应开启调试 |
-| `AI_CONFIG_SECRET` | 已配置，长度 64 | `LlmClient` 读取数据库加密模型密钥依赖该值，生产必须保持一致 |
-| `DB_PASS` | 空 | 生产数据库不应使用空密码 |
+| `.env.production` / `RELEASE_ENV_FILE` | 未提供 | 无法证明生产 `APP_DEBUG=false`、数据库密码非空、AI 密钥解密配置正确 |
+| `AI_CONFIG_SECRET` | 本地 `.env` 已配置，长度 64 | 只能证明本地开发值存在，不能替代生产密钥验收 |
 
 处理要求：
 
 - 生产环境使用独立环境变量或部署密钥管理，不提交 `.env`。
+- 按 `docs/deployment_env_checklist.md` 准备受控生产 env，并用 `RELEASE_ENV_FILE` 运行发布就绪检查。
 - OpenAI/LLM 生产入口已收口为 `LlmClient` + 数据库 `ai_model_configs` 加密配置；上线前仍需确认生产数据库已配置启用模型。
 - 上线前用真实生产配置做一次受控 API 连通性验证。
 
@@ -48,7 +48,7 @@
 - `php scripts/verify_high_risk_security.php` 通过。
 - `npm audit --audit-level=moderate --json` 为 0 漏洞。
 - `rg` 确认 `app/` 与 `scripts/` 范围内未再命中 `eval(` / `shell_exec(`。
-- `npm run review:release-readiness` 已新增，当前输出 `3 passed, 4 warnings, 5 failures`，用于把发布阻断项显式暴露出来。
+- `npm run review:release-readiness` 已新增，用于把发布阻断项显式暴露出来。
 
 未完成：
 
