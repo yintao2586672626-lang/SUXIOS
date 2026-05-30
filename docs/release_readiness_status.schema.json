@@ -90,7 +90,7 @@
     },
     "external_state_check": {
       "type": "object",
-      "required": ["command", "status", "evidence_file_template", "resolved", "open_failures", "warnings"]
+      "required": ["command", "status", "evidence_file_template", "result_file_template", "resolved", "open_failures", "warnings"]
     },
     "plugin_status": {
       "type": "array",
