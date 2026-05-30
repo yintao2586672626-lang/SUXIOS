@@ -1,43 +1,45 @@
-# 生产环境配置验收清单
+# Production Env Release Checklist
 
-更新时间：2026-05-30
+Updated: 2026-05-30
 
-## 使用方式
+## Usage
 
-生产配置不得提交到 Git。可从 `.example.production.env` 复制到受控位置，替换所有 `CHANGE_ME` 值后运行：
+Production env files must not be committed to Git. Copy `.example.production.env` to a controlled location outside this repository, replace every `CHANGE_ME` value, then run:
 
 ```powershell
-$env:RELEASE_ENV_FILE='D:\path\to\production.env'
+$env:RELEASE_ENV_FILE='D:\controlled\production.env'
 npm.cmd run review:release-readiness
 ```
 
-不要直接把 `.example.production.env` 当作生产配置使用；发布检查会拒绝 `TODO`、`CHANGE_ME`、`example` 等占位值。
+Do not point `RELEASE_ENV_FILE` at `.example.production.env`, a sample/template file, or any env file inside the repository.
 
-## 必需项
+## Required Values
 
-| 配置项 | 生产要求 | 说明 |
+| Key | Production requirement | Notes |
 |---|---|---|
-| `APP_DEBUG` | `false` | 生产环境禁止调试输出 |
-| `DB_HOST` | 生产数据库地址 | 不使用本地开发库 |
-| `DB_NAME` | 生产数据库名 | 与发布库一致 |
-| `DB_USER` | 最小权限账号 | 不使用 root |
-| `DB_PASS` | 非空强密码 | 不使用空密码 |
-| `AI_CONFIG_SECRET` | 非空且稳定 | 必须与保存 `ai_model_configs.api_key_encrypted` 时一致 |
+| `APP_DEBUG` | `false` | Debug output must be disabled. |
+| `DB_HOST` | Production database host | Do not use a local development database. |
+| `DB_NAME` | Production database name | Must match the release database. |
+| `DB_USER` | Least-privilege database user | Do not use `root`. |
+| `DB_PASS` | Non-empty strong password | Empty database passwords are blocked. |
+| `AI_CONFIG_SECRET` | Non-placeholder secret, at least 32 characters | Must match the secret used for encrypted `ai_model_configs.api_key_encrypted`. |
 
-## OpenAI / LLM 配置
+## OpenAI / LLM Configuration
 
-当前生产 AI 调用入口为 `LlmClient`，模型、Base URL、API Key 存储在数据库 `ai_model_configs` 中，API Key 使用 `AI_CONFIG_SECRET` 加密。
+The production AI path is `LlmClient` with model, base URL, and encrypted API key stored in database `ai_model_configs`. Provider API keys are not read from an env-based `OpenAIClient`.
 
-上线前必须确认：
+Before release, confirm:
 
-- 至少一个生产模型配置已启用。
-- `base_url` 指向授权供应商地址。
-- `model_name` 是实际可用模型。
-- `api_key_encrypted` 可被生产 `AI_CONFIG_SECRET` 解密。
-- 完成一次受控真实连通性验证，并按 `docs/llm_connectivity_attestation.example.json` 记录状态；生产验收可通过 `LLM_CONNECTIVITY_ATTESTATION_FILE` 指向受控 JSON 文件。
+- At least one production model config is enabled.
+- `base_url` points to the authorized provider endpoint.
+- `model_name` is an actual deployed model.
+- `api_key_encrypted` can be decrypted with the production `AI_CONFIG_SECRET`.
+- A controlled real connectivity smoke test has passed.
+- The result is recorded using `docs/llm_connectivity_attestation.example.json` and checked through `LLM_CONNECTIVITY_ATTESTATION_FILE` or `docs/llm_connectivity_attestation.json`.
 
-## 不允许
+## Not Allowed
 
-- 把 `.env`、生产 env、API Key、OTA Cookie/Token 提交到 Git。
-- 用本地开发 `.env` 作为生产配置验收依据。
-- 使用空数据库密码或 root 账号发布。
+- Committing `.env`, production env files, API keys, OTA Cookie/Token values, signatures, or Authorization headers to Git.
+- Using local development `.env` as release evidence.
+- Using `.example.production.env`, sample, or template files as release evidence.
+- Using `root` or empty database passwords in production.
