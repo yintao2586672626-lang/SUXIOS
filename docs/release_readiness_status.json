@@ -63,7 +63,7 @@
       "status": "open",
       "title": "Real Figma / Canva / design-token handoff is missing",
       "evidence": "no real docs/design_handoff_manifest.json, Figma/Canva source, or design-token artifact is present",
-      "close_condition": "provide accessible Figma, Canva, Brand Kit, design_tokens_path, and required flow coverage"
+      "close_condition": "provide accessible Figma, Canva, Brand Kit, design_tokens_path, required flow coverage, YYYY-MM-DD review date, and empty open_issues"
     },
     {
       "id": "backup-credential-shaped-fields",
