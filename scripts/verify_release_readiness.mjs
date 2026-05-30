@@ -41,6 +41,12 @@ function exists(relativePath) {
   return fs.existsSync(path.join(repoRoot, relativePath));
 }
 
+function isPathInsideRepo(filePath) {
+  const resolved = path.resolve(repoRoot, filePath);
+  const relative = path.relative(repoRoot, resolved);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
 function sleepMs(milliseconds) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
@@ -98,10 +104,19 @@ function checkEnvReadiness() {
     return;
   }
 
+  const envBaseName = path.basename(envFile).toLowerCase();
+  if (envBaseName.includes('example') || envBaseName.includes('sample') || envBaseName.includes('template')) {
+    addFailure(`Production env file must not be an example/template file: ${envFile}.`);
+  }
+  if (process.env.RELEASE_ENV_FILE && isPathInsideRepo(envFile)) {
+    addFailure(`RELEASE_ENV_FILE must point to a controlled location outside the repository, not ${envFile}.`);
+  }
+
   const env = parseEnv(readText(envFile));
   const appDebug = (env.get('APP_DEBUG') ?? '').toLowerCase();
   const aiConfigSecret = env.get('AI_CONFIG_SECRET') ?? '';
   const dbPass = env.get('DB_PASS') ?? '';
+  const dbUser = env.get('DB_USER') ?? '';
 
   const placeholderFields = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS', 'AI_CONFIG_SECRET'].filter((field) => {
     return isPlaceholder(env.get(field));
@@ -126,6 +141,10 @@ function checkEnvReadiness() {
     addPass('DB_PASS is non-empty.');
   } else {
     addFailure('DB_PASS is empty; production database must not use an empty password.');
+  }
+
+  if (/^root$/i.test(dbUser.trim())) {
+    addFailure('DB_USER must not be root; production must use a least-privilege database user.');
   }
 }
 
