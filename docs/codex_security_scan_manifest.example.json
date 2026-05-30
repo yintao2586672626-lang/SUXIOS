@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "scan_mode": "repository-wide",
+  "target": "HOTEL",
+  "reviewed_at": "TODO: YYYY-MM-DD",
+  "reviewer": "TODO: reviewer name",
+  "subagents_authorized": true,
+  "phases": {
+    "threat_model": "completed",
+    "finding_discovery": "completed",
+    "validation": "completed",
+    "attack_path_analysis": "completed",
+    "final_report": "completed"
+  },
+  "artifacts": {
+    "report_md": "report.md",
+    "report_html": "report.html",
+    "threat_model": "artifacts/01_context/threat_model.md",
+    "finding_discovery_report": "artifacts/02_discovery/finding_discovery_report.md",
+    "repository_coverage_ledger": "artifacts/03_coverage/repository_coverage_ledger.md",
+    "reviewed_surfaces": "artifacts/03_coverage/reviewed_surfaces.md",
+    "validation_summary": "artifacts/05_findings/validation_summary.md",
+    "attack_path_analysis_report": "artifacts/05_findings/attack_path_analysis_report.md"
+  },
+  "final_report_validated": true,
+  "report_html_rendered": true,
+  "notes": "Place this as scan_manifest.json inside CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest after the formal scan completes."
+}
