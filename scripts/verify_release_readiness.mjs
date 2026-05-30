@@ -24,6 +24,15 @@ function readText(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function readTextIfSafe(relativePath) {
+  const buffer = fs.readFileSync(path.join(repoRoot, relativePath));
+  if (buffer.includes(0)) {
+    addWarning(`Skipped binary-looking backup file during credential scan: ${relativePath}`);
+    return null;
+  }
+  return buffer.toString('utf8');
+}
+
 function resolveOutputPath(outputPath) {
   return path.isAbsolute(outputPath) ? outputPath : path.join(repoRoot, outputPath);
 }
@@ -320,20 +329,25 @@ function checkBackups() {
     return;
   }
 
+  const credentialPattern = /usertoken|usersign|cookie\s*[:=]|authorization\s*[:=]|Bearer\s+\S+|access[_-]?token|refresh[_-]?token|session[_-]?token|api[_-]?key/gi;
   let credentialMatches = 0;
+  let matchedFiles = 0;
   for (const file of walkFiles('database/backups')) {
-    if (!file.endsWith('.sql')) {
+    const text = readTextIfSafe(file);
+    if (text === null) {
       continue;
     }
-    const text = readText(file);
-    const matches = text.match(/usertoken|usersign|cookie\s*[:=]/gi);
-    credentialMatches += matches ? matches.length : 0;
+    const matches = text.match(credentialPattern);
+    if (matches) {
+      matchedFiles += 1;
+      credentialMatches += matches.length;
+    }
   }
 
   if (credentialMatches > 0) {
-    addFailure(`database/backups contains OTA credential-shaped fields (${credentialMatches} matches). Rotate real credentials and exclude backups from release packages.`);
+    addFailure(`database/backups contains OTA credential-shaped fields (${credentialMatches} matches across ${matchedFiles} files). Rotate real credentials and exclude backups from release packages.`);
   } else {
-    addPass('No OTA credential-shaped fields were found in database/backups SQL files.');
+    addPass('No OTA credential-shaped fields were found in database/backups text files.');
   }
 }
 
