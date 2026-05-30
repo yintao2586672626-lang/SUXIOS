@@ -18,7 +18,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 
 | # | Scope | Blocker | Current evidence | Close condition |
 |---:|---|---|---|---|
-| 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env outside the repository with `APP_DEBUG=false`, `APP_TRACE=false`, non-local `DB_HOST`, least-privilege `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values. |
+| 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env outside the repository with `APP_DEBUG=false`, `APP_TRACE=false`, non-local `DB_HOST`, least-privilege `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values; `npm run review:release-env` must pass first. |
 | 2 | `@openai-developers` | Production LLM connectivity attestation is missing | `docs/llm_connectivity_attestation.json` is missing and `LLM_CONNECTIVITY_ATTESTATION_FILE` is not set. | Run a production `LlmClient` connectivity smoke test using real `ai_model_configs` and provide a secret-free attestation JSON. |
 | 3 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, and empty `open_issues`. |
 | 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 4498 credential-shaped matches across 2 files: `database/backups/hotelx_after_tenant_security_20260529_161926.sql` (2249) and `database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql` (2249). | Delete, sanitize, or encrypted-archive local backups and rerun the readiness check with no credential-shaped matches across backup text files. |
@@ -56,6 +56,7 @@ Required close evidence:
 - `DB_USER` is not `root`.
 - `AI_CONFIG_SECRET` is present and non-placeholder.
 - `RELEASE_ENV_FILE` does not point to `.example.production.env`, sample/template files, or a repo-local env file.
+- `npm run review:release-env` passes against the same `RELEASE_ENV_FILE`.
 - `npm run review:release-readiness` no longer reports the production env failure.
 
 ### 2. Production LLM Connectivity Is Not Proven
