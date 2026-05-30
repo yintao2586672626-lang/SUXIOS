@@ -8,10 +8,13 @@ Production env files must not be committed to Git. Copy `.example.production.env
 
 ```powershell
 $env:RELEASE_ENV_FILE='D:\controlled\production.env'
+npm.cmd run review:release-env
 npm.cmd run review:release-readiness
 ```
 
 Do not point `RELEASE_ENV_FILE` at `.example.production.env`, a sample/template file, or any env file inside the repository.
+
+`review:release-env` validates only the production env file. `review:release-readiness` uses the same env rules and then continues into LLM, design, backup, security-scan, and Git-state release blockers.
 
 ## Required Values
 
