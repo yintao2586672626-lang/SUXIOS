@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -26,6 +27,15 @@ function readText(relativePath) {
 
 function exists(relativePath) {
   return fs.existsSync(path.join(repoRoot, relativePath));
+}
+
+function runCommand(command, args) {
+  return spawnSync(command, args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    shell: false,
+    timeout: 30000,
+  });
 }
 
 function parseEnv(content) {
@@ -90,10 +100,18 @@ function walkFiles(dir, output = []) {
     return output;
   }
 
-  for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(absolute, { withFileTypes: true });
+  } catch (error) {
+    addWarning(`Skipped unreadable local path during release scan: ${dir}`);
+    return output;
+  }
+
+  for (const entry of entries) {
     const relative = path.join(dir, entry.name).replace(/\\/g, '/');
     if (entry.isDirectory()) {
-      if (['vendor', 'node_modules', '.git', 'runtime'].includes(entry.name)) {
+      if (['vendor', 'node_modules', '.git', 'runtime', '.pytest_cache'].includes(entry.name)) {
         continue;
       }
       walkFiles(relative, output);
@@ -109,6 +127,7 @@ function checkDesignArtifacts() {
     /\.(fig|sketch|xd|canva)$/i,
     /(^|\/)design-tokens\.json$/i,
     /(^|\/).*\.tokens\.json$/i,
+    /(^|\/)(figma|canva|brand|branding|design-system|ui-handoff)(\/|$)/i,
   ];
   const matches = walkFiles('.').filter((file) => designPatterns.some((pattern) => pattern.test(file)));
 
@@ -126,7 +145,22 @@ function checkBackups() {
   } else {
     addFailure('database/backups is not listed in .gitignore.');
   }
-  addWarning('Run `git ls-files database/backups` before release to confirm no backup file is tracked.');
+
+  const gitattributes = exists('.gitattributes') ? readText('.gitattributes') : '';
+  if (/^database\/backups\/\*\s+export-ignore\s*$/m.test(gitattributes)) {
+    addPass('database/backups is excluded from git archive exports.');
+  } else {
+    addFailure('database/backups is not marked export-ignore in .gitattributes.');
+  }
+
+  const trackedBackups = runCommand('git', ['ls-files', 'database/backups']);
+  if (trackedBackups.status !== 0) {
+    addFailure(`Unable to verify tracked database/backups files: ${trackedBackups.stderr || trackedBackups.error?.message || 'git ls-files failed'}`);
+  } else if (trackedBackups.stdout.trim() !== '') {
+    addFailure(`database/backups has tracked files:\n${trackedBackups.stdout.trim()}`);
+  } else {
+    addPass('database/backups has no tracked files.');
+  }
 
   const backupDir = path.join(repoRoot, 'database/backups');
   if (!fs.existsSync(backupDir)) {
@@ -151,6 +185,35 @@ function checkBackups() {
   }
 }
 
+function checkReleasePackageScope() {
+  const gitignore = exists('.gitignore') ? readText('.gitignore') : '';
+  const requiredIgnores = [
+    '.env',
+    '.env.*',
+    'database/backups/',
+    'hotelx_dump.sql',
+    '*_dump.sql',
+    '*_backup*.sql',
+    '/storage/meituan_profile_*/',
+    '/storage/ctrip_profile_*/',
+    'reports/ctrip_capture_assets/',
+    'reports/meituan_capture_assets/',
+    'reports/ctrip_browser_capture_*.json',
+    'reports/meituan_browser_capture_*.json',
+  ];
+
+  const missing = requiredIgnores.filter((entry) => {
+    const escaped = entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return !new RegExp(`(^|\\n)${escaped}(\\r?\\n|$)`).test(gitignore);
+  });
+
+  if (missing.length > 0) {
+    addFailure(`Release package sensitive-path ignore rules are missing: ${missing.join(', ')}`);
+  } else {
+    addPass('Release package sensitive-path ignore rules are present.');
+  }
+}
+
 function checkTooling() {
   addWarning('Run `composer audit --no-interaction` outside this script; this script avoids spawning external commands.');
   addWarning('Run `npm audit --audit-level=moderate --json` outside this script and attach the current output to the release record.');
@@ -170,6 +233,7 @@ checkEnvReadiness();
 checkOpenAiEntrypoints();
 checkDesignArtifacts();
 checkBackups();
+checkReleasePackageScope();
 checkTooling();
 checkGitEnvironment();
 
