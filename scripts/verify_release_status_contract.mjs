@@ -231,14 +231,14 @@ if (status) {
     pass('overall_status is not_release_ready');
   }
 
-  const scope = Array.isArray(status.scope) ? status.scope : [];
-  for (const plugin of requiredScope) {
-    if (!scope.includes(plugin)) {
-      fail(`scope is missing ${plugin}`);
-    }
-  }
+  assertExactStringArray(status.scope, requiredScope, 'scope');
 
   const pluginStatus = Array.isArray(status.plugin_status) ? status.plugin_status : [];
+  assertExactStringArray(
+    pluginStatus.map((entry) => entry?.plugin),
+    requiredScope,
+    'plugin_status plugin list',
+  );
   for (const plugin of requiredScope) {
     const entry = pluginStatus.find((candidate) => candidate?.plugin === plugin);
     if (!entry) {
@@ -369,6 +369,18 @@ if (releaseStatusSchema) {
     fail(`release readiness schema blockers.maxItems must be ${requiredBlockerIds.length}`);
   } else {
     pass('release readiness schema blockers.maxItems matches blocker count');
+  }
+
+  if (schemaProperties.scope?.maxItems !== requiredScope.length) {
+    fail(`release readiness schema scope.maxItems must be ${requiredScope.length}`);
+  } else {
+    pass('release readiness schema scope.maxItems matches plugin scope count');
+  }
+
+  if (schemaProperties.plugin_status?.maxItems !== requiredScope.length) {
+    fail(`release readiness schema plugin_status.maxItems must be ${requiredScope.length}`);
+  } else {
+    pass('release readiness schema plugin_status.maxItems matches plugin scope count');
   }
 }
 
