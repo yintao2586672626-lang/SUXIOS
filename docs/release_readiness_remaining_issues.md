@@ -6,9 +6,11 @@ Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 ## Current Conclusion
 
-The GitHub CI blocker is resolved on the current PR head, and the existing contract and review checks pass. The project is still not release-ready. `npm run review:release-readiness` currently reports 7 hard failures that must stay visible until real evidence closes them.
+The GitHub CI blocker is resolved on the current PR head, and the existing contract and review checks pass. The project is still not release-ready. `npm run review:release-readiness` currently reports 6 direct release-evidence failures, and the `@github` local-state blocker remains open through `git status --short --branch` plus `npm run review:release-external-state`.
 
 Machine-readable status: `docs/release_readiness_status.json`.
+
+Optional command result evidence: set `RELEASE_READINESS_RESULT_FILE=<controlled-path>` when running `npm run review:release-readiness`. The generated JSON follows `docs/release_readiness_result.example.json` and is intended for audit handoff without embedding secrets.
 
 ## Current Hard Blocker Matrix
 
@@ -20,7 +22,7 @@ Machine-readable status: `docs/release_readiness_status.json`.
 | 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 112 credential-shaped matches under `database/backups`. | Delete, sanitize, or encrypted-archive local backups and rerun the readiness check with no credential-shaped matches. |
 | 5 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, and readiness rerun. |
 | 6 | `@codex-security` | Formal repo-wide Codex Security scan is missing | `CODEX_SECURITY_SCAN_DIR` and `docs/security/codex-security/latest` scan artifacts are not present. | Authorize subagents and complete threat model, finding discovery, validation, attack-path analysis, and final Markdown/HTML reports. |
-| 7 | `@github` | Local Git state is not closed | `.git/index.lock` exists and the local worktree still contains unclosed changes. | Clear the index lock, align local worktree with the PR, and pass `review:release-external-state`. |
+| 7 | `@github` | Local Git state is not closed | `git status --short --branch` shows a dirty local worktree, and `review:release-external-state` still requires controlled external evidence. | Align local worktree with the PR, confirm `.git/index.lock` is absent, and pass `review:release-external-state`. |
 
 ## Resolved Or Partially Controlled Items
 
