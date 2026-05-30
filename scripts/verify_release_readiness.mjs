@@ -124,10 +124,39 @@ function checkDesignArtifacts() {
   ];
   const matches = walkFiles('.').filter((file) => designPatterns.some((pattern) => pattern.test(file)));
 
+  const manifestPath = 'docs/design_handoff_manifest.json';
+  if (!exists(manifestPath) && matches.length === 0) {
+    addFailure('No Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json were found.');
+    return;
+  }
+
+  if (exists(manifestPath)) {
+    let manifest = null;
+    try {
+      manifest = JSON.parse(readText(manifestPath));
+    } catch (error) {
+      addFailure(`Design handoff manifest is not valid JSON: ${error.message}`);
+      return;
+    }
+
+    const requiredStringFields = ['owner', 'last_reviewed_at', 'figma_url', 'canva_url', 'brand_kit_url'];
+    const missingFields = requiredStringFields.filter((field) => {
+      const value = String(manifest[field] ?? '').trim();
+      return value === '' || value.includes('TODO') || value.includes('example.com');
+    });
+    if (missingFields.length > 0) {
+      addFailure(`Design handoff manifest is incomplete: ${missingFields.join(', ')}`);
+    } else if (!/^https:\/\/(www\.)?figma\.com\//.test(String(manifest.figma_url))) {
+      addFailure('Design handoff manifest figma_url must be a figma.com URL.');
+    } else if (!/^https:\/\/(www\.)?canva\.com\//.test(String(manifest.canva_url))) {
+      addFailure('Design handoff manifest canva_url must be a canva.com URL.');
+    } else {
+      addPass('Design handoff manifest is present with Figma, Canva, and brand-kit references.');
+    }
+  }
+
   if (matches.length > 0) {
-    addPass(`Design handoff artifacts found: ${matches.length}.`);
-  } else {
-    addFailure('No Figma/Canva/design-token/brand handoff artifacts were found in the repository.');
+    addPass(`Design source/token artifacts found: ${matches.length}.`);
   }
 }
 
