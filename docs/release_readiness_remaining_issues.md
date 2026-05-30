@@ -37,13 +37,14 @@
 | `.env.production` / `RELEASE_ENV_FILE` | 未提供真实文件 | 无法证明生产 `APP_DEBUG=false`、数据库密码非空、AI 密钥解密配置正确 |
 | `.example.production.env` | 已补充模板 | 只能作为填写参考；含 `CHANGE_ME` 占位值，不能作为生产配置验收 |
 | `AI_CONFIG_SECRET` | 本地 `.env` 已配置，长度 64 | 只能证明本地开发值存在，不能替代生产密钥验收 |
+| `LLM_CONNECTIVITY_ATTESTATION_FILE` / `docs/llm_connectivity_attestation.json` | 未提供真实连通性证明 | 无法证明生产 `ai_model_configs` 可解密并成功调用供应商模型 |
 
 处理要求：
 
 - 生产环境使用独立环境变量或部署密钥管理，不提交 `.env`。
 - 按 `.example.production.env` 和 `docs/deployment_env_checklist.md` 准备受控生产 env，并用 `RELEASE_ENV_FILE` 运行发布就绪检查。
 - OpenAI/LLM 生产入口已收口为 `LlmClient` + 数据库 `ai_model_configs` 加密配置；上线前仍需确认生产数据库已配置启用模型。
-- 上线前用真实生产配置做一次受控 API 连通性验证。
+- 上线前用真实生产配置做一次受控 API 连通性验证，并按 `docs/llm_connectivity_attestation.example.json` 记录；用 `LLM_CONNECTIVITY_ATTESTATION_FILE` 参与发布就绪检查。
 
 ### 2. 完整 Codex Security 扫描未完成
 
@@ -142,6 +143,7 @@
 - `npm run review:release-readiness` 中除“需人工授权/生产密钥”的项外均已关闭，且失败项被逐条确认。
 - 生产 `.env`/密钥配置完成，`APP_DEBUG=false`。
 - OpenAI/LLM 至少一次真实连通性验证通过。
+- `LLM_CONNECTIVITY_ATTESTATION_FILE` 或 `docs/llm_connectivity_attestation.json` 通过发布就绪检查，且不包含真实密钥。
 - `composer audit` 与 `npm audit` 均可执行且无高危阻断。
 - Codex Security repo-wide 扫描完成并产出报告。
 - 发布包确认不包含 `.env`、`database/backups/`、本地采集 profile、采集报告 JSON、截图资产。
