@@ -21,6 +21,7 @@ const requiredDocs = [
   'docs/ota_credential_rotation_checklist.md',
   'docs/ota_credential_rotation_attestation.example.json',
   'docs/codex_security_scan_authorization.md',
+  'docs/codex_security_scan_manifest.example.json',
   'docs/ui-handoff/README.md',
   'docs/release_external_state_evidence.example.json',
   'docs/release_external_state_result.example.json',
@@ -96,6 +97,10 @@ const requiredSecurityScanPatterns = [
   /Validation/i,
   /Attack-path analysis/i,
   /Markdown\s*\/\s*HTML final report/i,
+  /scan_manifest\.json/i,
+  /validation summary/i,
+  /attack-path analysis report/i,
+  /reviewed_surfaces\.md/i,
   /production configuration/i,
   /OTA credentials/i,
   /tenant isolation/i,
@@ -118,6 +123,19 @@ const requiredExternalEvidenceKeys = [
   'reviewed_at',
   'reviewer',
   'commands',
+];
+
+const requiredSecurityScanManifestKeys = [
+  'schema_version',
+  'scan_mode',
+  'target',
+  'reviewed_at',
+  'reviewer',
+  'subagents_authorized',
+  'phases',
+  'artifacts',
+  'final_report_validated',
+  'report_html_rendered',
 ];
 
 const requiredLlmAttestationKeys = [
@@ -390,6 +408,7 @@ for (const jsonDoc of [
   'docs/release_external_state_result.example.json',
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
+  'docs/codex_security_scan_manifest.example.json',
 ]) {
   readJson(jsonDoc);
 }
@@ -516,6 +535,39 @@ if (externalEvidenceExample) {
   }
   if (evidenceComplete) {
     pass('docs/release_external_state_evidence.example.json covers required commands');
+  }
+}
+
+const securityScanManifestExample = readJson('docs/codex_security_scan_manifest.example.json');
+if (securityScanManifestExample) {
+  let manifestComplete = true;
+  for (const key of requiredSecurityScanManifestKeys) {
+    if (!(key in securityScanManifestExample)) {
+      fail(`docs/codex_security_scan_manifest.example.json is missing ${key}`);
+      manifestComplete = false;
+    }
+  }
+  const phases = securityScanManifestExample.phases || {};
+  for (const phase of ['threat_model', 'finding_discovery', 'validation', 'attack_path_analysis', 'final_report']) {
+    if (phases[phase] !== 'completed') {
+      fail(`docs/codex_security_scan_manifest.example.json phases.${phase} must be completed`);
+      manifestComplete = false;
+    }
+  }
+  if (securityScanManifestExample.scan_mode !== 'repository-wide') {
+    fail('docs/codex_security_scan_manifest.example.json scan_mode must be repository-wide');
+    manifestComplete = false;
+  }
+  if (securityScanManifestExample.subagents_authorized !== true) {
+    fail('docs/codex_security_scan_manifest.example.json subagents_authorized must be true');
+    manifestComplete = false;
+  }
+  if (securityScanManifestExample.final_report_validated !== true || securityScanManifestExample.report_html_rendered !== true) {
+    fail('docs/codex_security_scan_manifest.example.json must confirm final report validation and HTML rendering');
+    manifestComplete = false;
+  }
+  if (manifestComplete) {
+    pass('docs/codex_security_scan_manifest.example.json covers required fields');
   }
 }
 
