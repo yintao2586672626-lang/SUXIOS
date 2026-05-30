@@ -28,10 +28,13 @@ const requiredDocs = [
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
   'scripts/collect_release_external_state.ps1',
+  'scripts/verify_release_env.mjs',
+  'scripts/lib/release_env_checks.mjs',
 ];
 
 const requiredPackageScripts = [
   'review:release-readiness',
+  'review:release-env',
   'review:release-external-state',
   'collect:release-external-state',
   'review:release-external-state:local',
@@ -326,6 +329,28 @@ try {
 }
 
 try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_env.mjs'),
+    [
+      /checkProductionEnvFile/,
+      /RELEASE_ENV_FILE/,
+      /Release env summary/,
+    ],
+    'scripts/verify_release_env.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkProductionEnvFile/,
+      /requireOutsideRepo:\s*Boolean\(process\.env\.RELEASE_ENV_FILE\)/,
+    ],
+    'scripts/verify_release_readiness.mjs release env integration',
+  );
+} catch (error) {
+  fail(`could not read release env verifier scripts: ${error.message}`);
+}
+
+try {
   const workflow = readText('.github/workflows/php.yml');
   let missingWorkflowCommand = false;
   for (const command of requiredWorkflowCommands) {
@@ -426,6 +451,10 @@ if (status) {
     requiredDoNotClaimReadyPatterns,
     'do_not_claim_ready_until',
   );
+  const doNotClaimReadyText = Array.isArray(status.do_not_claim_ready_until) ? status.do_not_claim_ready_until.join('\n') : '';
+  if (!doNotClaimReadyText.includes('review:release-env')) {
+    fail('do_not_claim_ready_until must mention review:release-env for production env closure');
+  }
 
   const blockers = Array.isArray(status.blockers) ? status.blockers : [];
   if (blockers.length !== requiredBlockerIds.length) {
@@ -798,6 +827,7 @@ try {
     }
   }
   for (const command of [
+    'npm run review:release-env',
     'npm run review:release-readiness',
     'npm run review:release-external-state',
     'LLM_CONNECTIVITY_ATTESTATION_FILE',
