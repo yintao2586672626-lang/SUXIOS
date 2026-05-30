@@ -593,6 +593,19 @@ if (readinessResultExample) {
     requiredOpenFailurePatterns,
     'docs/release_readiness_result.example.json failures',
   );
+  const backupFailure = Array.isArray(readinessResultExample.failures)
+    ? readinessResultExample.failures.find((failure) => /database\/backups.*credential-shaped/i.test(failure))
+    : '';
+  const backupFailureText = backupFailure || '';
+  for (const file of [
+    'database/backups/hotelx_after_tenant_security_20260529_161926.sql',
+    'database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql',
+  ]) {
+    if (!backupFailureText.includes(file)) {
+      fail(`docs/release_readiness_result.example.json backup failure must include redacted file-level count for ${file}`);
+      resultComplete = false;
+    }
+  }
   if (resultComplete) {
     pass('docs/release_readiness_result.example.json covers required fields');
   }
