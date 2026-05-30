@@ -51,6 +51,7 @@ const requiredOpenFailurePatterns = [
   /database\/backups|credential-shaped/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
   /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
+  /\.git\/index\.lock|local git index|git state/i,
 ];
 
 const requiredExternalStateFailurePatterns = [
@@ -708,6 +709,12 @@ try {
   const report = readText('docs/release_readiness_remaining_issues.md');
   if (!report.includes('docs/release_readiness_status.json')) {
     fail('release_readiness_remaining_issues.md must reference docs/release_readiness_status.json');
+  }
+  if (!report.includes('7 failures')) {
+    fail('release_readiness_remaining_issues.md must state the current 7 release-readiness failures');
+  }
+  if (report.includes('6 direct release-evidence failures')) {
+    fail('release_readiness_remaining_issues.md must not use the stale 6 direct release-evidence failure count');
   }
   assertTextContainsPatterns(
     report,
