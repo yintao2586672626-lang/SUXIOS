@@ -9,7 +9,7 @@
 
 ## 项目基本信息
 
-- **项目路径**：`d:\桌面\国际\JD-main\HOTEL\`
+- **项目路径**：`D:\桌面\SUXIOS\宿析OS初始版\HOTEL\`
 - **Git 远程**：`https://github.com/yintao2586672626-lang/0412.git`
 - **注意**：`hotel-frontend/`（Vite 重构版）源码从未提交 Git，仅本地存在。
 
@@ -32,7 +32,7 @@
 ## 启动方式
 
 ```bash
-cd "d:\桌面\国际\JD-main\HOTEL\"
+cd "D:\桌面\SUXIOS\宿析OS初始版\HOTEL\"
 composer install
 # 启动 XAMPP (Apache + MySQL)
 # 访问 http://hotelx.local/ 或 http://localhost/HOTEL/public/
@@ -50,14 +50,18 @@ composer install
 
 ### 1. 线上数据抓取（最重要）
 
-携程/美团 ebooking Cookie + Bookmarklet 抓取体系：
-- **流程**：管理员登录携程/美团 → 运行书签脚本捕获 Cookie → 回传到系统 → 前端调用抓取接口获取数据
-- **书签脚本生成**：`GET /api/online-data/bookmarklet`（携程）
-- **携程抓取**：`POST /api/online-data/fetch-ctrip`，Body: `{ cookies, node_id, start_date, end_date }`
-- **美团抓取**：`POST /api/online-data/fetch-meituan`，Body: `{ cookies, partner_id, poi_id, date_range }`
-- **⚠️ 美团日期格式是 YYYYMMDD，携程是 YYYY-MM-DD**
-- **Cookie 有效期通常只有 1-7 天**，过期需要重新获取
-- 定时任务：`GET /api/online-data/cron-trigger`（通过 X-Cron-Token 验证）
+携程/美团 OTA 数据采集体系：
+- **推荐顺序**：已确认接口走后端直连 Cookie/API；接口不确定或参数复杂时用 CDP 临时监听页面；必须真实打开页面才有数据时再使用 Profile + CDP 兜底。
+- **携程经营概况**：`POST /api/online-data/fetch-ctrip`，默认直连接口包含 `getDayReportCompeteHotelReport`
+- **携程流量**：`POST /api/online-data/fetch-ctrip-traffic` 或 `POST /api/online-data/ctrip/traffic`
+- **携程浏览器兜底**：`POST /api/online-data/capture-ctrip-browser`，脚本 `scripts/ctrip_browser_capture.mjs`
+- **美团流量/订单/广告**：`fetch-meituan-traffic`、`fetch-meituan-orders`、`fetch-meituan-ads`
+- **美团浏览器兜底**：`POST /api/online-data/capture-meituan-browser`，脚本 `scripts/meituan_browser_capture.mjs`
+- **数据源同步**：`/api/online-data/data-sources`，支持 `manual`、`import_*`、`api` 等类型
+- **详细流程**：查看 `docs/ota_acquisition_decision_playbook.md`
+- **口径边界**：携程/美团输入默认是 OTA 渠道口径；未接入 PMS/CRS、全量可售房和全量收入前，不写成全酒店入住率、ADR 或 RevPAR。
+- **Cookie/Token/Profile 均为敏感信息**，不得写入普通文档、日志或 Git。
+- **Agent 工具边界**：本地系统页面用 Browser/Playwright；真实 OTA 页面接口定位用 Chrome/CDP；Windows 桌面应用或文件选择器用 Computer Use；OpenAI API/Agents 相关问题再使用 OpenAI Developers。
 
 ### 2. 日报表
 

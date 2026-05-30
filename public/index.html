@@ -4922,31 +4922,27 @@
                                 <div class="flex flex-wrap border-b mb-6">
                                     <button @click="onlineDataTab = 'data-health'; loadDataHealthPanel()"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'data-health' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        数据健康
+                                        门店总览
                                     </button>
                                     <button @click="onlineDataTab = 'ctrip-ranking'" 
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        榜单数据获取
+                                        竞争圈数据
                                     </button>
                                     <button @click="onlineDataTab = 'ctrip-flow-overview'; loadCtripConfigList()"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-flow-overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        流量概要
+                                        经营日报/周报
                                     </button>
                                     <button @click="onlineDataTab = 'ctrip-traffic'"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        流量数据获取
+                                        流量数据
                                     </button>
                                     <button @click="onlineDataTab = 'ctrip-ads'; syncCtripAdsDirectConfig(false)"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         广告数据
                                     </button>
-                                    <button @click="onlineDataTab = 'ctrip-overview'; loadCtripConfigList(); loadLatestCtripData({ silent: true })"
-                                        :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        今日概况
-                                    </button>
                                     <button @click="switchToDownloadCenter"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        下载中心
+                                        查询结果存储
                                     </button>
                                     <button @click="openHotelManagementForOta" 
                                         class="px-6 py-3 font-medium text-gray-500 hover:text-blue-600">
@@ -5398,11 +5394,11 @@
                                             </div>
                                         </div>
                                         <div class="flex gap-3 mb-4">
-                                            <button type="button" @click="runCtripFlowOverviewBrowserCapture"
-                                                :disabled="ctripBrowserCaptureRunning || ctripFlowOverviewFetching"
+                                            <button type="button" @click="fetchCtripFlowOverviewData"
+                                                :disabled="ctripFlowOverviewFetching"
                                                 class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
-                                                <i :class="(ctripBrowserCaptureRunning || ctripFlowOverviewFetching) ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>
-                                                {{ (ctripBrowserCaptureRunning || ctripFlowOverviewFetching) ? '获取中...' : '获取数据' }}
+                                                <i :class="ctripFlowOverviewFetching ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>
+                                                {{ ctripFlowOverviewFetching ? '获取中...' : '获取数据' }}
                                             </button>
                                             <button type="button" @click="openTargetSite('https://ebooking.ctrip.com')"
                                                 class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
@@ -5447,7 +5443,7 @@
                                             </div>
                                             <div class="flex flex-wrap items-center gap-3 mt-3">
                                                 <button type="button" @click="fetchCtripFlowOverviewData"
-                                                    :disabled="ctripFlowOverviewFetching || ctripBrowserCaptureRunning"
+                                                    :disabled="ctripFlowOverviewFetching"
                                                     class="px-4 py-2 bg-white border border-cyan-300 text-cyan-700 rounded-lg hover:bg-cyan-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200">
                                                     <i :class="ctripFlowOverviewFetching ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>
                                                     {{ ctripFlowOverviewFetching ? '获取中...' : '按接口 URL 获取' }}
@@ -5461,10 +5457,7 @@
                                             </div>
                                         </div>
                                         <div v-if="ctripFlowOverviewFetching" class="mt-3 text-sm text-cyan-700 bg-cyan-50 border border-cyan-100 rounded px-3 py-2">
-                                            正在根据 Cookie 和接口 URL 请求携程流量概要接口。
-                                        </div>
-                                        <div v-if="ctripBrowserCaptureRunning" class="mt-3 text-sm text-cyan-700 bg-cyan-50 border border-cyan-100 rounded px-3 py-2">
-                                            正在通过本机携程 Profile 打开概况页并监听流量概要接口。
+                                            正在使用已保存的携程 Cookie 直接请求流量概要接口。
                                         </div>
                                         <div v-if="ctripFlowOverviewResult" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
                                             <div v-if="ctripFlowOverviewResult.error" class="text-sm text-red-700 mb-2">
@@ -6005,7 +5998,7 @@
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                                             <div>
                                                 <h4 class="font-medium text-gray-800 mb-1">
-                                                    <i class="fas fa-window-restore text-gray-500 mr-2"></i>浏览器 Profile 自动采集
+                                                    <i class="fas fa-window-restore text-gray-500 mr-2"></i>浏览器 Profile 兜底采集
                                                 </h4>
                                                 <p class="text-sm text-gray-500">
                                                     复用本机独立 Profile 打开携程概况、流量页面，监听 XHR/fetch JSON 后写入现有线上数据表。
@@ -6304,7 +6297,7 @@
                                         </button>
                                         <button @click="switchDownloadTab('overview')" 
                                             :class="['px-6 py-3 font-medium', downloadCenterTab === 'overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                            <i class="fas fa-chart-line mr-2"></i>历史记录
+                                            <i class="fas fa-chart-line mr-2"></i>查询结果存储
                                         </button>
                                         <button @click="switchDownloadTab('ai')"
                                             :class="['px-6 py-3 font-medium', downloadCenterTab === 'ai' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
@@ -6316,7 +6309,7 @@
                                     <div v-if="downloadCenterTab === 'fetched'">
                                         <div v-if="!ctripHotelsList || ctripHotelsList.length === 0" class="text-center py-12 text-gray-400">
                                             <i class="fas fa-inbox text-4xl mb-4"></i>
-                                        <p>待同步经营数据，请先在"榜单数据获取"中获取数据</p>
+                                        <p>待同步经营数据，请先在"竞争圈数据"中获取数据</p>
                                         </div>
                                         <div v-else>
                                         <!-- backend display summary -->
@@ -6489,15 +6482,15 @@
                                     <div v-if="downloadCenterTab === 'overview'" class="space-y-4">
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500">历史记录总数</div>
+                                                <div class="text-sm text-gray-500">已存记录总数</div>
                                                 <div class="text-2xl font-bold text-gray-900">{{ formatNumber(onlineHistorySummary.total_records || 0) }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500">最近一次抓取时间</div>
+                                                <div class="text-sm text-gray-500">最近一次入库时间</div>
                                                 <div class="text-lg font-semibold text-gray-900">{{ onlineHistorySummary.latest_fetch_time || '-' }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500">今日新增记录数</div>
+                                                <div class="text-sm text-gray-500">今日入库记录数</div>
                                                 <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineHistorySummary.today_records || 0) }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
@@ -6559,7 +6552,7 @@
                                                 <input v-model.trim="onlineHistoryFilter.keyword" type="text" class="flex-1 px-3 py-2 border rounded-lg bg-white" placeholder="搜索酒店名称 / OTA酒店ID / 批次号">
                                                 <div class="flex gap-2">
                                                     <button @click="onlineHistoryPage = 1; loadOnlineHistory()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                                                        <i class="fas fa-search mr-2"></i>查询历史
+                                                        <i class="fas fa-search mr-2"></i>查询已存数据
                                                     </button>
                                                     <button @click="resetOnlineHistoryFilter" class="px-4 py-2 bg-white border text-gray-700 rounded-lg hover:bg-gray-100">
                                                         <i class="fas fa-undo mr-2"></i>重置筛选
@@ -6688,7 +6681,7 @@
                                             <div v-if="aiAnalysisHotelList.length === 0" class="text-center py-8 text-gray-400">
                                                 <i class="fas fa-inbox text-3xl mb-2"></i>
                                         <p>待同步经营数据</p>
-                                                <p class="text-sm mt-1">暂无抓取数据，请先在"榜单数据获取"中获取携程数据</p>
+                                                <p class="text-sm mt-1">暂无抓取数据，请先在"竞争圈数据"中获取携程数据</p>
                                             </div>
                                             <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto border rounded p-2">
                                                 <label v-for="hotel in aiAnalysisHotelList" :key="getAiAnalysisHotelKey(hotel)"
@@ -11760,7 +11753,7 @@
                                                     <h4 class="font-semibold text-gray-900 text-lg">
                                                         <i class="fas fa-robot mr-2 text-blue-600"></i>平台数据自动获取
                                                     </h4>
-                                                    <p class="text-sm text-gray-500 mt-1">按门店执行携程与美团抓取；默认最低成本自动，优先使用 Cookie/配置，未入库再回退浏览器 Profile。</p>
+                                                    <p class="text-sm text-gray-500 mt-1">按门店执行携程与美团抓取；默认接口直连自动，能直接查的接口不走 Profile，Profile 仅作为复杂页面手动兜底。</p>
                                                 </div>
                                                 <div class="flex flex-wrap items-end gap-3">
                                                     <div>
@@ -14514,6 +14507,13 @@
                 { keyword: 'getTrafficData', scope: '流量数据', note: '流量数据接口' },
                 { keyword: 'getStatData', scope: '统计数据', note: '统计汇总接口' },
             ];
+            const ctripFlowOverviewDefaultRequestUrls = [
+                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate',
+                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportFlowCompete',
+                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportServerQuantity',
+                'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+            ];
             const ctripFlowOverviewApiKeywords = ctripFlowOverviewApiGroups.map(item => item.keyword);
             const ctripOverviewForm = ref({
                 requestUrls: '',
@@ -14530,7 +14530,7 @@
                 spidertoken: '',
                 payloadJson: '',
                 hotelId: '',
-                method: 'GET',
+                method: 'POST',
                 dataDate: '',
             });
             const ctripOverviewResult = ref(null);
@@ -15615,7 +15615,6 @@
                 };
             });
             const dailyOpsPrimaryActions = [
-                { label: '携程概况', page: 'ctrip-ebooking', tab: 'ctrip-overview', icon: 'fas fa-chart-line' },
                 { label: '携程/去哪流量', page: 'ctrip-ebooking', tab: 'ctrip-traffic', icon: 'fas fa-route' },
                 { label: '美团排名', page: 'meituan-ebooking', tab: 'meituan-ranking', icon: 'fas fa-chart-bar' },
                 { label: '广告数据', page: 'ctrip-ebooking', tab: 'ctrip-ads', icon: 'fas fa-bullhorn' },
@@ -16423,13 +16422,13 @@
             const autoFetchEnabled = ref(false);
             const autoFetchMode = ref('hybrid_auto');
             const autoFetchModeOptions = [
-                { value: 'hybrid_auto', label: '最低成本自动' },
+                { value: 'hybrid_auto', label: '接口直连自动' },
                 { value: 'cookie_config', label: 'Cookie/配置自动' },
-                { value: 'profile_browser', label: '浏览器 Profile 自动' },
+                { value: 'profile_browser', label: 'Profile 手动兜底' },
             ];
             const autoFetchModeLabel = (mode) => {
                 const found = autoFetchModeOptions.find(item => item.value === mode);
-                return found ? found.label : '最低成本自动';
+                return found ? found.label : '接口直连自动';
             };
             const autoFetchStatus = ref({
                 auto_fetch_mode: 'hybrid_auto',
@@ -16730,20 +16729,9 @@
             // 切换到下载中心（自动加载数据）
             const switchToDownloadCenter = async () => {
                 onlineDataTab.value = 'ctrip-download';
-                // 设置数据来源为携程
                 onlineDataFilter.value.source = 'ctrip';
-                if (downloadCenterTab.value === 'traffic') {
-                    downloadCenterTab.value = 'fetched';
-                }
-                // 如果默认子 tab 不是 fetched（最新获取数据），自动加载数据
-                if (downloadCenterTab.value !== 'fetched') {
-                    if (downloadCenterTab.value === 'overview') {
-                        await refreshOnlineHistory();
-                    } else {
-                        await loadOnlineDataList();
-                        await loadOnlineDataHotelList();
-                    }
-                }
+                downloadCenterTab.value = 'overview';
+                await refreshOnlineHistory();
             };
 
             // 切换到美团下载中心（自动加载数据）
@@ -17182,7 +17170,7 @@
                 autoFetchRunState.value = {
                     active: true,
                     type: 'running',
-                    message: `已提交后端执行。当前策略：${autoFetchModeLabel(autoFetchMode.value)}。最低成本自动会优先使用 Cookie/配置，未入库再回退浏览器 Profile。`,
+                    message: `已提交后端执行。当前策略：${autoFetchModeLabel(autoFetchMode.value)}。默认只使用 Cookie/接口配置；Profile 仅在选择“Profile 手动兜底”时启动。`,
                     started_at: startedAt,
                     finished_at: '',
                 };
@@ -24418,11 +24406,12 @@
                 form.requestUrls = String(form.requestUrls || '').trim();
                 form.payloadJson = String(form.payloadJson || '').trim();
                 form.spidertoken = String(form.spidertoken || '').trim();
-                if (!form.requestUrls) {
-                    showToast('手动接口获取需要 Request URL；自动抓取请点击“自动抓取流量概要”', 'error');
+                const requestUrls = form.requestUrls || ctripFlowOverviewDefaultRequestUrls.join('\n');
+                if (!requestUrls) {
+                    showToast('未配置可用的流量概要直连接口', 'error');
                     return;
                 }
-                if (form.requestUrls.includes('/datacenter/inland/businessreport/outline')) {
+                if (requestUrls.includes('/datacenter/inland/businessreport/outline')) {
                     showToast('请填写 Network 中的 JSON 接口 URL，不是携程概况页面地址', 'error');
                     return;
                 }
@@ -24442,7 +24431,7 @@
                             hotel_id: form.hotelId,
                             hotel_name: getHotelNameById(systemHotelId),
                             cookies: form.cookies,
-                            request_urls: form.requestUrls,
+                            request_urls: requestUrls,
                             payload_json: form.payloadJson,
                             spidertoken: form.spidertoken,
                             method: form.method || 'GET',
@@ -24453,7 +24442,7 @@
                         ctripFlowOverviewResult.value = res.data || {};
                         onlineDataResult.value = res.data || {};
                         showRawData.value = false;
-                        showToast(res.message || `流量概要获取完成，已入库 ${res.data?.saved_count || 0} 条`);
+                        showToast(res.message || `流量概要直连获取完成，已入库 ${res.data?.saved_count || 0} 条`);
                         await loadLatestCtripData({ silent: true });
                         await refreshOnlineHistory();
                     } else {
@@ -24465,76 +24454,6 @@
                     ctripFlowOverviewResult.value = e?.data?.data || { error: e.message };
                 } finally {
                     ctripFlowOverviewFetching.value = false;
-                    fetchingData.value = false;
-                }
-            };
-
-            const runCtripFlowOverviewBrowserCapture = async () => {
-                const systemHotelId = selectedCtripHotelId.value || user.value?.hotel_id || null;
-                if (!systemHotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-
-                const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-                if (!activeConfig) {
-                    showToast('当前酒店未配置携程数据源', 'warning');
-                    return;
-                }
-                applyCtripConfigObject(activeConfig, false);
-
-                const form = ctripFlowOverviewForm.value;
-                const hotelId = String(
-                    form.hotelId
-                    || activeConfig?.ota_hotel_id
-                    || activeConfig?.ctrip_hotel_id
-                    || activeConfig?.node_id
-                    || activeConfig?.nodeId
-                    || ctripForm.value.nodeId
-                    || ''
-                ).trim();
-                const profileId = String(ctripBrowserCaptureForm.value.profileId || hotelId || systemHotelId || '').trim();
-                const dataDate = String(form.dataDate || ctripOverviewForm.value.dataDate || '').trim();
-                ctripBrowserCaptureForm.value.profileId = profileId;
-                ctripBrowserCaptureForm.value.hotelId = hotelId;
-                ctripBrowserCaptureForm.value.sections = ['business', 'traffic'];
-
-                ctripFlowOverviewFetching.value = true;
-                ctripBrowserCaptureRunning.value = true;
-                fetchingData.value = true;
-                ctripFlowOverviewResult.value = null;
-                ctripBrowserCaptureResult.value = null;
-                try {
-                    const res = await request('/online-data/capture-ctrip-browser', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            hotel_id: hotelId,
-                            hotel_name: getHotelNameById(systemHotelId),
-                            profile_id: profileId,
-                            data_date: dataDate,
-                            sections: ['business', 'traffic'],
-                        }),
-                    });
-                    if (res.code === 200) {
-                        ctripFlowOverviewResult.value = res.data || {};
-                        ctripBrowserCaptureResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        showRawData.value = false;
-                        showToast(res.message || `流量概要自动抓取完成，已入库 ${res.data?.saved_count || 0} 条`);
-                        await loadLatestCtripData({ silent: true });
-                        await refreshOnlineHistory();
-                    } else {
-                        showToast(res.message || '流量概要自动抓取失败', 'error');
-                    }
-                } catch (e) {
-                    const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
-                    showToast('流量概要自动抓取失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
-                    ctripFlowOverviewResult.value = e?.data?.data || { error: e.message };
-                    ctripBrowserCaptureResult.value = ctripFlowOverviewResult.value;
-                } finally {
-                    ctripFlowOverviewFetching.value = false;
-                    ctripBrowserCaptureRunning.value = false;
                     fetchingData.value = false;
                 }
             };
@@ -30297,11 +30216,11 @@
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
-                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, runCtripFlowOverviewBrowserCapture, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
+                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig,
                 ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass,
-                loadCtripConfigList, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
+                loadCtripConfigList, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanBookmarklet, selectedMeituanHotelConfig,
                 meituanHotelsList, meituanBusinessSummaryCards, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanSavedCount, meituanDataFetchTime,

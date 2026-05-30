@@ -10261,7 +10261,7 @@ JAVASCRIPT;
                 return $this->success([
                     'saved_count' => (int)($result['saved_count'] ?? 0),
                     'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
-                    'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '最低成本自动',
+                    'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
                     'platform_results' => $result['platform_results'] ?? [],
                 ], '自动获取成功');
             }
@@ -10269,7 +10269,7 @@ JAVASCRIPT;
             return $this->error('自动获取失败: ' . $result['message'], 400, [
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
-                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '最低成本自动',
+                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
                 'platform_results' => $result['platform_results'] ?? [],
             ]);
 
@@ -10782,7 +10782,7 @@ JAVASCRIPT;
                     'last_result' => null,
                     'schedule_time' => '10:00',
                     'auto_fetch_mode' => 'hybrid_auto',
-                    'auto_fetch_mode_label' => '最低成本自动',
+                    'auto_fetch_mode_label' => '接口直连自动',
                     'recent_runs' => [],
                     'failed_records' => [],
                     'missed_dates' => [],
@@ -11077,7 +11077,7 @@ JAVASCRIPT;
                 'data_date' => $dataDate,
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
-                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '最低成本自动',
+                'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
                 'platform_results' => $result['platform_results'] ?? [],
             ], '补抓成功');
         }
@@ -11867,8 +11867,8 @@ JAVASCRIPT;
     {
         return match ($this->normalizeAutoFetchMode($mode)) {
             'cookie_config' => 'Cookie/配置自动',
-            'profile_browser' => '浏览器 Profile 自动',
-            default => '最低成本自动',
+            'profile_browser' => 'Profile 手动兜底',
+            default => '接口直连自动',
         };
     }
 
@@ -11923,7 +11923,7 @@ JAVASCRIPT;
 
     private function shouldRunProfileBrowser(string $mode): bool
     {
-        return $this->normalizeAutoFetchMode($mode) !== 'cookie_config';
+        return $this->normalizeAutoFetchMode($mode) === 'profile_browser';
     }
 
     private function shouldRunProfileBrowserForCost(string $mode, int $savedCount): bool
@@ -11936,7 +11936,7 @@ JAVASCRIPT;
             return true;
         }
 
-        return $savedCount <= 0;
+        return false;
     }
 
     private function autoFetchStatusCode(array $result): string
@@ -11946,7 +11946,7 @@ JAVASCRIPT;
         }
 
         $message = strtolower((string)($result['message'] ?? ''));
-        if (!empty($result['skipped']) && (str_contains($message, '当前策略') || str_contains($message, '最低成本'))) {
+        if (!empty($result['skipped']) && str_contains($message, '当前策略')) {
             return 'skipped';
         }
         if (str_contains($message, 'partner') || str_contains($message, 'poi')) {
@@ -12149,16 +12149,21 @@ JAVASCRIPT;
         $hasProfile = $this->ctripProfileExistsForConfig($fetchConfig, $hotelId);
         $hasProfileSeed = !empty($fetchConfig) && $this->ctripProfileStoreIdFromConfig($fetchConfig, $hotelId) !== '';
 
-        if ($cookies === '' && !$hasProfile && !$hasConfiguredTask && !($runProfileBrowser && $hasProfileSeed)) {
+        $hasDirectConfig = $cookies !== '' || $hasConfiguredTask;
+        $hasProfileConfig = $runProfileBrowser && ($hasProfile || $hasProfileSeed);
+        if (!$hasDirectConfig && !$hasProfileConfig) {
+            $message = $runProfileBrowser
+                ? '未配置携程浏览器 Profile'
+                : '未配置携程 Cookie/接口配置';
             return [
                 'platform' => 'ctrip',
                 'success' => false,
-                'message' => '未配置携程 Cookie/接口配置或浏览器 Profile',
+                'message' => $message,
                 'saved_count' => 0,
                 'auto_fetch_mode' => $mode,
                 'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => [
-                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少携程 Cookie/接口配置/Profile'], 'hybrid_auto'),
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], $runProfileBrowser ? 'profile_browser' : 'cookie_config'),
                 ],
             ];
         }
@@ -12226,30 +12231,32 @@ JAVASCRIPT;
             }
         }
 
-        $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
-        $browserResult = $runProfileBrowser && $runProfileByCost
-            ? $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']))
-            : [
-                'success' => false,
-                'skipped' => true,
-                'message' => $runProfileBrowser ? 'Cookie/配置已有入库，按最低成本跳过浏览器 Profile' : '当前策略仅使用 Cookie/配置自动',
-                'saved_count' => 0,
-            ];
-        if (empty($browserResult['skipped'])) {
-            $savedCount += (int)($browserResult['saved_count'] ?? 0);
-        }
-        $modules[] = $this->withAutoFetchResultMeta([
-            'module' => 'browser_profile',
-            'saved_count' => (int)($browserResult['saved_count'] ?? 0),
-            'success' => (bool)($browserResult['success'] ?? false),
-            'message' => (string)($browserResult['message'] ?? ''),
-            'skipped' => (bool)($browserResult['skipped'] ?? false),
-        ], 'profile_browser');
+        if ($runProfileBrowser) {
+            $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
+            $browserResult = $runProfileByCost
+                ? $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']))
+                : [
+                    'success' => false,
+                    'skipped' => true,
+                    'message' => '当前策略未启动 Profile',
+                    'saved_count' => 0,
+                ];
+            if (empty($browserResult['skipped'])) {
+                $savedCount += (int)($browserResult['saved_count'] ?? 0);
+            }
+            $modules[] = $this->withAutoFetchResultMeta([
+                'module' => 'browser_profile',
+                'saved_count' => (int)($browserResult['saved_count'] ?? 0),
+                'success' => (bool)($browserResult['success'] ?? false),
+                'message' => (string)($browserResult['message'] ?? ''),
+                'skipped' => (bool)($browserResult['skipped'] ?? false),
+            ], 'profile_browser');
 
-        if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
-            $errors[] = 'browser ' . $browserResult['message'];
-        } elseif (!empty($browserResult['skipped']) && $mode === 'profile_browser') {
-            $errors[] = (string)$browserResult['message'];
+            if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
+                $errors[] = 'browser ' . $browserResult['message'];
+            } elseif (!empty($browserResult['skipped'])) {
+                $errors[] = (string)$browserResult['message'];
+            }
         }
 
         if ($savedCount > 0) {
@@ -12596,8 +12603,12 @@ JAVASCRIPT;
         $hasProfile = $this->meituanProfileExistsForConfig($config);
         $hasProfileSeed = $this->meituanProfileStoreIdFromConfig($config) !== '';
 
-        if ($cookies === '' && !$hasProfile && !$hasConfiguredTask && !($runProfileBrowser && $hasProfileSeed)) {
-            $message = $missingText !== '' ? '未配置美团 ' . $missingText : '未配置美团 Partner ID / POI ID / Cookies';
+        $hasDirectConfig = ($cookies !== '' && $partnerId !== '' && $poiId !== '') || $hasConfiguredTask;
+        $hasProfileConfig = $runProfileBrowser && ($hasProfile || $hasProfileSeed);
+        if (!$hasDirectConfig && !$hasProfileConfig) {
+            $message = $runProfileBrowser
+                ? '未配置美团浏览器 Profile'
+                : ($missingText !== '' ? '未配置美团 ' . $missingText : '未配置美团 Partner ID / POI ID / Cookies');
             return [
                 'platform' => 'meituan',
                 'success' => false,
@@ -12606,7 +12617,7 @@ JAVASCRIPT;
                 'auto_fetch_mode' => $mode,
                 'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => [
-                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'hybrid_auto'),
+                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], $runProfileBrowser ? 'profile_browser' : 'cookie_config'),
                 ],
             ];
         }
@@ -12680,30 +12691,32 @@ JAVASCRIPT;
             }
         }
 
-        $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
-        $browserResult = $runProfileBrowser && $runProfileByCost
-            ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']))
-            : [
-                'success' => false,
-                'skipped' => true,
-                'message' => $runProfileBrowser ? 'Cookie/配置已有入库，按最低成本跳过浏览器 Profile' : '当前策略仅使用 Cookie/配置自动',
-                'saved_count' => 0,
-            ];
-        if (empty($browserResult['skipped'])) {
-            $savedCount += (int)($browserResult['saved_count'] ?? 0);
-        }
-        $modules[] = $this->withAutoFetchResultMeta([
-            'module' => 'browser_profile',
-            'saved_count' => (int)($browserResult['saved_count'] ?? 0),
-            'success' => (bool)($browserResult['success'] ?? false),
-            'message' => (string)($browserResult['message'] ?? ''),
-            'skipped' => (bool)($browserResult['skipped'] ?? false),
-        ], 'profile_browser');
+        if ($runProfileBrowser) {
+            $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
+            $browserResult = $runProfileByCost
+                ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']))
+                : [
+                    'success' => false,
+                    'skipped' => true,
+                    'message' => '当前策略未启动 Profile',
+                    'saved_count' => 0,
+                ];
+            if (empty($browserResult['skipped'])) {
+                $savedCount += (int)($browserResult['saved_count'] ?? 0);
+            }
+            $modules[] = $this->withAutoFetchResultMeta([
+                'module' => 'browser_profile',
+                'saved_count' => (int)($browserResult['saved_count'] ?? 0),
+                'success' => (bool)($browserResult['success'] ?? false),
+                'message' => (string)($browserResult['message'] ?? ''),
+                'skipped' => (bool)($browserResult['skipped'] ?? false),
+            ], 'profile_browser');
 
-        if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
-            $errors[] = 'browser ' . $browserResult['message'];
-        } elseif (!empty($browserResult['skipped']) && $mode === 'profile_browser') {
-            $errors[] = (string)$browserResult['message'];
+            if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
+                $errors[] = 'browser ' . $browserResult['message'];
+            } elseif (!empty($browserResult['skipped'])) {
+                $errors[] = (string)$browserResult['message'];
+            }
         }
 
         if ($savedCount > 0) {

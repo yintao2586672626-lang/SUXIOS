@@ -86,10 +86,11 @@ const checks = [
       && controllerSource.includes('--sections=business,traffic'),
   },
   {
-    name: 'Ctrip overview tab is placed between ads and download center',
+    name: 'Ctrip overview top-level UI is hidden while backend fetch remains available',
     pass: source.indexOf("onlineDataTab = 'ctrip-ads'") > -1
-      && source.indexOf("onlineDataTab = 'ctrip-overview'") > source.indexOf("onlineDataTab = 'ctrip-ads'")
-      && source.indexOf('switchToDownloadCenter') > source.indexOf("onlineDataTab = 'ctrip-overview'")
+      && source.indexOf('switchToDownloadCenter') > source.indexOf("onlineDataTab = 'ctrip-ads'")
+      && !source.includes("onlineDataTab = 'ctrip-overview'; loadCtripConfigList()")
+      && !source.includes("{ label: '携程概况', page: 'ctrip-ebooking', tab: 'ctrip-overview'")
       && source.includes("request('/online-data/fetch-ctrip-overview'"),
   },
   {
@@ -124,11 +125,11 @@ const checks = [
       && controllerSource.includes("'missing_fields' => $meituanApiStatus['missing_fields']"),
   },
   {
-    name: 'hybrid auto-fetch uses lowest-cost fallback wording',
-    pass: source.includes('最低成本自动')
-      && source.includes('优先使用 Cookie/配置，未入库再回退浏览器 Profile')
+    name: 'hybrid auto-fetch uses direct API wording and does not auto-start Profile',
+    pass: source.includes('接口直连自动')
+      && source.includes('默认只使用 Cookie/接口配置')
       && controllerSource.includes('shouldRunProfileBrowserForCost')
-      && controllerSource.includes('按最低成本跳过浏览器 Profile'),
+      && controllerSource.includes('当前策略未启动 Profile'),
   },
 ];
 
