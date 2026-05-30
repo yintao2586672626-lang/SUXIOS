@@ -24,7 +24,8 @@
       "docs/design_handoff_manifest.json not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
       "database/backups contains OTA credential-shaped fields",
       "OTA credential rotation attestation not provided through OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE or docs/ota_credential_rotation_attestation.json",
-      "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest"
+      "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest",
+      ".git/index.lock exists and local git index is not ready for normal release handoff"
     ],
     "warnings": [
       "verify git ls-files database/backups outside the script",
