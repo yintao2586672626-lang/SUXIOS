@@ -58,13 +58,13 @@ const requiredDoNotClaimReadyPatterns = [
 ];
 
 const requiredReportBlockerPatterns = [
-  /真实生产 env|Production env/i,
-  /LLM_CONNECTIVITY_ATTESTATION_FILE|LLM 连通性/i,
+  /Production env/i,
+  /LLM_CONNECTIVITY_ATTESTATION_FILE|LLM connectivity/i,
   /Figma|Canva|design token/i,
-  /database\/backups.*凭证|credential-shaped/i,
-  /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE|OTA 凭证轮换/i,
+  /database\/backups|credential-shaped/i,
+  /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE|OTA credential rotation/i,
   /CODEX_SECURITY_SCAN_DIR|Codex Security/i,
-  /\.git\/index\.lock|本地 Git 状态/i,
+  /\.git\/index\.lock|Local Git state/i,
 ];
 
 const requiredBlockerIds = [
@@ -94,11 +94,11 @@ const requiredSecurityScanPatterns = [
   /Validation/i,
   /Attack-path analysis/i,
   /Markdown\s*\/\s*HTML final report/i,
-  /production configuration|生产配置/i,
-  /OTA credentials|OTA 凭证/i,
-  /tenant isolation|租户隔离/i,
-  /file import|文件导入/i,
-  /external HTTP|外部 HTTP/i,
+  /production configuration/i,
+  /OTA credentials/i,
+  /tenant isolation/i,
+  /file import/i,
+  /external HTTP/i,
 ];
 
 const requiredDesignManifestKeys = [
@@ -138,6 +138,13 @@ const requiredOtaAttestationKeys = [
   'reviewer',
   'platforms',
   'backup_cleanup',
+];
+
+const asciiReleaseDocs = [
+  'docs/release_readiness_remaining_issues.md',
+  'docs/release_blocker_close_plan.md',
+  'docs/release_readiness_status.json',
+  'docs/codex_security_scan_authorization.md',
 ];
 
 const issues = [];
@@ -213,8 +220,22 @@ function assertExactStringArray(actual, expected, label) {
   pass(`${label} matches contract`);
 }
 
+function assertAsciiText(relativePath) {
+  const text = readText(relativePath);
+  const invalid = [...text].find((char) => char.charCodeAt(0) > 0x7f);
+  if (invalid) {
+    fail(`${relativePath} contains non-ASCII text; keep release status docs encoding-stable`);
+    return;
+  }
+  pass(`${relativePath} is ASCII-only`);
+}
+
 for (const doc of requiredDocs) {
   assertFileExists(doc);
+}
+
+for (const doc of asciiReleaseDocs) {
+  assertAsciiText(doc);
 }
 
 const status = readJson('docs/release_readiness_status.json');
