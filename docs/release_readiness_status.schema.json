@@ -41,7 +41,7 @@
     },
     "release_readiness_check": {
       "type": "object",
-      "required": ["command", "status", "open_failures", "warnings"]
+      "required": ["command", "status", "open_failures", "warnings", "result_file_template"]
     },
     "blockers": {
       "type": "array",
