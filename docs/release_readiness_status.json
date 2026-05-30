@@ -1,0 +1,105 @@
+{
+  "updated_at": "2026-05-30",
+  "scope": [
+    "@github",
+    "@openai-developers",
+    "@codex-security",
+    "@figma",
+    "@canva"
+  ],
+  "overall_status": "not_release_ready",
+  "current_pr": {
+    "number": 1,
+    "status": "open",
+    "checks": "green_on_current_head",
+    "source_of_truth": "GitHub PR #1 current head"
+  },
+  "release_readiness_check": {
+    "command": "npm run review:release-readiness",
+    "status": "failing_as_expected",
+    "open_failures": [
+      "production env file not provided through .env.production or RELEASE_ENV_FILE",
+      "Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json not provided",
+      "database/backups contains OTA credential-shaped fields",
+      ".git/index.lock intermittently blocks local git state"
+    ],
+    "warnings": [
+      "verify git ls-files database/backups outside the script",
+      "confirm GitHub Actions dependency audits on current PR head",
+      "verify git status --short --branch before release"
+    ]
+  },
+  "plugin_status": [
+    {
+      "plugin": "@github",
+      "status": "partial",
+      "resolved": [
+        "PR #1 is open and mergeable",
+        "current GitHub Actions verify checks pass",
+        "CI runs PHPUnit, guards, contracts, composer audit and npm audit"
+      ],
+      "open": [
+        "local worktree remains dirty because prior PR sync used GitHub API",
+        ".git/index.lock appears intermittently and must be cleared before normal local commit or pull workflows"
+      ]
+    },
+    {
+      "plugin": "@openai-developers",
+      "status": "partial",
+      "resolved": [
+        "legacy env-based OpenAIClient was removed",
+        "production AI path is LlmClient with encrypted ai_model_configs",
+        ".example.production.env and deployment_env_checklist.md document required production configuration"
+      ],
+      "open": [
+        "real production env has not been provided through .env.production or RELEASE_ENV_FILE",
+        "production ai_model_configs have not been verified with a real connectivity test"
+      ]
+    },
+    {
+      "plugin": "@codex-security",
+      "status": "partial",
+      "resolved": [
+        "verify_high_risk_security.php passes",
+        "GitHub Actions composer audit reports no security advisories",
+        "GitHub Actions npm audit reports 0 vulnerabilities",
+        "release package sensitive paths are ignored and export-ignored",
+        "database/backups is not tracked by git"
+      ],
+      "open": [
+        "formal Codex Security repo-wide scan has not been run because subagent authorization is still required",
+        "local database/backups still contains OTA credential-shaped fields and requires rotation or cleanup"
+      ]
+    },
+    {
+      "plugin": "@figma",
+      "status": "open",
+      "resolved": [
+        "ui-handoff README documents code-side page coverage",
+        "design_handoff_manifest.example.json defines required Figma handoff metadata"
+      ],
+      "open": [
+        "no real Figma URL, exported design source, or design token artifact is present",
+        "docs/design_handoff_manifest.json has not been created with real values"
+      ]
+    },
+    {
+      "plugin": "@canva",
+      "status": "open",
+      "resolved": [
+        "design_handoff_manifest.example.json defines required Canva and Brand Kit metadata"
+      ],
+      "open": [
+        "no real Canva design URL, Brand Kit URL, or export artifact is present",
+        "上市材料 cannot be verified against a Canva source"
+      ]
+    }
+  ],
+  "do_not_claim_ready_until": [
+    "production env is provided and passes review:release-readiness",
+    "real Figma/Canva/design-token handoff is present and passes review:release-readiness",
+    "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-readiness no longer reports credential-shaped fields",
+    "formal Codex Security repo-wide scan is authorized, executed and produces markdown/html reports",
+    "local git state is clean or contains only reviewed intentional changes"
+  ]
+}
