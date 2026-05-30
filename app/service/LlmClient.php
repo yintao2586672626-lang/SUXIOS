@@ -11,6 +11,9 @@ use Throwable;
 class LlmClient
 {
     private const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.70;
+    private const DEFAULT_MAX_RETRIES = 2;
+    private const DEFAULT_RETRY_BASE_DELAY_MS = 250;
+    private const DEFAULT_RETRY_MAX_DELAY_MS = 2000;
 
     public function chat(string $prompt, string $modelKey = 'deepseek_v4_default', array $meta = [], array $options = []): array
     {
@@ -40,30 +43,27 @@ class LlmClient
             ], $governance, $config, $prompt, '', 'failed', 'json_encode_error', json_last_error_msg(), 0, 0, $startedAt, false);
         }
 
-        $url = LlmEndpoint::chatCompletionUrl((string)$config['base_url'], (string)$config['provider']);
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", [
-                    'Content-Type: application/json',
-                    'Authorization: Bearer ' . $config['api_key'],
-                ]),
-                'content' => $payloadJson,
-                'timeout' => (int)($options['timeout'] ?? 45),
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $response = @file_get_contents($url, false, $context);
-        $statusCode = $this->httpStatus($http_response_header ?? []);
+        $transport = $this->sendWithRetry(
+            LlmEndpoint::chatCompletionUrl((string)$config['base_url'], (string)$config['provider']),
+            $config,
+            $payloadJson,
+            $options
+        );
+        $response = $transport['response'];
+        $statusCode = (int)$transport['http_status'];
+        $retryMeta = [
+            'retry_attempts' => (int)$transport['retry_attempts'],
+            'max_retries' => (int)$transport['max_retries'],
+            'retryable' => (bool)$transport['retryable'],
+            'retry_reason' => (string)$transport['retry_reason'],
+        ];
         if ($response === false) {
-            $error = error_get_last();
-            $message = $this->sanitize((string)($error['message'] ?? 'Network request failed'));
+            $message = $this->sanitize((string)($transport['error'] ?? 'Network request failed'));
             return $this->finishWithGovernance([
                 'ok' => false,
                 'message' => $message,
                 'code' => 500,
-                'data' => $this->debug('network_error', $config, $statusCode, $message, $prompt, '', $message, $meta, strlen($payloadJson)),
+                'data' => $this->debug('network_error', $config, $statusCode, $message, $prompt, '', $message, array_merge($meta, $retryMeta), strlen($payloadJson)),
             ], $governance, $config, $prompt, '', 'failed', 'network_error', $message, $statusCode, strlen($payloadJson), $startedAt, false);
         }
 
@@ -73,7 +73,7 @@ class LlmClient
                 'ok' => false,
                 'message' => 'LLM response is not JSON',
                 'code' => 500,
-                'data' => $this->debug('invalid_response', $config, $statusCode, '', $prompt, (string)$response, 'LLM response is not JSON', $meta, strlen($payloadJson)),
+                'data' => $this->debug('invalid_response', $config, $statusCode, '', $prompt, (string)$response, 'LLM response is not JSON', array_merge($meta, $retryMeta), strlen($payloadJson)),
             ], $governance, $config, $prompt, (string)$response, 'failed', 'invalid_response', 'LLM response is not JSON', $statusCode, strlen($payloadJson), $startedAt, false);
         }
 
@@ -83,7 +83,7 @@ class LlmClient
                 'ok' => false,
                 'message' => $message,
                 'code' => $statusCode,
-                'data' => $this->debug('http_error', $config, $statusCode, '', $prompt, (string)$response, $message, $meta, strlen($payloadJson)),
+                'data' => $this->debug('http_error', $config, $statusCode, '', $prompt, (string)$response, $message, array_merge($meta, $retryMeta), strlen($payloadJson)),
             ], $governance, $config, $prompt, (string)$response, 'failed', 'http_error', $message, $statusCode, strlen($payloadJson), $startedAt, false);
         }
 
@@ -94,7 +94,7 @@ class LlmClient
                 'ok' => false,
                 'message' => $message,
                 'code' => 500,
-                'data' => $this->debug('empty_content', $config, $statusCode, '', $prompt, (string)$response, $message, $meta, strlen($payloadJson)),
+                'data' => $this->debug('empty_content', $config, $statusCode, '', $prompt, (string)$response, $message, array_merge($meta, $retryMeta), strlen($payloadJson)),
             ], $governance, $config, $prompt, (string)$response, 'failed', 'empty_content', $message, $statusCode, strlen($payloadJson), $startedAt, false);
         }
 
@@ -115,6 +115,8 @@ class LlmClient
                     'selected_hotel_count' => (int)($meta['selected_hotel_count'] ?? 0),
                     'request_payload_size' => strlen($payloadJson),
                     'prompt_length' => (int)($meta['prompt_length'] ?? mb_strlen($prompt)),
+                    'retry_attempts' => (int)$transport['retry_attempts'],
+                    'max_retries' => (int)$transport['max_retries'],
                 ],
             ],
         ], $governance, $config, $prompt, $content, 'success', '', '', $statusCode, strlen($payloadJson), $startedAt, true);
@@ -325,6 +327,108 @@ class LlmClient
             $content = implode('', array_map(static fn($item) => is_array($item) ? (string)($item['text'] ?? '') : (string)$item, $content));
         }
         return trim((string)$content);
+    }
+
+    private function sendWithRetry(string $url, array $config, string $payloadJson, array $options): array
+    {
+        $maxRetries = $this->maxRetries($options);
+        $attempt = 0;
+        $last = [
+            'response' => false,
+            'http_status' => 0,
+            'error' => 'Network request failed',
+            'retry_attempts' => 0,
+            'max_retries' => $maxRetries,
+            'retryable' => false,
+            'retry_reason' => '',
+        ];
+
+        do {
+            $last = array_merge($last, $this->sendOnce($url, $config, $payloadJson, $options));
+            $retryReason = $this->retryReason($last['response'], (int)$last['http_status']);
+            $last['retryable'] = $retryReason !== '';
+            $last['retry_reason'] = $retryReason;
+            $last['retry_attempts'] = $attempt;
+            $last['max_retries'] = $maxRetries;
+
+            if ($retryReason === '' || $attempt >= $maxRetries) {
+                return $last;
+            }
+
+            $this->sleepBeforeRetry($attempt, $options);
+            $attempt++;
+        } while (true);
+    }
+
+    private function sendOnce(string $url, array $config, string $payloadJson, array $options): array
+    {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'POST',
+                'header' => implode("\r\n", [
+                    'Content-Type: application/json',
+                    'Authorization: Bearer ' . $config['api_key'],
+                ]),
+                'content' => $payloadJson,
+                'timeout' => (int)($options['timeout'] ?? 45),
+                'ignore_errors' => true,
+            ],
+        ]);
+
+        $response = @file_get_contents($url, false, $context);
+        $statusCode = $this->httpStatus($http_response_header ?? []);
+        $error = '';
+        if ($response === false) {
+            $lastError = error_get_last();
+            $error = $this->sanitize((string)($lastError['message'] ?? 'Network request failed'));
+        }
+
+        return [
+            'response' => $response,
+            'http_status' => $statusCode,
+            'error' => $error,
+        ];
+    }
+
+    private function retryReason(mixed $response, int $statusCode): string
+    {
+        if ($response === false) {
+            return 'network_error';
+        }
+        if (in_array($statusCode, [408, 425, 429], true)) {
+            return 'retryable_http_' . $statusCode;
+        }
+        if ($statusCode >= 500 && $statusCode <= 599) {
+            return 'retryable_http_' . $statusCode;
+        }
+        return '';
+    }
+
+    private function maxRetries(array $options): int
+    {
+        $maxRetries = (int)($options['max_retries'] ?? self::DEFAULT_MAX_RETRIES);
+        return max(0, min(5, $maxRetries));
+    }
+
+    private function retryDelayMs(int $attempt, array $options): int
+    {
+        $baseDelay = max(0, min(5000, (int)($options['retry_base_delay_ms'] ?? self::DEFAULT_RETRY_BASE_DELAY_MS)));
+        $maxDelay = max($baseDelay, min(30000, (int)($options['retry_max_delay_ms'] ?? self::DEFAULT_RETRY_MAX_DELAY_MS)));
+        $delay = min($maxDelay, $baseDelay * (2 ** max(0, $attempt)));
+        if (!array_key_exists('retry_jitter_ms', $options)) {
+            $delay += random_int(0, min(250, max(0, (int)round($baseDelay / 2))));
+        } else {
+            $delay += max(0, min(1000, (int)$options['retry_jitter_ms']));
+        }
+        return min($maxDelay, $delay);
+    }
+
+    private function sleepBeforeRetry(int $attempt, array $options): void
+    {
+        $delayMs = $this->retryDelayMs($attempt, $options);
+        if ($delayMs > 0) {
+            usleep($delayMs * 1000);
+        }
     }
 
     private function schemaGovernanceMeta(array $schema): array
@@ -701,6 +805,10 @@ class LlmClient
                 'request_payload_size' => $payloadSize,
                 'prompt_length' => (int)($meta['prompt_length'] ?? mb_strlen($prompt)),
                 'response_preview' => $this->sanitize($response, 500),
+                'retry_attempts' => (int)($meta['retry_attempts'] ?? 0),
+                'max_retries' => (int)($meta['max_retries'] ?? 0),
+                'retryable' => (bool)($meta['retryable'] ?? false),
+                'retry_reason' => (string)($meta['retry_reason'] ?? ''),
             ],
         ];
     }

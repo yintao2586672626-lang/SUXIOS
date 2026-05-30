@@ -61,6 +61,7 @@ for (const doc of [
   'docs/p0_decision_execution_closed_loop.md',
   'docs/revenue_metric_standard_fact_table.md',
   'docs/system_design_logic.md',
+  'docs/system_beauty_ai_stability_review.md',
   'docs/ui-handoff/README.md',
 ]) {
   requireFile(doc);
@@ -106,6 +107,9 @@ const codeChecks = [
   ['scripts/lib/ota_data_validator.mjs', 'validateMetricFormulas', 'OTA metric formula validator'],
   ['app/service/LlmClient.php', 'decision_impact', 'AI decision impact governance'],
   ['app/service/LlmClient.php', 'human_confirmation_required', 'AI human confirmation governance'],
+  ['app/service/LlmClient.php', 'sendWithRetry', 'AI retry wrapper'],
+  ['app/service/LlmClient.php', 'retryReason', 'AI retry classification'],
+  ['app/service/LlmClient.php', 'retryDelayMs', 'AI retry backoff'],
   ['app/model/AiModelConfig.php', 'ai_model_configs', 'AI model config model'],
   ['database/migrations/20260527_create_ai_governance_tables.sql', 'ai_model_call_logs', 'AI call log table'],
   ['app/service/OperationManagementService.php', 'buildExecutionIntentPayload', 'operation intent builder'],
@@ -132,6 +136,8 @@ const testChecks = [
   ['tests/TransferDecisionServiceTest.php', 'TransferDecisionService', 'transfer decision service tests'],
   ['tests/QuantSimulationServiceTest.php', 'QuantSimulationService', 'quant simulation service tests'],
   ['tests/ExpansionServiceTest.php', 'ExpansionService', 'expansion service tests'],
+  ['tests/LlmClientTest.php', 'testRetryPolicyTargetsTransientNetworkAndHttpFailures', 'LLM retry classification test'],
+  ['tests/LlmClientTest.php', 'testDebugIncludesRetryMetadataWithoutMaskingFailure', 'LLM retry metadata test'],
 ];
 for (const [file, needle, label] of testChecks) {
   requireText(file, needle, label);

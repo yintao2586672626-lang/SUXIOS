@@ -6,12 +6,13 @@
   "summary": {
     "passed": 0,
     "warnings": 0,
-    "failures": 6
+    "failures": 7
   },
   "passes": [],
   "warnings": [],
   "failures": [
     "git ls-files database/backups failed: external command execution is not permitted for git ls-files database/backups",
+    "external evidence is missing .git/index.lock state.",
     ".git/index.lock exists; local git index is not ready for release operations.",
     "local worktree is not clean and must be reviewed before release.",
     "git status --short --branch failed: external command execution is not permitted for git status --short --branch",

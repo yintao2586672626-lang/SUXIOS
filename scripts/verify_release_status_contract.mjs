@@ -766,6 +766,7 @@ if (externalEvidenceExample) {
   }
   for (const commandKey of [
     'git_ls_files_database_backups',
+    'git_index_lock',
     'git_status_short_branch',
     'gh_pr_view',
   ]) {

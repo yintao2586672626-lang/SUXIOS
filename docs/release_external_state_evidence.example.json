@@ -7,6 +7,12 @@
       "exit_code": 0,
       "stdout": ""
     },
+    "git_index_lock": {
+      "path": ".git/index.lock",
+      "exists": false,
+      "length": null,
+      "last_write_time": null
+    },
     "git_status_short_branch": {
       "command": "git status --short --branch",
       "exit_code": 0,

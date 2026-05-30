@@ -193,4 +193,68 @@ final class LlmClientTest extends TestCase
         self::assertStringNotContainsString('plainPassword', $sanitized);
         self::assertStringNotContainsString('otaSecret', $sanitized);
     }
+
+    public function testRetryPolicyTargetsTransientNetworkAndHttpFailures(): void
+    {
+        $client = new LlmClient();
+
+        self::assertSame('network_error', $this->invokeNonPublic($client, 'retryReason', [false, 0]));
+        self::assertSame('retryable_http_408', $this->invokeNonPublic($client, 'retryReason', ['{}', 408]));
+        self::assertSame('retryable_http_429', $this->invokeNonPublic($client, 'retryReason', ['{}', 429]));
+        self::assertSame('retryable_http_503', $this->invokeNonPublic($client, 'retryReason', ['{}', 503]));
+        self::assertSame('', $this->invokeNonPublic($client, 'retryReason', ['{}', 400]));
+        self::assertSame('', $this->invokeNonPublic($client, 'retryReason', ['{}', 401]));
+        self::assertSame('', $this->invokeNonPublic($client, 'retryReason', ['{}', 422]));
+    }
+
+    public function testRetryOptionsAreBoundedAndInspectable(): void
+    {
+        $client = new LlmClient();
+
+        self::assertSame(0, $this->invokeNonPublic($client, 'maxRetries', [['max_retries' => -1]]));
+        self::assertSame(5, $this->invokeNonPublic($client, 'maxRetries', [['max_retries' => 99]]));
+        self::assertSame(2, $this->invokeNonPublic($client, 'maxRetries', [[]]));
+        self::assertSame(400, $this->invokeNonPublic($client, 'retryDelayMs', [
+            2,
+            [
+                'retry_base_delay_ms' => 100,
+                'retry_max_delay_ms' => 500,
+                'retry_jitter_ms' => 0,
+            ],
+        ]));
+    }
+
+    public function testDebugIncludesRetryMetadataWithoutMaskingFailure(): void
+    {
+        $client = new LlmClient();
+
+        $debug = $this->invokeNonPublic($client, 'debug', [
+            'http_error',
+            [
+                'provider' => 'openai',
+                'model_key' => 'openai_fast',
+                'model' => 'gpt-5-mini',
+                'source' => 'database',
+            ],
+            429,
+            '',
+            'prompt',
+            '{"error":{"message":"rate limited"}}',
+            'rate limited',
+            [
+                'retry_attempts' => 2,
+                'max_retries' => 2,
+                'retryable' => true,
+                'retry_reason' => 'retryable_http_429',
+            ],
+            128,
+        ]);
+
+        self::assertSame('http_error', $debug['error_type']);
+        self::assertSame(2, $debug['debug']['retry_attempts']);
+        self::assertSame(2, $debug['debug']['max_retries']);
+        self::assertTrue($debug['debug']['retryable']);
+        self::assertSame('retryable_http_429', $debug['debug']['retry_reason']);
+        self::assertSame(429, $debug['debug']['http_status']);
+    }
 }

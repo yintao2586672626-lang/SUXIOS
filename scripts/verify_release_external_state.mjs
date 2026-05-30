@@ -68,6 +68,26 @@ function checkGitStatusOutput(stdout) {
   }
 }
 
+function checkGitIndexLockObject(gitIndexLock) {
+  if (!gitIndexLock || typeof gitIndexLock !== 'object') {
+    addFailure('external evidence is missing .git/index.lock state.');
+    return;
+  }
+
+  if (gitIndexLock.exists === true) {
+    const lastWriteTime = gitIndexLock.last_write_time ? ` last_write_time=${gitIndexLock.last_write_time}` : '';
+    addFailure(`.git/index.lock exists in external evidence; local git index is not ready for release operations.${lastWriteTime}`);
+    return;
+  }
+
+  if (gitIndexLock.exists === false) {
+    addPass('.git/index.lock is absent in external evidence.');
+    return;
+  }
+
+  addFailure('external evidence .git/index.lock state must be a boolean.');
+}
+
 function checkPrObject(pr) {
   if (!pr || typeof pr !== 'object') {
     addFailure('PR evidence is missing or invalid.');
@@ -140,6 +160,8 @@ function checkEvidenceFile(evidencePath) {
   } else {
     checkTrackedBackupsOutput(trackedBackups.stdout);
   }
+
+  checkGitIndexLockObject(commands.git_index_lock);
 
   const gitStatus = commands.git_status_short_branch || {};
   if (gitStatus.exit_code !== 0) {

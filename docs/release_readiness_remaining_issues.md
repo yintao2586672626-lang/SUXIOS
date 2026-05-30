@@ -34,7 +34,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 | 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 4498 credential-shaped matches across 2 files: `database/backups/hotelx_after_tenant_security_20260529_161926.sql` (2249) and `database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql` (2249). | Delete, sanitize, or encrypted-archive local backups and pass `npm run review:release-ota-credentials` with no credential-shaped matches across backup text files. |
 | 5 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, readiness rerun, and pass `npm run review:release-ota-credentials`. |
 | 6 | `@codex-security` | Formal repo-wide Codex Security scan is missing | `CODEX_SECURITY_SCAN_DIR` and `docs/security/codex-security/latest` scan artifacts are not present. | Authorize subagents, provide `scan_manifest.json`, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, final Markdown/HTML reports, and pass `npm run review:release-security-scan`. |
-| 7 | `@github` | Local Git state is not closed | `git status --short --branch` shows a dirty local worktree, and `review:release-external-state` still requires controlled external evidence. | Align local worktree with the PR, confirm `.git/index.lock` is absent, and pass `review:release-external-state`. |
+| 7 | `@github` | Local Git state is not closed | Local external evidence proves PR #1 is mergeable with green checks and `database/backups` is not tracked, but `.git/index.lock` exists and `git status --short --branch` shows a dirty local worktree. | Align local worktree with the PR, confirm `.git/index.lock` is absent, and pass `review:release-external-state`. |
 
 ## Resolved Or Partially Controlled Items
 
@@ -49,6 +49,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 | UI code-side handoff checklist | Added | `docs/ui-handoff/README.md` covers login, OTA data, revenue analysis, AI decision, operations management, and investment decision code-side review points. |
 | Local functional acceptance gate | Added | `npm run review:functional-readiness` checks structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
 | Release issue register | Added | `docs/release_issue_register.md` lists every open blocker, scope, evidence, acceptance command, and close condition. |
+| GitHub external-state collector | Added | `npm run collect:release-external-state` captures PR head, merge state, checks, backup tracking, local worktree status, and `.git/index.lock` state for `review:release-external-state`. |
 
 ## Open Problem Details
 
@@ -136,7 +137,7 @@ Required close evidence:
 
 Scope: `@github`
 
-The PR branch is the current source of truth, but the local worktree remains dirty and `.git/index.lock` exists. Do not claim local release readiness until the local and remote states are aligned and verified.
+The PR branch is the current source of truth. The collector now proves PR #1 is mergeable with green checks and `database/backups` is not tracked, but the local worktree remains dirty and `.git/index.lock` exists. Do not claim local release readiness until the local and remote states are aligned and verified.
 
 Required close evidence:
 

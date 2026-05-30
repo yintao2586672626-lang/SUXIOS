@@ -30,6 +30,8 @@ function Invoke-ExternalCommand {
 
 $gitBackups = Invoke-ExternalCommand -Command "git" -Arguments @("ls-files", "database/backups")
 $gitStatus = Invoke-ExternalCommand -Command "git" -Arguments @("status", "--short", "--branch")
+$gitIndexLockPath = Join-Path (Get-Location) ".git/index.lock"
+$gitIndexLockItem = Get-Item -LiteralPath $gitIndexLockPath -ErrorAction SilentlyContinue
 
 $prArgs = @("pr", "view", $PrNumber, "--json", "number,url,headRefOid,mergeable,statusCheckRollup")
 $prOutput = & gh @prArgs 2>&1
@@ -48,6 +50,12 @@ $evidence = [ordered]@{
   reviewer = $Reviewer
   commands = [ordered]@{
     git_ls_files_database_backups = $gitBackups
+    git_index_lock = [pscustomobject]@{
+      path = ".git/index.lock"
+      exists = [bool]$gitIndexLockItem
+      length = $(if ($gitIndexLockItem) { $gitIndexLockItem.Length } else { $null })
+      last_write_time = $(if ($gitIndexLockItem) { $gitIndexLockItem.LastWriteTime.ToString("yyyy-MM-ddTHH:mm:ssK") } else { $null })
+    }
     git_status_short_branch = $gitStatus
     gh_pr_view = [pscustomobject]@{
       command = "gh $($prArgs -join ' ')"

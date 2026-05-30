@@ -12,7 +12,7 @@
 
 | 范围 | 已受控证据 | 仍不能上线的原因 |
 |---|---|---|
-| `@github` | PR 检查通过；CI 覆盖 Composer audit、npm audit、PHPUnit、P0 guards、functional readiness、release issue register、non-security review、release-status。 | 本地工作树仍未关闭，`.git/index.lock` 仍存在，`review:release-external-state` 未通过。 |
+| `@github` | PR 检查通过；CI 覆盖 Composer audit、npm audit、PHPUnit、P0 guards、functional readiness、release issue register、non-security review、release-status；本地采集文件已能记录 PR head、merge state、checks 和 `database/backups` 跟踪状态。 | 本地工作树仍未关闭，`.git/index.lock` 仍存在，`review:release-external-state` 未通过。 |
 | `@openai-developers` | AI 入口已收敛到 `LlmClient`，模型配置走加密数据库配置，功能结构门禁覆盖 AI 决策链路。 | 缺真实生产环境配置，缺生产 LLM 连通性证明。 |
 | `@codex-security` | 依赖审计和轻量安全检查通过；`database/backups` 未被 Git 跟踪。 | 本地备份仍有 OTA 凭据形态字段，正式 Codex Security 全仓扫描缺失。 |
 | `@figma` | 代码侧 UI handoff 和功能门禁覆盖登录、OTA 数据、收益分析、AI 决策、运营管理、投资决策。 | 缺真实 Figma 源文件、设计 token、评审日期和零未解决问题的交付清单。 |
@@ -28,7 +28,7 @@
 | 4 | 本地备份存在 OTA 凭据形态字段 | `@codex-security` | 若字段为真实值，应视为本地备份环境暴露 | `database/backups` 两个 SQL 文件共 4498 个匹配 | `npm run review:release-ota-credentials` |
 | 5 | OTA 凭据轮换证明缺失 | `@codex-security` | 无法证明 Cookie、Token、签名、Authorization 等已轮换或失效 | `docs/ota_credential_rotation_attestation.json` 不存在，`OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 未设置 | `npm run review:release-ota-credentials` |
 | 6 | 正式 Codex Security 扫描缺失 | `@codex-security` | 不能用依赖审计或轻量脚本替代发布级安全审查 | `CODEX_SECURITY_SCAN_DIR` 和 `docs/security/codex-security/latest` 均不存在 | `npm run review:release-security-scan` |
-| 7 | 本地 Git 状态未关闭 | `@github` | 无法完成可靠发布交接 | 本地工作树有未提交状态，`.git/index.lock` 存在 | `npm run review:release-external-state` |
+| 7 | 本地 Git 状态未关闭 | `@github` | 无法完成可靠发布交接 | 本地证据证明 PR 可合并且 checks 通过，但本地工作树仍有变更，`.git/index.lock` 存在 | `npm run review:release-external-state` |
 
 ## 关闭顺序
 
