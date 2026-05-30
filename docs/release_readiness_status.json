@@ -132,7 +132,7 @@
       "resolved": [
         "PR #1 is open and mergeable",
         "current GitHub Actions verify checks pass",
-        "CI runs PHPUnit, guards, non-security review, release-status contracts, composer audit and npm audit"
+        "CI runs PHPUnit, guards, functional-readiness review, non-security review, release-status contracts, composer audit and npm audit"
       ],
       "open": [
         "local worktree remains dirty because prior PR sync used GitHub API",
@@ -172,7 +172,8 @@
       "status": "open",
       "resolved": [
         "ui-handoff README documents code-side page coverage",
-        "design_handoff_manifest.example.json defines required Figma handoff metadata"
+        "design_handoff_manifest.example.json defines required Figma handoff metadata",
+        "release_functional_acceptance_matrix.md ties Figma to code-side UI handoff coverage"
       ],
       "open": [
         "no real Figma URL, exported design source, or design token artifact is present",
@@ -183,7 +184,8 @@
       "plugin": "@canva",
       "status": "open",
       "resolved": [
-        "design_handoff_manifest.example.json defines required Canva and Brand Kit metadata"
+        "design_handoff_manifest.example.json defines required Canva and Brand Kit metadata",
+        "release_functional_acceptance_matrix.md ties Canva to the design handoff contract"
       ],
       "open": [
         "no real Canva design URL, Brand Kit URL, or export artifact is present",

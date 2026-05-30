@@ -15,6 +15,7 @@
     "verify:codex-runner-contract": "node scripts/verify_codex_runner_contract.mjs",
     "verify:release-status": "node scripts/verify_release_status_contract.mjs",
     "verify:ota-data-batch": "node scripts/verify_ota_data_batch.mjs --input-dir=tests/fixtures/ota-data-batch",
+    "review:functional-readiness": "node scripts/verify_release_functional_readiness.mjs",
     "review:release-env": "node scripts/verify_release_env.mjs",
     "review:release-llm": "node scripts/verify_release_llm.mjs",
     "review:release-design": "node scripts/verify_release_design.mjs",

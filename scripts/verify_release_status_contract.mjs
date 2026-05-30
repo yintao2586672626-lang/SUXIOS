@@ -15,6 +15,7 @@ const requiredDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_blocker_close_plan.md',
   'docs/release_verification_command_matrix.md',
+  'docs/release_functional_acceptance_matrix.md',
   'docs/release_readiness_status.json',
   'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
@@ -29,6 +30,7 @@ const requiredDocs = [
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
   'scripts/collect_release_external_state.ps1',
+  'scripts/verify_release_functional_readiness.mjs',
   'scripts/verify_release_env.mjs',
   'scripts/lib/release_env_checks.mjs',
   'scripts/verify_release_llm.mjs',
@@ -43,6 +45,7 @@ const requiredDocs = [
 
 const requiredPackageScripts = [
   'review:release-readiness',
+  'review:functional-readiness',
   'review:release-env',
   'review:release-llm',
   'review:release-design',
@@ -63,6 +66,7 @@ const requiredVerificationMatrixCommands = [
   'npm run review:release-external-state',
   'npm run review:release-external-state:local',
   'npm run review:release-readiness',
+  'npm run review:functional-readiness',
   'npm run verify:release-status',
   'npm run review:non-security',
 ];
@@ -72,6 +76,7 @@ const requiredWorkflowCommands = [
   'npm audit --audit-level=moderate',
   'composer test',
   'npm run verify:p0-guards',
+  'npm run review:functional-readiness',
   'npm run review:non-security',
   'npm run verify:release-status',
 ];
@@ -228,6 +233,7 @@ const asciiReleaseDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_blocker_close_plan.md',
   'docs/release_verification_command_matrix.md',
+  'docs/release_functional_acceptance_matrix.md',
   'docs/release_readiness_status.json',
   'docs/codex_security_scan_authorization.md',
   'docs/release_readiness_result.example.json',
@@ -925,6 +931,12 @@ try {
   if (!report.includes('docs/release_readiness_status.json')) {
     fail('release_readiness_remaining_issues.md must reference docs/release_readiness_status.json');
   }
+  if (!report.includes('docs/release_functional_acceptance_matrix.md')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_functional_acceptance_matrix.md');
+  }
+  if (!report.includes('npm run review:functional-readiness')) {
+    fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
+  }
   if (!report.includes('7 failures')) {
     fail('release_readiness_remaining_issues.md must state the current 7 release-readiness failures');
   }
@@ -1009,6 +1021,31 @@ try {
   }
 } catch (error) {
   fail(`could not read release verification command matrix: ${error.message}`);
+}
+
+try {
+  const functionalMatrix = readText('docs/release_functional_acceptance_matrix.md');
+  for (const phrase of [
+    'OTA channel data',
+    'Revenue analysis',
+    'AI decision',
+    'Operations management',
+    'Investment decision',
+    '@github',
+    '@openai-developers',
+    '@codex-security',
+    '@figma',
+    '@canva',
+    'does not close the external release blockers',
+    'npm run review:functional-readiness',
+    'npm run test:e2e:business',
+  ]) {
+    if (!functionalMatrix.includes(phrase)) {
+      fail(`release_functional_acceptance_matrix.md must mention ${phrase}`);
+    }
+  }
+} catch (error) {
+  fail(`could not read release functional acceptance matrix: ${error.message}`);
 }
 
 if (issues.length > 0) {
