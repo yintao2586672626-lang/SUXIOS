@@ -35,6 +35,7 @@ const requiredOpenFailurePatterns = [
   /LLM|connectivity|LLM_CONNECTIVITY_ATTESTATION_FILE/i,
   /figma|canva|design-token|design_handoff_manifest/i,
   /database\/backups|credential-shaped/i,
+  /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
   /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
   /\.git\/index\.lock|git state/i,
 ];
@@ -49,6 +50,7 @@ const requiredDoNotClaimReadyPatterns = [
   /LLM|connectivity/i,
   /figma|canva|design-token/i,
   /OTA credentials|database\/backups/i,
+  /OTA credential rotation/i,
   /Codex Security/i,
   /git state/i,
 ];
@@ -97,6 +99,13 @@ const requiredLlmAttestationKeys = [
   'request',
   'result',
   'evidence_ref',
+];
+
+const requiredOtaAttestationKeys = [
+  'reviewed_at',
+  'reviewer',
+  'platforms',
+  'backup_cleanup',
 ];
 
 const issues = [];
@@ -268,6 +277,27 @@ if (llmAttestationExample) {
   }
   if (attestationComplete) {
     pass('docs/llm_connectivity_attestation.example.json covers required fields');
+  }
+}
+
+const otaAttestationExample = readJson('docs/ota_credential_rotation_attestation.example.json');
+if (otaAttestationExample) {
+  let otaAttestationComplete = true;
+  for (const key of requiredOtaAttestationKeys) {
+    if (!(key in otaAttestationExample)) {
+      fail(`docs/ota_credential_rotation_attestation.example.json is missing ${key}`);
+      otaAttestationComplete = false;
+    }
+  }
+  const cleanup = otaAttestationExample.backup_cleanup || {};
+  for (const key of ['database_backups_action', 'paths_reviewed', 'git_tracking_check', 'release_readiness_check']) {
+    if (!(key in cleanup)) {
+      fail(`docs/ota_credential_rotation_attestation.example.json backup_cleanup is missing ${key}`);
+      otaAttestationComplete = false;
+    }
+  }
+  if (otaAttestationComplete) {
+    pass('docs/ota_credential_rotation_attestation.example.json covers required fields');
   }
 }
 
