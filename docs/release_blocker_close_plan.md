@@ -6,6 +6,8 @@ Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 Source: `docs/release_readiness_status.json` `blockers`
 
+Command matrix: `docs/release_verification_command_matrix.md`
+
 ## Close Order
 
 | Order | Blocker id | Scope | Close action | Acceptance evidence |

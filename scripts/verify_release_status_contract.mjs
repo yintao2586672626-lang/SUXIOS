@@ -14,6 +14,7 @@ const requiredScope = [
 const requiredDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_blocker_close_plan.md',
+  'docs/release_verification_command_matrix.md',
   'docs/release_readiness_status.json',
   'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
@@ -51,6 +52,19 @@ const requiredPackageScripts = [
   'collect:release-external-state',
   'review:release-external-state:local',
   'verify:release-status',
+];
+
+const requiredVerificationMatrixCommands = [
+  'npm run review:release-env',
+  'npm run review:release-llm',
+  'npm run review:release-design',
+  'npm run review:release-ota-credentials',
+  'npm run review:release-security-scan',
+  'npm run review:release-external-state',
+  'npm run review:release-external-state:local',
+  'npm run review:release-readiness',
+  'npm run verify:release-status',
+  'npm run review:non-security',
 ];
 
 const requiredWorkflowCommands = [
@@ -213,6 +227,7 @@ const requiredExternalStateResultKeys = requiredReadinessResultKeys;
 const asciiReleaseDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_blocker_close_plan.md',
+  'docs/release_verification_command_matrix.md',
   'docs/release_readiness_status.json',
   'docs/codex_security_scan_authorization.md',
   'docs/release_readiness_result.example.json',
@@ -932,6 +947,9 @@ try {
 
 try {
   const closePlan = readText('docs/release_blocker_close_plan.md');
+  if (!closePlan.includes('docs/release_verification_command_matrix.md')) {
+    fail('release_blocker_close_plan.md must reference docs/release_verification_command_matrix.md');
+  }
   for (const id of requiredBlockerIds) {
     if (!closePlan.includes(id)) {
       fail(`release_blocker_close_plan.md must mention ${id}`);
@@ -957,6 +975,40 @@ try {
   }
 } catch (error) {
   fail(`could not read release blocker close plan: ${error.message}`);
+}
+
+try {
+  const matrix = readText('docs/release_verification_command_matrix.md');
+  for (const id of requiredBlockerIds) {
+    if (!matrix.includes(id)) {
+      fail(`release_verification_command_matrix.md must mention ${id}`);
+    }
+  }
+  for (const command of requiredVerificationMatrixCommands) {
+    if (!matrix.includes(command)) {
+      fail(`release_verification_command_matrix.md must mention ${command}`);
+    }
+  }
+  for (const evidenceRef of [
+    'RELEASE_ENV_FILE',
+    'LLM_CONNECTIVITY_ATTESTATION_FILE',
+    'docs/design_handoff_manifest.json',
+    'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
+    'CODEX_SECURITY_SCAN_DIR',
+    'docs/release_external_state_evidence.local.json',
+  ]) {
+    if (!matrix.includes(evidenceRef)) {
+      fail(`release_verification_command_matrix.md must mention ${evidenceRef}`);
+    }
+  }
+  if (!matrix.includes('Do not mark a blocker closed from narrative evidence alone')) {
+    fail('release_verification_command_matrix.md must require command-based closure');
+  }
+  if (!matrix.includes('Do not store real keys')) {
+    fail('release_verification_command_matrix.md must prohibit secret-bearing evidence');
+  }
+} catch (error) {
+  fail(`could not read release verification command matrix: ${error.message}`);
 }
 
 if (issues.length > 0) {
