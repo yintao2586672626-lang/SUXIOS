@@ -14,6 +14,7 @@
     "verify:opening-batch-actions": "node scripts/verify_opening_batch_actions.mjs",
     "verify:codex-runner-contract": "node scripts/verify_codex_runner_contract.mjs",
     "verify:ota-data-batch": "node scripts/verify_ota_data_batch.mjs --input-dir=tests/fixtures/ota-data-batch",
+    "review:release-readiness": "node scripts/verify_release_readiness.mjs",
     "meituan:capture": "node scripts/meituan_browser_capture.mjs",
     "type-check": "node scripts/verify_typecheck_or_skip.mjs",
     "type-check:watch": "node scripts/verify_typecheck_or_skip.mjs --watch",
