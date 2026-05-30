@@ -22,6 +22,7 @@
       "production LLM connectivity attestation not provided through LLM_CONNECTIVITY_ATTESTATION_FILE or docs/llm_connectivity_attestation.json",
       "Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json not provided",
       "database/backups contains OTA credential-shaped fields",
+      "OTA credential rotation attestation not provided through OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE or docs/ota_credential_rotation_attestation.json",
       "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest",
       ".git/index.lock intermittently blocks local git state"
     ],
@@ -119,6 +120,7 @@
     "production LLM connectivity attestation is provided and passes review:release-readiness",
     "real Figma/Canva/design-token handoff is present and passes review:release-readiness",
     "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-readiness no longer reports credential-shaped fields",
+    "OTA credential rotation attestation is provided and passes review:release-readiness",
     "formal Codex Security repo-wide scan is authorized, executed and produces markdown/html reports",
     "local git state is clean or contains only reviewed intentional changes"
   ]
