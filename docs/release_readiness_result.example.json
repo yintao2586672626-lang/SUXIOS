@@ -4,16 +4,15 @@
   "command": "npm run review:release-readiness",
   "status": "failed",
   "summary": {
-    "passed": 5,
+    "passed": 4,
     "warnings": 3,
-    "failures": 6
+    "failures": 7
   },
   "passes": [
     "Production AI client path is LlmClient with encrypted database model configs.",
     "database/backups is listed in .gitignore.",
     "database/backups is excluded from git archive exports.",
-    "Release package sensitive-path ignore rules are present.",
-    ".git/index.lock is absent."
+    "Release package sensitive-path ignore rules are present."
   ],
   "warnings": [
     "Run `git ls-files database/backups` outside this script to confirm no backup file is tracked.",
@@ -26,6 +25,7 @@
     "No Figma/Canva/design-token artifacts or docs/design_handoff_manifest.json were found.",
     "database/backups contains OTA credential-shaped fields (112 matches). Rotate real credentials and exclude backups from release packages.",
     "OTA credential rotation attestation was not found: docs/ota_credential_rotation_attestation.json. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release.",
-    "Formal Codex Security scan reports were not found. Set CODEX_SECURITY_SCAN_DIR to a completed scan directory containing report.md and report.html before release."
+    "Formal Codex Security scan reports were not found. Set CODEX_SECURITY_SCAN_DIR to a completed scan directory containing report.md and report.html before release.",
+    ".git/index.lock exists after retry; local git index is not ready for normal commit/pull flows."
   ]
 }
