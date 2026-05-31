@@ -84,7 +84,90 @@ function parseMaybeJson(value) {
   return JSON.parse(text);
 }
 
-function normalizeEndpoints(config) {
+const POST_PAYLOAD_DEFAULT_RULES = [
+  {
+    ids: ['sales_market_detail'],
+    urlKeywords: ['querymarketdetails', 'querymarketdetail', 'queryhotroom', 'queryhotroomsv1', 'queryordertrend', 'queryordertrendv1', 'queryhoteloccupiedroomtrend', 'queryhoteloccupiedroomtrendv1', 'queryroomtensities', 'queryroomtensitiesv1', 'queryhoteltensities', 'queryhoteltensitiesv1', 'querymarketroomtensity', 'queryroomoccupiedtrend'],
+    defaults: {
+      hostType: 'HE',
+      platform: 'EBK',
+    },
+    dateFields: ['startDate', 'endDate'],
+  },
+  {
+    ids: ['traffic_scan_flow', 'traffic_flow_transform', 'traffic_order_overview', 'traffic_flow_source', 'traffic_city_keywords', 'traffic_search_details'],
+    urlKeywords: ['queryscanflowdetailsv2', 'queryflowtransformnewv1', 'queryflowsource', 'querycityhotkeywords', 'querysearchflowdetails'],
+    defaults: {
+      hostType: 'HE',
+      platform: 'EBK',
+    },
+    dateFields: ['startDate', 'endDate'],
+  },
+  {
+    ids: ['ads_summary_report'],
+    urlKeywords: ['querycampaignsummaryreport'],
+    defaults: {
+      hostType: 'HE',
+      platform: 'EBK',
+      pageIndex: 1,
+      pageSize: 20,
+    },
+    dateFields: ['startDate', 'endDate'],
+    includeHotelId: false,
+  },
+  {
+    ids: ['user_profile_features', 'user_profile_dimensions'],
+    urlKeywords: ['queryuser', 'getuserimagelist', 'getorderdistribution'],
+    defaults: {
+      hostType: 'HE',
+      platform: 'EBK',
+    },
+    dateFields: ['startDate', 'endDate'],
+    includeHotelId: true,
+  },
+  {
+    ids: ['im_index', 'im_trend'],
+    urlKeywords: ['getimindex', 'getimdatedistribute', 'getimsessiondistribute', 'getimorderconversionbyday', 'getimorderconversiondetail'],
+    defaults: {
+      hostType: 'HE',
+      platform: 'EBK',
+    },
+    dateFields: ['startDate', 'endDate'],
+    includeHotelId: true,
+  },
+  {
+    ids: ['competitor_management', 'competitor_hotel_label', 'competitor_flow', 'competitor_service', 'competitor_flow_source', 'loss_order_summary', 'loss_compete_hotel', 'competitor_rank'],
+    urlKeywords: ['getmanagementdata', 'getmasterhotellabel', 'getflowdata', 'getservicedata', 'getflowsource', 'gettripartiteorderloss', 'getlossordercompetehotel', 'getcompetingrank'],
+    defaults: {
+      hostType: 'HE',
+      platform: 'EBK',
+    },
+    dateFields: ['startDate', 'endDate'],
+    includeHotelId: true,
+  },
+  {
+    ids: ['biztravel_bpi_table'],
+    urlKeywords: ['getbbkcomprehensivetable'],
+    defaults: {
+      date: '',
+      hostType: 'HE',
+    },
+    includeDateAlias: ['date', 'reportDate'],
+    includeHotelId: true,
+  },
+  {
+    ids: ['biztravel_business_report', 'biztravel_competitor_report'],
+    urlKeywords: ['datacenterbusinessreportdetail', 'datacentercomparisonreportdetail'],
+    defaults: {
+      hostType: 'HE',
+      platform: 'BBK',
+    },
+    dateFields: ['startDate', 'endDate'],
+    includeHotelId: true,
+  },
+];
+
+function normalizeEndpoints(config, context = {}) {
   const raw = config.endpoints ?? config.requests ?? config.request_urls ?? config.requestUrls ?? [];
   const items = Array.isArray(raw) ? raw : [raw];
   return items.map((item) => {
@@ -94,14 +177,91 @@ function normalizeEndpoints(config) {
     if (!item || typeof item !== 'object') {
       return null;
     }
-    return {
+    const normalized = {
       ...item,
       request_url: stringValue(item.request_url || item.requestUrl || item.url),
       method: stringValue(item.method || item.request_method || item.requestMethod || 'GET').toUpperCase(),
       payload: normalizeObject(item.payload ?? item.request_payload ?? item.requestPayload ?? item.params ?? {}),
       headers: normalizeObject(item.headers || item.request_headers || item.requestHeaders || {}),
     };
+    normalized.payload = normalizeDefaultPostPayload(
+      normalized,
+      {
+        hotelId: stringValue(context.hotelId),
+        dataDate: stringValue(context.dataDate),
+      },
+      findCtripEndpointByUrl(normalized.request_url, { preferredSection: normalized.section || normalized.capture_section || '' }),
+    );
+    return normalized;
   }).filter((item) => item && item.request_url);
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isEmptyPayload(payload) {
+  return !isPlainObject(payload) || Object.keys(payload).length === 0;
+}
+
+function normalizeDefaultPostPayload(item, context = {}, endpoint = null) {
+  const payload = normalizeObject(item.payload);
+  if (item.method !== 'POST' || !isEmptyPayload(payload)) {
+    return payload;
+  }
+
+  const matchedRule = findPostPayloadRule(item.request_url, endpoint);
+  if (!matchedRule) {
+    return payload;
+  }
+
+  const defaults = { ...matchedRule.defaults };
+  const dateWindow = buildDateWindow(context.dataDate);
+  if (dateWindow && matchedRule.dateFields && matchedRule.dateFields.length > 0) {
+    for (const field of matchedRule.dateFields) {
+      if (dateWindow[field]) {
+        defaults[field] = dateWindow[field];
+      }
+    }
+  }
+  if (matchedRule.includeDateAlias) {
+    const aliasDate = context.dataDate || dateWindow?.startDate || dateWindow?.endDate || '';
+    if (aliasDate) {
+      for (const field of matchedRule.includeDateAlias) {
+        defaults[field] = aliasDate;
+      }
+    }
+  }
+  if (matchedRule.includeHotelId && context.hotelId) {
+    defaults.hotelId = context.hotelId;
+    defaults.nodeId = context.hotelId;
+  }
+  if (matchedRule.includePlatform !== false) {
+    defaults.platform = defaults.platform || 'EBK';
+  }
+
+  return defaults;
+}
+
+function findPostPayloadRule(url, endpoint) {
+  const lowerUrl = String(url || '').toLowerCase();
+  return POST_PAYLOAD_DEFAULT_RULES.find((rule) => {
+    if (rule.ids.includes(endpoint?.id)) {
+      return true;
+    }
+    return (rule.urlKeywords || []).some((keyword) => lowerUrl.includes(keyword.toLowerCase()));
+  }) || null;
+}
+
+function buildDateWindow(dataDate) {
+  const date = stringValue(dataDate);
+  if (!date) {
+    return null;
+  }
+  return {
+    startDate: date,
+    endDate: date,
+  };
 }
 
 function normalizeObject(value) {
@@ -202,6 +362,55 @@ function normalizeErrorResponse(status, bodyText) {
   return status === 200 ? 'json_parse_failed' : `http_${status}`;
 }
 
+function normalizeBusinessStatusValue(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function ctripBusinessError(body) {
+  const ack = normalizeBusinessStatusValue(body?.ResponseStatus?.Ack);
+  if (ack && !['success', 'ok'].includes(ack)) {
+    const message = body?.ResponseStatus?.Errors?.[0]?.Message
+      || body?.ResponseStatus?.Errors?.[0]?.message
+      || body?.ResponseStatus?.Errors?.[0]?.Code
+      || body?.ResponseStatus?.Errors?.[0]?.code
+      || `ResponseStatus.Ack=${body.ResponseStatus.Ack}`;
+    return { error: classifyCtripBusinessError(message), message: String(message) };
+  }
+
+  const rcode = body?.resStatus?.rcode ?? body?.resultStatus?.rcode ?? body?.status?.rcode;
+  if (rcode !== undefined && rcode !== null && String(rcode) !== '' && Number(rcode) !== 0 && Number(rcode) !== 200) {
+    const message = body?.resStatus?.rmsg
+      || body?.resultStatus?.rmsg
+      || body?.status?.rmsg
+      || `rcode=${rcode}`;
+    return { error: classifyCtripBusinessError(message), message: String(message), rcode };
+  }
+
+  const code = body?.code ?? body?.errorCode;
+  if (code !== undefined && code !== null && String(code) !== '' && Number(code) !== 0 && Number(code) !== 200) {
+    const message = body?.message || body?.msg || body?.errorMessage || `code=${code}`;
+    return { error: classifyCtripBusinessError(message), message: String(message), code };
+  }
+
+  const messageText = normalizeBusinessStatusValue(body?.message || body?.msg || body?.errorMessage || body?.resStatus?.rmsg);
+  if (/token_expired|login|未登录|登录|权限|forbidden|unauthorized|auth/.test(messageText)) {
+    return { error: classifyCtripBusinessError(messageText), message: String(body?.message || body?.msg || body?.errorMessage || body?.resStatus?.rmsg || '') };
+  }
+
+  return null;
+}
+
+function classifyCtripBusinessError(message) {
+  const text = normalizeBusinessStatusValue(message);
+  if (/token_expired|no_token|login|未登录|登录|auth|unauthorized/.test(text)) {
+    return 'cookie_or_permission_failed';
+  }
+  if (/permission|forbidden|权限|无权|拒绝/.test(text)) {
+    return 'cookie_or_permission_failed';
+  }
+  return 'business_error';
+}
+
 export async function runCtripCookieApiCapture(config, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== 'function') {
@@ -211,14 +420,13 @@ export async function runCtripCookieApiCapture(config, options = {}) {
   if (!cookies) {
     throw new Error('missing Ctrip Cookie');
   }
-  const endpoints = normalizeEndpoints(config);
-  if (endpoints.length === 0) {
-    throw new Error('missing endpoint request list');
-  }
-
   const capturedAt = options.capturedAt || new Date().toISOString();
   const dataDate = stringValue(config.data_date || config.dataDate || options.dataDate);
   const hotelId = stringValue(config.hotel_id || config.hotelId || config.ctrip_hotel_id || config.profile_id || options.hotelId);
+  const endpoints = normalizeEndpoints(config, { hotelId, dataDate });
+  if (endpoints.length === 0) {
+    throw new Error('missing endpoint request list');
+  }
   const hotelName = stringValue(config.hotel_name || config.hotelName || options.hotelName);
   const profileId = stringValue(config.profile_id || config.profileId || hotelId || 'ctrip_cookie_api');
   const payload = {
@@ -289,6 +497,11 @@ export async function runCtripCookieApiCapture(config, options = {}) {
         data: body,
       };
       payload.responses.push(responseEntry);
+      const businessError = ctripBusinessError(body);
+      if (businessError) {
+        payload.errors.push({ url: requestUrl, status: response.status, ...businessError });
+        continue;
+      }
       if (endpoint) {
         const factContext = {
           endpoint,
@@ -319,11 +532,11 @@ export async function runCtripCookieApiCapture(config, options = {}) {
     }
   }
 
-  payload.requested_sections = [...new Set(payload.responses.map((item) => item.section).filter(Boolean))].sort();
+  payload.requested_sections = [...new Set(payload.standard_rows.map((item) => item.capture_section).filter(Boolean))].sort();
   payload.endpoint_candidates = buildCtripEndpointCandidates(payload.unmatched_xhr_urls);
-  payload.auth_status = payload.responses.length > 0
-    ? { ok: true, status: 'logged_in_or_cookie_valid', message: 'At least one Ctrip API request returned JSON.' }
-    : { ok: false, status: 'no_json_response', message: 'No Ctrip API request returned JSON. Check Cookie, URL, payload and permissions.' };
+  payload.auth_status = payload.standard_rows.length > 0 || payload.catalog_facts.length > 0
+    ? { ok: true, status: 'logged_in_or_cookie_valid', message: 'At least one Ctrip API request returned business data.' }
+    : { ok: false, status: payload.responses.length > 0 ? 'no_business_data' : 'no_json_response', message: 'No Ctrip API request returned usable business data. Check Cookie, URL, payload and permissions.' };
   return payload;
 }
 

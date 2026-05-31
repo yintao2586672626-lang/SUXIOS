@@ -12163,6 +12163,64 @@
                                                     </div>
                                                 </div>
 
+                                                <div class="mt-4 rounded-lg border border-emerald-100 bg-white p-4">
+                                                    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-3">
+                                                        <div>
+                                                            <h5 class="font-semibold text-gray-900">
+                                                                <i class="fas fa-plug mr-2 text-emerald-600"></i>携程 Cookie API 直连采集
+                                                            </h5>
+                                                            <p class="text-xs text-gray-500 mt-1">不启动浏览器；粘贴 Network 里的 Request URL、Payload 和 Cookie，直接生成诊断字段。</p>
+                                                        </div>
+                                                        <span class="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs">Cookie + API</span>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                        <div class="md:col-span-3">
+                                                            <label class="block text-xs text-gray-500 mb-1">Request URL</label>
+                                                            <input v-model="ctripCookieApiForm.requestUrl" type="text"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-sm font-mono"
+                                                                placeholder="https://ebooking.ctrip.com/restapi/soa2/...">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">Method</label>
+                                                            <select v-model="ctripCookieApiForm.method" class="w-full px-3 py-2 border rounded-lg bg-white text-sm">
+                                                                <option value="GET">GET</option>
+                                                                <option value="POST">POST</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="md:col-span-2">
+                                                            <label class="block text-xs text-gray-500 mb-1">Payload JSON</label>
+                                                            <textarea v-model="ctripCookieApiForm.payloadJson" rows="4"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-xs font-mono"
+                                                                placeholder='{"startDate":"2026-05-31","endDate":"2026-05-31"}'></textarea>
+                                                        </div>
+                                                        <div class="md:col-span-2">
+                                                            <label class="block text-xs text-gray-500 mb-1">批量接口 JSON</label>
+                                                            <textarea v-model="ctripCookieApiForm.endpointsJson" rows="4"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-xs font-mono"
+                                                                placeholder='[{"request_url":"https://ebooking.ctrip.com/restapi/soa2/...","method":"GET"}]'></textarea>
+                                                        </div>
+                                                        <div class="md:col-span-2">
+                                                            <label class="block text-xs text-gray-500 mb-1">Cookie</label>
+                                                            <textarea v-model="ctripCookieApiForm.cookies" rows="4"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-xs font-mono"
+                                                                placeholder="可留空；优先读取当前携程配置 Cookie，没有配置时尝试读取已登录 Profile"></textarea>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-3 flex flex-wrap items-center gap-3">
+                                                        <button type="button" @click="fillCtripCookieApiCorePreset"
+                                                            class="px-3 py-2 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-50">
+                                                            <i class="fas fa-list-check mr-2"></i>填入核心诊断接口
+                                                        </button>
+                                                        <button type="button" @click="runCtripCookieApiCapture"
+                                                            :disabled="ctripCookieApiRunning || !autoFetchHotelId"
+                                                            class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:bg-gray-400">
+                                                            <i :class="ctripCookieApiRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>
+                                                            {{ ctripCookieApiRunning ? '采集中...' : 'Cookie API 采集并入库' }}
+                                                        </button>
+                                                        <span class="text-xs text-gray-500">适合 PSI、热点日历、金字塔、商旅 BPI 等已知接口；返回结果会进入上方诊断摘要。</span>
+                                                    </div>
+                                                </div>
+
                                                 <div class="mt-4 rounded-lg border border-blue-100 bg-white p-4">
                                                     <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-3">
                                                         <div>
@@ -15064,6 +15122,14 @@
             const ctripBrowserCaptureResult = ref(null);
             const ctripBrowserCaptureRunning = ref(false);
             const ctripDiagnosisSnapshotLoading = ref(false);
+            const ctripCookieApiForm = ref({
+                requestUrl: '',
+                method: 'GET',
+                payloadJson: '',
+                endpointsJson: '',
+                cookies: '',
+            });
+            const ctripCookieApiRunning = ref(false);
             const ctripEndpointEvidenceForm = ref({
                 requestUrl: '',
                 method: 'POST',
@@ -25004,6 +25070,214 @@
                 }
             };
 
+            const fillCtripCookieApiCorePreset = () => {
+                ctripCookieApiForm.value.requestUrl = '';
+                ctripCookieApiForm.value.method = 'GET';
+                ctripCookieApiForm.value.payloadJson = '';
+                ctripCookieApiForm.value.endpointsJson = JSON.stringify([
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo',
+                        method: 'GET',
+                        section: 'market_calendar',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData',
+                        method: 'GET',
+                        section: 'homepage',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryMarketDetails',
+                        method: 'POST',
+                        section: 'sales_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryOrderTrendV1',
+                        method: 'POST',
+                        section: 'sales_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotelOccupiedRoomTrendV1',
+                        method: 'POST',
+                        section: 'sales_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryRoomTensitiesV1',
+                        method: 'POST',
+                        section: 'sales_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2',
+                        method: 'POST',
+                        section: 'traffic_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryFlowTransformNewV1',
+                        method: 'POST',
+                        section: 'traffic_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryFlowSource',
+                        method: 'POST',
+                        section: 'traffic_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryCityHotKeywords',
+                        method: 'POST',
+                        section: 'traffic_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/querySearchFlowDetails',
+                        method: 'POST',
+                        section: 'traffic_report',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryCampaignSummaryReport',
+                        method: 'POST',
+                        section: 'ads_pyramid',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/psi/api/getHotelPsiV2',
+                        method: 'GET',
+                        section: 'quality_psi',
+                    },
+                    {
+                        request_url: 'https://bbk.ctripbiz.cn/api/getBbkComprehensiveTable',
+                        method: 'POST',
+                        section: 'biztravel_bpi',
+                    },
+                    {
+                        request_url: 'https://bbk.ctripbiz.cn/api/dataCenterBusinessReportDetail',
+                        method: 'POST',
+                        section: 'biztravel_business_report',
+                    },
+                    {
+                        request_url: 'https://bbk.ctripbiz.cn/api/dataCenterComparisonReportDetail',
+                        method: 'POST',
+                        section: 'biztravel_competitor',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryUserSex',
+                        method: 'POST',
+                        section: 'user_profile',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getImIndex',
+                        method: 'POST',
+                        section: 'im_board',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getImDateDistribute',
+                        method: 'POST',
+                        section: 'im_board',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getManagementData',
+                        method: 'POST',
+                        section: 'competitor_overview',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getFlowSource',
+                        method: 'POST',
+                        section: 'competitor_overview',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getTripartiteOrderLoss',
+                        method: 'POST',
+                        section: 'loss_analysis',
+                    },
+                    {
+                        request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getCompetingRank',
+                        method: 'POST',
+                        section: 'competitor_rank',
+                    },
+                ], null, 2);
+            };
+
+            const runCtripCookieApiCapture = async () => {
+                const systemHotelId = selectedCtripHotelId.value || autoFetchHotelId.value || user.value?.hotel_id || null;
+                if (!systemHotelId) {
+                    showToast('请选择目标酒店', 'error');
+                    return;
+                }
+                const requestUrl = String(ctripCookieApiForm.value.requestUrl || '').trim();
+                const endpointsJson = String(ctripCookieApiForm.value.endpointsJson || '').trim();
+                if (!requestUrl && !endpointsJson) {
+                    showToast('请填写携程接口 Request URL 或批量接口 JSON', 'error');
+                    return;
+                }
+
+                if (!selectedCtripHotelId.value) {
+                    selectedCtripHotelId.value = String(systemHotelId);
+                }
+                if (!ctripConfigList.value.length) {
+                    await loadCtripConfigList();
+                }
+                let activeConfig = getActiveCtripConfig();
+                if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
+                    activeConfig = findCtripConfigByHotelId(systemHotelId);
+                }
+                activeConfig = await ensureCtripConfigSecret(activeConfig);
+                if (activeConfig) {
+                    applyCtripConfigObject(activeConfig, false);
+                }
+
+                const cookies = String(ctripCookieApiForm.value.cookies || activeConfig?.cookies || activeConfig?.cookie || '').trim();
+                const cookieApiProfileId = String(
+                    ctripBrowserCaptureForm.value.profileId
+                    || activeConfig?.profile_id
+                    || activeConfig?.profileId
+                    || activeConfig?.browser_profile_id
+                    || activeConfig?.browserProfileId
+                    || activeConfig?.profile
+                    || systemHotelId
+                    || ''
+                ).trim();
+                ctripCookieApiRunning.value = true;
+                fetchingData.value = true;
+                ctripBrowserCaptureResult.value = null;
+                try {
+                    const res = await request('/online-data/fetch-ctrip-cookie-api', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            system_hotel_id: systemHotelId,
+                            hotel_id: ctripBrowserCaptureForm.value.hotelId
+                                || activeConfig?.ota_hotel_id
+                                || activeConfig?.ctrip_hotel_id
+                                || activeConfig?.node_id
+                                || activeConfig?.nodeId
+                                || ctripForm.value.nodeId
+                                || '',
+                            hotel_name: getHotelNameById(systemHotelId),
+                            profile_id: cookieApiProfileId,
+                            data_date: ctripOverviewForm.value.dataDate,
+                            request_url: requestUrl,
+                            method: String(ctripCookieApiForm.value.method || 'GET').toUpperCase(),
+                            payload_json: String(ctripCookieApiForm.value.payloadJson || '').trim(),
+                            endpoints_json: endpointsJson,
+                            cookies,
+                            auto_save: true,
+                        }),
+                    });
+                    if (res.code === 200) {
+                        ctripBrowserCaptureResult.value = res.data || {};
+                        onlineDataResult.value = res.data || {};
+                        showRawData.value = false;
+                        showToast(res.message || `携程 Cookie API 采集完成，已入库 ${res.data?.saved_count || 0} 条`);
+                        await loadLatestCtripData({ silent: true });
+                        await refreshOnlineHistory();
+                    } else {
+                        ctripBrowserCaptureResult.value = res.data || { error: res.message || '携程 Cookie API 采集失败' };
+                        showToast(res.message || '携程 Cookie API 采集失败', 'error');
+                    }
+                } catch (e) {
+                    ctripBrowserCaptureResult.value = e?.data?.data || { error: e.message };
+                    showToast('携程 Cookie API 采集失败: ' + e.message, 'error');
+                } finally {
+                    ctripCookieApiRunning.value = false;
+                    fetchingData.value = false;
+                }
+            };
+
             const validateCtripEndpointEvidence = async () => {
                 const form = ctripEndpointEvidenceForm.value;
                 const requestUrl = String(form.requestUrl || '').trim();
@@ -30728,7 +31002,7 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
@@ -30749,7 +31023,7 @@
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
-                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
+                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig,
                 ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass,

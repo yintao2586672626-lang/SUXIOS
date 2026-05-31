@@ -7,6 +7,8 @@ const ctripBrowserScriptPath = 'scripts/ctrip_browser_capture.mjs';
 const ctripBrowserScript = existsSync(ctripBrowserScriptPath) ? readFileSync(ctripBrowserScriptPath, 'utf8') : '';
 const ctripCookieApiScriptPath = 'scripts/ctrip_cookie_api_capture.mjs';
 const ctripCookieApiScript = existsSync(ctripCookieApiScriptPath) ? readFileSync(ctripCookieApiScriptPath, 'utf8') : '';
+const chromiumCookieExtractorPath = 'scripts/extract_chromium_cookie_header.php';
+const chromiumCookieExtractor = existsSync(chromiumCookieExtractorPath) ? readFileSync(chromiumCookieExtractorPath, 'utf8') : '';
 const ctripCatalogSource = existsSync('scripts/lib/ctrip_capture_catalog.mjs') ? readFileSync('scripts/lib/ctrip_capture_catalog.mjs', 'utf8') : '';
 
 const functionMatch = source.match(/const generateOtaDiagnosis = async \(\) => \{[\s\S]*?\n            \};/);
@@ -133,7 +135,60 @@ const checks = [
       && ctripCookieApiScript.includes('extractCtripCatalogFacts')
       && ctripCookieApiScript.includes('buildCtripStandardRowsFromFacts')
       && ctripCookieApiScript.includes("source: 'ctrip_cookie_api'")
-      && ctripCookieApiScript.includes('redactHeaders'),
+      && ctripCookieApiScript.includes('redactHeaders')
+      && source.includes('ctripCookieApiForm')
+      && source.includes('ctripCookieApiRunning')
+      && source.includes('runCtripCookieApiCapture')
+      && source.includes('endpoints_json: endpointsJson'),
+  },
+  {
+    name: 'Ctrip Cookie API exposes a core diagnosis endpoint preset',
+    pass: source.includes('fillCtripCookieApiCorePreset')
+      && source.includes('填入核心诊断接口')
+      && source.includes('queryHotCalendarInfo')
+      && source.includes('queryHomePageRealTimeData')
+      && source.includes('queryCampaignSummaryReport')
+      && source.includes('getHotelPsiV2')
+      && source.includes('getBbkComprehensiveTable')
+      && source.includes('dataCenterBusinessReportDetail')
+      && source.includes('queryScanFlowDetailsV2')
+    && source.includes('market_calendar')
+    && source.includes('homepage')
+    && source.includes('traffic_report')
+    && source.includes('ads_pyramid')
+    && source.includes('quality_psi')
+    && source.includes('biztravel_bpi')
+    && source.includes('biztravel_business_report')
+    && source.includes('biztravel_competitor')
+    && source.includes('user_profile')
+    && source.includes('im_board')
+    && source.includes('competitor_overview')
+    && source.includes('loss_analysis')
+    && source.includes('competitor_rank')
+    && source.includes('queryUserSex')
+    && source.includes('getImIndex')
+    && source.includes('getManagementData')
+    && source.includes('getTripartiteOrderLoss')
+    && source.includes('getCompetingRank')
+    && source.includes('fillCtripCookieApiCorePreset, runCtripCookieApiCapture'),
+  },
+  {
+    name: 'Ctrip Cookie API can reuse an already logged-in browser Profile',
+    pass: controllerSource.includes('createCtripCookieApiCookieFileFromProfile')
+      && controllerSource.includes('extract_chromium_cookie_header.php')
+      && controllerSource.includes("'cookie_source' => $cookies !== '' ? 'request' : 'browser_profile'")
+      && source.includes('没有配置时尝试读取已登录 Profile')
+      && source.includes('const cookieApiProfileId = String(')
+      && source.includes('activeConfig?.profile_id')
+      && source.includes('activeConfig?.browserProfileId')
+      && source.includes('profile_id: cookieApiProfileId')
+      && !source.includes("showToast('请填写 Cookie，或先保存当前酒店的携程配置'")
+      && chromiumCookieExtractor.includes('decrypt_chrome_master_key')
+      && chromiumCookieExtractor.includes('ProtectedData')
+      && chromiumCookieExtractor.includes('pdo_sqlite')
+      && chromiumCookieExtractor.includes('openssl_decrypt')
+      && chromiumCookieExtractor.includes('cookie_count')
+      && !chromiumCookieExtractor.includes('echo implode'),
   },
   {
     name: 'Ctrip overview manual fetch uses cookies and API URLs without browser capture',

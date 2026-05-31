@@ -2698,6 +2698,166 @@ final class OnlineDataTest extends TestCase
         self::assertTrue($passed['accepted']);
         self::assertSame('pass', $passed['status']);
     }
+
+    public function testNormalizeCtripCookieApiPayloadDefaultsForPostEndpoints(): void
+    {
+        $controller = $this->controller();
+
+        $scanFlowPayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2',
+            'POST',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('HE', $scanFlowPayload['hostType'] ?? '');
+        self::assertSame('EBK', $scanFlowPayload['platform'] ?? '');
+        self::assertSame('2026-06-10', $scanFlowPayload['startDate'] ?? '');
+        self::assertSame('2026-06-10', $scanFlowPayload['endDate'] ?? '');
+
+        $bpiPayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://bbk.ctripbiz.cn/api/getBbkComprehensiveTable',
+            'POST',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('HE', $bpiPayload['hostType'] ?? '');
+        self::assertSame('2026-06-10', $bpiPayload['date'] ?? '');
+        self::assertSame('2026-06-10', $bpiPayload['reportDate'] ?? '');
+
+        $userPayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/restapi/soa2/24588/queryUserSex',
+            'POST',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('HE', $userPayload['hostType'] ?? '');
+        self::assertSame('EBK', $userPayload['platform'] ?? '');
+        self::assertSame('2026-06-10', $userPayload['startDate'] ?? '');
+        self::assertSame('2026-06-10', $userPayload['endDate'] ?? '');
+        self::assertSame('24588', $userPayload['hotelId'] ?? '');
+
+        $imPayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/restapi/soa2/24588/getImIndex',
+            'POST',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('HE', $imPayload['hostType'] ?? '');
+        self::assertSame('EBK', $imPayload['platform'] ?? '');
+        self::assertSame('2026-06-10', $imPayload['startDate'] ?? '');
+        self::assertSame('2026-06-10', $imPayload['endDate'] ?? '');
+        self::assertSame('24588', $imPayload['hotelId'] ?? '');
+
+        $competingRankPayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/restapi/soa2/24588/getCompetingRank',
+            'POST',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('HE', $competingRankPayload['hostType'] ?? '');
+        self::assertSame('EBK', $competingRankPayload['platform'] ?? '');
+        self::assertSame('2026-06-10', $competingRankPayload['startDate'] ?? '');
+        self::assertSame('2026-06-10', $competingRankPayload['endDate'] ?? '');
+        self::assertSame('24588', $competingRankPayload['nodeId'] ?? '');
+
+        $orderTrendPayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/restapi/soa2/24588/queryOrderTrendV1',
+            'POST',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('HE', $orderTrendPayload['hostType'] ?? '');
+        self::assertSame('EBK', $orderTrendPayload['platform'] ?? '');
+        self::assertSame('2026-06-10', $orderTrendPayload['startDate'] ?? '');
+        self::assertSame('2026-06-10', $orderTrendPayload['endDate'] ?? '');
+
+        $tripartitePayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/restapi/soa2/24588/getTripartiteOrderLoss',
+            'POST',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('HE', $tripartitePayload['hostType'] ?? '');
+        self::assertSame('EBK', $tripartitePayload['platform'] ?? '');
+        self::assertSame('2026-06-10', $tripartitePayload['startDate'] ?? '');
+        self::assertSame('2026-06-10', $tripartitePayload['endDate'] ?? '');
+        self::assertSame('24588', $tripartitePayload['hotelId'] ?? '');
+
+        $campaignPayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/pyramidad/api/queryCampaignSummaryReport',
+            'POST',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('HE', $campaignPayload['hostType'] ?? '');
+        self::assertSame('EBK', $campaignPayload['platform'] ?? '');
+        self::assertSame(1, $campaignPayload['pageIndex'] ?? 0);
+        self::assertSame(20, $campaignPayload['pageSize'] ?? 0);
+        self::assertSame('2026-06-10', $campaignPayload['startDate'] ?? '');
+        self::assertSame('2026-06-10', $campaignPayload['endDate'] ?? '');
+    }
+
+    public function testNormalizeCtripCookieApiPayloadDefaultsKeepsExistingPayloadWhenProvided(): void
+    {
+        $controller = $this->controller();
+
+        $payloadWithManual = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2',
+            'POST',
+            ['hostType' => 'CUSTOM', 'startDate' => '2026-01-01', 'endDate' => '2026-01-02'],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame('CUSTOM', $payloadWithManual['hostType'] ?? '');
+        self::assertSame('2026-01-01', $payloadWithManual['startDate'] ?? '');
+        self::assertSame('2026-01-02', $payloadWithManual['endDate'] ?? '');
+
+        $getPayload = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiPayloadDefaults', [
+            'https://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2',
+            'GET',
+            [],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertSame([], $getPayload);
+    }
+
+    public function testNormalizeCtripCookieApiEndpointsFromRequestSupportsJsonListAndDefaults(): void
+    {
+        $controller = $this->controller();
+
+        $endpoints = $this->invokeNonPublic($controller, 'normalizeCtripCookieApiEndpointsFromRequest', [
+            [
+                'data_date' => '2026-06-10',
+                'endpoints_json' => json_encode([
+                    [
+                        'request_url' => 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo',
+                        'method' => 'GET',
+                    ],
+                    [
+                        'request_url' => 'https://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2',
+                        'method' => 'POST',
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            '2026-06-10',
+            '24588',
+        ]);
+        self::assertCount(2, $endpoints);
+        self::assertSame('GET', $endpoints[0]['method']);
+        self::assertSame('POST', $endpoints[1]['method']);
+        self::assertSame([], $endpoints[0]['payload']);
+        self::assertSame('HE', $endpoints[1]['payload']['hostType'] ?? '');
+        self::assertSame('2026-06-10', $endpoints[1]['payload']['startDate'] ?? '');
+    }
 }
 
 final class OnlineDataQuerySpy

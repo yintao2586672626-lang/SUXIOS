@@ -2176,9 +2176,6 @@ class OnlineData extends Base
         }
 
         $cookies = trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''));
-        if ($cookies === '') {
-            return $this->error('请提供携程 Cookie', 400);
-        }
 
         try {
             $projectRoot = dirname(__DIR__, 2);
@@ -2193,20 +2190,29 @@ class OnlineData extends Base
             }
 
             $prepared = $this->prepareCtripCookieApiCaptureFiles($requestData, $projectRoot, $systemHotelId);
-            $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', (int)($systemHotelId ?? 0), $cookies);
+            $profileCookieMeta = null;
+            if ($cookies !== '') {
+                $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', (int)($systemHotelId ?? 0), $cookies);
+            } else {
+                $profileCookieMeta = $this->createCtripCookieApiCookieFileFromProfile($requestData, $projectRoot, (int)($systemHotelId ?? 0));
+                $cookieFile = (string)($profileCookieMeta['cookie_file'] ?? '');
+            }
             if ($cookieFile === '') {
                 return $this->error('无法创建携程 Cookie 临时文件', 500);
             }
 
-            $runResult = $this->runMeituanCaptureProcess([
-                $nodeBinary,
-                $scriptPath,
-                '--input=' . $prepared['input_path'],
-                '--cookies-file=' . $cookieFile,
-                '--output=' . $prepared['output_path'],
-            ], $projectRoot, 90);
-            $this->removeAutoFetchCookieFile($cookieFile);
-            @unlink($prepared['input_path']);
+            try {
+                $runResult = $this->runMeituanCaptureProcess([
+                    $nodeBinary,
+                    $scriptPath,
+                    '--input=' . $prepared['input_path'],
+                    '--cookies-file=' . $cookieFile,
+                    '--output=' . $prepared['output_path'],
+                ], $projectRoot, 90);
+            } finally {
+                $this->removeAutoFetchCookieFile($cookieFile);
+                @unlink($prepared['input_path']);
+            }
 
             if (!$runResult['success']) {
                 return $this->error('携程 Cookie API 采集失败: ' . str_replace('美团浏览器抓取', 'Node脚本', $runResult['message']), 400, [
@@ -2258,6 +2264,12 @@ class OnlineData extends Base
                 'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
                 'standard_section_counts' => $capturedCounts['standard_by_section'],
                 'request_count' => count($prepared['config']['endpoints'] ?? []),
+                'cookie_source' => $cookies !== '' ? 'request' : 'browser_profile',
+                'profile_cookie_meta' => $profileCookieMeta ? [
+                    'profile_id' => (string)($profileCookieMeta['profile_id'] ?? ''),
+                    'cookie_count' => (int)($profileCookieMeta['cookie_count'] ?? 0),
+                    'skipped_count' => (int)($profileCookieMeta['skipped_count'] ?? 0),
+                ] : null,
                 'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
                 'errors' => is_array($payload['errors'] ?? null) ? $payload['errors'] : [],
                 'output' => $prepared['output_path'],
@@ -4808,6 +4820,86 @@ class OnlineData extends Base
         ];
     }
 
+    private function createCtripCookieApiCookieFileFromProfile(array $requestData, string $projectRoot, int $systemHotelId): array
+    {
+        $profileId = $this->ctripProfileStoreIdFromConfig($requestData, $systemHotelId);
+        if ($profileId === '') {
+            throw new \InvalidArgumentException('missing Ctrip Cookie and browser Profile ID');
+        }
+
+        $safeProfileId = $this->safeMeituanCaptureFilePart($profileId);
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $safeProfileId;
+        if (!is_dir($profileDir)) {
+            throw new \InvalidArgumentException("missing Ctrip Cookie and storage/ctrip_profile_{$safeProfileId}");
+        }
+
+        $extractor = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'extract_chromium_cookie_header.php';
+        if (!is_file($extractor)) {
+            throw new \InvalidArgumentException('missing Chromium Cookie extractor');
+        }
+
+        $phpBinary = $this->resolveLocalPhpBinary();
+        if ($phpBinary === '') {
+            throw new \InvalidArgumentException('missing PHP binary for Chromium Cookie extraction');
+        }
+
+        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ota_cookie_injection';
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new \InvalidArgumentException('failed to create Cookie temp dir');
+        }
+        try {
+            $suffix = bin2hex(random_bytes(6));
+        } catch (\Throwable $e) {
+            $suffix = str_replace('.', '', uniqid('', true));
+        }
+        $cookieFile = $dir . DIRECTORY_SEPARATOR . $this->safeMeituanCaptureFilePart('ctrip_profile_' . $safeProfileId . '_' . $suffix) . '.txt';
+
+        $runResult = $this->runMeituanCaptureProcess([
+            $phpBinary,
+            $extractor,
+            '--profile-dir=' . $profileDir,
+            '--output=' . $cookieFile,
+        ], $projectRoot, 30);
+        if (!$runResult['success'] || !is_file($cookieFile)) {
+            $this->removeAutoFetchCookieFile($cookieFile);
+            throw new \InvalidArgumentException('failed to extract Ctrip Cookie from browser Profile: ' . $this->trimMeituanCaptureLog((string)($runResult['stderr'] ?? $runResult['stdout'] ?? '')));
+        }
+
+        $meta = json_decode(trim((string)($runResult['stdout'] ?? '')), true);
+        if (!is_array($meta)) {
+            $meta = [];
+        }
+        return [
+            'cookie_file' => $cookieFile,
+            'profile_id' => $profileId,
+            'cookie_count' => (int)($meta['cookie_count'] ?? 0),
+            'skipped_count' => (int)($meta['skipped_count'] ?? 0),
+        ];
+    }
+
+    private function resolveLocalPhpBinary(): string
+    {
+        $configured = trim((string)(getenv('PHP_BINARY') ?: env('PHP_BINARY', '')));
+        $candidates = array_filter([
+            $configured,
+            defined('PHP_BINARY') ? PHP_BINARY : '',
+            'C:\\xampp\\php\\php.exe',
+            'D:\\xampp\\php\\php.exe',
+            'C:\\php\\php.exe',
+            'php',
+        ]);
+        foreach ($candidates as $candidate) {
+            $candidate = trim((string)$candidate);
+            if ($candidate === '') {
+                continue;
+            }
+            if ($candidate === 'php' || is_file($candidate)) {
+                return $candidate;
+            }
+        }
+        return '';
+    }
+
     private function buildCtripCookieApiCaptureConfigFromRequest(array $requestData, ?int $systemHotelId): array
     {
         $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
@@ -4824,7 +4916,7 @@ class OnlineData extends Base
             ?? ''
         ));
         $profileId = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? $hotelId ?: 'ctrip_cookie_api'));
-        $endpoints = $this->normalizeCtripCookieApiEndpointsFromRequest($requestData);
+        $endpoints = $this->normalizeCtripCookieApiEndpointsFromRequest($requestData, $dataDate, $hotelId);
         if ($endpoints === []) {
             throw new \InvalidArgumentException('请提供携程接口 Request URL，或 endpoints/endpoints_json 接口清单');
         }
@@ -4840,7 +4932,7 @@ class OnlineData extends Base
         ];
     }
 
-    private function normalizeCtripCookieApiEndpointsFromRequest(array $requestData): array
+    private function normalizeCtripCookieApiEndpointsFromRequest(array $requestData, string $dataDate = '', string $hotelId = ''): array
     {
         $raw = $requestData['endpoints']
             ?? $requestData['requests']
@@ -4914,6 +5006,10 @@ class OnlineData extends Base
             if (is_string($payload) && trim($payload) !== '') {
                 $payload = $this->parseJsonParams($payload);
             }
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+            $payload = $this->normalizeCtripCookieApiPayloadDefaults((string)$requestUrl, $method, $payload, $dataDate, $hotelId);
             $headers = $item['headers'] ?? $item['request_headers'] ?? $item['requestHeaders'] ?? [];
             if (is_string($headers) && trim($headers) !== '') {
                 $headers = str_starts_with(trim($headers), '{')
@@ -4930,6 +5026,158 @@ class OnlineData extends Base
         }
 
         return $endpoints;
+    }
+
+    private function normalizeCtripCookieApiPayloadDefaults(string $requestUrl, string $method, array $payload, string $dataDate = '', string $hotelId = ''): array
+    {
+        if ($method !== 'POST' || $payload !== []) {
+            return $payload;
+        }
+
+        $window = $this->buildCtripCookieApiDateWindow($dataDate);
+        $url = strtolower((string)$requestUrl);
+        $path = strtolower((string)(parse_url($requestUrl, PHP_URL_PATH) ?? ''));
+        $endpoint = $path === '' ? '' : strtolower(basename($path));
+
+        $setIfMissing = static function (array &$target, string $key, mixed $value): void {
+            if (!array_key_exists($key, $target) || $target[$key] === '') {
+                $target[$key] = $value;
+            }
+        };
+        $contains = static function (string $value, array $patterns) use ($url, $endpoint): bool {
+            foreach ($patterns as $pattern) {
+                if (str_contains($value, (string)$pattern)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        $hasDateWindow = isset($window['startDate']) && isset($window['endDate']);
+        $setDateWindow = function (array &$target) use ($hasDateWindow, $window, $setIfMissing): void {
+            if (!$hasDateWindow) {
+                return;
+            }
+            $setIfMissing($target, 'startDate', $window['startDate']);
+            $setIfMissing($target, 'endDate', $window['endDate']);
+        };
+
+        if (
+            $contains($url, ['querymarketdetails', 'queryhotroom', 'queryordertrend', 'queryhoteloccupiedroomtrend', 'queryroomtensities', 'queryhoteltensities', 'querymarketroomtensity', 'queryroomoccupiedtrend'])
+            || $contains($endpoint, ['querymarketdetails', 'queryhotroom', 'queryordertrend', 'queryhoteloccupiedroomtrend', 'queryroomtensities', 'queryhoteltensities', 'querymarketroomtensity', 'queryroomoccupiedtrend'])
+        ) {
+            $setIfMissing($payload, 'hostType', 'HE');
+            $setIfMissing($payload, 'platform', 'EBK');
+            $setDateWindow($payload);
+            return $payload;
+        }
+
+        if (
+            $contains($url, ['queryscanflowdetailsv2', 'queryflowtransformnewv1', 'queryflowtransfornewv1', 'queryflowtransfernewv1', 'queryflowtransform', 'queryflowsource', 'querycityhotkeywords', 'querysearchflowdetails'])
+            || $contains($endpoint, ['queryscanflowdetailsv2', 'queryflowtransformnewv1', 'queryflowtransfornewv1', 'queryflowtransfernewv1', 'queryflowtransform', 'queryflowsource', 'querycityhotkeywords', 'querysearchflowdetails'])
+        ) {
+            $setIfMissing($payload, 'hostType', 'HE');
+            $setIfMissing($payload, 'platform', 'EBK');
+            $setDateWindow($payload);
+            return $payload;
+        }
+
+        if (
+            $contains($url, ['querycampaignsummaryreport'])
+            || $contains($endpoint, ['querycampaignsummaryreport'])
+        ) {
+            $setIfMissing($payload, 'hostType', 'HE');
+            $setIfMissing($payload, 'platform', 'EBK');
+            $setIfMissing($payload, 'pageIndex', 1);
+            $setIfMissing($payload, 'pageSize', 20);
+            $setDateWindow($payload);
+            return $payload;
+        }
+
+        if (
+            $contains($url, ['queryuser', 'getuserimagelist', 'getorderdistribution'])
+            || $contains($endpoint, ['queryusersex', 'queryusertype', 'queryuserpriceinfo', 'queryusersource', 'queryuserbookingdays', 'queryuserstayedays', 'queryuserage', 'queryuserpoint', 'queryusertraveltime', 'queryuserstar', 'queryuserprice', 'queryordertype', 'queryuserorders', 'getuserimagelist', 'getorderdistribution'])
+        ) {
+            $setIfMissing($payload, 'hostType', 'HE');
+            $setIfMissing($payload, 'platform', 'EBK');
+            $setDateWindow($payload);
+            $normalizedHotelId = trim((string)$hotelId);
+            if ($normalizedHotelId !== '') {
+                $setIfMissing($payload, 'hotelId', $normalizedHotelId);
+                $setIfMissing($payload, 'nodeId', $normalizedHotelId);
+            }
+            return $payload;
+        }
+
+        if (
+            $contains($url, ['getimindex', 'getimdatedistribute', 'getimsessiondistribute', 'getimorderconversionbyday', 'getimorderconversiondetail'])
+            || $contains($endpoint, ['getimindex', 'getimdatedistribute', 'getimsessiondistribute', 'getimorderconversionbyday', 'getimorderconversiondetail'])
+        ) {
+            $setIfMissing($payload, 'hostType', 'HE');
+            $setIfMissing($payload, 'platform', 'EBK');
+            $setDateWindow($payload);
+            $normalizedHotelId = trim((string)$hotelId);
+            if ($normalizedHotelId !== '') {
+                $setIfMissing($payload, 'hotelId', $normalizedHotelId);
+                $setIfMissing($payload, 'nodeId', $normalizedHotelId);
+            }
+            return $payload;
+        }
+
+        if (
+            $contains($url, ['getmanagementdata', 'getmasterhotellabel', 'getflowdata', 'getservicedata', 'getflowsource', 'gettripartiteorderloss', 'getlossordercompetehotel', 'getcompetingrank'])
+            || $contains($endpoint, ['getmanagementdata', 'getmasterhotellabel', 'getflowdata', 'getservicedata', 'getflowsource', 'gettripartiteorderloss', 'getlossordercompetehotel', 'getcompetingrank'])
+        ) {
+            $setIfMissing($payload, 'hostType', 'HE');
+            $setIfMissing($payload, 'platform', 'EBK');
+            $setDateWindow($payload);
+            $normalizedHotelId = trim((string)$hotelId);
+            if ($normalizedHotelId !== '') {
+                $setIfMissing($payload, 'hotelId', $normalizedHotelId);
+                $setIfMissing($payload, 'nodeId', $normalizedHotelId);
+            }
+            return $payload;
+        }
+
+        if (
+            $contains($url, ['getbbkcomprehensivetable'])
+            || $contains($endpoint, ['getbbkcomprehensivetable'])
+        ) {
+            $setIfMissing($payload, 'hostType', 'HE');
+            $aliasDate = $hasDateWindow ? $window['startDate'] : '';
+            $setIfMissing($payload, 'date', $aliasDate);
+            $setIfMissing($payload, 'reportDate', $aliasDate);
+            return $payload;
+        }
+
+        if (
+            $contains($url, ['datacenterbusinessreportdetail', 'datacentercomparisonreportdetail', 'datacentercomparatorreportdetail'])
+            || $contains($endpoint, ['datacenterbusinessreportdetail', 'datacentercomparisonreportdetail', 'datacentercomparatorreportdetail'])
+        ) {
+            $setIfMissing($payload, 'hostType', 'HE');
+            $setIfMissing($payload, 'platform', 'BBK');
+            $setDateWindow($payload);
+            $normalizedHotelId = trim((string)$hotelId);
+            if ($normalizedHotelId !== '') {
+                $setIfMissing($payload, 'hotelId', $normalizedHotelId);
+                $setIfMissing($payload, 'nodeId', $normalizedHotelId);
+            }
+            return $payload;
+        }
+
+        return $payload;
+    }
+
+    private function buildCtripCookieApiDateWindow(string $dataDate): array
+    {
+        $dataDate = $this->normalizeOnlineDataDate($dataDate);
+        if ($dataDate === '') {
+            return [];
+        }
+
+        return [
+            'startDate' => $dataDate,
+            'endDate' => $dataDate,
+        ];
     }
 
     private function prepareCtripEndpointEvidenceValidationFiles(array $requestData, string $projectRoot): array

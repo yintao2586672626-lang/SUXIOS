@@ -42,6 +42,7 @@ for (const [sourceKey, targetKey] of [
   }
 }
 
+const captureStartMs = Date.now();
 const captureResult = spawnSync(process.execPath, captureArgs, {
   cwd: process.cwd(),
   encoding: 'utf8',
@@ -54,6 +55,8 @@ if (captureResult.stdout) {
 if (captureResult.stderr) {
   process.stderr.write(captureResult.stderr);
 }
+const captureElapsedMs = Date.now() - captureStartMs;
+const captureFailure = extractSpawnFailure(captureResult);
 
 if (!existsSync(output)) {
   console.log(JSON.stringify({
@@ -61,11 +64,20 @@ if (!existsSync(output)) {
     reason: 'capture_output_missing',
     output,
     capture_exit_code: captureResult.status,
+    capture_error: captureFailure,
+    capture_elapsed_ms: captureElapsedMs,
+    capture_stdout_tail: captureResult.stdout
+      ? String(captureResult.stdout).slice(-2048)
+      : '',
+    capture_stderr_tail: captureResult.stderr
+      ? String(captureResult.stderr).slice(-2048)
+      : '',
   }, null, 2));
   process.exitCode = 2;
   process.exit();
 }
 
+const summaryStartMs = Date.now();
 const summaryResult = spawnSync(process.execPath, [
   'scripts/summarize_ctrip_capture_result.mjs',
   `--input=${output}`,
@@ -76,12 +88,48 @@ const summaryResult = spawnSync(process.execPath, [
   encoding: 'utf8',
   windowsHide: true,
 });
+const summaryElapsedMs = Date.now() - summaryStartMs;
 if (summaryResult.stderr) {
   process.stderr.write(summaryResult.stderr);
 }
+const summaryFailure = extractSpawnFailure(summaryResult);
 
-const capturePayload = readJson(output);
-const summary = readJson(summaryOutput);
+if (!existsSync(summaryOutput)) {
+  console.log(JSON.stringify({
+    status: 'failed',
+    reason: 'summary_output_missing',
+    output,
+    summary_output: summaryOutput,
+    capture_exit_code: captureResult.status,
+    capture_error: captureFailure,
+    summary_exit_code: summaryResult.status,
+    summary_error: summaryFailure,
+    capture_elapsed_ms: captureElapsedMs,
+    summary_elapsed_ms: summaryElapsedMs,
+  }, null, 2));
+  process.exitCode = 2;
+  process.exit();
+}
+
+let capturePayload;
+let summary;
+try {
+  capturePayload = readJson(output);
+  summary = readJson(summaryOutput);
+} catch (error) {
+  console.log(JSON.stringify({
+    status: 'failed',
+    reason: 'output_parse_error',
+    output,
+    summary_output: summaryOutput,
+    error: {
+      message: error?.message || String(error),
+      name: error?.name,
+    },
+  }, null, 2));
+  process.exitCode = 2;
+  process.exit();
+}
 const authOk = Boolean(summary.auth_status?.ok);
 const standardRows = Number(summary.counts?.standard_rows || 0);
 const finalStatus = loginOnly && authOk
@@ -96,10 +144,15 @@ console.log(JSON.stringify({
   summary_output: summaryOutput,
   summary_markdown: summaryMarkdown,
   capture_exit_code: captureResult.status,
+  capture_error: captureFailure,
+  capture_elapsed_ms: captureElapsedMs,
   auth_status: summary.auth_status,
   capture_gate: capturePayload.capture_gate || null,
   counts: summary.counts,
   diagnosis_groups: summary.diagnosis_groups,
+  summary_exit_code: summaryResult.status,
+  summary_error: summaryFailure,
+  summary_elapsed_ms: summaryElapsedMs,
 }, null, 2));
 
 process.exitCode = finalStatus === 'ready' || finalStatus === 'login_prepared' ? 0 : 2;
@@ -124,4 +177,21 @@ function stringValue(value) {
     return '';
   }
   return String(value).trim();
+}
+
+function extractSpawnFailure(result) {
+  if (!result || !result.error) {
+    return null;
+  }
+  const error = result.error;
+  if (error instanceof Error) {
+    return {
+      message: error.message || String(error),
+      name: error.name || 'Error',
+      code: error.code,
+      errno: error.errno,
+      syscall: error.syscall,
+    };
+  }
+  return { message: String(error) };
 }
