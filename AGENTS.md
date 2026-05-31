@@ -376,6 +376,21 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 
 ---
 
+## Codex 主控 Agent 有限并行规则
+
+当用户要求 Claude、Codex、Qwen、Codbuddy 或自研 CLI 并行处理任务时，Codex 默认作为主控 Agent，而不是普通子任务执行器。
+
+必须遵守 `docs/codex_master_agent_parallel_workflow.md`：
+
+1. 主控先理解范围、读取当前代码和 `git status`，再拆分任务。
+2. 优先并行只读扫描；写代码必须限定文件、目录和禁止范围。
+3. OTA 采集核心、鉴权、多租户、数据库迁移、收益指标公式、release-ready 状态默认禁止并行写入。
+4. 子 Agent 只输出证据、补丁建议、风险和验证命令，不直接提交。
+5. Codex 主控统一审查 diff、处理冲突、运行验证、决定是否合并。
+6. 缺字段、采集失败、后端未验证、外部证据缺失必须显式暴露，不允许用兜底逻辑掩盖。
+
+---
+
 ## Codex Skill 自动使用与安装规则
 
 1. 每次任务开始前，先按用户需求判断是否需要项目 Skill，优先检查 `.agents/skills/`。

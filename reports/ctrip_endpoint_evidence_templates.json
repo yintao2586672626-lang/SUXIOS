@@ -1,0 +1,366 @@
+{
+  "platform": "ctrip",
+  "generated_at": "2026-05-30T21:49:36.975Z",
+  "status": "missing_evidence_templates",
+  "summary": {
+    "candidate_section_count": 5,
+    "required_evidence": [
+      "Request URL",
+      "Payload",
+      "Preview / Response",
+      "page/tab context",
+      "hotel/date parameters"
+    ]
+  },
+  "privacy_boundary": [
+    "不要保存 Cookie、Authorization、Token、密码、签名、住客姓名、手机号、证件号或完整订单号明文。",
+    "Request URL 可保留路径和非敏感查询参数；动态 trace、sid、token 类参数可保留为脱敏占位。",
+    "Payload / Response 用于字段映射前必须先经过 validate:ctrip-endpoint-evidence 脱敏校验。"
+  ],
+  "templates": [
+    {
+      "candidate_section": "orders_detail",
+      "candidate_label": "订单明细",
+      "priority": "P3",
+      "data_type": "order",
+      "evidence_status": "missing_evidence",
+      "safe_to_catalog": false,
+      "devtools_filter_keywords": [
+        "orderdetail",
+        "orderdetails",
+        "orderdetailsearch",
+        "orderlist",
+        "ordersearch",
+        "searchorder",
+        "queryorder",
+        "orderquery",
+        "bookingorder",
+        "reservationorder"
+      ],
+      "required_evidence": [
+        "Request URL",
+        "Payload",
+        "Preview / Response",
+        "page/tab context",
+        "hotel/date parameters"
+      ],
+      "request_template": {
+        "request_url": "",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "cookie": "<redacted: do not paste real Cookie into repo>",
+          "authorization": "<redacted if present>"
+        },
+        "payload": {
+          "hotelId": "<hotel or node id>",
+          "startDate": "YYYY-MM-DD",
+          "endDate": "YYYY-MM-DD"
+        },
+        "response": {
+          "<copy DevTools Preview or Response JSON here after desensitization>": ""
+        },
+        "page_context": {
+          "page": "",
+          "tab": "",
+          "url": "",
+          "operation": "open page, switch tab/date, then capture the XHR/fetch request"
+        },
+        "params": {
+          "hotel_id": "<system hotel id or OTA hotel id>",
+          "data_date": "YYYY-MM-DD",
+          "start_date": "YYYY-MM-DD",
+          "end_date": "YYYY-MM-DD"
+        }
+      },
+      "collection_steps": [
+        "打开对应携程或携程商旅后台页面，并确认当前门店是授权门店。",
+        "在 DevTools Network 中过滤这些关键词：orderdetail, orderdetails, orderdetailsearch, orderlist, ordersearch, searchorder, queryorder, orderquery。",
+        "触发一次真实查询：切换日期、页签、搜索或滚动加载。",
+        "复制 Request URL、method、脱敏 headers、Payload、Preview/Response、页面上下文和酒店/日期参数。",
+        "运行 validate:ctrip-endpoint-evidence，状态为 complete_redacted 后再进入字段映射审核。"
+      ],
+      "acceptance_criteria": [
+        "request_url 命中候选方向关键词。",
+        "payload 或 params 中能确认酒店和日期范围。",
+        "response 中包含可解释的业务字段，而不是纯日志、菜单、资源弹窗或埋点。",
+        "证据包无 Cookie、Authorization、Token、住客隐私和完整订单号明文。"
+      ]
+    },
+    {
+      "candidate_section": "price_inventory",
+      "candidate_label": "价格房态",
+      "priority": "P3",
+      "data_type": "business",
+      "evidence_status": "missing_evidence",
+      "safe_to_catalog": false,
+      "devtools_filter_keywords": [
+        "ratecalendar",
+        "ratecalendarprice",
+        "pricequery",
+        "pricecalendar",
+        "roomstatus",
+        "inventory",
+        "stock",
+        "available",
+        "availability",
+        "roomrate",
+        "rateplan"
+      ],
+      "required_evidence": [
+        "Request URL",
+        "Payload",
+        "Preview / Response",
+        "page/tab context",
+        "hotel/date parameters"
+      ],
+      "request_template": {
+        "request_url": "",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "cookie": "<redacted: do not paste real Cookie into repo>",
+          "authorization": "<redacted if present>"
+        },
+        "payload": {
+          "hotelId": "<hotel or node id>",
+          "startDate": "YYYY-MM-DD",
+          "endDate": "YYYY-MM-DD"
+        },
+        "response": {
+          "<copy DevTools Preview or Response JSON here after desensitization>": ""
+        },
+        "page_context": {
+          "page": "",
+          "tab": "",
+          "url": "",
+          "operation": "open page, switch tab/date, then capture the XHR/fetch request"
+        },
+        "params": {
+          "hotel_id": "<system hotel id or OTA hotel id>",
+          "data_date": "YYYY-MM-DD",
+          "start_date": "YYYY-MM-DD",
+          "end_date": "YYYY-MM-DD"
+        }
+      },
+      "collection_steps": [
+        "打开对应携程或携程商旅后台页面，并确认当前门店是授权门店。",
+        "在 DevTools Network 中过滤这些关键词：ratecalendar, ratecalendarprice, pricequery, pricecalendar, roomstatus, inventory, stock, available。",
+        "触发一次真实查询：切换日期、页签、搜索或滚动加载。",
+        "复制 Request URL、method、脱敏 headers、Payload、Preview/Response、页面上下文和酒店/日期参数。",
+        "运行 validate:ctrip-endpoint-evidence，状态为 complete_redacted 后再进入字段映射审核。"
+      ],
+      "acceptance_criteria": [
+        "request_url 命中候选方向关键词。",
+        "payload 或 params 中能确认酒店和日期范围。",
+        "response 中包含可解释的业务字段，而不是纯日志、菜单、资源弹窗或埋点。",
+        "证据包无 Cookie、Authorization、Token、住客隐私和完整订单号明文。"
+      ]
+    },
+    {
+      "candidate_section": "promotion",
+      "candidate_label": "促销活动",
+      "priority": "P3",
+      "data_type": "advertising",
+      "evidence_status": "missing_evidence",
+      "safe_to_catalog": false,
+      "devtools_filter_keywords": [
+        "promotion",
+        "campaign",
+        "coupon",
+        "benefit",
+        "discount",
+        "activity",
+        "marketing"
+      ],
+      "required_evidence": [
+        "Request URL",
+        "Payload",
+        "Preview / Response",
+        "page/tab context",
+        "hotel/date parameters"
+      ],
+      "request_template": {
+        "request_url": "",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "cookie": "<redacted: do not paste real Cookie into repo>",
+          "authorization": "<redacted if present>"
+        },
+        "payload": {
+          "hotelId": "<hotel or node id>",
+          "startDate": "YYYY-MM-DD",
+          "endDate": "YYYY-MM-DD"
+        },
+        "response": {
+          "<copy DevTools Preview or Response JSON here after desensitization>": ""
+        },
+        "page_context": {
+          "page": "",
+          "tab": "",
+          "url": "",
+          "operation": "open page, switch tab/date, then capture the XHR/fetch request"
+        },
+        "params": {
+          "hotel_id": "<system hotel id or OTA hotel id>",
+          "data_date": "YYYY-MM-DD",
+          "start_date": "YYYY-MM-DD",
+          "end_date": "YYYY-MM-DD"
+        }
+      },
+      "collection_steps": [
+        "打开对应携程或携程商旅后台页面，并确认当前门店是授权门店。",
+        "在 DevTools Network 中过滤这些关键词：promotion, campaign, coupon, benefit, discount, activity, marketing。",
+        "触发一次真实查询：切换日期、页签、搜索或滚动加载。",
+        "复制 Request URL、method、脱敏 headers、Payload、Preview/Response、页面上下文和酒店/日期参数。",
+        "运行 validate:ctrip-endpoint-evidence，状态为 complete_redacted 后再进入字段映射审核。"
+      ],
+      "acceptance_criteria": [
+        "request_url 命中候选方向关键词。",
+        "payload 或 params 中能确认酒店和日期范围。",
+        "response 中包含可解释的业务字段，而不是纯日志、菜单、资源弹窗或埋点。",
+        "证据包无 Cookie、Authorization、Token、住客隐私和完整订单号明文。"
+      ]
+    },
+    {
+      "candidate_section": "settlement_finance",
+      "candidate_label": "结算财务",
+      "priority": "P3",
+      "data_type": "finance",
+      "evidence_status": "missing_evidence",
+      "safe_to_catalog": false,
+      "devtools_filter_keywords": [
+        "settlement",
+        "settle",
+        "bill",
+        "billing",
+        "invoice",
+        "finance",
+        "payment",
+        "accountstatement",
+        "statement",
+        "balance"
+      ],
+      "required_evidence": [
+        "Request URL",
+        "Payload",
+        "Preview / Response",
+        "page/tab context",
+        "hotel/date parameters"
+      ],
+      "request_template": {
+        "request_url": "",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "cookie": "<redacted: do not paste real Cookie into repo>",
+          "authorization": "<redacted if present>"
+        },
+        "payload": {
+          "hotelId": "<hotel or node id>",
+          "startDate": "YYYY-MM-DD",
+          "endDate": "YYYY-MM-DD"
+        },
+        "response": {
+          "<copy DevTools Preview or Response JSON here after desensitization>": ""
+        },
+        "page_context": {
+          "page": "",
+          "tab": "",
+          "url": "",
+          "operation": "open page, switch tab/date, then capture the XHR/fetch request"
+        },
+        "params": {
+          "hotel_id": "<system hotel id or OTA hotel id>",
+          "data_date": "YYYY-MM-DD",
+          "start_date": "YYYY-MM-DD",
+          "end_date": "YYYY-MM-DD"
+        }
+      },
+      "collection_steps": [
+        "打开对应携程或携程商旅后台页面，并确认当前门店是授权门店。",
+        "在 DevTools Network 中过滤这些关键词：settlement, settle, bill, billing, invoice, finance, payment, accountstatement。",
+        "触发一次真实查询：切换日期、页签、搜索或滚动加载。",
+        "复制 Request URL、method、脱敏 headers、Payload、Preview/Response、页面上下文和酒店/日期参数。",
+        "运行 validate:ctrip-endpoint-evidence，状态为 complete_redacted 后再进入字段映射审核。"
+      ],
+      "acceptance_criteria": [
+        "request_url 命中候选方向关键词。",
+        "payload 或 params 中能确认酒店和日期范围。",
+        "response 中包含可解释的业务字段，而不是纯日志、菜单、资源弹窗或埋点。",
+        "证据包无 Cookie、Authorization、Token、住客隐私和完整订单号明文。"
+      ]
+    },
+    {
+      "candidate_section": "contract_mice_rfp",
+      "candidate_label": "合同 / MICE / RFP",
+      "priority": "P3",
+      "data_type": "contract",
+      "evidence_status": "missing_evidence",
+      "safe_to_catalog": false,
+      "devtools_filter_keywords": [
+        "contract",
+        "contractpre",
+        "termssearch",
+        "termsearch",
+        "mice",
+        "rfp",
+        "meeting",
+        "venue",
+        "quote",
+        "quotation",
+        "agreement"
+      ],
+      "required_evidence": [
+        "Request URL",
+        "Payload",
+        "Preview / Response",
+        "page/tab context",
+        "hotel/date parameters"
+      ],
+      "request_template": {
+        "request_url": "",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "cookie": "<redacted: do not paste real Cookie into repo>",
+          "authorization": "<redacted if present>"
+        },
+        "payload": {
+          "hotelId": "<hotel or node id>",
+          "startDate": "YYYY-MM-DD",
+          "endDate": "YYYY-MM-DD"
+        },
+        "response": {
+          "<copy DevTools Preview or Response JSON here after desensitization>": ""
+        },
+        "page_context": {
+          "page": "",
+          "tab": "",
+          "url": "",
+          "operation": "open page, switch tab/date, then capture the XHR/fetch request"
+        },
+        "params": {
+          "hotel_id": "<system hotel id or OTA hotel id>",
+          "data_date": "YYYY-MM-DD",
+          "start_date": "YYYY-MM-DD",
+          "end_date": "YYYY-MM-DD"
+        }
+      },
+      "collection_steps": [
+        "打开对应携程或携程商旅后台页面，并确认当前门店是授权门店。",
+        "在 DevTools Network 中过滤这些关键词：contract, contractpre, termssearch, termsearch, mice, rfp, meeting, venue。",
+        "触发一次真实查询：切换日期、页签、搜索或滚动加载。",
+        "复制 Request URL、method、脱敏 headers、Payload、Preview/Response、页面上下文和酒店/日期参数。",
+        "运行 validate:ctrip-endpoint-evidence，状态为 complete_redacted 后再进入字段映射审核。"
+      ],
+      "acceptance_criteria": [
+        "request_url 命中候选方向关键词。",
+        "payload 或 params 中能确认酒店和日期范围。",
+        "response 中包含可解释的业务字段，而不是纯日志、菜单、资源弹窗或埋点。",
+        "证据包无 Cookie、Authorization、Token、住客隐私和完整订单号明文。"
+      ]
+    }
+  ]
+}

@@ -2,8 +2,12 @@ import { existsSync, readFileSync } from 'node:fs';
 
 const source = readFileSync('public/index.html', 'utf8');
 const controllerSource = readFileSync('app/controller/OnlineData.php', 'utf8');
+const routeSource = readFileSync('route/app.php', 'utf8');
 const ctripBrowserScriptPath = 'scripts/ctrip_browser_capture.mjs';
 const ctripBrowserScript = existsSync(ctripBrowserScriptPath) ? readFileSync(ctripBrowserScriptPath, 'utf8') : '';
+const ctripCookieApiScriptPath = 'scripts/ctrip_cookie_api_capture.mjs';
+const ctripCookieApiScript = existsSync(ctripCookieApiScriptPath) ? readFileSync(ctripCookieApiScriptPath, 'utf8') : '';
+const ctripCatalogSource = existsSync('scripts/lib/ctrip_capture_catalog.mjs') ? readFileSync('scripts/lib/ctrip_capture_catalog.mjs', 'utf8') : '';
 
 const functionMatch = source.match(/const generateOtaDiagnosis = async \(\) => \{[\s\S]*?\n            \};/);
 const generateBody = functionMatch ? functionMatch[0] : '';
@@ -75,15 +79,38 @@ const checks = [
       && !/executeCtripBrowserProfileAutoFetch[\s\S]*ctrip_comment_browser_capture\.mjs[\s\S]*private function executeMeituanAutoFetch/.test(controllerSource),
   },
   {
-    name: 'Ctrip browser capture defaults to overview and traffic only',
-    pass: ctripBrowserScript.includes('businessreport/outline')
-      && ctripBrowserScript.includes('businessreport/flowdata')
-      && ctripBrowserScript.includes("args.sections || 'business,traffic'")
+    name: 'Ctrip browser capture supports catalog presets and diagnosis summary',
+    pass: ctripCatalogSource.includes('businessreport/outline')
+      && ctripCatalogSource.includes('businessreport/flowdata')
+      && ctripCatalogSource.includes('sales_report')
+      && ctripCatalogSource.includes('room_type')
+      && ctripCatalogSource.includes('competitor_overview')
+      && ctripBrowserScript.includes("args.sections || args.captureSections || args.only || 'default'")
       && ctripBrowserScript.includes('requestedSections.includes(section)')
       && ctripBrowserScript.includes('target.business.push')
       && ctripBrowserScript.includes('target.traffic.push')
       && !ctripBrowserScript.includes("args.sections || 'business,traffic,reviews'")
-      && controllerSource.includes('--sections=business,traffic'),
+      && controllerSource.includes("'core'")
+      && controllerSource.includes('buildCtripCaptureDiagnosisSummary')
+      && source.includes('diagnosis_summary?.groups'),
+  },
+  {
+    name: 'Ctrip manual browser capture can inject configured Cookie',
+    pass: controllerSource.includes("trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''))")
+      && controllerSource.includes("'ctrip',")
+      && controllerSource.includes("$args[] = '--cookies-file=' . $cookieFile")
+      && controllerSource.includes('$this->removeAutoFetchCookieFile($cookieFile)')
+      && source.includes("cookies: activeConfig?.cookies || activeConfig?.cookie || ''"),
+  },
+  {
+    name: 'Ctrip diagnosis snapshot is available in app without rerunning browser',
+    pass: routeSource.includes("Route::get('/ctrip-diagnosis-snapshot', 'OnlineData/ctripDiagnosisSnapshot')")
+      && controllerSource.includes('public function ctripDiagnosisSnapshot')
+      && controllerSource.includes('buildLatestCtripDiagnosisSnapshot')
+      && controllerSource.includes('aggregateCtripDiagnosisSnapshot')
+      && source.includes("request(`/online-data/ctrip-diagnosis-snapshot")
+      && source.includes('loadCtripDiagnosisSnapshot')
+      && source.includes('读取诊断快照'),
   },
   {
     name: 'Ctrip overview top-level UI is hidden while backend fetch remains available',
@@ -92,6 +119,21 @@ const checks = [
       && !source.includes("onlineDataTab = 'ctrip-overview'; loadCtripConfigList()")
       && !source.includes("{ label: '携程概况', page: 'ctrip-ebooking', tab: 'ctrip-overview'")
       && source.includes("request('/online-data/fetch-ctrip-overview'"),
+  },
+  {
+    name: 'Ctrip Cookie API capture can fetch catalog endpoints without Chromium',
+    pass: routeSource.includes("Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData')")
+      && controllerSource.includes('public function fetchCtripCookieApiData')
+      && controllerSource.includes('ctrip_cookie_api_capture.mjs')
+      && controllerSource.includes('prepareCtripCookieApiCaptureFiles')
+      && controllerSource.includes('$this->removeAutoFetchCookieFile($cookieFile)')
+      && controllerSource.includes('@unlink($prepared[\'input_path\'])')
+      && ctripCookieApiScript.includes('runCtripCookieApiCapture')
+      && ctripCookieApiScript.includes('findCtripEndpointByUrl')
+      && ctripCookieApiScript.includes('extractCtripCatalogFacts')
+      && ctripCookieApiScript.includes('buildCtripStandardRowsFromFacts')
+      && ctripCookieApiScript.includes("source: 'ctrip_cookie_api'")
+      && ctripCookieApiScript.includes('redactHeaders'),
   },
   {
     name: 'Ctrip overview manual fetch uses cookies and API URLs without browser capture',

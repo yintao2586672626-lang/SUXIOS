@@ -59,6 +59,38 @@ final class OnlineDataTest extends TestCase
         self::assertNotEmpty($snapshot['source_breakdown']);
     }
 
+    public function testNonNumericCtripFactRowsDoNotRequireRevenueMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $quality = $this->invokeNonPublic($controller, 'buildOnlineDataQuality', [[
+            'hotel_id' => 'ctrip-1001',
+            'hotel_name' => 'Demo Hotel',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'data_date' => '2026-06-06',
+            'dimension' => 'catalog:market_calendar:hot_calendar:hot_spot_name:0',
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'raw_data' => json_encode([
+                'fact_only' => true,
+                'metric_status' => 'non_numeric_fact',
+                'metrics' => [
+                    'hot_spot_name' => 'Concert A',
+                    'start_date' => '2026-06-06',
+                    'end_date' => '2026-06-06',
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        self::assertSame('ok', $quality['status']);
+        self::assertSame(0, $quality['missing_count']);
+        self::assertNotContains('amount', array_column($quality['missing_metrics'], 'key'));
+        self::assertNotContains('quantity', array_column($quality['missing_metrics'], 'key'));
+        self::assertNotContains('book_order_num', array_column($quality['missing_metrics'], 'key'));
+    }
+
     /**
      * 覆盖 normalizeAppTrafficRow/readTrafficNumber/normalizeTrafficPercent/trafficRate：
      * 验证正常流量行、零分母边界值、非法日期异常输入兜底。
@@ -665,8 +697,10 @@ final class OnlineDataTest extends TestCase
         $suffixes = ['ctrip.com', 'meituan.com'];
         self::assertTrue($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['https://ebooking.ctrip.com/api', $suffixes]));
         self::assertTrue($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['https://ctrip.com/api', $suffixes]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['https://bbk.ctripbiz.cn/api', ['ctripbiz.cn']]));
         self::assertFalse($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['http://ebooking.ctrip.com/api', $suffixes]));
         self::assertFalse($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['https://ctrip.com.evil.test/api', $suffixes]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isAllowedOtaRequestUrl', ['https://ctripbiz.cn.evil.test/api', ['ctripbiz.cn']]));
     }
 
     public function testBackendBuildsCtripTrafficDisplayRowsAndSummaryForFrontend(): void
@@ -922,6 +956,130 @@ final class OnlineDataTest extends TestCase
             ['hotel_id' => 7, 'status' => 'expired'],
         ]]);
         self::assertSame('expired', $expiredSummary['overall_status']);
+    }
+
+    public function testCtripCaptureCatalogHealthSummarizesCatalogAndFailedAudit(): void
+    {
+        $controller = $this->controller();
+
+        $health = $this->invokeNonPublic($controller, 'buildCtripCaptureCatalogHealth', [[
+            'platform' => 'ctrip',
+            'section_count' => 16,
+            'endpoint_count' => 69,
+            'field_count' => 110,
+            'default_sections' => ['business_overview', 'traffic_report'],
+            'presets' => [
+                'default' => ['sections' => ['business_overview', 'traffic_report']],
+                'wide' => ['sections' => ['homepage', 'biztravel_bpi']],
+            ],
+            'interaction_plan_section_count' => 14,
+            'interaction_plan_step_count' => 64,
+        ], [
+            'auth_status' => ['status' => 'login_required'],
+            'summary' => ['response_count' => 0, 'standard_row_count' => 0],
+            'field_coverage' => ['coverage_rate' => null],
+            'capture_gate' => [
+                'status' => 'fail',
+                'failed_check_ids' => ['auth_session', 'field_coverage'],
+            ],
+            'capture_gap_report' => [
+                'status' => 'blocked_auth',
+                'blockers' => ['auth_session', 'response_count'],
+                'missing_formal_endpoint_count' => 2,
+                'missing_formal_endpoints' => [
+                    ['id' => 'business_realtime', 'section' => 'business_overview'],
+                    ['id' => 'traffic_flow_transform', 'section' => 'traffic_report'],
+                ],
+                'missing_fields_by_section' => [
+                    'business_overview' => ['missing_field_count' => 3],
+                    'traffic_report' => ['missing_field_count' => 2],
+                ],
+                'p3_candidate_sections' => [
+                    'orders_detail' => ['count' => 1],
+                ],
+                'p3_evidence_sections' => [
+                    'orders_detail' => ['status' => 'missing_evidence'],
+                    'settlement_finance' => ['status' => 'missing_evidence'],
+                ],
+                'next_actions' => [
+                    [
+                        'action' => 'login_and_rerun_capture',
+                        'reason' => 'login_required',
+                        'section' => '',
+                        'endpoint_id' => '',
+                        'required_evidence' => ['logged-in browser profile'],
+                    ],
+                    [
+                        'action' => 'capture_missing_formal_endpoint',
+                        'reason' => 'missing_endpoint',
+                        'section' => 'business_overview',
+                        'endpoint_id' => 'business_realtime',
+                        'required_evidence' => ['Request URL', 'Payload', 'Preview / Response'],
+                    ],
+                ],
+            ],
+        ]]);
+
+        self::assertTrue($health['available']);
+        self::assertSame('ctrip', $health['platform']);
+        self::assertSame(16, $health['section_count']);
+        self::assertSame(69, $health['endpoint_count']);
+        self::assertSame(110, $health['field_count']);
+        self::assertSame(['business_overview', 'traffic_report'], $health['default_sections']);
+        self::assertSame(['homepage', 'biztravel_bpi'], $health['wide_sections']);
+        self::assertSame(14, $health['interaction_plan_section_count']);
+        self::assertSame(64, $health['interaction_plan_step_count']);
+        self::assertSame('fail', $health['capture_gate_status']);
+        self::assertSame(['auth_session', 'field_coverage'], $health['failed_check_ids']);
+        self::assertSame('login_required', $health['auth_status']);
+        self::assertSame(0, $health['response_count']);
+        self::assertSame(0, $health['standard_row_count']);
+        self::assertNull($health['coverage_rate']);
+        self::assertFalse($health['is_live_capture_ready']);
+        self::assertSame('blocked_auth', $health['capture_gap_status']);
+        self::assertSame(['auth_session', 'response_count'], $health['capture_gap_blockers']);
+        self::assertSame(2, $health['capture_gap_missing_formal_endpoint_count']);
+        self::assertSame(2, $health['capture_gap_missing_field_section_count']);
+        self::assertSame(5, $health['capture_gap_missing_field_count']);
+        self::assertSame(1, $health['capture_gap_p3_candidate_section_count']);
+        self::assertSame(2, $health['capture_gap_p3_evidence_section_count']);
+        self::assertSame('login_and_rerun_capture', $health['capture_gap_next_actions'][0]['action']);
+        self::assertSame('capture_missing_formal_endpoint', $health['capture_gap_next_actions'][1]['action']);
+        self::assertSame(['Request URL', 'Payload', 'Preview / Response'], $health['capture_gap_next_actions'][1]['required_evidence']);
+        self::assertStringContainsString('未通过', $health['message']);
+    }
+
+    public function testCtripCaptureCatalogHealthExposesMissingCatalogExplicitly(): void
+    {
+        $controller = $this->controller();
+
+        $health = $this->invokeNonPublic($controller, 'buildCtripCaptureCatalogHealth', [[], []]);
+
+        self::assertFalse($health['available']);
+        self::assertSame('ctrip', $health['platform']);
+        self::assertSame('missing', $health['capture_gate_status']);
+        self::assertSame('missing', $health['capture_gap_status']);
+        self::assertSame([], $health['capture_gap_next_actions']);
+        self::assertFalse($health['is_live_capture_ready']);
+        self::assertStringContainsString('未生成', $health['message']);
+    }
+
+    public function testCtripCaptureCatalogHealthReadsProjectReports(): void
+    {
+        $controller = $this->controller();
+
+        $health = $this->invokeNonPublic($controller, 'readCtripCaptureCatalogHealth');
+
+        self::assertTrue($health['available']);
+        self::assertSame('ctrip', $health['platform']);
+        self::assertGreaterThanOrEqual(16, $health['section_count']);
+        self::assertGreaterThanOrEqual(69, $health['endpoint_count']);
+        self::assertGreaterThanOrEqual(110, $health['field_count']);
+        self::assertSame('fail', $health['capture_gate_status']);
+        self::assertSame('login_required', $health['auth_status']);
+        self::assertSame('blocked_auth', $health['capture_gap_status']);
+        self::assertSame('login_and_rerun_capture', $health['capture_gap_next_actions'][0]['action']);
+        self::assertFalse($health['is_live_capture_ready']);
     }
 
     public function testCtripLatestBatchScopeUsesLatestFetchTimeWhenHotelIsSelected(): void
@@ -1870,6 +2028,675 @@ final class OnlineDataTest extends TestCase
 
         self::assertTrue($complete['api_configured']);
         self::assertSame([], $complete['missing_fields']);
+    }
+
+    public function testCtripApprovedMappingsPathResolverAcceptsProjectJsonAliases(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $mappingDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'test_ctrip_mapping';
+        if (!is_dir($mappingDir)) {
+            mkdir($mappingDir, 0775, true);
+        }
+        $mappingPath = $mappingDir . DIRECTORY_SEPARATOR . 'approved_mapping_' . bin2hex(random_bytes(4)) . '.json';
+        file_put_contents($mappingPath, json_encode(['mappings' => []], JSON_UNESCAPED_UNICODE));
+
+        try {
+            $resolved = $this->invokeNonPublic($controller, 'resolveCtripApprovedMappingsPath', [[
+                'approved_mapping_path' => 'runtime/test_ctrip_mapping/' . basename($mappingPath),
+            ], $projectRoot]);
+
+            self::assertTrue($resolved['configured']);
+            self::assertSame(realpath($mappingPath), $resolved['path']);
+            self::assertSame('', $resolved['error']);
+
+            $camelCase = $this->invokeNonPublic($controller, 'resolveCtripApprovedMappingsPath', [[
+                'p3MappingsPath' => 'runtime/test_ctrip_mapping/' . basename($mappingPath),
+            ], $projectRoot]);
+            self::assertSame(realpath($mappingPath), $camelCase['path']);
+        } finally {
+            if (is_file($mappingPath)) {
+                unlink($mappingPath);
+            }
+        }
+    }
+
+    public function testCtripApprovedMappingsPathResolverRejectsUnsafeOrInvalidFiles(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $mappingDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'test_ctrip_mapping';
+        if (!is_dir($mappingDir)) {
+            mkdir($mappingDir, 0775, true);
+        }
+        $txtPath = $mappingDir . DIRECTORY_SEPARATOR . 'approved_mapping_' . bin2hex(random_bytes(4)) . '.txt';
+        file_put_contents($txtPath, 'not json');
+
+        try {
+            $nonJson = $this->invokeNonPublic($controller, 'resolveCtripApprovedMappingsPath', [[
+                'approved_mappings_path' => 'runtime/test_ctrip_mapping/' . basename($txtPath),
+            ], $projectRoot]);
+            self::assertTrue($nonJson['configured']);
+            self::assertSame('', $nonJson['path']);
+            self::assertStringContainsString('JSON', $nonJson['error']);
+
+            $outside = $this->invokeNonPublic($controller, 'resolveCtripApprovedMappingsPath', [[
+                'approved_mappings_path' => 'C:\\Windows\\win.ini',
+            ], $projectRoot]);
+            self::assertTrue($outside['configured']);
+            self::assertSame('', $outside['path']);
+            self::assertStringContainsString('项目目录', $outside['error']);
+        } finally {
+            if (is_file($txtPath)) {
+                unlink($txtPath);
+            }
+        }
+    }
+
+    public function testCtripApprovedMappingsArgBuilderAppendsResolvedFile(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $mappingDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'test_ctrip_mapping';
+        if (!is_dir($mappingDir)) {
+            mkdir($mappingDir, 0775, true);
+        }
+        $mappingPath = $mappingDir . DIRECTORY_SEPARATOR . 'approved_mapping_' . bin2hex(random_bytes(4)) . '.json';
+        file_put_contents($mappingPath, json_encode(['mappings' => []], JSON_UNESCAPED_UNICODE));
+
+        try {
+            $result = $this->invokeNonPublic($controller, 'appendCtripApprovedMappingsArg', [[
+                'node',
+                'scripts/ctrip_browser_capture.mjs',
+            ], [
+                'approved_mappings_path' => 'runtime/test_ctrip_mapping/' . basename($mappingPath),
+            ], $projectRoot]);
+
+            self::assertSame('', $result['error']);
+            self::assertSame('--approved-mappings=' . realpath($mappingPath), end($result['args']));
+            self::assertSame(realpath($mappingPath), $result['approved_mappings']['path']);
+        } finally {
+            if (is_file($mappingPath)) {
+                unlink($mappingPath);
+            }
+        }
+    }
+
+    public function testCtripProfileCaptureConfigOptionsNormalizeSectionsAndMappingAliases(): void
+    {
+        $controller = $this->controller();
+
+        $options = $this->invokeNonPublic($controller, 'buildCtripProfileCaptureConfigOptions', [[
+            'captureSections' => ['business', 'traffic', 'quality_psi', '../bad', 'BIZTRAVEL_BPI'],
+            'approvedMappingPath' => ' docs/ctrip_approved_mapping.example.json ',
+        ], []]);
+
+        self::assertSame('business,traffic,quality_psi,biztravel_bpi', $options['capture_sections']);
+        self::assertSame('business,traffic,quality_psi,biztravel_bpi', $options['profile_sections']);
+        self::assertSame('docs/ctrip_approved_mapping.example.json', $options['approved_mappings_path']);
+    }
+
+    public function testCtripProfileCaptureConfigOptionsPreserveOriginalWhenKeysAreAbsent(): void
+    {
+        $controller = $this->controller();
+
+        $options = $this->invokeNonPublic($controller, 'buildCtripProfileCaptureConfigOptions', [[], [
+            'capture_sections' => 'business,traffic,quality_psi',
+            'approved_mappings_path' => 'docs/approved.json',
+        ]]);
+
+        self::assertSame('business,traffic,quality_psi', $options['capture_sections']);
+        self::assertSame('business,traffic,quality_psi', $options['profile_sections']);
+        self::assertSame('docs/approved.json', $options['approved_mappings_path']);
+    }
+
+    public function testCtripProfileCaptureConfigOptionsDefaultToCorePreset(): void
+    {
+        $controller = $this->controller();
+
+        $options = $this->invokeNonPublic($controller, 'buildCtripProfileCaptureConfigOptions', [[], []]);
+
+        self::assertSame('core', $options['capture_sections']);
+        self::assertSame('core', $options['profile_sections']);
+    }
+
+    public function testCtripProfileCaptureGateArgsDefaultToFieldCoverageThreshold(): void
+    {
+        $controller = $this->controller();
+
+        $defaultArgs = $this->invokeNonPublic($controller, 'appendCtripCaptureGateArgs', [['node'], []]);
+
+        self::assertContains('--min-field-coverage-rate=80', $defaultArgs);
+        self::assertNotContains('--max-missing-fields=0', $defaultArgs);
+
+        $customArgs = $this->invokeNonPublic($controller, 'appendCtripCaptureGateArgs', [['node'], [
+            'minFieldCoverageRate' => '65.5',
+            'maxMissingFields' => 4,
+            'requireFieldCoverage' => true,
+        ]]);
+
+        self::assertContains('--min-field-coverage-rate=65.5', $customArgs);
+        self::assertContains('--max-missing-fields=4', $customArgs);
+        self::assertContains('--require-field-coverage', $customArgs);
+    }
+
+    public function testCtripLoginPreparationModeSkipsCaptureGateImport(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripLoginOnlyRequest', [[
+            'login_only' => true,
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripLoginOnlyRequest', [[
+            'authOnly' => '1',
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripLoginOnlyRequest', [[
+            'login_only' => false,
+        ]]));
+
+        $args = $this->invokeNonPublic($controller, 'appendCtripLoginOnlyArg', [['node'], [
+            'prepare_profile' => 'true',
+        ]]);
+        self::assertContains('--login-only=true', $args);
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripLoginOnlyResponsePayload', [[
+            'mode' => 'login_only',
+            'profile_id' => '63',
+            'auth_status' => ['status' => 'logged_in', 'message' => 'Ctrip profile is logged in.'],
+            'capture_gate' => ['status' => 'skipped', 'reason' => 'login_only'],
+            'pages' => [['name' => 'auth', 'ok' => true]],
+        ], 'runtime/ctrip_capture/login_only.json', 'stdout text']);
+
+        self::assertSame('login_only', $payload['mode']);
+        self::assertSame('logged_in', $payload['auth_status']['status']);
+        self::assertSame('skipped', $payload['capture_gate']['status']);
+        self::assertSame(0, $payload['saved_count']);
+        self::assertSame(0, $payload['row_count']);
+        self::assertSame('runtime/ctrip_capture/login_only.json', $payload['output']);
+    }
+
+    public function testCtripCaptureDiagnosisSummaryGroupsCapturedMetricsForDiagnosis(): void
+    {
+        $controller = $this->controller();
+
+        $summary = $this->invokeNonPublic($controller, 'buildCtripCaptureDiagnosisSummary', [[
+            'catalog_facts' => [
+                ['metric_key' => 'order_count'],
+                ['metric_key' => 'list_exposure'],
+                ['metric_key' => 'five_min_reply_rate'],
+                ['metric_key' => 'user_age'],
+            ],
+            'standard_rows' => [
+                [
+                    'data_type' => 'business',
+                    'capture_section' => 'business_overview',
+                    'metric_key' => 'avg_price|tensity',
+                    'dimension' => 'catalog:business_overview:business_realtime:order_amount:root',
+                    'raw_data' => [
+                        'metrics' => [
+                            'room_nights' => 3,
+                            'competitor_average' => 5,
+                        ],
+                    ],
+                ],
+            ],
+        ]]);
+
+        self::assertSame('ready', $summary['status']);
+        self::assertContains('收益销售', $summary['available_groups']);
+        self::assertContains('流量转化', $summary['available_groups']);
+        self::assertContains('服务质量/IM', $summary['available_groups']);
+        self::assertContains('辅助事实', $summary['available_groups']);
+        self::assertContains('商旅BPI', $summary['missing_groups']);
+
+        $revenue = current(array_filter($summary['groups'], static fn(array $group): bool => $group['name'] === '收益销售'));
+        self::assertIsArray($revenue);
+        self::assertSame('available', $revenue['status']);
+        self::assertContains('order_count', $revenue['captured_metric_keys']);
+        self::assertContains('order_amount', $revenue['captured_metric_keys']);
+        self::assertContains('room_nights', $revenue['captured_metric_keys']);
+        self::assertContains('avg_price', $revenue['captured_metric_keys']);
+        self::assertContains('tensity', $revenue['captured_metric_keys']);
+
+        $labels = array_column($summary['captured_metrics'], 'label', 'key');
+        self::assertSame('预订订单数', $labels['order_count']);
+        self::assertSame('5分钟回复率', $labels['five_min_reply_rate']);
+    }
+
+    public function testCtripEndpointEvidenceBundleBuildsFromDevtoolsFieldsAndRedactsSecrets(): void
+    {
+        $controller = $this->controller();
+
+        $bundle = $this->invokeNonPublic($controller, 'buildCtripEndpointEvidenceBundleFromRequest', [[
+            'request_url' => 'https://ebooking.ctrip.com/restapi/soa2/12345/orderDetailSearch?_fxpcqlniredt=abc',
+            'method' => 'post',
+            'headers_json' => json_encode([
+                'Cookie' => 'SESSION=secret-cookie',
+                'Authorization' => 'Bearer secret-token',
+                'Content-Type' => 'application/json',
+            ], JSON_UNESCAPED_UNICODE),
+            'payload_json' => json_encode([
+                'nodeId' => 'ctrip-1001',
+                'startDate' => '2026-05-31',
+                'endDate' => '2026-05-31',
+            ], JSON_UNESCAPED_UNICODE),
+            'response_json' => json_encode([
+                'data' => [
+                    'orderList' => [[
+                        'orderId' => 'CTRIP-ORDER-001',
+                        'guestName' => 'Alice Zhang',
+                        'guestPhone' => '13812345678',
+                        'orderAmount' => '588.00',
+                    ]],
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+            'page_context_json' => json_encode(['page' => '订单管理', 'tab' => '订单明细'], JSON_UNESCAPED_UNICODE),
+            'params_json' => json_encode(['hotel_id' => 'ctrip-1001', 'data_date' => '2026-05-31'], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        self::assertSame('https://ebooking.ctrip.com/restapi/soa2/12345/orderDetailSearch?_fxpcqlniredt=abc', $bundle['request_url']);
+        self::assertSame('POST', $bundle['method']);
+        self::assertSame('ctrip-1001', $bundle['payload']['nodeId']);
+        self::assertSame('588.00', $bundle['response']['data']['orderList'][0]['orderAmount']);
+        self::assertSame('[REDACTED]', $bundle['headers']['Cookie']);
+        self::assertSame('[REDACTED]', $bundle['headers']['Authorization']);
+
+        $encoded = json_encode($bundle, JSON_UNESCAPED_UNICODE);
+        self::assertStringNotContainsString('secret-cookie', $encoded);
+        self::assertStringNotContainsString('secret-token', $encoded);
+        self::assertStringNotContainsString('CTRIP-ORDER-001', $encoded);
+        self::assertStringNotContainsString('Alice Zhang', $encoded);
+        self::assertStringNotContainsString('13812345678', $encoded);
+    }
+
+    public function testCtripEndpointEvidenceBundleRejectsNonCtripUrl(): void
+    {
+        $controller = $this->controller();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('携程接口证据只允许');
+
+        $this->invokeNonPublic($controller, 'buildCtripEndpointEvidenceBundleFromRequest', [[
+            'request_url' => 'https://evil.test/restapi/orderDetailSearch',
+            'payload_json' => '{"hotelId":"ctrip-1001"}',
+            'response_json' => '{"data":{}}',
+        ]]);
+    }
+
+    public function testCtripEndpointEvidenceValidationPayloadExposesCatalogPreviewRows(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripEndpointEvidenceValidationPayload', [[
+            'evidence_status' => 'complete_redacted',
+            'catalog_ready' => true,
+            'safe_to_catalog' => true,
+            'candidate_section' => 'homepage',
+            'candidate_label' => '首页实时概览',
+            'data_type' => 'business',
+            'missing_evidence' => [],
+            'field_mapping_draft' => ['ready_for_mapping' => true],
+            'catalog_preview' => [
+                'formal_endpoint' => true,
+                'catalog_fact_count' => 6,
+                'standard_row_count' => 1,
+                'metric_keys' => ['order_amount', 'visitor_count'],
+                'standard_rows' => [[
+                    'hotel_id' => 'ctrip-1001',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'business',
+                    'amount' => 309.0,
+                    'book_order_num' => 1,
+                    'raw_data' => [
+                        'source_url' => 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData',
+                    ],
+                ]],
+            ],
+        ], [
+            'input_path' => 'runtime/ctrip_endpoint_evidence/input.json',
+            'output_path' => 'reports/ctrip_endpoint_evidence.json',
+            'markdown_path' => 'docs/ctrip_endpoint_evidence.md',
+        ], [
+            'mappings' => [],
+        ], 'docs/ctrip_approved_mapping.candidate.json', '', 'node stdout']);
+
+        self::assertSame('complete_redacted', $payload['evidence_status']);
+        self::assertSame(6, $payload['catalog_preview']['catalog_fact_count']);
+        self::assertSame(1, $payload['catalog_preview']['standard_row_count']);
+        self::assertSame(['order_amount', 'visitor_count'], $payload['catalog_preview']['metric_keys']);
+        self::assertSame(309.0, $payload['catalog_preview']['standard_rows'][0]['amount']);
+        self::assertSame('https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData', $payload['catalog_preview']['standard_rows'][0]['raw_data']['source_url']);
+        self::assertSame('docs/ctrip_approved_mapping.candidate.json', $payload['paths']['candidate_mapping']);
+        self::assertSame(['mappings' => []], $payload['candidate_mapping']);
+    }
+
+    public function testCtripEndpointEvidenceCatalogPreviewImportPlanDefaultsToPreviewOnly(): void
+    {
+        $controller = $this->controller();
+
+        $plan = $this->invokeNonPublic($controller, 'buildCtripEndpointEvidenceCatalogPreviewImportPlan', [[
+            'catalog_ready' => true,
+            'safe_to_catalog' => true,
+            'catalog_preview' => [
+                'standard_rows' => [[
+                    'hotel_id' => 'ctrip-1001',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'business',
+                    'amount' => 309.0,
+                ]],
+            ],
+        ], [
+            'system_hotel_id' => 7,
+        ]]);
+
+        self::assertFalse($plan['requested']);
+        self::assertTrue($plan['available']);
+        self::assertFalse($plan['can_save']);
+        self::assertSame(1, $plan['row_count']);
+        self::assertSame(0, $plan['saved_count']);
+        self::assertSame(7, $plan['system_hotel_id']);
+        self::assertSame('2026-05-31', $plan['data_date']);
+        self::assertSame([], $plan['rows']);
+    }
+
+    public function testCtripEndpointEvidenceCatalogPreviewImportPlanAllowsExplicitSafeImport(): void
+    {
+        $controller = $this->controller();
+
+        $plan = $this->invokeNonPublic($controller, 'buildCtripEndpointEvidenceCatalogPreviewImportPlan', [[
+            'catalog_ready' => true,
+            'safe_to_catalog' => true,
+            'catalog_preview' => [
+                'standard_rows' => [[
+                    'hotel_id' => 'ctrip-1001',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'business',
+                    'capture_section' => 'homepage',
+                    'endpoint_id' => 'homepage_realtime',
+                    'dimension' => 'catalog:homepage:homepage_realtime:order_amount:root',
+                    'amount' => 309.0,
+                    'raw_data' => ['metrics' => ['order_amount' => 309.0]],
+                ]],
+            ],
+        ], [
+            'save_standard_rows' => true,
+            'system_hotel_id' => 7,
+            'data_date' => '2026-05-31',
+            'ctrip_hotel_id' => 'ctrip-1001',
+        ]]);
+
+        self::assertTrue($plan['requested']);
+        self::assertTrue($plan['available']);
+        self::assertTrue($plan['can_save']);
+        self::assertSame(1, $plan['row_count']);
+        self::assertSame(0, $plan['saved_count']);
+        self::assertSame(7, $plan['system_hotel_id']);
+        self::assertSame('2026-05-31', $plan['data_date']);
+        self::assertSame('ctrip-1001', $plan['request_hotel_id']);
+        self::assertSame(309.0, $plan['rows'][0]['amount']);
+    }
+
+    public function testCtripEndpointEvidenceCatalogPreviewImportPlanRejectsUnsafeImport(): void
+    {
+        $controller = $this->controller();
+
+        $plan = $this->invokeNonPublic($controller, 'buildCtripEndpointEvidenceCatalogPreviewImportPlan', [[
+            'catalog_ready' => false,
+            'safe_to_catalog' => false,
+            'catalog_preview' => [
+                'standard_rows' => [[
+                    'hotel_id' => 'ctrip-1001',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'business',
+                    'amount' => 309.0,
+                ]],
+            ],
+        ], [
+            'saveStandardRows' => '1',
+            'system_hotel_id' => 7,
+        ]]);
+
+        self::assertTrue($plan['requested']);
+        self::assertTrue($plan['available']);
+        self::assertFalse($plan['can_save']);
+        self::assertSame(0, $plan['saved_count']);
+        self::assertSame([], $plan['rows']);
+        self::assertStringContainsString('not catalog ready', $plan['message']);
+    }
+
+    public function testCtripStandardRowsKeepNonLegacyCatalogSectionsImportable(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [[
+            'standard_rows' => [
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'hotel_name' => '长沙智选假日酒店',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'quality',
+                    'capture_section' => 'quality_psi',
+                    'endpoint_id' => 'psi_overview',
+                    'dimension' => 'catalog:quality_psi:psi_overview:psi_score:root',
+                    'data_value' => 4.54,
+                    'raw_data' => [
+                        'source' => 'ctrip_catalog_facts',
+                        'metrics' => ['psi_score' => '4.54'],
+                    ],
+                ],
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'hotel_name' => '长沙智选假日酒店',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'business',
+                    'capture_section' => 'business_overview',
+                    'endpoint_id' => 'business_realtime',
+                    'dimension' => 'catalog:business_overview:business_realtime:order_count:root',
+                    'book_order_num' => 3,
+                    'raw_data' => ['metrics' => ['order_count' => 3]],
+                ],
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'hotel_name' => 'Demo Hotel',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'business',
+                    'capture_section' => 'business_overview',
+                    'endpoint_id' => 'business_realtime',
+                    'dimension' => 'catalog:business_overview:business_realtime:avg_price:root',
+                    'data_value' => 312.5,
+                    'raw_data' => ['metrics' => ['avg_price' => 312.5]],
+                ],
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'hotel_name' => 'Demo Hotel',
+                    'data_date' => '2026-06-06',
+                    'data_type' => 'business',
+                    'capture_section' => 'market_calendar',
+                    'endpoint_id' => 'hot_calendar',
+                    'dimension' => 'catalog:market_calendar:hot_calendar:hot_spot_name:0',
+                    'raw_data' => [
+                        'fact_only' => true,
+                        'metric_status' => 'non_numeric_fact',
+                        'metrics' => ['hot_spot_name' => 'Concert A'],
+                    ],
+                ],
+            ],
+        ], 7, '2026-05-31', 'ctrip-1001']);
+
+        self::assertCount(3, $rows);
+        self::assertSame('quality', $rows[0]['data_type']);
+        self::assertSame(4.54, $rows[0]['data_value']);
+        self::assertSame(7, $rows[0]['system_hotel_id']);
+        self::assertStringContainsString('"capture_section":"quality_psi"', $rows[0]['raw_data']);
+        self::assertStringContainsString('"psi_score":"4.54"', $rows[0]['raw_data']);
+        $avgPriceRow = current(array_filter($rows, static fn(array $row): bool => ($row['dimension'] ?? '') === 'catalog:business_overview:business_realtime:avg_price:root'));
+        self::assertIsArray($avgPriceRow);
+        self::assertSame(312.5, $avgPriceRow['data_value']);
+        self::assertStringContainsString('"avg_price":312.5', $avgPriceRow['raw_data']);
+        self::assertFalse((bool)current(array_filter($rows, static fn(array $row): bool => ($row['dimension'] ?? '') === 'catalog:business_overview:business_realtime:order_count:root')));
+        $calendarRow = current(array_filter($rows, static fn(array $row): bool => ($row['dimension'] ?? '') === 'catalog:market_calendar:hot_calendar:hot_spot_name:0'));
+        self::assertIsArray($calendarRow);
+        self::assertSame('market_calendar', json_decode($calendarRow['raw_data'], true)['capture_section']);
+        self::assertStringContainsString('"fact_only":true', $calendarRow['raw_data']);
+        self::assertSame(0.0, $calendarRow['amount']);
+    }
+
+    public function testCtripStandardRowsKeepStableEndpointProvenance(): void
+    {
+        $controller = $this->controller();
+        $payload = [
+            'standard_rows' => [
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'hotel_name' => 'Demo Hotel',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'quality',
+                    'capture_section' => 'quality_psi',
+                    'endpoint_id' => 'psi_overview',
+                    'source_url' => 'https://ebooking.ctrip.com/restapi/soa2/24306/getHotelPsiV2?x-traceID=trace-1',
+                    'dimension' => 'catalog:quality_psi:psi_overview:psi_score:root',
+                    'data_value' => 4.54,
+                    'raw_data' => [
+                        'source' => 'ctrip_catalog_facts',
+                        'metrics' => ['psi_score' => '4.54'],
+                    ],
+                ],
+            ],
+        ];
+
+        $rows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [$payload, 7, '2026-05-31', 'ctrip-1001']);
+
+        self::assertCount(1, $rows);
+        self::assertSame('browser_profile', $rows[0]['ingestion_method']);
+        self::assertArrayHasKey('source_trace_id', $rows[0]);
+        self::assertMatchesRegularExpression('/^ctrip:[a-f0-9]{64}$/', $rows[0]['source_trace_id']);
+        self::assertLessThanOrEqual(80, strlen($rows[0]['source_trace_id']));
+
+        $rawData = json_decode($rows[0]['raw_data'], true);
+        self::assertSame('quality_psi', $rawData['capture_section']);
+        self::assertSame('psi_overview', $rawData['endpoint_id']);
+        self::assertSame('https://ebooking.ctrip.com/restapi/soa2/24306/getHotelPsiV2?x-traceID=trace-1', $rawData['source_url']);
+
+        $sameRows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [$payload, 7, '2026-05-31', 'ctrip-1001']);
+        self::assertSame($rows[0]['source_trace_id'], $sameRows[0]['source_trace_id']);
+
+        $changedPayload = $payload;
+        $changedPayload['standard_rows'][0]['dimension'] = 'catalog:quality_psi:psi_overview:psi_rank:root';
+        $changedRows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [$changedPayload, 7, '2026-05-31', 'ctrip-1001']);
+        self::assertNotSame($rows[0]['source_trace_id'], $changedRows[0]['source_trace_id']);
+    }
+
+    public function testCtripCaptureCountsExposeStandardRowsByTypeAndSection(): void
+    {
+        $controller = $this->controller();
+
+        $counts = $this->invokeNonPublic($controller, 'buildCtripCaptureCounts', [[
+            'business' => [['hotelId' => 'ctrip-1001', 'dataDate' => '2026-05-31', 'orderAmount' => 100]],
+            'traffic' => [
+                ['hotelId' => 'ctrip-1001', 'date' => '2026-05-31', 'listExposure' => 10],
+                ['hotelId' => 'ctrip-1001', 'date' => '2026-05-31', 'detailUv' => 2],
+            ],
+            'catalog_facts' => [['metric_key' => 'psi_score']],
+            'responses' => [['url' => 'https://ebooking.ctrip.com/psi/api/getHotelPsiV2']],
+            'xhr_urls' => [['url' => 'https://ebooking.ctrip.com/psi/api/getHotelPsiV2']],
+            'pages' => [
+                [
+                    'name' => 'sales_report',
+                    'interactions' => [
+                        ['text' => '销售数据', 'clicked' => true],
+                        ['text' => '房型', 'clicked' => false, 'skipped' => 'not_visible'],
+                    ],
+                ],
+                [
+                    'name' => 'traffic_report',
+                    'interactions' => [
+                        ['text' => '手机APP', 'clicked' => true],
+                        ['text' => '电脑网页版', 'clicked' => false, 'error' => 'detached'],
+                    ],
+                ],
+            ],
+            'endpoint_candidates' => [
+                ['candidate_section' => 'orders_detail', 'candidate_label' => '订单明细'],
+                ['candidate_section' => 'price_inventory', 'candidate_label' => '价格房态'],
+                ['candidate_section' => 'orders_detail', 'candidate_label' => '订单明细'],
+                ['candidate_section' => '', 'candidate_label' => ''],
+            ],
+            'p3_evidence_drafts' => [
+                ['candidate_section' => 'orders_detail', 'evidence_status' => 'complete_redacted', 'catalog_ready' => true],
+                ['candidate_section' => 'orders_detail', 'evidence_status' => 'incomplete', 'catalog_ready' => false],
+                ['candidate_section' => 'promotion', 'evidence_status' => 'complete_redacted', 'catalog_ready' => true],
+                ['candidate_section' => '', 'evidence_status' => '', 'catalog_ready' => false],
+            ],
+            'standard_rows' => [
+                ['data_type' => 'quality', 'capture_section' => 'quality_psi'],
+                ['data_type' => 'advertising', 'capture_section' => 'ads_pyramid'],
+                ['data_type' => 'business', 'capture_section' => 'market_calendar'],
+                ['data_type' => '', 'capture_section' => ''],
+            ],
+        ]]);
+
+        self::assertSame(1, $counts['business']);
+        self::assertSame(2, $counts['traffic']);
+        self::assertSame(4, $counts['standard_rows']);
+        self::assertSame(1, $counts['standard_by_data_type']['quality']);
+        self::assertSame(1, $counts['standard_by_data_type']['advertising']);
+        self::assertSame(1, $counts['standard_by_data_type']['business']);
+        self::assertSame(1, $counts['standard_by_data_type']['unknown']);
+        self::assertSame(1, $counts['standard_by_section']['quality_psi']);
+        self::assertSame(1, $counts['standard_by_section']['ads_pyramid']);
+        self::assertSame(1, $counts['standard_by_section']['market_calendar']);
+        self::assertSame(1, $counts['standard_by_section']['unknown']);
+        self::assertSame(2, $counts['pages']);
+        self::assertSame(4, $counts['interaction_planned']);
+        self::assertSame(2, $counts['interaction_clicked']);
+        self::assertSame(1, $counts['interaction_skipped']);
+        self::assertSame(1, $counts['interaction_error']);
+        self::assertSame(2, $counts['interaction_by_section']['sales_report']['planned']);
+        self::assertSame(1, $counts['interaction_by_section']['sales_report']['clicked']);
+        self::assertSame(1, $counts['interaction_by_section']['sales_report']['skipped']);
+        self::assertSame(1, $counts['interaction_by_section']['traffic_report']['error']);
+        self::assertSame(4, $counts['endpoint_candidates']);
+        self::assertSame(2, $counts['candidate_by_section']['orders_detail']);
+        self::assertSame(1, $counts['candidate_by_section']['price_inventory']);
+        self::assertSame(1, $counts['candidate_by_section']['unknown']);
+        self::assertSame(4, $counts['p3_evidence_drafts']);
+        self::assertSame(2, $counts['p3_evidence_ready']);
+        self::assertSame(2, $counts['p3_evidence_by_section']['orders_detail']);
+        self::assertSame(1, $counts['p3_evidence_by_section']['promotion']);
+        self::assertSame(1, $counts['p3_evidence_by_section']['unknown']);
+        self::assertSame(2, $counts['p3_evidence_by_status']['complete_redacted']);
+        self::assertSame(1, $counts['p3_evidence_by_status']['incomplete']);
+        self::assertSame(1, $counts['p3_evidence_by_status']['unknown']);
+    }
+
+    public function testCtripCaptureGateFailureBlocksSuccessfulImport(): void
+    {
+        $controller = $this->controller();
+
+        $failed = $this->invokeNonPublic($controller, 'buildCtripCaptureGateDecision', [[
+            'capture_gate' => [
+                'status' => 'fail',
+                'failed_check_ids' => ['auth_session', 'endpoint_coverage'],
+            ],
+        ]]);
+
+        self::assertFalse($failed['accepted']);
+        self::assertSame('fail', $failed['status']);
+        self::assertSame(['auth_session', 'endpoint_coverage'], $failed['failed_check_ids']);
+
+        $missing = $this->invokeNonPublic($controller, 'buildCtripCaptureGateDecision', [[]]);
+        self::assertFalse($missing['accepted']);
+        self::assertSame('missing', $missing['status']);
+
+        $passed = $this->invokeNonPublic($controller, 'buildCtripCaptureGateDecision', [[
+            'capture_gate' => [
+                'status' => 'pass',
+                'failed_check_ids' => [],
+            ],
+        ]]);
+
+        self::assertTrue($passed['accepted']);
+        self::assertSame('pass', $passed['status']);
     }
 }
 

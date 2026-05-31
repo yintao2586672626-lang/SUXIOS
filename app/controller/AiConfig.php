@@ -392,6 +392,7 @@ class AiConfig extends Base
             'cohere' => ['Cohere Command', 'cohere_command', 'https://api.cohere.ai/compatibility/v1', 'COHERE_MODEL', 'command-a-plus-05-2026', 'enterprise_search,rag'],
             'perplexity' => ['Perplexity Sonar', 'perplexity_sonar', 'https://api.perplexity.ai/v1', 'PERPLEXITY_MODEL', 'sonar-pro', 'search,research'],
             'nvidia' => ['NVIDIA Nemotron', 'nvidia_nemotron', 'https://integrate.api.nvidia.com/v1', 'NVIDIA_MODEL', 'nvidia/llama-3.1-nemotron-ultra-253b-v1', 'private_deploy,gpu,agent'],
+            'xiaomi_mimo' => ['Xiaomi MiMo V2.5 Pro', 'xiaomi_mimo_pro', 'https://api.xiaomimimo.com/v1', 'XIAOMI_MIMO_MODEL', 'mimo-v2.5-pro', 'reasoning,long_context,agent'],
         ];
 
         if (isset($directProviders[$provider])) {

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "platform": "ctrip",
+  "note": "Only mappings with approved=true are used by scripts/ctrip_browser_capture.mjs. Keep this file secret-free.",
+  "mappings": [
+    {
+      "id": "order_detail_v1",
+      "approved": true,
+      "candidate_section": "orders_detail",
+      "data_type": "order",
+      "url_keywords": [
+        "orderDetailSearch"
+      ],
+      "fields": [
+        {
+          "source_path": "data.orderList.*.orderId",
+          "suggested_field_id": "order_id",
+          "privacy_handling": "hash",
+          "include_in_business_metrics": false
+        },
+        {
+          "source_path": "data.orderList.*.guestName",
+          "suggested_field_id": "guest_name",
+          "privacy_handling": "mask",
+          "include_in_business_metrics": false
+        },
+        {
+          "source_path": "data.orderList.*.guestPhone",
+          "suggested_field_id": "guest_phone",
+          "privacy_handling": "mask",
+          "include_in_business_metrics": false
+        },
+        {
+          "source_path": "data.orderList.*.roomNights",
+          "suggested_field_id": "room_nights",
+          "standard_row_column": "quantity",
+          "privacy_handling": "none",
+          "include_in_business_metrics": true
+        },
+        {
+          "source_path": "data.orderList.*.orderAmount",
+          "suggested_field_id": "order_amount",
+          "standard_row_column": "amount",
+          "privacy_handling": "none",
+          "include_in_business_metrics": true
+        },
+        {
+          "source_path": "data.orderList.*.orderStatus",
+          "suggested_field_id": "order_status",
+          "privacy_handling": "none",
+          "include_in_business_metrics": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { findCtripEndpointByUrl } from './ctrip_capture_catalog.mjs';
 
 export const PLATFORM_CONFIGS = {
   meituan: {
@@ -29,7 +30,7 @@ export const PLATFORM_CONFIGS = {
     label: 'Ctrip eBooking',
     profilePrefix: 'ctrip_profile',
     defaultSections: ['business', 'traffic'],
-    allowedSections: ['business', 'traffic', 'ads', 'orders'],
+    allowedSections: ['business', 'traffic', 'ads', 'orders', 'quality', 'search_keyword'],
     cookieDomains: ['ebooking.ctrip.com', '.ctrip.com'],
     sectionAliases: {
       business: 'business',
@@ -41,8 +42,27 @@ export const PLATFORM_CONFIGS = {
       ad: 'ads',
       advertising: 'ads',
       campaign: 'ads',
+      cpc: 'ads',
+      pyramid: 'ads',
       order: 'orders',
       orders: 'orders',
+      psi: 'quality',
+      service: 'quality',
+      quality: 'quality',
+      bpi: 'quality',
+      competitor: 'business',
+      loss: 'business',
+      user: 'business',
+      user_behavior: 'business',
+      im: 'quality',
+      calendar: 'business',
+      hot_calendar: 'business',
+      biztravel: 'business',
+      business_travel: 'business',
+      room: 'business',
+      room_type: 'business',
+      keyword: 'search_keyword',
+      keywords: 'search_keyword',
     },
     blockedResponseRules: [
       { section: 'reviews', keywords: ['getcommentlist', 'commentlist', 'comment/', '/comment', 'review'] },
@@ -260,6 +280,20 @@ export function classifyOtaResponse(platform, url, meta = {}) {
     }
   }
 
+  if (platformKey === 'ctrip') {
+    const endpoint = findCtripEndpointByUrl(value);
+    if (endpoint) {
+      return {
+        capture: true,
+        platform: platformKey,
+        section: standardSectionName(endpoint.dataType),
+        capture_section: endpoint.section,
+        endpoint_id: endpoint.id,
+        reason: 'url_keyword',
+      };
+    }
+  }
+
   for (const rule of rules) {
     if (rule.keywords.some((keyword) => value.includes(keyword))) {
       return { capture: true, platform: platformKey, section: rule.section, reason: 'url_keyword' };
@@ -267,6 +301,17 @@ export function classifyOtaResponse(platform, url, meta = {}) {
   }
 
   return { capture: false, platform: platformKey, section: '', reason: 'unmatched_url' };
+}
+
+function standardSectionName(dataType) {
+  const value = String(dataType || '').trim().toLowerCase();
+  if (value === 'advertising') {
+    return 'ads';
+  }
+  if (value === 'review') {
+    return 'reviews';
+  }
+  return value || 'business';
 }
 
 export function sanitizeOtaPayloadForStorage(value, section = '') {
