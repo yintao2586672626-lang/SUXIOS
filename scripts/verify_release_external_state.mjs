@@ -68,6 +68,26 @@ function checkGitStatusOutput(stdout) {
   }
 }
 
+function checkGitIndexLockObject(gitIndexLock) {
+  if (!gitIndexLock || typeof gitIndexLock !== 'object') {
+    addFailure('external evidence is missing .git/index.lock state.');
+    return;
+  }
+
+  if (gitIndexLock.exists === true) {
+    const lastWriteTime = gitIndexLock.last_write_time ? ` last_write_time=${gitIndexLock.last_write_time}` : '';
+    addFailure(`.git/index.lock exists in external evidence; local git index is not ready for release operations.${lastWriteTime}`);
+    return;
+  }
+
+  if (gitIndexLock.exists === false) {
+    addPass('.git/index.lock is absent in external evidence.');
+    return;
+  }
+
+  addFailure('external evidence .git/index.lock state must be a boolean.');
+}
+
 function checkPrObject(pr) {
   if (!pr || typeof pr !== 'object') {
     addFailure('PR evidence is missing or invalid.');
@@ -78,6 +98,20 @@ function checkPrObject(pr) {
     addPass(`PR head sha is recorded: ${pr.headRefOid}.`);
   } else {
     addFailure('PR headRefOid is missing or not a 40-character commit sha.');
+  }
+
+  if (pr.state === 'OPEN') {
+    addPass(`PR #${pr.number} is open.`);
+  } else {
+    addFailure(`PR #${pr.number ?? 'unknown'} is not open; current state is ${pr.state ?? 'missing'}.`);
+  }
+
+  if (pr.isDraft === false) {
+    addPass(`PR #${pr.number} is not draft.`);
+  } else if (pr.isDraft === true) {
+    addFailure(`PR #${pr.number ?? 'unknown'} is still draft; mark it ready for review before release handoff.`);
+  } else {
+    addFailure(`PR #${pr.number ?? 'unknown'} draft state is missing from release evidence.`);
   }
 
   if (pr.mergeable === 'MERGEABLE') {
@@ -141,6 +175,8 @@ function checkEvidenceFile(evidencePath) {
     checkTrackedBackupsOutput(trackedBackups.stdout);
   }
 
+  checkGitIndexLockObject(commands.git_index_lock);
+
   const gitStatus = commands.git_status_short_branch || {};
   if (gitStatus.exit_code !== 0) {
     addFailure('external evidence command git status --short --branch did not exit 0.');
@@ -189,7 +225,7 @@ function checkGitHubPr() {
     'view',
     prNumber,
     '--json',
-    'number,url,headRefOid,mergeable,statusCheckRollup',
+    'number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup',
   ]);
 
   if (result.status !== 0) {
@@ -198,7 +234,7 @@ function checkGitHubPr() {
       'view',
       prNumber,
       '--json',
-      'number,url,headRefOid,mergeable,statusCheckRollup',
+      'number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup',
     ], result)}`);
     return;
   }
@@ -232,14 +268,14 @@ for (const message of failures) {
   console.error(`FAIL: ${message}`);
 }
 if (commandExecutionUnavailable) {
-  console.error('FAIL: This runtime blocked Node child_process access to external commands. Run the listed git/gh commands directly and rerun with RELEASE_EXTERNAL_STATE_FILE pointing to a JSON evidence file.');
+  console.error('FAIL: This runtime blocked Node child_process access to external commands. Run `npm run collect:release-external-state`, then rerun with RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json.');
 }
 
 const failureCount = failures.length + (commandExecutionUnavailable ? 1 : 0);
 const resultFailures = commandExecutionUnavailable
   ? [
       ...failures,
-      'This runtime blocked Node child_process access to external commands. Run the listed git/gh commands directly and rerun with RELEASE_EXTERNAL_STATE_FILE pointing to a JSON evidence file.',
+      'This runtime blocked Node child_process access to external commands. Run `npm run collect:release-external-state`, then rerun with RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json.',
     ]
   : failures;
 const result = {

@@ -23,6 +23,7 @@
 - 不绕过平台登录、短信、滑块、人机验证或权限体系。
 - 不高频请求影响平台服务。
 - Cookie、token、Profile、账号密码、手机号明文不得写入普通文档、日志或 Git。
+- 前端 i18n 翻译包和埋点脚本只用于识别页面文案、按钮和指标术语，不作为业务数据来源。
 
 ## 2. 为什么采用浏览器监听方案
 
@@ -84,7 +85,7 @@ DOM 页面兜底补充
 | 多门店 Profile 管理 | 每家酒店账号独立，避免 Cookie 串用 |
 | 页面访问模块 | 打开经营概况、流量、订单、广告、昨日概况等页面 |
 | 网络监听模块 | 捕获页面 XHR/fetch 返回的 JSON |
-| 接口规则模块 | 判断接口属于点评、订单、流量、广告还是日报 |
+| 接口规则模块 | 判断接口属于点评、订单、流量、广告还是日报；排除菜单、语言包、埋点和静态资源 |
 | 数据解析模块 | 将原始 JSON 转成统一字段 |
 | ETL 入库模块 | 清洗、脱敏、去重、保存，供后续分析读取 |
 
@@ -145,6 +146,30 @@ storage/
 - 遇到短信、人机验证时保留人工确认入口。
 - Headless 模式无法人工登录时，返回明确失败原因。
 - 登录失败不写入空经营数据，不假装采集成功。
+
+### 本地实测命令
+
+方式一：先准备登录态，只保存 Profile，不采集不入库。
+
+```powershell
+node scripts/probe_ctrip_capture.mjs --profile-id=hotel_001 --login-only=true --login-timeout-ms=600000
+```
+
+浏览器弹出后人工完成携程登录。成功后再次运行全量采集：
+
+```powershell
+node scripts/probe_ctrip_capture.mjs --profile-id=hotel_001 --sections=wide --data-date=2026-05-31 --output=runtime/ctrip_capture/hotel_001_wide.json
+```
+
+方式二：使用本地 Cookie 文件注入。Cookie 文件只放在本机临时目录，不写入 Git，不粘贴到聊天或普通文档。
+
+```powershell
+node scripts/probe_ctrip_capture.mjs --profile-id=hotel_001 --sections=wide --cookies-file=runtime/secret/ctrip_cookie.txt --data-date=2026-05-31 --output=runtime/ctrip_capture/hotel_001_cookie_wide.json
+```
+
+`probe_ctrip_capture.mjs` 会自动执行采集和摘要。输出状态为 `ready` 表示已经拿到可诊断标准字段；`login_prepared` 表示登录态已保存但尚未采集；`not_ready` 表示登录态或接口数据不足。摘要文件只显示登录状态、模块命中、接口 ID、标准字段和缺口，不输出 Cookie、Authorization、token 或住客隐私字段。
+
+系统接口 `POST /api/online-data/capture-ctrip-browser` 和自动抓取中的 `browser_profile` 任务会返回 `diagnosis_summary`，用于直接判断本次登录态或 Cookie 采集是否已经覆盖收益销售、流量转化、竞争圈、服务质量/IM、广告推广、商旅 BPI 和辅助事实等诊断方向。
 
 ## 6. 核心采集方式
 

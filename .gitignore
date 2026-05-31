@@ -29,6 +29,7 @@ reports/ctrip_capture_assets/
 reports/meituan_capture_assets/
 reports/ctrip_browser_capture_*.json
 reports/meituan_browser_capture_*.json
+docs/release_external_state_evidence.local.json
 
 # Git / IDE / OS
 /.git/

@@ -115,7 +115,7 @@ class SystemConfig extends Model
         return [
             // 基础设置
             self::KEY_SYSTEM_NAME => '宿析OS',
-            self::KEY_SYSTEM_DESCRIPTION => '深度数据分析赋能酒店收益与决策',
+            self::KEY_SYSTEM_DESCRIPTION => '授权OTA数据驱动的经营诊断、AI建议与动作复盘系统',
             self::KEY_LOGO_URL => '',
             self::KEY_FAVICON_URL => '',
             self::KEY_SYSTEM_KEYWORDS => '酒店管理,收益分析,数据分析',

@@ -19,6 +19,7 @@ Create provider config through existing API. Direct quick-setup providers:
 - `cohere`
 - `perplexity`
 - `nvidia`
+- `xiaomi_mimo`
 
 Gateway-backed model families must provide an OpenAI-compatible `base_url`:
 

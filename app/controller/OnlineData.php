@@ -1764,8 +1764,18 @@ class OnlineData extends Base
         if ($chromePath !== '') {
             $args[] = '--chrome-path=' . $chromePath;
         }
+        $cookieFile = $this->createAutoFetchCookieFile(
+            $projectRoot,
+            'ctrip',
+            (int)$systemHotelId,
+            trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''))
+        );
+        if ($cookieFile !== '') {
+            $args[] = '--cookies-file=' . $cookieFile;
+        }
 
         $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
+        $this->removeAutoFetchCookieFile($cookieFile);
         if (!$runResult['success']) {
             return $this->error(str_replace('美团', '携程', $runResult['message']), 400, [
                 'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
@@ -1860,6 +1870,7 @@ class OnlineData extends Base
         if ($profileId === '') {
             $profileId = 'system_' . (string)$systemHotelId;
         }
+        $loginOnly = $this->isCtripLoginOnlyRequest($requestData);
 
         $projectRoot = dirname(__DIR__, 2);
         $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
@@ -1896,17 +1907,25 @@ class OnlineData extends Base
         if ($hotelName !== '') {
             $args[] = '--hotel-name=' . $hotelName;
         }
-        $sectionsValue = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? 'business,traffic';
+        $sectionsValue = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? 'core';
         $sectionsRaw = is_array($sectionsValue)
             ? implode(',', array_map('strval', $sectionsValue))
             : trim((string)$sectionsValue);
-        $sectionsRaw = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $sectionsRaw) ?: 'business,traffic';
+        $sectionsRaw = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $sectionsRaw) ?: 'core';
         $sectionsList = array_values(array_unique(array_filter(
             array_map(static fn($item): string => strtolower(trim((string)$item)), preg_split('/[,\s]+/', $sectionsRaw) ?: []),
-            static fn(string $item): bool => in_array($item, ['business', 'traffic'], true)
+            static fn(string $item): bool => $item !== ''
         )));
-        $sections = implode(',', $sectionsList) ?: 'business,traffic';
+        $sections = implode(',', $sectionsList) ?: 'core';
         $args[] = '--sections=' . $sections;
+        $args = $this->appendCtripLoginOnlyArg($args, $requestData);
+        $args = $this->appendCtripCaptureGateArgs($args, $requestData);
+        $mappingArgs = $this->appendCtripApprovedMappingsArg($args, $requestData, $projectRoot);
+        $approvedMappings = $mappingArgs['approved_mappings'];
+        if ($mappingArgs['error'] !== '') {
+            return $this->error((string)$mappingArgs['error'], 400);
+        }
+        $args = $mappingArgs['args'];
         $chromePath = $this->resolveMeituanCaptureChromePath();
         if ($chromePath !== '') {
             $args[] = '--chrome-path=' . $chromePath;
@@ -1917,6 +1936,7 @@ class OnlineData extends Base
             return $this->error(str_replace('美团', '携程', $runResult['message']), 400, [
                 'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
                 'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                'partial_capture' => $this->buildCtripPartialCaptureErrorPayload($outputPath),
             ]);
         }
 
@@ -1946,15 +1966,40 @@ class OnlineData extends Base
             $payload['default_data_date'] = $dataDate;
         }
 
+        if ($loginOnly) {
+            return $this->success(
+                $this->buildCtripLoginOnlyResponsePayload(
+                    $payload,
+                    $outputPath,
+                    $this->trimMeituanCaptureLog($runResult['stdout'] ?? '')
+                ),
+                '携程浏览器 Profile 登录态已准备，未执行数据采集和入库'
+            );
+        }
+
+        $captureGateDecision = $this->buildCtripCaptureGateDecision($payload);
+        if (!$captureGateDecision['accepted']) {
+            $capturedCounts = $this->buildCtripCaptureCounts($payload);
+            return $this->error('携程浏览器 Profile 采集门禁未通过，未入库且未更新最新采集状态', 400, [
+                'output' => $outputPath,
+                'auth_status' => $payload['auth_status'] ?? null,
+                'capture_gate' => $captureGateDecision['gate'],
+                'capture_gate_status' => $captureGateDecision['status'],
+                'capture_gate_failed_check_ids' => $captureGateDecision['failed_check_ids'],
+                'capture_audit' => $payload['capture_audit'] ?? null,
+                'captured_counts' => $capturedCounts,
+                'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+                'pages' => $payload['pages'] ?? [],
+                'xhr_urls' => array_slice($payload['xhr_urls'] ?? [], 0, 20),
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+            ]);
+        }
+
         $requestHotelId = $hotelId !== '' ? $hotelId : (string)($payload['hotel_id'] ?? $profileId);
         $saveResult = $this->saveCtripBrowserProfilePayload($payload, (int)$systemHotelId, $dataDate, $requestHotelId);
         $savedCount = (int)$saveResult['saved_count'];
-        $capturedCounts = [
-            'business' => count($this->extractCtripCapturedSection($payload, 'business')),
-            'traffic' => count($this->extractCtripCapturedSection($payload, 'traffic')),
-            'responses' => $this->countCtripPayloadSection($payload, 'responses'),
-            'xhr_urls' => $this->countCtripPayloadSection($payload, 'xhr_urls'),
-        ];
+        $capturedCounts = $this->buildCtripCaptureCounts($payload);
 
         if ($this->currentUser && isset($this->currentUser->id)) {
             OperationLog::record(
@@ -1971,12 +2016,27 @@ class OnlineData extends Base
 
         return $this->success([
             'saved_count' => $savedCount,
-            'row_count' => array_sum(array_intersect_key($capturedCounts, array_flip(['business', 'traffic']))),
+            'row_count' => (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'],
             'counts' => [
                 'business' => (int)$saveResult['business_saved'],
                 'traffic' => (int)$saveResult['traffic_saved'],
+                'standard_rows' => (int)($saveResult['standard_saved'] ?? 0),
             ],
             'captured_counts' => $capturedCounts,
+            'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+            'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
+            'standard_section_counts' => $capturedCounts['standard_by_section'],
+            'endpoint_candidate_counts' => $capturedCounts['candidate_by_section'],
+            'endpoint_candidates' => array_slice(is_array($payload['endpoint_candidates'] ?? null) ? $payload['endpoint_candidates'] : [], 0, 20),
+            'p3_evidence_counts' => $capturedCounts['p3_evidence_by_section'],
+            'p3_evidence_status_counts' => $capturedCounts['p3_evidence_by_status'],
+            'p3_evidence_ready_count' => $capturedCounts['p3_evidence_ready'],
+            'p3_evidence_drafts' => array_slice(is_array($payload['p3_evidence_drafts'] ?? null) ? $payload['p3_evidence_drafts'] : [], 0, 20),
+            'p3_evidence_matrix' => is_array($payload['p3_evidence_matrix'] ?? null) ? $payload['p3_evidence_matrix'] : null,
+            'auth_status' => $payload['auth_status'] ?? null,
+            'capture_gate' => $payload['capture_gate'] ?? null,
+            'capture_audit' => $payload['capture_audit'] ?? null,
+            'approved_mappings' => $payload['approved_mappings'] ?? ['configured' => (bool)$approvedMappings['configured']],
             'modules' => $saveResult['modules'],
             'output' => $outputPath,
             'pages' => $payload['pages'] ?? [],
@@ -1984,6 +2044,352 @@ class OnlineData extends Base
             'screenshots' => $payload['screenshots'] ?? [],
             'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
         ], $savedCount > 0 ? '携程浏览器 Profile 采集完成并已入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
+    }
+
+    public function validateCtripEndpointEvidence(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $projectRoot = dirname(__DIR__, 2);
+            $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'validate_ctrip_endpoint_evidence.mjs';
+            if (!is_file($scriptPath)) {
+                return $this->error('未找到携程接口证据校验脚本');
+            }
+
+            $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+            if ($nodeBinary === '') {
+                return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY');
+            }
+
+            $requestData = $this->requestData();
+            $prepared = $this->prepareCtripEndpointEvidenceValidationFiles($requestData, $projectRoot);
+            $runResult = $this->runMeituanCaptureProcess([
+                $nodeBinary,
+                $scriptPath,
+                '--input=' . $prepared['input_path'],
+                '--output=' . $prepared['output_path'],
+                '--markdown=' . $prepared['markdown_path'],
+            ], $projectRoot, 60);
+
+            if (!$runResult['success']) {
+                return $this->error('携程接口证据校验失败: ' . str_replace('美团浏览器抓取', 'Node脚本', $runResult['message']), 400, [
+                    'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                    'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                ]);
+            }
+
+            $validation = $this->readLocalJsonFile($prepared['output_path']);
+            $catalogPreviewImport = $this->buildCtripEndpointEvidenceCatalogPreviewImportPlan($validation, $requestData);
+            if ($catalogPreviewImport['requested']) {
+                $requestData['_resolved_system_hotel_id'] = $this->resolveOnlineDataSystemHotelId(
+                    $requestData['system_hotel_id']
+                    ?? $requestData['systemHotelId']
+                    ?? null
+                );
+                $catalogPreviewImport = $this->buildCtripEndpointEvidenceCatalogPreviewImportPlan($validation, $requestData);
+            }
+            $candidatePath = '';
+            $candidate = null;
+            $candidateError = '';
+            if (($validation['field_mapping_draft']['ready_for_mapping'] ?? false) === true) {
+                $promoteScript = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'promote_ctrip_mapping_draft.mjs';
+                if (is_file($promoteScript)) {
+                    $candidatePath = $prepared['candidate_path'];
+                    $promoteResult = $this->runMeituanCaptureProcess([
+                        $nodeBinary,
+                        $promoteScript,
+                        '--input=' . $prepared['output_path'],
+                        '--output=' . $candidatePath,
+                    ], $projectRoot, 60);
+                    if ($promoteResult['success'] && is_file($candidatePath)) {
+                        $candidate = $this->readLocalJsonFile($candidatePath);
+                    } else {
+                        $candidateError = trim((string)($promoteResult['stderr'] ?? $promoteResult['stdout'] ?? $promoteResult['message'] ?? '候选映射生成失败'));
+                        $candidatePath = '';
+                    }
+                }
+            }
+
+            if ($catalogPreviewImport['requested'] && $catalogPreviewImport['can_save']) {
+                $standardRows = $this->extractCtripStandardRows(
+                    ['standard_rows' => $catalogPreviewImport['rows']],
+                    (int)$catalogPreviewImport['system_hotel_id'],
+                    (string)$catalogPreviewImport['data_date'],
+                    (string)$catalogPreviewImport['request_hotel_id']
+                );
+                $catalogPreviewImport['saved_count'] = !empty($standardRows) ? $this->saveCtripStandardRows($standardRows) : 0;
+                $catalogPreviewImport['message'] = $catalogPreviewImport['saved_count'] > 0
+                    ? 'catalog preview standard rows saved'
+                    : 'catalog preview import requested but no rows were saved';
+            }
+
+            return $this->success($this->buildCtripEndpointEvidenceValidationPayload(
+                $validation,
+                $prepared,
+                $candidate,
+                $candidatePath,
+                $candidateError,
+                $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                $catalogPreviewImport
+            ), ($validation['evidence_status'] ?? '') === 'complete_redacted'
+                ? '携程接口证据完整，已生成待人工审核映射草案'
+                : '携程接口证据已校验，但仍缺少必要信息');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 400);
+        } catch (\Throwable $e) {
+            return $this->error('携程接口证据校验异常: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function ctripDiagnosisSnapshot(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $profileId = trim((string)($this->request->get('profile_id', $this->request->get('profileId', ''))));
+        $snapshot = $this->buildLatestCtripDiagnosisSnapshot($profileId);
+        if (empty($snapshot['available'])) {
+            return $this->error('暂无可用于诊断的携程采集快照，请先完成 Profile 采集或 Cookie 采集。', 404, $snapshot);
+        }
+
+        return $this->success($snapshot, '携程诊断快照读取完成');
+    }
+
+    public function fetchCtripCookieApiData(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $requestData = $this->requestData();
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? null
+        );
+        $autoSave = !array_key_exists('auto_save', $requestData) && !array_key_exists('autoSave', $requestData)
+            ? true
+            : $this->isTruthyRequestValue($requestData['auto_save'] ?? $requestData['autoSave'] ?? false);
+        if ($autoSave && $systemHotelId === null) {
+            return $this->error('保存携程 Cookie API 采集结果需要指定 system_hotel_id', 400);
+        }
+
+        $cookies = trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''));
+        if ($cookies === '') {
+            return $this->error('请提供携程 Cookie', 400);
+        }
+
+        try {
+            $projectRoot = dirname(__DIR__, 2);
+            $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_cookie_api_capture.mjs';
+            if (!is_file($scriptPath)) {
+                return $this->error('未找到携程 Cookie API 采集脚本', 500);
+            }
+
+            $nodeBinary = $this->resolveMeituanCaptureNodeBinary();
+            if ($nodeBinary === '') {
+                return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY', 500);
+            }
+
+            $prepared = $this->prepareCtripCookieApiCaptureFiles($requestData, $projectRoot, $systemHotelId);
+            $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', (int)($systemHotelId ?? 0), $cookies);
+            if ($cookieFile === '') {
+                return $this->error('无法创建携程 Cookie 临时文件', 500);
+            }
+
+            $runResult = $this->runMeituanCaptureProcess([
+                $nodeBinary,
+                $scriptPath,
+                '--input=' . $prepared['input_path'],
+                '--cookies-file=' . $cookieFile,
+                '--output=' . $prepared['output_path'],
+            ], $projectRoot, 90);
+            $this->removeAutoFetchCookieFile($cookieFile);
+            @unlink($prepared['input_path']);
+
+            if (!$runResult['success']) {
+                return $this->error('携程 Cookie API 采集失败: ' . str_replace('美团浏览器抓取', 'Node脚本', $runResult['message']), 400, [
+                    'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                    'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                    'output' => $prepared['output_path'],
+                ]);
+            }
+
+            $payload = $this->readLocalJsonFile($prepared['output_path']);
+            $capturedCounts = $this->buildCtripCaptureCounts($payload);
+            $saveResult = [
+                'saved_count' => 0,
+                'business_saved' => 0,
+                'traffic_saved' => 0,
+                'standard_saved' => 0,
+                'modules' => [],
+            ];
+            if ($autoSave) {
+                $requestHotelId = trim((string)($payload['hotel_id'] ?? $prepared['config']['hotel_id'] ?? $systemHotelId ?? ''));
+                $dataDate = $this->normalizeOnlineDataDate($payload['default_data_date'] ?? $prepared['config']['data_date'] ?? '');
+                if ($dataDate === '') {
+                    $dataDate = date('Y-m-d');
+                }
+                $saveResult = $this->saveCtripBrowserProfilePayload($payload, (int)$systemHotelId, $dataDate, $requestHotelId);
+            }
+
+            if ($this->currentUser && isset($this->currentUser->id)) {
+                OperationLog::record(
+                    'online_data',
+                    'fetch_ctrip_cookie_api',
+                    'Fetch Ctrip data by Cookie and API request list',
+                    $this->currentUser->id,
+                    $systemHotelId
+                );
+            }
+
+            return $this->success([
+                'auth_status' => $payload['auth_status'] ?? null,
+                'saved_count' => (int)($saveResult['saved_count'] ?? 0),
+                'row_count' => (int)$capturedCounts['standard_rows'],
+                'counts' => [
+                    'business' => (int)($saveResult['business_saved'] ?? 0),
+                    'traffic' => (int)($saveResult['traffic_saved'] ?? 0),
+                    'standard_rows' => (int)($saveResult['standard_saved'] ?? 0),
+                ],
+                'captured_counts' => $capturedCounts,
+                'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+                'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
+                'standard_section_counts' => $capturedCounts['standard_by_section'],
+                'request_count' => count($prepared['config']['endpoints'] ?? []),
+                'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
+                'errors' => is_array($payload['errors'] ?? null) ? $payload['errors'] : [],
+                'output' => $prepared['output_path'],
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+            ], (int)$capturedCounts['standard_rows'] > 0 ? '携程 Cookie API 采集完成' : '携程 Cookie API 请求完成，但未解析到标准诊断行');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 400);
+        } catch (\Throwable $e) {
+            return $this->error('携程 Cookie API 采集异常: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function buildCtripEndpointEvidenceCatalogPreviewImportPlan(array $validation, array $requestData): array
+    {
+        $requested = $this->isCtripEndpointEvidenceCatalogPreviewImportRequested($requestData);
+        $preview = is_array($validation['catalog_preview'] ?? null) ? $validation['catalog_preview'] : [];
+        $rows = array_values(array_filter(
+            is_array($preview['standard_rows'] ?? null) ? $preview['standard_rows'] : [],
+            static fn($row): bool => is_array($row)
+        ));
+
+        $systemHotelId = $this->readPositiveInt($requestData['_resolved_system_hotel_id'] ?? $requestData['system_hotel_id'] ?? $requestData['systemHotelId'] ?? null);
+        $dataDate = $this->normalizeOnlineDataDate(
+            $requestData['data_date']
+            ?? $requestData['dataDate']
+            ?? $requestData['report_date']
+            ?? $requestData['reportDate']
+            ?? ($rows[0]['data_date'] ?? '')
+        );
+        $requestHotelId = trim((string)(
+            $requestData['request_hotel_id']
+            ?? $requestData['requestHotelId']
+            ?? $requestData['ctrip_hotel_id']
+            ?? $requestData['ctripHotelId']
+            ?? ($rows[0]['hotel_id'] ?? '')
+        ));
+
+        $available = !empty($rows);
+        $catalogReady = (bool)($validation['catalog_ready'] ?? false);
+        $safeToCatalog = (bool)($validation['safe_to_catalog'] ?? false);
+        $canSave = $requested
+            && $available
+            && $catalogReady
+            && $safeToCatalog
+            && $systemHotelId !== null
+            && $dataDate !== '';
+
+        $message = 'preview only';
+        if ($requested && !$available) {
+            $message = 'catalog preview has no standard rows';
+        } elseif ($requested && (!$catalogReady || !$safeToCatalog)) {
+            $message = 'catalog preview is not catalog ready';
+        } elseif ($requested && $systemHotelId === null) {
+            $message = 'missing system_hotel_id for catalog preview import';
+        } elseif ($requested && $dataDate === '') {
+            $message = 'missing data_date for catalog preview import';
+        } elseif ($canSave) {
+            $message = 'catalog preview import ready';
+        }
+
+        return [
+            'requested' => $requested,
+            'available' => $available,
+            'can_save' => $canSave,
+            'row_count' => count($rows),
+            'saved_count' => 0,
+            'system_hotel_id' => $systemHotelId,
+            'data_date' => $dataDate,
+            'request_hotel_id' => $requestHotelId,
+            'rows' => $canSave ? $rows : [],
+            'message' => $message,
+        ];
+    }
+
+    private function isCtripEndpointEvidenceCatalogPreviewImportRequested(array $requestData): bool
+    {
+        foreach (['save_standard_rows', 'saveStandardRows', 'import_catalog_preview', 'importCatalogPreview', 'save_catalog_preview', 'saveCatalogPreview'] as $key) {
+            if (array_key_exists($key, $requestData) && $this->isTruthyRequestValue($requestData[$key])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isTruthyRequestValue($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float)$value !== 0.0;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'y', 'on', 'save', 'import'], true);
+        }
+
+        return false;
+    }
+
+    private function readPositiveInt($value): ?int
+    {
+        if ($value === null || $value === '' || !is_numeric($value) || (int)$value <= 0) {
+            return null;
+        }
+
+        return (int)$value;
+    }
+
+    private function buildCtripEndpointEvidenceValidationPayload(array $validation, array $prepared, ?array $candidate, string $candidatePath, string $candidateError, string $stdout, ?array $catalogPreviewImport = null): array
+    {
+        return [
+            'evidence_status' => $validation['evidence_status'] ?? 'unknown',
+            'catalog_ready' => (bool)($validation['catalog_ready'] ?? false),
+            'safe_to_catalog' => (bool)($validation['safe_to_catalog'] ?? false),
+            'candidate_section' => $validation['candidate_section'] ?? '',
+            'candidate_label' => $validation['candidate_label'] ?? '',
+            'data_type' => $validation['data_type'] ?? '',
+            'missing_evidence' => $validation['missing_evidence'] ?? [],
+            'field_mapping_draft' => $validation['field_mapping_draft'] ?? [],
+            'catalog_preview' => $validation['catalog_preview'] ?? null,
+            'paths' => [
+                'input' => $prepared['input_path'] ?? '',
+                'output' => $prepared['output_path'] ?? '',
+                'markdown' => $prepared['markdown_path'] ?? '',
+                'candidate_mapping' => $candidatePath,
+            ],
+            'candidate_mapping' => $candidate,
+            'candidate_error' => $candidateError,
+            'stdout' => $stdout,
+            'catalog_preview_import' => $catalogPreviewImport,
+        ];
     }
 
     public function fetchCtripOverviewData(): Response
@@ -2127,6 +2533,284 @@ class OnlineData extends Base
         return '';
     }
 
+    private function buildCtripPartialCaptureErrorPayload(string $outputPath): array
+    {
+        if (!is_file($outputPath)) {
+            return [
+                'available' => false,
+                'output' => $outputPath,
+            ];
+        }
+
+        $payload = json_decode((string)file_get_contents($outputPath), true);
+        if (!is_array($payload)) {
+            return [
+                'available' => false,
+                'output' => $outputPath,
+                'parse_error' => true,
+            ];
+        }
+
+        return [
+            'available' => true,
+            'output' => $outputPath,
+            'auth_status' => $payload['auth_status'] ?? null,
+            'capture_gate' => $payload['capture_gate'] ?? null,
+            'capture_audit' => $payload['capture_audit'] ?? null,
+            'captured_counts' => $this->buildCtripCaptureCounts($payload),
+            'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+            'pages' => $payload['pages'] ?? [],
+            'xhr_urls' => array_slice($payload['xhr_urls'] ?? [], 0, 20),
+        ];
+    }
+
+    private function buildLatestCtripDiagnosisSnapshot(string $profileId = ''): array
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $captureDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
+        if (!is_dir($captureDir)) {
+            return [
+                'available' => false,
+                'reason' => 'capture_dir_missing',
+                'capture_dir' => $captureDir,
+            ];
+        }
+
+        $profileNeedle = $profileId !== '' ? $this->safeMeituanCaptureFilePart($profileId) : '';
+        $snapshotFiles = $this->filterCtripCaptureFilesByProfile(
+            glob($captureDir . DIRECTORY_SEPARATOR . '*.diagnosis.snapshot.json') ?: [],
+            $profileNeedle
+        );
+        $latestSnapshot = $this->latestFileByMtime($snapshotFiles);
+        if ($latestSnapshot !== '') {
+            $snapshot = $this->readJsonFile($latestSnapshot);
+            if (is_array($snapshot)) {
+                return array_merge($snapshot, [
+                    'available' => true,
+                    'source' => 'diagnosis_snapshot',
+                    'snapshot_path' => $latestSnapshot,
+                    'profile_filter' => $profileId,
+                ]);
+            }
+        }
+
+        $rawFiles = array_values(array_filter(
+            glob($captureDir . DIRECTORY_SEPARATOR . '*.json') ?: [],
+            static function (string $file): bool {
+                $name = strtolower(basename($file));
+                return !str_contains($name, '.summary.')
+                    && !str_contains($name, '.audit.')
+                    && !str_contains($name, '.snapshot.')
+                    && !str_starts_with($name, 'direct_verify_');
+            }
+        ));
+        $rawFiles = $this->filterCtripCaptureFilesByProfile($rawFiles, $profileNeedle);
+        usort($rawFiles, static fn(string $a, string $b): int => (filemtime($b) ?: 0) <=> (filemtime($a) ?: 0));
+
+        $payloads = [];
+        $sourceFiles = [];
+        foreach (array_slice($rawFiles, 0, 8) as $file) {
+            $payload = $this->readJsonFile($file);
+            if (!is_array($payload)) {
+                continue;
+            }
+            if ($profileId !== '' && trim((string)($payload['profile_id'] ?? '')) !== '' && trim((string)$payload['profile_id']) !== $profileId) {
+                continue;
+            }
+            if (
+                $this->countCtripPayloadSection($payload, 'responses') <= 0
+                && $this->countCtripPayloadSection($payload, 'catalog_facts') <= 0
+                && $this->countCtripPayloadSection($payload, 'standard_rows') <= 0
+            ) {
+                continue;
+            }
+            $payloads[] = $payload;
+            $sourceFiles[] = $file;
+        }
+
+        if ($payloads === []) {
+            return [
+                'available' => false,
+                'reason' => 'capture_files_missing',
+                'capture_dir' => $captureDir,
+                'profile_filter' => $profileId,
+            ];
+        }
+
+        return $this->aggregateCtripDiagnosisSnapshot($payloads, $sourceFiles, $profileId);
+    }
+
+    private function filterCtripCaptureFilesByProfile(array $files, string $profileNeedle): array
+    {
+        if ($profileNeedle === '') {
+            return $files;
+        }
+        return array_values(array_filter(
+            $files,
+            static fn(string $file): bool => str_contains(strtolower(basename($file)), strtolower($profileNeedle))
+        ));
+    }
+
+    private function latestFileByMtime(array $files): string
+    {
+        $files = array_values(array_filter($files, 'is_file'));
+        if ($files === []) {
+            return '';
+        }
+        usort($files, static fn(string $a, string $b): int => (filemtime($b) ?: 0) <=> (filemtime($a) ?: 0));
+        return $files[0];
+    }
+
+    private function readJsonFile(string $file): ?array
+    {
+        if (!is_file($file)) {
+            return null;
+        }
+        $decoded = json_decode((string)file_get_contents($file), true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private function aggregateCtripDiagnosisSnapshot(array $payloads, array $sourceFiles, string $profileId = ''): array
+    {
+        $metricLabels = $this->ctripCaptureDiagnosisMetricLabels();
+        $groupMap = [];
+        foreach ($this->ctripCaptureDiagnosisGroups() as $groupName => $expectedMetricKeys) {
+            $groupMap[$groupName] = [
+                'name' => $groupName,
+                'status' => 'missing',
+                'captured_count' => 0,
+                'expected_count' => count($expectedMetricKeys),
+                'captured_metric_keys' => [],
+                'captured_metrics' => [],
+            ];
+        }
+
+        $counts = [
+            'responses' => 0,
+            'catalog_facts' => 0,
+            'standard_rows' => 0,
+            'pages' => 0,
+            'endpoint_candidates' => 0,
+            'p3_evidence_drafts' => 0,
+        ];
+        $capturedMetrics = [];
+        $sectionCounts = [];
+        $authStatuses = [];
+
+        foreach ($payloads as $payload) {
+            $summary = $this->buildCtripCaptureDiagnosisSummary($payload);
+            $payloadCounts = $this->buildCtripCaptureCounts($payload);
+            foreach ($counts as $key => $value) {
+                $counts[$key] += (int)($payloadCounts[$key] ?? 0);
+            }
+            foreach (is_array($payloadCounts['standard_by_section'] ?? null) ? $payloadCounts['standard_by_section'] : [] as $section => $count) {
+                $section = (string)$section;
+                $sectionCounts[$section] = ($sectionCounts[$section] ?? 0) + (int)$count;
+            }
+            foreach (is_array($summary['captured_metric_keys'] ?? null) ? $summary['captured_metric_keys'] : [] as $metricKey) {
+                $capturedMetrics[(string)$metricKey] = true;
+            }
+            foreach (is_array($summary['groups'] ?? null) ? $summary['groups'] : [] as $group) {
+                if (!is_array($group)) {
+                    continue;
+                }
+                $groupName = (string)($group['name'] ?? '');
+                if ($groupName === '' || !isset($groupMap[$groupName])) {
+                    continue;
+                }
+                foreach (is_array($group['captured_metric_keys'] ?? null) ? $group['captured_metric_keys'] : [] as $metricKey) {
+                    $groupMap[$groupName]['captured_metric_keys'][(string)$metricKey] = true;
+                }
+            }
+            $authStatuses[] = $payload['auth_status'] ?? null;
+        }
+
+        foreach ($groupMap as $groupName => $group) {
+            $keys = array_keys($group['captured_metric_keys']);
+            sort($keys);
+            $groupMap[$groupName]['status'] = $keys !== [] ? 'available' : 'missing';
+            $groupMap[$groupName]['captured_count'] = count($keys);
+            $groupMap[$groupName]['captured_metric_keys'] = $keys;
+            $groupMap[$groupName]['captured_metrics'] = array_map(
+                fn(string $metricKey): array => [
+                    'key' => $metricKey,
+                    'label' => $metricLabels[$metricKey] ?? $metricKey,
+                ],
+                $keys
+            );
+        }
+
+        $groups = array_values($groupMap);
+        $availableGroups = array_values(array_map(
+            static fn(array $group): string => (string)$group['name'],
+            array_filter($groups, static fn(array $group): bool => ($group['status'] ?? '') === 'available')
+        ));
+        $missingGroups = array_values(array_map(
+            static fn(array $group): string => (string)$group['name'],
+            array_filter($groups, static fn(array $group): bool => ($group['status'] ?? '') !== 'available')
+        ));
+        ksort($capturedMetrics);
+        ksort($sectionCounts);
+
+        return [
+            'available' => true,
+            'source' => 'raw_capture_files',
+            'status' => $counts['standard_rows'] > 0 && $availableGroups !== [] ? 'ready' : 'not_ready',
+            'profile_filter' => $profileId,
+            'generated_at' => date(DATE_ATOM),
+            'inputs' => array_map(
+                static fn(string $file): array => ['path' => $file, 'name' => basename($file)],
+                $sourceFiles
+            ),
+            'auth_statuses' => $authStatuses,
+            'counts' => $counts,
+            'available_groups' => $availableGroups,
+            'missing_groups' => $missingGroups,
+            'diagnosis_summary' => [
+                'status' => $counts['standard_rows'] > 0 && $availableGroups !== [] ? 'ready' : 'not_ready',
+                'available_groups' => $availableGroups,
+                'missing_groups' => $missingGroups,
+                'groups' => $groups,
+                'captured_metric_keys' => array_keys($capturedMetrics),
+                'captured_metrics' => array_map(
+                    fn(string $metricKey): array => [
+                        'key' => $metricKey,
+                        'label' => $metricLabels[$metricKey] ?? $metricKey,
+                    ],
+                    array_keys($capturedMetrics)
+                ),
+            ],
+            'standard_section_counts' => $sectionCounts,
+        ];
+    }
+
+    private function buildCtripCaptureGateDecision(array $payload): array
+    {
+        $gate = $payload['capture_gate'] ?? null;
+        if (!is_array($gate)) {
+            return [
+                'accepted' => false,
+                'status' => 'missing',
+                'failed_check_ids' => ['capture_gate_missing'],
+                'gate' => null,
+            ];
+        }
+
+        $status = strtolower(trim((string)($gate['status'] ?? '')));
+        $failedCheckIds = array_values(array_filter(array_map(
+            static fn($item): string => trim((string)$item),
+            is_array($gate['failed_check_ids'] ?? null) ? $gate['failed_check_ids'] : []
+        )));
+        $accepted = $status === 'pass' && $failedCheckIds === [];
+
+        return [
+            'accepted' => $accepted,
+            'status' => $status !== '' ? $status : 'unknown',
+            'failed_check_ids' => $failedCheckIds,
+            'gate' => $gate,
+        ];
+    }
+
     private function countMeituanPayloadSection(array $payload, string $section): int
     {
         return isset($payload[$section]) && is_array($payload[$section]) ? count($payload[$section]) : 0;
@@ -2135,6 +2819,305 @@ class OnlineData extends Base
     private function countCtripPayloadSection(array $payload, string $section): int
     {
         return isset($payload[$section]) && is_array($payload[$section]) ? count($payload[$section]) : 0;
+    }
+
+    private function buildCtripCaptureCounts(array $payload): array
+    {
+        $standardRows = is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [];
+        $endpointCandidates = is_array($payload['endpoint_candidates'] ?? null) ? $payload['endpoint_candidates'] : [];
+        $p3EvidenceDrafts = is_array($payload['p3_evidence_drafts'] ?? null) ? $payload['p3_evidence_drafts'] : [];
+        $pages = is_array($payload['pages'] ?? null) ? $payload['pages'] : [];
+        $byDataType = [];
+        $bySection = [];
+        foreach ($standardRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $dataType = strtolower(trim((string)($row['data_type'] ?? ''))) ?: 'unknown';
+            $captureSection = strtolower(trim((string)($row['capture_section'] ?? ''))) ?: 'unknown';
+            $byDataType[$dataType] = ($byDataType[$dataType] ?? 0) + 1;
+            $bySection[$captureSection] = ($bySection[$captureSection] ?? 0) + 1;
+        }
+        ksort($byDataType);
+        ksort($bySection);
+
+        $candidateBySection = [];
+        foreach ($endpointCandidates as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            $candidateSection = strtolower(trim((string)($candidate['candidate_section'] ?? ''))) ?: 'unknown';
+            $candidateBySection[$candidateSection] = ($candidateBySection[$candidateSection] ?? 0) + 1;
+        }
+        ksort($candidateBySection);
+
+        $p3EvidenceBySection = [];
+        $p3EvidenceByStatus = [];
+        $p3EvidenceReady = 0;
+        foreach ($p3EvidenceDrafts as $draft) {
+            if (!is_array($draft)) {
+                continue;
+            }
+            $draftSection = strtolower(trim((string)($draft['candidate_section'] ?? ''))) ?: 'unknown';
+            $draftStatus = strtolower(trim((string)($draft['evidence_status'] ?? ''))) ?: 'unknown';
+            $p3EvidenceBySection[$draftSection] = ($p3EvidenceBySection[$draftSection] ?? 0) + 1;
+            $p3EvidenceByStatus[$draftStatus] = ($p3EvidenceByStatus[$draftStatus] ?? 0) + 1;
+            if (($draft['catalog_ready'] ?? false) === true || $draftStatus === 'complete_redacted') {
+                $p3EvidenceReady++;
+            }
+        }
+        ksort($p3EvidenceBySection);
+        ksort($p3EvidenceByStatus);
+
+        $interactionBySection = [];
+        $interactionPlanned = 0;
+        $interactionClicked = 0;
+        $interactionSkipped = 0;
+        $interactionError = 0;
+        foreach ($pages as $page) {
+            if (!is_array($page)) {
+                continue;
+            }
+            $pageSection = strtolower(trim((string)($page['name'] ?? $page['section'] ?? ''))) ?: 'unknown';
+            if (!isset($interactionBySection[$pageSection])) {
+                $interactionBySection[$pageSection] = [
+                    'pages' => 0,
+                    'planned' => 0,
+                    'clicked' => 0,
+                    'skipped' => 0,
+                    'error' => 0,
+                ];
+            }
+            $interactionBySection[$pageSection]['pages']++;
+            $interactions = is_array($page['interactions'] ?? null) ? $page['interactions'] : [];
+            foreach ($interactions as $interaction) {
+                if (!is_array($interaction)) {
+                    continue;
+                }
+                $interactionPlanned++;
+                $interactionBySection[$pageSection]['planned']++;
+                if (($interaction['clicked'] ?? false) === true) {
+                    $interactionClicked++;
+                    $interactionBySection[$pageSection]['clicked']++;
+                    continue;
+                }
+                if (trim((string)($interaction['error'] ?? '')) !== '') {
+                    $interactionError++;
+                    $interactionBySection[$pageSection]['error']++;
+                    continue;
+                }
+                $interactionSkipped++;
+                $interactionBySection[$pageSection]['skipped']++;
+            }
+        }
+        ksort($interactionBySection);
+
+        return [
+            'business' => count($this->extractCtripCapturedSection($payload, 'business')),
+            'traffic' => count($this->extractCtripCapturedSection($payload, 'traffic')),
+            'standard_rows' => count($standardRows),
+            'catalog_facts' => $this->countCtripPayloadSection($payload, 'catalog_facts'),
+            'responses' => $this->countCtripPayloadSection($payload, 'responses'),
+            'xhr_urls' => $this->countCtripPayloadSection($payload, 'xhr_urls'),
+            'pages' => count($pages),
+            'interaction_planned' => $interactionPlanned,
+            'interaction_clicked' => $interactionClicked,
+            'interaction_skipped' => $interactionSkipped,
+            'interaction_error' => $interactionError,
+            'endpoint_candidates' => count($endpointCandidates),
+            'p3_evidence_drafts' => count($p3EvidenceDrafts),
+            'p3_evidence_ready' => $p3EvidenceReady,
+            'standard_by_data_type' => $byDataType,
+            'standard_by_section' => $bySection,
+            'interaction_by_section' => $interactionBySection,
+            'candidate_by_section' => $candidateBySection,
+            'p3_evidence_by_section' => $p3EvidenceBySection,
+            'p3_evidence_by_status' => $p3EvidenceByStatus,
+        ];
+    }
+
+    private function buildCtripCaptureDiagnosisSummary(array $payload): array
+    {
+        $metricLabels = $this->ctripCaptureDiagnosisMetricLabels();
+        $capturedMetrics = [];
+
+        foreach (is_array($payload['catalog_facts'] ?? null) ? $payload['catalog_facts'] : [] as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $this->addCtripCaptureMetricKey($capturedMetrics, (string)($fact['metric_key'] ?? ''));
+        }
+
+        foreach (is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $this->addCtripCaptureMetricKey($capturedMetrics, (string)($row['metric_key'] ?? ''));
+            $this->addCtripCaptureMetricKey($capturedMetrics, $this->ctripCaptureMetricKeyFromDimension((string)($row['dimension'] ?? '')));
+            $rawData = $row['raw_data'] ?? [];
+            if (is_string($rawData) && $rawData !== '') {
+                $decoded = json_decode($rawData, true);
+                $rawData = is_array($decoded) ? $decoded : [];
+            }
+            if (is_array($rawData['metrics'] ?? null)) {
+                foreach (array_keys($rawData['metrics']) as $metricKey) {
+                    $this->addCtripCaptureMetricKey($capturedMetrics, (string)$metricKey);
+                }
+            }
+        }
+
+        ksort($capturedMetrics);
+
+        $groups = [];
+        foreach ($this->ctripCaptureDiagnosisGroups() as $groupName => $expectedMetricKeys) {
+            $matched = [];
+            foreach ($expectedMetricKeys as $metricKey) {
+                if (isset($capturedMetrics[$metricKey])) {
+                    $matched[] = $metricKey;
+                }
+            }
+            $groups[] = [
+                'name' => $groupName,
+                'status' => count($matched) > 0 ? 'available' : 'missing',
+                'captured_count' => count($matched),
+                'expected_count' => count($expectedMetricKeys),
+                'captured_metric_keys' => $matched,
+                'captured_metrics' => array_map(
+                    fn(string $metricKey): array => [
+                        'key' => $metricKey,
+                        'label' => $metricLabels[$metricKey] ?? $metricKey,
+                    ],
+                    $matched
+                ),
+            ];
+        }
+
+        $availableGroups = array_values(array_map(
+            static fn(array $group): string => (string)$group['name'],
+            array_filter($groups, static fn(array $group): bool => ($group['status'] ?? '') === 'available')
+        ));
+        $missingGroups = array_values(array_map(
+            static fn(array $group): string => (string)$group['name'],
+            array_filter($groups, static fn(array $group): bool => ($group['status'] ?? '') !== 'available')
+        ));
+
+        $counts = $this->buildCtripCaptureCounts($payload);
+        return [
+            'status' => count($availableGroups) > 0 && (int)$counts['standard_rows'] > 0 ? 'ready' : 'not_ready',
+            'available_groups' => $availableGroups,
+            'missing_groups' => $missingGroups,
+            'groups' => $groups,
+            'captured_metric_keys' => array_keys($capturedMetrics),
+            'captured_metrics' => array_map(
+                fn(string $metricKey): array => [
+                    'key' => $metricKey,
+                    'label' => $metricLabels[$metricKey] ?? $metricKey,
+                ],
+                array_keys($capturedMetrics)
+            ),
+        ];
+    }
+
+    private function addCtripCaptureMetricKey(array &$capturedMetrics, string $metricKey): void
+    {
+        $metricKey = strtolower(trim($metricKey));
+        if ($metricKey === '') {
+            return;
+        }
+        foreach (preg_split('/[+,\|]/', $metricKey) ?: [] as $part) {
+            $part = strtolower(trim((string)$part));
+            if ($part !== '') {
+                $capturedMetrics[$part] = true;
+            }
+        }
+    }
+
+    private function ctripCaptureMetricKeyFromDimension(string $dimension): string
+    {
+        if (preg_match('/^catalog:[^:]+:[^:]+:([^:]+):/', $dimension, $matches)) {
+            return strtolower(trim((string)$matches[1]));
+        }
+        return '';
+    }
+
+    private function ctripCaptureDiagnosisGroups(): array
+    {
+        return [
+            '收益销售' => ['order_count', 'room_nights', 'order_amount', 'avg_price', 'occupancy_rate', 'tensity'],
+            '流量转化' => ['visitor_count', 'list_exposure', 'detail_visitor', 'order_page_visitor', 'order_submit_user', 'flow_rate', 'conversion_rate'],
+            '竞争圈' => ['rank', 'competitor_average', 'common_view_rate', 'loss_order_count', 'loss_room_nights', 'loss_order_amount'],
+            '服务质量/IM' => ['psi_score', 'base_score', 'reward_score', 'deduct_score', 'reply_rate', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank', 'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate', 'im_score', 'hotel_collect', 'comment_score_summary'],
+            '广告推广' => ['ad_impressions', 'ad_clicks', 'ad_cost', 'ad_order_amount', 'ad_orders', 'ad_room_nights', 'ctr', 'cvr', 'roas'],
+            '商旅BPI' => ['bpi_score', 'basis_score', 'plus_score', 'minus_score', 'agreement_accept_rate', 'business_room_nights', 'business_amount'],
+            '辅助事实' => ['hot_spot_name', 'start_date', 'end_date', 'user_sex', 'user_age', 'user_source', 'user_type', 'strategy', 'benefit_name', 'notice_title'],
+        ];
+    }
+
+    private function ctripCaptureDiagnosisMetricLabels(): array
+    {
+        return [
+            'order_count' => '预订订单数',
+            'room_nights' => '间夜/在店间夜',
+            'order_amount' => '预订销售额',
+            'avg_price' => '平均卖价/起价',
+            'occupancy_rate' => '出租率',
+            'tensity' => '紧张度',
+            'visitor_count' => '访客量',
+            'list_exposure' => '列表页曝光',
+            'detail_visitor' => '详情页访客',
+            'order_page_visitor' => '订单页访客',
+            'order_submit_user' => '订单提交人数',
+            'flow_rate' => '流量转化率',
+            'conversion_rate' => '成交/下单转化率',
+            'rank' => '竞争圈排名',
+            'competitor_average' => '竞争圈平均值',
+            'common_view_rate' => '共同浏览率',
+            'loss_order_count' => '流失订单数',
+            'loss_room_nights' => '流失间夜',
+            'loss_order_amount' => '流失订单金额',
+            'psi_score' => 'PSI服务质量分',
+            'base_score' => '基础分',
+            'reward_score' => '奖励分',
+            'deduct_score' => '减分项',
+            'reply_rate' => '回复率',
+            'five_min_reply_rate' => '5分钟回复率',
+            'manual_reply_rate' => '5分钟人工回复率',
+            'robot_resolution_rate' => '机器人解决率',
+            'im_rank' => 'IM竞争圈排名',
+            'session_count' => '会话量',
+            'manual_session_count' => '人工会话量',
+            'robot_session_count' => '机器人会话量',
+            'im_order_conversion_rate' => 'IM客人转化率',
+            'im_score' => 'IM指标',
+            'hotel_collect' => '酒店收藏数',
+            'comment_score_summary' => '点评分',
+            'ad_impressions' => '广告曝光',
+            'ad_clicks' => '广告点击',
+            'ad_cost' => '广告花费',
+            'ad_order_amount' => '广告预订金额',
+            'ad_orders' => '广告预订订单',
+            'ad_room_nights' => '广告预订间夜',
+            'ctr' => '点击率',
+            'cvr' => '转化率',
+            'roas' => 'ROAS',
+            'bpi_score' => 'BPI总分',
+            'basis_score' => 'BPI基础分',
+            'plus_score' => 'BPI加分',
+            'minus_score' => 'BPI减分',
+            'agreement_accept_rate' => '协议接单率',
+            'business_room_nights' => '商旅间夜',
+            'business_amount' => '商旅营业额',
+            'hot_spot_name' => '热点名称',
+            'start_date' => '开始日期',
+            'end_date' => '结束日期',
+            'user_sex' => '用户性别',
+            'user_age' => '用户年龄',
+            'user_source' => '客源来源',
+            'user_type' => '用户类型',
+            'strategy' => '提升策略',
+            'benefit_name' => '权益名称',
+            'notice_title' => '公告/提示',
+        ];
     }
 
     private function normalizeCtripOverviewRequestUrls($value): array
@@ -3480,7 +4463,7 @@ class OnlineData extends Base
         $keys = $section === 'traffic'
             ? $this->ctripTrafficRowKeys()
             : [
-                'amount', 'totalAmount', 'saleAmount', '成交收入', '成交金额',
+                'amount', 'totalAmount', 'saleAmount', 'orderAmount', 'bookingAmount', 'gmv', '成交收入', '成交金额',
                 'quantity', 'roomNights', '成交间夜',
                 'bookOrderNum', 'orderCount', '订单数',
                 'closeRate', 'averagePrice',
@@ -3707,6 +4690,579 @@ class OnlineData extends Base
         }
 
         return ['success' => true, 'message' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    private function appendCtripApprovedMappingsArg(array $args, array $source, string $projectRoot): array
+    {
+        $approvedMappings = $this->resolveCtripApprovedMappingsPath($source, $projectRoot);
+        if ($approvedMappings['configured'] && $approvedMappings['path'] !== '') {
+            $args[] = '--approved-mappings=' . $approvedMappings['path'];
+        }
+
+        return [
+            'args' => $args,
+            'approved_mappings' => $approvedMappings,
+            'error' => $approvedMappings['configured'] && $approvedMappings['path'] === '' ? (string)$approvedMappings['error'] : '',
+        ];
+    }
+
+    private function appendCtripCaptureGateArgs(array $args, array $source): array
+    {
+        $fieldCoverageRate = $this->firstPresentCtripConfigValue($source, [
+            'min_field_coverage_rate',
+            'minFieldCoverageRate',
+            'field_coverage_rate',
+            'fieldCoverageRate',
+        ], 80);
+        if (is_numeric($fieldCoverageRate)) {
+            $rate = max(0.0, min(100.0, (float)$fieldCoverageRate));
+            $args[] = '--min-field-coverage-rate=' . $this->formatCtripCaptureGateNumber($rate);
+        }
+
+        $maxMissingFields = $this->firstPresentCtripConfigValue($source, [
+            'max_missing_fields',
+            'maxMissingFields',
+        ], null);
+        if ($maxMissingFields !== null && $maxMissingFields !== '' && is_numeric($maxMissingFields)) {
+            $args[] = '--max-missing-fields=' . (string)max(0, (int)$maxMissingFields);
+        }
+
+        $requireFieldCoverage = $this->firstPresentCtripConfigValue($source, [
+            'require_field_coverage',
+            'requireFieldCoverage',
+        ], null);
+        if ($requireFieldCoverage !== null && $this->meituanBool($requireFieldCoverage)) {
+            $args[] = '--require-field-coverage';
+        }
+
+        return $args;
+    }
+
+    private function isCtripLoginOnlyRequest(array $source): bool
+    {
+        foreach (['login_only', 'loginOnly', 'auth_only', 'authOnly', 'prepare_profile', 'prepareProfile'] as $key) {
+            if (array_key_exists($key, $source) && $this->meituanBool($source[$key])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function appendCtripLoginOnlyArg(array $args, array $source): array
+    {
+        if ($this->isCtripLoginOnlyRequest($source)) {
+            $args[] = '--login-only=true';
+        }
+
+        return $args;
+    }
+
+    private function buildCtripLoginOnlyResponsePayload(array $payload, string $outputPath, string $stdout): array
+    {
+        return [
+            'mode' => (string)($payload['mode'] ?? 'login_only'),
+            'profile_id' => (string)($payload['profile_id'] ?? ''),
+            'auth_status' => $payload['auth_status'] ?? null,
+            'capture_gate' => $payload['capture_gate'] ?? null,
+            'pages' => $payload['pages'] ?? [],
+            'saved_count' => 0,
+            'row_count' => 0,
+            'counts' => [
+                'business' => 0,
+                'traffic' => 0,
+                'standard_rows' => 0,
+            ],
+            'output' => $outputPath,
+            'stdout' => $stdout,
+        ];
+    }
+
+    private function formatCtripCaptureGateNumber(float $value): string
+    {
+        if (abs($value - round($value)) < 0.000001) {
+            return (string)(int)round($value);
+        }
+        return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+    }
+
+    private function prepareCtripCookieApiCaptureFiles(array $requestData, string $projectRoot, ?int $systemHotelId): array
+    {
+        $config = $this->buildCtripCookieApiCaptureConfigFromRequest($requestData, $systemHotelId);
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_cookie_api_capture';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            throw new \InvalidArgumentException('无法创建携程 Cookie API 采集输出目录');
+        }
+
+        $profileId = $this->safeMeituanCaptureFilePart((string)($config['profile_id'] ?? 'ctrip_cookie_api'));
+        $prefix = $profileId . '_' . date('YmdHis');
+        $inputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.input.json';
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.json';
+
+        file_put_contents($inputPath, json_encode($config, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE) . PHP_EOL, LOCK_EX);
+
+        return [
+            'config' => $config,
+            'input_path' => $inputPath,
+            'output_path' => $outputPath,
+        ];
+    }
+
+    private function buildCtripCookieApiCaptureConfigFromRequest(array $requestData, ?int $systemHotelId): array
+    {
+        $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
+        if ($dataDate === '') {
+            $dataDate = date('Y-m-d');
+        }
+        $hotelId = trim((string)(
+            $requestData['hotel_id']
+            ?? $requestData['hotelId']
+            ?? $requestData['ctrip_hotel_id']
+            ?? $requestData['ctripHotelId']
+            ?? $requestData['node_id']
+            ?? $requestData['nodeId']
+            ?? ''
+        ));
+        $profileId = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? $hotelId ?: 'ctrip_cookie_api'));
+        $endpoints = $this->normalizeCtripCookieApiEndpointsFromRequest($requestData);
+        if ($endpoints === []) {
+            throw new \InvalidArgumentException('请提供携程接口 Request URL，或 endpoints/endpoints_json 接口清单');
+        }
+
+        return [
+            'source' => 'ctrip_cookie_api',
+            'profile_id' => $profileId,
+            'hotel_id' => $hotelId,
+            'hotel_name' => trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? '')),
+            'system_hotel_id' => $systemHotelId,
+            'data_date' => $dataDate,
+            'endpoints' => $endpoints,
+        ];
+    }
+
+    private function normalizeCtripCookieApiEndpointsFromRequest(array $requestData): array
+    {
+        $raw = $requestData['endpoints']
+            ?? $requestData['requests']
+            ?? $requestData['request_urls']
+            ?? $requestData['requestUrls']
+            ?? $requestData['endpoints_json']
+            ?? $requestData['endpointsJson']
+            ?? null;
+
+        $items = [];
+        if ($raw !== null && $raw !== '') {
+            if (is_array($raw)) {
+                $items = $raw;
+            } elseif (is_scalar($raw)) {
+                $text = trim((string)$raw);
+                if ($text !== '' && (str_starts_with($text, '[') || str_starts_with($text, '{'))) {
+                    $decoded = $this->parseJsonParams($text);
+                    $items = $this->isSequentialArray($decoded) ? $decoded : [$decoded];
+                } else {
+                    $items = array_values(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $text) ?: [])));
+                }
+            }
+        }
+
+        if ($items === []) {
+            $singleUrl = trim((string)($requestData['request_url'] ?? $requestData['requestUrl'] ?? $requestData['url'] ?? ''));
+            if ($singleUrl !== '') {
+                $items[] = [
+                    'request_url' => $singleUrl,
+                    'method' => $requestData['method'] ?? 'GET',
+                    'payload' => $this->readCtripEndpointEvidenceObject($requestData, [
+                        'payload',
+                        'payload_json',
+                        'payloadJson',
+                        'request_payload',
+                        'requestPayload',
+                        'request_payload_json',
+                    ]),
+                    'headers' => $this->readCtripEndpointEvidenceObject($requestData, [
+                        'headers',
+                        'headers_json',
+                        'headersJson',
+                        'request_headers',
+                        'request_headers_json',
+                        'requestHeadersJson',
+                    ], true),
+                ];
+            }
+        }
+
+        $endpoints = [];
+        foreach ($items as $item) {
+            if (is_string($item)) {
+                $item = ['request_url' => $item, 'method' => 'GET'];
+            }
+            if (!is_array($item)) {
+                continue;
+            }
+            $requestUrl = trim((string)($item['request_url'] ?? $item['requestUrl'] ?? $item['url'] ?? ''));
+            if ($requestUrl === '') {
+                continue;
+            }
+            if (!$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com', 'ctripbiz.com', 'ctripbiz.cn'])) {
+                throw new \InvalidArgumentException('携程 Cookie API 采集仅允许 HTTPS 的 ctrip.com / ctripbiz.com / ctripbiz.cn 接口');
+            }
+            $method = strtoupper(trim((string)($item['method'] ?? $item['request_method'] ?? $item['requestMethod'] ?? 'GET')));
+            if (!in_array($method, ['GET', 'POST'], true)) {
+                throw new \InvalidArgumentException('携程 Cookie API 采集 method 仅支持 GET 或 POST');
+            }
+            $payload = $item['payload'] ?? $item['request_payload'] ?? $item['requestPayload'] ?? $item['params'] ?? [];
+            if (is_string($payload) && trim($payload) !== '') {
+                $payload = $this->parseJsonParams($payload);
+            }
+            $headers = $item['headers'] ?? $item['request_headers'] ?? $item['requestHeaders'] ?? [];
+            if (is_string($headers) && trim($headers) !== '') {
+                $headers = str_starts_with(trim($headers), '{')
+                    ? $this->parseJsonParams($headers)
+                    : $this->parseCtripEndpointEvidenceHeaderLines($headers);
+            }
+            $endpoints[] = [
+                'request_url' => $requestUrl,
+                'method' => $method,
+                'payload' => is_array($payload) ? $payload : [],
+                'headers' => is_array($headers) ? $headers : [],
+                'section' => trim((string)($item['section'] ?? $item['capture_section'] ?? $item['captureSection'] ?? '')),
+            ];
+        }
+
+        return $endpoints;
+    }
+
+    private function prepareCtripEndpointEvidenceValidationFiles(array $requestData, string $projectRoot): array
+    {
+        $bundle = $this->buildCtripEndpointEvidenceBundleFromRequest($requestData);
+        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_endpoint_evidence';
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
+            throw new \InvalidArgumentException('无法创建携程接口证据输出目录');
+        }
+
+        $path = parse_url((string)$bundle['request_url'], PHP_URL_PATH);
+        $endpointName = $path ? basename((string)$path) : 'endpoint';
+        $prefix = $this->safeMeituanCaptureFilePart($endpointName ?: 'endpoint') . '_' . date('YmdHis');
+        $inputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.input.json';
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.result.json';
+        $markdownPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.md';
+        $candidatePath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.candidate.json';
+
+        file_put_contents($inputPath, json_encode($bundle, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL);
+
+        return [
+            'bundle' => $bundle,
+            'input_path' => $inputPath,
+            'output_path' => $outputPath,
+            'markdown_path' => $markdownPath,
+            'candidate_path' => $candidatePath,
+        ];
+    }
+
+    private function buildCtripEndpointEvidenceBundleFromRequest(array $requestData): array
+    {
+        $requestUrl = trim((string)($requestData['request_url'] ?? $requestData['requestUrl'] ?? $requestData['url'] ?? ''));
+        if ($requestUrl === '') {
+            throw new \InvalidArgumentException('Request URL不能为空');
+        }
+        if (!$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com', 'ctripbiz.com', 'ctripbiz.cn'])) {
+            throw new \InvalidArgumentException('携程接口证据只允许 HTTPS 的 ctrip.com / ctripbiz.com / ctripbiz.cn 域名');
+        }
+
+        $method = strtoupper(trim((string)($requestData['method'] ?? $requestData['request_method'] ?? 'POST')));
+        if (!in_array($method, ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+            $method = 'POST';
+        }
+
+        return [
+            'request_url' => $requestUrl,
+            'method' => $method,
+            'headers' => $this->redactCtripEndpointEvidenceValue($this->readCtripEndpointEvidenceObject($requestData, [
+                'headers',
+                'headers_json',
+                'headersJson',
+                'request_headers',
+                'request_headers_json',
+                'requestHeadersJson',
+            ], true)),
+            'payload' => $this->redactCtripEndpointEvidenceValue($this->readCtripEndpointEvidenceObject($requestData, [
+                'payload',
+                'payload_json',
+                'payloadJson',
+                'request_payload',
+                'requestPayload',
+                'request_payload_json',
+            ])),
+            'response' => $this->redactCtripEndpointEvidenceValue($this->readCtripEndpointEvidenceObject($requestData, [
+                'response',
+                'response_json',
+                'responseJson',
+                'preview',
+                'preview_json',
+                'previewJson',
+                'response_preview',
+                'responsePreview',
+            ])),
+            'page_context' => $this->redactCtripEndpointEvidenceValue($this->readCtripEndpointEvidenceObject($requestData, [
+                'page_context',
+                'pageContext',
+                'page_context_json',
+                'pageContextJson',
+            ])),
+            'params' => $this->redactCtripEndpointEvidenceValue($this->readCtripEndpointEvidenceObject($requestData, [
+                'params',
+                'parameters',
+                'params_json',
+                'paramsJson',
+            ])),
+        ];
+    }
+
+    private function readCtripEndpointEvidenceObject(array $requestData, array $keys, bool $allowHeaderLines = false): array
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $requestData)) {
+                continue;
+            }
+            $value = $requestData[$key];
+            if (is_array($value)) {
+                return $value;
+            }
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $raw = trim((string)$value);
+            if ($raw === '') {
+                return [];
+            }
+            if ($allowHeaderLines && !str_starts_with($raw, '{') && !str_starts_with($raw, '[')) {
+                return $this->parseCtripEndpointEvidenceHeaderLines($raw);
+            }
+            try {
+                return $this->parseJsonParams($raw);
+            } catch (\InvalidArgumentException $e) {
+                throw new \InvalidArgumentException($key . ' JSON格式不正确');
+            }
+        }
+
+        return [];
+    }
+
+    private function parseCtripEndpointEvidenceHeaderLines(string $raw): array
+    {
+        $headers = [];
+        foreach (preg_split('/\r?\n/', $raw) ?: [] as $line) {
+            $line = trim((string)$line);
+            if ($line === '' || !str_contains($line, ':')) {
+                continue;
+            }
+            [$name, $value] = explode(':', $line, 2);
+            $name = trim($name);
+            if ($name !== '') {
+                $headers[$name] = trim($value);
+            }
+        }
+        return $headers;
+    }
+
+    private function redactCtripEndpointEvidenceValue(mixed $value, string $key = ''): mixed
+    {
+        if ($this->isSensitiveCtripEndpointEvidenceKey($key)) {
+            return '[REDACTED]';
+        }
+        if (is_array($value)) {
+            $redacted = [];
+            foreach ($value as $childKey => $childValue) {
+                $redacted[$childKey] = $this->redactCtripEndpointEvidenceValue($childValue, (string)$childKey);
+            }
+            return $redacted;
+        }
+        if (is_string($value)) {
+            if (preg_match('/1[3-9]\d{9}/', $value)) {
+                return '[REDACTED]';
+            }
+            return mb_strlen($value) > 1000 ? mb_substr($value, 0, 1000) . '...' : $value;
+        }
+        return $value;
+    }
+
+    private function isSensitiveCtripEndpointEvidenceKey(string $key): bool
+    {
+        $normalized = strtolower(preg_replace('/[^a-z0-9]/i', '', $key) ?: '');
+        if ($normalized === '') {
+            return false;
+        }
+        foreach ([
+            'cookie',
+            'authorization',
+            'token',
+            'spidertoken',
+            'usertoken',
+            'usersign',
+            'password',
+            'passwd',
+            'sign',
+            'signature',
+            'randomkey',
+            'cticket',
+            'guestname',
+            'customername',
+            'passengername',
+            'guestphone',
+            'mobile',
+            'phone',
+            'tel',
+            'idcard',
+            'credential',
+            'certno',
+            'orderid',
+            'orderno',
+            'ordercode',
+        ] as $needle) {
+            if (str_contains($normalized, $needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function readLocalJsonFile(string $path): array
+    {
+        if (!is_file($path)) {
+            throw new \InvalidArgumentException('JSON文件不存在: ' . $path);
+        }
+        $data = json_decode((string)file_get_contents($path), true);
+        if (!is_array($data)) {
+            throw new \InvalidArgumentException('JSON文件无法解析: ' . $path);
+        }
+        return $data;
+    }
+
+    private function buildCtripProfileCaptureConfigOptions(array $source, array $original = []): array
+    {
+        $sectionValue = $this->firstPresentCtripConfigValue(
+            $source,
+            ['profile_sections', 'capture_sections', 'captureSections'],
+            $this->firstPresentCtripConfigValue($original, ['profile_sections', 'capture_sections', 'captureSections'], 'core')
+        );
+        $sections = $this->normalizeCtripProfileCaptureSections($sectionValue);
+        $mappingPath = $this->firstPresentCtripConfigValue(
+            $source,
+            ['approved_mappings_path', 'approved_mapping_path', 'p3_mappings_path', 'approvedMappingsPath', 'approvedMappingPath', 'p3MappingsPath'],
+            $this->firstPresentCtripConfigValue(
+                $original,
+                ['approved_mappings_path', 'approved_mapping_path', 'p3_mappings_path', 'approvedMappingsPath', 'approvedMappingPath', 'p3MappingsPath'],
+                ''
+            )
+        );
+
+        return [
+            'capture_sections' => $sections,
+            'profile_sections' => $sections,
+            'approved_mappings_path' => trim(str_replace("\0", '', is_scalar($mappingPath) ? (string)$mappingPath : '')),
+        ];
+    }
+
+    private function firstPresentCtripConfigValue(array $source, array $keys, mixed $default = ''): mixed
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $source)) {
+                return $source[$key];
+            }
+        }
+        return $default;
+    }
+
+    private function normalizeCtripProfileCaptureSections(mixed $value): string
+    {
+        $raw = is_array($value)
+            ? implode(',', array_map(static fn($item): string => (string)$item, $value))
+            : (string)$value;
+        $items = preg_split('/[,\s]+/', strtolower($raw)) ?: [];
+        $sections = [];
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item === '' || !preg_match('/^[a-z][a-z0-9_-]*$/', $item)) {
+                continue;
+            }
+            $sections[$item] = true;
+        }
+
+        return implode(',', array_keys($sections)) ?: 'core';
+    }
+
+    private function resolveCtripApprovedMappingsPath(array $source, string $projectRoot): array
+    {
+        $rawPath = '';
+        foreach ([
+            'approved_mappings_path',
+            'approved_mapping_path',
+            'p3_mappings_path',
+            'approvedMappingsPath',
+            'approvedMappingPath',
+            'p3MappingsPath',
+        ] as $key) {
+            if (!array_key_exists($key, $source)) {
+                continue;
+            }
+            $value = $source[$key];
+            if (is_scalar($value)) {
+                $rawPath = trim(str_replace("\0", '', (string)$value));
+                if ($rawPath !== '') {
+                    break;
+                }
+            }
+        }
+
+        if ($rawPath === '') {
+            return ['configured' => false, 'path' => '', 'error' => ''];
+        }
+
+        if (preg_match('/^[a-z][a-z0-9+.-]*:\/\//i', $rawPath) === 1) {
+            return ['configured' => true, 'path' => '', 'error' => '携程 approved mapping 仅支持项目目录内的本地 JSON 文件'];
+        }
+
+        $root = realpath($projectRoot);
+        if ($root === false || !is_dir($root)) {
+            return ['configured' => true, 'path' => '', 'error' => '项目目录不可用，无法加载携程 approved mapping'];
+        }
+
+        $candidate = $this->isAbsoluteLocalPath($rawPath)
+            ? $rawPath
+            : $root . DIRECTORY_SEPARATOR . ltrim($rawPath, "\\/");
+        $resolved = realpath($candidate);
+        if ($resolved === false || !is_file($resolved)) {
+            return ['configured' => true, 'path' => '', 'error' => '携程 approved mapping 文件不存在'];
+        }
+
+        $rootComparable = $this->normalizeLocalPathForComparison($root);
+        $resolvedComparable = $this->normalizeLocalPathForComparison($resolved);
+        if ($resolvedComparable !== $rootComparable && !str_starts_with($resolvedComparable, $rootComparable . '/')) {
+            return ['configured' => true, 'path' => '', 'error' => '携程 approved mapping 必须位于项目目录内'];
+        }
+
+        if (strtolower(pathinfo($resolved, PATHINFO_EXTENSION)) !== 'json') {
+            return ['configured' => true, 'path' => '', 'error' => '携程 approved mapping 必须是 JSON 文件'];
+        }
+
+        if (!is_readable($resolved)) {
+            return ['configured' => true, 'path' => '', 'error' => '携程 approved mapping 文件不可读取'];
+        }
+
+        return ['configured' => true, 'path' => $resolved, 'error' => ''];
+    }
+
+    private function isAbsoluteLocalPath(string $path): bool
+    {
+        return preg_match('/^[A-Za-z]:[\\\\\/]/', $path) === 1
+            || str_starts_with($path, '\\\\')
+            || str_starts_with($path, '//')
+            || str_starts_with($path, '/');
+    }
+
+    private function normalizeLocalPathForComparison(string $path): string
+    {
+        return strtolower(rtrim(str_replace('\\', '/', $path), '/'));
     }
 
     private function safeMeituanCaptureFilePart(string $value): string
@@ -6148,8 +7704,8 @@ class OnlineData extends Base
         if (empty($url)) {
             return $this->error('请提供URL');
         }
-        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com', 'meituan.com'])) {
-            return $this->error('仅允许请求携程或美团官方域名');
+        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com', 'ctripbiz.com', 'ctripbiz.cn', 'meituan.com'])) {
+            return $this->error('仅允许请求携程、携程商旅或美团官方域名');
         }
         
         try {
@@ -7058,9 +8614,10 @@ JAVASCRIPT;
         $this->checkActionPermission('can_fetch_online_data');
 
         try {
-            $id = trim((string)$this->request->post('id', ''));
-            $name = trim((string)$this->request->post('name', ''));
-            $cookies = (string)$this->request->post('cookies', '');
+            $requestData = $this->requestData();
+            $id = trim((string)($requestData['id'] ?? $this->request->post('id', '')));
+            $name = trim((string)($requestData['name'] ?? $this->request->post('name', '')));
+            $cookies = (string)($requestData['cookies'] ?? $this->request->post('cookies', ''));
 
             if ($name === '' || trim($cookies) === '') {
                 return json(['code' => 400, 'message' => '配置名称和Cookies不能为空']);
@@ -7088,8 +8645,15 @@ JAVASCRIPT;
             // 非超级管理员保存时记录 user_id；超级管理员编辑旧配置时保留原归属
             $originalConfig = $list[$id] ?? [];
             $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
-            $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', $originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null)));
+            $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($requestData['hotel_id'] ?? ($originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null)));
             $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
+            $captureOptions = $this->buildCtripProfileCaptureConfigOptions($requestData, $originalConfig);
+            if ($captureOptions['approved_mappings_path'] !== '') {
+                $mappingCheck = $this->resolveCtripApprovedMappingsPath(['approved_mappings_path' => $captureOptions['approved_mappings_path']], dirname(__DIR__, 2));
+                if ($mappingCheck['path'] === '') {
+                    return $this->error((string)$mappingCheck['error'], 400);
+                }
+            }
 
             $config = array_merge($originalConfig, [
                 'id' => $id,
@@ -7097,12 +8661,12 @@ JAVASCRIPT;
                 'cookies' => $cookies,
                 'hotel_id' => $hotelIdValue,
                 'system_hotel_id' => $resolvedHotelId,
-                'url' => $this->request->post('url', $originalConfig['url'] ?? ''),
-                'node_id' => $this->request->post('node_id', $originalConfig['node_id'] ?? ''),
+                'url' => $requestData['url'] ?? ($originalConfig['url'] ?? ''),
+                'node_id' => $requestData['node_id'] ?? ($originalConfig['node_id'] ?? ''),
                 'user_id' => $userId,
                 'update_time' => date('Y-m-d H:i:s'),
                 'created_at' => $originalConfig['created_at'] ?? date('Y-m-d H:i:s'),
-            ]);
+            ], $captureOptions);
             $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
 
             $list[$id] = $config;
@@ -7356,7 +8920,7 @@ JAVASCRIPT;
             ];
         }
 
-        $config = [
+        $config = array_merge([
             'id' => $id,
             'name' => $name,
             'hotel_id' => $hotelIdValue,
@@ -7369,7 +8933,7 @@ JAVASCRIPT;
             'user_id' => $userId,
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => date('Y-m-d H:i:s'),
-        ];
+        ], $this->buildCtripProfileCaptureConfigOptions($data, []));
         $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
         $list[$id] = $config;
 
@@ -8467,6 +10031,7 @@ JAVASCRIPT;
         if ($dataType === '') {
             $dataType = 'business';
         }
+        $isNonNumericFact = $this->isOnlineDataNonNumericFactRow($raw);
 
         $missing = [];
         $abnormal = [];
@@ -8480,9 +10045,11 @@ JAVASCRIPT;
             $this->addOnlineDataMissingMetric($missing, $row, $raw, 'data_value', '指标值', ['data_value'], ['dataValue', 'data_value', 'monthRoomNights']);
             $this->addOnlineDataMissingMetric($missing, $row, $raw, 'dimension', '榜单维度', ['dimension'], ['dimension', 'dimName', '_dimName']);
         } elseif ($dataType === 'traffic') {
-            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'exposure', '曝光', ['list_exposure', 'exposure_count', 'exposure', 'data_value'], ['listExposure', 'exposure', 'exposure_count']);
-            $this->addOnlineDataMissingMetric($missing, $row, $raw, 'detail_visitors', '浏览/访客', ['detail_exposure', 'click_count', 'total_detail_num'], ['detailExposure', 'totalDetailNum', 'views', 'visitorCount']);
-        } else {
+            if (!$isNonNumericFact) {
+                $this->addOnlineDataMissingMetric($missing, $row, $raw, 'exposure', '曝光', ['list_exposure', 'exposure_count', 'exposure', 'data_value'], ['listExposure', 'exposure', 'exposure_count']);
+                $this->addOnlineDataMissingMetric($missing, $row, $raw, 'detail_visitors', '浏览/访客', ['detail_exposure', 'click_count', 'total_detail_num'], ['detailExposure', 'totalDetailNum', 'views', 'visitorCount']);
+            }
+        } elseif (!$isNonNumericFact) {
             $requireRaw = !empty($raw);
             $this->addOnlineDataMissingMetric($missing, $row, $raw, 'amount', '营业额', ['amount'], ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount'], $requireRaw);
             $this->addOnlineDataMissingMetric($missing, $row, $raw, 'quantity', '间夜', ['quantity'], ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity'], $requireRaw);
@@ -8509,7 +10076,7 @@ JAVASCRIPT;
         $quantity = $this->onlineDataQualityFirstNumber($row, $raw, ['quantity'], ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity']);
         $orders = $this->onlineDataQualityFirstNumber($row, $raw, ['book_order_num'], ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings']);
 
-        if ($source !== 'meituan' && $dataType !== 'traffic') {
+        if ($source !== 'meituan' && $dataType !== 'traffic' && !$isNonNumericFact) {
             if ($amount !== null && $amount > 0 && ($quantity === null || $quantity <= 0)) {
                 $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_denominator_zero', 'quantity', '间夜', $quantity, '营业额存在但间夜为0，ADR无法计算');
             }
@@ -8547,7 +10114,9 @@ JAVASCRIPT;
             }
         }
 
-        $this->appendOnlineDataTrafficAnomalies($abnormal, $row, $raw);
+        if (!$isNonNumericFact) {
+            $this->appendOnlineDataTrafficAnomalies($abnormal, $row, $raw);
+        }
 
         $errorCount = count(array_filter([...$missing, ...$abnormal], static fn($issue): bool => ($issue['level'] ?? '') === 'error'));
         $warningCount = count($missing) + count($abnormal) - $errorCount;
@@ -8567,6 +10136,12 @@ JAVASCRIPT;
             'prompts' => $prompts,
             'summary' => empty($prompts) ? '数据完整' : implode('；', $prompts),
         ];
+    }
+
+    private function isOnlineDataNonNumericFactRow(array $raw): bool
+    {
+        return !empty($raw['fact_only'])
+            || in_array((string)($raw['metric_status'] ?? ''), ['non_numeric_fact', 'fact_only'], true);
     }
 
     private function decodeOnlineDataQualityRaw($rawData): array
@@ -12442,8 +14017,8 @@ JAVASCRIPT;
         }
 
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . $this->safeMeituanCaptureFilePart($profileId) . '_' . date('YmdHis') . '.json';
-        $sections = trim((string)($config['profile_sections'] ?? $config['capture_sections'] ?? 'business,traffic'));
-        $sections = $sections !== '' ? $sections : 'business,traffic';
+        $sections = trim((string)($config['profile_sections'] ?? $config['capture_sections'] ?? 'core'));
+        $sections = $sections !== '' ? $sections : 'core';
         $args = [
             $nodeBinary,
             $scriptPath,
@@ -12452,12 +14027,25 @@ JAVASCRIPT;
             '--data-date=' . $dataDate,
             '--output=' . $outputPath,
             '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
-            '--sections=business,traffic',
+            '--sections=core',
         ];
-        if ($sections !== 'business,traffic') {
+        if ($sections !== 'core') {
             $args[count($args) - 1] = '--sections=' . $sections;
         }
         $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
+        $args = $this->appendCtripCaptureGateArgs($args, $config);
+        $mappingArgs = $this->appendCtripApprovedMappingsArg($args, $config, $projectRoot);
+        if ($mappingArgs['error'] !== '') {
+            return [
+                'success' => false,
+                'message' => (string)$mappingArgs['error'],
+                'saved_count' => 0,
+                'modules' => [
+                    ['module' => 'browser_profile', 'saved_count' => 0, 'success' => false, 'message' => (string)$mappingArgs['error']],
+                ],
+            ];
+        }
+        $args = $mappingArgs['args'];
 
         $ctripHotelId = trim((string)($config['ota_hotel_id'] ?? $config['ctrip_hotel_id'] ?? $config['hotelId'] ?? ''));
         if ($ctripHotelId !== '') {
@@ -12489,6 +14077,7 @@ JAVASCRIPT;
                 'saved_count' => 0,
                 'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
                 'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                'partial_capture' => $this->buildCtripPartialCaptureErrorPayload($outputPath),
             ];
         }
         if (!is_file($outputPath)) {
@@ -12503,20 +14092,48 @@ JAVASCRIPT;
         if (empty($payload['system_hotel_id'])) {
             $payload['system_hotel_id'] = $hotelId;
         }
+        $captureGateDecision = $this->buildCtripCaptureGateDecision($payload);
+        if (!$captureGateDecision['accepted']) {
+            $capturedCounts = $this->buildCtripCaptureCounts($payload);
+            return [
+                'success' => false,
+                'message' => 'Profile 真实采集门禁未通过，未入库且未更新最新采集状态',
+                'saved_count' => 0,
+                'row_count' => (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'],
+                'captured_counts' => $capturedCounts,
+                'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+                'auth_status' => $payload['auth_status'] ?? null,
+                'capture_gate' => $captureGateDecision['gate'],
+                'capture_gate_status' => $captureGateDecision['status'],
+                'capture_gate_failed_check_ids' => $captureGateDecision['failed_check_ids'],
+                'capture_audit' => $payload['capture_audit'] ?? null,
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                'modules' => [
+                    [
+                        'module' => 'browser_profile_gate',
+                        'saved_count' => 0,
+                        'success' => false,
+                        'message' => 'Profile capture gate failed: ' . implode(',', $captureGateDecision['failed_check_ids']),
+                    ],
+                ],
+            ];
+        }
         $requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? $profileId);
         $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, $dataDate, $requestHotelId);
         $savedCount = (int)$saveResult['saved_count'];
-        $capturedCounts = [
-            'business' => count($this->extractCtripCapturedSection($payload, 'business')),
-            'traffic' => count($this->extractCtripCapturedSection($payload, 'traffic')),
-            'reviews' => 0,
-        ];
+        $capturedCounts = $this->buildCtripCaptureCounts($payload);
+        $capturedCounts['reviews'] = 0;
         $detailParts = [
             "概况 {$saveResult['business_saved']}",
             "流量 {$saveResult['traffic_saved']}",
         ];
         if ((int)($saveResult['review_saved'] ?? 0) > 0) {
             $detailParts[] = "点评 {$saveResult['review_saved']}";
+        }
+        if ((int)($saveResult['standard_saved'] ?? 0) > 0) {
+            $detailParts[] = "标准字段 {$saveResult['standard_saved']}";
         }
 
         return [
@@ -12525,8 +14142,18 @@ JAVASCRIPT;
                 ? "Profile 真实采集入库 {$savedCount} 条（" . implode('，', $detailParts) . "）"
                 : 'Profile 真实采集未解析到可入库数据',
             'saved_count' => $savedCount,
-            'row_count' => array_sum($capturedCounts),
+            'row_count' => (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'],
             'captured_counts' => $capturedCounts,
+            'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
+            'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
+            'standard_section_counts' => $capturedCounts['standard_by_section'],
+            'endpoint_candidate_counts' => $capturedCounts['candidate_by_section'],
+            'endpoint_candidates' => array_slice(is_array($payload['endpoint_candidates'] ?? null) ? $payload['endpoint_candidates'] : [], 0, 20),
+            'p3_evidence_counts' => $capturedCounts['p3_evidence_by_section'],
+            'p3_evidence_status_counts' => $capturedCounts['p3_evidence_by_status'],
+            'p3_evidence_ready_count' => $capturedCounts['p3_evidence_ready'],
+            'p3_evidence_drafts' => array_slice(is_array($payload['p3_evidence_drafts'] ?? null) ? $payload['p3_evidence_drafts'] : [], 0, 20),
+            'p3_evidence_matrix' => is_array($payload['p3_evidence_matrix'] ?? null) ? $payload['p3_evidence_matrix'] : null,
             'modules' => $saveResult['modules'],
             'output' => $outputPath,
         ];
@@ -12563,13 +14190,222 @@ JAVASCRIPT;
         $reviewSaved = 0;
         $modules[] = ['module' => 'browser_reviews', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
 
+        $standardRows = $this->extractCtripStandardRows($payload, $hotelId, $dataDate, $requestHotelId);
+        $standardSaved = 0;
+        if (!empty($standardRows)) {
+            $standardSaved = $this->saveCtripStandardRows($standardRows);
+        }
+        $modules[] = ['module' => 'browser_catalog_standard', 'saved_count' => $standardSaved, 'success' => $standardSaved > 0];
+
         return [
-            'saved_count' => $businessSaved + $trafficSaved + $reviewSaved,
+            'saved_count' => $businessSaved + $trafficSaved + $reviewSaved + $standardSaved,
             'business_saved' => $businessSaved,
             'traffic_saved' => $trafficSaved,
             'review_saved' => $reviewSaved,
+            'standard_saved' => $standardSaved,
             'modules' => $modules,
         ];
+    }
+
+    private function extractCtripStandardRows(array $payload, int $systemHotelId, string $dataDate, string $requestHotelId): array
+    {
+        $rows = [];
+        foreach (($payload['standard_rows'] ?? []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $captureSection = strtolower(trim((string)($row['capture_section'] ?? '')));
+            $dataType = $this->normalizeCtripStandardDataType((string)($row['data_type'] ?? 'business'));
+            if ($this->shouldSkipCtripLegacyStandardRow($captureSection, $dataType, $row)) {
+                continue;
+            }
+
+            $rowDataDate = $this->normalizeOnlineDataDate($row['data_date'] ?? '') ?: $dataDate;
+            $dimension = trim((string)($row['dimension'] ?? '')) ?: 'catalog:' . ($captureSection ?: 'unknown');
+            $rawData = $row['raw_data'] ?? $row;
+            $rawDataForTrace = is_array($rawData) ? $rawData : [];
+            if (is_array($rawData)) {
+                $rawData['capture_section'] = $captureSection;
+                $rawData['endpoint_id'] = (string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? ''));
+                $sourceUrl = trim((string)($row['source_url'] ?? ($rawData['source_url'] ?? '')));
+                if ($sourceUrl !== '') {
+                    $rawData['source_url'] = $sourceUrl;
+                }
+                $rawDataForTrace = $rawData;
+                $rawData = json_encode($this->sanitizeOnlineOrderRawData($rawData, $dataType === 'order'), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+            } else {
+                $rawData = (string)$rawData;
+            }
+
+            $rows[] = [
+                'hotel_id' => trim((string)($row['hotel_id'] ?? '')) ?: $requestHotelId,
+                'hotel_name' => trim((string)($row['hotel_name'] ?? '')),
+                'system_hotel_id' => $systemHotelId,
+                'source' => 'ctrip',
+                'platform' => trim((string)($row['platform'] ?? 'ctrip')) ?: 'ctrip',
+                'data_date' => $rowDataDate,
+                'data_type' => $dataType,
+                'dimension' => $dimension,
+                'amount' => (float)($row['amount'] ?? 0),
+                'quantity' => (int)round((float)($row['quantity'] ?? 0)),
+                'book_order_num' => (int)round((float)($row['book_order_num'] ?? 0)),
+                'comment_score' => (float)($row['comment_score'] ?? 0),
+                'qunar_comment_score' => (float)($row['qunar_comment_score'] ?? 0),
+                'data_value' => (float)($row['data_value'] ?? 0),
+                'compare_type' => trim((string)($row['compare_type'] ?? '')),
+                'list_exposure' => (int)round((float)($row['list_exposure'] ?? 0)),
+                'detail_exposure' => (int)round((float)($row['detail_exposure'] ?? 0)),
+                'flow_rate' => (float)($row['flow_rate'] ?? 0),
+                'order_filling_num' => (int)round((float)($row['order_filling_num'] ?? 0)),
+                'order_submit_num' => (int)round((float)($row['order_submit_num'] ?? 0)),
+                'ingestion_method' => 'browser_profile',
+                'source_trace_id' => $this->buildCtripStandardRowSourceTraceId($row, $captureSection, $dataType, $dimension, $rowDataDate, $rawDataForTrace),
+                'raw_data' => $rawData,
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function buildCtripStandardRowSourceTraceId(array $row, string $captureSection, string $dataType, string $dimension, string $dataDate, array $rawData): string
+    {
+        $endpointId = trim((string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? '')));
+        $sourceUrl = trim((string)($row['source_url'] ?? ($rawData['source_url'] ?? '')));
+        $metricKey = $this->ctripStandardRowMetricKey($row);
+        if ($metricKey === '' && is_array($rawData['metrics'] ?? null)) {
+            $metricKeys = array_keys($rawData['metrics']);
+            $metricKey = strtolower(trim((string)($metricKeys[0] ?? '')));
+        }
+
+        $basis = [
+            'platform' => 'ctrip',
+            'hotel_id' => trim((string)($row['hotel_id'] ?? '')),
+            'data_date' => $dataDate,
+            'data_type' => $dataType,
+            'capture_section' => $captureSection,
+            'endpoint_id' => $endpointId,
+            'dimension' => $dimension,
+            'metric_key' => $metricKey,
+            'source_url' => $this->canonicalizeCtripStandardRowSourceUrl($sourceUrl),
+        ];
+
+        return 'ctrip:' . hash('sha256', (string)json_encode($basis, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function canonicalizeCtripStandardRowSourceUrl(string $sourceUrl): string
+    {
+        if ($sourceUrl === '') {
+            return '';
+        }
+
+        $parts = parse_url($sourceUrl);
+        if (!is_array($parts)) {
+            return preg_replace('/[?#].*$/', '', $sourceUrl) ?? $sourceUrl;
+        }
+
+        return strtolower((string)($parts['host'] ?? '')) . (string)($parts['path'] ?? '');
+    }
+
+    private function shouldSkipCtripLegacyStandardRow(string $captureSection, string $dataType, array $row): bool
+    {
+        $metricKey = $this->ctripStandardRowMetricKey($row);
+        if ($metricKey === '') {
+            return false;
+        }
+        if (in_array($captureSection, ['business_overview', 'sales_report', 'room_type'], true) && $dataType === 'business') {
+            return in_array($metricKey, ['order_amount', 'room_nights', 'order_count'], true);
+        }
+        if ($captureSection === 'traffic_report' && $dataType === 'traffic') {
+            return in_array($metricKey, [
+                'visitor_count',
+                'list_exposure',
+                'detail_visitor',
+                'order_page_visitor',
+                'order_submit_user',
+                'flow_rate',
+            ], true);
+        }
+        return false;
+    }
+
+    private function ctripStandardRowMetricKey(array $row): string
+    {
+        $dimension = trim((string)($row['dimension'] ?? ''));
+        if ($dimension !== '' && preg_match('/^catalog:[^:]+:[^:]+:([^:]+)/', $dimension, $matches)) {
+            return strtolower((string)$matches[1]);
+        }
+        $rawData = $row['raw_data'] ?? [];
+        if (is_array($rawData) && is_array($rawData['metrics'] ?? null)) {
+            $keys = array_keys($rawData['metrics']);
+            return strtolower(trim((string)($keys[0] ?? '')));
+        }
+        return '';
+    }
+
+    private function normalizeCtripStandardDataType(string $value): string
+    {
+        $value = strtolower(trim($value));
+        return match ($value) {
+            'ad', 'ads', 'advertising', 'campaign' => 'advertising',
+            'flow' => 'traffic',
+            'review', 'reviews', 'comment', 'comments' => 'review',
+            'order', 'orders' => 'order',
+            'service', 'service_quality', 'psi' => 'quality',
+            default => $value !== '' ? $value : 'business',
+        };
+    }
+
+    private function saveCtripStandardRows(array $rows): int
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        $savedCount = 0;
+        $now = date('Y-m-d H:i:s');
+
+        foreach ($rows as $row) {
+            if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
+                continue;
+            }
+            if (($row['data_type'] ?? '') === 'review') {
+                continue;
+            }
+
+            if (isset($columns['update_time'])) {
+                $row['update_time'] = $now;
+            }
+
+            $query = Db::name('online_daily_data')
+                ->where('source', 'ctrip')
+                ->where('data_type', (string)$row['data_type'])
+                ->where('data_date', (string)$row['data_date'])
+                ->where('dimension', (string)($row['dimension'] ?? ''));
+
+            if (!empty($row['hotel_id'])) {
+                $query->where('hotel_id', (string)$row['hotel_id']);
+            } else {
+                $query->where('hotel_name', (string)($row['hotel_name'] ?? ''));
+            }
+
+            if (array_key_exists('system_hotel_id', $row) && $row['system_hotel_id'] !== null) {
+                $query->where('system_hotel_id', (int)$row['system_hotel_id']);
+            } else {
+                $query->whereNull('system_hotel_id');
+            }
+
+            $exists = $query->find();
+            if (!$exists && isset($columns['create_time'])) {
+                $row['create_time'] = $now;
+            }
+
+            $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
+            if ($exists) {
+                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+            } else {
+                Db::name('online_daily_data')->insert($data);
+            }
+            $savedCount++;
+        }
+
+        return $savedCount;
     }
 
     private function extractCtripCapturedResponseData(array $payload, string $section): array
@@ -13462,6 +15298,7 @@ JAVASCRIPT;
                 ],
                 'hotel_id' => $hotelId,
                 'status_catalog' => $this->collectionReliabilityStatusCatalog(),
+                'ctrip_capture_catalog' => $this->readCtripCaptureCatalogHealth(),
                 'authorization' => [
                     'summary' => $this->buildCollectionAuthorizationSummary($authorizationRows),
                     'list' => $authorizationRows,
@@ -13724,6 +15561,187 @@ JAVASCRIPT;
     private function collectionReliabilityStatusCatalog(): array
     {
         return ['ok', 'warning', 'expired', 'unknown', 'waiting_config', 'failed', 'partial_success', 'success'];
+    }
+
+    private function readCtripCaptureCatalogHealth(): array
+    {
+        $root = dirname(__DIR__, 2);
+        $catalog = $this->readOptionalLocalJsonFile($root . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'ctrip_capture_catalog.json');
+        $audit = $this->readOptionalLocalJsonFile($root . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'ctrip_capture_audit_latest.json');
+
+        return $this->buildCtripCaptureCatalogHealth($catalog, $audit);
+    }
+
+    private function readOptionalLocalJsonFile(string $path): array
+    {
+        if (!is_file($path)) {
+            return [];
+        }
+
+        try {
+            $data = json_decode((string)file_get_contents($path), true);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return is_array($data) ? $data : [];
+    }
+
+    private function buildCtripCaptureCatalogHealth(array $catalog, array $audit): array
+    {
+        $available = $catalog !== [];
+        $gate = is_array($audit['capture_gate'] ?? null) ? $audit['capture_gate'] : [];
+        $summary = is_array($audit['summary'] ?? null) ? $audit['summary'] : [];
+        $auth = is_array($audit['auth_status'] ?? null) ? $audit['auth_status'] : [];
+        $fieldCoverage = is_array($audit['field_coverage'] ?? null) ? $audit['field_coverage'] : [];
+        $fieldCoverageSummary = is_array($fieldCoverage['summary'] ?? null) ? $fieldCoverage['summary'] : $fieldCoverage;
+        $gapReport = is_array($audit['capture_gap_report'] ?? null) ? $audit['capture_gap_report'] : [];
+
+        $captureGateStatus = strtolower(trim((string)($gate['status'] ?? '')));
+        if ($captureGateStatus === '') {
+            $captureGateStatus = $available ? 'missing' : 'missing';
+        }
+
+        $failedCheckIds = $this->normalizeStringList($gate['failed_check_ids'] ?? []);
+        $authStatus = trim((string)($auth['status'] ?? 'unknown'));
+        $responseCount = (int)($summary['response_count'] ?? 0);
+        $standardRowCount = (int)($summary['standard_row_count'] ?? 0);
+        $coverageRate = $fieldCoverageSummary['coverage_rate'] ?? null;
+        $gapStatus = strtolower(trim((string)($gapReport['status'] ?? '')));
+        if ($gapStatus === '') {
+            $gapStatus = $gapReport !== [] ? 'unknown' : 'missing';
+        }
+        $missingFormalEndpoints = is_array($gapReport['missing_formal_endpoints'] ?? null) ? $gapReport['missing_formal_endpoints'] : [];
+        $missingFormalEndpointCount = is_numeric($gapReport['missing_formal_endpoint_count'] ?? null)
+            ? max(0, (int)$gapReport['missing_formal_endpoint_count'])
+            : count($missingFormalEndpoints);
+        $missingFieldsBySection = is_array($gapReport['missing_fields_by_section'] ?? null) ? $gapReport['missing_fields_by_section'] : [];
+        $missingFieldCount = 0;
+        foreach ($missingFieldsBySection as $section) {
+            if (!is_array($section)) {
+                continue;
+            }
+            $missingFieldCount += max(0, (int)($section['missing_field_count'] ?? 0));
+        }
+        $p3CandidateSections = is_array($gapReport['p3_candidate_sections'] ?? null) ? $gapReport['p3_candidate_sections'] : [];
+        $p3EvidenceSections = is_array($gapReport['p3_evidence_sections'] ?? null) ? $gapReport['p3_evidence_sections'] : [];
+        $gapNextActions = $this->normalizeCtripCaptureGapActions($gapReport['next_actions'] ?? []);
+        $isLiveReady = $available
+            && in_array($captureGateStatus, ['pass', 'ok', 'success'], true)
+            && !in_array($authStatus, ['login_required', 'unknown', ''], true)
+            && $responseCount > 0
+            && $standardRowCount > 0;
+
+        $message = '携程字段目录未生成，请先生成目录后再进入抓取健康判断。';
+        if ($available && $isLiveReady) {
+            $message = '携程字段目录和真实采集审计均已通过，可进入标准行入库。';
+        } elseif ($available && $captureGateStatus === 'fail') {
+            $message = '携程真实采集未通过：' . ($failedCheckIds !== [] ? implode('、', $failedCheckIds) : 'capture_gate');
+        } elseif ($available) {
+            $message = '携程字段目录已生成，真实采集审计缺失或未通过。';
+        }
+
+        return [
+            'available' => $available,
+            'platform' => (string)($catalog['platform'] ?? 'ctrip'),
+            'section_count' => (int)($catalog['section_count'] ?? 0),
+            'endpoint_count' => (int)($catalog['endpoint_count'] ?? 0),
+            'field_count' => (int)($catalog['field_count'] ?? 0),
+            'default_sections' => $this->normalizeStringList($catalog['default_sections'] ?? []),
+            'core_sections' => $this->extractCtripCapturePresetSections($catalog, 'core'),
+            'wide_sections' => $this->extractCtripCapturePresetSections($catalog, 'wide'),
+            'interaction_plan_section_count' => (int)($catalog['interaction_plan_section_count'] ?? 0),
+            'interaction_plan_step_count' => (int)($catalog['interaction_plan_step_count'] ?? 0),
+            'capture_gate_status' => $captureGateStatus,
+            'failed_check_ids' => $failedCheckIds,
+            'auth_status' => $authStatus !== '' ? $authStatus : 'unknown',
+            'response_count' => $responseCount,
+            'standard_row_count' => $standardRowCount,
+            'coverage_rate' => is_numeric($coverageRate) ? (float)$coverageRate : null,
+            'is_live_capture_ready' => $isLiveReady,
+            'capture_gap_status' => $gapStatus,
+            'capture_gap_blockers' => $this->normalizeStringList($gapReport['blockers'] ?? []),
+            'capture_gap_missing_formal_endpoint_count' => $missingFormalEndpointCount,
+            'capture_gap_missing_field_section_count' => count($missingFieldsBySection),
+            'capture_gap_missing_field_count' => $missingFieldCount,
+            'capture_gap_p3_candidate_section_count' => count($p3CandidateSections),
+            'capture_gap_p3_evidence_section_count' => count($p3EvidenceSections),
+            'capture_gap_next_actions' => $gapNextActions,
+            'message' => $message,
+        ];
+    }
+
+    private function extractCtripCapturePresetSections(array $catalog, string $preset): array
+    {
+        $presets = is_array($catalog['presets'] ?? null) ? $catalog['presets'] : [];
+        $value = $presets[$preset] ?? [];
+        if (is_array($value) && is_array($value['sections'] ?? null)) {
+            $value = $value['sections'];
+        }
+
+        return $this->normalizeStringList($value);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeCtripCaptureGapActions(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $actions = [];
+        foreach ($value as $item) {
+            if (is_string($item)) {
+                $action = trim($item);
+                if ($action !== '') {
+                    $actions[] = [
+                        'action' => $action,
+                        'reason' => '',
+                        'section' => '',
+                        'endpoint_id' => '',
+                        'candidate_section' => '',
+                        'required_evidence' => [],
+                    ];
+                }
+            } elseif (is_array($item)) {
+                $action = trim((string)($item['action'] ?? ''));
+                $reason = trim((string)($item['reason'] ?? ''));
+                $section = trim((string)($item['section'] ?? ''));
+                $endpointId = trim((string)($item['endpoint_id'] ?? ''));
+                $candidateSection = trim((string)($item['candidate_section'] ?? ''));
+                if ($action === '' && $reason === '' && $section === '' && $endpointId === '' && $candidateSection === '') {
+                    continue;
+                }
+                $actions[] = [
+                    'action' => $action,
+                    'reason' => $reason,
+                    'section' => $section,
+                    'endpoint_id' => $endpointId,
+                    'candidate_section' => $candidateSection,
+                    'required_evidence' => $this->normalizeStringList($item['required_evidence'] ?? []),
+                ];
+            }
+
+            if (count($actions) >= 12) {
+                break;
+            }
+        }
+
+        return $actions;
+    }
+
+    private function normalizeStringList(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            static fn($item): string => trim((string)$item),
+            $value
+        ), static fn(string $item): bool => $item !== ''));
     }
 
     private function normalizeCollectionStatus(string $status): string

@@ -40,11 +40,28 @@ The final scan must explicitly cover at least these surfaces:
 - admin permissions
 - release packaging
 
+## Required Artifact Bundle
+
+The completed scan directory must contain:
+
+- `scan_manifest.json`
+- `report.md`
+- `report.html`
+- `artifacts/01_context/threat_model.md`
+- `artifacts/02_discovery/finding_discovery_report.md`
+- `artifacts/03_coverage/repository_coverage_ledger.md`
+- `artifacts/03_coverage/reviewed_surfaces.md`
+- `artifacts/05_findings/validation_summary.md`
+- `artifacts/05_findings/attack_path_analysis_report.md`
+
+Use `docs/codex_security_scan_manifest.example.json` as the manifest shape. The manifest must confirm `scan_mode=repository-wide`, `subagents_authorized=true`, every required phase is `completed`, `final_report_validated=true`, and `report_html_rendered=true`.
+
 ## Completion Standard
 
 - Every in-scope file or worklist row has a completed record or an explicit deferred / suppressed / not_applicable reason.
 - Every candidate finding has discovery, validation, and attack-path analysis records, or an explicit deferred reason.
-- Final `report.md` and `report.html` exist under `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest`.
+- Final `report.md`, `report.html`, `scan_manifest.json`, validation summary, attack-path analysis report, and coverage artifacts exist under `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest`.
+- `npm run review:release-security-scan` passes for the completed scan directory.
 - `npm run review:release-readiness` no longer reports the formal Codex Security scan failure.
 
 ## Not A Substitute

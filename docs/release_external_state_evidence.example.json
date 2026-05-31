@@ -7,17 +7,25 @@
       "exit_code": 0,
       "stdout": ""
     },
+    "git_index_lock": {
+      "path": ".git/index.lock",
+      "exists": false,
+      "length": null,
+      "last_write_time": null
+    },
     "git_status_short_branch": {
       "command": "git status --short --branch",
       "exit_code": 0,
       "stdout": "## main...origin/main"
     },
     "gh_pr_view": {
-      "command": "gh pr view 1 --json number,url,headRefOid,mergeable,statusCheckRollup",
+      "command": "gh pr view 1 --json number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup",
       "exit_code": 0,
       "json": {
         "number": 1,
         "url": "https://github.com/OWNER/REPO/pull/1",
+        "state": "OPEN",
+        "isDraft": false,
         "headRefOid": "TODO: current PR head sha",
         "mergeable": "MERGEABLE",
         "statusCheckRollup": [

@@ -61,4 +61,7 @@ jobs:
           node scripts/verify_ai_model_config_i18n.mjs
           npm run verify:ota-data-batch
           npm run verify:opening-batch-actions
+          npm run review:functional-readiness
+          npm run review:release-issues
+          npm run review:non-security
           npm run verify:release-status

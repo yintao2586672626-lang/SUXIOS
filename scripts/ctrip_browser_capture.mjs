@@ -3,36 +3,35 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import {
+  buildCtripEndpointCandidates,
+  buildCtripStandardRowsFromFacts,
+  buildCtripPageUrls,
+  ctripCatalogSummary,
+  extractCtripCatalogFacts,
+  findCtripEndpointByUrl,
+  getCtripSectionInteractionPlan,
+  normalizeCtripCaptureSections,
+  sectionDataType,
+  sectionLabel,
+} from './lib/ctrip_capture_catalog.mjs';
+import {
+  extractCtripApprovedMappingRows,
+  normalizeCtripApprovedMappings,
+} from './lib/ctrip_approved_mapping.mjs';
+import {
+  buildCtripEndpointEvidenceDraftsFromCapture,
+  buildCtripEndpointEvidenceMatrix,
+} from './lib/ctrip_endpoint_evidence.mjs';
+import {
+  buildCtripCaptureAudit,
+  evaluateCtripCaptureAuditGate,
+} from './lib/ctrip_capture_audit.mjs';
 import { sanitizeOtaPayloadForStorage } from './lib/ota_capture_standard.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
-const URLS = {
-  business: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true',
-  traffic: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true',
-  reviews: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
-};
-
-const KEYWORDS = {
-  business: [
-    'getDayReportRealTimeDate',
-    'fetchMarketOverViewV2',
-    'getDayReportFlowCompete',
-    'getDayReportServerQuantity',
-    'fetchCurrentHotelSeqInfoV1',
-    'fetchVisitorTitleV2',
-    'fetchCapacityOverViewV4',
-    'getDayReportCompeteHotelReport',
-  ],
-  traffic: [
-    'queryScanFlowDetailsV2',
-    'queryFlowTransforNew',
-    'queryHomePageRealTimeData',
-    'getFlowData',
-    'getTrafficData',
-    'getStatData',
-  ],
-  reviews: ['getCommentList'],
-};
+const PAGE_URLS = buildCtripPageUrls();
+const CATALOG_SUMMARY = ctripCatalogSummary();
 
 const args = parseArgs(process.argv.slice(2));
 const profileId = stringValue(args.profileId || args.hotelId || args.systemHotelId || '').trim();
@@ -40,7 +39,8 @@ if (!profileId) {
   fail('Missing --profile-id or --hotel-id. Example: node scripts/ctrip_browser_capture.mjs --profile-id=59');
 }
 
-const requestedSections = normalizeSections(args.sections || 'business,traffic');
+const loginOnly = booleanArg(args.loginOnly) || booleanArg(args.authOnly);
+const requestedSections = normalizeSections(args.sections || args.captureSections || args.only || 'default');
 const hotelId = stringValue(args.hotelId || '').trim();
 const defaultDataDate = stringValue(args.dataDate || '').trim();
 const storageDir = resolve(args.profileDir || join('storage', `ctrip_profile_${safeName(profileId)}`));
@@ -48,6 +48,10 @@ const reportDir = resolve(args.reportDir || 'reports');
 const assetDir = join(reportDir, 'ctrip_capture_assets');
 const outputPath = resolve(args.output || join(reportDir, `ctrip_browser_capture_${safeName(profileId)}_${timestamp()}.json`));
 const capturedAt = new Date().toISOString();
+const approvedMappingsPath = stringValue(args.approvedMappings || args.approvedMapping || args.p3Mappings || '').trim();
+const approvedMappings = approvedMappingsPath
+  ? normalizeCtripApprovedMappings(JSON.parse((await readFile(resolve(approvedMappingsPath), 'utf8')).replace(/^\uFEFF/, '')))
+  : [];
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -60,36 +64,82 @@ const payload = {
   system_hotel_id: args.systemHotelId ? Number(args.systemHotelId) : null,
   default_data_date: defaultDataDate,
   source: 'ctrip_browser_profile',
+  mode: loginOnly ? 'login_only' : 'capture',
   captured_at: capturedAt,
-  page_urls: URLS,
+  page_urls: PAGE_URLS,
+  requested_sections: requestedSections,
+  catalog: CATALOG_SUMMARY,
+  approved_mappings: {
+    configured: Boolean(approvedMappingsPath),
+    path: approvedMappingsPath,
+    mapping_count: approvedMappings.length,
+  },
   pages: [],
   responses: [],
   xhr_urls: [],
+  unmatched_xhr_urls: [],
+  endpoint_candidates: [],
+  p3_evidence_drafts: [],
+  p3_evidence_matrix: null,
+  capture_audit: null,
+  capture_gate: null,
+  capture_gap_report: null,
+  by_section: {},
+  rows: [],
+  standard_rows: [],
+  catalog_facts: [],
   business: [],
   traffic: [],
   reviews: [],
   screenshots: [],
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
+  auth_status: { status: 'pending', message: 'Login status has not been checked.' },
 };
+for (const section of requestedSections) {
+  payload.by_section[section] = [];
+}
+let activeCaptureSection = '';
 
 const browser = await launchOtaPersistentContext(storageDir, args);
+await grantCtripBrowserPermissions(browser);
 payload.cookie_injection = await injectBrowserCookies(browser, args, 'ctrip');
 const page = await browser.newPage();
 registerResponseCapture(page, payload);
 
 try {
-  await ensureLoggedIn(page);
-  for (const section of requestedSections) {
-    await captureSection(page, section, URLS[section]);
+  const loginStatus = await ensureLoggedIn(page);
+  payload.auth_status = loginStatus;
+  if (!loginStatus.ok) {
+    payload.pages.push({
+      name: 'auth',
+      label: '登录状态',
+      url: loginStatus.url || page.url(),
+      configured_url: firstKnownPageUrl(),
+      ok: false,
+      auth_status: loginStatus.status,
+      error: loginStatus.message,
+    });
+    process.exitCode = 2;
+  } else if (loginOnly) {
+    await finalizeLoginOnlyPayload();
+  } else {
+    for (const section of requestedSections) {
+      const pageTargets = PAGE_URLS[section] || [];
+      if (pageTargets.length === 0) {
+        payload.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, error: 'no page URL configured' });
+        continue;
+      }
+      for (const targetPage of pageTargets) {
+        await captureSection(page, section, targetPage.url, targetPage.confidence);
+      }
+    }
   }
-  dedupeRows(payload.business, row => row._fingerprint || JSON.stringify([row.hotelId, row.dataDate, row.amount, row.quantity, row.bookOrderNum]));
-  dedupeRows(payload.traffic, row => row._fingerprint || JSON.stringify([row.hotelId, row.date, row.listExposure, row.detailExposure, row.orderFillingNum, row.orderSubmitNum]));
-  dedupeRows(payload.reviews, row => row.review_id || JSON.stringify([row.content || '', row.user_name || '', row.comment_time || '']));
-  await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
+  await finalizePayload();
 
   console.log(JSON.stringify({
     output: outputPath,
     profile_dir: storageDir,
+    auth_status: payload.auth_status,
     counts: summarize(payload),
   }, null, 2));
 } finally {
@@ -97,10 +147,11 @@ try {
 }
 
 async function ensureLoggedIn(page) {
-  await page.goto(URLS.business, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
+  await page.goto(firstKnownPageUrl(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
   await page.waitForTimeout(2000);
+  await dismissBlockingOverlays(page);
   if (await looksLoggedIn(page)) {
-    return;
+    return { ok: true, status: 'logged_in', url: page.url(), message: 'Ctrip profile is logged in.' };
   }
 
   console.log(`Open Ctrip eBooking login page and complete login. Profile will be saved at ${storageDir}`);
@@ -109,10 +160,63 @@ async function ensureLoggedIn(page) {
   while (Date.now() < deadline) {
     await page.waitForTimeout(3000);
     if (await looksLoggedIn(page)) {
-      return;
+      return { ok: true, status: 'logged_in', url: page.url(), message: 'Ctrip profile is logged in.' };
     }
   }
-  throw new Error(`Ctrip login timeout after ${Math.round(timeoutMs / 1000)} seconds`);
+  return {
+    ok: false,
+    status: 'login_required',
+    url: page.url(),
+    timeout_ms: timeoutMs,
+    message: `Ctrip login timeout after ${Math.round(timeoutMs / 1000)} seconds`,
+  };
+}
+
+async function finalizePayload() {
+  dedupeRows(payload.business, row => row._fingerprint || JSON.stringify([row.hotelId, row.dataDate, row.amount, row.quantity, row.bookOrderNum]));
+  dedupeRows(payload.traffic, row => row._fingerprint || JSON.stringify([row.hotelId, row.date, row.listExposure, row.detailExposure, row.orderFillingNum, row.orderSubmitNum]));
+  dedupeRows(payload.reviews, row => row.review_id || JSON.stringify([row.content || '', row.user_name || '', row.comment_time || '']));
+  dedupeRows(payload.rows, row => row._fingerprint || JSON.stringify([row._source_url, row.hotelId, row.dataDate || row.date, row.data_type, row.metric_key || '', row.value || row.amount || row.quantity || '']));
+  dedupeRows(payload.standard_rows, row => JSON.stringify([row.source, row.data_type, row.hotel_id, row.system_hotel_id || '', row.data_date, row.dimension]));
+  payload.endpoint_candidates = buildCtripEndpointCandidates(payload.unmatched_xhr_urls);
+  payload.p3_evidence_matrix = buildCtripEndpointEvidenceMatrix(payload.p3_evidence_drafts, { generatedAt: capturedAt });
+  const audit = buildCtripCaptureAudit([{ path: outputPath, payload }], { generatedAt: capturedAt });
+  payload.capture_gate = evaluateCtripCaptureAuditGate(audit, captureGateOptions());
+  payload.capture_gap_report = audit.capture_gap_report;
+  payload.capture_audit = compactCaptureAudit(audit);
+  await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
+}
+
+async function finalizeLoginOnlyPayload() {
+  payload.capture_gate = {
+    status: 'pass',
+    mode: loginOnly ? 'login_only' : 'capture',
+    reason: 'login_only',
+    failed_check_ids: [],
+    checks: [{
+      id: 'auth_session',
+      status: 'pass',
+      message: 'Ctrip login session prepared in browser profile.',
+    }],
+  };
+  payload.capture_gap_report = {
+    status: 'skipped',
+    reason: 'login_only',
+  };
+  payload.capture_audit = {
+    auth_status: payload.auth_status,
+    capture_gap_report: payload.capture_gap_report,
+  };
+  payload.pages.push({
+    name: 'auth',
+    label: '登录状态',
+    url: payload.auth_status?.url || '',
+    configured_url: firstKnownPageUrl(),
+    ok: true,
+    auth_status: 'login_prepared',
+    reason: 'login_only',
+  });
+  await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
 }
 
 async function looksLoggedIn(page) {
@@ -127,7 +231,8 @@ async function looksLoggedIn(page) {
   return true;
 }
 
-async function captureSection(page, section, url) {
+async function captureSection(page, section, url, confidence = '') {
+  activeCaptureSection = section;
   let ok = true;
   let errorMessage = '';
   try {
@@ -139,7 +244,9 @@ async function captureSection(page, section, url) {
 
   await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => null);
   await page.waitForTimeout(2500);
+  await dismissBlockingOverlays(page);
   await clickLikelyRefreshButtons(page);
+  const interactions = await runSectionInteractionPlan(page, section);
   await page.evaluate(() => window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))).catch(() => null);
   await page.waitForTimeout(1200);
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => null);
@@ -150,10 +257,79 @@ async function captureSection(page, section, url) {
   if (existsSync(screenshot)) {
     payload.screenshots.push({ name: section, path: screenshot });
   }
-  payload.pages.push({ name: section, url: page.url(), ok, ...(errorMessage ? { error: errorMessage } : {}) });
+  payload.pages.push({ name: section, label: sectionLabel(section), url: page.url(), configured_url: url, confidence, ok, interactions, ...(errorMessage ? { error: errorMessage } : {}) });
+  activeCaptureSection = '';
+}
+
+async function runSectionInteractionPlan(page, section) {
+  const plan = getCtripSectionInteractionPlan(section);
+  const results = [];
+  for (const step of plan) {
+    if (step.action !== 'click_text' || !step.text) {
+      continue;
+    }
+    const result = await clickTextIfVisible(page, step.text);
+    results.push({
+      action: step.action,
+      text: step.text,
+      reason: step.reason || '',
+      clicked: result.clicked,
+      skipped: result.skipped || '',
+      ...(result.error ? { error: result.error } : {}),
+    });
+    if (result.clicked) {
+      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
+      await page.waitForTimeout(900);
+    }
+  }
+  return results;
+}
+
+async function clickTextIfVisible(page, text) {
+  await dismissBlockingOverlays(page);
+  const locators = [
+    page.getByRole('tab', { name: text, exact: true }).first(),
+    page.getByRole('button', { name: text, exact: true }).first(),
+    page.getByRole('link', { name: text, exact: true }).first(),
+    page.locator('a,button,label,[role="tab"],[role="button"]').filter({ hasText: text }).first(),
+    page.getByText(text, { exact: true }).first(),
+  ];
+  let lastError = '';
+  for (const locator of locators) {
+    const visible = await locator.isVisible({ timeout: 500 }).catch(() => false);
+    if (!visible) {
+      continue;
+    }
+    const enabled = await locator.isEnabled({ timeout: 500 }).catch(() => true);
+    if (!enabled) {
+      return { clicked: false, skipped: 'disabled' };
+    }
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => null);
+      await locator.click({ timeout: 2000 });
+      return { clicked: true };
+    } catch (error) {
+      lastError = error.message;
+      await dismissBlockingOverlays(page);
+      try {
+        await locator.click({ timeout: 1500, force: true });
+        return { clicked: true, forced: true };
+      } catch (forceError) {
+        lastError = forceError.message;
+      }
+      try {
+        await locator.evaluate((element) => element.click());
+        return { clicked: true, evaluated: true };
+      } catch (evaluateError) {
+        lastError = evaluateError.message;
+      }
+    }
+  }
+  return lastError ? { clicked: false, error: lastError } : { clicked: false, skipped: 'not_visible' };
 }
 
 async function clickLikelyRefreshButtons(page) {
+  await dismissBlockingOverlays(page);
   const selectors = [
     'button:has-text("查询")',
     'button:has-text("搜索")',
@@ -169,6 +345,44 @@ async function clickLikelyRefreshButtons(page) {
   }
 }
 
+async function grantCtripBrowserPermissions(context) {
+  if (!context || typeof context.grantPermissions !== 'function') {
+    return;
+  }
+  for (const origin of [
+    'https://ebooking.ctrip.com',
+    'https://bbk.ctripbiz.com',
+    'https://bbk.ctripbiz.cn',
+  ]) {
+    await context.grantPermissions(['notifications'], { origin }).catch(() => null);
+  }
+}
+
+async function dismissBlockingOverlays(page) {
+  await page.keyboard.press('Escape').catch(() => null);
+  const targets = [
+    page.getByRole('button', { name: '知道了', exact: true }).first(),
+    page.getByRole('button', { name: '我知道了', exact: true }).first(),
+    page.getByRole('button', { name: '允许', exact: true }).first(),
+    page.locator('button, .ant-modal-close, .c-modal-close, .modal-close, [aria-label="Close"], [aria-label="close"]').filter({ hasText: /^$/ }).first(),
+    page.locator('text=语音通知自动播放失败').locator('..').getByText('知道了', { exact: true }).first(),
+  ];
+  for (const target of targets) {
+    const visible = await target.isVisible({ timeout: 300 }).catch(() => false);
+    if (!visible) {
+      continue;
+    }
+    await target.click({ timeout: 1000, force: true }).catch(() => null);
+    await page.waitForTimeout(250);
+  }
+  await page.locator('.ant-modal-mask, .modal-backdrop, .c-modal-mask').evaluateAll((nodes) => {
+    for (const node of nodes) {
+      node.style.pointerEvents = 'none';
+      node.style.display = 'none';
+    }
+  }).catch(() => null);
+}
+
 function registerResponseCapture(page, target) {
   page.on('response', async response => {
     const requestType = response.request().resourceType();
@@ -178,7 +392,7 @@ function registerResponseCapture(page, target) {
 
     const url = response.url();
     const urlLower = String(url || '').toLowerCase();
-    if (!urlLower.includes('ctrip.com')) {
+    if (!isCtripCaptureUrl(urlLower)) {
       return;
     }
     if (target.xhr_urls.length < 200) {
@@ -188,8 +402,21 @@ function registerResponseCapture(page, target) {
       return;
     }
 
-    const urlSection = classifyByUrl(url);
-    if (!urlSection && !urlLower.includes('datacenter') && !urlLower.includes('comment') && !urlLower.includes('review')) {
+    const request = response.request();
+    const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeCaptureSection });
+    const urlSection = endpoint?.section || '';
+    const approvedMappingMatches = approvedMappingsForUrl(url);
+    const unmatchedXhr = {
+      url,
+      status: response.status(),
+      request_type: requestType,
+      method: request?.method?.() || '',
+    };
+    if (!endpoint && target.unmatched_xhr_urls.length < 200) {
+      target.unmatched_xhr_urls.push(unmatchedXhr);
+    }
+    const p3Candidate = buildCtripEndpointCandidates([unmatchedXhr])[0] || null;
+    if (!urlSection && approvedMappingMatches.length === 0 && !p3Candidate && !urlLower.includes('datacenter') && !urlLower.includes('pyramid') && !urlLower.includes('psi') && !urlLower.includes('bpi')) {
       return;
     }
 
@@ -199,45 +426,116 @@ function registerResponseCapture(page, target) {
       const text = await response.text();
       body = parseResponseBody(text, contentType);
     } catch (error) {
-      target.responses.push({ url, section: urlSection || 'unknown', status: response.status(), request_type: requestType, error: error.message });
+      target.responses.push({ url, section: urlSection || 'unknown', endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: error.message });
       return;
     }
 
-    const section = urlSection || inferSection(body, url);
-    if (!section || !requestedSections.includes(section)) {
+    if (p3Candidate && target.p3_evidence_drafts.length < 80) {
+      const requestPayload = request?.postData?.() || '';
+      const drafts = buildCtripEndpointEvidenceDraftsFromCapture([{
+        ...unmatchedXhr,
+        headers: request?.headers?.() || {},
+        payload: requestPayload,
+        response: body,
+        page_url: page.url(),
+        captured_at: capturedAt,
+        section: activeCaptureSection || p3Candidate.candidate_section,
+        page_context: {
+          page: sectionLabel(activeCaptureSection || p3Candidate.candidate_section),
+          module: activeCaptureSection || p3Candidate.candidate_section,
+          url: page.url(),
+        },
+      }], {
+        profileId,
+        hotelId: hotelId || profileId,
+        defaultDataDate,
+        capturedAt,
+        pageUrl: page.url(),
+        activeSection: activeCaptureSection || p3Candidate.candidate_section,
+        params: {
+          hotel_id: hotelId || profileId,
+          data_date: defaultDataDate,
+        },
+      });
+      target.p3_evidence_drafts.push(...drafts);
+    }
+
+    const section = urlSection || approvedMappingMatches[0]?.candidate_section || inferSection(body, url);
+    if (!section || (!requestedSections.includes(section) && approvedMappingMatches.length === 0)) {
       return;
     }
 
-    const safeBody = sanitizeOtaPayloadForStorage(body, section);
-    const rows = normalizeRows(safeBody, section, url);
+    const dataType = endpoint?.dataType || approvedMappingMatches[0]?.data_type || sectionDataType(section);
+    const safeBody = sanitizeOtaPayloadForStorage(body, dataType);
+    const rows = normalizeRows(safeBody, dataType, url).map(row => ({
+      ...row,
+      section,
+      data_type: dataType,
+      endpoint_id: endpoint?.id || '',
+      endpoint_label: endpoint?.label || '',
+    }));
+    const factContext = {
+      endpoint,
+      section,
+      dataType,
+      hotelId: hotelId || profileId,
+      dataDate: defaultDataDate,
+      capturedAt,
+      url,
+    };
+    const catalogFacts = extractCtripCatalogFacts(safeBody, factContext);
+    const standardRows = buildCtripStandardRowsFromFacts(catalogFacts, {
+      ...factContext,
+      systemHotelId: payload.system_hotel_id,
+      hotelName: payload.hotel_name,
+      profileId,
+      defaultDataDate,
+    });
+    const approvedRows = extractCtripApprovedMappingRows(body, {
+      ...factContext,
+      mappings: approvedMappings,
+      systemHotelId: payload.system_hotel_id,
+      hotelName: payload.hotel_name,
+      profileId,
+      defaultDataDate,
+    });
+    target.catalog_facts.push(...catalogFacts);
+    target.standard_rows.push(...standardRows);
+    target.standard_rows.push(...approvedRows);
     target.responses.push({
       url,
       section,
+      section_label: sectionLabel(section),
+      endpoint_id: endpoint?.id || '',
+      endpoint_label: endpoint?.label || '',
+      data_type: dataType,
       status: response.status(),
       request_type: requestType,
       keyword_hit: Boolean(urlSection),
       row_count: rows.length,
+      catalog_fact_count: catalogFacts.length,
+      standard_row_count: standardRows.length + approvedRows.length,
+      approved_mapping_row_count: approvedRows.length,
       data: safeBody,
     });
 
-    if (section === 'business') {
+    target.rows.push(...rows);
+    target.rows.push(...approvedRows);
+    target.by_section[section] ||= [];
+    target.by_section[section].push(...rows);
+    target.by_section[section].push(...approvedRows);
+    if (dataType === 'business') {
       target.business.push(...rows);
-    } else if (section === 'traffic') {
+    } else if (dataType === 'traffic') {
       target.traffic.push(...rows);
-    } else if (section === 'reviews') {
+    } else if (dataType === 'review') {
       target.reviews.push(...rows);
     }
   });
 }
 
 function classifyByUrl(url) {
-  const lower = String(url || '').toLowerCase();
-  for (const section of ['business', 'traffic', 'reviews']) {
-    if (KEYWORDS[section].some(keyword => lower.includes(keyword.toLowerCase()))) {
-      return section;
-    }
-  }
-  return '';
+  return findCtripEndpointByUrl(url, { preferredSection: activeCaptureSection })?.section || '';
 }
 
 function inferSection(value, url) {
@@ -661,6 +959,14 @@ function booleanValue(value, fallback = false) {
   return ['1', 'true', 'yes', 'y'].includes(String(value).trim().toLowerCase());
 }
 
+function booleanArg(value) {
+  if (value === true) {
+    return true;
+  }
+  const text = String(value ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'y', 'on'].includes(text);
+}
+
 function readPath(value, path) {
   let current = value;
   for (const key of path) {
@@ -736,25 +1042,110 @@ function parseCookieHeader(raw) {
 
 function allowedCookieDomains(platform) {
   if (platform === 'ctrip') {
-    return ['ebooking.ctrip.com', '.ctrip.com'];
+    return ['ebooking.ctrip.com', '.ctrip.com', 'bbk.ctripbiz.cn', '.ctripbiz.cn', 'bbk.ctripbiz.com', '.ctripbiz.com'];
   }
   return [];
 }
 
+function isCtripCaptureUrl(url) {
+  const lower = String(url || '').toLowerCase();
+  return lower.includes('ctrip.com')
+    || lower.includes('ctripbiz.cn')
+    || lower.includes('ctripbiz.com');
+}
+
+function firstKnownPageUrl() {
+  for (const section of ['business_overview', ...requestedSections]) {
+    const first = PAGE_URLS[section]?.[0]?.url;
+    if (first) {
+      return first;
+    }
+  }
+  return 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
+}
+
 function normalizeSections(value) {
-  const allowed = new Set(['business', 'traffic']);
-  const sections = String(value || '')
-    .split(',')
-    .map(item => item.trim().toLowerCase())
-    .filter(item => allowed.has(item));
-  return sections.length ? sections : ['business', 'traffic'];
+  return normalizeCtripCaptureSections(value);
+}
+
+function approvedMappingsForUrl(url) {
+  const lower = String(url || '').toLowerCase();
+  if (!lower || approvedMappings.length === 0) {
+    return [];
+  }
+  return approvedMappings.filter((mapping) => (
+    (mapping.url_keywords || []).some((keyword) => lower.includes(String(keyword || '').toLowerCase()))
+  ));
 }
 
 function summarize(data) {
+  const bySection = {};
+  for (const [section, rows] of Object.entries(data.by_section || {})) {
+    bySection[section] = rows.length;
+  }
   return {
     business: data.business.length,
     traffic: data.traffic.length,
     reviews: data.reviews.length,
+    rows: data.rows.length,
+    standard_rows: data.standard_rows.length,
+    catalog_facts: data.catalog_facts.length,
+    endpoint_candidates: data.endpoint_candidates.length,
+    p3_evidence_drafts: data.p3_evidence_drafts.length,
+    p3_evidence_ready: data.p3_evidence_drafts.filter(item => item.catalog_ready).length,
     responses: data.responses.length,
+    capture_gate: data.capture_gate?.status || 'unknown',
+    capture_gap_status: data.capture_gap_report?.status || 'unknown',
+    by_section: bySection,
+  };
+}
+
+function captureGateOptions() {
+  return {
+    minResponseCount: args.minResponseCount ?? 1,
+    minStandardRows: args.minStandardRows ?? 1,
+    maxMissingEndpoints: args.maxMissingEndpoints ?? 0,
+    minFieldCoverageRate: args.minFieldCoverageRate,
+    maxMissingFields: args.maxMissingFields,
+    requireFieldCoverage: args.requireFieldCoverage ? true : undefined,
+    requireEndpointCoverage: args.allowMissingEndpoints ? false : undefined,
+    requireExpectedEndpoints: args.allowEmptyExpectedEndpoints ? false : undefined,
+    requireAuthSession: args.allowUnverifiedAuth ? false : undefined,
+  };
+}
+
+function compactCaptureAudit(audit) {
+  const missingBySection = {};
+  for (const [section, stats] of Object.entries(audit.endpoint_coverage?.sections || {})) {
+    if ((stats.missing_endpoint_count || 0) > 0) {
+      missingBySection[section] = {
+        expected_endpoint_count: stats.expected_endpoint_count || 0,
+        captured_endpoint_count: stats.captured_endpoint_count || 0,
+        missing_endpoint_count: stats.missing_endpoint_count || 0,
+        missing_endpoint_ids: stats.missing_endpoint_ids || [],
+      };
+    }
+  }
+  const missingFieldsBySection = {};
+  for (const [section, stats] of Object.entries(audit.field_coverage?.sections || {})) {
+    if ((stats.missing_field_count || 0) > 0) {
+      missingFieldsBySection[section] = {
+        expected_field_count: stats.expected_field_count || 0,
+        captured_field_count: stats.captured_field_count || 0,
+        missing_field_count: stats.missing_field_count || 0,
+        missing_field_ids: (stats.missing_field_ids || []).slice(0, 80),
+      };
+    }
+  }
+  return {
+    generated_at: audit.generated_at,
+    summary: audit.summary,
+    auth_status: audit.auth_status,
+    endpoint_coverage: audit.endpoint_coverage?.summary || null,
+    field_coverage: audit.field_coverage?.summary || null,
+    capture_gap_report: audit.capture_gap_report || null,
+    missing_by_section: missingBySection,
+    missing_fields_by_section: missingFieldsBySection,
+    interactions_by_section: audit.interactions_by_section || {},
   };
 }

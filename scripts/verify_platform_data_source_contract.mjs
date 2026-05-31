@@ -174,8 +174,8 @@ for (const [needle, label] of [
 check(
   'scripts/ctrip_browser_capture.mjs',
   'Ctrip browser capture sections exclude reviews',
-  (source) => source.includes("const allowed = new Set(['business', 'traffic']);"),
-  "const allowed = new Set(['business', 'traffic']);"
+  (source) => source.includes('normalizeCtripCaptureSections') && !source.includes("'getCommentList'"),
+  'normalizeCtripCaptureSections without getCommentList'
 );
 
 check(

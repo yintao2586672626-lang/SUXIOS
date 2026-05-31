@@ -14,6 +14,11 @@ const requiredScope = [
 const requiredDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_blocker_close_plan.md',
+  'docs/release_verification_command_matrix.md',
+  'docs/release_functional_acceptance_matrix.md',
+  'docs/release_issue_register.md',
+  'docs/release_problem_report.zh-CN.md',
+  'docs/release_evidence_collection.zh-CN.md',
   'docs/release_readiness_status.json',
   'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
@@ -21,31 +26,88 @@ const requiredDocs = [
   'docs/ota_credential_rotation_checklist.md',
   'docs/ota_credential_rotation_attestation.example.json',
   'docs/codex_security_scan_authorization.md',
+  'docs/codex_security_scan_manifest.example.json',
   'docs/ui-handoff/README.md',
   'docs/release_external_state_evidence.example.json',
   'docs/release_external_state_result.example.json',
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
+  'scripts/collect_release_external_state.ps1',
+  'scripts/verify_release_functional_readiness.mjs',
+  'scripts/verify_release_issue_register.mjs',
+  'scripts/verify_release_env.mjs',
+  'scripts/lib/release_env_checks.mjs',
+  'scripts/verify_release_llm.mjs',
+  'scripts/lib/llm_attestation_checks.mjs',
+  'scripts/verify_release_design.mjs',
+  'scripts/lib/design_handoff_checks.mjs',
+  'scripts/verify_release_ota_credentials.mjs',
+  'scripts/lib/ota_credential_checks.mjs',
+  'scripts/verify_release_security_scan.mjs',
+  'scripts/lib/security_scan_checks.mjs',
 ];
 
 const requiredPackageScripts = [
   'review:release-readiness',
+  'review:functional-readiness',
+  'review:release-issues',
+  'review:release-env',
+  'review:release-llm',
+  'review:release-design',
+  'review:release-ota-credentials',
+  'review:release-security-scan',
   'review:release-external-state',
+  'collect:release-external-state',
+  'review:release-external-state:local',
   'verify:release-status',
+];
+
+const requiredVerificationMatrixCommands = [
+  'npm run review:release-env',
+  'npm run review:release-llm',
+  'npm run review:release-design',
+  'npm run review:release-ota-credentials',
+  'npm run review:release-security-scan',
+  'npm run review:release-external-state',
+  'npm run review:release-external-state:local',
+  'npm run review:release-readiness',
+  'npm run review:functional-readiness',
+  'npm run review:release-issues',
+  'npm run verify:release-status',
+  'npm run review:non-security',
+];
+
+const requiredWorkflowCommands = [
+  'composer audit --no-interaction',
+  'npm audit --audit-level=moderate',
+  'composer test',
+  'npm run verify:p0-guards',
+  'npm run review:functional-readiness',
+  'npm run review:release-issues',
+  'npm run review:non-security',
+  'npm run verify:release-status',
 ];
 
 const requiredOpenFailurePatterns = [
   /production env/i,
   /LLM|connectivity|LLM_CONNECTIVITY_ATTESTATION_FILE/i,
-  /figma|canva|design-token|design_handoff_manifest/i,
+  /figma|canva|design-token|design_handoff_manifest|design_handoff_manifest\.json/i,
   /database\/backups|credential-shaped/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
   /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
+  /\.git\/index\.lock|local git index|git state/i,
 ];
 
 const requiredExternalStateFailurePatterns = [
   /worktree/i,
   /evidence|\.git\/index\.lock/i,
+];
+
+const requiredLocalExternalStateScriptFragments = [
+  'collect_release_external_state.ps1',
+  'RELEASE_EXTERNAL_STATE_FILE',
+  'verify_release_external_state.mjs',
+  'exit $LASTEXITCODE',
 ];
 
 const requiredDoNotClaimReadyPatterns = [
@@ -62,6 +124,7 @@ const requiredReportBlockerPatterns = [
   /Production env/i,
   /LLM_CONNECTIVITY_ATTESTATION_FILE|LLM connectivity/i,
   /Figma|Canva|design token/i,
+  /standalone design-token files or screenshots are not sufficient/i,
   /database\/backups|credential-shaped/i,
   /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE|OTA credential rotation/i,
   /CODEX_SECURITY_SCAN_DIR|Codex Security/i,
@@ -95,6 +158,10 @@ const requiredSecurityScanPatterns = [
   /Validation/i,
   /Attack-path analysis/i,
   /Markdown\s*\/\s*HTML final report/i,
+  /scan_manifest\.json/i,
+  /validation summary/i,
+  /attack-path analysis report/i,
+  /reviewed_surfaces\.md/i,
   /production configuration/i,
   /OTA credentials/i,
   /tenant isolation/i,
@@ -119,6 +186,19 @@ const requiredExternalEvidenceKeys = [
   'commands',
 ];
 
+const requiredSecurityScanManifestKeys = [
+  'schema_version',
+  'scan_mode',
+  'target',
+  'reviewed_at',
+  'reviewer',
+  'subagents_authorized',
+  'phases',
+  'artifacts',
+  'final_report_validated',
+  'report_html_rendered',
+];
+
 const requiredLlmAttestationKeys = [
   'reviewed_at',
   'reviewer',
@@ -129,6 +209,7 @@ const requiredLlmAttestationKeys = [
   'base_url',
   'ai_model_config_enabled',
   'ai_config_secret_checked',
+  'redaction_checked',
   'request',
   'result',
   'evidence_ref',
@@ -137,6 +218,7 @@ const requiredLlmAttestationKeys = [
 const requiredOtaAttestationKeys = [
   'reviewed_at',
   'reviewer',
+  'redaction_checked',
   'platforms',
   'backup_cleanup',
 ];
@@ -157,6 +239,9 @@ const requiredExternalStateResultKeys = requiredReadinessResultKeys;
 const asciiReleaseDocs = [
   'docs/release_readiness_remaining_issues.md',
   'docs/release_blocker_close_plan.md',
+  'docs/release_verification_command_matrix.md',
+  'docs/release_functional_acceptance_matrix.md',
+  'docs/release_issue_register.md',
   'docs/release_readiness_status.json',
   'docs/codex_security_scan_authorization.md',
   'docs/release_readiness_result.example.json',
@@ -258,6 +343,157 @@ for (const doc of asciiReleaseDocs) {
   assertAsciiText(doc);
 }
 
+try {
+  const gitignore = readText('.gitignore');
+  if (!gitignore.includes('docs/release_external_state_evidence.local.json')) {
+    fail('.gitignore must exclude local release external-state evidence output');
+  } else {
+    pass('.gitignore excludes local release external-state evidence output');
+  }
+} catch (error) {
+  fail(`could not read .gitignore: ${error.message}`);
+}
+
+try {
+  assertTextContainsPatterns(
+    readText('scripts/collect_release_external_state.ps1'),
+    [
+      /git.*ls-files.*database\/backups|database\/backups.*ls-files/s,
+      /git.*status.*--short.*--branch|--short.*--branch/s,
+      /gh.*pr.*view|pr.*view/s,
+      /ConvertTo-Json/i,
+    ],
+    'scripts/collect_release_external_state.ps1',
+  );
+} catch (error) {
+  fail(`could not read external-state collector script: ${error.message}`);
+}
+
+try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_env.mjs'),
+    [
+      /checkProductionEnvFile/,
+      /RELEASE_ENV_FILE/,
+      /Release env summary/,
+    ],
+    'scripts/verify_release_env.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkProductionEnvFile/,
+      /requireOutsideRepo:\s*Boolean\(process\.env\.RELEASE_ENV_FILE\)/,
+    ],
+    'scripts/verify_release_readiness.mjs release env integration',
+  );
+} catch (error) {
+  fail(`could not read release env verifier scripts: ${error.message}`);
+}
+
+try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_llm.mjs'),
+    [
+      /checkLlmConnectivityAttestation/,
+      /LLM_CONNECTIVITY_ATTESTATION_FILE/,
+      /Release LLM connectivity summary/,
+    ],
+    'scripts/verify_release_llm.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkLlmAttestationFile/,
+      /LLM_CONNECTIVITY_ATTESTATION_FILE/,
+    ],
+    'scripts/verify_release_readiness.mjs release LLM integration',
+  );
+} catch (error) {
+  fail(`could not read release LLM verifier scripts: ${error.message}`);
+}
+
+try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_design.mjs'),
+    [
+      /checkDesignHandoff/,
+      /Release design handoff summary/,
+    ],
+    'scripts/verify_release_design.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkDesignHandoff/,
+      /result\.warnings\.forEach\(addWarning\)/,
+    ],
+    'scripts/verify_release_readiness.mjs release design integration',
+  );
+} catch (error) {
+  fail(`could not read release design verifier scripts: ${error.message}`);
+}
+
+try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_ota_credentials.mjs'),
+    [
+      /checkOtaCredentialRelease/,
+      /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/,
+      /Release OTA credential summary/,
+    ],
+    'scripts/verify_release_ota_credentials.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkBackupCredentialFields/,
+      /checkOtaAttestationFile/,
+    ],
+    'scripts/verify_release_readiness.mjs release OTA credential integration',
+  );
+} catch (error) {
+  fail(`could not read release OTA credential verifier scripts: ${error.message}`);
+}
+
+try {
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_security_scan.mjs'),
+    [
+      /checkSecurityScanReports/,
+      /CODEX_SECURITY_SCAN_DIR/,
+      /Release security scan summary/,
+    ],
+    'scripts/verify_release_security_scan.mjs',
+  );
+  assertTextContainsPatterns(
+    readText('scripts/verify_release_readiness.mjs'),
+    [
+      /checkSecurityScanReports/,
+      /CODEX_SECURITY_SCAN_DIR/,
+    ],
+    'scripts/verify_release_readiness.mjs release security scan integration',
+  );
+} catch (error) {
+  fail(`could not read release security scan verifier scripts: ${error.message}`);
+}
+
+try {
+  const workflow = readText('.github/workflows/php.yml');
+  let missingWorkflowCommand = false;
+  for (const command of requiredWorkflowCommands) {
+    if (!workflow.includes(command)) {
+      fail(`.github/workflows/php.yml must run ${command}`);
+      missingWorkflowCommand = true;
+    }
+  }
+  if (!missingWorkflowCommand) {
+    pass('.github/workflows/php.yml covers required CI commands');
+  }
+} catch (error) {
+  fail(`could not read .github/workflows/php.yml: ${error.message}`);
+}
+
 const status = readJson('docs/release_readiness_status.json');
 if (status) {
   if (status.schema_version !== 1) {
@@ -333,12 +569,32 @@ if (status) {
     requiredExternalStateFailurePatterns,
     'external_state_check.open_failures',
   );
+  const externalStateWarnings = Array.isArray(externalStateCheck.warnings) ? externalStateCheck.warnings.join('\n') : '';
+  if (!externalStateWarnings.includes('npm run collect:release-external-state')) {
+    fail('external_state_check.warnings must mention npm run collect:release-external-state');
+  }
 
   assertArrayContainsPatterns(
     status.do_not_claim_ready_until,
     requiredDoNotClaimReadyPatterns,
     'do_not_claim_ready_until',
   );
+  const doNotClaimReadyText = Array.isArray(status.do_not_claim_ready_until) ? status.do_not_claim_ready_until.join('\n') : '';
+  if (!doNotClaimReadyText.includes('review:release-env')) {
+    fail('do_not_claim_ready_until must mention review:release-env for production env closure');
+  }
+  if (!doNotClaimReadyText.includes('review:release-llm')) {
+    fail('do_not_claim_ready_until must mention review:release-llm for production LLM closure');
+  }
+  if (!doNotClaimReadyText.includes('review:release-design')) {
+    fail('do_not_claim_ready_until must mention review:release-design for Figma/Canva closure');
+  }
+  if (!doNotClaimReadyText.includes('review:release-ota-credentials')) {
+    fail('do_not_claim_ready_until must mention review:release-ota-credentials for OTA credential closure');
+  }
+  if (!doNotClaimReadyText.includes('review:release-security-scan')) {
+    fail('do_not_claim_ready_until must mention review:release-security-scan for Codex Security scan closure');
+  }
 
   const blockers = Array.isArray(status.blockers) ? status.blockers : [];
   if (blockers.length !== requiredBlockerIds.length) {
@@ -377,6 +633,12 @@ if (packageJson) {
       fail(`package.json scripts is missing ${scriptName}`);
     }
   }
+  const localExternalStateScript = String(packageJson.scripts?.['review:release-external-state:local'] || '');
+  for (const fragment of requiredLocalExternalStateScriptFragments) {
+    if (!localExternalStateScript.includes(fragment)) {
+      fail(`package.json review:release-external-state:local must include ${fragment}`);
+    }
+  }
 }
 
 for (const jsonDoc of [
@@ -387,6 +649,7 @@ for (const jsonDoc of [
   'docs/release_external_state_result.example.json',
   'docs/llm_connectivity_attestation.example.json',
   'docs/release_readiness_result.example.json',
+  'docs/codex_security_scan_manifest.example.json',
 ]) {
   readJson(jsonDoc);
 }
@@ -458,6 +721,10 @@ if (llmAttestationExample) {
     fail('docs/llm_connectivity_attestation.example.json must remain a placeholder template, not a passing attestation');
     attestationComplete = false;
   }
+  if (llmAttestationExample.redaction_checked !== true) {
+    fail('docs/llm_connectivity_attestation.example.json redaction_checked must be true');
+    attestationComplete = false;
+  }
   if (attestationComplete) {
     pass('docs/llm_connectivity_attestation.example.json covers required fields');
   }
@@ -471,6 +738,10 @@ if (otaAttestationExample) {
       fail(`docs/ota_credential_rotation_attestation.example.json is missing ${key}`);
       otaAttestationComplete = false;
     }
+  }
+  if (otaAttestationExample.redaction_checked !== true) {
+    fail('docs/ota_credential_rotation_attestation.example.json redaction_checked must be true');
+    otaAttestationComplete = false;
   }
   const cleanup = otaAttestationExample.backup_cleanup || {};
   for (const key of ['database_backups_action', 'paths_reviewed', 'git_tracking_check', 'release_readiness_check']) {
@@ -495,6 +766,7 @@ if (externalEvidenceExample) {
   }
   for (const commandKey of [
     'git_ls_files_database_backups',
+    'git_index_lock',
     'git_status_short_branch',
     'gh_pr_view',
   ]) {
@@ -503,8 +775,50 @@ if (externalEvidenceExample) {
       evidenceComplete = false;
     }
   }
+  const prJson = externalEvidenceExample.commands?.gh_pr_view?.json || {};
+  if (prJson.state !== 'OPEN') {
+    fail('docs/release_external_state_evidence.example.json gh_pr_view.json.state must be OPEN');
+    evidenceComplete = false;
+  }
+  if (prJson.isDraft !== false) {
+    fail('docs/release_external_state_evidence.example.json gh_pr_view.json.isDraft must be false');
+    evidenceComplete = false;
+  }
   if (evidenceComplete) {
     pass('docs/release_external_state_evidence.example.json covers required commands');
+  }
+}
+
+const securityScanManifestExample = readJson('docs/codex_security_scan_manifest.example.json');
+if (securityScanManifestExample) {
+  let manifestComplete = true;
+  for (const key of requiredSecurityScanManifestKeys) {
+    if (!(key in securityScanManifestExample)) {
+      fail(`docs/codex_security_scan_manifest.example.json is missing ${key}`);
+      manifestComplete = false;
+    }
+  }
+  const phases = securityScanManifestExample.phases || {};
+  for (const phase of ['threat_model', 'finding_discovery', 'validation', 'attack_path_analysis', 'final_report']) {
+    if (phases[phase] !== 'completed') {
+      fail(`docs/codex_security_scan_manifest.example.json phases.${phase} must be completed`);
+      manifestComplete = false;
+    }
+  }
+  if (securityScanManifestExample.scan_mode !== 'repository-wide') {
+    fail('docs/codex_security_scan_manifest.example.json scan_mode must be repository-wide');
+    manifestComplete = false;
+  }
+  if (securityScanManifestExample.subagents_authorized !== true) {
+    fail('docs/codex_security_scan_manifest.example.json subagents_authorized must be true');
+    manifestComplete = false;
+  }
+  if (securityScanManifestExample.final_report_validated !== true || securityScanManifestExample.report_html_rendered !== true) {
+    fail('docs/codex_security_scan_manifest.example.json must confirm final report validation and HTML rendering');
+    manifestComplete = false;
+  }
+  if (manifestComplete) {
+    pass('docs/codex_security_scan_manifest.example.json covers required fields');
   }
 }
 
@@ -525,11 +839,33 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
+  if (readinessResultExample.summary?.passed !== 5) {
+    fail('docs/release_readiness_result.example.json summary.passed must match the current 5 release-readiness passes');
+    resultComplete = false;
+  }
+  const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
+  if (!/GitHub Actions workflow includes dependency audits, PHPUnit, P0 guards, functional readiness, release issue register, non-security review, and release-status contracts\./.test(readinessPasses)) {
+    fail('docs/release_readiness_result.example.json passes must include the current GitHub Actions workflow coverage pass');
+    resultComplete = false;
+  }
   assertArrayContainsPatterns(
     readinessResultExample.failures,
     requiredOpenFailurePatterns,
     'docs/release_readiness_result.example.json failures',
   );
+  const backupFailure = Array.isArray(readinessResultExample.failures)
+    ? readinessResultExample.failures.find((failure) => /database\/backups.*credential-shaped/i.test(failure))
+    : '';
+  const backupFailureText = backupFailure || '';
+  for (const file of [
+    'database/backups/hotelx_after_tenant_security_20260529_161926.sql',
+    'database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql',
+  ]) {
+    if (!backupFailureText.includes(file)) {
+      fail(`docs/release_readiness_result.example.json backup failure must include redacted file-level count for ${file}`);
+      resultComplete = false;
+    }
+  }
   if (resultComplete) {
     pass('docs/release_readiness_result.example.json covers required fields');
   }
@@ -557,13 +893,18 @@ if (externalStateResultExample) {
     requiredExternalStateFailurePatterns,
     'docs/release_external_state_result.example.json failures',
   );
+  const externalFailureText = Array.isArray(externalStateResultExample.failures) ? externalStateResultExample.failures.join('\n') : '';
+  if (!externalFailureText.includes('npm run collect:release-external-state')) {
+    fail('docs/release_external_state_result.example.json must mention npm run collect:release-external-state fallback');
+    resultComplete = false;
+  }
   if (resultComplete) {
     pass('docs/release_external_state_result.example.json covers required fields');
   }
 }
 
 const designManifestExample = readJson('docs/design_handoff_manifest.example.json');
-if (designManifestExample) {
+  if (designManifestExample) {
   let manifestComplete = true;
   for (const key of requiredDesignManifestKeys) {
     if (!(key in designManifestExample)) {
@@ -583,6 +924,10 @@ if (designManifestExample) {
       fail(`docs/design_handoff_manifest.example.json covered_flows is missing ${flow}`);
       manifestComplete = false;
     }
+  }
+  if (!Array.isArray(designManifestExample.open_issues) || designManifestExample.open_issues.length !== 0) {
+    fail('docs/design_handoff_manifest.example.json open_issues must be an empty array');
+    manifestComplete = false;
   }
   if (manifestComplete) {
     pass('docs/design_handoff_manifest.example.json covers required fields and flows');
@@ -604,6 +949,27 @@ try {
   if (!report.includes('docs/release_readiness_status.json')) {
     fail('release_readiness_remaining_issues.md must reference docs/release_readiness_status.json');
   }
+  if (!report.includes('docs/release_functional_acceptance_matrix.md')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_functional_acceptance_matrix.md');
+  }
+  if (!report.includes('docs/release_issue_register.md')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_issue_register.md');
+  }
+  if (!report.includes('docs/release_problem_report.zh-CN.md')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_problem_report.zh-CN.md');
+  }
+  if (!report.includes('docs/release_evidence_collection.zh-CN.md')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_evidence_collection.zh-CN.md');
+  }
+  if (!report.includes('npm run review:functional-readiness')) {
+    fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
+  }
+  if (!report.includes('7 failures')) {
+    fail('release_readiness_remaining_issues.md must state the current 7 release-readiness failures');
+  }
+  if (report.includes('6 direct release-evidence failures')) {
+    fail('release_readiness_remaining_issues.md must not use the stale 6 direct release-evidence failure count');
+  }
   assertTextContainsPatterns(
     report,
     requiredReportBlockerPatterns,
@@ -620,18 +986,27 @@ try {
 
 try {
   const closePlan = readText('docs/release_blocker_close_plan.md');
+  if (!closePlan.includes('docs/release_verification_command_matrix.md')) {
+    fail('release_blocker_close_plan.md must reference docs/release_verification_command_matrix.md');
+  }
   for (const id of requiredBlockerIds) {
     if (!closePlan.includes(id)) {
       fail(`release_blocker_close_plan.md must mention ${id}`);
     }
   }
   for (const command of [
+    'npm run review:release-env',
+    'npm run review:release-llm',
+    'npm run review:release-design',
+    'npm run review:release-ota-credentials',
+    'npm run review:release-security-scan',
     'npm run review:release-readiness',
     'npm run review:release-external-state',
     'LLM_CONNECTIVITY_ATTESTATION_FILE',
     'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
     'CODEX_SECURITY_SCAN_DIR',
     'docs/design_handoff_manifest.json',
+    'scripts/collect_release_external_state.ps1',
   ]) {
     if (!closePlan.includes(command)) {
       fail(`release_blocker_close_plan.md must mention ${command}`);
@@ -639,6 +1014,107 @@ try {
   }
 } catch (error) {
   fail(`could not read release blocker close plan: ${error.message}`);
+}
+
+try {
+  const matrix = readText('docs/release_verification_command_matrix.md');
+  for (const id of requiredBlockerIds) {
+    if (!matrix.includes(id)) {
+      fail(`release_verification_command_matrix.md must mention ${id}`);
+    }
+  }
+  for (const command of requiredVerificationMatrixCommands) {
+    if (!matrix.includes(command)) {
+      fail(`release_verification_command_matrix.md must mention ${command}`);
+    }
+  }
+  for (const evidenceRef of [
+    'RELEASE_ENV_FILE',
+    'LLM_CONNECTIVITY_ATTESTATION_FILE',
+    'docs/design_handoff_manifest.json',
+    'OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE',
+    'CODEX_SECURITY_SCAN_DIR',
+    'docs/release_external_state_evidence.local.json',
+  ]) {
+    if (!matrix.includes(evidenceRef)) {
+      fail(`release_verification_command_matrix.md must mention ${evidenceRef}`);
+    }
+  }
+  if (!matrix.includes('Do not mark a blocker closed from narrative evidence alone')) {
+    fail('release_verification_command_matrix.md must require command-based closure');
+  }
+  if (!matrix.includes('Do not store real keys')) {
+    fail('release_verification_command_matrix.md must prohibit secret-bearing evidence');
+  }
+} catch (error) {
+  fail(`could not read release verification command matrix: ${error.message}`);
+}
+
+try {
+  const functionalMatrix = readText('docs/release_functional_acceptance_matrix.md');
+  for (const phrase of [
+    'OTA channel data',
+    'Revenue analysis',
+    'AI decision',
+    'Operations management',
+    'Investment decision',
+    '@github',
+    '@openai-developers',
+    '@codex-security',
+    '@figma',
+    '@canva',
+    'does not close the external release blockers',
+    'npm run review:functional-readiness',
+    'npm run test:e2e:business',
+  ]) {
+    if (!functionalMatrix.includes(phrase)) {
+      fail(`release_functional_acceptance_matrix.md must mention ${phrase}`);
+    }
+  }
+} catch (error) {
+  fail(`could not read release functional acceptance matrix: ${error.message}`);
+}
+
+try {
+  const issueRegister = readText('docs/release_issue_register.md');
+  for (const id of requiredBlockerIds) {
+    if (!issueRegister.includes(id)) {
+      fail(`release_issue_register.md must mention ${id}`);
+    }
+  }
+  for (const scope of requiredScope) {
+    if (!issueRegister.includes(scope)) {
+      fail(`release_issue_register.md must mention ${scope}`);
+    }
+  }
+  for (const command of [
+    'npm run review:release-env',
+    'npm run review:release-llm',
+    'npm run review:release-design',
+    'npm run review:release-ota-credentials',
+    'npm run review:release-security-scan',
+    'npm run review:release-external-state',
+    'npm run review:release-readiness',
+    'npm run review:functional-readiness',
+    'npm run verify:release-status',
+  ]) {
+    if (!issueRegister.includes(command)) {
+      fail(`release_issue_register.md must mention ${command}`);
+    }
+  }
+  for (const phrase of [
+    'Status: not release-ready',
+    '4498 credential-shaped matches',
+    '.git/index.lock',
+    'Do not mark any issue closed from narrative evidence alone',
+    'Do not delete or sanitize local backup files without explicit operator approval',
+  ]) {
+    if (!issueRegister.includes(phrase)) {
+      fail(`release_issue_register.md must include ${phrase}`);
+    }
+  }
+} catch (error) {
+  fail(`could not read release issue register: ${error.message}`);
 }
 
 if (issues.length > 0) {

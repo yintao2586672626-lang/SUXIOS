@@ -149,6 +149,9 @@ Route::group('api/online-data', function () {
     Route::post('/fetch-ctrip-comments', 'OnlineData/fetchCtripComments');
     Route::post('/capture-ctrip-comments-browser', 'OnlineData/captureCtripCommentsBrowserData');
     Route::post('/capture-ctrip-browser', 'OnlineData/captureCtripBrowserData');
+    Route::get('/ctrip-diagnosis-snapshot', 'OnlineData/ctripDiagnosisSnapshot');
+    Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData');
+    Route::post('/validate-ctrip-endpoint-evidence', 'OnlineData/validateCtripEndpointEvidence');
     Route::post('/fetch-ctrip-overview', 'OnlineData/fetchCtripOverviewData');
     Route::post('/fetch-ctrip-ads', 'OnlineData/fetchCtripAds');
     Route::post('/save-ctrip-comment-config', 'OnlineData/saveCtripCommentConfig');

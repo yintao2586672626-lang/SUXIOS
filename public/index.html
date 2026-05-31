@@ -36,8 +36,8 @@
                         <i class="fas fa-hotel text-4xl text-white" style="display:none"></i>
                     </div>
                     <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
-                    <p class="login-slogan text-base font-medium tracking-wide">Hotel Intelligence Platform</p>
-                    <p class="login-copy">酒店经营与收益决策数据中枢</p>
+                    <p class="login-slogan text-base font-medium tracking-wide">OTA Revenue Intelligence</p>
+                    <p class="login-copy">授权OTA数据驱动的经营诊断与动作闭环</p>
                 </div>
                 
                 <!-- 登录表单 -->
@@ -206,7 +206,7 @@
 
                 <div class="slogan-container text-center">
                     <p class="login-system-note">
-                        <i class="fas fa-chart-line"></i>OTA 数据驱动的运营收益闭环平台
+                        <i class="fas fa-chart-line"></i>字段口径 · 竞争圈诊断 · 待确认AI建议 · 动作复盘
                     </p>
                 </div>
                 
@@ -223,7 +223,7 @@
                 
                 <!-- 底部品牌信息 -->
                 <div class="brand-footer">
-                    <div class="brand-name">宿析OS · Hotel Intelligence Platform</div>
+                    <div class="brand-name">宿析OS · OTA经营反馈系统</div>
                     <div class="version">v2.0.0</div>
                 </div>
             </div>
@@ -2861,7 +2861,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold text-gray-900">策源·全维数据</h2>
-                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：把经营结果、OTA漏斗和外部压力放在同一屏，判断收入/订单变化来自哪里</p>
+                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：把经营结果、OTA漏斗和竞争圈口径放在同一屏，判断收入/订单变化来自哪里</p>
                                 </div>
                                 <div class="flex flex-col sm:flex-row gap-3">
                                     <select v-model="operationFilters.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm min-w-[160px]">
@@ -2979,7 +2979,7 @@
                             <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold text-gray-900">策析·根因定位</h2>
-                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：基于经营、OTA、竞对与服务质量数据识别主要根因</p>
+                                    <p class="text-sm text-gray-500 mt-1">P0主闭环：基于经营、OTA、竞争圈与服务质量数据识别主要根因</p>
                                 </div>
                                 <div class="flex flex-col sm:flex-row gap-3">
                                     <select v-model="operationFilters.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[160px]">
@@ -4377,7 +4377,7 @@
                                 <div class="flex flex-col md:flex-row md:items-center gap-3">
                                     <div>
                                         <div class="text-xl font-bold text-gray-900">线上获客与收益罗盘</div>
-                                        <div class="text-xs text-gray-500 mt-1">优先处理 OTA 数据、收益诊断、根因定位、策略动作和效果复盘</div>
+                                        <div class="text-xs text-gray-500 mt-1">以授权 OTA 可见数据为输入，串联字段口径、收益诊断、待确认动作和效果复盘</div>
                                     </div>
                                     <select v-model="filterReportHotel" class="input-field w-full md:w-56">
                                         <option value="">全部门店</option>
@@ -4915,7 +4915,7 @@
                     <div v-if="currentPage === 'ctrip-ebooking'">
                         <div class="bg-white rounded-lg shadow">
                             <div class="p-4 border-b">
-                                <h3 class="font-medium">携程ebooking数据获取</h3>
+                                <h3 class="font-medium">携程 eBooking 数据基石</h3>
                             </div>
                             <div class="p-6">
                                 <!-- Tabs -->
@@ -4980,7 +4980,7 @@
                                     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                         <div>
                                             <h4 class="text-lg font-semibold text-gray-900">OTA 数据健康</h4>
-                                            <p class="text-sm text-gray-500">OTA channel scope · 携程 / 美团授权、采集、字段、回放与待处理动作</p>
+                                            <p class="text-sm text-gray-500">OTA渠道口径 · 携程/美团授权、采集证据、字段口径、回放与待处理动作</p>
                                         </div>
                                         <button @click="loadDataHealthPanel" :disabled="collectionReliabilityLoading"
                                             class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50 disabled:text-gray-400">
@@ -4998,6 +4998,64 @@
                                                 </div>
                                                 <div class="mt-2 text-xl font-semibold text-gray-900">{{ card.value }}</div>
                                                 <div class="mt-1 text-xs text-gray-500 truncate" :title="card.sub">{{ card.sub }}</div>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="collectionHealthCtripCatalog.available || collectionHealthCtripCatalog.message" data-testid="ctrip-capture-catalog-health" class="border rounded-lg bg-white p-4">
+                                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                                                <div>
+                                                    <h4 class="font-medium text-gray-800">携程字段目录</h4>
+                                                    <div class="text-xs text-gray-500 mt-1">{{ collectionHealthCtripCatalog.message || '等待携程字段目录生成' }}</div>
+                                                </div>
+                                                <span :class="['px-2 py-1 rounded-full border text-xs whitespace-nowrap', collectionHealthStatusClass(collectionHealthCtripCatalogStatus)]">
+                                                    {{ collectionHealthCtripCatalog.is_live_capture_ready ? '真实抓取可用' : '真实抓取门禁：' + (collectionHealthCtripCatalog.capture_gate_status || 'missing') }}
+                                                </span>
+                                            </div>
+                                            <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-4">
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">模块</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.section_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">接口规则</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.endpoint_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">字段</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.field_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">响应数</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.response_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">标准行</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.standard_row_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">字段覆盖</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.coverage_rate === null ? '-' : collectionHealthCtripCatalog.coverage_rate + '%' }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3 text-xs text-gray-600">
+                                                <div>默认范围：{{ collectionHealthCtripSectionText(collectionHealthCtripCatalog.default_sections) }}</div>
+                                                <div>wide范围：{{ collectionHealthCtripSectionText(collectionHealthCtripCatalog.wide_sections) }}</div>
+                                                <div>capture_gate_status：{{ collectionHealthCtripCatalog.capture_gate_status || 'missing' }}</div>
+                                                <div>auth_status：{{ collectionHealthCtripCatalog.auth_status || 'unknown' }}</div>
+                                                <div class="md:col-span-2">失败检查：{{ collectionHealthCtripSectionText(collectionHealthCtripCatalog.failed_check_ids) }}</div>
+                                                <div>采集缺口：{{ collectionHealthCtripCatalog.capture_gap_status || 'missing' }}</div>
+                                                <div>缺失正式接口：{{ collectionHealthCtripCatalog.capture_gap_missing_formal_endpoint_count || 0 }}</div>
+                                                <div>缺失字段：{{ collectionHealthCtripCatalog.capture_gap_missing_field_count || 0 }}</div>
+                                                <div>候选证据方向：{{ collectionHealthCtripCatalog.capture_gap_p3_evidence_section_count || 0 }}</div>
+                                                <div class="md:col-span-2">阻塞原因：{{ collectionHealthCtripSectionText(collectionHealthCtripCatalog.capture_gap_blockers) }}</div>
+                                            </div>
+                                            <div v-if="collectionHealthCtripCatalog.capture_gap_next_actions && collectionHealthCtripCatalog.capture_gap_next_actions.length" class="mt-3 rounded border border-amber-100 bg-amber-50 p-2">
+                                                <div class="text-xs font-medium text-amber-800 mb-1">下一步抓取动作</div>
+                                                <div v-for="action in collectionHealthCtripCatalog.capture_gap_next_actions.slice(0, 4)" :key="`${action.action}-${action.reason}-${action.section}-${action.endpoint_id}`" class="text-xs text-amber-800 truncate">
+                                                    {{ action.action || '-' }} · {{ action.reason || '-' }}
+                                                    <span v-if="action.section"> / {{ action.section }}</span>
+                                                    <span v-if="action.endpoint_id"> / {{ action.endpoint_id }}</span>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -5082,7 +5140,7 @@
                                             <i class="fas fa-info-circle mr-2"></i>携程竞对经营数据获取
                                         </h4>
                                         <p class="text-sm text-blue-700">
-                                            从携程ebooking后台获取竞对经营数据（销售额、间夜数、订单数、评分等）。
+                                            从携程 eBooking 后台获取竞争圈经营数据（预订销售额、在店间夜、预订订单量、点评分等）。
                                             请先在"酒店管理"中维护该酒店的数据源配置，或手动输入Cookie。
                                         </p>
                                     </div>
@@ -6001,14 +6059,22 @@
                                                     <i class="fas fa-window-restore text-gray-500 mr-2"></i>浏览器 Profile 兜底采集
                                                 </h4>
                                                 <p class="text-sm text-gray-500">
-                                                    复用本机独立 Profile 打开携程概况、流量页面，监听 XHR/fetch JSON 后写入现有线上数据表。
+                                                    复用本机独立 Profile 打开携程后台页面，监听 XHR/fetch JSON 后按字段目录解析为标准行。
                                                 </p>
                                             </div>
-                                            <button type="button"
-                                                @click="openTargetSite('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true')"
-                                                class="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm">
-                                                <i class="fas fa-external-link-alt mr-2"></i>打开携程
-                                            </button>
+                                            <div class="flex flex-wrap gap-2">
+                                                <button type="button"
+                                                    @click="loadCtripDiagnosisSnapshot"
+                                                    :disabled="ctripDiagnosisSnapshotLoading"
+                                                    class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300 text-sm">
+                                                    <i :class="ctripDiagnosisSnapshotLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-chart-line mr-2'"></i>读取诊断快照
+                                                </button>
+                                                <button type="button"
+                                                    @click="openTargetSite('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true')"
+                                                    class="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm">
+                                                    <i class="fas fa-external-link-alt mr-2"></i>打开携程
+                                                </button>
+                                            </div>
                                         </div>
 
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -6038,6 +6104,13 @@
                                                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500">
                                                 <p class="text-xs text-gray-500 mt-1">为空时后端按昨日入库。</p>
                                             </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">P3映射文件</label>
+                                                <input v-model="ctripBrowserCaptureForm.approvedMappingsPath" type="text"
+                                                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+                                                    placeholder="docs/ctrip_approved_mapping.example.json">
+                                                <p class="text-xs text-gray-500 mt-1">仅支持项目目录内 JSON；留空则只采集已内置字段。</p>
+                                            </div>
                                         </div>
 
                                         <div class="flex flex-wrap items-center gap-3">
@@ -6047,24 +6120,84 @@
                                                 <i :class="ctripBrowserCaptureRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-play mr-2'"></i>
                                                 {{ ctripBrowserCaptureRunning ? '采集中...' : '启动 Profile 采集并入库' }}
                                             </button>
-                                            <span class="text-xs text-gray-500">采集范围：概况 / 流量</span>
+                                            <button type="button"
+                                                @click="currentPage = 'online-data'; onlineDataTab = 'platform-auto'; loadAutoFetchPanel()"
+                                                class="px-4 py-2 bg-white border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-50">
+                                                <i class="fas fa-vial mr-2"></i>转到接口证据校验
+                                            </button>
+                                            <span class="text-xs text-gray-500">默认采集：P0 core；可用 wide / all 周期性覆盖更多已归档模块。</span>
                                         </div>
 
                                         <div v-if="ctripBrowserCaptureRunning" class="mt-3 text-sm text-slate-700 bg-slate-50 border border-slate-100 rounded px-3 py-2">
                                             正在启动本机携程 Profile。首次使用需要在弹出的浏览器窗口完成登录，系统会监听业务接口响应并自动解析入库。
                                         </div>
-                                        <div v-if="ctripBrowserCaptureResult" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
+                                        <div v-if="ctripBrowserCaptureResult"
+                                            class="mt-4 rounded-lg border p-4"
+                                            :class="ctripBrowserCaptureResult.error || ctripBrowserCaptureResult.capture_gate?.status === 'fail' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'">
                                             <div v-if="ctripBrowserCaptureResult.error" class="text-sm text-red-700 mb-2">
                                                 {{ ctripBrowserCaptureResult.error }}
                                             </div>
+                                            <div v-if="ctripBrowserCaptureResult.auth_status" class="flex flex-wrap gap-2 mb-2 text-xs">
+                                                <span class="px-2 py-1 rounded bg-white border text-red-700">登录状态：{{ ctripBrowserCaptureResult.auth_status.status || '-' }}</span>
+                                                <span v-if="ctripBrowserCaptureResult.auth_status.message" class="px-2 py-1 rounded bg-white border text-gray-600">{{ ctripBrowserCaptureResult.auth_status.message }}</span>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.capture_gate" class="text-xs mb-2 bg-white border rounded p-2">
+                                                <div :class="ctripBrowserCaptureResult.capture_gate.status === 'pass' ? 'text-emerald-700' : 'text-red-700'">
+                                                    抓取门禁：{{ ctripBrowserCaptureResult.capture_gate.status || '-' }}
+                                                </div>
+                                                <div v-if="ctripBrowserCaptureResult.capture_gate.failed_check_ids && ctripBrowserCaptureResult.capture_gate.failed_check_ids.length" class="text-gray-600 mt-1">
+                                                    未通过：{{ ctripBrowserCaptureResult.capture_gate.failed_check_ids.join('、') }}
+                                                </div>
+                                                <div v-if="ctripBrowserCaptureResult.capture_audit?.field_coverage" class="text-gray-600 mt-1">
+                                                    字段覆盖：{{ ctripBrowserCaptureResult.capture_audit.field_coverage.captured_field_count || 0 }}/{{ ctripBrowserCaptureResult.capture_audit.field_coverage.expected_field_count || 0 }}
+                                                </div>
+                                            </div>
                                             <div class="text-sm text-green-800">
                                                 已保存 {{ ctripBrowserCaptureResult.saved_count || 0 }} 条，解析 {{ ctripBrowserCaptureResult.row_count || 0 }} 条。
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.diagnosis_summary?.groups" class="mt-3 bg-white border rounded p-3">
+                                                <div class="text-xs font-semibold text-slate-700 mb-2">可用于诊断的数据方向</div>
+                                                <div class="flex flex-wrap gap-2 text-xs">
+                                                    <span v-for="group in ctripBrowserCaptureResult.diagnosis_summary.groups" :key="'diag-' + group.name"
+                                                        class="px-2 py-1 rounded border"
+                                                        :class="group.status === 'available' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-slate-50 border-slate-100 text-slate-500'">
+                                                        {{ group.name }}：{{ group.status === 'available' ? group.captured_metrics.map(item => item.label).join('、') : '未命中' }}
+                                                    </span>
+                                                </div>
                                             </div>
                                             <div v-if="ctripBrowserCaptureResult.counts" class="flex flex-wrap gap-2 mt-3 text-xs">
                                                 <span v-for="(count, type) in ctripBrowserCaptureResult.counts" :key="type" class="px-2 py-1 rounded bg-white border text-green-700">{{ type }}：{{ count }}</span>
                                             </div>
                                             <div v-if="ctripBrowserCaptureResult.captured_counts" class="flex flex-wrap gap-2 mt-2 text-xs">
-                                                <span v-for="(count, type) in ctripBrowserCaptureResult.captured_counts" :key="type" class="px-2 py-1 rounded bg-white border text-gray-600">{{ type }} 命中 {{ count }}</span>
+                                                <template v-for="(count, type) in ctripBrowserCaptureResult.captured_counts" :key="type">
+                                                    <span v-if="typeof count !== 'object'" class="px-2 py-1 rounded bg-white border text-gray-600">{{ type }} 命中 {{ count }}</span>
+                                                </template>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.standard_data_type_counts" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                <span v-for="(count, type) in ctripBrowserCaptureResult.standard_data_type_counts" :key="'dtype-' + type" class="px-2 py-1 rounded bg-blue-50 border border-blue-100 text-blue-700">类型 {{ type }}：{{ count }}</span>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.standard_section_counts" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                <span v-for="(count, section) in ctripBrowserCaptureResult.standard_section_counts" :key="'section-' + section" class="px-2 py-1 rounded bg-slate-50 border border-slate-100 text-slate-700">模块 {{ section }}：{{ count }}</span>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.endpoint_candidate_counts && Object.keys(ctripBrowserCaptureResult.endpoint_candidate_counts).length" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                <span v-for="(count, section) in ctripBrowserCaptureResult.endpoint_candidate_counts" :key="'candidate-' + section" class="px-2 py-1 rounded bg-amber-50 border border-amber-100 text-amber-700">P3候选 {{ section }}：{{ count }}</span>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.endpoint_candidates && ctripBrowserCaptureResult.endpoint_candidates.length" class="text-xs text-amber-700 mt-2 bg-amber-50 border border-amber-100 rounded p-2 max-h-28 overflow-auto">
+                                                <div v-for="item in ctripBrowserCaptureResult.endpoint_candidates.slice(0, 8)" :key="item.canonical_url || item.url" class="truncate">
+                                                    {{ item.candidate_label || item.candidate_section }}：{{ item.endpoint_name || item.path || item.canonical_url }}
+                                                </div>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.p3_evidence_counts && Object.keys(ctripBrowserCaptureResult.p3_evidence_counts).length" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                <span v-for="(count, section) in ctripBrowserCaptureResult.p3_evidence_counts" :key="'p3-evidence-' + section" class="px-2 py-1 rounded bg-cyan-50 border border-cyan-100 text-cyan-700">P3证据 {{ section }}：{{ count }}</span>
+                                                <span class="px-2 py-1 rounded bg-emerald-50 border border-emerald-100 text-emerald-700">完整证据：{{ ctripBrowserCaptureResult.p3_evidence_ready_count || 0 }}</span>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.p3_evidence_status_counts && Object.keys(ctripBrowserCaptureResult.p3_evidence_status_counts).length" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                <span v-for="(count, status) in ctripBrowserCaptureResult.p3_evidence_status_counts" :key="'p3-status-' + status" class="px-2 py-1 rounded bg-white border text-cyan-700">证据状态 {{ status }}：{{ count }}</span>
+                                            </div>
+                                            <div v-if="ctripBrowserCaptureResult.p3_evidence_drafts && ctripBrowserCaptureResult.p3_evidence_drafts.length" class="text-xs text-cyan-800 mt-2 bg-cyan-50 border border-cyan-100 rounded p-2 max-h-28 overflow-auto">
+                                                <div v-for="item in ctripBrowserCaptureResult.p3_evidence_drafts.slice(0, 8)" :key="item.request_url" class="truncate">
+                                                    {{ item.candidate_label || item.candidate_section }}：{{ item.evidence_status }} · {{ item.request_url }}
+                                                </div>
                                             </div>
                                             <div v-if="ctripBrowserCaptureResult.pages && ctripBrowserCaptureResult.pages.length" class="text-xs text-gray-600 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
                                                 <div v-for="page in ctripBrowserCaptureResult.pages" :key="page.name + page.url" class="truncate">
@@ -7008,6 +7141,20 @@
                                                     placeholder="如：酒店A主账号">
                                             </div>
                                             <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Profile采集范围</label>
+                                                <input v-model="ctripConfigForm.capture_sections" type="text"
+                                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                    placeholder="core / wide / all / business,traffic,quality_psi">
+                                                <p class="text-xs text-gray-500 mt-1">用于自动 Profile 采集；支持 core、wide、all，或多个模块用英文逗号分隔。</p>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">P3映射文件</label>
+                                                <input v-model="ctripConfigForm.approved_mappings_path" type="text"
+                                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                    placeholder="docs/ctrip_approved_mapping.example.json">
+                                                <p class="text-xs text-gray-500 mt-1">仅支持项目目录内 JSON；留空则不启用 P3 已审核映射。</p>
+                                            </div>
+                                            <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">Cookies <span class="text-red-500">*</span></label>
                                                 <textarea v-model="ctripConfigForm.cookies" rows="4"
                                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -7063,6 +7210,10 @@
                                                         </div>
                                                         <div class="text-sm text-gray-500 mb-1">
                                                             关联酒店：{{ getHotelNameById(config.hotel_id) || '未关联' }}
+                                                        </div>
+                                                        <div class="text-xs text-gray-500 mb-1">
+                                                            Profile范围：{{ config.capture_sections || config.profile_sections || 'core' }}
+                                                            <span v-if="config.approved_mappings_path" class="ml-2 text-blue-600">P3映射已配置</span>
                                                         </div>
                                                         <div class="text-sm text-gray-500">
                                                             <span class="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{{ secretPreview(config) }}</span>
@@ -9789,7 +9940,7 @@
                                     <div class="flex flex-wrap items-center gap-2 mb-3">
                                         <span class="inline-flex items-center gap-2 max-w-full bg-white/12 border border-white/15 rounded-full px-3 py-1 text-xs md:text-sm text-white/90">
                                             <i class="fas fa-route text-cyan-100"></i>
-                                            <span class="truncate">以运营收益闭环为核心</span>
+                                            <span class="truncate">以OTA经营反馈闭环为核心</span>
                                         </span>
                                         <span class="hidden sm:inline-flex items-center gap-1.5 bg-white/10 border border-white/10 rounded-full px-3 py-1 text-xs text-cyan-50">
                                             <i class="fas fa-layer-group text-cyan-100"></i>
@@ -9797,7 +9948,7 @@
                                         </span>
                                     </div>
                                     <h2 class="text-xl md:text-2xl font-bold text-white leading-tight">全生命周期辅助视图</h2>
-                                    <p class="text-white/80 text-sm md:text-base mt-2 max-w-3xl">围绕已开业门店的线上获客和收益增长，保留投前、开业、扩张和转让的辅助判断入口</p>
+                                    <p class="text-white/80 text-sm md:text-base mt-2 max-w-3xl">围绕授权 OTA 可见数据的线上获客、收益诊断、动作追踪和效果复盘，保留投前、开业、扩张和转让的辅助判断入口</p>
                                     <div class="mt-4 hidden sm:flex flex-wrap gap-2 text-xs text-white/80">
                                         <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">OTA数据</span>
                                         <span class="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">收益诊断</span>
@@ -11109,6 +11260,64 @@
                                             </div>
                                         </div>
 
+                                        <div v-if="collectionHealthCtripCatalog.available || collectionHealthCtripCatalog.message" data-testid="ctrip-capture-catalog-health" class="border rounded-lg bg-white p-4">
+                                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                                                <div>
+                                                    <h4 class="font-medium text-gray-800">携程字段目录</h4>
+                                                    <div class="text-xs text-gray-500 mt-1">{{ collectionHealthCtripCatalog.message || '等待携程字段目录生成' }}</div>
+                                                </div>
+                                                <span :class="['px-2 py-1 rounded-full border text-xs whitespace-nowrap', collectionHealthStatusClass(collectionHealthCtripCatalogStatus)]">
+                                                    {{ collectionHealthCtripCatalog.is_live_capture_ready ? '真实抓取可用' : '真实抓取门禁：' + (collectionHealthCtripCatalog.capture_gate_status || 'missing') }}
+                                                </span>
+                                            </div>
+                                            <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-4">
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">模块</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.section_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">接口规则</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.endpoint_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">字段</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.field_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">响应数</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.response_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">标准行</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.standard_row_count || 0 }}</div>
+                                                </div>
+                                                <div class="rounded border bg-gray-50 p-2">
+                                                    <div class="text-xs text-gray-500">字段覆盖</div>
+                                                    <div class="text-sm font-semibold text-gray-900">{{ collectionHealthCtripCatalog.coverage_rate === null ? '-' : collectionHealthCtripCatalog.coverage_rate + '%' }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3 text-xs text-gray-600">
+                                                <div>默认范围：{{ collectionHealthCtripSectionText(collectionHealthCtripCatalog.default_sections) }}</div>
+                                                <div>wide范围：{{ collectionHealthCtripSectionText(collectionHealthCtripCatalog.wide_sections) }}</div>
+                                                <div>capture_gate_status：{{ collectionHealthCtripCatalog.capture_gate_status || 'missing' }}</div>
+                                                <div>auth_status：{{ collectionHealthCtripCatalog.auth_status || 'unknown' }}</div>
+                                                <div class="md:col-span-2">失败检查：{{ collectionHealthCtripSectionText(collectionHealthCtripCatalog.failed_check_ids) }}</div>
+                                                <div>采集缺口：{{ collectionHealthCtripCatalog.capture_gap_status || 'missing' }}</div>
+                                                <div>缺失正式接口：{{ collectionHealthCtripCatalog.capture_gap_missing_formal_endpoint_count || 0 }}</div>
+                                                <div>缺失字段：{{ collectionHealthCtripCatalog.capture_gap_missing_field_count || 0 }}</div>
+                                                <div>候选证据方向：{{ collectionHealthCtripCatalog.capture_gap_p3_evidence_section_count || 0 }}</div>
+                                                <div class="md:col-span-2">阻塞原因：{{ collectionHealthCtripSectionText(collectionHealthCtripCatalog.capture_gap_blockers) }}</div>
+                                            </div>
+                                            <div v-if="collectionHealthCtripCatalog.capture_gap_next_actions && collectionHealthCtripCatalog.capture_gap_next_actions.length" class="mt-3 rounded border border-amber-100 bg-amber-50 p-2">
+                                                <div class="text-xs font-medium text-amber-800 mb-1">下一步抓取动作</div>
+                                                <div v-for="action in collectionHealthCtripCatalog.capture_gap_next_actions.slice(0, 4)" :key="`${action.action}-${action.reason}-${action.section}-${action.endpoint_id}`" class="text-xs text-amber-800 truncate">
+                                                    {{ action.action || '-' }} · {{ action.reason || '-' }}
+                                                    <span v-if="action.section"> / {{ action.section }}</span>
+                                                    <span v-if="action.endpoint_id"> / {{ action.endpoint_id }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
                                             <div class="border rounded-lg bg-white p-4">
                                                 <div class="flex items-center justify-between mb-3">
@@ -11829,7 +12038,7 @@
                                                             <i class="fas fa-window-restore mr-2 text-slate-600"></i>携程 Profile 真实采集
                                                         </h5>
                                                         <p class="text-sm text-gray-500 mt-1">
-                                                            复用 CQXM 的浏览器 Profile + XHR/fetch 监听方式，打开携程概况、流量页面后解析 JSON 并入库。
+                                                            复用浏览器 Profile + XHR/fetch 监听方式，打开携程后台页面后按字段目录解析 JSON 并入库。
                                                         </p>
                                                     </div>
                                                     <button type="button"
@@ -11839,7 +12048,7 @@
                                                     </button>
                                                 </div>
 
-                                                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                                <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
                                                     <div>
                                                         <label class="block text-xs text-gray-500 mb-1">浏览器 Profile ID</label>
                                                         <input v-model="ctripBrowserCaptureForm.profileId" type="text"
@@ -11857,6 +12066,21 @@
                                                         <input v-model="ctripOverviewForm.dataDate" type="date"
                                                             class="w-full px-3 py-2 border rounded-lg bg-white text-sm">
                                                     </div>
+                                                    <div>
+                                                        <label class="block text-xs text-gray-500 mb-1">采集范围</label>
+                                                        <select v-model="ctripBrowserCaptureForm.sections" class="w-full px-3 py-2 border rounded-lg bg-white text-sm">
+                                                            <option value="core">core：P0核心</option>
+                                                            <option value="wide">wide：P0/P1/P2</option>
+                                                            <option value="all">all：全部已归档</option>
+                                                            <option value="default">default：概要/流量</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-gray-500 mb-1">P3映射文件</label>
+                                                        <input v-model="ctripBrowserCaptureForm.approvedMappingsPath" type="text"
+                                                            class="w-full px-3 py-2 border rounded-lg bg-white text-sm"
+                                                            placeholder="docs/ctrip_approved_mapping.example.json">
+                                                    </div>
                                                 </div>
 
                                                 <div class="flex flex-wrap items-center gap-3">
@@ -11866,21 +12090,178 @@
                                                         <i :class="ctripBrowserCaptureRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-play mr-2'"></i>
                                                         {{ ctripBrowserCaptureRunning ? '采集中...' : '启动携程 Profile 采集' }}
                                                     </button>
-                                                    <span class="text-xs text-gray-500">使用上方目标酒店；范围：概况 / 流量</span>
+                                                    <span class="text-xs text-gray-500">使用上方目标酒店；core 覆盖首页、概要、销售、房型、流量。</span>
                                                 </div>
 
-                                                <div v-if="ctripBrowserCaptureResult" class="mt-4 rounded-lg border border-green-200 bg-green-50 p-3">
+                                                <div v-if="ctripBrowserCaptureResult"
+                                                    class="mt-4 rounded-lg border p-3"
+                                                    :class="ctripBrowserCaptureResult.error || ctripBrowserCaptureResult.capture_gate?.status === 'fail' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'">
                                                     <div v-if="ctripBrowserCaptureResult.error" class="text-sm text-red-700 mb-2">
                                                         {{ ctripBrowserCaptureResult.error }}
                                                     </div>
+                                                    <div v-if="ctripBrowserCaptureResult.auth_status" class="flex flex-wrap gap-2 mb-2 text-xs">
+                                                        <span class="px-2 py-1 rounded bg-white border text-red-700">登录状态：{{ ctripBrowserCaptureResult.auth_status.status || '-' }}</span>
+                                                        <span v-if="ctripBrowserCaptureResult.auth_status.message" class="px-2 py-1 rounded bg-white border text-gray-600">{{ ctripBrowserCaptureResult.auth_status.message }}</span>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.capture_gate" class="text-xs mb-2 bg-white border rounded p-2">
+                                                        <div :class="ctripBrowserCaptureResult.capture_gate.status === 'pass' ? 'text-emerald-700' : 'text-red-700'">
+                                                            抓取门禁：{{ ctripBrowserCaptureResult.capture_gate.status || '-' }}
+                                                        </div>
+                                                        <div v-if="ctripBrowserCaptureResult.capture_gate.failed_check_ids && ctripBrowserCaptureResult.capture_gate.failed_check_ids.length" class="text-gray-600 mt-1">
+                                                            未通过：{{ ctripBrowserCaptureResult.capture_gate.failed_check_ids.join('、') }}
+                                                        </div>
+                                                        <div v-if="ctripBrowserCaptureResult.capture_audit?.field_coverage" class="text-gray-600 mt-1">
+                                                            字段覆盖：{{ ctripBrowserCaptureResult.capture_audit.field_coverage.captured_field_count || 0 }}/{{ ctripBrowserCaptureResult.capture_audit.field_coverage.expected_field_count || 0 }}
+                                                        </div>
+                                                    </div>
                                                     <div class="text-sm text-green-800">
                                                         已保存 {{ ctripBrowserCaptureResult.saved_count || 0 }} 条，解析 {{ ctripBrowserCaptureResult.row_count || 0 }} 条。
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.diagnosis_summary?.groups" class="mt-3 bg-white border rounded p-3">
+                                                        <div class="text-xs font-semibold text-slate-700 mb-2">可用于诊断的数据方向</div>
+                                                        <div class="flex flex-wrap gap-2 text-xs">
+                                                            <span v-for="group in ctripBrowserCaptureResult.diagnosis_summary.groups" :key="'diag-online-' + group.name"
+                                                                class="px-2 py-1 rounded border"
+                                                                :class="group.status === 'available' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-slate-50 border-slate-100 text-slate-500'">
+                                                                {{ group.name }}：{{ group.status === 'available' ? group.captured_metrics.map(item => item.label).join('、') : '未命中' }}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                     <div v-if="ctripBrowserCaptureResult.counts" class="flex flex-wrap gap-2 mt-2 text-xs">
                                                         <span v-for="(count, type) in ctripBrowserCaptureResult.counts" :key="type" class="px-2 py-1 rounded bg-white border text-green-700">{{ type }}：{{ count }}</span>
                                                     </div>
                                                     <div v-if="ctripBrowserCaptureResult.captured_counts" class="flex flex-wrap gap-2 mt-2 text-xs">
-                                                        <span v-for="(count, type) in ctripBrowserCaptureResult.captured_counts" :key="type" class="px-2 py-1 rounded bg-white border text-gray-600">{{ type }} 命中 {{ count }}</span>
+                                                        <template v-for="(count, type) in ctripBrowserCaptureResult.captured_counts" :key="type">
+                                                            <span v-if="typeof count !== 'object'" class="px-2 py-1 rounded bg-white border text-gray-600">{{ type }} 命中 {{ count }}</span>
+                                                        </template>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.standard_data_type_counts" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                        <span v-for="(count, type) in ctripBrowserCaptureResult.standard_data_type_counts" :key="'dtype-' + type" class="px-2 py-1 rounded bg-blue-50 border border-blue-100 text-blue-700">类型 {{ type }}：{{ count }}</span>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.standard_section_counts" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                        <span v-for="(count, section) in ctripBrowserCaptureResult.standard_section_counts" :key="'section-' + section" class="px-2 py-1 rounded bg-slate-50 border border-slate-100 text-slate-700">模块 {{ section }}：{{ count }}</span>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.endpoint_candidate_counts && Object.keys(ctripBrowserCaptureResult.endpoint_candidate_counts).length" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                        <span v-for="(count, section) in ctripBrowserCaptureResult.endpoint_candidate_counts" :key="'candidate-' + section" class="px-2 py-1 rounded bg-amber-50 border border-amber-100 text-amber-700">P3候选 {{ section }}：{{ count }}</span>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.endpoint_candidates && ctripBrowserCaptureResult.endpoint_candidates.length" class="text-xs text-amber-700 mt-2 bg-amber-50 border border-amber-100 rounded p-2 max-h-28 overflow-auto">
+                                                        <div v-for="item in ctripBrowserCaptureResult.endpoint_candidates.slice(0, 8)" :key="item.canonical_url || item.url" class="truncate">
+                                                            {{ item.candidate_label || item.candidate_section }}：{{ item.endpoint_name || item.path || item.canonical_url }}
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.p3_evidence_counts && Object.keys(ctripBrowserCaptureResult.p3_evidence_counts).length" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                        <span v-for="(count, section) in ctripBrowserCaptureResult.p3_evidence_counts" :key="'p3-evidence-' + section" class="px-2 py-1 rounded bg-cyan-50 border border-cyan-100 text-cyan-700">P3证据 {{ section }}：{{ count }}</span>
+                                                        <span class="px-2 py-1 rounded bg-emerald-50 border border-emerald-100 text-emerald-700">完整证据：{{ ctripBrowserCaptureResult.p3_evidence_ready_count || 0 }}</span>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.p3_evidence_status_counts && Object.keys(ctripBrowserCaptureResult.p3_evidence_status_counts).length" class="flex flex-wrap gap-2 mt-2 text-xs">
+                                                        <span v-for="(count, status) in ctripBrowserCaptureResult.p3_evidence_status_counts" :key="'p3-status-' + status" class="px-2 py-1 rounded bg-white border text-cyan-700">证据状态 {{ status }}：{{ count }}</span>
+                                                    </div>
+                                                    <div v-if="ctripBrowserCaptureResult.p3_evidence_drafts && ctripBrowserCaptureResult.p3_evidence_drafts.length" class="text-xs text-cyan-800 mt-2 bg-cyan-50 border border-cyan-100 rounded p-2 max-h-28 overflow-auto">
+                                                        <div v-for="item in ctripBrowserCaptureResult.p3_evidence_drafts.slice(0, 8)" :key="item.request_url" class="truncate">
+                                                            {{ item.candidate_label || item.candidate_section }}：{{ item.evidence_status }} · {{ item.request_url }}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="mt-4 rounded-lg border border-blue-100 bg-white p-4">
+                                                    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-3">
+                                                        <div>
+                                                            <h5 class="font-semibold text-gray-900">
+                                                                <i class="fas fa-vial mr-2 text-blue-600"></i>携程接口证据校验
+                                                            </h5>
+                                                            <p class="text-xs text-gray-500 mt-1">粘贴 DevTools 的 Request URL、Payload、Preview / Response；系统只保存脱敏证据和候选映射。</p>
+                                                        </div>
+                                                        <span class="px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs">P3 接口入库前校验</span>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                        <div class="md:col-span-3">
+                                                            <label class="block text-xs text-gray-500 mb-1">Request URL</label>
+                                                            <input v-model="ctripEndpointEvidenceForm.requestUrl" type="text"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-sm font-mono"
+                                                                placeholder="https://ebooking.ctrip.com/restapi/soa2/...">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">Method</label>
+                                                            <select v-model="ctripEndpointEvidenceForm.method" class="w-full px-3 py-2 border rounded-lg bg-white text-sm">
+                                                                <option value="POST">POST</option>
+                                                                <option value="GET">GET</option>
+                                                                <option value="PUT">PUT</option>
+                                                                <option value="PATCH">PATCH</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="md:col-span-2">
+                                                            <label class="block text-xs text-gray-500 mb-1">页面上下文 JSON</label>
+                                                            <textarea v-model="ctripEndpointEvidenceForm.pageContextJson" rows="3"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-xs font-mono"
+                                                                placeholder='{"page":"经营报告","tab":"销售数据"}'></textarea>
+                                                        </div>
+                                                        <div class="md:col-span-2">
+                                                            <label class="block text-xs text-gray-500 mb-1">酒店 / 日期参数 JSON</label>
+                                                            <textarea v-model="ctripEndpointEvidenceForm.paramsJson" rows="3"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-xs font-mono"
+                                                                placeholder='{"hotel_id":"...","date":"2026-05-29"}'></textarea>
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">Headers（可选）</label>
+                                                            <textarea v-model="ctripEndpointEvidenceForm.headersText" rows="5"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-xs font-mono"
+                                                                placeholder="可粘贴 JSON 或 Header: value"></textarea>
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">Payload</label>
+                                                            <textarea v-model="ctripEndpointEvidenceForm.payloadJson" rows="5"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-xs font-mono"
+                                                                placeholder='{"beginDate":"2026-05-29","hotelId":"..."}'></textarea>
+                                                        </div>
+                                                        <div class="md:col-span-2">
+                                                            <label class="block text-xs text-gray-500 mb-1">Preview / Response</label>
+                                                            <textarea v-model="ctripEndpointEvidenceForm.responseJson" rows="5"
+                                                                class="w-full px-3 py-2 border rounded-lg bg-white text-xs font-mono"
+                                                                placeholder="粘贴 Network Preview 或 Response JSON"></textarea>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-3 flex flex-wrap items-center gap-3">
+                                                        <button type="button" @click="validateCtripEndpointEvidence"
+                                                            :disabled="ctripEndpointEvidenceValidating"
+                                                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
+                                                            <i :class="ctripEndpointEvidenceValidating ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-check-circle mr-2'"></i>
+                                                            {{ ctripEndpointEvidenceValidating ? '校验中...' : '校验接口证据' }}
+                                                        </button>
+                                                        <label class="inline-flex items-center gap-2 text-xs text-gray-600">
+                                                            <input type="checkbox" v-model="ctripEndpointEvidenceForm.saveStandardRows" class="rounded border-gray-300">
+                                                            <span>证据完整后写入标准字段库</span>
+                                                        </label>
+                                                        <span class="text-xs text-gray-500">完整证据需包含接口、Payload、响应、页面页签、酒店和日期口径。</span>
+                                                    </div>
+                                                    <div v-if="ctripEndpointEvidenceResult" class="mt-3 rounded-lg border p-3 text-sm"
+                                                        :class="ctripEndpointEvidenceResult.catalog_ready ? 'border-green-200 bg-green-50 text-green-800' : 'border-yellow-200 bg-yellow-50 text-yellow-800'">
+                                                        <div v-if="ctripEndpointEvidenceResult.error" class="text-red-700">{{ ctripEndpointEvidenceResult.error }}</div>
+                                                        <div v-else>
+                                                            <div class="font-medium">
+                                                                {{ ctripEndpointEvidenceResult.catalog_ready ? '证据完整，可生成候选映射' : '证据未完整，暂不进入正式目录' }}
+                                                            </div>
+                                                            <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                                                                <span class="px-2 py-1 rounded bg-white border">状态：{{ ctripEndpointEvidenceResult.evidence_status || '-' }}</span>
+                                                                <span class="px-2 py-1 rounded bg-white border">模块：{{ ctripEndpointEvidenceResult.candidate_section || '-' }}</span>
+                                                                <span class="px-2 py-1 rounded bg-white border">字段类型：{{ ctripEndpointEvidenceResult.data_type || '-' }}</span>
+                                                                <span class="px-2 py-1 rounded bg-white border">候选：{{ ctripEndpointEvidenceResult.candidate_label || '-' }}</span>
+                                                            </div>
+                                                            <div v-if="ctripEndpointEvidenceResult.missing_evidence?.length" class="mt-2 text-xs">
+                                                                缺少：{{ ctripEndpointEvidenceResult.missing_evidence.join('、') }}
+                                                            </div>
+                                                            <div v-if="ctripEndpointEvidenceResult.paths" class="mt-2 text-xs text-gray-600 space-y-1">
+                                                                <div v-if="ctripEndpointEvidenceResult.paths.markdown">证据报告：{{ ctripEndpointEvidenceResult.paths.markdown }}</div>
+                                                                <div v-if="ctripEndpointEvidenceResult.paths.candidate_mapping">候选映射：{{ ctripEndpointEvidenceResult.paths.candidate_mapping }}</div>
+                                                            </div>
+                                                            <div v-if="ctripEndpointEvidenceResult.catalog_preview" class="mt-2 text-xs text-gray-700">
+                                                                标准字段预览：{{ ctripEndpointEvidenceResult.catalog_preview.standard_row_count || 0 }} 行
+                                                            </div>
+                                                            <div v-if="ctripEndpointEvidenceResult.catalog_preview_import" class="mt-2 text-xs text-gray-700">
+                                                                入库计划：{{ ctripEndpointEvidenceResult.catalog_preview_import.message || '-' }}；
+                                                                预览 {{ ctripEndpointEvidenceResult.catalog_preview_import.row_count || 0 }} 行，
+                                                                已保存 {{ ctripEndpointEvidenceResult.catalog_preview_import.saved_count || 0 }} 行
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -14677,10 +15058,24 @@
             const ctripBrowserCaptureForm = ref({
                 profileId: '',
                 hotelId: '',
-                sections: ['business', 'traffic'],
+                approvedMappingsPath: '',
+                sections: 'core',
             });
             const ctripBrowserCaptureResult = ref(null);
             const ctripBrowserCaptureRunning = ref(false);
+            const ctripDiagnosisSnapshotLoading = ref(false);
+            const ctripEndpointEvidenceForm = ref({
+                requestUrl: '',
+                method: 'POST',
+                headersText: '',
+                payloadJson: '',
+                responseJson: '',
+                pageContextJson: '',
+                paramsJson: '',
+                saveStandardRows: false,
+            });
+            const ctripEndpointEvidenceResult = ref(null);
+            const ctripEndpointEvidenceValidating = ref(false);
             const ctripCommentForm = ref({
                 requestUrl: '',
                 hotelId: '',
@@ -14842,6 +15237,8 @@
                 hotel_id: '',
                 url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
                 node_id: '24588',
+                capture_sections: 'core',
+                approved_mappings_path: '',
                 cookies: '',
             });
             const ctripConfigList = ref([]);
@@ -15024,6 +15421,20 @@
             const collectionHealthQuality = computed(() => collectionReliability.value?.data_quality || {});
             const collectionHealthHistoryReplay = computed(() => Array.isArray(collectionReliability.value?.history_replay) ? collectionReliability.value.history_replay : []);
             const collectionHealthPendingActions = computed(() => Array.isArray(collectionReliability.value?.pending_actions) ? collectionReliability.value.pending_actions : []);
+            const collectionHealthCtripCatalog = computed(() => collectionReliability.value?.ctrip_capture_catalog || {});
+            const collectionHealthCtripCatalogStatus = computed(() => {
+                const catalog = collectionHealthCtripCatalog.value;
+                if (!catalog.available) return 'waiting_config';
+                if (catalog.is_live_capture_ready) return 'ok';
+                const gate = String(catalog.capture_gate_status || '').toLowerCase();
+                if (gate === 'fail') return 'failed';
+                if (['pass', 'ok', 'success'].includes(gate)) return 'ok';
+                if (gate === 'missing') return 'warning';
+                return 'unknown';
+            });
+            const collectionHealthCtripSectionText = (sections) => (
+                Array.isArray(sections) && sections.length ? sections.join('、') : '-'
+            );
             const collectionHealthFieldRows = computed(() => {
                 const definitions = Array.isArray(collectionReliability.value?.field_definitions) ? collectionReliability.value.field_definitions : [];
                 const rows = [];
@@ -24492,13 +24903,14 @@
                     || ''
                 ).trim();
                 const profileId = String(form.profileId || hotelId || systemHotelId || '').trim();
-                const sections = (Array.isArray(form.sections) && form.sections.length
+                const sectionSource = Array.isArray(form.sections)
                     ? form.sections
-                    : ['business', 'traffic'])
+                    : String(form.sections || 'core').split(/[,\s]+/);
+                const sections = (sectionSource.length ? sectionSource : ['core'])
                     .map(item => String(item || '').trim())
-                    .filter(item => ['business', 'traffic'].includes(item));
+                    .filter(Boolean);
                 if (sections.length === 0) {
-                    sections.push('business', 'traffic');
+                    sections.push('core');
                 }
 
                 ctripBrowserCaptureRunning.value = true;
@@ -24512,8 +24924,10 @@
                             hotel_id: hotelId,
                             hotel_name: getHotelNameById(systemHotelId),
                             profile_id: profileId,
+                            cookies: activeConfig?.cookies || activeConfig?.cookie || '',
                             data_date: ctripOverviewForm.value.dataDate,
                             sections,
+                            approved_mappings_path: String(form.approvedMappingsPath || '').trim(),
                         }),
                     });
                     if (res.code === 200) {
@@ -24529,10 +24943,113 @@
                 } catch (e) {
                     const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
                     showToast('携程 Profile 采集失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
-                    ctripBrowserCaptureResult.value = e?.data?.data || { error: e.message };
+                    ctripBrowserCaptureResult.value = normalizeCtripBrowserCaptureErrorResult(e);
                 } finally {
                     ctripBrowserCaptureRunning.value = false;
                     fetchingData.value = false;
+                }
+            };
+
+            const normalizeCtripBrowserCaptureErrorResult = (error) => {
+                const data = error?.data?.data || {};
+                const partial = data.partial_capture || {};
+                if (partial && partial.available) {
+                    return {
+                        ...partial,
+                        error: error.message,
+                        stdout: data.stdout || '',
+                        stderr: data.stderr || '',
+                        partial_capture: partial,
+                    };
+                }
+                return data && Object.keys(data).length ? { ...data, error: error.message } : { error: error.message };
+            };
+
+            const loadCtripDiagnosisSnapshot = async () => {
+                ctripDiagnosisSnapshotLoading.value = true;
+                try {
+                    const params = new URLSearchParams();
+                    const profileId = String(ctripBrowserCaptureForm.value.profileId || selectedCtripHotelId.value || '').trim();
+                    if (profileId) {
+                        params.set('profile_id', profileId);
+                    }
+                    const res = await request(`/online-data/ctrip-diagnosis-snapshot${params.toString() ? `?${params.toString()}` : ''}`);
+                    if (res.code === 200) {
+                        const data = res.data || {};
+                        ctripBrowserCaptureResult.value = {
+                            ...data,
+                            saved_count: data.counts?.standard_rows || 0,
+                            row_count: data.counts?.standard_rows || 0,
+                            captured_counts: data.counts || {},
+                            diagnosis_summary: data.diagnosis_summary || {
+                                status: data.status || 'not_ready',
+                                available_groups: data.available_groups || [],
+                                missing_groups: data.missing_groups || [],
+                                groups: data.diagnosis_groups || [],
+                                captured_metrics: data.captured_metrics || [],
+                                captured_metric_keys: data.captured_metric_keys || [],
+                            },
+                        };
+                        onlineDataResult.value = ctripBrowserCaptureResult.value;
+                        showRawData.value = false;
+                        showToast(res.message || '携程诊断快照读取完成');
+                    } else {
+                        showToast(res.message || '携程诊断快照读取失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('携程诊断快照读取失败: ' + e.message, 'error');
+                    ctripBrowserCaptureResult.value = { error: e.message, ...(e?.data?.data || {}) };
+                } finally {
+                    ctripDiagnosisSnapshotLoading.value = false;
+                }
+            };
+
+            const validateCtripEndpointEvidence = async () => {
+                const form = ctripEndpointEvidenceForm.value;
+                const requestUrl = String(form.requestUrl || '').trim();
+                const responseJson = String(form.responseJson || '').trim();
+                if (!requestUrl) {
+                    showToast('请填写携程接口 Request URL', 'error');
+                    return;
+                }
+                if (!responseJson) {
+                    showToast('请粘贴 Preview / Response JSON', 'error');
+                    return;
+                }
+                if (form.saveStandardRows && !(autoFetchHotelId.value || user.value?.hotel_id)) {
+                    showToast('写入标准字段库前请先选择数据归属酒店', 'error');
+                    return;
+                }
+
+                ctripEndpointEvidenceValidating.value = true;
+                ctripEndpointEvidenceResult.value = null;
+                try {
+                    const res = await request('/online-data/validate-ctrip-endpoint-evidence', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            request_url: requestUrl,
+                            method: String(form.method || 'POST').toUpperCase(),
+                            headers: String(form.headersText || '').trim(),
+                            payload: String(form.payloadJson || '').trim(),
+                            response: responseJson,
+                            page_context: String(form.pageContextJson || '').trim(),
+                            params: String(form.paramsJson || '').trim(),
+                            save_standard_rows: Boolean(form.saveStandardRows),
+                            system_hotel_id: autoFetchHotelId.value || user.value?.hotel_id || null,
+                        }),
+                    });
+                    if (res.code === 200) {
+                        ctripEndpointEvidenceResult.value = res.data || {};
+                        showToast(res.message || '携程接口证据校验完成');
+                    } else {
+                        ctripEndpointEvidenceResult.value = res.data || { error: res.message || '携程接口证据校验失败' };
+                        showToast(res.message || '携程接口证据校验失败', 'error');
+                    }
+                } catch (e) {
+                    ctripEndpointEvidenceResult.value = e?.data?.data || { error: e.message };
+                    showToast('携程接口证据校验失败: ' + e.message, 'error');
+                } finally {
+                    ctripEndpointEvidenceValidating.value = false;
                 }
             };
 
@@ -24995,6 +25512,8 @@
                 ctripAdsBrowserCaptureForm.value.cookies = '';
                 ctripBrowserCaptureForm.value.profileId = '';
                 ctripBrowserCaptureForm.value.hotelId = '';
+                ctripBrowserCaptureForm.value.approvedMappingsPath = '';
+                ctripBrowserCaptureForm.value.sections = 'core';
                 ctripBrowserCaptureResult.value = null;
                 ctripCommentBrowserCaptureForm.value.profileId = '';
             };
@@ -25065,6 +25584,13 @@
                 }
                 if (!ctripBrowserCaptureForm.value.hotelId) {
                     ctripBrowserCaptureForm.value.hotelId = ctripHotelId;
+                }
+                const configuredCtripSections = String(config.capture_sections || config.profile_sections || '').trim();
+                if (configuredCtripSections) {
+                    ctripBrowserCaptureForm.value.sections = configuredCtripSections;
+                }
+                if (!ctripBrowserCaptureForm.value.approvedMappingsPath) {
+                    ctripBrowserCaptureForm.value.approvedMappingsPath = String(config.approved_mappings_path || config.approved_mapping_path || config.p3_mappings_path || '');
                 }
                 if (!ctripCommentBrowserCaptureForm.value.profileId) {
                     ctripCommentBrowserCaptureForm.value.profileId = String(config.ota_hotel_id || config.ctrip_hotel_id || config.hotel_id || config.system_hotel_id || '');
@@ -25545,6 +26071,8 @@
                             cookies: ctripConfigForm.value.cookies,
                             url: ctripConfigForm.value.url,
                             node_id: ctripConfigForm.value.node_id,
+                            capture_sections: ctripConfigForm.value.capture_sections,
+                            approved_mappings_path: ctripConfigForm.value.approved_mappings_path,
                         }),
                     });
                     
@@ -25556,6 +26084,8 @@
                             hotel_id: '',
                             url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
                             node_id: '24588',
+                            capture_sections: 'core',
+                            approved_mappings_path: '',
                             cookies: '',
                         };
                         loadCtripConfigList();
@@ -25608,6 +26138,8 @@
                     hotel_id: config.hotel_id || config.system_hotel_id || '',
                     url: config.url || '',
                     node_id: config.node_id || '',
+                    capture_sections: config.capture_sections || config.profile_sections || 'core',
+                    approved_mappings_path: config.approved_mappings_path || config.approved_mapping_path || config.p3_mappings_path || '',
                     cookies: config.cookies || '',
                 };
             };
@@ -27232,7 +27764,7 @@
                     system_name: '宿析OS',
                     logo_url: '',
                     favicon_url: '',
-                    system_description: '深度数据分析赋能酒店收益与决策',
+                    system_description: '授权OTA数据驱动的经营诊断、AI建议与动作复盘系统',
                     system_keywords: '酒店管理,收益分析,数据分析',
                     menu_hotel_name: '酒店管理',
                     menu_users_name: '用户管理',
@@ -30196,14 +30728,15 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, autoFetchRecordStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError, collectionHealthAuthorization, collectionHealthAuthorizationRows,
                 collectionHealthFailureReasons, collectionHealthLogs, collectionHealthLatestLog, collectionHealthQuality, collectionHealthHistoryReplay,
-                collectionHealthPendingActions, collectionHealthFieldRows, collectionHealthSummaryCards, collectionHealthStatusText, collectionHealthStatusClass,
+                collectionHealthPendingActions, collectionHealthCtripCatalog, collectionHealthCtripCatalogStatus, collectionHealthCtripSectionText,
+                collectionHealthFieldRows, collectionHealthSummaryCards, collectionHealthStatusText, collectionHealthStatusClass,
                 loadCollectionReliability, loadDataHealthPanel,
                 onlineHistoryFilter, onlineHistoryList, onlineHistoryPagination, onlineHistoryPage, onlineHistorySummary, onlineHistoryHotelList,
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
@@ -30216,7 +30749,7 @@
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
-                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
+                fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, copyToClipboard, copyBookmarklet, copyCookieScript, saveMeituanConfig, loadMeituanConfig,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigList, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig,
                 ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass,
