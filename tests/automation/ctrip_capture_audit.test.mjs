@@ -222,7 +222,9 @@ test('fails the capture gate for login pages, empty responses, and missing forma
     'standard_rows',
     'endpoint_coverage',
   ]);
-  assert.equal(gate.checks.find((check) => check.id === 'endpoint_coverage').actual, '0/22');
+  const endpointCoverage = gate.checks.find((check) => check.id === 'endpoint_coverage');
+  assert.equal(endpointCoverage.actual, `0/${audit.summary.expected_endpoint_count}`);
+  assert.equal(audit.summary.expected_endpoint_count > 0, true);
   assert.equal(audit.capture_gap_report.status, 'blocked_auth');
   assert.equal(audit.capture_gap_report.blockers.includes('auth_session'), true);
   assert.equal(audit.capture_gap_report.next_actions[0].action, 'login_and_rerun_capture');
@@ -419,6 +421,13 @@ test('Ctrip browser capture supports a login-only profile preparation mode', () 
   assert.match(script, /finalizeLoginOnlyPayload/);
   assert.match(script, /status:\s*'login_prepared'/);
   assert.match(script, /reason:\s*'login_only'/);
+});
+
+test('Ctrip browser capture creates the requested output directory', () => {
+  const script = readFileSync('scripts/ctrip_browser_capture.mjs', 'utf8');
+
+  assert.match(script, /import\s*\{\s*dirname,\s*join,\s*resolve\s*\}\s*from\s*'node:path'/);
+  assert.match(script, /await\s+mkdir\(dirname\(outputPath\),\s*\{\s*recursive:\s*true\s*\}\)/);
 });
 
 test('Ctrip capture summary reports auth, modules and diagnosis groups without raw secrets', () => {

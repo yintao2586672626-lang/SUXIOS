@@ -383,7 +383,7 @@ class Agent extends Base
             $effectiveEndDate = (string) ($dataSet['effective_end_date'] ?? $endDate);
             $usedLatestAvailableData = !empty($dataSet['used_latest_available_data']);
             $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $hotelName, $platform, $effectiveStartDate, $effectiveEndDate, $analysisType);
-            $result['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $analysisType);
+            $result['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $analysisType, $hotelId > 0 ? [$hotelId] : []);
             $result['evidence_sources'] = $this->buildOtaDiagnosisEvidenceSources($dataSet, $result['metrics'] ?? []);
             if ($usedLatestAvailableData) {
                 $result['requested_date_range'] = ['start_date' => $startDate, 'end_date' => $endDate];
@@ -482,7 +482,7 @@ class Agent extends Base
 
         try {
             $summary = $this->buildCapturedOtaSummary($hotels, $platform, $dataSource, $startDate, $endDate);
-            $summary['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $dataSource);
+            $summary['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $dataSource, $this->extractKnowledgeHotelIds(['hotels' => $hotels, 'summary' => $summary]));
             if (empty($summary['hotels'])) {
                 return $this->error('暂无可分析的抓取数据', 422);
             }
@@ -577,7 +577,7 @@ class Agent extends Base
                 $failedHotelCount,
                 $modelKey
             );
-            $summary['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, 'captured_final');
+            $summary['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, 'captured_final', $this->extractKnowledgeHotelIds($summary));
             $process = $this->buildCapturedOtaProcess($summary);
             $summaryMeta = [
                 'group_count' => count($summary['groups']),
@@ -1110,9 +1110,46 @@ class Agent extends Base
         ];
     }
 
-    private function loadOtaKnowledgeContext(string $platform, string $scene = ''): array
+    private function extractKnowledgeHotelIds(array $payload): array
+    {
+        $ids = [];
+        $collect = static function ($value) use (&$collect, &$ids): void {
+            if (!is_array($value)) {
+                return;
+            }
+
+            foreach (['system_hotel_id', 'systemHotelId', 'system_hotelId'] as $key) {
+                $id = (int)($value[$key] ?? 0);
+                if ($id > 0) {
+                    $ids[$id] = $id;
+                }
+            }
+
+            if (isset($value['hotel']) && is_array($value['hotel'])) {
+                foreach (['id', 'system_hotel_id', 'systemHotelId'] as $key) {
+                    $id = (int)($value['hotel'][$key] ?? 0);
+                    if ($id > 0) {
+                        $ids[$id] = $id;
+                    }
+                }
+            }
+
+            foreach ($value as $child) {
+                if (is_array($child)) {
+                    $collect($child);
+                }
+            }
+        };
+
+        $collect($payload);
+
+        return array_values($ids);
+    }
+
+    private function loadOtaKnowledgeContext(string $platform, string $scene = '', array $hotelIds = []): array
     {
         $keywords = $this->buildOtaKnowledgeKeywords($platform, $scene);
+        $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0)));
         $items = [];
         $hasKnowledgeUnitTables = $this->tableExists('knowledge_units') && $this->tableExists('knowledge_chunks');
         $hasKnowledgeBaseTable = $this->tableExists('knowledge_base');
@@ -1126,10 +1163,23 @@ class Agent extends Base
         }
 
         if ($hasKnowledgeUnitTables) {
+            $unitColumns = $this->tableColumns('knowledge_units');
+            $unitFields = isset($unitColumns['hotel_id'])
+                ? 'unit_id,hotel_id,name,source,status,description'
+                : 'unit_id,name,source,status,description';
             $unitQuery = Db::name('knowledge_units')
-                ->field('unit_id,name,source,status,description')
+                ->field($unitFields)
                 ->where('status', 'done');
-            $this->applyOtaKnowledgeKeywordWhere($unitQuery, ['name', 'description', 'source'], $keywords, 'ku');
+            if ($hotelIds && isset($unitColumns['hotel_id'])) {
+                [$keywordSql, $keywordBind] = $this->buildOtaKnowledgeKeywordWhereSql(['name', 'description', 'source'], $keywords, 'ku');
+                $hotelIdSql = implode(',', $hotelIds);
+                $unitQuery->whereRaw(
+                    '(`hotel_id` IN (' . $hotelIdSql . ') OR (`hotel_id` = 0 AND ' . $keywordSql . '))',
+                    $keywordBind
+                );
+            } else {
+                $this->applyOtaKnowledgeKeywordWhere($unitQuery, ['name', 'description', 'source'], $keywords, 'ku');
+            }
             $unitRows = $unitQuery->order('unit_id', 'desc')->limit(6)->select()->toArray();
             $unitIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['unit_id'] ?? 0), $unitRows)));
             $chunksByUnit = [];
@@ -1159,6 +1209,7 @@ class Agent extends Base
                 $items[] = [
                     'source' => 'knowledge_units',
                     'id' => $unitId,
+                    'hotel_id' => (int)($row['hotel_id'] ?? 0),
                     'title' => $this->sanitizeOtaKnowledgeText((string)($row['name'] ?? ''), 80),
                     'summary' => $this->sanitizeOtaKnowledgeText($row['description'] ?? '', 220),
                     'chunks' => $chunksByUnit[$unitId] ?? [],
@@ -1172,12 +1223,22 @@ class Agent extends Base
             if (isset($columns['is_enabled'])) {
                 $baseQuery->where('is_enabled', 1);
             }
-            $this->applyOtaKnowledgeKeywordWhere($baseQuery, ['title', 'content', 'keywords'], $keywords, 'kb');
+            if ($hotelIds && isset($columns['hotel_id'])) {
+                [$keywordSql, $keywordBind] = $this->buildOtaKnowledgeKeywordWhereSql(['title', 'content', 'keywords'], $keywords, 'kb');
+                $hotelIdSql = implode(',', $hotelIds);
+                $baseQuery->whereRaw(
+                    '(`hotel_id` IN (' . $hotelIdSql . ') OR (`hotel_id` = 0 AND ' . $keywordSql . '))',
+                    $keywordBind
+                );
+            } else {
+                $this->applyOtaKnowledgeKeywordWhere($baseQuery, ['title', 'content', 'keywords'], $keywords, 'kb');
+            }
             $baseRows = $baseQuery->order('id', 'desc')->limit(4)->select()->toArray();
             foreach ($baseRows as $row) {
                 $items[] = [
                     'source' => 'knowledge_base',
                     'id' => (int)($row['id'] ?? 0),
+                    'hotel_id' => (int)($row['hotel_id'] ?? 0),
                     'title' => $this->sanitizeOtaKnowledgeText((string)($row['title'] ?? ''), 80),
                     'summary' => $this->sanitizeOtaKnowledgeText($row['content'] ?? '', 260),
                     'chunks' => [],
@@ -1229,6 +1290,14 @@ class Agent extends Base
 
     private function applyOtaKnowledgeKeywordWhere($query, array $fields, array $keywords, string $prefix): void
     {
+        [$sql, $bind] = $this->buildOtaKnowledgeKeywordWhereSql($fields, $keywords, $prefix);
+        if ($sql !== '') {
+            $query->whereRaw($sql, $bind);
+        }
+    }
+
+    private function buildOtaKnowledgeKeywordWhereSql(array $fields, array $keywords, string $prefix): array
+    {
         $parts = [];
         $bind = [];
         foreach (array_values($keywords) as $index => $keyword) {
@@ -1246,9 +1315,7 @@ class Agent extends Base
             }
         }
 
-        if ($parts) {
-            $query->whereRaw('(' . implode(' OR ', $parts) . ')', $bind);
-        }
+        return $parts ? ['(' . implode(' OR ', $parts) . ')', $bind] : ['', []];
     }
 
     private function sanitizeOtaKnowledgeText($value, int $limit): string

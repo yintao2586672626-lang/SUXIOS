@@ -546,6 +546,30 @@ final class AgentTest extends TestCase
         self::assertSame('ai_model_call_logs', $payload['log_sink']);
     }
 
+    public function testExtractKnowledgeHotelIdsPrefersSystemHotelIds(): void
+    {
+        $controller = $this->controller();
+
+        if (!method_exists($controller, 'extractKnowledgeHotelIds')) {
+            self::fail('extractKnowledgeHotelIds is required');
+        }
+
+        $hotelIds = $this->invokeNonPublic($controller, 'extractKnowledgeHotelIds', [[
+            'system_hotel_id' => 7,
+            'hotel_id' => 'ota-should-not-be-used',
+            'hotels' => [
+                ['system_hotel_id' => '8', 'hotel_id' => 'platform-8'],
+                ['hotel' => ['id' => 9, 'hotel_id' => 'platform-9']],
+                ['hotel_id' => 'non-numeric-platform-id'],
+            ],
+            'groups' => [
+                ['hotels' => [['system_hotel_id' => 8], ['system_hotel_id' => 10]]],
+            ],
+        ]]);
+
+        self::assertSame([7, 8, 9, 10], $hotelIds);
+    }
+
     public function testCapturedOtaDataQualityGuardRewritesProblemHotelAnomalyTone(): void
     {
         $controller = $this->controller();

@@ -188,6 +188,30 @@ test('covers reusable Ctrip platform notice endpoints as support facts only', ()
   assert.equal(rows[0].raw_data.dimension_values.notice_title, '活动提示');
 });
 
+test('does not treat Ctrip nodeId as a hotel_id catalog fact', () => {
+  const endpoint = findCtripEndpointByUrl('https://ebooking.ctrip.com/restapi/soa2/24588/getManagementData');
+  const facts = extractCtripCatalogFacts({
+    data: {
+      nodeId: 24588,
+      hotelId: 6866634,
+      amount: 100,
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    nodeId: '24588',
+    dataDate: '2026-05-31',
+    capturedAt: '2026-05-31T03:30:00.000Z',
+    url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getManagementData',
+  });
+
+  const hotelIdFacts = facts.filter((fact) => fact.metric_key === 'hotel_id');
+  assert.ok(hotelIdFacts.some((fact) => fact.source_key === 'hotelId'));
+  assert.equal(hotelIdFacts.some((fact) => fact.source_key === 'nodeId'), false);
+});
+
 test('extracts Ctrip metric-pair response items into catalog facts and standard rows', () => {
   const url = 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData';
   const endpoint = findCtripEndpointByUrl(url);
@@ -274,6 +298,65 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
       expected: { data_type: 'business', amount: 5560.04, quantity: 16, book_order_num: 11, flow_rate: 18.31 },
     },
     {
+      url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getCompetingRank',
+      payload: {
+        data: [{
+          hotelId: 75280795,
+          hotelName: '我的酒店',
+          amount: 12,
+          quantity: 8,
+          bookOrderNum: 12,
+          commentScore: 21,
+          totalDetailNum: 14,
+          convertionRate: 4,
+        }],
+        sellRanksBO: [{
+          masterHotelId: 91914887,
+          hotelName: '慕思健康睡眠酒店（长沙德思勤省政府店）',
+          bookingOrdersrank: 1,
+          bookingGMVrank: 2,
+          stayInRNrank: 2,
+          rentalRaterank: 2,
+        }],
+        flowRanksBO: [],
+        serviceRanksBO: [],
+      },
+      expected: { data_type: 'traffic', data_value: 12 },
+      expected_metrics: {
+        order_rank: 12,
+        amount_rank: 12,
+        room_nights_rank: 8,
+        comment_score_rank: 21,
+        visitor_rank: 14,
+        conversion_rate_rank: 4,
+      },
+    },
+    {
+      url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getCompeteHotelReportV1',
+      payload: {
+        rcode: 0,
+        data: [{
+          hotelId: 75280795,
+          hotelName: '我的酒店',
+          amount: 12,
+          quantity: 8,
+          bookOrderNum: 12,
+          commentScore: 21,
+          totalDetailNum: 14,
+          convertionRate: 4,
+        }],
+      },
+      expected: { data_type: 'business', data_value: 12 },
+      expected_metrics: {
+        amount_rank: 12,
+        room_nights_rank: 8,
+        order_rank: 12,
+        comment_score_rank: 21,
+        visitor_rank: 14,
+        conversion_rate_rank: 4,
+      },
+    },
+    {
       url: 'https://ebooking.ctrip.com/psi/api/getHotelPsiV2?hostType=HE',
       payload: { data: { psiScore: '4.54', baseScore: '4.06', rewardScore: '0.48', replyRate: '100%' } },
       expected: { data_type: 'quality', data_value: 4.54, flow_rate: 100 },
@@ -308,7 +391,52 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
     for (const [key, value] of Object.entries(item.expected)) {
       assert.equal(row[key], value, `${item.url} ${key}`);
     }
+    for (const [key, value] of Object.entries(item.expected_metrics || {})) {
+      assert.equal(row.raw_data.metrics[key], value, `${item.url} raw_data.metrics.${key}`);
+    }
   }
+});
+
+test('marks Ctrip weekly competition rows for non-current hotels as competitors', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getCompeteHotelReportV1';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.ok(endpoint, url);
+
+  const facts = extractCtripCatalogFacts({
+    rcode: 0,
+    data: [
+      { hotelId: 6866634, hotelName: 'My Hotel', amount: 19, quantity: 18, bookOrderNum: 20 },
+      { hotelId: 24588, hotelName: 'Node Resource Row', amount: 1, quantity: 1, bookOrderNum: 1 },
+      { hotelId: 1056408, hotelName: 'Airport Rival Hotel', amount: 24, quantity: 24, bookOrderNum: 24 },
+    ],
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    nodeId: '24588',
+    dataDate: '2026-05-31',
+    capturedAt: '2026-06-01T14:40:20.814Z',
+    url,
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'My Hotel',
+    profileId: '6866634',
+    nodeId: '24588',
+    dataDate: '2026-05-31',
+  });
+
+  const selfRow = rows.find((row) => row.hotel_id === '6866634');
+  const nodeResourceRow = rows.find((row) => row.hotel_id === '24588');
+  const competitorRow = rows.find((row) => row.hotel_id === '1056408');
+  assert.ok(selfRow, 'current hotel row must be present');
+  assert.ok(nodeResourceRow, 'node resource row must be present');
+  assert.ok(competitorRow, 'competitor hotel row must be present');
+  assert.equal(selfRow.compare_type, 'self');
+  assert.equal(nodeResourceRow.compare_type, 'competitor');
+  assert.equal(competitorRow.compare_type, 'competitor');
 });
 
 test('extracts Ctrip competitor comparison cards into self value, peer average and rank rows', () => {
@@ -351,6 +479,55 @@ test('extracts Ctrip competitor comparison cards into self value, peer average a
   assert.ok(amountRow);
   assert.equal(amountRow.raw_data.metrics.competitor_average, 51200);
   assert.equal(amountRow.raw_data.metrics.rank, 10);
+});
+
+test('extracts Ctrip competition profile indexType data into business, traffic and quality rows', () => {
+  const cases = [
+    {
+      url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getManagementData',
+      payload: { dataList: [{ indexType: 1, val: 1993.72, avgComp: 146877.73, rankComp: 18 }] },
+      expected: { amount: 1993.72, data_type: 'business', competitor_average: 146877.73, rank: 18 },
+    },
+    {
+      url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getFlowData',
+      payload: { dataList: [{ indexType: 6, val: 1149, avgComp: 8264.16, rankComp: 15 }] },
+      expected: { detail_exposure: 1149, data_type: 'traffic', competitor_average: 8264.16, rank: 15 },
+    },
+    {
+      url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getServiceData',
+      payload: { dataList: [{ indexType: 11, val: 5.11, avgComp: 5.108, rankComp: 16 }] },
+      expected: { comment_score: 5.11, data_type: 'quality', competitor_average: 5.108, rank: 16 },
+    },
+  ];
+
+  for (const item of cases) {
+    const endpoint = findCtripEndpointByUrl(item.url);
+    assert.ok(endpoint, item.url);
+    const facts = extractCtripCatalogFacts(item.payload, {
+      endpoint,
+      section: endpoint.section,
+      dataType: endpoint.dataType,
+      hotelId: 'ctrip-1001',
+      dataDate: '2026-05-31',
+      capturedAt: '2026-05-31T03:30:00.000Z',
+      url: item.url,
+    });
+    const rows = buildCtripStandardRowsFromFacts(facts, {
+      systemHotelId: 7,
+      hotelName: 'Demo Hotel',
+      profileId: 'ctrip-1001',
+      dataDate: '2026-05-31',
+    });
+    const row = rows.find((candidate) => candidate.endpoint_id === endpoint.id);
+    assert.ok(row, item.url);
+    for (const [key, value] of Object.entries(item.expected)) {
+      if (key === 'competitor_average' || key === 'rank') {
+        assert.equal(row.raw_data.metrics[key], value, `${item.url} raw_data.metrics.${key}`);
+      } else {
+        assert.equal(row[key], value, `${item.url} ${key}`);
+      }
+    }
+  }
 });
 
 test('keeps non-numeric Ctrip facts as standard rows without inventing metrics', () => {

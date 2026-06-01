@@ -13,6 +13,7 @@ import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared
 
 const URLS = {
   login: 'https://me.meituan.com/ebooking/',
+  check: 'https://me.meituan.com/ebooking/merchant/comment-manage-react',
   comments: 'https://me.meituan.com/ebooking/merchant/comment-manage-react#/home',
   traffic: 'https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Fdata-center%2Findex.html',
   newTraffic: 'https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html',
@@ -31,6 +32,7 @@ const assetDir = join(reportDir, 'meituan_capture_assets');
 const capturedAt = new Date().toISOString();
 const outputPath = resolve(args.output || join(reportDir, `meituan_capture_${safeName(storeId)}_${timestamp()}.json`));
 const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'traffic,orders');
+const loginOnly = booleanArg(args.loginOnly) || booleanArg(args.authOnly) || booleanArg(args.prepareProfile);
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -43,6 +45,7 @@ const payload = {
   system_hotel_id: args.systemHotelId ? Number(args.systemHotelId) : null,
   captured_at: capturedAt,
   source: 'meituan_browser_profile',
+  mode: loginOnly ? 'login_only' : 'capture',
   capture_sections: Array.from(captureSections),
   pages: [],
   responses: [],
@@ -52,6 +55,8 @@ const payload = {
   orders: [],
   screenshots: [],
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
+  auth_status: { ok: false, status: 'pending', message: 'Login status has not been checked.' },
+  capture_gate: null,
 };
 
 const browser = await launchOtaPersistentContext(storageDir, args);
@@ -61,31 +66,51 @@ const page = await browser.newPage();
 registerResponseCapture(page, payload);
 
 try {
-  await ensureLoggedIn(page);
-  if (wantsSection('reviews')) {
-    await capturePage(page, 'comments', URLS.comments);
-    await collectDomFallback(page, payload, 'reviews');
-  }
+  const loginStatus = await ensureLoggedIn(page);
+  payload.auth_status = loginStatus;
+  if (!loginStatus.ok) {
+    payload.pages.push({
+      name: 'auth',
+      url: loginStatus.url || page.url(),
+      ok: false,
+      auth_status: loginStatus.status,
+      error: loginStatus.message,
+    });
+    process.exitCode = 2;
+  } else if (loginOnly) {
+    await holdInteractiveLoginWindow(page, 'Meituan');
+  } else if (!loginOnly) {
+    if (wantsSection('reviews')) {
+      await capturePage(page, 'comments', URLS.comments);
+      await collectDomFallback(page, payload, 'reviews');
+    }
 
-  if (wantsSection('traffic')) {
-    await capturePage(page, 'traffic', URLS.traffic);
-    await collectDomFallback(page, payload, 'traffic');
+    if (wantsSection('traffic')) {
+      await capturePage(page, 'traffic', URLS.traffic);
+      await collectDomFallback(page, payload, 'traffic');
 
-    await capturePage(page, 'newTraffic', URLS.newTraffic);
-    await collectDomFallback(page, payload, 'traffic');
-  }
+      await capturePage(page, 'newTraffic', URLS.newTraffic);
+      await collectDomFallback(page, payload, 'traffic');
+    }
 
-  if (args.adsUrl && wantsSection('ads')) {
-    await capturePage(page, 'ads', String(args.adsUrl));
-    await collectDomFallback(page, payload, 'ads');
-  }
+    if (args.adsUrl && wantsSection('ads')) {
+      await capturePage(page, 'ads', String(args.adsUrl));
+      await collectDomFallback(page, payload, 'ads');
+    }
 
-  if (wantsSection('orders')) {
-    await capturePage(page, 'orders', URLS.orders);
-    await collectDomFallback(page, payload, 'orders');
+    if (wantsSection('orders')) {
+      await capturePage(page, 'orders', URLS.orders);
+      await collectDomFallback(page, payload, 'orders');
+    }
   }
 
   dedupePayloadRows(payload);
+  payload.capture_gate = loginOnly
+    ? { status: loginStatus.ok ? 'pass' : 'fail', failed_check_ids: loginStatus.ok ? [] : ['auth_login_required'], mode: 'login_only' }
+    : evaluateCaptureGate(payload);
+  if (payload.capture_gate.status !== 'pass') {
+    process.exitCode = 2;
+  }
   await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
 
   if (args.submit === 'true') {
@@ -102,14 +127,30 @@ try {
 }
 
 async function ensureLoggedIn(page) {
-  await page.goto(URLS.login, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto(URLS.check, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
   await page.waitForTimeout(2000);
+  if (await looksLoggedIn(page)) {
+    return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
+  }
+
   if (!(await looksLoggedIn(page))) {
+    if (isHeadlessMode()) {
+      return {
+        ok: false,
+        status: 'login_required',
+        url: page.url(),
+        message: 'Meituan login session is not ready. Re-login with a visible browser Profile before scheduled sync.',
+      };
+    }
+
+    await page.goto(URLS.login, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
     console.log(`Open login page and complete Meituan login. Profile will be saved at ${storageDir}`);
     if (args.loginMode === 'manual') {
       await waitForEnter('Press Enter after login succeeds...');
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
-      return;
+      return (await looksLoggedIn(page))
+        ? { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' }
+        : { ok: false, status: 'login_required', url: page.url(), message: 'Meituan login was not completed.' };
     }
 
     const timeoutMs = Number(args.loginTimeoutMs || 300000);
@@ -117,10 +158,38 @@ async function ensureLoggedIn(page) {
     while (Date.now() < deadline) {
       await page.waitForTimeout(3000);
       if (await looksLoggedIn(page)) {
-        return;
+        return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
       }
     }
-    throw new Error(`Meituan login timeout after ${Math.round(timeoutMs / 1000)} seconds`);
+    return {
+      ok: false,
+      status: 'login_required',
+      url: page.url(),
+      timeout_ms: timeoutMs,
+      message: `Meituan login timeout after ${Math.round(timeoutMs / 1000)} seconds`,
+    };
+  }
+
+  return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
+}
+
+async function holdInteractiveLoginWindow(page, platformName) {
+  const waitMs = Math.max(0, Math.min(600000, numberValue(
+    args.postLoginWaitMs || args.keepOpenMs || args.interactiveHoldMs,
+    0,
+  )));
+  const enabled = booleanArg(args.interactiveLogin) || waitMs > 0;
+  if (!enabled) {
+    return;
+  }
+  const effectiveWaitMs = waitMs > 0 ? waitMs : 120000;
+  console.log(`${platformName} login session is ready. Keeping browser open for ${Math.round(effectiveWaitMs / 1000)} seconds.`);
+  const deadline = Date.now() + effectiveWaitMs;
+  while (Date.now() < deadline) {
+    if (typeof page.isClosed === 'function' && page.isClosed()) {
+      return;
+    }
+    await page.waitForTimeout(Math.min(3000, Math.max(250, deadline - Date.now()))).catch(() => null);
   }
 }
 
@@ -130,10 +199,19 @@ async function looksLoggedIn(page) {
   if (/login|passport|account/i.test(url)) {
     return false;
   }
-  if (/登录|验证码|扫码/.test(text) && !/订单|点评|商家|经营|数据/.test(text)) {
+  const isMerchantPage = /me\.meituan\.com\/ebooking\/merchant/i.test(url);
+  const isNewHbPage = /eb\.meituan\.com\/newhb-sub-app/i.test(url);
+  const isAdsPage = /ebmidas\.dianping\.com/i.test(url);
+  if (!isMerchantPage && !isNewHbPage && !isAdsPage) {
     return false;
   }
-  return true;
+  if (/欢迎使用美团\s*ebooking|商家手机端|美团员工登录/.test(text)) {
+    return false;
+  }
+  if (/登录|验证码|扫码/.test(text) && !/订单|点评|商家|经营|数据|流量|评价|入住|工作台/.test(text)) {
+    return false;
+  }
+  return /订单|点评|商家|经营|数据|流量|评价|入住|工作台|曝光|浏览/.test(text);
 }
 
 async function capturePage(page, name, url) {
@@ -145,6 +223,16 @@ async function capturePage(page, name, url) {
   }
   await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => null);
   await page.waitForTimeout(3000);
+  if (!(await looksLoggedIn(page))) {
+    payload.auth_status = {
+      ok: false,
+      status: 'login_required',
+      url: page.url(),
+      message: 'Meituan page redirected to login during capture.',
+    };
+    payload.pages.push({ name, url: page.url(), ok: false, error: payload.auth_status.message });
+    return;
+  }
   const screenshot = join(assetDir, `${safeName(storeId)}_${name}_${timestamp()}.png`);
   await page.screenshot({ path: screenshot, fullPage: true }).catch(() => null);
   if (existsSync(screenshot)) {
@@ -244,6 +332,34 @@ async function collectDomFallback(page, target, section) {
   }
   const rows = await page.evaluate(sectionName => {
     const text = (node) => (node?.innerText || node?.textContent || '').trim().replace(/\s+/g, ' ');
+    const fullText = text(document.body);
+    const numberFrom = (patterns) => {
+      for (const pattern of patterns) {
+        const match = fullText.match(pattern);
+        if (match && match[1]) {
+          const num = Number(String(match[1]).replace(/,/g, ''));
+          if (Number.isFinite(num)) return num;
+        }
+      }
+      return 0;
+    };
+    const structuredRows = [];
+    if (sectionName === 'traffic') {
+      const exposure = numberFrom([/曝光量\s*([\d,]+)\s*次/, /曝光[^\d]{0,10}([\d,]+)/, /PV[^\d]{0,10}([\d,]+)/i]);
+      const visitors = numberFrom([/浏览人数\s*([\d,]+)\s*人/, /访客[^\d]{0,10}([\d,]+)/, /UV[^\d]{0,10}([\d,]+)/i]);
+      const orders = numberFrom([/订单量\s*([\d,]+)\s*单/, /订单[^\d]{0,10}([\d,]+)/]);
+      if (exposure > 0 || visitors > 0 || orders > 0) {
+        structuredRows.push({
+          _capture_source: 'dom:traffic:structured',
+          _dom_text: fullText.slice(0, 1200),
+          exposure_count: exposure,
+          page_views: visitors,
+          unique_visitors: visitors,
+          click_count: orders,
+          order_count: orders,
+        });
+      }
+    }
     const tableRows = Array.from(document.querySelectorAll('table tbody tr')).slice(0, 80).map((tr, index) => ({
       _dom_index: index,
       _dom_text: text(tr),
@@ -252,7 +368,7 @@ async function collectDomFallback(page, target, section) {
       _dom_index: index,
       _dom_text: text(node),
     })).filter(row => row._dom_text && row._dom_text.length > 10);
-    return [...tableRows, ...cards].map(row => ({ ...row, _capture_source: `dom:${sectionName}` }));
+    return [...structuredRows, ...tableRows, ...cards].map(row => ({ ...row, _capture_source: row._capture_source || `dom:${sectionName}` }));
   }, section);
 
   if (!rows.length) {
@@ -280,6 +396,38 @@ function dedupePayloadRows(target) {
       return true;
     });
   }
+}
+
+function evaluateCaptureGate(data) {
+  const failed = [];
+  const sectionCounts = {
+    traffic: data.traffic.length,
+    orders: data.orders.length,
+    ads: data.ads.length,
+    reviews: data.reviews.length,
+  };
+  const requestedCoreSections = Array.from(captureSections).filter(section => section !== 'reviews');
+  const requestedCoreRowCount = requestedCoreSections.reduce((sum, section) => sum + (sectionCounts[section] || 0), 0);
+  const capturedResponseCount = data.responses.filter(item => item && item.row_count > 0).length;
+
+  if (!data.auth_status?.ok) {
+    failed.push('auth_login_required');
+  }
+  if (capturedResponseCount === 0) {
+    failed.push('xhr_not_captured');
+  }
+  if (requestedCoreSections.length > 0 && requestedCoreRowCount === 0) {
+    failed.push('no_business_rows');
+  }
+
+  return {
+    status: failed.length ? 'fail' : 'pass',
+    failed_check_ids: failed,
+    section_counts: sectionCounts,
+    response_count: data.responses.length,
+    captured_response_count: capturedResponseCount,
+    requested_sections: Array.from(captureSections),
+  };
 }
 
 async function submitPayload(data) {
@@ -330,4 +478,24 @@ function summarize(data) {
     orders: data.orders.length,
     responses: data.responses.length,
   };
+}
+
+function booleanArg(value) {
+  if (value === true) {
+    return true;
+  }
+  const text = String(value ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'y', 'on'].includes(text);
+}
+
+function numberValue(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function isHeadlessMode() {
+  if (args.headless === undefined || args.headless === null || args.headless === '') {
+    return false;
+  }
+  return booleanArg(args.headless);
 }

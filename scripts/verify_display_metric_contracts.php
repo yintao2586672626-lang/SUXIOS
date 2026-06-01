@@ -201,7 +201,13 @@ assert_contract(str_contains($onlineDataSource, 'applyOnlineDailyDataHotelFilter
 assert_contract(!str_contains($onlineDataSource, "where('system_hotel_id', intval(\$hotelId))->whereOr('hotel_id', \$hotelId)"), 'online history system hotel filter must not OR platform hotel_id because IDs can collide');
 assert_contract(!str_contains($onlineDataSource, "where('system_hotel_id', (int)\$hotelId)->whereOr('hotel_id', \$hotelId)"), 'Ctrip latest system hotel filter must not OR platform hotel_id because IDs can collide');
 assert_contract(str_contains($publicSource, 'dedupeHotels'), 'hotel dropdown options must be de-duplicated after loading');
-assert_contract(str_contains($publicSource, 'seenIds') && str_contains($publicSource, 'seenNames.has(name)'), 'hotel dropdown de-duplication must filter repeated hotel ids and repeated hotel names');
+assert_contract(str_contains($publicSource, 'seenIds') && str_contains($publicSource, 'seenFallbackNames'), 'hotel dropdown de-duplication must filter repeated hotel ids and only name-only fallback rows');
+assert_contract(!str_contains($publicSource, '(name && seenNames.has(name))'), 'hotel de-duplication must not collapse same-name hotels with different ids');
+assert_contract(str_contains($publicSource, 'hotelDeleteIdentityText'), 'hotel delete confirmation must use a distinct hotel identity');
+assert_contract(str_contains($publicSource, '编码：') && str_contains($publicSource, 'ID：'), 'hotel delete confirmation must include code and id for same-name hotels');
+assert_contract(str_contains($publicSource, 'showHotelDeleteModal'), 'hotel delete confirmation must use the in-app modal');
+assert_contract(str_contains($publicSource, 'hotelDeleteReferences'), 'hotel delete failure must expose related data references');
+assert_contract(!str_contains($publicSource, '确定要删除酒店"${hotelIdentity}"'), 'hotel delete flow must not use native confirm text only');
 assert_contract(!str_contains($publicSource, "if (num === null || num === undefined) return '0';"), 'formatNumber must not display missing values as zero');
 
 echo 'Display metric contract verification passed.' . PHP_EOL;

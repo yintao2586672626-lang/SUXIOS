@@ -143,6 +143,10 @@ const POST_PAYLOAD_DEFAULT_RULES = [
       platform: 'EBK',
     },
     dateFields: ['startDate', 'endDate'],
+    dateAliases: {
+      startDate: ['beginDate'],
+      endDate: ['endDate'],
+    },
     includeHotelId: true,
   },
   {
@@ -221,6 +225,20 @@ function normalizeDefaultPostPayload(item, context = {}, endpoint = null) {
     for (const field of matchedRule.dateFields) {
       if (dateWindow[field]) {
         defaults[field] = dateWindow[field];
+      }
+    }
+  }
+  if (dateWindow && matchedRule.dateAliases) {
+    for (const [sourceField, aliasFields] of Object.entries(matchedRule.dateAliases)) {
+      const sourceValue = dateWindow[sourceField];
+      if (!sourceValue) {
+        continue;
+      }
+      for (const aliasField of [].concat(aliasFields || [])) {
+        if (!aliasField) {
+          continue;
+        }
+        defaults[aliasField] = sourceValue;
       }
     }
   }

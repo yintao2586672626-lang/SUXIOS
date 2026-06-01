@@ -39,6 +39,52 @@ const checks = [
     pass: source.includes("url: '/online-data/ctrip/traffic'"),
   },
   {
+    name: 'diagnosis auto-fetch includes Ctrip Cookie API request list',
+    pass: runFetchBody.includes("readSavedOtaDataConfig('ctrip-cookie-api')")
+      && runFetchBody.includes("label: 'ctrip-cookie-api'")
+      && runFetchBody.includes("url: '/online-data/fetch-ctrip-cookie-api'")
+      && runFetchBody.includes('request_urls:')
+      && runFetchBody.includes('endpoints_json:')
+      && runFetchBody.includes('profile_id:')
+      && runFetchBody.includes('ctripCookieApiProfileId'),
+  },
+  {
+    name: 'diagnosis auto-fetch can use Ctrip core preset from Cookie or saved Profile',
+    pass: runFetchBody.includes('useCtripCorePresetForDiagnosis')
+      && runFetchBody.includes('getCtripCookieApiCorePresetJson()')
+      && runFetchBody.includes('/online-data/ctrip-profile-status')
+      && runFetchBody.includes('ctripCookieApiConfig.ota_hotel_id')
+      && runFetchBody.includes('ctripConfig?.ota_hotel_id')
+      && runFetchBody.includes("request_source: hasCtripCookieApiRequests ? 'saved_config' : `core_preset:${ctripCorePresetReason || 'unknown'}`"),
+  },
+  {
+    name: 'Ctrip Cookie API accepts pasted Cookie header formats',
+    pass: controllerSource.includes('readCtripCookieHeaderFromRequest')
+      && controllerSource.includes('normalizeCtripCookieHeaderText')
+      && controllerSource.includes('cleanCtripCookieHeaderCandidate')
+      && runFetchBody.includes("readHeaderValue(ctripCookieApiConfig.headers_json, 'cookie')")
+      && source.includes('可粘贴 Cookie、Cookie: ... 或完整 Request Headers'),
+  },
+  {
+    name: 'diagnosis auto-fetch can reuse hotel-scoped generic Cookie',
+    pass: source.includes('readSavedGenericCookieForDiagnosis')
+      && source.includes('/online-data/cookies-list?hotel_id=')
+      && source.includes('loadCookieDetail(ctripLike)')
+      && runFetchBody.includes('genericCtripCookie')
+      && runFetchBody.includes('diagnosisCtripCookie')
+      && runFetchBody.includes("ctripCorePresetReason = genericCtripCookie ? 'generic_cookie' : 'cookie'")
+      && runFetchBody.includes('cookies: diagnosisCtripCookie'),
+  },
+  {
+    name: 'Ctrip Cookie API exposes not-ready diagnosis state',
+    pass: controllerSource.includes('buildCtripCookieApiReadiness')
+      && controllerSource.includes("'status' => 'not_ready'")
+      && controllerSource.includes("'next_action' => $nextAction")
+      && source.includes('ctripBrowserCaptureResult.warning')
+      && source.includes('ctripBrowserCaptureResult.is_ready === false')
+      && source.includes('携程 Cookie API 未达到诊断就绪'),
+  },
+  {
     name: 'auto-fetch includes Meituan ranking data',
     pass: source.includes("url: '/online-data/fetch-meituan'"),
   },
@@ -69,8 +115,10 @@ const checks = [
       && !triggerBody.includes('keepalive'),
   },
   {
-    name: 'manual auto-fetch requests interactive browser capture',
-    pass: /interactive_browser:\s*true/.test(triggerBody)
+    name: 'manual auto-fetch passes browser headless preference',
+    pass: triggerBody.includes('browserHeadless')
+      && /interactive_browser:\s*!browserHeadless/.test(triggerBody)
+      && /browser_headless:\s*browserHeadless/.test(triggerBody)
       && /interactive_browser/.test(controllerSource)
       && /--headless=false/.test(controllerSource),
   },
@@ -79,6 +127,14 @@ const checks = [
     pass: controllerSource.includes('ctrip_browser_capture.mjs')
       && controllerSource.includes('browser_profile')
       && !/executeCtripBrowserProfileAutoFetch[\s\S]*ctrip_comment_browser_capture\.mjs[\s\S]*private function executeMeituanAutoFetch/.test(controllerSource),
+  },
+  {
+    name: 'Ctrip browser Profile login opens China eBooking login entry',
+    pass: ctripBrowserScript.includes("const CTRIP_LOGIN_URL = 'https://ebooking.ctrip.com/login/index'")
+      && ctripBrowserScript.includes('page.goto(ctripLoginEntryUrl()')
+      && controllerSource.includes("'entry_url' => 'https://ebooking.ctrip.com/login/index'")
+      && source.includes("const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/login/index'")
+      && source.includes('openTargetSite(defaultCtripLoginUrl)'),
   },
   {
     name: 'Ctrip browser capture supports catalog presets and diagnosis summary',
@@ -143,7 +199,9 @@ const checks = [
   },
   {
     name: 'Ctrip Cookie API exposes a core diagnosis endpoint preset',
-    pass: source.includes('fillCtripCookieApiCorePreset')
+    pass: source.includes('getCtripCookieApiCorePresetEndpoints')
+      && source.includes('getCtripCookieApiCorePresetJson')
+      && source.includes('fillCtripCookieApiCorePreset')
       && source.includes('填入核心诊断接口')
       && source.includes('queryHotCalendarInfo')
       && source.includes('queryHomePageRealTimeData')
@@ -170,17 +228,35 @@ const checks = [
     && source.includes('getManagementData')
     && source.includes('getTripartiteOrderLoss')
     && source.includes('getCompetingRank')
-    && source.includes('fillCtripCookieApiCorePreset, runCtripCookieApiCapture'),
+    && source.includes('fillCtripCookieApiCorePreset')
+    && source.includes('runCtripCookieApiCapture'),
+  },
+  {
+    name: 'Ctrip Cookie API config can be saved and tested from data config modal',
+    pass: source.includes("openDataConfigModal('ctrip-cookie-api')")
+      && source.includes("'ctrip-cookie-api': {")
+      && source.includes("currentDataConfigType === 'ctrip-cookie-api'")
+      && source.includes("case 'ctrip-cookie-api':")
+      && source.includes("apiUrl = '/online-data/fetch-ctrip-cookie-api'")
+      && source.includes('request_urls')
+      && source.includes('endpoints_json')
+      && source.includes('profile_id')
+      && source.includes('fillDataConfigCtripCookieApiCorePreset')
+      && source.includes('dataConfigForm.value.endpoints_json = ctripCookieApiForm.value.endpointsJson'),
   },
   {
     name: 'Ctrip Cookie API can reuse an already logged-in browser Profile',
     pass: controllerSource.includes('createCtripCookieApiCookieFileFromProfile')
       && controllerSource.includes('extract_chromium_cookie_header.php')
       && controllerSource.includes("'cookie_source' => $cookies !== '' ? 'request' : 'browser_profile'")
-      && source.includes('没有配置时尝试读取已登录 Profile')
-      && source.includes('const cookieApiProfileId = String(')
+      && source.includes('读取已登录 Profile')
+      && source.includes('const resolveCtripCookieApiProfileId = (systemHotelId = \'\', activeConfig = null) => String(')
+      && source.includes('/online-data/ctrip-profile-status')
+      && source.includes('checkCtripProfileStatus')
       && source.includes('activeConfig?.profile_id')
       && source.includes('activeConfig?.browserProfileId')
+      && source.includes('activeConfig?.ota_hotel_id')
+      && source.includes('activeConfig?.nodeId')
       && source.includes('profile_id: cookieApiProfileId')
       && !source.includes("showToast('请填写 Cookie，或先保存当前酒店的携程配置'")
       && chromiumCookieExtractor.includes('decrypt_chrome_master_key')
@@ -222,11 +298,24 @@ const checks = [
       && controllerSource.includes("'missing_fields' => $meituanApiStatus['missing_fields']"),
   },
   {
-    name: 'hybrid auto-fetch uses direct API wording and does not auto-start Profile',
-    pass: source.includes('接口直连自动')
-      && source.includes('默认只使用 Cookie/接口配置')
-      && controllerSource.includes('shouldRunProfileBrowserForCost')
-      && controllerSource.includes('当前策略未启动 Profile'),
+    name: 'auto-fetch sends dedicated Ctrip browser Profile mode and preserves Meituan mode',
+    pass: source.includes('buildAutoFetchModePayload')
+      && source.includes('ctrip_auto_fetch_mode')
+      && source.includes('meituan_auto_fetch_mode')
+      && source.includes('profile_browser')
+      && controllerSource.includes('platformAutoFetchModeOptionsFromRequest')
+      && controllerSource.includes('ctrip_auto_fetch_mode')
+      && controllerSource.includes('meituan_auto_fetch_mode')
+      && controllerSource.includes('profile_browser'),
+  },
+  {
+    name: 'auto-fetch exposes hourly schedule and browser headless settings',
+    pass: source.includes('autoFetchScheduleMinute')
+      && source.includes('autoFetchBrowserHeadless')
+      && source.includes('buildAutoFetchSchedulePayload')
+      && controllerSource.includes('schedule_minute')
+      && controllerSource.includes('browser_headless')
+      && controllerSource.includes('normalizeAutoFetchScheduleMinute'),
   },
 ];
 

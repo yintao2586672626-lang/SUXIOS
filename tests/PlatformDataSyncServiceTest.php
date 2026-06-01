@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\PlatformDataSyncService;
+use app\service\platform\CtripBrowserProfileDataSourceAdapter;
+use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use PHPUnit\Framework\TestCase;
 
 final class PlatformDataSyncServiceTest extends TestCase
@@ -430,5 +432,464 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertStringNotContainsString('secret-token', json_encode($row, JSON_UNESCAPED_UNICODE));
         self::assertTrue($row['has_secret']);
         self::assertSame('abcd...3456', $row['cookies_preview']);
+    }
+
+    public function testCtripBrowserProfileAdapterSupportsOnlyCtripBrowserProfileSources(): void
+    {
+        $adapter = new CtripBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', static fn() => []);
+
+        self::assertTrue($adapter->supports([
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+        ]));
+        self::assertTrue($adapter->supports([
+            'platform' => 'ctrip',
+            'ingestion_method' => 'profile_browser',
+        ]));
+        self::assertFalse($adapter->supports([
+            'platform' => 'meituan',
+            'ingestion_method' => 'browser_profile',
+        ]));
+    }
+
+    public function testCtripBrowserProfileAdapterReturnsWaitingConfigWhenProfileIsMissing(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot();
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static fn() => []);
+            $result = $adapter->fetch([
+                'platform' => 'ctrip',
+                'ingestion_method' => 'browser_profile',
+                'system_hotel_id' => 7,
+                'config' => [
+                    'profile_id' => 'hotel_001',
+                ],
+            ], ['interactive_browser' => false]);
+
+            self::assertSame('waiting_config', $result['status']);
+            self::assertStringContainsString('storage/ctrip_profile_hotel_001', $result['message']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterReturnsWaitingConfigWhenLoginExpired(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => [
+                    'ok' => false,
+                    'status' => 'login_required',
+                    'message' => 'Ctrip login expired.',
+                ],
+                'capture_gate' => ['status' => 'not_run'],
+            ]));
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), ['interactive_browser' => false]);
+
+            self::assertSame('waiting_config', $result['status']);
+            self::assertSame('Ctrip login expired.', $result['message']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterRejectsConcurrentCaptureForSameProfile(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $lockDir = $root . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
+        mkdir($lockDir, 0775, true);
+        $lockHandle = fopen($lockDir . DIRECTORY_SEPARATOR . 'profile_capture_ctrip_hotel_001.lock', 'c+');
+        self::assertIsResource($lockHandle);
+        self::assertTrue(flock($lockHandle, LOCK_EX | LOCK_NB));
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'standard_rows' => [
+                    ['hotel_id' => '24588', 'data_date' => '2026-05-31', 'amount' => 100],
+                ],
+            ]));
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), ['interactive_browser' => false]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertStringContainsString('already running', $result['message']);
+            self::assertSame('ctrip:hotel_001', $result['payload']['lock_key']);
+        } finally {
+            if (is_resource($lockHandle)) {
+                flock($lockHandle, LOCK_UN);
+                fclose($lockHandle);
+            }
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterFailsWhenNoBusinessRowsAreParsed(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'standard_rows' => [],
+                'business' => [],
+                'traffic' => [],
+            ]));
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), ['interactive_browser' => false]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertStringContainsString('no business rows', $result['message']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterAllowsFieldCoverageWarningWhenRowsExist(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => [
+                    'status' => 'fail',
+                    'failed_check_ids' => ['field_coverage'],
+                    'checks' => [
+                        ['id' => 'field_coverage', 'status' => 'fail', 'actual' => '69.84%', 'expected' => '>=80%'],
+                    ],
+                ],
+                'responses' => [['url' => 'https://ebooking.ctrip.com/restapi/test']],
+                'standard_rows' => [
+                    [
+                        'hotel_id' => '24588',
+                        'hotel_name' => 'Ctrip Demo Hotel',
+                        'data_date' => '2026-05-31',
+                        'data_type' => 'business',
+                        'amount' => '1288.50',
+                        'room_nights' => '6',
+                        'orders' => '4',
+                        'source_trace_id' => 'trace-soft-gate-row',
+                    ],
+                ],
+                'business' => [],
+                'traffic' => [],
+            ]));
+            $source = $this->ctripBrowserProfileSource();
+            $result = $adapter->fetch($source, ['interactive_browser' => false]);
+
+            self::assertSame('success', $result['status']);
+            self::assertStringContainsString('Field coverage warning', $result['message']);
+            self::assertCount(1, $result['payload']['rows']);
+            self::assertSame(['field_coverage'], $result['payload']['capture_gate_warning']['failed_check_ids']);
+            self::assertSame([], $result['payload']['capture_gate_warning']['blocking_failed_check_ids']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterRowsNormalizeWithTraceability(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'standard_rows' => [
+                    [
+                        'hotel_id' => '24588',
+                        'hotel_name' => 'Ctrip Demo Hotel',
+                        'data_date' => '2026-05-31',
+                        'data_type' => 'business',
+                        'amount' => '1288.50',
+                        'room_nights' => '6',
+                        'orders' => '4',
+                        'source_trace_id' => 'trace-business-row',
+                    ],
+                    [
+                        'hotel_id' => '24588',
+                        'hotel_name' => 'Ctrip Demo Hotel',
+                        'data_date' => '2026-05-31',
+                        'data_type' => 'traffic',
+                        'list_exposure' => '1000',
+                        'detail_exposure' => '250',
+                        'flow_rate' => '25%',
+                        'source_trace_id' => 'trace-traffic-row',
+                    ],
+                ],
+            ]));
+            $source = $this->ctripBrowserProfileSource();
+            $result = $adapter->fetch($source, ['interactive_browser' => false]);
+
+            self::assertSame('success', $result['status']);
+            self::assertCount(2, $result['payload']['rows']);
+            self::assertSame('browser_profile', $result['payload']['rows'][0]['acquisition_method']);
+
+            $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload($result['payload'], $source, 88);
+            self::assertCount(2, $rows);
+
+            $businessRow = $rows[0]['data_type'] === 'business' ? $rows[0] : $rows[1];
+            $trafficRow = $rows[0]['data_type'] === 'traffic' ? $rows[0] : $rows[1];
+
+            self::assertSame('business', $businessRow['data_type']);
+            self::assertSame(1288.5, $businessRow['amount']);
+            self::assertSame(6, $businessRow['quantity']);
+            self::assertSame(4, $businessRow['book_order_num']);
+            self::assertSame('browser_profile', $businessRow['ingestion_method']);
+            self::assertSame('trace-business-row', $businessRow['source_trace_id']);
+
+            self::assertSame('traffic', $trafficRow['data_type']);
+            self::assertSame(1000, $trafficRow['list_exposure']);
+            self::assertSame(250, $trafficRow['detail_exposure']);
+            self::assertSame(25.0, $trafficRow['flow_rate']);
+            self::assertSame('trace-traffic-row', $trafficRow['source_trace_id']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterSupportsOnlyMeituanBrowserProfileSources(): void
+    {
+        $adapter = new MeituanBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', static fn() => []);
+
+        self::assertTrue($adapter->supports([
+            'platform' => 'meituan',
+            'ingestion_method' => 'browser_profile',
+        ]));
+        self::assertTrue($adapter->supports([
+            'platform' => 'meituan',
+            'ingestion_method' => 'profile_browser',
+        ]));
+        self::assertFalse($adapter->supports([
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+        ]));
+    }
+
+    public function testMeituanBrowserProfileAdapterReturnsWaitingConfigWhenProfileIsMissing(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot();
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', static fn() => []);
+            $result = $adapter->fetch([
+                'platform' => 'meituan',
+                'ingestion_method' => 'browser_profile',
+                'system_hotel_id' => 7,
+                'config' => [
+                    'store_id' => 'store_001',
+                ],
+            ], ['interactive_browser' => false]);
+
+            self::assertSame('waiting_config', $result['status']);
+            self::assertStringContainsString('storage/meituan_profile_store_001', $result['message']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterReturnsWaitingConfigWhenLoginExpired(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => [
+                    'ok' => false,
+                    'status' => 'login_required',
+                    'message' => 'Meituan login expired.',
+                ],
+                'capture_gate' => ['status' => 'not_run'],
+            ]));
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), ['interactive_browser' => false]);
+
+            self::assertSame('waiting_config', $result['status']);
+            self::assertSame('Meituan login expired.', $result['message']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterFailsWhenNoBusinessRowsAreParsed(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'traffic' => [],
+                'orders' => [],
+                'ads' => [],
+            ]));
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), ['interactive_browser' => false]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertStringContainsString('no business rows', $result['message']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterRowsNormalizeWithTraceability(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'traffic' => [
+                    [
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-05-31',
+                        'list_exposure' => '900',
+                        'detail_exposure' => '180',
+                        'flow_rate' => '20%',
+                        'source_trace_id' => 'mt-traffic-row',
+                    ],
+                ],
+                'orders' => [
+                    [
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-05-31',
+                        'amount' => '988.00',
+                        'room_nights' => '5',
+                        'orders' => '3',
+                        'source_trace_id' => 'mt-order-row',
+                    ],
+                ],
+            ]));
+            $source = $this->meituanBrowserProfileSource();
+            $result = $adapter->fetch($source, ['interactive_browser' => false]);
+
+            self::assertSame('success', $result['status']);
+            self::assertCount(2, $result['payload']['rows']);
+            self::assertSame('browser_profile', $result['payload']['rows'][0]['acquisition_method']);
+
+            $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload($result['payload'], $source, 89);
+            self::assertCount(2, $rows);
+
+            $trafficRow = $rows[0]['data_type'] === 'traffic' ? $rows[0] : $rows[1];
+            $orderRow = $rows[0]['data_type'] === 'order' ? $rows[0] : $rows[1];
+
+            self::assertSame('traffic', $trafficRow['data_type']);
+            self::assertSame('meituan', $trafficRow['source']);
+            self::assertSame(900, $trafficRow['list_exposure']);
+            self::assertSame(180, $trafficRow['detail_exposure']);
+            self::assertSame(20.0, $trafficRow['flow_rate']);
+            self::assertSame('mt-traffic-row', $trafficRow['source_trace_id']);
+
+            self::assertSame('order', $orderRow['data_type']);
+            self::assertSame(988.0, $orderRow['amount']);
+            self::assertSame(5, $orderRow['quantity']);
+            self::assertSame(3, $orderRow['book_order_num']);
+            self::assertSame('mt-order-row', $orderRow['source_trace_id']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    private function ctripBrowserProfileSource(): array
+    {
+        return [
+            'id' => 77,
+            'name' => 'Ctrip Profile Source',
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'profile_id' => 'hotel_001',
+                'hotel_id' => '24588',
+                'hotel_name' => 'Ctrip Demo Hotel',
+                'capture_sections' => 'core',
+            ],
+        ];
+    }
+
+    private function meituanBrowserProfileSource(): array
+    {
+        return [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'store_id' => 'store_001',
+                'poi_id' => '68471',
+                'poi_name' => 'Meituan Demo Hotel',
+                'partner_id' => 'partner_001',
+                'capture_sections' => 'traffic,orders',
+            ],
+        ];
+    }
+
+    private function createCtripBrowserProfileTestRoot(?string $profileId = null): string
+    {
+        $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ctrip_browser_profile_adapter_' . bin2hex(random_bytes(4));
+        mkdir($root . DIRECTORY_SEPARATOR . 'scripts', 0775, true);
+        file_put_contents($root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs', '// test script');
+        if ($profileId !== null) {
+            mkdir($root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId, 0775, true);
+        }
+
+        return $root;
+    }
+
+    private function createMeituanBrowserProfileTestRoot(?string $storeId = null): string
+    {
+        $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'meituan_browser_profile_adapter_' . bin2hex(random_bytes(4));
+        mkdir($root . DIRECTORY_SEPARATOR . 'scripts', 0775, true);
+        file_put_contents($root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs', '// test script');
+        if ($storeId !== null) {
+            mkdir($root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $storeId, 0775, true);
+        }
+
+        return $root;
+    }
+
+    private function captureRunner(array $payload): callable
+    {
+        return static function (array $args) use ($payload): array {
+            $outputPath = '';
+            foreach ($args as $arg) {
+                if (str_starts_with((string)$arg, '--output=')) {
+                    $outputPath = substr((string)$arg, strlen('--output='));
+                    break;
+                }
+            }
+            if ($outputPath === '') {
+                return ['success' => false, 'message' => 'missing output path', 'stdout' => '', 'stderr' => ''];
+            }
+            file_put_contents($outputPath, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+        };
+    }
+
+    private function removeDirectory(string $path): void
+    {
+        if (!is_dir($path)) {
+            return;
+        }
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $item) {
+            $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+        }
+        rmdir($path);
     }
 }

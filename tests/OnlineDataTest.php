@@ -385,6 +385,42 @@ final class OnlineDataTest extends TestCase
         self::assertContains('ranking', array_column($tasks, 'module'));
     }
 
+    public function testAutoFetchTaskPlanQueuesCtripCookieApiRequestListWithoutCookie(): void
+    {
+        $controller = $this->controller();
+
+        $tasks = $this->invokeNonPublic($controller, 'buildAutoFetchConfigTaskPlan', [
+            7,
+            '2026-05-03',
+            [
+                'profile_id' => 'store-7',
+            ],
+            [],
+            [
+                'ctrip-cookie-api' => [
+                    'enabled' => true,
+                    'system_hotel_id' => 7,
+                    'request_urls' => "https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo\nhttps://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2",
+                    'hotel_id' => '24588',
+                ],
+            ],
+        ]);
+
+        $labels = array_column($tasks, 'label');
+        self::assertContains('ctrip-cookie-api', $labels);
+
+        $task = $tasks[array_search('ctrip-cookie-api', $labels, true)];
+        self::assertSame('ctrip', $task['platform']);
+        self::assertSame('cookie_api', $task['module']);
+        self::assertSame('cookie_api', $task['strategy']);
+        self::assertSame('store-7', $task['body']['profile_id']);
+        self::assertSame('24588', $task['body']['hotel_id']);
+        self::assertSame(7, $task['body']['system_hotel_id']);
+        self::assertSame('2026-05-03', $task['body']['start_date']);
+        self::assertSame('2026-05-03', $task['body']['end_date']);
+        self::assertArrayNotHasKey('cookies', $task['body']);
+    }
+
     public function testExtractCtripTrafficRowsExpandsDailyMetricSeries(): void
     {
         $controller = $this->controller();
@@ -891,6 +927,30 @@ final class OnlineDataTest extends TestCase
 
     }
 
+    public function testAutoFetchTaskRoutesCtripCookieApiMissingRequestListAsNeedsPayload(): void
+    {
+        $controller = $this->controller();
+
+        $result = $this->invokeNonPublic($controller, 'executeAutoFetchTask', [[
+            'platform' => 'ctrip',
+            'module' => 'cookie_api',
+            'label' => 'ctrip-cookie-api',
+            'strategy' => 'cookie_api',
+            'body' => [
+                'profile_id' => 'store-7',
+                'system_hotel_id' => 7,
+                'auto_save' => true,
+            ],
+        ], 7, '2026-05-03']);
+
+        self::assertSame('ctrip-cookie-api', $result['module']);
+        self::assertSame('cookie_api', $result['strategy']);
+        self::assertFalse($result['success']);
+        self::assertTrue($result['skipped']);
+        self::assertSame('needs_payload', $result['status_code']);
+        self::assertStringContainsString('request_url', $result['message']);
+    }
+
     public function testCookieHealthMessagesAreActionableChinesePrompts(): void
     {
         $controller = $this->controller();
@@ -911,6 +971,29 @@ final class OnlineDataTest extends TestCase
         self::assertSame('warning', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['cookie=value', 5, false, 5, 14]));
         self::assertSame('expired', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['cookie=value', 14, false, 5, 14]));
         self::assertSame('expired', $this->invokeNonPublic($controller, 'resolveCookieHealthState', ['cookie=value', 1, true, 5, 14]));
+    }
+
+    public function testCtripCookieHealthExposesTrafficLightAndCrudMetadata(): void
+    {
+        $controller = $this->controller();
+
+        $ok = $this->invokeNonPublic($controller, 'cookieHealthPresentationMeta', ['ctrip', 'ok', 'ctrip_7']);
+
+        self::assertSame('ctrip_7', $ok['config_id']);
+        self::assertSame('ctrip_config', $ok['config_source']);
+        self::assertTrue($ok['editable']);
+        self::assertTrue($ok['deletable']);
+        self::assertTrue($ok['is_usable']);
+        self::assertSame('green', $ok['light_status']);
+        self::assertSame('可用', $ok['light_label']);
+        self::assertSame('可继续使用', $ok['action_hint']);
+
+        $expired = $this->invokeNonPublic($controller, 'cookieHealthPresentationMeta', ['ctrip', 'expired', 'ctrip_old']);
+
+        self::assertFalse($expired['is_usable']);
+        self::assertSame('red', $expired['light_status']);
+        self::assertSame('不可用', $expired['light_label']);
+        self::assertStringContainsString('建议删除', $expired['action_hint']);
     }
 
     public function testCollectionAuthorizationRowsFilterGlobalAndSelectedHotelHistory(): void
@@ -956,6 +1039,156 @@ final class OnlineDataTest extends TestCase
             ['hotel_id' => 7, 'status' => 'expired'],
         ]]);
         self::assertSame('expired', $expiredSummary['overall_status']);
+    }
+
+    public function testDashboardMetricValueStateDistinguishesZeroNullMissingAndFailureStates(): void
+    {
+        $controller = $this->controller();
+
+        $zero = $this->invokeNonPublic($controller, 'buildDashboardMetricValue', [['amount' => 0], 'amount', '营业额']);
+        self::assertSame('zero', $zero['state']);
+        self::assertSame(0, $zero['value']);
+        self::assertSame('0', $zero['display_value']);
+
+        $null = $this->invokeNonPublic($controller, 'buildDashboardMetricValue', [['amount' => null], 'amount', '营业额']);
+        self::assertSame('null', $null['state']);
+        self::assertNull($null['value']);
+
+        $missing = $this->invokeNonPublic($controller, 'buildDashboardMetricValue', [[], 'amount', '营业额']);
+        self::assertSame('field_missing', $missing['state']);
+        self::assertNull($missing['value']);
+
+        $notCollected = $this->invokeNonPublic($controller, 'buildDashboardMetricValue', [['__collection_status' => 'not_collected'], 'amount', '营业额']);
+        self::assertSame('not_collected', $notCollected['state']);
+
+        $authFailed = $this->invokeNonPublic($controller, 'buildDashboardMetricValue', [['__collection_status' => 'auth_failed'], 'amount', '营业额']);
+        self::assertSame('auth_failed', $authFailed['state']);
+
+        $requestFailed = $this->invokeNonPublic($controller, 'buildDashboardMetricValue', [['__collection_status' => 'request_failed'], 'amount', '营业额']);
+        self::assertSame('request_failed', $requestFailed['state']);
+    }
+
+    public function testDashboardDiagnosisAlwaysContainsProblemEvidenceImpactAndAction(): void
+    {
+        $controller = $this->controller();
+
+        $diagnosis = $this->invokeNonPublic($controller, 'buildDashboardDiagnosis', [
+            '授权失败',
+            ['platform' => 'ctrip', 'status' => 'expired'],
+            '该门店无法同步 OTA 数据',
+            '重新授权携程账号',
+            'auth_failed',
+        ]);
+
+        self::assertSame(['problem', 'evidence', 'impact', 'action', 'status', 'severity'], array_keys($diagnosis));
+        self::assertSame('授权失败', $diagnosis['problem']);
+        self::assertSame('expired', $diagnosis['evidence']['status']);
+        self::assertSame('该门店无法同步 OTA 数据', $diagnosis['impact']);
+        self::assertSame('重新授权携程账号', $diagnosis['action']);
+        self::assertSame('auth_failed', $diagnosis['status']);
+    }
+
+    public function testDashboardAccountOverviewMapsCollectionReliabilityIntoCockpitStructure(): void
+    {
+        $controller = $this->controller();
+        $reliability = [
+            'period' => ['start_date' => '2026-05-03', 'end_date' => '2026-06-01', 'days' => 30],
+            'authorization' => [
+                'summary' => ['overall_status' => 'expired', 'total' => 2, 'ok' => 1, 'expired' => 1],
+                'list' => [],
+            ],
+            'collection_logs' => [
+                ['hotel_id' => 1, 'platform' => 'ctrip', 'status' => 'success', 'run_time' => '2026-06-01 09:00:00'],
+                ['hotel_id' => 2, 'platform' => 'ctrip', 'status' => 'failed', 'message' => 'request 500'],
+            ],
+            'data_quality' => [
+                'status' => 'warning',
+                'checked_records' => 2,
+                'issue_records' => 1,
+                'score' => 72,
+                'missing_count' => 1,
+                'abnormal_count' => 0,
+                'top_prompts' => ['缺失营业额'],
+            ],
+            'failure_reasons' => [],
+            'pending_actions' => [
+                ['type' => 'collection', 'status' => 'failed', 'platform' => 'ctrip', 'reason' => 'request 500', 'action' => '重试采集'],
+            ],
+            'ctrip_latest_capture' => [
+                'captured_at' => '2026-06-01 08:30:00',
+                'module_count' => 3,
+                'standard_row_count' => 1,
+                'missing_field_count' => 4,
+            ],
+        ];
+        $hotels = [
+            ['id' => 1, 'name' => 'A Hotel'],
+            ['id' => 2, 'name' => 'B Hotel'],
+        ];
+        $qualityRows = [
+            ['system_hotel_id' => 1, 'hotel_name' => 'A Hotel', 'source' => 'ctrip', 'data_type' => 'business', 'amount' => 0, 'quantity' => 2, 'book_order_num' => 1],
+            ['system_hotel_id' => 2, 'hotel_name' => 'B Hotel', 'source' => 'ctrip', 'data_type' => 'business', 'quantity' => 1, 'book_order_num' => 1],
+        ];
+
+        $overview = $this->invokeNonPublic($controller, 'buildDashboardAccountOverview', [$reliability, $hotels, $qualityRows]);
+
+        self::assertSame(2, $overview['summary']['hotel_count']);
+        self::assertSame(1, $overview['summary']['portrait_completed_count']);
+        self::assertSame(1, $overview['summary']['abnormal_hotel_count']);
+        self::assertSame('auth_failed', $overview['summary']['sync_status']);
+        self::assertSame('zero', $overview['core_kpis'][0]['state']);
+        self::assertNotEmpty($overview['risk_alerts']);
+        self::assertNotEmpty($overview['today_actions']);
+        foreach ($overview['diagnostics'] as $diagnosis) {
+            self::assertArrayHasKey('problem', $diagnosis);
+            self::assertArrayHasKey('evidence', $diagnosis);
+            self::assertArrayHasKey('impact', $diagnosis);
+            self::assertArrayHasKey('action', $diagnosis);
+        }
+    }
+
+    public function testDashboardHotelPortraitContainsRequiredSections(): void
+    {
+        $controller = $this->controller();
+        $reliability = [
+            'period' => ['start_date' => '2026-05-03', 'end_date' => '2026-06-01', 'days' => 30],
+            'authorization' => ['summary' => ['overall_status' => 'ok', 'total' => 1, 'ok' => 1], 'list' => []],
+            'collection_logs' => [],
+            'data_quality' => ['status' => 'ok', 'checked_records' => 1, 'issue_records' => 0, 'score' => 100],
+            'pending_actions' => [],
+            'failure_reasons' => [],
+        ];
+        $hotel = ['id' => 1, 'name' => 'A Hotel'];
+        $qualityRows = [
+            ['system_hotel_id' => 1, 'hotel_name' => 'A Hotel', 'source' => 'ctrip', 'data_type' => 'business', 'amount' => 0, 'quantity' => 2, 'book_order_num' => 1],
+        ];
+
+        $portrait = $this->invokeNonPublic($controller, 'buildDashboardHotelPortrait', [$reliability, $hotel, $qualityRows]);
+        $sectionKeys = array_column($portrait['sections'], 'key');
+
+        self::assertSame([
+            'basic',
+            'business',
+            'traffic',
+            'conversion',
+            'price_inventory',
+            'competitor',
+            'review_service',
+            'im',
+            'ads',
+            'customer',
+            'data_health',
+        ], $sectionKeys);
+        self::assertSame('zero', $portrait['sections'][1]['metrics'][0]['state']);
+        foreach ($portrait['sections'] as $section) {
+            self::assertArrayHasKey('diagnostics', $section);
+            foreach ($section['diagnostics'] as $diagnosis) {
+                self::assertArrayHasKey('problem', $diagnosis);
+                self::assertArrayHasKey('evidence', $diagnosis);
+                self::assertArrayHasKey('impact', $diagnosis);
+                self::assertArrayHasKey('action', $diagnosis);
+            }
+        }
     }
 
     public function testCtripCaptureCatalogHealthSummarizesCatalogAndFailedAudit(): void
@@ -1330,6 +1563,7 @@ final class OnlineDataTest extends TestCase
     public function testCtripAdsApiUrlOnlyAllowsPyramidadOrPromotion(): void
     {
         $controller = $this->controller();
+        $defaultUrl = $this->invokeNonPublic($controller, 'defaultCtripAdsEffectReportUrl');
 
         self::assertTrue($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [
             'https://ebooking.ctrip.com/toolcenter/api/pyramidad/report',
@@ -1340,6 +1574,8 @@ final class OnlineDataTest extends TestCase
         self::assertTrue($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [
             'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE&v=0.8021101893559687',
         ]));
+        self::assertStringContainsString('queryCampaignReportList', $defaultUrl);
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [$defaultUrl]));
         self::assertFalse($this->invokeNonPublic($controller, 'isCtripAdsApiUrl', [
             'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
         ]));
@@ -1379,7 +1615,7 @@ final class OnlineDataTest extends TestCase
 
         self::assertSame('2026-05-18', $payload['startDate']);
         self::assertSame('2026-05-18', $payload['endDate']);
-        self::assertSame('campaign_report', $payload['apiType']);
+        self::assertSame('effect_report', $payload['apiType']);
 
         $ads = $this->invokeNonPublic($controller, 'extractCtripCapturedAds', [[
             'responses' => [[
@@ -1939,6 +2175,65 @@ final class OnlineDataTest extends TestCase
         }
     }
 
+    public function testCtripProfileCanResolveOtaHotelIdWhenProfileIdMissing(): void
+    {
+        $controller = $this->controller();
+
+        $resolved = $this->invokeNonPublic($controller, 'ctripProfileStoreIdFromConfig', [[
+            'ota_hotel_id' => 'ctrip-ota-24588',
+            'node_id' => 'node-24588',
+            'system_hotel_id' => '7',
+        ], 0]);
+
+        self::assertSame('ctrip-ota-24588', $resolved);
+    }
+
+    public function testCtripProfileStatusReportsReusableProfileWithoutLeakingCookie(): void
+    {
+        $controller = $this->controller();
+        $projectRoot = dirname(__DIR__);
+        $profileId = 'phpunit_status_' . bin2hex(random_bytes(4));
+        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId;
+
+        if (!is_dir($profileDir)) {
+            self::assertTrue(mkdir($profileDir, 0775, true));
+        }
+
+        try {
+            $status = $this->invokeNonPublic($controller, 'buildCtripProfileStatus', [[
+                'profile_id' => $profileId,
+            ], null, false]);
+
+            self::assertSame($profileId, $status['profile_id']);
+            self::assertTrue($status['exists']);
+            self::assertSame('storage/ctrip_profile_' . $profileId, $status['profile_dir']);
+            self::assertFalse($status['cookie_probe_requested']);
+            self::assertFalse($status['cookie_extractable']);
+            self::assertSame(0, $status['cookie_count']);
+            self::assertArrayNotHasKey('cookie', $status);
+            self::assertArrayNotHasKey('cookies', $status);
+        } finally {
+            if (is_dir($profileDir)) {
+                @rmdir($profileDir);
+            }
+        }
+    }
+
+    public function testCtripProfileStatusExposesMissingProfileNextAction(): void
+    {
+        $controller = $this->controller();
+        $profileId = 'missing_' . bin2hex(random_bytes(4));
+
+        $status = $this->invokeNonPublic($controller, 'buildCtripProfileStatus', [[
+            'profile_id' => $profileId,
+        ], null, false]);
+
+        self::assertSame($profileId, $status['profile_id']);
+        self::assertFalse($status['exists']);
+        self::assertSame('missing_profile', $status['status']);
+        self::assertStringContainsString('Profile', $status['next_action']);
+    }
+
     public function testAutoFetchModeNormalizationSupportsExplicitStrategies(): void
     {
         $controller = $this->controller();
@@ -2019,6 +2314,8 @@ final class OnlineDataTest extends TestCase
         self::assertFalse($missing['api_configured']);
         self::assertSame(['Partner ID', 'Cookies'], $missing['missing_fields']);
         self::assertSame('Partner ID / Cookies', $missing['missing_text']);
+        self::assertSame('cookie_plus_resource_id', $missing['credential_level']);
+        self::assertSame('missing_cookie', $missing['credential_status']);
 
         $complete = $this->invokeNonPublic($controller, 'meituanAutoFetchConfigStatus', [[
             'partnerId' => 'partner-7',
@@ -2028,6 +2325,28 @@ final class OnlineDataTest extends TestCase
 
         self::assertTrue($complete['api_configured']);
         self::assertSame([], $complete['missing_fields']);
+        self::assertSame('ready', $complete['credential_status']);
+    }
+
+    public function testMeituanAutoFetchConfigStatusAllowsCookieOnlyConfigButMarksResourceIdMissing(): void
+    {
+        $controller = $this->controller();
+
+        $status = $this->invokeNonPublic($controller, 'meituanAutoFetchConfigStatus', [[
+            'partner_id' => '',
+            'poi_id' => '',
+            'cookies' => 'meituan-cookie',
+        ]]);
+
+        self::assertFalse($status['api_configured']);
+        self::assertTrue($status['has_cookies']);
+        self::assertFalse($status['has_partner_id']);
+        self::assertFalse($status['has_poi_id']);
+        self::assertSame(['Partner ID', 'POI ID'], $status['missing_fields']);
+        self::assertSame('missing_resource_id', $status['credential_status']);
+        self::assertSame('需补充一次性门店标识', $status['credential_status_label']);
+        self::assertSame(['Cookie'], $status['daily_required_fields']);
+        self::assertSame(['Partner ID', 'POI ID'], $status['one_time_required_fields']);
     }
 
     public function testCtripApprovedMappingsPathResolverAcceptsProjectJsonAliases(): void
@@ -2321,6 +2640,64 @@ final class OnlineDataTest extends TestCase
             'payload_json' => '{"hotelId":"ctrip-1001"}',
             'response_json' => '{"data":{}}',
         ]]);
+    }
+
+    public function testCtripCookieApiReadsCookieFromDevtoolsHeaderFormats(): void
+    {
+        $controller = $this->controller();
+
+        $fromCookieLine = $this->invokeNonPublic($controller, 'readCtripCookieHeaderFromRequest', [[
+            'cookies' => "Host: ebooking.ctrip.com\nCookie: foo=abc; bar=def\nAccept: application/json",
+        ]]);
+        self::assertSame('foo=abc; bar=def', $fromCookieLine);
+
+        $fromHeadersJson = $this->invokeNonPublic($controller, 'readCtripCookieHeaderFromRequest', [[
+            'headers_json' => json_encode([
+                'Cookie' => 'foo=json; bar=1',
+                'Accept' => 'application/json',
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+        self::assertSame('foo=json; bar=1', $fromHeadersJson);
+
+        $fromCurl = $this->invokeNonPublic($controller, 'readCtripCookieHeaderFromRequest', [[
+            'cookie' => "curl 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo' -H 'Cookie: foo=curl; bar=2'",
+        ]]);
+        self::assertSame('foo=curl; bar=2', $fromCurl);
+
+        $missing = $this->invokeNonPublic($controller, 'readCtripCookieHeaderFromRequest', [[
+            'headers_json' => "Accept: application/json\nUser-Agent: Mozilla/5.0",
+        ]]);
+        self::assertSame('', $missing);
+    }
+
+    public function testCtripCookieApiReadinessExposesNotReadyNextAction(): void
+    {
+        $controller = $this->controller();
+
+        $readiness = $this->invokeNonPublic($controller, 'buildCtripCookieApiReadiness', [[
+            'auth_status' => ['ok' => false, 'status' => 'no_json_response'],
+            'errors' => [['error' => 'cookie_or_permission_failed']],
+        ], [
+            'standard_rows' => 0,
+        ], [
+            'saved_count' => 0,
+        ], true]);
+
+        self::assertSame('not_ready', $readiness['status']);
+        self::assertFalse($readiness['is_ready']);
+        self::assertStringContainsString('Cookie', $readiness['next_action']);
+
+        $ready = $this->invokeNonPublic($controller, 'buildCtripCookieApiReadiness', [[
+            'auth_status' => ['ok' => true],
+        ], [
+            'standard_rows' => 2,
+        ], [
+            'saved_count' => 2,
+        ], true]);
+
+        self::assertSame('ready', $ready['status']);
+        self::assertTrue($ready['is_ready']);
+        self::assertSame('', $ready['warning']);
     }
 
     public function testCtripEndpointEvidenceValidationPayloadExposesCatalogPreviewRows(): void
@@ -2697,6 +3074,47 @@ final class OnlineDataTest extends TestCase
 
         self::assertTrue($passed['accepted']);
         self::assertSame('pass', $passed['status']);
+    }
+
+    public function testCtripFieldCoverageOnlyGateFailureCanContinueWithWarning(): void
+    {
+        $controller = $this->controller();
+        $payload = [
+            'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+            'capture_gate' => [
+                'status' => 'fail',
+                'failed_check_ids' => ['field_coverage'],
+            ],
+            'responses' => [['url' => 'https://ebooking.ctrip.com/restapi/test']],
+            'business' => [['amount' => 1288.5]],
+            'standard_rows' => [
+                [
+                    'capture_section' => 'business_overview',
+                    'data_type' => 'business',
+                    'amount' => 1288.5,
+                ],
+            ],
+        ];
+
+        $decision = $this->invokeNonPublic($controller, 'buildCtripCaptureGateDecision', [$payload]);
+        self::assertFalse($decision['accepted']);
+        self::assertSame(['field_coverage'], $decision['failed_check_ids']);
+
+        $canContinue = $this->invokeNonPublic($controller, 'canContinueCtripCaptureWithSoftGateWarning', [$payload, $decision]);
+        self::assertTrue($canContinue);
+
+        $warning = $this->invokeNonPublic($controller, 'buildCtripCaptureGateWarning', [$decision]);
+        self::assertSame('warning', $warning['level']);
+        self::assertSame(['field_coverage'], $warning['failed_check_ids']);
+        self::assertSame([], $warning['blocking_failed_check_ids']);
+
+        $hardDecision = $this->invokeNonPublic($controller, 'buildCtripCaptureGateDecision', [[
+            'capture_gate' => [
+                'status' => 'fail',
+                'failed_check_ids' => ['field_coverage', 'standard_rows'],
+            ],
+        ]]);
+        self::assertFalse($this->invokeNonPublic($controller, 'canContinueCtripCaptureWithSoftGateWarning', [$payload, $hardDecision]));
     }
 
     public function testNormalizeCtripCookieApiPayloadDefaultsForPostEndpoints(): void

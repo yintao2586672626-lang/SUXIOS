@@ -5,7 +5,9 @@ namespace app\service;
 
 use app\contract\DataSourceAdapter;
 use app\service\platform\ApiDataSourceAdapter;
+use app\service\platform\CtripBrowserProfileDataSourceAdapter;
 use app\service\platform\ManualImportDataSourceAdapter;
+use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use RuntimeException;
 use think\facade\Db;
 
@@ -24,6 +26,8 @@ final class PlatformDataSyncService
     {
         $this->adapters = $adapters ?? [
             new ManualImportDataSourceAdapter(),
+            new CtripBrowserProfileDataSourceAdapter(),
+            new MeituanBrowserProfileDataSourceAdapter(),
             new ApiDataSourceAdapter(),
         ];
     }
@@ -63,11 +67,21 @@ final class PlatformDataSyncService
             }
 
             $platform = strtolower((string)($source['platform'] ?? $row['source'] ?? 'custom'));
-            $dataType = $this->normalizeDataType((string)($source['data_type'] ?? $row['data_type'] ?? 'business'));
+            $sourceDataType = (string)($source['data_type'] ?? '');
+            $rowDataType = (string)($row['data_type'] ?? '');
+            $sourceIngestionMethod = (string)($source['ingestion_method'] ?? '');
+            $dataType = $this->normalizeDataType(
+                in_array($sourceIngestionMethod, ['browser_profile', 'profile_browser'], true) && $rowDataType !== ''
+                    ? $rowDataType
+                    : ($sourceDataType !== '' ? $sourceDataType : ($rowDataType !== '' ? $rowDataType : 'business'))
+            );
             if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($source, $payload)) {
                 continue;
             }
-            $traceId = $this->buildTraceId($source, $row, $date, $syncTaskId);
+            $traceId = trim((string)($row['source_trace_id'] ?? ''));
+            if ($traceId === '') {
+                $traceId = $this->buildTraceId($source, $row, $date, $syncTaskId);
+            }
             $sanitizedRow = $dataType === 'review'
                 ? $this->sanitizeReviewPayloadForStorage($row)
                 : $this->sanitizePayloadForStorage($row, $dataType);
@@ -316,7 +330,7 @@ final class PlatformDataSyncService
                 $secret[$key === 'cookie' ? 'cookies' : $key] = (string)$payload[$key];
             }
         }
-        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
+        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
                 $config[$key] = $payload[$key];
             }
@@ -404,6 +418,9 @@ final class PlatformDataSyncService
             'saved_count' => $savedCount,
             'payload_keys' => array_slice(array_keys($payload), 0, 30),
         ];
+        if (!empty($payload['error_summary'])) {
+            $stats['error_summary'] = mb_substr((string)$payload['error_summary'], 0, 500);
+        }
         $nextRetryAt = in_array($status, ['failed', 'partial_success'], true) ? date('Y-m-d H:i:s', time() + 900) : null;
 
         Db::name('platform_data_sync_tasks')->where('id', $taskId)->update([

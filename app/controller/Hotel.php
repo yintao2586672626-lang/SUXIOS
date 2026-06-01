@@ -216,6 +216,8 @@ class Hotel extends Base
     public function delete(int $id): Response
     {
         $this->checkPermission(true);
+        $data = $this->requestData();
+        $forceDelete = $this->isForceDeleteRequested($data);
 
         $hotel = HotelModel::find($id);
         if (!$hotel) {
@@ -223,16 +225,31 @@ class Hotel extends Base
         }
 
         $references = $this->ensureHotelCanBeDeleted($id);
-        if (!empty($references)) {
-            return $this->error('该酒店存在关联数据，无法删除，请改为禁用酒店', 409, ['references' => $references]);
+        if ($this->shouldBlockHotelDelete($references, $forceDelete)) {
+            return $this->error('该酒店存在关联数据，超级管理员可以确认后强制删除；如需保留历史经营入口，请改为禁用酒店', 409, [
+                'references' => $references,
+                'can_force_delete' => true,
+            ]);
         }
 
         $hotelName = $hotel->name;
+        $forcedDelete = !empty($references) && $forceDelete;
         $hotel->delete();
 
-        OperationLog::record('hotel', 'delete', '删除酒店: ' . $hotelName, $this->currentUser->id ?? null);
+        OperationLog::record(
+            'hotel',
+            'delete',
+            ($forcedDelete ? '强制删除酒店: ' : '删除酒店: ') . $hotelName,
+            $this->currentUser->id ?? null,
+            $id,
+            null,
+            $forcedDelete ? ['references' => $references] : []
+        );
 
-        return $this->success(null, '删除成功');
+        return $this->success([
+            'forced' => $forcedDelete,
+            'references' => $forcedDelete ? $references : [],
+        ], $forcedDelete ? '删除成功，关联历史数据已保留' : '删除成功');
     }
 
     /**
@@ -286,6 +303,17 @@ class Hotel extends Base
         }
 
         return $references;
+    }
+
+    protected function shouldBlockHotelDelete(array $references, bool $forceDelete): bool
+    {
+        return !empty($references) && !$forceDelete;
+    }
+
+    protected function isForceDeleteRequested(array $data): bool
+    {
+        $force = $data['force'] ?? $this->request->param('force', false);
+        return $force === true || $force === 1 || $force === '1' || $force === 'true';
     }
 
     private function countReferenceRows(string $table, string $column, int $value): int

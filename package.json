@@ -13,6 +13,8 @@
     "review:non-security": "node scripts/verify_non_security_review.mjs",
     "review:release-issues": "node scripts/verify_release_issue_register.mjs",
     "verify:transfer-p2": "node scripts/verify_transfer_p2.mjs",
+    "verify:platform-data-source-contract": "node scripts/verify_platform_data_source_contract.mjs",
+    "verify:ota-diagnosis-auto-fetch": "node scripts/verify_ota_diagnosis_auto_fetch.mjs",
     "verify:e2e-contracts": "node scripts/verify_e2e_contracts.mjs",
     "verify:shared-helpers": "node scripts/verify_shared_helpers_contract.mjs",
     "verify:opening-batch-actions": "node scripts/verify_opening_batch_actions.mjs",

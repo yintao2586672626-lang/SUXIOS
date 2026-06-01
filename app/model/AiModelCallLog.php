@@ -29,5 +29,7 @@ class AiModelCallLog extends Model
         'low_confidence' => 'integer',
         'human_confirmation_required' => 'integer',
         'human_confirmed_by' => 'integer',
+        'knowledge_sources_json' => 'array',
+        'governance_json' => 'array',
     ];
 }

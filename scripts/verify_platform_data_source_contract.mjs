@@ -69,6 +69,11 @@ for (const [route, label] of [
   ["Route::post('/data-import', 'OnlineData/importDataSourceRows');", 'data import route exists'],
   ["Route::get('/sync-tasks', 'OnlineData/syncTaskList');", 'sync task list route exists'],
   ["Route::get('/sync-logs', 'OnlineData/syncLogList');", 'sync log list route exists'],
+  ["Route::get('/platform-profile-status', 'OnlineData/platformProfileStatus');", 'platform Profile status route exists'],
+  ["Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');", 'platform Profile unbind route exists'],
+  ["Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');", 'platform Profile login trigger route exists'],
+  ["Route::get('/profile-login-status/:platform', 'OnlineData/platformProfileLoginStatus');", 'platform Profile login status route exists'],
+  ["Route::get('/meituan-profile-status', 'OnlineData/meituanProfileStatus');", 'Meituan Profile status route exists'],
 ]) {
   check('route/app.php', label, (source) => source.includes(route), route);
 }
@@ -80,6 +85,14 @@ for (const [method, label] of [
   ['function importDataSourceRows', 'controller exposes data import'],
   ['function syncTaskList', 'controller exposes sync task list'],
   ['function syncLogList', 'controller exposes sync log list'],
+  ['function platformProfileStatus', 'controller exposes unified platform Profile status'],
+  ['function deletePlatformProfileBinding', 'controller exposes platform Profile unbind fallback'],
+  ['function triggerPlatformProfileLogin', 'controller exposes async platform Profile login trigger'],
+  ['function platformProfileLoginStatus', 'controller exposes async platform Profile login status'],
+  ['function meituanProfileStatus', 'controller exposes Meituan Profile status probe'],
+  ['function bindBrowserProfileDataSource', 'controller binds successful login-only Profile to data source'],
+  ['function findBrowserProfileDataSourceForUnbind', 'controller resolves browser Profile binding without frontend data-source id'],
+  ['function clearBrowserProfileStatusCacheForSource', 'controller clears stale Profile status when data source is unbound'],
 ]) {
   check('app/controller/OnlineData.php', label, (source) => source.includes(method), method);
 }
@@ -139,8 +152,87 @@ for (const [needle, label] of [
   ['todayCost', 'platform sync maps advertising cost fields'],
   ['orderList', 'platform sync extracts order list envelopes'],
   ['campaignList', 'platform sync extracts campaign envelopes'],
+  ['CtripBrowserProfileDataSourceAdapter', 'platform sync registers Ctrip browser Profile adapter'],
+  ['MeituanBrowserProfileDataSourceAdapter', 'platform sync registers Meituan browser Profile adapter'],
+  ["'profile_id'", 'platform sync accepts Ctrip browser Profile config fields'],
+  ["'store_id'", 'platform sync accepts Meituan browser Profile config fields'],
+  ["'source_trace_id' => $traceId", 'platform sync preserves browser Profile trace ids'],
 ]) {
   check('app/service/PlatformDataSyncService.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ["'browser_profile'", 'Ctrip browser Profile adapter supports browser_profile ingestion method'],
+  ["'ctrip_profile_'", 'Ctrip browser Profile adapter checks local Profile directory'],
+  ['ctrip_browser_capture.mjs', 'Ctrip browser Profile adapter reuses existing browser capture script'],
+  ['auth_status', 'Ctrip browser Profile adapter exposes login state failures'],
+  ['capture_gate', 'Ctrip browser Profile adapter exposes capture gate failures'],
+  ["'acquisition_method' => 'browser_profile'", 'Ctrip browser Profile adapter labels acquisition method'],
+]) {
+  check('app/service/platform/CtripBrowserProfileDataSourceAdapter.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ["'browser_profile'", 'Meituan browser Profile adapter supports browser_profile ingestion method'],
+  ["'meituan_profile_'", 'Meituan browser Profile adapter checks local Profile directory'],
+  ['meituan_browser_capture.mjs', 'Meituan browser Profile adapter reuses existing browser capture script'],
+  ['auth_status', 'Meituan browser Profile adapter exposes login state failures'],
+  ['capture_gate', 'Meituan browser Profile adapter exposes capture gate failures'],
+  ["'acquisition_method' => 'browser_profile'", 'Meituan browser Profile adapter labels acquisition method'],
+]) {
+  check('app/service/platform/MeituanBrowserProfileDataSourceAdapter.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['value="browser_profile"', 'frontend data-source form exposes Ctrip browser Profile method'],
+  ['platformDataSourceConfigPlaceholder', 'frontend shows Ctrip browser Profile config example'],
+  ['platformDataSourceSecretPlaceholder', 'frontend keeps optional cookies in secret config'],
+  ['platformProfileStatus', 'frontend renders platform Profile account status'],
+  ['profile-login-trigger', 'frontend starts async platform Profile login task'],
+  ['profile-login-status', 'frontend polls async platform Profile login status'],
+  ['platformProfileLoginTasks', 'frontend tracks async platform Profile login tasks'],
+  ['triggerPlatformProfileLogin', 'frontend uses async platform Profile login trigger'],
+  ['loginPlatformProfile', 'frontend can start first-login Profile binding flow'],
+  ['probePlatformProfileStatus', 'frontend can probe Profile login status'],
+  ['deletePlatformProfileBinding', 'frontend can unbind a wrong platform Profile from the selected hotel'],
+  ['profile-binding-unbind', 'frontend calls Profile unbind fallback endpoint'],
+  ['解绑', 'frontend exposes visible Profile unbind action on the status card'],
+  ['ctrip_auto_fetch_mode', 'frontend sends Ctrip-specific auto-fetch mode'],
+  ['meituan_auto_fetch_mode', 'frontend keeps Meituan auto-fetch mode separate'],
+  ["page_size: 'all'", 'frontend analysis panel requests all filtered online_daily_data rows'],
+]) {
+  check('public/index.html', label, (source) => source.includes(needle), needle);
+}
+
+check(
+  'public/index.html',
+  'frontend analysis detail wording does not imply a 20-row cap',
+  (source) => !source.includes('展示最近 {{ onlineAnalysisRows.length }} 条'),
+  '展示最近 {{ onlineAnalysisRows.length }} 条'
+);
+
+check(
+  'app/controller/OnlineData.php',
+  'daily data list supports all filtered rows for analysis detail',
+  (source) => source.includes("['all', '全部']") && source.includes("'all' => $fetchAll"),
+  "['all', '全部'] and 'all' => $fetchAll"
+);
+
+for (const [needle, label] of [
+  ["'online-data:profile-login' => 'app\\command\\PlatformProfileLogin'", 'console registers async platform Profile login command'],
+]) {
+  check('config/console.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['--login-only=true', 'async login command runs browser capture in login-only mode'],
+  ['--headless=false', 'async login command always opens a visible browser for manual verification'],
+  ['platform_profile_login_task_', 'async login command writes task status cache'],
+  ['current_key', 'async login command updates current task cache for polling'],
+  ['PlatformDataSyncService', 'async login command binds successful Profile to platform data source'],
+  ["'capture_sections' => $this->safeSections", 'async login command normalizes array capture sections before binding'],
+]) {
+  check('app/command/PlatformProfileLogin.php', label, (source) => source.includes(needle), needle);
 }
 
 for (const [needle, label] of [
@@ -180,9 +272,14 @@ check(
 
 check(
   'scripts/meituan_browser_capture.mjs',
-  'Meituan browser capture sanitizes responses before writing output',
-  (source) => source.includes('sanitizeOtaPayloadForStorage(body, section)') && source.includes("if (section === 'orders')"),
-  'sanitizeOtaPayloadForStorage(body, section)'
+  'Meituan browser capture has login status and capture gate before writing output',
+  (source) => source.includes('auth_status')
+    && source.includes('capture_gate')
+    && source.includes('login_required')
+    && source.includes('evaluateCaptureGate')
+    && source.includes('sanitizeOtaPayloadForStorage(body, section)')
+    && source.includes("if (section === 'orders')"),
+  'auth_status/capture_gate/evaluateCaptureGate'
 );
 
 for (const [needle, label] of [

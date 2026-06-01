@@ -150,6 +150,12 @@ Route::group('api/online-data', function () {
     Route::post('/capture-ctrip-comments-browser', 'OnlineData/captureCtripCommentsBrowserData');
     Route::post('/capture-ctrip-browser', 'OnlineData/captureCtripBrowserData');
     Route::get('/ctrip-diagnosis-snapshot', 'OnlineData/ctripDiagnosisSnapshot');
+    Route::get('/ctrip-profile-status', 'OnlineData/ctripProfileStatus');
+    Route::get('/meituan-profile-status', 'OnlineData/meituanProfileStatus');
+    Route::get('/platform-profile-status', 'OnlineData/platformProfileStatus');
+    Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');
+    Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');
+    Route::get('/profile-login-status/:platform', 'OnlineData/platformProfileLoginStatus');
     Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData');
     Route::post('/validate-ctrip-endpoint-evidence', 'OnlineData/validateCtripEndpointEvidence');
     Route::post('/fetch-ctrip-overview', 'OnlineData/fetchCtripOverviewData');
@@ -198,12 +204,21 @@ Route::group('api/online-data', function () {
     Route::post('/ai-analysis', 'OnlineData/aiAnalysis');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== 酒店数据驾驶舱 API ====================
+Route::group('api/dashboard', function () {
+    Route::get('/account-overview', 'OnlineData/dashboardAccountOverview');
+    Route::get('/hotel-portrait', 'OnlineData/dashboardHotelPortrait');
+    Route::get('/data-sources', 'OnlineData/dashboardDataSources');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 智能知识中枢 API ====================
 Route::group('api/knowledge', function () {
     Route::get('/distillation/options', 'Knowledge/distillationOptions');
     Route::post('/distillation/run', 'Knowledge/runDistillation');
     Route::get('/list', 'Knowledge/unitList');
     Route::post('/add', 'Knowledge/add');
+    Route::post('/import', 'Knowledge/importMaterials');
+    Route::post('/document-text', 'Knowledge/extractDocumentText');
     Route::post('/:unit_id/add-chunk', 'Knowledge/addChunk');
     Route::post('/:unit_id/update', 'Knowledge/update');
     Route::post('/:unit_id/status', 'Knowledge/status');
@@ -433,32 +448,32 @@ Route::group('api/agent', function () {
     Route::post('/feasibility-report/regenerate/:id', 'Agent/feasibilityReportRegenerate');
     Route::delete('/feasibility-report/:id', 'Agent/feasibilityReportArchive');
     Route::get('/feasibility-report/list', 'Agent/feasibilityReportList');
-    
+
     // 配置管理
     Route::get('/config', 'Agent/getConfig');
     Route::post('/config', 'Agent/saveConfig');
-    
+
     // ========== 智能员工Agent ==========
     // 知识库
     Route::get('/knowledge', 'Agent/knowledgeList');
     Route::post('/knowledge', 'Agent/saveKnowledge');
     Route::delete('/knowledge/:id', 'Agent/deleteKnowledge');
     Route::get('/knowledge-categories', 'Agent/knowledgeCategories');
-    
+
     // 工单管理
     Route::get('/work-orders', 'Agent/workOrders');
     Route::post('/work-orders', 'Agent/createWorkOrder');
     Route::post('/work-orders/:id/assign', 'Agent/assignWorkOrder');
     Route::post('/work-orders/:id/resolve', 'Agent/resolveWorkOrder');
     Route::get('/work-order-stats', 'Agent/workOrderStats');
-    
+
     // 对话记录
     Route::get('/conversations', 'Agent/conversations');
     Route::get('/conversation-stats', 'Agent/conversationStats');
-    
+
     // 智能员工仪表板
     Route::get('/staff-dashboard', 'Agent/staffDashboard');
-    
+
     // ========== 收益管理Agent ==========
     // 定价建议
     Route::get('/price-suggestions', 'Agent/priceSuggestions');
@@ -469,45 +484,45 @@ Route::group('api/agent', function () {
     Route::get('/price-suggestions/:id/review', 'Agent/priceSuggestionReview');
     Route::get('/revenue-analysis', 'Agent/revenueAnalysis');
     Route::get('/cookie-warnings', 'Agent/cookieWarnings');
-    
+
     // 需求预测
     Route::get('/demand-forecasts', 'Agent/demandForecasts');
     Route::post('/demand-forecasts', 'Agent/createForecast');
-    
+
     // 竞对分析
     Route::get('/competitor-analysis', 'Agent/competitorAnalysis');
     Route::post('/competitor-analysis', 'Agent/recordCompetitorPrice');
-    
+
     // 收益管理仪表板
     Route::get('/revenue-dashboard', 'Agent/revenueDashboard');
-    
+
     // ========== 资产运维Agent ==========
     // 设备管理
     Route::get('/devices', 'Agent/deviceList');
     Route::post('/devices', 'Agent/saveDevice');
     Route::get('/device-stats', 'Agent/deviceStats');
-    
+
     // 能耗管理
     Route::get('/energy-data', 'Agent/energyData');
     Route::get('/energy-benchmarks', 'Agent/energyBenchmarks');
     Route::post('/energy-benchmarks', 'Agent/saveEnergyBenchmark');
     Route::post('/energy-benchmarks/auto-calculate', 'Agent/autoCalculateBenchmark');
-    
+
     // 节能建议
     Route::get('/energy-suggestions', 'Agent/energySuggestions');
     Route::post('/energy-suggestions/generate', 'Agent/generateEnergySuggestions');
     Route::post('/energy-suggestions/:id/update', 'Agent/updateEnergySuggestion');
-    
+
     // 维护计划
     Route::get('/maintenance-plans', 'Agent/maintenancePlans');
     Route::post('/maintenance-plans', 'Agent/createMaintenancePlan');
     Route::post('/maintenance-plans/:id/execute', 'Agent/executeMaintenancePlan');
     Route::get('/maintenance-reminders', 'Agent/maintenanceReminders');
     Route::post('/maintenance-plans/auto-generate', 'Agent/autoGenerateMaintenancePlans');
-    
+
     // 资产运维仪表板
     Route::get('/asset-dashboard', 'Agent/assetDashboard');
-    
+
     // 日志和任务
     Route::get('/logs', 'Agent/logs');
     Route::get('/tasks', 'Agent/tasks');

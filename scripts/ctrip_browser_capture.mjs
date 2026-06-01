@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 import {
@@ -32,6 +32,7 @@ import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
 const CATALOG_SUMMARY = ctripCatalogSummary();
+const CTRIP_LOGIN_URL = 'https://ebooking.ctrip.com/login/index';
 
 const args = parseArgs(process.argv.slice(2));
 const profileId = stringValue(args.profileId || args.hotelId || args.systemHotelId || '').trim();
@@ -56,6 +57,7 @@ const approvedMappings = approvedMappingsPath
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
 await mkdir(assetDir, { recursive: true });
+await mkdir(dirname(outputPath), { recursive: true });
 
 const payload = {
   profile_id: profileId,
@@ -114,13 +116,14 @@ try {
       name: 'auth',
       label: '登录状态',
       url: loginStatus.url || page.url(),
-      configured_url: firstKnownPageUrl(),
+      configured_url: ctripLoginEntryUrl(),
       ok: false,
       auth_status: loginStatus.status,
       error: loginStatus.message,
     });
     process.exitCode = 2;
   } else if (loginOnly) {
+    await holdInteractiveLoginWindow(page, 'Ctrip');
     await finalizeLoginOnlyPayload();
   } else {
     for (const section of requestedSections) {
@@ -134,7 +137,9 @@ try {
       }
     }
   }
-  await finalizePayload();
+  if (!loginOnly) {
+    await finalizePayload();
+  }
 
   console.log(JSON.stringify({
     output: outputPath,
@@ -147,7 +152,7 @@ try {
 }
 
 async function ensureLoggedIn(page) {
-  await page.goto(firstKnownPageUrl(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
+  await page.goto(ctripLoginEntryUrl(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
   await page.waitForTimeout(2000);
   await dismissBlockingOverlays(page);
   if (await looksLoggedIn(page)) {
@@ -170,6 +175,26 @@ async function ensureLoggedIn(page) {
     timeout_ms: timeoutMs,
     message: `Ctrip login timeout after ${Math.round(timeoutMs / 1000)} seconds`,
   };
+}
+
+async function holdInteractiveLoginWindow(page, platformName) {
+  const waitMs = Math.max(0, Math.min(600000, numberValue(
+    args.postLoginWaitMs || args.keepOpenMs || args.interactiveHoldMs,
+    0,
+  )));
+  const enabled = booleanArg(args.interactiveLogin) || waitMs > 0;
+  if (!enabled) {
+    return;
+  }
+  const effectiveWaitMs = waitMs > 0 ? waitMs : 120000;
+  console.log(`${platformName} login session is ready. Keeping browser open for ${Math.round(effectiveWaitMs / 1000)} seconds.`);
+  const deadline = Date.now() + effectiveWaitMs;
+  while (Date.now() < deadline) {
+    if (typeof page.isClosed === 'function' && page.isClosed()) {
+      return;
+    }
+    await page.waitForTimeout(Math.min(3000, Math.max(250, deadline - Date.now()))).catch(() => null);
+  }
 }
 
 async function finalizePayload() {
@@ -211,7 +236,7 @@ async function finalizeLoginOnlyPayload() {
     name: 'auth',
     label: '登录状态',
     url: payload.auth_status?.url || '',
-    configured_url: firstKnownPageUrl(),
+    configured_url: ctripLoginEntryUrl(),
     ok: true,
     auth_status: 'login_prepared',
     reason: 'login_only',
@@ -1062,6 +1087,10 @@ function firstKnownPageUrl() {
     }
   }
   return 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
+}
+
+function ctripLoginEntryUrl() {
+  return stringValue(args.loginUrl || args.login_url || args.entryUrl || args.entry_url || '').trim() || CTRIP_LOGIN_URL;
 }
 
 function normalizeSections(value) {
