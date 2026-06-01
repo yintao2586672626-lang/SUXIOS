@@ -5,22 +5,19 @@ namespace Tests;
 
 use app\model\AiModelCallLog;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 use Tests\Support\ReflectionHelper;
-use think\App;
 
 final class AiModelCallLogTest extends TestCase
 {
     use ReflectionHelper;
 
-    public static function setUpBeforeClass(): void
-    {
-        (new App())->initialize();
-    }
-
     public function testGovernanceJsonFieldsAreEncodedBeforePersistence(): void
     {
-        $log = new AiModelCallLog();
-        $types = $log->getOption('type');
+        $reflection = new ReflectionClass(AiModelCallLog::class);
+        /** @var AiModelCallLog $log */
+        $log = $reflection->newInstanceWithoutConstructor();
+        $types = $reflection->getDefaultProperties()['type'] ?? [];
 
         $knowledgeSources = [
             ['ref' => 'online_daily_data#10', 'title' => 'OTA metric source'],
