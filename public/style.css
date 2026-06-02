@@ -6513,7 +6513,7 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
     border-radius: 24px !important;
     border-color: rgba(148, 204, 255, 0.24) !important;
     background:
-        linear-gradient(180deg, rgba(9, 27, 47, 0.9), rgba(3, 10, 21, 0.96)) !important;
+        linear-gradient(180deg, rgba(11, 37, 63, 0.92), rgba(3, 13, 25, 0.96)) !important;
     box-shadow:
         0 34px 90px rgba(0, 0, 0, 0.52),
         inset 0 1px 0 rgba(255, 255, 255, 0.09),
@@ -6641,7 +6641,7 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
 }
 
 .login-bg .btn-login:disabled {
-    opacity: 0.56 !important;
+    opacity: 0.78 !important;
     cursor: not-allowed !important;
 }
 
