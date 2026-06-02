@@ -22,8 +22,13 @@
             <div class="login-glow-purple"></div>
 
             <div class="login-stage relative z-10">
-                <section class="login-context-panel" aria-label="宿析OS工作流">
-                    <div class="login-context-kicker">酒店全周期经营决策系统</div>
+                <section class="login-context-panel" aria-label="宿析OS登录主视觉">
+                    <div class="login-context-topline">
+                        <span class="login-context-kicker">酒店全周期经营决策系统</span>
+                        <span class="login-context-status">
+                            <i class="fas fa-circle"></i>DATA DECISION OS
+                        </span>
+                    </div>
                     <p class="login-brand-mark">宿析OS</p>
                     <h2 class="login-hero-lines">
                         <span>看见数据</span>
@@ -31,26 +36,50 @@
                         <span>看清未来</span>
                     </h2>
                     <p class="login-hero-lead">让酒店每个关键决策，都有数据依据</p>
+                    <div class="login-decision-map" aria-hidden="true">
+                        <div class="login-map-header">
+                            <span>经营决策链路</span>
+                            <strong>LIVE</strong>
+                        </div>
+                        <div class="login-map-canvas">
+                            <span class="login-map-line login-map-line-a"></span>
+                            <span class="login-map-line login-map-line-b"></span>
+                            <span class="login-map-line login-map-line-c"></span>
+                            <span class="login-map-line login-map-line-d"></span>
+                            <span class="login-map-node" data-node="ota">OTA</span>
+                            <span class="login-map-node" data-node="revenue">收益</span>
+                            <span class="login-map-node" data-node="ai">AI</span>
+                            <span class="login-map-node" data-node="ops">运营</span>
+                            <span class="login-map-node" data-node="invest">投资</span>
+                        </div>
+                        <div class="login-map-footer">
+                            <span>采集</span>
+                            <span>分析</span>
+                            <span>推演</span>
+                            <span>追踪</span>
+                        </div>
+                    </div>
                 </section>
 
                 <div class="login-card rounded-2xl p-10 w-full max-w-md relative">
-                <div data-locale-switch class="locale-switch login-locale-switch">
-                    <label>{{ aiModelConfigText('global.languageLabel') }}</label>
-                    <select :value="currentLocale" @change="switchLocale($event.target.value)">
-                        <option v-for="option in languageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
-                </div>
-
-                <!-- Logo 和标题 -->
-                <div class="text-center mb-8">
-                    <div class="login-logo inline-flex items-center justify-center w-20 h-20 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-700 mb-5 shadow-lg">
-                        <img src="images/logo.svg" alt="宿析OS" class="w-12 h-12 object-contain drop-shadow-lg" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                        <i class="fas fa-hotel text-4xl text-white" style="display:none"></i>
+                    <div data-locale-switch class="locale-switch login-locale-switch">
+                        <label>{{ aiModelConfigText('global.languageLabel') }}</label>
+                        <select :value="currentLocale" @change="switchLocale($event.target.value)">
+                            <option v-for="option in languageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
                     </div>
-                    <h1 class="login-title text-3xl font-bold mb-2">登录宿析OS</h1>
-                    <p class="login-slogan text-base font-medium tracking-wide">进入酒店经营决策中心</p>
-                    <p class="login-copy">让酒店从经验判断走向数据决策</p>
-                </div>
+
+                    <!-- Logo 和标题 -->
+                    <div class="login-card-head text-center mb-8">
+                        <div class="login-logo inline-flex items-center justify-center w-20 h-20 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-700 mb-5 shadow-lg">
+                            <img src="images/logo.svg" alt="宿析OS" class="w-12 h-12 object-contain drop-shadow-lg" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <i class="fas fa-hotel text-4xl text-white" style="display:none"></i>
+                        </div>
+                        <p class="login-card-kicker">经营决策中心</p>
+                        <h1 class="login-title text-3xl font-bold mb-2">登录宿析OS</h1>
+                        <p class="login-slogan text-base font-medium tracking-wide">进入酒店经营决策中心</p>
+                        <p class="login-copy">让酒店从经验判断走向数据决策</p>
+                    </div>
 
                 <!-- 登录表单 -->
                 <form v-if="!registerMode" @submit.prevent="handleLogin" class="space-y-5">
@@ -216,28 +245,11 @@
                     </button>
                 </div>
 
-                <div class="slogan-container text-center">
-                    <p class="login-system-note">
-                        <i class="fas fa-chart-line"></i>数据采集 · AI分析 · 策略推演 · 结果追踪
-                    </p>
-                </div>
-
-                <!-- 分隔线 -->
-                <div class="divider my-8"></div>
-
-                <!-- 专家入口 -->
-                <div class="text-center">
-                    <button type="button" @click="openDirectorEntry" class="vip-login-entry" data-testid="director-entry-trigger">
-                        <i class="fas fa-user-tie"></i>归鹿宿里懂事入口
-                    </button>
-                    <p class="vip-login-note">仅限已开通账号使用</p>
-                </div>
-
-                <!-- 底部品牌信息 -->
-                <div class="brand-footer">
-                    <div class="brand-name">宿析OS · 酒店全周期经营决策系统</div>
-                    <div class="version">v2.0.0</div>
-                </div>
+                    <div class="login-card-foot">
+                        <button type="button" @click="openDirectorEntry" class="director-entry-link" data-testid="director-entry-trigger">
+                            专属入口
+                        </button>
+                    </div>
                 </div>
             </div>
 
