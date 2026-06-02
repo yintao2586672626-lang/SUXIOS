@@ -2479,6 +2479,344 @@ final class OnlineDataTest extends TestCase
         self::assertSame('core', $options['profile_sections']);
     }
 
+    public function testCtripProfileCaptureFieldDefaultsCoverLatestTaskFieldsAndGaps(): void
+    {
+        $controller = $this->controller();
+
+        $fields = $this->invokeNonPublic($controller, 'defaultCtripProfileCaptureFields');
+        $byKey = [];
+        foreach ($fields as $field) {
+            $byKey[$field['field_key']] = $field;
+        }
+
+        foreach ([
+            'page_views',
+            'list_exposure',
+            'competitor_list_exposure',
+            'detail_visitor',
+            'competitor_detail_visitor',
+            'flow_rate',
+            'competitor_flow_rate',
+            'order_page_visitor',
+            'competitor_order_page_visitor',
+            'order_fill_rate',
+            'competitor_order_fill_rate',
+            'order_submit_user',
+            'competitor_order_submit_user',
+            'deal_rate',
+            'competitor_deal_rate',
+            'qunar_list_exposure',
+            'qunar_competitor_list_exposure',
+            'qunar_detail_visitor',
+            'qunar_competitor_detail_visitor',
+            'qunar_flow_rate',
+            'qunar_competitor_flow_rate',
+            'qunar_order_page_visitor',
+            'qunar_competitor_order_page_visitor',
+            'qunar_order_fill_rate',
+            'qunar_competitor_order_fill_rate',
+            'qunar_order_submit_user',
+            'qunar_competitor_order_submit_user',
+            'qunar_deal_rate',
+            'qunar_competitor_deal_rate',
+            'occupancy_rate',
+            'seq_rank',
+            'psi_score',
+            'service_score_rank',
+            'comment_score_summary',
+            'reply_rate',
+            'diagnosis_score',
+            'diagnosis_level',
+            'notice_count',
+            'target_url',
+            'ad_cost',
+            'comment_rows',
+            'good_review_count',
+            'bad_review_count',
+        ] as $requiredKey) {
+            self::assertArrayHasKey($requiredKey, $byKey);
+        }
+
+        self::assertSame('confirmed', $byKey['ad_cost']['status']);
+        self::assertTrue($byKey['ad_cost']['enabled']);
+        self::assertStringContainsString('todayCost', $byKey['ad_cost']['source_keys']);
+        self::assertStringContainsString('cashCost', $byKey['ad_cost']['source_keys']);
+        self::assertStringContainsString('bonusCost', $byKey['ad_cost']['source_keys']);
+        self::assertSame('paused', $byKey['notice_count']['status']);
+        self::assertFalse($byKey['notice_count']['enabled']);
+        self::assertSame('confirmed', $byKey['flow_conversion_rate']['status']);
+        self::assertStringContainsString('flowRate', $byKey['flow_conversion_rate']['source_keys']);
+        self::assertSame('confirmed', $byKey['page_views']['status']);
+        self::assertStringContainsString('queryFlowTransforNewV1', $byKey['page_views']['source_interface']);
+        self::assertStringContainsString('listExposure', $byKey['page_views']['source_keys']);
+        self::assertStringContainsString('list_exposure', $byKey['page_views']['transform_rule']);
+        self::assertStringContainsString('queryFlowTransforNewV1', $byKey['flow_rate']['source_interface']);
+        self::assertStringContainsString('detailExposure / listExposure', $byKey['flow_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['competitor_flow_rate']['transform_rule']);
+        self::assertStringContainsString('flowRate', $byKey['competitor_flow_rate']['source_keys']);
+        self::assertStringContainsString('hotelId=-1', $byKey['competitor_detail_visitor']['transform_rule']);
+        self::assertStringContainsString('detailExposure', $byKey['competitor_detail_visitor']['source_keys']);
+        self::assertStringContainsString('orderFillingNum / detailExposure', $byKey['order_fill_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['competitor_order_fill_rate']['transform_rule']);
+        self::assertStringContainsString('orderFillingNum / detailExposure', $byKey['competitor_order_fill_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['competitor_order_page_visitor']['transform_rule']);
+        self::assertStringContainsString('orderFillingNum', $byKey['competitor_order_page_visitor']['source_keys']);
+        self::assertStringContainsString('orderSubmitNum / orderFillingNum', $byKey['deal_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['competitor_deal_rate']['transform_rule']);
+        self::assertStringContainsString('orderSubmitNum / orderFillingNum', $byKey['competitor_deal_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['competitor_order_submit_user']['transform_rule']);
+        self::assertStringContainsString('orderSubmitNum', $byKey['competitor_order_submit_user']['source_keys']);
+        self::assertStringContainsString('platform=Qunar', $byKey['qunar_flow_rate']['transform_rule']);
+        self::assertStringContainsString('queryFlowTransforNewV1', $byKey['qunar_flow_rate']['source_interface']);
+        self::assertStringContainsString('platform=Qunar', $byKey['qunar_competitor_flow_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['qunar_competitor_flow_rate']['transform_rule']);
+        self::assertStringContainsString('platform=Qunar', $byKey['qunar_order_fill_rate']['transform_rule']);
+        self::assertStringContainsString('orderFillingNum / detailExposure', $byKey['qunar_order_fill_rate']['transform_rule']);
+        self::assertStringContainsString('platform=Qunar', $byKey['qunar_competitor_order_fill_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['qunar_competitor_order_fill_rate']['transform_rule']);
+        self::assertStringContainsString('platform=Qunar', $byKey['qunar_deal_rate']['transform_rule']);
+        self::assertStringContainsString('orderSubmitNum / orderFillingNum', $byKey['qunar_deal_rate']['transform_rule']);
+        self::assertStringContainsString('platform=Qunar', $byKey['qunar_competitor_deal_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['qunar_competitor_deal_rate']['transform_rule']);
+        self::assertSame('confirmed', $byKey['comment_rows']['status']);
+        self::assertTrue($byKey['comment_rows']['enabled']);
+        self::assertSame('score >= 4.0 计数，不保存点评明文', $byKey['good_review_count']['transform_rule']);
+        self::assertSame('0 < score < 4.0 计数，不保存点评明文', $byKey['bad_review_count']['transform_rule']);
+    }
+
+    public function testCtripProfileTrafficFunnelSamplesResolveConcreteValues(): void
+    {
+        $controller = $this->controller();
+        $raw = [
+            'response' => [
+                [
+                    'date' => '2026-06-01',
+                    'hotelId' => 134396668,
+                    'listExposure' => 1297,
+                    'detailExposure' => 231,
+                    'flowRate' => 17.81,
+                    'orderFillingNum' => 9,
+                    'orderSubmitNum' => 7,
+                ],
+                [
+                    'date' => '2026-06-01',
+                    'hotelId' => -1,
+                    'listExposure' => 799,
+                    'detailExposure' => 172,
+                    'flowRate' => 21.5,
+                    'orderFillingNum' => 10,
+                    'orderSubmitNum' => 6,
+                ],
+            ],
+        ];
+
+        self::assertSame(
+            [1297.0, 'listExposure', 'raw_data.response.[0]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['page_views', [], $raw])
+        );
+        self::assertSame(
+            [799.0, 'listExposure', 'raw_data.response.[1]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['competitor_list_exposure', [], $raw])
+        );
+        self::assertSame(
+            ['17.81', 'detailExposure / listExposure', 'raw_data.response.[0]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['flow_rate', [], $raw])
+        );
+        self::assertSame(
+            ['3.90', 'orderFillingNum / detailExposure', 'raw_data.response.[0]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['order_fill_rate', [], $raw])
+        );
+        self::assertSame(
+            ['77.78', 'orderSubmitNum / orderFillingNum', 'raw_data.response.[0]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['deal_rate', [], $raw])
+        );
+        self::assertSame(
+            ['21.53', 'detailExposure / listExposure', 'raw_data.response.[1]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['competitor_flow_rate', [], $raw])
+        );
+        self::assertSame(
+            ['5.81', 'orderFillingNum / detailExposure', 'raw_data.response.[1]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['competitor_order_fill_rate', [], $raw])
+        );
+        self::assertSame(
+            ['60.00', 'orderSubmitNum / orderFillingNum', 'raw_data.response.[1]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['competitor_deal_rate', [], $raw])
+        );
+        self::assertSame(
+            [1297.0, 'listExposure', 'raw_data.response.[0]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_list_exposure', [], $raw])
+        );
+        self::assertSame(
+            [799.0, 'listExposure', 'raw_data.response.[1]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_competitor_list_exposure', [], $raw])
+        );
+        self::assertSame(
+            ['17.81', 'detailExposure / listExposure', 'raw_data.response.[0]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_flow_rate', [], $raw])
+        );
+        self::assertSame(
+            ['21.53', 'detailExposure / listExposure', 'raw_data.response.[1]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_competitor_flow_rate', [], $raw])
+        );
+        self::assertSame(
+            ['3.90', 'orderFillingNum / detailExposure', 'raw_data.response.[0]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_order_fill_rate', [], $raw])
+        );
+        self::assertSame(
+            ['5.81', 'orderFillingNum / detailExposure', 'raw_data.response.[1]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_competitor_order_fill_rate', [], $raw])
+        );
+        self::assertSame(
+            ['77.78', 'orderSubmitNum / orderFillingNum', 'raw_data.response.[0]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_deal_rate', [], $raw])
+        );
+        self::assertSame(
+            ['60.00', 'orderSubmitNum / orderFillingNum', 'raw_data.response.[1]'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_competitor_deal_rate', [], $raw])
+        );
+
+        $storedQunarCompetitorRow = [
+            'id' => 99,
+            'source' => 'qunar',
+            'platform' => 'Qunar',
+            'compare_type' => 'competitor',
+            'list_exposure' => 799,
+            'detail_exposure' => 172,
+            'flow_rate' => 21.5,
+            'order_filling_num' => 10,
+            'order_submit_num' => 6,
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure+detail_visitor+flow_rate:0',
+        ];
+        self::assertSame(
+            [799.0, 'listExposure', 'online_daily_data#99'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_competitor_list_exposure', $storedQunarCompetitorRow, []])
+        );
+        self::assertSame(
+            ['21.53', 'detailExposure / listExposure', 'online_daily_data#99'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_competitor_flow_rate', $storedQunarCompetitorRow, []])
+        );
+    }
+
+    public function testCtripProfileTrafficFunnelSamplesIgnoreNonFunnelTrafficRows(): void
+    {
+        $controller = $this->controller();
+
+        $visitorTitleRow = [
+            'id' => 9289,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'compare_type' => 'competitor',
+            'hotel_id' => '6866634',
+            'list_exposure' => 0,
+            'detail_exposure' => 15,
+            'flow_rate' => 0,
+            'order_filling_num' => 0,
+            'order_submit_num' => 0,
+            'dimension' => 'catalog:business_overview:business_visitor_title:visitor_count+visitor_rank+competitor_avg_visitor:root',
+        ];
+        $flowTransformRow = [
+            'id' => 9287,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'hotel_id' => '6866634',
+            'list_exposure' => 258,
+            'detail_exposure' => 24,
+            'flow_rate' => 9.3,
+            'order_filling_num' => 6,
+            'order_submit_num' => 6,
+            'dimension' => 'catalog:business_overview:business_flow_transform:date+list_exposure+detail_visitor:0',
+        ];
+
+        self::assertNull($this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['competitor_list_exposure', $visitorTitleRow, []]));
+        self::assertSame(
+            [258.0, 'listExposure', 'online_daily_data#9287'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['page_views', $flowTransformRow, []])
+        );
+    }
+
+    public function testCtripProfileTrafficFunnelFieldsPreferOnlineDailySamples(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'ctripProfilePrefersOnlineDailySamples', ['page_views']));
+        self::assertTrue($this->invokeNonPublic($controller, 'ctripProfilePrefersOnlineDailySamples', ['flow_conversion_rate']));
+        self::assertTrue($this->invokeNonPublic($controller, 'ctripProfilePrefersOnlineDailySamples', ['qunar_competitor_deal_rate']));
+        self::assertFalse($this->invokeNonPublic($controller, 'ctripProfilePrefersOnlineDailySamples', ['order_amount']));
+    }
+
+    public function testCtripProfileTrafficScopeDoesNotTreatCompetitorRowsAsSelf(): void
+    {
+        $controller = $this->controller();
+
+        self::assertFalse($this->invokeNonPublic($controller, 'ctripProfileTrafficRowMatchesScope', [[
+            'compare_type' => 'competitor',
+            'hotel_id' => '6866634',
+        ], 'self']));
+        self::assertFalse($this->invokeNonPublic($controller, 'ctripProfileTrafficRowMatchesScope', [[
+            'compare_type' => '',
+            'hotel_id' => '-1',
+        ], 'self']));
+        self::assertTrue($this->invokeNonPublic($controller, 'ctripProfileTrafficRowMatchesScope', [[
+            'compare_type' => 'self',
+            'hotel_id' => '6866634',
+        ], 'self']));
+        self::assertTrue($this->invokeNonPublic($controller, 'ctripProfileTrafficRowMatchesScope', [[
+            'compare_type' => 'competitor',
+            'hotel_id' => '6866634',
+        ], 'competitor']));
+        self::assertTrue($this->invokeNonPublic($controller, 'ctripProfileTrafficRowMatchesScope', [[
+            'compare_type' => '',
+            'hotel_id' => '-1',
+        ], 'competitor']));
+    }
+
+    public function testCtripProfilePreferredOnlineDailySamplesDoNotFallbackToWrongScopeGenericValues(): void
+    {
+        $controller = $this->controller();
+        $competitorRow = [
+            'id' => 9289,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'compare_type' => 'competitor',
+            'hotel_id' => '6866634',
+            'list_exposure' => 0,
+        ];
+
+        self::assertNull($this->invokeNonPublic($controller, 'resolveCtripProfileOnlineDailyFieldSample', [
+            'page_views',
+            $competitorRow,
+            [],
+            [],
+            ['page_views', 'listExposure', 'list_exposure'],
+        ]));
+        self::assertSame(
+            [0, 'list_exposure', 'online_daily_data#9289'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileOnlineDailyFieldSample', [
+                'custom_metric',
+                $competitorRow,
+                [],
+                [],
+                ['list_exposure'],
+            ])
+        );
+    }
+
+    public function testCtripProfileTrafficRowSelectionDoesNotFallbackCompetitorAverageToSelf(): void
+    {
+        $controller = $this->controller();
+
+        self::assertNull($this->invokeNonPublic($controller, 'selectCtripProfileTrafficRow', [[
+            ['row' => ['hotelId' => '-1', 'listExposure' => 1463], 'path' => 'raw_data.row'],
+        ], 'self']));
+        self::assertSame(
+            ['row' => ['listExposure' => 258], 'path' => 'raw_data.row'],
+            $this->invokeNonPublic($controller, 'selectCtripProfileTrafficRow', [[
+                ['row' => ['listExposure' => 258], 'path' => 'raw_data.row'],
+            ], 'self'])
+        );
+    }
+
     public function testCtripProfileCaptureGateArgsDefaultToFieldCoverageThreshold(): void
     {
         $controller = $this->controller();
@@ -2961,6 +3299,46 @@ final class OnlineDataTest extends TestCase
         $changedPayload['standard_rows'][0]['dimension'] = 'catalog:quality_psi:psi_overview:psi_rank:root';
         $changedRows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [$changedPayload, 7, '2026-05-31', 'ctrip-1001']);
         self::assertNotSame($rows[0]['source_trace_id'], $changedRows[0]['source_trace_id']);
+    }
+
+    public function testCtripProfileStandardRowsPreserveQunarTrafficSourceAndPlatform(): void
+    {
+        $controller = $this->controller();
+        $payload = [
+            'standard_rows' => [[
+                'hotel_id' => '-1',
+                'hotel_name' => '竞争圈平均',
+                'source' => 'qunar',
+                'platform' => 'Qunar',
+                'data_date' => '2026-06-01',
+                'data_type' => 'traffic',
+                'capture_section' => 'traffic_report',
+                'endpoint_id' => 'traffic_flow_transform',
+                'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure+detail_visitor+flow_rate:1',
+                'compare_type' => 'competitor',
+                'list_exposure' => 799,
+                'detail_exposure' => 172,
+                'flow_rate' => 21.5,
+                'order_filling_num' => 10,
+                'order_submit_num' => 6,
+                'raw_data' => [
+                    'source' => 'ctrip_catalog_facts',
+                    'metrics' => ['flow_rate' => 21.5],
+                ],
+            ]],
+        ];
+
+        $rows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [$payload, 7, '2026-06-01', '134396668']);
+
+        self::assertCount(1, $rows);
+        self::assertSame('qunar', $rows[0]['source']);
+        self::assertSame('Qunar', $rows[0]['platform']);
+        self::assertSame('competitor', $rows[0]['compare_type']);
+        self::assertSame(799, $rows[0]['list_exposure']);
+        self::assertSame(172, $rows[0]['detail_exposure']);
+        self::assertSame(21.5, $rows[0]['flow_rate']);
+        self::assertSame(10, $rows[0]['order_filling_num']);
+        self::assertSame(6, $rows[0]['order_submit_num']);
     }
 
     public function testCtripCaptureCountsExposeStandardRowsByTypeAndSection(): void

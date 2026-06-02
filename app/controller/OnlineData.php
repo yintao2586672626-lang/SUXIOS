@@ -14,6 +14,9 @@ use think\facade\Db;
 
 class OnlineData extends Base
 {
+    private const CTRIP_PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
+    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 10;
+
     private function shouldVerifyOtaSsl(): bool
     {
         $value = env('OTA_SSL_VERIFY', true);
@@ -2077,11 +2080,11 @@ class OnlineData extends Base
         if ($hotelName !== '') {
             $args[] = '--hotel-name=' . $hotelName;
         }
-        $sectionsValue = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? 'business_overview';
+        $sectionsValue = $requestData['sections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? 'default';
         $sectionsRaw = is_array($sectionsValue)
             ? implode(',', array_map('strval', $sectionsValue))
             : trim((string)$sectionsValue);
-        $sectionsRaw = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $sectionsRaw) ?: 'business_overview';
+        $sectionsRaw = preg_replace('/[^a-zA-Z,_\-\s]+/', '', $sectionsRaw) ?: 'default';
         $sectionsList = array_values(array_unique(array_filter(
             array_map(static fn($item): string => strtolower(trim((string)$item)), preg_split('/[,\s]+/', $sectionsRaw) ?: []),
             static fn(string $item): bool => $item !== ''
@@ -4852,7 +4855,7 @@ class OnlineData extends Base
                 $row['update_time'] = $now;
             }
             $query = Db::name('online_daily_data')
-                ->where('source', 'ctrip')
+                ->where('source', (string)($row['source'] ?? 'ctrip'))
                 ->where('data_type', 'advertising')
                 ->where('data_date', (string)$row['data_date'])
                 ->where('dimension', (string)($row['dimension'] ?? ''));
@@ -9725,6 +9728,1023 @@ JAVASCRIPT;
         ]);
     }
 
+    public function getCtripProfileFields(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $fields = array_values($this->readCtripProfileCaptureFields());
+            $sampleSummary = $this->hydrateCtripProfileFieldLatestSamples($fields);
+            return $this->success([
+                'list' => $fields,
+                'summary' => array_merge($this->summarizeCtripProfileCaptureFields($fields), $sampleSummary),
+            ]);
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('获取携程 Profile 字段目录失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('获取携程 Profile 字段目录失败', 500);
+        }
+    }
+
+    public function saveCtripProfileField(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $requestData = $this->requestData();
+            $fields = $this->readCtripProfileCaptureFields();
+            $id = trim((string)($requestData['id'] ?? ''));
+            $original = $id !== '' && isset($fields[$id]) ? $fields[$id] : [];
+            if ($id !== '' && !isset($fields[$id])) {
+                return $this->error('字段配置不存在', 404);
+            }
+
+            $fieldKey = trim((string)($requestData['field_key'] ?? $requestData['fieldKey'] ?? ($original['field_key'] ?? '')));
+            $fieldName = trim((string)($requestData['field_name'] ?? $requestData['fieldName'] ?? ($original['field_name'] ?? '')));
+            if ($fieldKey === '' || $fieldName === '') {
+                return $this->error('字段编码和字段名称不能为空');
+            }
+
+            if ($id === '') {
+                $safeIdPart = preg_replace('/[^a-z0-9_\-]+/i', '_', strtolower($fieldKey)) ?: bin2hex(random_bytes(4));
+                $id = 'profile_field_' . trim($safeIdPart, '_');
+                if (isset($fields[$id])) {
+                    $id .= '_' . date('His') . '_' . bin2hex(random_bytes(2));
+                }
+            }
+
+            $field = $this->normalizeCtripProfileCaptureField(array_merge($original, $requestData, [
+                'id' => $id,
+                'field_key' => $fieldKey,
+                'field_name' => $fieldName,
+                'user_id' => $this->currentUser->id ?? null,
+                'created_at' => $original['created_at'] ?? date('Y-m-d H:i:s'),
+                'update_time' => date('Y-m-d H:i:s'),
+            ]), $original);
+
+            $fields[$id] = $field;
+            $this->writeCtripProfileCaptureFields($fields);
+
+            OperationLog::record('online_data', 'save_ctrip_profile_field', '保存携程 Profile 字段: ' . $fieldName, $this->currentUser->id);
+
+            return $this->success($field, '字段配置已保存');
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('保存携程 Profile 字段失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('保存携程 Profile 字段失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function deleteCtripProfileField(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_delete_online_data');
+
+        $requestData = $this->requestData();
+        $id = trim((string)($requestData['id'] ?? $this->request->param('id', '')));
+        if ($id === '') {
+            return $this->error('字段ID不能为空');
+        }
+
+        try {
+            $fields = $this->readCtripProfileCaptureFields();
+            if (!isset($fields[$id])) {
+                return $this->error('字段配置不存在', 404);
+            }
+
+            $fieldName = (string)($fields[$id]['field_name'] ?? $id);
+            unset($fields[$id]);
+            $this->writeCtripProfileCaptureFields($fields);
+
+            OperationLog::record('online_data', 'delete_ctrip_profile_field', '删除携程 Profile 字段: ' . $fieldName, $this->currentUser->id);
+
+            return $this->success(['id' => $id], '字段配置已删除');
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('删除携程 Profile 字段失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('删除携程 Profile 字段失败', 500);
+        }
+    }
+
+    private function readCtripProfileCaptureFields(): array
+    {
+        $row = \think\facade\Db::name('system_configs')->where('config_key', self::CTRIP_PROFILE_FIELDS_CONFIG_KEY)->find();
+        if (!$row) {
+            $fields = $this->defaultCtripProfileCaptureFields();
+            $this->writeCtripProfileCaptureFields($fields, true);
+            return $fields;
+        }
+
+        $payload = json_decode((string)($row['config_value'] ?? ''), true);
+        if (!is_array($payload)) {
+            return [];
+        }
+
+        $payloadVersion = (int)($payload['version'] ?? 0);
+        $rawFields = is_array($payload['fields'] ?? null) ? $payload['fields'] : $payload;
+        $fields = [];
+        foreach ($rawFields as $key => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (empty($item['id']) && is_string($key)) {
+                $item['id'] = $key;
+            }
+            $normalized = $this->normalizeCtripProfileCaptureField($item);
+            if ($normalized['id'] !== '') {
+                $fields[$normalized['id']] = $normalized;
+            }
+        }
+
+        if ($payloadVersion < self::CTRIP_PROFILE_FIELDS_CONFIG_VERSION) {
+            $defaultFields = $this->defaultCtripProfileCaptureFields();
+            $refreshDefaultFieldKeys = ['ad_cost', 'notice_count', 'page_views', 'list_exposure', 'competitor_list_exposure', 'detail_visitor', 'competitor_detail_visitor', 'flow_rate', 'competitor_flow_rate', 'flow_conversion_rate', 'order_page_visitor', 'competitor_order_page_visitor', 'order_fill_rate', 'competitor_order_fill_rate', 'order_submit_user', 'competitor_order_submit_user', 'deal_rate', 'competitor_deal_rate', 'qunar_list_exposure', 'qunar_competitor_list_exposure', 'qunar_detail_visitor', 'qunar_competitor_detail_visitor', 'qunar_flow_rate', 'qunar_competitor_flow_rate', 'qunar_order_page_visitor', 'qunar_competitor_order_page_visitor', 'qunar_order_fill_rate', 'qunar_competitor_order_fill_rate', 'qunar_order_submit_user', 'qunar_competitor_order_submit_user', 'qunar_deal_rate', 'qunar_competitor_deal_rate', 'comment_rows', 'good_review_count', 'bad_review_count'];
+            $hasNewDefaults = false;
+            foreach ($defaultFields as $id => $field) {
+                if (!isset($fields[$id])) {
+                    $fields[$id] = $field;
+                    $hasNewDefaults = true;
+                    continue;
+                }
+
+                if (in_array((string)($field['field_key'] ?? ''), $refreshDefaultFieldKeys, true)) {
+                    $existing = $fields[$id];
+                    $fields[$id] = array_merge($field, [
+                        'id' => $existing['id'] ?? $field['id'],
+                        'created_at' => $existing['created_at'] ?? $field['created_at'],
+                        'update_time' => date('Y-m-d H:i:s'),
+                        'user_id' => $existing['user_id'] ?? null,
+                    ]);
+                    $hasNewDefaults = true;
+                }
+            }
+            if ($hasNewDefaults) {
+                $this->writeCtripProfileCaptureFields($fields);
+            }
+        }
+
+        uasort($fields, function (array $a, array $b): int {
+            $sort = ((int)($a['sort_order'] ?? 0)) <=> ((int)($b['sort_order'] ?? 0));
+            if ($sort !== 0) {
+                return $sort;
+            }
+            return strcmp((string)($a['field_key'] ?? ''), (string)($b['field_key'] ?? ''));
+        });
+
+        return $fields;
+    }
+
+    private function writeCtripProfileCaptureFields(array $fields, bool $createOnly = false): void
+    {
+        $normalized = [];
+        foreach ($fields as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $field = $this->normalizeCtripProfileCaptureField($item);
+            if ($field['id'] !== '') {
+                $normalized[$field['id']] = $field;
+            }
+        }
+
+        $payload = [
+            'version' => self::CTRIP_PROFILE_FIELDS_CONFIG_VERSION,
+            'fields' => $normalized,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        $jsonValue = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $existing = \think\facade\Db::name('system_configs')->where('config_key', self::CTRIP_PROFILE_FIELDS_CONFIG_KEY)->find();
+        if ($existing) {
+            if ($createOnly) {
+                return;
+            }
+            \think\facade\Db::name('system_configs')->where('config_key', self::CTRIP_PROFILE_FIELDS_CONFIG_KEY)->update([
+                'config_value' => $jsonValue,
+                'update_time' => date('Y-m-d H:i:s'),
+            ]);
+            return;
+        }
+
+        \think\facade\Db::name('system_configs')->insert([
+            'config_key' => self::CTRIP_PROFILE_FIELDS_CONFIG_KEY,
+            'config_value' => $jsonValue,
+            'description' => '携程 Profile 自动获取字段目录',
+            'create_time' => date('Y-m-d H:i:s'),
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private function normalizeCtripProfileCaptureField(array $item, array $original = []): array
+    {
+        $id = trim((string)($item['id'] ?? $original['id'] ?? ''));
+        $fieldKey = strtolower(trim((string)($item['field_key'] ?? $item['fieldKey'] ?? $original['field_key'] ?? '')));
+        $fieldKey = preg_replace('/[^a-z0-9_\-]+/', '_', $fieldKey) ?: '';
+        $section = strtolower(trim((string)($item['section'] ?? $original['section'] ?? 'business_overview')));
+        $section = preg_replace('/[^a-z0-9_\-]+/', '_', $section) ?: 'business_overview';
+        $status = strtolower(trim((string)($item['status'] ?? $original['status'] ?? 'pending')));
+        if (!in_array($status, ['confirmed', 'needs_section', 'needs_parser', 'not_captured', 'pending', 'paused'], true)) {
+            $status = 'pending';
+        }
+        $sourceKeys = $item['source_keys'] ?? $item['sourceKeys'] ?? $original['source_keys'] ?? '';
+        if (is_array($sourceKeys)) {
+            $sourceKeys = implode(', ', array_values(array_filter(array_map('strval', $sourceKeys))));
+        }
+
+        return [
+            'id' => $id,
+            'field_key' => $fieldKey,
+            'field_name' => trim((string)($item['field_name'] ?? $item['fieldName'] ?? $original['field_name'] ?? '')),
+            'section' => $section,
+            'data_type' => strtolower(trim((string)($item['data_type'] ?? $item['dataType'] ?? $original['data_type'] ?? 'business'))),
+            'source_interface' => trim((string)($item['source_interface'] ?? $item['sourceInterface'] ?? $original['source_interface'] ?? '')),
+            'source_keys' => trim((string)$sourceKeys),
+            'value_type' => trim((string)($item['value_type'] ?? $item['valueType'] ?? $original['value_type'] ?? '')),
+            'unit' => trim((string)($item['unit'] ?? $original['unit'] ?? '')),
+            'transform_rule' => trim((string)($item['transform_rule'] ?? $item['transformRule'] ?? $original['transform_rule'] ?? '')),
+            'status' => $status,
+            'enabled' => array_key_exists('enabled', $item) ? $this->meituanBool($item['enabled']) : (bool)($original['enabled'] ?? true),
+            'notes' => trim((string)($item['notes'] ?? $original['notes'] ?? '')),
+            'sort_order' => (int)($item['sort_order'] ?? $item['sortOrder'] ?? $original['sort_order'] ?? 0),
+            'created_at' => (string)($item['created_at'] ?? $original['created_at'] ?? date('Y-m-d H:i:s')),
+            'update_time' => (string)($item['update_time'] ?? $item['updated_at'] ?? $original['update_time'] ?? date('Y-m-d H:i:s')),
+            'user_id' => $item['user_id'] ?? $original['user_id'] ?? null,
+        ];
+    }
+
+    private function summarizeCtripProfileCaptureFields(array $fields): array
+    {
+        $statusCounts = [];
+        $sections = [];
+        $enabled = 0;
+        foreach ($fields as $field) {
+            $status = (string)($field['status'] ?? 'pending');
+            $section = (string)($field['section'] ?? 'business_overview');
+            $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
+            $sections[$section] = ($sections[$section] ?? 0) + 1;
+            if (!empty($field['enabled'])) {
+                $enabled++;
+            }
+        }
+
+        ksort($statusCounts);
+        ksort($sections);
+
+        return [
+            'total' => count($fields),
+            'enabled' => $enabled,
+            'status_counts' => $statusCounts,
+            'sections' => $sections,
+        ];
+    }
+
+    private function hydrateCtripProfileFieldLatestSamples(array &$fields): array
+    {
+        $fieldKeys = [];
+        foreach ($fields as $field) {
+            $fieldKey = (string)($field['field_key'] ?? '');
+            if ($fieldKey !== '') {
+                $fieldKeys[$fieldKey] = true;
+            }
+        }
+
+        foreach ($fields as &$field) {
+            $field['latest_value'] = '';
+            $field['latest_values'] = [];
+            $field['latest_sample'] = null;
+            $field['latest_sample_note'] = '未采到样例';
+        }
+        unset($field);
+
+        if (!$fieldKeys) {
+            return [
+                'sampled_field_count' => 0,
+                'latest_sample_time' => null,
+            ];
+        }
+
+        try {
+            $rows = \think\facade\Db::name('ota_ctrip_metric_facts')
+                ->whereIn('metric_key', array_keys($fieldKeys))
+                ->order('captured_at', 'desc')
+                ->order('id', 'desc')
+                ->limit(1500)
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('读取携程 Profile 字段样例失败: ' . $e->getMessage());
+            return [
+                'sampled_field_count' => 0,
+                'latest_sample_time' => null,
+                'sample_error' => '读取最近样例失败',
+            ];
+        }
+
+        $samplesByKey = [];
+        $latestSampleTime = null;
+        foreach ($rows as $row) {
+            $metricKey = (string)($row['metric_key'] ?? '');
+            if ($metricKey === '' || !isset($fieldKeys[$metricKey])) {
+                continue;
+            }
+            if ($this->ctripProfilePrefersOnlineDailySamples($metricKey)) {
+                continue;
+            }
+
+            $value = $this->formatCtripProfileFieldSampleValue(
+                $row['value_decimal'] ?? null,
+                $row['value_text'] ?? null,
+                $row['value_json'] ?? null
+            );
+            if ($value === '') {
+                continue;
+            }
+
+            $samplesByKey[$metricKey] ??= [
+                'items' => [],
+                'seen' => [],
+            ];
+            if (isset($samplesByKey[$metricKey]['seen'][$value])) {
+                continue;
+            }
+
+            $samplesByKey[$metricKey]['seen'][$value] = true;
+            if (count($samplesByKey[$metricKey]['items']) < 3) {
+                $samplesByKey[$metricKey]['items'][] = [
+                    'value' => $value,
+                    'unit' => (string)($row['unit'] ?? ''),
+                    'data_date' => (string)($row['data_date'] ?? ''),
+                    'hotel_name' => (string)($row['hotel_name'] ?? ''),
+                    'capture_section' => (string)($row['capture_section'] ?? ''),
+                    'endpoint_id' => (string)($row['endpoint_id'] ?? ''),
+                    'source_key' => (string)($row['source_key'] ?? ''),
+                    'source_path' => (string)($row['source_path'] ?? ''),
+                    'capture_status' => (string)($row['capture_status'] ?? ''),
+                    'captured_at' => (string)($row['captured_at'] ?? ''),
+                ];
+            }
+
+            $capturedAt = (string)($row['captured_at'] ?? '');
+            if ($capturedAt !== '' && ($latestSampleTime === null || $capturedAt > $latestSampleTime)) {
+                $latestSampleTime = $capturedAt;
+            }
+        }
+
+        $this->hydrateCtripProfileFieldSamplesFromOnlineDailyData($samplesByKey, $fields, $latestSampleTime);
+
+        $sampledFieldCount = 0;
+        foreach ($fields as &$field) {
+            $fieldKey = (string)($field['field_key'] ?? '');
+            $items = $samplesByKey[$fieldKey]['items'] ?? [];
+            if (!$items) {
+                continue;
+            }
+
+            $sampledFieldCount++;
+            $field['latest_values'] = $items;
+            $field['latest_sample'] = $items[0];
+            $field['latest_value'] = implode(' / ', array_map(static fn(array $item): string => (string)$item['value'], $items));
+            $field['latest_sample_note'] = '';
+        }
+        unset($field);
+
+        return [
+            'sampled_field_count' => $sampledFieldCount,
+            'latest_sample_time' => $latestSampleTime,
+        ];
+    }
+
+    private function hydrateCtripProfileFieldSamplesFromOnlineDailyData(array &$samplesByKey, array $fields, ?string &$latestSampleTime): void
+    {
+        $fieldSpecs = [];
+        foreach ($fields as $field) {
+            $fieldKey = (string)($field['field_key'] ?? '');
+            if ($fieldKey === '') {
+                continue;
+            }
+
+            $sourceKeys = preg_split('/\s*,\s*/', (string)($field['source_keys'] ?? '')) ?: [];
+            $fieldSpecs[$fieldKey] = [
+                'field' => $field,
+                'source' => $this->ctripProfileFieldSampleSource($field),
+                'keys' => array_values(array_unique(array_filter(array_merge(
+                    [$fieldKey],
+                    $sourceKeys,
+                    $this->onlineDailyDataSampleAliases($fieldKey)
+                ), static fn($key): bool => trim((string)$key) !== ''))),
+            ];
+        }
+
+        if (!$fieldSpecs) {
+            return;
+        }
+
+        $sampleSources = array_values(array_unique(array_map(
+            static fn(array $spec): string => (string)($spec['source'] ?? 'ctrip'),
+            $fieldSpecs
+        )));
+
+        try {
+            $query = \think\facade\Db::name('online_daily_data')
+                ->field('id,hotel_id,hotel_name,source,platform,compare_type,data_date,amount,quantity,book_order_num,comment_score,qunar_comment_score,raw_data,create_time,update_time,data_value,data_type,dimension,validation_status,list_exposure,detail_exposure,flow_rate,order_filling_num,order_submit_num')
+                ->order('create_time', 'desc')
+                ->order('id', 'desc')
+                ->limit(500);
+            if (count($sampleSources) === 1) {
+                $query->where('source', $sampleSources[0]);
+            } else {
+                $query->whereIn('source', $sampleSources);
+            }
+            $rows = $query->select()->toArray();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('读取 online_daily_data 字段样例失败: ' . $e->getMessage());
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $rowPlatform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
+            $rowSource = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $rowPlatform);
+            $raw = json_decode((string)($row['raw_data'] ?? ''), true);
+            $rawMap = is_array($raw) ? $this->flattenCtripProfileRawValues($raw) : [];
+            foreach ($fieldSpecs as $fieldKey => $spec) {
+                if (count($samplesByKey[$fieldKey]['items'] ?? []) >= 3) {
+                    continue;
+                }
+                if ($rowSource !== (string)($spec['source'] ?? 'ctrip')) {
+                    continue;
+                }
+
+                $fieldSample = $this->resolveCtripProfileOnlineDailyFieldSample($fieldKey, $row, $raw, $rawMap, $spec['keys']);
+                if ($fieldSample === null) {
+                    continue;
+                }
+                [$value, $matchedKey, $sourcePath] = $fieldSample;
+                $value = $this->formatCtripProfileGenericSampleValue($value);
+                if ($value === '') {
+                    continue;
+                }
+
+                $samplesByKey[$fieldKey] ??= [
+                    'items' => [],
+                    'seen' => [],
+                ];
+                if (isset($samplesByKey[$fieldKey]['seen'][$value])) {
+                    continue;
+                }
+
+                $samplesByKey[$fieldKey]['seen'][$value] = true;
+                $samplesByKey[$fieldKey]['items'][] = [
+                    'value' => $value,
+                    'unit' => (string)($spec['field']['unit'] ?? ''),
+                    'data_date' => (string)($row['data_date'] ?? ''),
+                    'hotel_name' => (string)($row['hotel_name'] ?? ''),
+                    'capture_section' => (string)($row['data_type'] ?? 'online_daily_data'),
+                    'endpoint_id' => 'online_daily_data',
+                    'source_key' => $matchedKey,
+                    'source_path' => $sourcePath,
+                    'capture_status' => (string)($row['validation_status'] ?? ''),
+                    'captured_at' => (string)($row['create_time'] ?? ''),
+                ];
+
+                $capturedAt = (string)($row['create_time'] ?? '');
+                if ($capturedAt !== '' && ($latestSampleTime === null || $capturedAt > $latestSampleTime)) {
+                    $latestSampleTime = $capturedAt;
+                }
+            }
+        }
+    }
+
+    private function ctripProfileFieldSampleSource(array $field): string
+    {
+        $text = strtolower(implode(' ', [
+            (string)($field['section'] ?? ''),
+            (string)($field['source_keys'] ?? ''),
+            (string)($field['transform_rule'] ?? ''),
+            (string)($field['notes'] ?? ''),
+        ]));
+        if (str_contains($text, 'traffic_report') && str_contains($text, 'platform=qunar')) {
+            return 'qunar';
+        }
+
+        return 'ctrip';
+    }
+
+    private function onlineDailyDataSampleAliases(string $fieldKey): array
+    {
+        $aliases = [
+            'hotel_id' => ['hotel_id'],
+            'hotel_name' => ['hotel_name'],
+            'date' => ['data_date'],
+            'order_amount' => ['amount'],
+            'room_nights' => ['quantity'],
+            'order_count' => ['book_order_num'],
+            'comment_score_summary' => ['comment_score', 'qunar_comment_score'],
+            'page_views' => ['list_exposure'],
+            'list_exposure' => ['list_exposure'],
+            'competitor_list_exposure' => ['competitor_list_exposure'],
+            'detail_visitor' => ['detail_exposure'],
+            'competitor_detail_visitor' => ['competitor_detail_visitor'],
+            'flow_rate' => ['flow_rate'],
+            'flow_conversion_rate' => ['flow_rate'],
+            'competitor_flow_rate' => ['competitor_flow_rate'],
+            'order_page_visitor' => ['order_filling_num'],
+            'competitor_order_page_visitor' => ['competitor_order_page_visitor'],
+            'order_fill_rate' => ['order_fill_rate'],
+            'competitor_order_fill_rate' => ['competitor_order_fill_rate'],
+            'order_submit_user' => ['order_submit_num'],
+            'competitor_order_submit_user' => ['competitor_order_submit_user'],
+            'deal_rate' => ['deal_rate'],
+            'competitor_deal_rate' => ['competitor_deal_rate'],
+            'qunar_list_exposure' => ['list_exposure'],
+            'qunar_competitor_list_exposure' => ['list_exposure'],
+            'qunar_detail_visitor' => ['detail_exposure'],
+            'qunar_competitor_detail_visitor' => ['detail_exposure'],
+            'qunar_flow_rate' => ['flow_rate'],
+            'qunar_competitor_flow_rate' => ['flow_rate'],
+            'qunar_order_page_visitor' => ['order_filling_num'],
+            'qunar_competitor_order_page_visitor' => ['order_filling_num'],
+            'qunar_order_fill_rate' => ['order_fill_rate'],
+            'qunar_competitor_order_fill_rate' => ['order_fill_rate'],
+            'qunar_order_submit_user' => ['order_submit_num'],
+            'qunar_competitor_order_submit_user' => ['order_submit_num'],
+            'qunar_deal_rate' => ['deal_rate'],
+            'qunar_competitor_deal_rate' => ['deal_rate'],
+        ];
+
+        return $aliases[$fieldKey] ?? [];
+    }
+
+    private function ctripProfilePrefersOnlineDailySamples(string $fieldKey): bool
+    {
+        return in_array($fieldKey, [
+            'page_views',
+            'list_exposure',
+            'competitor_list_exposure',
+            'detail_visitor',
+            'competitor_detail_visitor',
+            'flow_rate',
+            'flow_conversion_rate',
+            'competitor_flow_rate',
+            'order_page_visitor',
+            'competitor_order_page_visitor',
+            'order_fill_rate',
+            'competitor_order_fill_rate',
+            'order_submit_user',
+            'competitor_order_submit_user',
+            'deal_rate',
+            'competitor_deal_rate',
+            'qunar_list_exposure',
+            'qunar_competitor_list_exposure',
+            'qunar_detail_visitor',
+            'qunar_competitor_detail_visitor',
+            'qunar_flow_rate',
+            'qunar_competitor_flow_rate',
+            'qunar_order_page_visitor',
+            'qunar_competitor_order_page_visitor',
+            'qunar_order_fill_rate',
+            'qunar_competitor_order_fill_rate',
+            'qunar_order_submit_user',
+            'qunar_competitor_order_submit_user',
+            'qunar_deal_rate',
+            'qunar_competitor_deal_rate',
+        ], true);
+    }
+
+    private function resolveCtripProfileTrafficDerivedSample(string $fieldKey, array $row, array $raw): ?array
+    {
+        $metricMap = [
+            'page_views' => ['scope' => 'self', 'metric' => 'listExposure'],
+            'list_exposure' => ['scope' => 'self', 'metric' => 'listExposure'],
+            'detail_visitor' => ['scope' => 'self', 'metric' => 'detailExposure'],
+            'flow_rate' => ['scope' => 'self', 'metric' => 'flowRate'],
+            'flow_conversion_rate' => ['scope' => 'self', 'metric' => 'flowRate'],
+            'order_page_visitor' => ['scope' => 'self', 'metric' => 'orderFillingNum'],
+            'order_fill_rate' => ['scope' => 'self', 'metric' => 'orderFillRate'],
+            'order_submit_user' => ['scope' => 'self', 'metric' => 'orderSubmitNum'],
+            'deal_rate' => ['scope' => 'self', 'metric' => 'dealRate'],
+            'competitor_list_exposure' => ['scope' => 'competitor', 'metric' => 'listExposure'],
+            'competitor_detail_visitor' => ['scope' => 'competitor', 'metric' => 'detailExposure'],
+            'competitor_flow_rate' => ['scope' => 'competitor', 'metric' => 'flowRate'],
+            'competitor_order_page_visitor' => ['scope' => 'competitor', 'metric' => 'orderFillingNum'],
+            'competitor_order_fill_rate' => ['scope' => 'competitor', 'metric' => 'orderFillRate'],
+            'competitor_order_submit_user' => ['scope' => 'competitor', 'metric' => 'orderSubmitNum'],
+            'competitor_deal_rate' => ['scope' => 'competitor', 'metric' => 'dealRate'],
+            'qunar_list_exposure' => ['scope' => 'self', 'metric' => 'listExposure'],
+            'qunar_competitor_list_exposure' => ['scope' => 'competitor', 'metric' => 'listExposure'],
+            'qunar_detail_visitor' => ['scope' => 'self', 'metric' => 'detailExposure'],
+            'qunar_competitor_detail_visitor' => ['scope' => 'competitor', 'metric' => 'detailExposure'],
+            'qunar_flow_rate' => ['scope' => 'self', 'metric' => 'flowRate'],
+            'qunar_competitor_flow_rate' => ['scope' => 'competitor', 'metric' => 'flowRate'],
+            'qunar_order_page_visitor' => ['scope' => 'self', 'metric' => 'orderFillingNum'],
+            'qunar_competitor_order_page_visitor' => ['scope' => 'competitor', 'metric' => 'orderFillingNum'],
+            'qunar_order_fill_rate' => ['scope' => 'self', 'metric' => 'orderFillRate'],
+            'qunar_competitor_order_fill_rate' => ['scope' => 'competitor', 'metric' => 'orderFillRate'],
+            'qunar_order_submit_user' => ['scope' => 'self', 'metric' => 'orderSubmitNum'],
+            'qunar_competitor_order_submit_user' => ['scope' => 'competitor', 'metric' => 'orderSubmitNum'],
+            'qunar_deal_rate' => ['scope' => 'self', 'metric' => 'dealRate'],
+            'qunar_competitor_deal_rate' => ['scope' => 'competitor', 'metric' => 'dealRate'],
+        ];
+        if (!isset($metricMap[$fieldKey])) {
+            return null;
+        }
+
+        $trafficRows = [];
+        $this->collectCtripProfileTrafficRows($raw, $trafficRows, 'raw_data');
+        $target = $this->selectCtripProfileTrafficRow($trafficRows, $metricMap[$fieldKey]['scope']);
+        $sourcePath = $target['path'] ?? ('online_daily_data#' . (string)($row['id'] ?? ''));
+        $trafficRow = $target['row'] ?? [];
+
+        if (
+            !$trafficRow
+            && $this->ctripProfileTrafficRowMatchesScope($row, $metricMap[$fieldKey]['scope'])
+            && $this->ctripProfileOnlineDailyRowLooksLikeFlowTransform($row, $raw)
+        ) {
+            $trafficRow = [
+                'listExposure' => $row['list_exposure'] ?? null,
+                'detailExposure' => $row['detail_exposure'] ?? null,
+                'flowRate' => $row['flow_rate'] ?? null,
+                'orderFillingNum' => $row['order_filling_num'] ?? null,
+                'orderSubmitNum' => $row['order_submit_num'] ?? null,
+            ];
+        }
+        if (!$trafficRow) {
+            return null;
+        }
+
+        $metric = $metricMap[$fieldKey]['metric'];
+        $value = match ($metric) {
+            'listExposure', 'detailExposure', 'orderFillingNum', 'orderSubmitNum' => $this->ctripProfileTrafficNumber($trafficRow, $metric),
+            'flowRate' => $this->ctripProfileTrafficRate($trafficRow, 'detailExposure', 'listExposure', 'flowRate'),
+            'orderFillRate' => $this->ctripProfileTrafficRate($trafficRow, 'orderFillingNum', 'detailExposure'),
+            'dealRate' => $this->ctripProfileTrafficRate($trafficRow, 'orderSubmitNum', 'orderFillingNum'),
+            default => null,
+        };
+        if ($value === null) {
+            return null;
+        }
+
+        $sourceKey = match ($metric) {
+            'flowRate' => 'detailExposure / listExposure',
+            'orderFillRate' => 'orderFillingNum / detailExposure',
+            'dealRate' => 'orderSubmitNum / orderFillingNum',
+            default => $metric,
+        };
+
+        return [$value, $sourceKey, $sourcePath];
+    }
+
+    private function ctripProfileOnlineDailyRowLooksLikeFlowTransform(array $row, array $raw): bool
+    {
+        $parts = [
+            (string)($row['dimension'] ?? ''),
+            (string)($row['endpoint_id'] ?? ''),
+            (string)($row['source_url'] ?? ''),
+            (string)($raw['dimension'] ?? ''),
+            (string)($raw['endpoint_id'] ?? ''),
+            (string)($raw['_source_url'] ?? ''),
+            (string)($raw['source_url'] ?? ''),
+        ];
+        if (is_array($raw['row'] ?? null)) {
+            $parts[] = (string)($raw['row']['dimension'] ?? '');
+            $parts[] = (string)($raw['row']['endpoint_id'] ?? '');
+            $parts[] = (string)($raw['row']['_source_url'] ?? '');
+            $parts[] = (string)($raw['row']['source_url'] ?? '');
+        }
+
+        $text = strtolower(implode(' ', array_filter($parts, static fn(string $value): bool => $value !== '')));
+        return str_contains($text, 'flow_transform')
+            || str_contains($text, 'queryflowtransformnewv1')
+            || str_contains($text, 'queryflowtransfornewv1')
+            || str_contains($text, 'queryflowtransfernewv1');
+    }
+
+    private function ctripProfileTrafficRowMatchesScope(array $row, string $scope): bool
+    {
+        $compareType = strtolower(trim((string)($row['compare_type'] ?? '')));
+        $hotelId = trim((string)($row['hotel_id'] ?? ''));
+        if ($scope === 'competitor') {
+            return $compareType === 'competitor' || $compareType === 'competitor_avg' || $hotelId === '-1';
+        }
+
+        if ($compareType === 'competitor' || $compareType === 'competitor_avg' || $hotelId === '-1') {
+            return false;
+        }
+
+        return $compareType === '' || $compareType === 'self' || $hotelId !== '';
+    }
+
+    private function collectCtripProfileTrafficRows($value, array &$rows, string $path, int $depth = 0): void
+    {
+        if ($depth > 8 || count($rows) > 200 || !is_array($value)) {
+            return;
+        }
+
+        if ($this->looksLikeCtripProfileTrafficRow($value)) {
+            $rows[] = [
+                'row' => $value,
+                'path' => $path,
+            ];
+            return;
+        }
+
+        foreach ($value as $key => $child) {
+            if (is_array($child)) {
+                $nextPath = $path . '.' . (is_int($key) ? '[' . $key . ']' : (string)$key);
+                $this->collectCtripProfileTrafficRows($child, $rows, $nextPath, $depth + 1);
+            }
+        }
+    }
+
+    private function looksLikeCtripProfileTrafficRow(array $value): bool
+    {
+        foreach (['listExposure', 'detailExposure', 'flowRate', 'orderFillingNum', 'orderSubmitNum'] as $key) {
+            if (array_key_exists($key, $value)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function selectCtripProfileTrafficRow(array $rows, string $scope): ?array
+    {
+        foreach ($rows as $item) {
+            $hotelId = (string)($item['row']['hotelId'] ?? '');
+            if ($scope === 'competitor' && $hotelId === '-1') {
+                return $item;
+            }
+            if ($scope === 'self' && $hotelId !== '-1') {
+                return $item;
+            }
+        }
+        if ($scope === 'self') {
+            foreach ($rows as $item) {
+                if (!array_key_exists('hotelId', $item['row'])) {
+                    return $item;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function ctripProfileTrafficNumber(array $row, string $key): ?float
+    {
+        if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+            return null;
+        }
+        $value = str_replace(['%', ','], '', (string)$row[$key]);
+        if (!is_numeric($value)) {
+            return null;
+        }
+
+        return round((float)$value, 2);
+    }
+
+    private function ctripProfileTrafficRate(array $row, string $numeratorKey, string $denominatorKey, ?string $fallbackKey = null): ?string
+    {
+        $numerator = $this->ctripProfileTrafficNumber($row, $numeratorKey);
+        $denominator = $this->ctripProfileTrafficNumber($row, $denominatorKey);
+        if ($numerator !== null && $denominator !== null && $denominator > 0) {
+            return sprintf('%.2F', ($numerator / $denominator) * 100);
+        }
+
+        if ($fallbackKey !== null) {
+            $fallback = $this->ctripProfileTrafficNumber($row, $fallbackKey);
+            if ($fallback !== null) {
+                return sprintf('%.2F', $fallback);
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveCtripProfileOnlineDailyFieldSample(string $fieldKey, array $row, array $raw, array $rawMap, array $keys): ?array
+    {
+        $derivedSample = $this->resolveCtripProfileTrafficDerivedSample($fieldKey, $row, $raw);
+        if ($derivedSample !== null) {
+            return $derivedSample;
+        }
+        if ($this->ctripProfilePrefersOnlineDailySamples($fieldKey)) {
+            return null;
+        }
+
+        [$value, $matchedKey] = $this->resolveCtripProfileOnlineDailySampleValue($row, $rawMap, $keys);
+        return [$value, $matchedKey, 'online_daily_data#' . (string)($row['id'] ?? '')];
+    }
+
+    private function resolveCtripProfileOnlineDailySampleValue(array $row, array $rawMap, array $keys): array
+    {
+        foreach ($keys as $key) {
+            $key = (string)$key;
+            if ($key !== '' && array_key_exists($key, $row)) {
+                return [$row[$key], $key];
+            }
+        }
+
+        foreach ($keys as $key) {
+            $key = (string)$key;
+            if ($key !== '' && array_key_exists($key, $rawMap)) {
+                return [$rawMap[$key], $key];
+            }
+        }
+
+        return [null, ''];
+    }
+
+    private function flattenCtripProfileRawValues(array $raw): array
+    {
+        $values = [];
+        $this->collectCtripProfileRawValues($raw, $values, 0);
+        return $values;
+    }
+
+    private function collectCtripProfileRawValues($value, array &$values, int $depth): void
+    {
+        if ($depth > 8 || count($values) > 2000 || !is_array($value)) {
+            return;
+        }
+
+        foreach ($value as $key => $child) {
+            if (is_string($key) && !array_key_exists($key, $values) && !$this->isAssociativeArray($child)) {
+                $values[$key] = $child;
+            }
+            if (is_array($child)) {
+                $this->collectCtripProfileRawValues($child, $values, $depth + 1);
+            }
+        }
+    }
+
+    private function isAssociativeArray($value): bool
+    {
+        return is_array($value) && array_keys($value) !== range(0, count($value) - 1);
+    }
+
+    private function formatCtripProfileFieldSampleValue($decimal, $text, $json): string
+    {
+        if ($decimal !== null && $decimal !== '') {
+            $value = rtrim(rtrim(sprintf('%.4F', (float)$decimal), '0'), '.');
+            return $value === '-0' ? '0' : $value;
+        }
+
+        if ($text !== null && trim((string)$text) !== '') {
+            return $this->formatCtripProfileGenericSampleValue($text);
+        }
+
+        if ($json !== null && trim((string)$json) !== '') {
+            $decoded = json_decode((string)$json, true);
+            if ($decoded === null) {
+                return '';
+            }
+            $value = json_last_error() === JSON_ERROR_NONE
+                ? json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                : (string)$json;
+            return $this->formatCtripProfileGenericSampleValue($value);
+        }
+
+        return '';
+    }
+
+    private function formatCtripProfileGenericSampleValue($value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+
+        if (is_array($value)) {
+            $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } elseif (is_bool($value)) {
+            $value = $value ? 'true' : 'false';
+        } elseif (is_float($value)) {
+            $value = rtrim(rtrim(sprintf('%.4F', $value), '0'), '.');
+        } else {
+            $value = (string)$value;
+        }
+
+        $value = trim($value);
+        if ($value === '' || in_array(strtolower($value), ['null', 'undefined', 'nan'], true)) {
+            return '';
+        }
+
+        return $this->compactCtripProfileFieldSampleText($value);
+    }
+
+    private function compactCtripProfileFieldSampleText(string $value): string
+    {
+        $value = trim((string)preg_replace('/\s+/u', ' ', $value));
+        if ($value === '') {
+            return '';
+        }
+
+        if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+            return mb_strlen($value, 'UTF-8') > 160 ? mb_substr($value, 0, 160, 'UTF-8') . '...' : $value;
+        }
+
+        return strlen($value) > 240 ? substr($value, 0, 240) . '...' : $value;
+    }
+
+    private function defaultCtripProfileCaptureFields(): array
+    {
+        $defaults = [
+            ['last_visitor_total', '昨日UV', 'business_overview', 'traffic', 'getDayReportRealTimeDate', 'lastVisitorTotal', 'integer', '人', 'confirmed', '直接取整数'],
+            ['visitor_count', '访客量', 'business_overview', 'traffic', 'getDayReportRealTimeDate / fetchVisitorTitleV2', 'lastVisitorTotal, visitorTotal, UV, visitorCount', 'integer', '人', 'confirmed', '直接取整数'],
+            ['order_count', '订单数', 'business_overview', 'business', 'getDayReportRealTimeDate / fetchMarketOverViewV2', 'synchronizationOrderQuantity, orderQuantity, bookOrderNum', 'integer', '单', 'confirmed', '直接取整数'],
+            ['self_order_count', '本店订单', 'business_overview', 'business', 'getDayReportFlowCompete', 'orderQuantity, bookOrderNum', 'integer', '单', 'confirmed', '直接取整数'],
+            ['order_amount', '预订销售额', 'business_overview', 'business', 'fetchMarketOverViewV2 / getDayReportFlowCompete', 'bookAmount, orderAmount, amount, ordamount', 'amount', '元', 'confirmed', '去逗号后转金额'],
+            ['room_nights', '间夜', 'business_overview', 'business', 'fetchMarketOverViewV2 / fetchCapacityOverViewV4', 'bookQuantity, quantity, roomNights, occupiedRooms', 'integer', '间夜', 'confirmed', '转整数'],
+            ['avg_price', '均价', 'business_overview', 'business', 'fetchMarketOverViewV2', 'averagePrice, avgPrice', 'amount', '元', 'confirmed', '转金额'],
+            ['close_rate', '成交率', 'business_overview', 'traffic', 'fetchMarketOverViewV2', 'closeRate, conversionRate', 'percent', '%', 'confirmed', '去掉 % 后转小数'],
+            ['occupancy_rate', '出租率', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'rentalRate, occupancyRate', 'percent', '%', 'confirmed', '去掉 % 后转小数'],
+            ['competitor_average', '竞争圈平均值', 'business_overview', 'business', 'fetchCapacityOverViewV4 / fetchVisitorTitleV2', 'competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber', 'number', '', 'confirmed', '按源字段直接记录'],
+            ['competition_rank', '竞争圈排名', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'rank, rank2, competitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
+            ['seq_rank', '实时排名', 'business_overview', 'traffic', 'fetchCurrentHotelSeqInfoV1', 'rank, qunarRank, competitorRank, qunarCompetitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
+            ['competitor_visitor', '竞品访客', 'business_overview', 'traffic', 'getDayReportFlowCompete', 'comhtluv', 'integer', '人', 'confirmed', '直接取整数'],
+            ['competitor_orders', '竞品订单', 'business_overview', 'business', 'getDayReportFlowCompete', 'ordquantity', 'integer', '单', 'confirmed', '直接取整数'],
+            ['competitor_revenue', '竞品收入', 'business_overview', 'business', 'getDayReportFlowCompete', 'ordamount', 'amount', '元', 'confirmed', '转金额'],
+            ['competitor_hotel_list', '竞品酒店列表', 'room_type', 'business', 'queryCompetingHotelsV2', 'data.competingHotels, masterHotelId, hotelName, distance, distanceString, starLevel, zoneName, isCompetitor, sameStarLevel, sameZone', 'entity_list', '家', 'confirmed', '按 data.competingHotels 数组逐条保留竞品实体快照；缺字段显式为空'],
+            ['list_exposure', '列表页曝光量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'listExposure, exposure, exposureCount, impressions', 'integer', '次', 'confirmed', '取 queryFlowTransforNewV1 本店行 listExposure'],
+            ['competitor_list_exposure', '竞争圈平均列表页曝光量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'listExposure, competitorListExposure, competitorExposure, avgListExposure', 'integer', '次', 'confirmed', '取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure'],
+            ['detail_visitor', '详情页访客量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'detailExposure, detailUv, detailVisitors', 'integer', '人', 'confirmed', '取 queryFlowTransforNewV1 本店行 detailExposure'],
+            ['competitor_detail_visitor', '竞争圈平均详情页访客量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv', 'integer', '人', 'confirmed', '取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure'],
+            ['flow_rate', '曝光转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate', 'percent', '%', 'confirmed', '取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核'],
+            ['competitor_flow_rate', '竞争圈平均曝光转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate', 'percent', '%', 'confirmed', '取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核'],
+            ['order_page_visitor', '订单页访客量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2 / getTrafficReportV1', 'orderFillingNum, orderVisitors, fillUsers', 'integer', '人', 'confirmed', '取 queryFlowTransforNewV1 本店行 orderFillingNum'],
+            ['competitor_order_page_visitor', '竞争圈平均订单页访客量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2 / getTrafficReportV1', 'orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors', 'integer', '人', 'confirmed', '取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum'],
+            ['order_fill_rate', '下单转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'orderFillingNum / detailExposure', 'percent', '%', 'confirmed', '本店行 orderFillingNum / detailExposure * 100'],
+            ['competitor_order_fill_rate', '竞争圈平均下单转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'orderFillingNum / detailExposure', 'percent', '%', 'confirmed', '取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100'],
+            ['order_submit_user', '订单提交人数', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2 / getTrafficReportV1', 'orderSubmitNum, submitUsers, submitNum', 'integer', '人', 'confirmed', '取 queryFlowTransforNewV1 本店行 orderSubmitNum'],
+            ['competitor_order_submit_user', '竞争圈平均订单提交人数', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2 / getTrafficReportV1', 'orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers', 'integer', '人', 'confirmed', '取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum'],
+            ['deal_rate', '成交转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'orderSubmitNum / orderFillingNum', 'percent', '%', 'confirmed', '本店行 orderSubmitNum / orderFillingNum * 100'],
+            ['competitor_deal_rate', '竞争圈平均成交转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'orderSubmitNum / orderFillingNum', 'percent', '%', 'confirmed', '取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100'],
+            ['qunar_list_exposure', '去哪儿列表页曝光量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, listExposure', 'integer', '次', 'confirmed', 'platform=Qunar 本店行 listExposure', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_competitor_list_exposure', '去哪儿竞争圈平均列表页曝光量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, hotelId=-1, listExposure', 'integer', '次', 'confirmed', 'platform=Qunar 且 hotelId=-1 的 listExposure', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_detail_visitor', '去哪儿详情页访客量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, detailExposure', 'integer', '人', 'confirmed', 'platform=Qunar 本店行 detailExposure', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_competitor_detail_visitor', '去哪儿竞争圈平均详情页访客量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, hotelId=-1, detailExposure', 'integer', '人', 'confirmed', 'platform=Qunar 且 hotelId=-1 的 detailExposure', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_flow_rate', '去哪儿曝光转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, flowRate', 'percent', '%', 'confirmed', 'platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_competitor_flow_rate', '去哪儿竞争圈平均曝光转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, hotelId=-1, flowRate', 'percent', '%', 'confirmed', 'platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_order_page_visitor', '去哪儿订单页访客量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, orderFillingNum', 'integer', '人', 'confirmed', 'platform=Qunar 本店行 orderFillingNum', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_competitor_order_page_visitor', '去哪儿竞争圈平均订单页访客量', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, hotelId=-1, orderFillingNum', 'integer', '人', 'confirmed', 'platform=Qunar 且 hotelId=-1 的 orderFillingNum', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_order_fill_rate', '去哪儿下单转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, orderFillingNum / detailExposure', 'percent', '%', 'confirmed', 'platform=Qunar 本店行 orderFillingNum / detailExposure * 100', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_competitor_order_fill_rate', '去哪儿竞争圈平均下单转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, hotelId=-1, orderFillingNum / detailExposure', 'percent', '%', 'confirmed', 'platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_order_submit_user', '去哪儿订单提交人数', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, orderSubmitNum', 'integer', '人', 'confirmed', 'platform=Qunar 本店行 orderSubmitNum', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_competitor_order_submit_user', '去哪儿竞争圈平均订单提交人数', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, hotelId=-1, orderSubmitNum', 'integer', '人', 'confirmed', 'platform=Qunar 且 hotelId=-1 的 orderSubmitNum', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_deal_rate', '去哪儿成交转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, orderSubmitNum / orderFillingNum', 'percent', '%', 'confirmed', 'platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['qunar_competitor_deal_rate', '去哪儿竞争圈平均成交转化率', 'traffic_report', 'traffic', 'queryFlowTransforNewV1', 'platform=Qunar, hotelId=-1, orderSubmitNum / orderFillingNum', 'percent', '%', 'confirmed', 'platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100', true, '携程 eBooking 去哪儿 tab 流量漏斗；落库用 platform=Qunar 区分'],
+            ['weekly_order_page_visitor', '周报订单页访客', 'traffic_report', 'traffic', 'getTrafficReportV1', 'orderFillingNum, orderVisitors', 'integer', '人', 'confirmed', '直接取整数'],
+            ['weekly_competitor_avg_order_page_visitor', '周报订单页访客竞圈均值', 'traffic_report', 'traffic', 'getTrafficReportV1', 'avgOrderFillingNum, competitorAvgOrderVisitors', 'integer', '人', 'confirmed', '直接取整数'],
+            ['weekly_top_competitor_order_page_visitor', '周报订单页访客最高竞品', 'traffic_report', 'traffic', 'getTrafficReportV1', 'topOrderFillingNum, topCompetitorOrderVisitors', 'integer', '人', 'confirmed', '直接取整数'],
+            ['weekly_submit_user', '周报提交人数', 'traffic_report', 'traffic', 'getTrafficReportV1', 'orderSubmitNum, submitUsers', 'integer', '人', 'confirmed', '直接取整数'],
+            ['weekly_competitor_avg_submit_user', '周报提交人数竞圈均值', 'traffic_report', 'traffic', 'getTrafficReportV1', 'avgOrderSubmitNum, competitorAvgSubmitUsers', 'integer', '人', 'confirmed', '直接取整数'],
+            ['weekly_top_competitor_submit_user', '周报提交人数最高竞品', 'traffic_report', 'traffic', 'getTrafficReportV1', 'topOrderSubmitNum, topCompetitorSubmitUsers', 'integer', '人', 'confirmed', '直接取整数'],
+            ['visitor_rank', '访客排名', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'visitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
+            ['competitor_avg_visitor', '竞争圈平均访客', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'competitorAvgNumber', 'integer', '人', 'confirmed', '直接取整数'],
+            ['qunar_visitor_rank', '去哪儿访客排名', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'qunarVisitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
+            ['qunar_competitor_avg_visitor', '去哪儿竞争圈平均访客', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'qunarCompetitorAvgNumber', 'integer', '人', 'confirmed', '直接取整数'],
+            ['hotel_collect', '酒店收藏数', 'business_overview', 'quality', 'getDayReportServerQuantity', 'hotelCollect', 'integer', '次', 'confirmed', '转整数'],
+            ['hotel_collect_rank', '酒店收藏排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'hotelCollectRank', 'rank', '名', 'confirmed', '直接取排名值'],
+            ['psi_score', 'PSI服务质量分', 'quality_psi', 'quality', 'getHotelPsiV2 / getDayReportServerQuantity', 'psi, PSI, psiScore, qualityscore, totalScore', 'number', '分', 'confirmed', '直接取分值'],
+            ['service_score', '服务质量分', 'business_overview', 'quality', 'getDayReportServerQuantity', 'serviceScore', 'number', '分', 'confirmed', '直接取分值'],
+            ['service_score_rank', '服务质量排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'serviceScoreRank', 'rank', '名', 'confirmed', '直接取排名值'],
+            ['comment_score_summary', '携程评分/点评分汇总', 'business_overview', 'quality', 'getDayReportServerQuantity / getCommentsScoreV2', 'ctripRatingall, qunarRatingall, HotelRating, ratingall', 'number', '分', 'confirmed', '只采集评分汇总，不采集点评明文'],
+            ['reply_rate', '5分钟回复率', 'business_overview', 'quality', 'getDayReportServerQuantity / getImIndex', 'replyrate5m, replyRate, fiveMinuteReplyRate, fiveMinReplyRate', 'percent', '%', 'confirmed', '去掉 % 后转小数'],
+            ['diagnosis_score', '数据诊断分', 'business_overview', 'quality', 'getHotelAdvice', 'score', 'number', '分', 'confirmed', '直接取分值'],
+            ['diagnosis_level', '评级', 'business_overview', 'quality', 'getHotelAdvice', 'scorelevel, level', 'text', '', 'confirmed', '直接取文本'],
+            ['advice_text', '经营建议', 'business_overview', 'quality', 'getHotelAdvice', 'tasktext, taskname, taskbutton', 'text', '', 'confirmed', '保留建议文本和动作入口'],
+            ['notice_count', '通知数量', 'business_overview', 'notice', 'getMultiNotifyMessage / queryEPush', 'messageList, notices, notifications, totalCount', 'integer', '条', 'paused', '不纳入 Profile 默认采集字段', false, '用户确认该字段不需要采集；保留定义仅兼容旧配置'],
+            ['notice_title', '通知标题', 'business_overview', 'notice', 'getMultiNotifyMessage / queryEPush', 'title, name, noticeTitle', 'text', '', 'confirmed', '保留通知标题'],
+            ['notice_text', '通知内容', 'business_overview', 'notice', 'getMultiNotifyMessage / queryEPush', 'content, message, text, tips, tip, description, desc', 'text', '', 'confirmed', '保留通知摘要，不保存敏感凭证'],
+            ['target_url', '页面跳转地址', 'business_overview', 'notice', 'getEbkResourcePopups / getMultiNotifyMessage / queryEPush', 'targetUrl, url', 'text', '', 'confirmed', '保留页面跳转地址'],
+            ['page_views', '列表页曝光量旧映射', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'listExposure, pvDataList, pageViewDataList', 'integer', '次', 'confirmed', '优先取 queryFlowTransforNewV1 本店行 listExposure；旧字段编码保留兼容，主字段使用 list_exposure'],
+            ['flow_conversion_rate', '流量转化率旧映射', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'flowRate, conversionsRatesDataList', 'percent', '%', 'confirmed', '取 queryFlowTransforNewV1 本店行 flowRate；旧字段编码保留兼容，优先使用 flow_rate'],
+            ['ad_cost', '广告花费', 'ads_pyramid', 'advertising', 'queryCampaignReportList / queryCampaignSummaryReport', 'todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge', 'amount', '元', 'confirmed', '优先取 records[].todayCost；多推广记录按 records 求和，cashCost/bonusCost 作为成本拆分参考', true, '携程 OTA 金字塔广告口径；来源页 toolcenter/cpc/pyramid 数据概览'],
+            ['comment_rows', '点评数据条数', 'comment_review', 'review', 'getCommentList', 'comments, commentList, reviews, totalCount', 'integer', '条', 'confirmed', '统计 getCommentList 返回的点评行数，不保存点评明文', true, '携程 OTA 渠道口径；只用于聚合计数'],
+            ['good_review_count', '好评数', 'comment_review', 'review', 'getCommentList', 'score, commentScore, rating', 'integer', '条', 'confirmed', 'score >= 4.0 计数，不保存点评明文', true, '携程 OTA 渠道口径；只保存聚合结果'],
+            ['bad_review_count', '差评数', 'comment_review', 'review', 'getCommentList', 'score, commentScore, rating', 'integer', '条', 'confirmed', '0 < score < 4.0 计数，不保存点评明文', true, '携程 OTA 渠道口径；只保存聚合结果'],
+        ];
+
+        $fields = [];
+        foreach ($defaults as $index => $row) {
+            [$key, $name, $section, $dataType, $sourceInterface, $sourceKeys, $valueType, $unit, $status, $rule, $enabled, $notes] = array_pad($row, 12, null);
+            $id = 'profile_field_' . $key;
+            $fields[$id] = $this->normalizeCtripProfileCaptureField([
+                'id' => $id,
+                'field_key' => $key,
+                'field_name' => $name,
+                'section' => $section,
+                'data_type' => $dataType,
+                'source_interface' => $sourceInterface,
+                'source_keys' => $sourceKeys,
+                'value_type' => $valueType,
+                'unit' => $unit,
+                'status' => $status,
+                'enabled' => $enabled ?? true,
+                'transform_rule' => $rule,
+                'notes' => $notes ?? '携程 OTA 渠道口径',
+                'sort_order' => ($index + 1) * 10,
+            ]);
+        }
+
+        return $fields;
+    }
+
     /**
      * 保存携程配置
      */
@@ -13287,7 +14307,7 @@ JAVASCRIPT;
             $requestData['profile_id'] = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? '')) ?: $profileKey;
             $requestData['hotel_id'] = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? ''));
             $requestData['hotel_name'] = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
-            $requestData['capture_sections'] = $requestData['capture_sections'] ?? $requestData['captureSections'] ?? $requestData['sections'] ?? 'business_overview';
+            $requestData['capture_sections'] = $requestData['capture_sections'] ?? $requestData['captureSections'] ?? $requestData['sections'] ?? 'default';
             return $requestData;
         }
 
@@ -13712,7 +14732,7 @@ JAVASCRIPT;
                 'hotel_id' => trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? $requestData['ctripHotelId'] ?? $payload['hotel_id'] ?? '')),
                 'hotel_name' => trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? $payload['hotel_name'] ?? '')),
                 'capture_sections' => $this->normalizeCtripProfileCaptureSections(
-                    $requestData['capture_sections'] ?? $requestData['captureSections'] ?? $requestData['sections'] ?? 'business_overview'
+                    $requestData['capture_sections'] ?? $requestData['captureSections'] ?? $requestData['sections'] ?? 'default'
                 ),
             ]
             : [
@@ -16349,7 +17369,7 @@ JAVASCRIPT;
 
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . $this->safeMeituanCaptureFilePart($profileId) . '_' . date('YmdHis') . '.json';
         $sections = $this->normalizeCtripProfileCaptureSections(
-            $config['profile_sections'] ?? $config['capture_sections'] ?? 'business_overview'
+            $config['profile_sections'] ?? $config['capture_sections'] ?? 'default'
         );
         $args = [
             $nodeBinary,
@@ -16871,13 +17891,15 @@ JAVASCRIPT;
             } else {
                 $rawData = (string)$rawData;
             }
+            $platform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
+            $source = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $platform);
 
             $standardRow = [
                 'hotel_id' => trim((string)($row['hotel_id'] ?? '')) ?: $requestHotelId,
                 'hotel_name' => trim((string)($row['hotel_name'] ?? '')),
                 'system_hotel_id' => $systemHotelId,
-                'source' => 'ctrip',
-                'platform' => trim((string)($row['platform'] ?? 'ctrip')) ?: 'ctrip',
+                'source' => $source,
+                'platform' => $platform,
                 'data_date' => $rowDataDate,
                 'data_type' => $dataType,
                 'dimension' => $dimension,
@@ -16894,7 +17916,7 @@ JAVASCRIPT;
                 'order_filling_num' => (int)round((float)($row['order_filling_num'] ?? 0)),
                 'order_submit_num' => (int)round((float)($row['order_submit_num'] ?? 0)),
                 'ingestion_method' => 'browser_profile',
-                'source_trace_id' => $this->buildCtripStandardRowSourceTraceId($row, $captureSection, $dataType, $dimension, $rowDataDate, $rawDataForTrace),
+                'source_trace_id' => $this->buildCtripStandardRowSourceTraceId(array_merge($row, ['source' => $source, 'platform' => $platform]), $captureSection, $dataType, $dimension, $rowDataDate, $rawDataForTrace),
                 'raw_data' => $rawData,
             ];
             if ($dataSourceId !== null && $dataSourceId > 0) {
@@ -16904,6 +17926,24 @@ JAVASCRIPT;
         }
 
         return $rows;
+    }
+
+    private function normalizeCtripProfileTrafficPlatform(string $platform): string
+    {
+        $value = strtolower(trim($platform));
+        if ($value === 'qunar' || $value === '去哪儿' || $value === 'qunaer') {
+            return 'Qunar';
+        }
+        return 'Ctrip';
+    }
+
+    private function sourceForCtripProfileTrafficPlatform(string $source, string $platform): string
+    {
+        $value = strtolower(trim($source));
+        if ($value === 'qunar' || $platform === 'Qunar') {
+            return 'qunar';
+        }
+        return 'ctrip';
     }
 
     private function buildCtripStandardRowSourceTraceId(array $row, string $captureSection, string $dataType, string $dimension, string $dataDate, array $rawData): string
@@ -16917,7 +17957,7 @@ JAVASCRIPT;
         }
 
         $basis = [
-            'platform' => 'ctrip',
+            'platform' => $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? '')),
             'hotel_id' => trim((string)($row['hotel_id'] ?? '')),
             'data_date' => $dataDate,
             'data_type' => $dataType,
@@ -17013,7 +18053,7 @@ JAVASCRIPT;
             }
 
             $query = Db::name('online_daily_data')
-                ->where('source', 'ctrip')
+                ->where('source', (string)($row['source'] ?? 'ctrip'))
                 ->where('data_type', (string)$row['data_type'])
                 ->where('data_date', (string)$row['data_date'])
                 ->where('dimension', (string)($row['dimension'] ?? ''));

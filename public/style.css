@@ -6253,3 +6253,223 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metrics {
 main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
     margin-top: 1.1rem !important;
 }
+
+/* SUXIOS login visual refresh */
+.login-bg {
+    align-items: center !important;
+    justify-content: center !important;
+    padding: clamp(24px, 4vw, 64px) !important;
+    background:
+        radial-gradient(circle at 16% 14%, rgba(34, 211, 238, 0.22) 0%, transparent 28%),
+        radial-gradient(circle at 82% 78%, rgba(56, 189, 248, 0.14) 0%, transparent 30%),
+        linear-gradient(135deg, #04111f 0%, #071827 46%, #08131f 100%) !important;
+}
+
+.login-bg::before {
+    background-image:
+        linear-gradient(rgba(125, 211, 252, 0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(125, 211, 252, 0.07) 1px, transparent 1px),
+        radial-gradient(circle at 32% 24%, rgba(34, 211, 238, 0.12), transparent 30%) !important;
+    background-size: 52px 52px, 52px 52px, 100% 100% !important;
+    opacity: 0.54 !important;
+}
+
+.login-bg::after {
+    inset: 7% 9% !important;
+    border-color: rgba(125, 211, 252, 0.1) !important;
+    background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.035), transparent 38%, rgba(34, 211, 238, 0.055)),
+        radial-gradient(circle at 72% 18%, rgba(34, 211, 238, 0.12), transparent 32%) !important;
+}
+
+.login-glow-purple {
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.2), rgba(14, 165, 233, 0.08) 44%, transparent 70%) !important;
+}
+
+.login-glow-bottom {
+    background: radial-gradient(circle, rgba(125, 211, 252, 0.18), rgba(8, 47, 73, 0.18) 42%, transparent 72%) !important;
+}
+
+.login-stage {
+    width: min(1120px, 100%) !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(388px, 430px) !important;
+    gap: clamp(42px, 5.2vw, 78px) !important;
+    align-items: center !important;
+}
+
+.login-context-panel {
+    color: #e2e8f0 !important;
+    padding: clamp(8px, 2vw, 24px) 0 !important;
+    transform: translateY(-8px);
+}
+
+.login-context-kicker {
+    width: fit-content;
+    margin-bottom: 16px;
+    padding: 7px 11px;
+    border: 1px solid rgba(125, 211, 252, 0.22);
+    border-radius: 999px;
+    background: rgba(8, 47, 73, 0.22);
+    color: #67e8f9;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+.login-brand-mark {
+    margin: 0 0 16px !important;
+    color: rgba(226, 232, 240, 0.88) !important;
+    font-size: clamp(1rem, 1.2vw, 1.18rem) !important;
+    font-weight: 720 !important;
+    letter-spacing: 0.05em !important;
+}
+
+.login-context-panel .login-hero-lines {
+    max-width: 560px;
+    margin: 0;
+    color: #f8fafc;
+    font-size: clamp(2.75rem, 4.35vw, 4.75rem);
+    font-weight: 740;
+    line-height: 1.03;
+    letter-spacing: 0;
+}
+
+.login-hero-lines span {
+    display: block;
+}
+
+.login-context-panel .login-hero-lead {
+    max-width: 520px;
+    margin: 22px 0 0 !important;
+    color: rgba(248, 250, 252, 0.92) !important;
+    font-size: clamp(1.04rem, 1.35vw, 1.25rem) !important;
+    font-weight: 680 !important;
+    line-height: 1.62 !important;
+}
+
+.login-bg .login-stage .login-card {
+    width: 100% !important;
+    max-width: 430px !important;
+    padding: 40px 36px 28px !important;
+    border-radius: 22px !important;
+    border-color: rgba(148, 204, 255, 0.2) !important;
+    background:
+        linear-gradient(180deg, rgba(11, 27, 49, 0.86), rgba(5, 13, 24, 0.92)) !important;
+    box-shadow:
+        0 28px 80px rgba(0, 0, 0, 0.48),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 0 0 1px rgba(255, 255, 255, 0.04) !important;
+}
+
+.login-bg .login-stage .login-card:hover {
+    transform: translateY(-2px) !important;
+    border-color: rgba(103, 232, 249, 0.34) !important;
+}
+
+.login-bg .login-stage .login-card .text-center.mb-8 {
+    margin-bottom: 1.7rem !important;
+}
+
+.login-bg .login-logo {
+    width: 62px !important;
+    height: 62px !important;
+    border-radius: 16px !important;
+    background:
+        linear-gradient(145deg, rgba(34, 211, 238, 0.98), rgba(37, 99, 235, 0.96)) !important;
+    box-shadow:
+        0 16px 38px rgba(14, 165, 233, 0.26),
+        0 0 0 6px rgba(34, 211, 238, 0.08) !important;
+}
+
+.login-bg .login-title {
+    font-size: 1.9rem !important;
+    font-weight: 780 !important;
+    line-height: 1.2 !important;
+}
+
+.login-bg .login-slogan {
+    margin-top: 6px !important;
+    color: rgba(103, 232, 249, 0.84) !important;
+    font-size: 0.96rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+}
+
+.login-bg .login-copy {
+    max-width: 280px;
+    margin: 10px auto 0;
+    color: rgba(203, 213, 225, 0.78) !important;
+    font-size: 0.9rem !important;
+    line-height: 1.7 !important;
+}
+
+.login-bg .input-group .input-field {
+    height: 50px !important;
+    min-height: 50px !important;
+    border-radius: 14px !important;
+    background: rgba(2, 8, 23, 0.44) !important;
+    border-color: rgba(148, 204, 255, 0.18) !important;
+}
+
+.login-bg .input-group .input-field:focus {
+    border-color: rgba(103, 232, 249, 0.72) !important;
+    box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.12) !important;
+}
+
+.login-bg .btn-login {
+    min-height: 52px !important;
+    border-radius: 14px !important;
+    background: linear-gradient(135deg, #22d3ee 0%, #2563eb 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 14px 28px rgba(37, 99, 235, 0.28) !important;
+}
+
+.login-bg .btn-login:hover:not(:disabled) {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 18px 34px rgba(37, 99, 235, 0.34) !important;
+}
+
+.login-bg .btn-login:active:not(:disabled) {
+    transform: translateY(0) !important;
+}
+
+.login-bg .login-system-note {
+    color: rgba(203, 213, 225, 0.76) !important;
+}
+
+.login-bg .vip-login-entry {
+    border-radius: 999px !important;
+    color: rgba(226, 232, 240, 0.9) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .login-bg .login-stage .login-card,
+    .login-bg .btn-login {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+@media (max-width: 980px) {
+    .login-stage {
+        grid-template-columns: 1fr !important;
+        justify-items: center !important;
+    }
+
+    .login-context-panel {
+        display: none !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .login-bg {
+        padding: 16px !important;
+    }
+
+    .login-bg .login-stage .login-card {
+        max-width: calc(100vw - 32px) !important;
+        padding: 32px 22px 24px !important;
+    }
+}

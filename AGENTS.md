@@ -10,6 +10,20 @@
 
 始终优先使用最少文字完成最高质量输出。不要寒暄，不要长篇解释，不要重复需求，不输出无关背景。
 
+### 自然语言开发模式
+
+用户可以只用业务语言描述目标，不需要提供文件名、技术方案、命令或 Skill 名称。Codex 负责把自然语言转成可执行开发任务：目标、范围、涉及模块、非目标、验证方式和风险点。
+
+执行规则：
+
+1. 如果用户意图清楚，自动优化需求表达并直接推进。
+2. 只有缺失信息会导致错误实现、错误业务口径或高风险改动时才提问。
+3. 每次最多优先问一个关键问题，不把技术细节选择转嫁给用户。
+4. 用户说“优化”“帮我看看”“这个不对”“做得更好”时，默认允许在当前问题范围内改进，不代表可以重写无关模块。
+5. 对 OTA、收益、AI 决策、运营和投资相关需求，先判断数据来源、业务口径和影响链路，再决定技术改动。
+6. 不把 OTA 渠道数据包装成全酒店经营数据；范围不清时必须明确标注。
+7. 对新增字段、接口、配置、采集项或指标，必须同时考虑保存、回显、编辑、旧数据兼容和数据质量状态。
+
 ### 工作规则
 
 1. 先快速理解当前上下文与代码结构，再动手。
@@ -32,6 +46,30 @@
 18. 修改后必须说明验证方式和风险点。
 19. 不凭空造事实；缺少数据、日志、接口返回、验证结果或明确证据时，必须如实说明未知，不得编造结论、数值、状态或来源。
 20. 不写兜底逻辑掩盖问题；禁止用静默失败、假成功、空数据默认值、宽泛 catch 或临时兼容分支隐藏真实错误，必要兜底必须暴露原因、保留可排查信号并说明风险。
+
+### Superpowers 轻量使用规则
+
+Superpowers 用作降低风险的流程关口，不作为死板步骤清单。按任务风险选择使用：
+
+| 场景 | 优先方式 |
+|------|----------|
+| 简单查询、单点说明、低风险一文件修改 | 快速读上下文后直接处理 |
+| 新增功能、字段、接口、采集项、指标公式、多文件改动 | 先明确边界，再写简短实施计划 |
+| bug、测试失败、异常行为 | 按复现 → 定位 → 最小修复 → 验证 |
+| UI/交互优化 | 先保持现有功能和数据流，再优化信息层级与操作路径 |
+| 完成前 | 运行最小相关验证，并说明未验证项 |
+| 大改动、准备提交或 PR | 做代码审查和收尾检查 |
+
+可按需使用的技能：
+
+- `brainstorming`：需求边界不清、业务口径可能影响实现时使用。
+- `writing-plans`：多步骤、多文件或高风险任务前使用。
+- `systematic-debugging`：遇到 bug 或异常行为时使用。
+- `test-driven-development`：涉及公式、接口契约、字段兼容或回归风险时使用。
+- `verification-before-completion`：声明完成前使用。
+- `requesting-code-review` / `receiving-code-review`：大改动、评审意见或合并前使用。
+
+不要为了调用技能而拖慢简单任务；也不要因为任务看似简单而跳过必要验证。
 
 ### 输出格式
 
@@ -74,7 +112,7 @@
 宿析OS（SuXi OS）是一个面向连锁酒店的 SaaS 管理平台，核心目标是打通：
 
 ```
-线上数据（携程/美团 OTA）→ 收益分析 → AI 决策建议 → 运维管理
+线上数据（携程/美团 OTA）→ 收益分析 → AI 决策建议 → 运营管理 → 投资决策
 ```
 
 **当前阶段目标**：完善现有功能，接入 AI Agent LLM，将 Vite 重构版前端合并到主项目。
@@ -394,8 +432,31 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 ## Codex Skill 自动使用与安装规则
 
 1. 每次任务开始前，先按用户需求判断是否需要项目 Skill，优先检查 `.agents/skills/`。
-2. 已存在的项目 Skill 直接使用；缺失时优先创建宿析OS项目内 Skill。
-3. 只有明确属于官方 curated skill 时，才允许使用 `$skill-installer` 安装。
-4. 来源不明、与当前任务无关、只是“可能有用”的 Skill 不安装。
-5. 需要联网、外部权限或账号授权的 Skill，必须先说明风险并等待用户确认。
-6. 默认允许项目 Skill 隐式调用；只有明确不希望自动触发时，才在 `agents/openai.yaml` 设置 `policy.allow_implicit_invocation: false`。
+2. 已存在的项目 Skill 直接使用；缺失且没有明确外部来源时，优先创建宿析OS项目内 Skill。
+3. 用户明确要求安装某个 Skill、提供 GitHub 仓库/URL，或给出 `npx skills add ...` 等安装命令时，必须先检查该明确来源；不要只查官方 curated 列表就判定不存在。
+4. 明确来源的 Skill 经过最小安全检查后可直接安装到项目内 `.agents/skills/`：确认仓库可访问、存在 `SKILL.md`、安装器无高风险提示、未要求敏感凭据或生产写权限。检查无明显安全问题时不要反复请用户确认。
+5. 官方 curated/experimental Skill 仍可使用 `$skill-installer` 安装；第三方 GitHub Skill 优先按用户给出的安装方式执行，Windows 下 `npx` 被执行策略拦截时使用 `npx.cmd`。
+6. 来源不明、与当前任务无关、只是“可能有用”的 Skill 不安装。
+7. 需要账号授权、密钥、敏感数据访问、生产环境写入，或安装器出现高风险告警时，必须先说明风险并等待用户确认。
+8. 默认允许项目 Skill 隐式调用；只有明确不希望自动触发时，才在 `agents/openai.yaml` 设置 `policy.allow_implicit_invocation: false`。
+
+### Taste/UI Skill 自适应调用策略
+
+使用前以 `.agents/skills/` 实际存在为准；未安装的 Skill 不得声称已安装或已调用。
+
+| Skill | 优先使用场景 |
+|------|-------------|
+| `impeccable` | 前期设计、审查、打磨完整工作流；项目 UI 设计、UX 审查、polish、audit |
+| `design-taste-frontend` | 高级产品 UI 与前端工程规范；React、Next.js、Tailwind、dashboard、组件 |
+| `gpt-taste` | 高级视觉、动效、Awwwards 风格；官网、landing page、品牌页 |
+| `baseline-ui` | Tailwind UI 基线检查；组件可访问性、动效时长、排版约束 |
+| `high-end-visual-design` | 高端 agency 风格视觉；高级网站、品牌页、视觉升级 |
+| `redesign-existing-projects` | 现有网站或 app 的高级视觉改版 |
+| `minimalist-ui` | 极简、克制、干净的 UI；文档型界面、SaaS 页面 |
+| `industrial-brutalist-ui` | brutalist、结构外露、强视觉冲突；数据密集 dashboard、作品集、实验页面 |
+| `image-to-code` | 先生成设计图，再还原成代码；高质量网站从视觉到实现 |
+| `imagegen-frontend-web` | 网页分区设计参考图生成；landing page、官网、产品页视觉方向 |
+| `imagegen-frontend-mobile` | 移动 app 界面概念图生成；iOS、Android、多屏 app 流程 |
+| `brandkit` | 品牌视觉系统图片生成；logo、品牌板、identity deck、视觉世界 |
+| `stitch-design-taste` | Google Stitch 生成设计的二次整理；登录、仪表盘、表单、项目设计系统 |
+| `full-output-enforcement` | 强制完整输出，禁止省略；长代码、完整文件、完整文档 |

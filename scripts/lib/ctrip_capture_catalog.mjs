@@ -24,6 +24,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'business',
     aliases: ['home', 'realtime', 'real_time'],
     pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/home/mainland?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/home?microJump=true', 'inferred'),
     ],
   },
@@ -42,6 +43,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'business',
     aliases: ['sales', 'sale', 'sales_data'],
     pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true'),
     ],
   },
@@ -50,6 +52,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'business',
     aliases: ['room', 'rooms', 'room_type', 'roomtype'],
     pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true'),
     ],
   },
@@ -58,7 +61,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'traffic',
     aliases: ['traffic', 'flow', 'flow_data'],
     pageUrls: [
-      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true'),
+      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true', 'observed_from_user'),
     ],
   },
   competitor_overview: {
@@ -77,7 +80,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     aliases: ['loss', 'loss_analysis', 'lost_orders'],
     pageUrls: [
       sectionUrl('https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true', 'observed_from_user'),
-      sectionUrl('https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/lossanalysis?microJump=true', 'observed_from_capture'),
+      sectionUrl('https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/lossanalysis?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true', 'sidebar_navigation'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/marketanalysis/flowanalysis?microJump=true', 'observed_from_response'),
     ],
@@ -87,6 +90,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'traffic',
     aliases: ['rank', 'ranking', 'competitor_rank'],
     pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionlist?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true', 'sidebar_navigation'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/marketanalysis/rank?microJump=true', 'inferred'),
@@ -99,7 +103,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     pageUrls: [
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true', 'sidebar_navigation'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/userbehavior/index?microJump=true', 'inferred'),
-      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?microJump=true', 'observed_from_capture'),
+      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?microJump=true', 'observed_from_user'),
     ],
   },
   im_board: {
@@ -117,6 +121,9 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'advertising',
     aliases: ['ads', 'ad', 'advertising', 'campaign', 'pyramid', 'cpc'],
     pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/toolcenter/cpc/pyramid', 'observed_from_user'),
+      sectionUrl('https://ebooking.ctrip.com/toolcenter/cpc/dataReport', 'observed_from_user'),
+      sectionUrl('https://ebooking.ctrip.com/toolcenter/cpc/comparison?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/advertise/cpc/dataReport?micro=true&microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/advertise/cpc/comparison?micro=true&microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/advertise/cpc/diagnosisReport?microJump=true', 'observed_from_user'),
@@ -129,6 +136,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'quality',
     aliases: ['psi', 'quality', 'service_quality'],
     pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/toolcenter/psi/index?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/toolcenter/psi/index?fromType=menu&microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/psi/index?micro=true&fromType=menu&microJump=true', 'observed'),
     ],
@@ -138,6 +146,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'business',
     aliases: ['calendar', 'hot_calendar', 'events'],
     pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/ebkgrowth/datacenter/marketanalysis/marketheat?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true', 'observed_from_endpoint'),
     ],
   },
@@ -189,13 +198,42 @@ const revenueFields = [
 ];
 
 const trafficFields = [
-  field('page_views', '昨日浏览量', ['pvDataList', 'pageViewDataList', 'PV', 'pv', 'pageViews'], '携程流量数据页昨日浏览量'),
+  field('page_views', '列表页曝光量旧映射', ['listExposure', 'pvDataList', 'pageViewDataList', 'PV', 'pv', 'pageViews'], 'legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure'),
   field('visitor_count', '访客量', ['lastVisitorTotal', 'visitorTotal', 'UV', 'uv', 'visitorCount', 'pageViews']),
-  field('list_exposure', '列表页曝光量', ['listExposure', 'exposure', 'exposureCount', 'impressions']),
-  field('detail_visitor', '详情页访客量', ['detailExposure', 'detailUv', 'detailVisitors']),
-  field('order_page_visitor', '订单页访客量', ['orderFillingNum', 'orderVisitors', 'fillUsers']),
-  field('order_submit_user', '订单提交人数', ['orderSubmitNum', 'submitUsers', 'submitNum']),
-  field('flow_rate', '流量转化率', ['conversionsRatesDataList', 'flowRate', 'transforRate', 'transferRate', 'convertRate']),
+  field('list_exposure', '列表页曝光量', ['listExposure', 'exposure', 'exposureCount', 'impressions'], '取 queryFlowTransforNewV1 本店行 listExposure'),
+  field('competitor_list_exposure', '竞争圈平均列表页曝光量', ['listExposure', 'competitorListExposure', 'competitorExposure', 'avgListExposure'], '取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure'),
+  field('detail_visitor', '详情页访客量', ['detailExposure', 'detailUv', 'detailVisitors'], '取 queryFlowTransforNewV1 本店行 detailExposure'),
+  field('competitor_detail_visitor', '竞争圈平均详情页访客量', ['detailExposure', 'competitorDetailUv', 'competitorDetailVisitors', 'avgDetailUv'], '取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure'),
+  field('order_page_visitor', '订单页访客量', ['orderFillingNum', 'orderVisitors', 'fillUsers'], '取 queryFlowTransforNewV1 本店行 orderFillingNum'),
+  field('competitor_order_page_visitor', '竞争圈平均订单页访客量', ['orderFillingNum', 'competitorOrderFillingNum', 'avgOrderFillingNum', 'competitorOrderVisitors'], '取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum'),
+  field('order_fill_rate', '下单转化率', ['orderFillingNum/detailExposure'], '本店行 orderFillingNum / detailExposure * 100', { unit: '%' }),
+  field('competitor_order_fill_rate', '竞争圈平均下单转化率', ['hotelId=-1.orderFillingNum/detailExposure'], '取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100', { unit: '%' }),
+  field('order_submit_user', '订单提交人数', ['orderSubmitNum', 'submitUsers', 'submitNum'], '取 queryFlowTransforNewV1 本店行 orderSubmitNum'),
+  field('competitor_order_submit_user', '竞争圈平均订单提交人数', ['orderSubmitNum', 'competitorOrderSubmitNum', 'avgOrderSubmitNum', 'competitorSubmitUsers'], '取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum'),
+  field('deal_rate', '成交转化率', ['orderSubmitNum/orderFillingNum'], '本店行 orderSubmitNum / orderFillingNum * 100', { unit: '%' }),
+  field('competitor_deal_rate', '竞争圈平均成交转化率', ['hotelId=-1.orderSubmitNum/orderFillingNum'], '取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100', { unit: '%' }),
+  field('qunar_list_exposure', '去哪儿列表页曝光量', ['platform=Qunar.listExposure'], 'platform=Qunar 本店行 listExposure'),
+  field('qunar_competitor_list_exposure', '去哪儿竞争圈平均列表页曝光量', ['platform=Qunar.hotelId=-1.listExposure'], 'platform=Qunar 且 hotelId=-1 的 listExposure'),
+  field('qunar_detail_visitor', '去哪儿详情页访客量', ['platform=Qunar.detailExposure'], 'platform=Qunar 本店行 detailExposure'),
+  field('qunar_competitor_detail_visitor', '去哪儿竞争圈平均详情页访客量', ['platform=Qunar.hotelId=-1.detailExposure'], 'platform=Qunar 且 hotelId=-1 的 detailExposure'),
+  field('qunar_flow_rate', '去哪儿曝光转化率', ['platform=Qunar.flowRate'], 'platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核', { unit: '%' }),
+  field('qunar_competitor_flow_rate', '去哪儿竞争圈平均曝光转化率', ['platform=Qunar.hotelId=-1.flowRate'], 'platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核', { unit: '%' }),
+  field('qunar_order_page_visitor', '去哪儿订单页访客量', ['platform=Qunar.orderFillingNum'], 'platform=Qunar 本店行 orderFillingNum'),
+  field('qunar_competitor_order_page_visitor', '去哪儿竞争圈平均订单页访客量', ['platform=Qunar.hotelId=-1.orderFillingNum'], 'platform=Qunar 且 hotelId=-1 的 orderFillingNum'),
+  field('qunar_order_fill_rate', '去哪儿下单转化率', ['platform=Qunar.orderFillingNum/detailExposure'], 'platform=Qunar 本店行 orderFillingNum / detailExposure * 100', { unit: '%' }),
+  field('qunar_competitor_order_fill_rate', '去哪儿竞争圈平均下单转化率', ['platform=Qunar.hotelId=-1.orderFillingNum/detailExposure'], 'platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100', { unit: '%' }),
+  field('qunar_order_submit_user', '去哪儿订单提交人数', ['platform=Qunar.orderSubmitNum'], 'platform=Qunar 本店行 orderSubmitNum'),
+  field('qunar_competitor_order_submit_user', '去哪儿竞争圈平均订单提交人数', ['platform=Qunar.hotelId=-1.orderSubmitNum'], 'platform=Qunar 且 hotelId=-1 的 orderSubmitNum'),
+  field('qunar_deal_rate', '去哪儿成交转化率', ['platform=Qunar.orderSubmitNum/orderFillingNum'], 'platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100', { unit: '%' }),
+  field('qunar_competitor_deal_rate', '去哪儿竞争圈平均成交转化率', ['platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum'], 'platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100', { unit: '%' }),
+  field('weekly_order_page_visitor', '周报订单页访客', ['weeklyOrderFillingNum', 'weekOrderFillingNum', 'orderFillingNum']),
+  field('weekly_competitor_avg_order_page_visitor', '周报订单页访客竞圈均值', ['avgOrderFillingNum', 'competitorAvgOrderVisitors']),
+  field('weekly_top_competitor_order_page_visitor', '周报订单页访客最高竞品', ['topOrderFillingNum', 'topCompetitorOrderVisitors']),
+  field('weekly_submit_user', '周报提交人数', ['weeklyOrderSubmitNum', 'weekOrderSubmitNum', 'orderSubmitNum']),
+  field('weekly_competitor_avg_submit_user', '周报提交人数竞圈均值', ['avgOrderSubmitNum', 'competitorAvgSubmitUsers']),
+  field('weekly_top_competitor_submit_user', '周报提交人数最高竞品', ['topOrderSubmitNum', 'topCompetitorSubmitUsers']),
+  field('flow_rate', '曝光转化率', ['flowRate', 'conversionsRatesDataList', 'transforRate', 'transferRate', 'convertRate'], '取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核', { unit: '%' }),
+  field('competitor_flow_rate', '竞争圈平均曝光转化率', ['hotelId=-1.flowRate', 'competitorFlowRate', 'avgFlowRate', 'competitorConversionRate'], '取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核', { unit: '%' }),
   field('visitor_rank', '访客排名', ['visitorRank']),
   field('competitor_avg_visitor', '竞争圈平均访客', ['competitorAvgNumber']),
   field('qunar_visitor_rank', '去哪儿访客排名', ['qunarVisitorRank']),
@@ -231,7 +269,7 @@ const competitorFields = [
 const adsFields = [
   field('ad_impressions', '广告曝光', ['impression', 'impressions', 'exposure', 'showCount']),
   field('ad_clicks', '广告点击', ['click', 'clicks', 'clickCount']),
-  field('ad_cost', '广告花费', ['todayCost', 'cost', 'cashCost', 'bonusCost', 'spend', 'amount'], '', { unit: 'CNY' }),
+  field('ad_cost', '广告花费', ['todayCost', 'cashCost', 'bonusCost', 'cost', 'charge', 'yesterdayCharge', 'spend', 'amount'], '', { unit: 'CNY' }),
   field('ad_order_amount', '广告预订金额', ['orderAmount', 'saleAmount', 'revenue'], '', { unit: 'CNY' }),
   field('ad_orders', '广告预订订单', ['orderCount', 'bookingCount', 'bookings']),
   field('ad_room_nights', '广告预订间夜', ['roomNights', 'nights', 'quantity']),
@@ -276,11 +314,18 @@ const benefitFields = [
 ];
 
 const supportNoticeFields = [
+  field('notice_count', '通知数量', ['messageList', 'notices', 'notifications', 'totalCount']),
   field('notice_title', '提示标题', ['title', 'name', 'noticeTitle']),
   field('notice_text', '提示内容', ['content', 'message', 'text', 'tips', 'tip', 'description', 'desc']),
   field('config_name', '配置名称', ['configName', 'configKey', 'key', 'code']),
   field('config_value', '配置值', ['configValue', 'value']),
   field('target_url', '页面跳转地址', ['targetUrl', 'url']),
+];
+
+const commentAggregateFields = [
+  field('comment_rows', '点评数据条数', ['comments', 'commentList', 'reviews', 'totalCount'], '统计 getCommentList 返回点评行数，不保存点评明文'),
+  field('good_review_count', '好评数', ['score', 'commentScore', 'rating'], 'score >= 4.0 计数，不保存点评明文'),
+  field('bad_review_count', '差评数', ['score', 'commentScore', 'rating'], '0 < score < 4.0 计数，不保存点评明文'),
 ];
 
 const FACT_ONLY_FIELD_IDS = new Set([
@@ -477,6 +522,11 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('traffic_hotel_min_price', 'traffic_report', ['queryHotelMinPriceV1'], [field('min_price', '实时起价', ['minPrice']), field('min_price_rank', '起价排名', ['minPriceRank'])]),
   endpoint('traffic_picture_quality', 'traffic_report', ['getPictureQualityScore'], [...qualityFields]),
   endpoint('traffic_comment_score_summary', 'traffic_report', ['getCommentsScoreV2'], [...qualityFields], { notes: '只采集评分汇总，不采集点评明文。' }),
+  endpoint('comment_review_aggregate', 'business_overview', ['getCommentList'], [...commentAggregateFields], {
+    dataType: 'quality',
+    status: 'aggregate_only',
+    notes: '只采集点评条数和好评/差评聚合计数，不保存点评明文。',
+  }),
 
   endpoint('competitor_management', 'competitor_overview', ['getManagementData'], [...revenueFields]),
   endpoint('competitor_hotel_label', 'competitor_overview', ['getMasterHotelLabel'], [...labelFields], { status: 'supporting' }),
@@ -614,7 +664,7 @@ const SECTION_ALIAS_MAP = Object.fromEntries(
   ]),
 );
 
-export const DEFAULT_CTRIP_CAPTURE_SECTIONS = ['business_overview', 'traffic_report'];
+export const DEFAULT_CTRIP_CAPTURE_SECTIONS = ['business_overview', 'room_type', 'traffic_report'];
 export const CTRIP_CAPTURE_SECTION_PRESETS = {
   default: [...DEFAULT_CTRIP_CAPTURE_SECTIONS],
   core: ['homepage', 'business_overview', 'sales_report', 'room_type', 'traffic_report'],
@@ -1022,7 +1072,7 @@ export function extractCtripCatalogFacts(value, context = {}) {
             continue;
           }
           facts.push({
-            platform: 'ctrip',
+            platform: normalizeCtripCapturePlatform(context.platform),
             section: context.section || endpointInfo?.section || '',
             endpoint_id: endpointInfo?.id || '',
             endpoint_label: endpointInfo?.label || '',
@@ -1121,7 +1171,7 @@ function pushEndpointSpecificFact(target, { node, path, fields, context, endpoin
     return;
   }
   target.push({
-    platform: 'ctrip',
+    platform: normalizeCtripCapturePlatform(context.platform),
     section: context.section || endpointInfo?.section || '',
     endpoint_id: endpointInfo?.id || '',
     endpoint_label: endpointInfo?.label || '',
@@ -1466,6 +1516,18 @@ function normalizeFactValue(value) {
   return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
 }
 
+function normalizeCtripCapturePlatform(value) {
+  const key = String(value || '').trim().toLowerCase();
+  if (key === 'qunar' || key === 'qunaer' || key.includes('去哪')) {
+    return 'Qunar';
+  }
+  return 'Ctrip';
+}
+
+function sourceForCtripCapturePlatform(value) {
+  return normalizeCtripCapturePlatform(value) === 'Qunar' ? 'qunar' : 'ctrip';
+}
+
 function extractMetricPairFacts(node, path, fields, context) {
   if (!isMetricPairObject(node)) {
     return [];
@@ -1487,7 +1549,7 @@ function extractMetricPairFacts(node, path, fields, context) {
   }
 
   const result = [{
-    platform: 'ctrip',
+    platform: normalizeCtripCapturePlatform(context.platform),
     section: context.section || context.endpoint?.section || '',
     endpoint_id: context.endpoint?.id || '',
     endpoint_label: context.endpoint?.label || '',
@@ -1523,7 +1585,7 @@ function extractMetricPairFacts(node, path, fields, context) {
       continue;
     }
     result.push({
-      platform: 'ctrip',
+      platform: normalizeCtripCapturePlatform(context.platform),
       section: context.section || context.endpoint?.section || '',
       endpoint_id: context.endpoint?.id || '',
       endpoint_label: context.endpoint?.label || '',
@@ -1576,8 +1638,10 @@ function metricPairField(fields, metricText) {
     ['detail_visitor', /详情页访客|详情页浏览|detailuv|detailvisitor/],
     ['order_page_visitor', /订单页访客|填写页|orderfilling|ordervisitor/],
     ['order_submit_user', /订单提交|提交人数|submituser|submitnum/],
-    ['flow_rate', /流量转化|转化率|transfor|transfer|convertrate/],
-    ['conversion_rate', /成交率|下单转化|成交转化|conversion|cvr/],
+    ['order_fill_rate', /下单转化|订单页访客转化|orderfillrate|orderconversionrate/],
+    ['deal_rate', /成交转化|成交率|submitrate|dealrate/],
+    ['flow_rate', /曝光转化|列表页曝光.*转化|流量转化|flowrate|transfor|transfer|convertrate/],
+    ['conversion_rate', /conversion|cvr/],
     ['tensity', /tensity|紧张度/],
     ['visitor_rank', /访客排名|visitorrank/],
     ['competitor_avg_visitor', /竞争圈平均访客|竞圈平均访客|competitoravgnumber/],
@@ -1658,6 +1722,7 @@ function standardRowGroupKey(fact) {
     fact.source_url || '',
     fact.endpoint_id || '',
     fact.section || '',
+    fact.platform || '',
     fact.data_date || '',
     fact.hotel_id || '',
     fact.source_parent_path || parentPath(fact.source_path || ''),
@@ -1671,13 +1736,14 @@ function buildStandardRow(facts, context) {
     return null;
   }
 
+  const platform = normalizeCtripCapturePlatform(first.platform || context.platform);
   const row = {
     hotel_id: String(first.hotel_id || context.hotelId || context.profileId || '').trim(),
     hotel_name: String(context.hotelName || '').trim(),
     system_hotel_id: context.systemHotelId ? Number(context.systemHotelId) : null,
     data_date: dataDate,
-    source: 'ctrip',
-    platform: 'ctrip',
+    source: sourceForCtripCapturePlatform(platform),
+    platform,
     data_type: standardDataTypeForFacts(facts),
     dimension: standardDimension(first, facts),
     amount: 0,
@@ -1716,6 +1782,7 @@ function buildStandardRow(facts, context) {
   for (const fact of facts) {
     applyFactToStandardRow(row, fact);
   }
+  finalizeTrafficStandardRow(row);
 
   if (!row.hotel_id) {
     row.hotel_id = String(context.hotelId || context.profileId || '').trim();
@@ -1763,7 +1830,12 @@ function standardDataTypeForFacts(facts) {
   }
   if (ids.some((id) => [
     'page_views', 'visitor_count', 'list_exposure', 'detail_visitor', 'order_page_visitor', 'order_submit_user',
-    'flow_rate', 'visitor_rank', 'competitor_avg_visitor', 'qunar_visitor_rank', 'qunar_competitor_avg_visitor',
+    'flow_rate', 'competitor_flow_rate', 'order_fill_rate', 'competitor_order_fill_rate', 'deal_rate', 'competitor_deal_rate',
+    'qunar_list_exposure', 'qunar_competitor_list_exposure', 'qunar_detail_visitor', 'qunar_competitor_detail_visitor',
+    'qunar_flow_rate', 'qunar_competitor_flow_rate', 'qunar_order_page_visitor', 'qunar_competitor_order_page_visitor',
+    'qunar_order_fill_rate', 'qunar_competitor_order_fill_rate', 'qunar_order_submit_user', 'qunar_competitor_order_submit_user',
+    'qunar_deal_rate', 'qunar_competitor_deal_rate',
+    'visitor_rank', 'competitor_avg_visitor', 'qunar_visitor_rank', 'qunar_competitor_avg_visitor',
     'competitor_visitor', 'source_name', 'keyword', 'traffic_rank',
   ].includes(id))) {
     return 'traffic';
@@ -1777,7 +1849,12 @@ function standardDataTypeForFacts(facts) {
 function standardDataTypeForField(fieldId) {
   if ([
     'page_views', 'visitor_count', 'list_exposure', 'detail_visitor', 'order_page_visitor', 'order_submit_user',
-    'flow_rate', 'visitor_rank', 'competitor_avg_visitor', 'qunar_visitor_rank', 'qunar_competitor_avg_visitor',
+    'flow_rate', 'competitor_flow_rate', 'order_fill_rate', 'competitor_order_fill_rate', 'deal_rate', 'competitor_deal_rate',
+    'qunar_list_exposure', 'qunar_competitor_list_exposure', 'qunar_detail_visitor', 'qunar_competitor_detail_visitor',
+    'qunar_flow_rate', 'qunar_competitor_flow_rate', 'qunar_order_page_visitor', 'qunar_competitor_order_page_visitor',
+    'qunar_order_fill_rate', 'qunar_competitor_order_fill_rate', 'qunar_order_submit_user', 'qunar_competitor_order_submit_user',
+    'qunar_deal_rate', 'qunar_competitor_deal_rate',
+    'visitor_rank', 'competitor_avg_visitor', 'qunar_visitor_rank', 'qunar_competitor_avg_visitor',
     'competitor_visitor', 'source_name', 'keyword', 'traffic_rank',
   ].includes(fieldId)) {
     return 'traffic';
@@ -1853,12 +1930,18 @@ function applyFactToStandardRow(row, fact) {
       break;
     case 'visitor_count':
     case 'detail_visitor':
+    case 'competitor_detail_visitor':
+    case 'qunar_detail_visitor':
+    case 'qunar_competitor_detail_visitor':
       row.detail_exposure = Math.round(number);
       if (row.data_value === 0) {
         row.data_value = Math.round(number);
       }
       break;
     case 'list_exposure':
+    case 'competitor_list_exposure':
+    case 'qunar_list_exposure':
+    case 'qunar_competitor_list_exposure':
     case 'ad_impressions':
       row.list_exposure = Math.round(number);
       if (row.data_value === 0) {
@@ -1866,9 +1949,15 @@ function applyFactToStandardRow(row, fact) {
       }
       break;
     case 'order_page_visitor':
+    case 'competitor_order_page_visitor':
+    case 'qunar_order_page_visitor':
+    case 'qunar_competitor_order_page_visitor':
       row.order_filling_num = Math.round(number);
       break;
     case 'order_submit_user':
+    case 'competitor_order_submit_user':
+    case 'qunar_order_submit_user':
+    case 'qunar_competitor_order_submit_user':
       row.order_submit_num = Math.round(number);
       break;
     case 'ad_clicks':
@@ -1876,6 +1965,9 @@ function applyFactToStandardRow(row, fact) {
       row.order_filling_num = Math.round(number);
       break;
     case 'flow_rate':
+    case 'competitor_flow_rate':
+    case 'qunar_flow_rate':
+    case 'qunar_competitor_flow_rate':
     case 'conversion_rate':
     case 'order_conversion_rate':
     case 'common_view_rate':
@@ -1906,6 +1998,20 @@ function applyFactToStandardRow(row, fact) {
         row.data_value = normalizeFactPercent(number);
       }
       break;
+  }
+}
+
+function finalizeTrafficStandardRow(row) {
+  if (row.data_type !== 'traffic') {
+    return;
+  }
+  const listExposure = Number(row.list_exposure || 0);
+  const detailExposure = Number(row.detail_exposure || 0);
+  if (listExposure > 0 && detailExposure >= 0) {
+    row.flow_rate = Number(((detailExposure / listExposure) * 100).toFixed(2));
+    if (row.data_value === 0) {
+      row.data_value = row.flow_rate;
+    }
   }
 }
 
@@ -1942,16 +2048,21 @@ function ctripHotelNameMatches(candidate, target) {
 
 function compareTypeForFacts(facts, context = {}) {
   const endpointId = String(facts[0]?.endpoint_id || '');
+  const hotelId = ctripFactValue(facts, 'hotel_id');
+  if (String(hotelId).trim() === '-1') {
+    return 'competitor';
+  }
+  const contextHotelIds = new Set([
+    context.hotelId,
+    context.profileId,
+    context.requestHotelId,
+  ].map((value) => String(value || '').trim()).filter(Boolean));
+  if (hotelId && contextHotelIds.has(String(hotelId).trim())) {
+    return 'self';
+  }
   if (endpointId === 'weekly_compete_report') {
-    const hotelId = ctripFactValue(facts, 'hotel_id');
     const hotelName = ctripFactValue(facts, 'hotel_name');
-    const contextHotelIds = new Set([
-      context.hotelId,
-      context.profileId,
-      context.requestHotelId,
-    ].map((value) => String(value || '').trim()).filter(Boolean));
-    if ((hotelId && contextHotelIds.has(hotelId))
-      || isCtripGenericSelfHotelName(hotelName)
+    if (isCtripGenericSelfHotelName(hotelName)
       || ctripHotelNameMatches(hotelName, context.hotelName)) {
       return 'self';
     }

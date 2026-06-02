@@ -101,6 +101,7 @@ for (const section of requestedSections) {
   payload.by_section[section] = [];
 }
 let activeCaptureSection = '';
+let activeTrafficPlatform = '';
 
 const browser = await launchOtaPersistentContext(storageDir, args);
 await grantCtripBrowserPermissions(browser);
@@ -258,6 +259,7 @@ async function looksLoggedIn(page) {
 
 async function captureSection(page, section, url, confidence = '') {
   activeCaptureSection = section;
+  activeTrafficPlatform = section === 'traffic_report' ? 'Ctrip' : '';
   let ok = true;
   let errorMessage = '';
   try {
@@ -284,6 +286,7 @@ async function captureSection(page, section, url, confidence = '') {
   }
   payload.pages.push({ name: section, label: sectionLabel(section), url: page.url(), configured_url: url, confidence, ok, interactions, ...(errorMessage ? { error: errorMessage } : {}) });
   activeCaptureSection = '';
+  activeTrafficPlatform = '';
 }
 
 async function runSectionInteractionPlan(page, section) {
@@ -292,6 +295,11 @@ async function runSectionInteractionPlan(page, section) {
   for (const step of plan) {
     if (step.action !== 'click_text' || !step.text) {
       continue;
+    }
+    const stepPlatform = section === 'traffic_report' ? platformFromTrafficInteractionText(step.text) : '';
+    const previousTrafficPlatform = activeTrafficPlatform;
+    if (stepPlatform) {
+      activeTrafficPlatform = stepPlatform;
     }
     const result = await clickTextIfVisible(page, step.text);
     results.push({
@@ -302,12 +310,41 @@ async function runSectionInteractionPlan(page, section) {
       skipped: result.skipped || '',
       ...(result.error ? { error: result.error } : {}),
     });
+    if (!result.clicked && stepPlatform) {
+      activeTrafficPlatform = previousTrafficPlatform;
+    }
     if (result.clicked) {
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
       await page.waitForTimeout(900);
     }
   }
   return results;
+}
+
+function platformFromTrafficInteractionText(text) {
+  const value = String(text || '').trim().toLowerCase();
+  if (value.includes('qunar') || value.includes('\u53bb\u54ea')) {
+    return 'Qunar';
+  }
+  if (value.includes('ctrip') || value.includes('\u643a\u7a0b')) {
+    return 'Ctrip';
+  }
+  return '';
+}
+
+function inferCtripResponsePlatform(section, endpoint, url, requestPayload) {
+  const sectionKey = String(section || endpoint?.section || '').trim();
+  if (sectionKey !== 'traffic_report') {
+    return 'Ctrip';
+  }
+  const text = `${url || ''} ${requestPayload || ''}`.toLowerCase();
+  if (text.includes('qunar') || text.includes('\u53bb\u54ea')) {
+    return 'Qunar';
+  }
+  if (text.includes('ctrip') || text.includes('\u643a\u7a0b')) {
+    return 'Ctrip';
+  }
+  return activeTrafficPlatform || 'Ctrip';
 }
 
 async function clickTextIfVisible(page, text) {
@@ -428,6 +465,7 @@ function registerResponseCapture(page, target) {
     }
 
     const request = response.request();
+    const requestPayload = request?.postData?.() || '';
     const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeCaptureSection });
     const urlSection = endpoint?.section || '';
     const approvedMappingMatches = approvedMappingsForUrl(url);
@@ -456,7 +494,6 @@ function registerResponseCapture(page, target) {
     }
 
     if (p3Candidate && target.p3_evidence_drafts.length < 80) {
-      const requestPayload = request?.postData?.() || '';
       const drafts = buildCtripEndpointEvidenceDraftsFromCapture([{
         ...unmatchedXhr,
         headers: request?.headers?.() || {},
@@ -491,6 +528,7 @@ function registerResponseCapture(page, target) {
     }
 
     const dataType = endpoint?.dataType || approvedMappingMatches[0]?.data_type || sectionDataType(section);
+    const platform = inferCtripResponsePlatform(section, endpoint, url, requestPayload);
     const safeBody = sanitizeOtaPayloadForStorage(body, dataType);
     const rows = normalizeRows(safeBody, dataType, url).map(row => ({
       ...row,
@@ -507,6 +545,7 @@ function registerResponseCapture(page, target) {
       dataDate: defaultDataDate,
       capturedAt,
       url,
+      platform,
     };
     const catalogFacts = extractCtripCatalogFacts(safeBody, factContext);
     const standardRows = buildCtripStandardRowsFromFacts(catalogFacts, {
@@ -538,6 +577,7 @@ function registerResponseCapture(page, target) {
       request_type: requestType,
       keyword_hit: Boolean(urlSection),
       row_count: rows.length,
+      platform,
       catalog_fact_count: catalogFacts.length,
       standard_row_count: standardRows.length + approvedRows.length,
       approved_mapping_row_count: approvedRows.length,

@@ -151,6 +151,9 @@ Route::group('api/online-data', function () {
     Route::post('/capture-ctrip-browser', 'OnlineData/captureCtripBrowserData');
     Route::get('/ctrip-diagnosis-snapshot', 'OnlineData/ctripDiagnosisSnapshot');
     Route::get('/ctrip-profile-status', 'OnlineData/ctripProfileStatus');
+    Route::get('/ctrip-profile-fields', 'OnlineData/getCtripProfileFields');
+    Route::post('/save-ctrip-profile-field', 'OnlineData/saveCtripProfileField');
+    Route::delete('/delete-ctrip-profile-field', 'OnlineData/deleteCtripProfileField');
     Route::get('/meituan-profile-status', 'OnlineData/meituanProfileStatus');
     Route::get('/platform-profile-status', 'OnlineData/platformProfileStatus');
     Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');

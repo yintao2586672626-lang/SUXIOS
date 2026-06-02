@@ -194,8 +194,8 @@
 ## 汇总
 
 - 模块数：16
-- 接口规则数：71
-- 去重字段数：129
+- 接口规则数：72
+- 去重字段数：162
 - 页面交互计划：14 个模块 / 74 个触发动作
 - 点评明文采集：默认禁用；仅保留评分汇总、回复率等非点评明文指标。
 
@@ -250,19 +250,19 @@
 
 | 模块ID | 模块 | 数据类型 | 导航地址口径 |
 |---|---|---|---|
-| homepage | 首页实时概览 | business | inferred |
+| homepage | 首页实时概览 | business | observed_from_user, inferred |
 | business_overview | 经营报告-概要 | business | observed, observed_from_user, observed_from_cached_router |
-| sales_report | 经营报告-销售数据 | business | observed |
-| room_type | 经营报告-房型 | business | observed |
-| traffic_report | 经营报告-流量数据 | traffic | observed |
+| sales_report | 经营报告-销售数据 | business | observed_from_user, observed |
+| room_type | 经营报告-房型 | business | observed_from_user, observed |
+| traffic_report | 经营报告-流量数据 | traffic | observed_from_user |
 | competitor_overview | 竞争圈动态-概览 | business | observed_from_user, sidebar_navigation, inferred |
-| loss_analysis | 竞争圈动态-流失分析 | business | observed_from_user, observed_from_capture, sidebar_navigation, observed_from_response |
+| loss_analysis | 竞争圈动态-流失分析 | business | observed_from_user, sidebar_navigation, observed_from_response |
 | competitor_rank | 竞争圈动态-榜单 | traffic | observed_from_user, sidebar_navigation, inferred |
-| user_profile | 用户行为-用户分析 | business | sidebar_navigation, inferred, observed_from_capture |
+| user_profile | 用户行为-用户分析 | business | sidebar_navigation, inferred, observed_from_user |
 | im_board | 用户行为-IM看板 | quality | sidebar_navigation, observed_from_cache, inferred |
 | ads_pyramid | 金字塔推广 | advertising | observed_from_user, observed |
 | quality_psi | PSI服务质量分 | quality | observed_from_user, observed |
-| market_calendar | 热点日历 | business | observed_from_endpoint |
+| market_calendar | 热点日历 | business | observed_from_user, observed_from_endpoint |
 | biztravel_bpi | 携程商旅-BPI分 | quality | observed_from_screenshot, fallback |
 | biztravel_business_report | 携程商旅-经营报告 | business | observed_from_screenshot, fallback |
 | biztravel_competitor | 携程商旅-竞争圈概览 | business | observed_from_screenshot, fallback |
@@ -289,13 +289,42 @@
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
 | rank | 竞争圈排名 | rank, rank2, visitorRank, rankOfAmount, rankOfOrderQuantity, competitorRank, ranking | - |
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -330,6 +359,7 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
 | notice_title | 提示标题 | title, name, noticeTitle | - |
 | notice_text | 提示内容 | content, message, text, tips, tip, description, desc | - |
 | config_name | 配置名称 | configName, configKey, key, code | - |
@@ -347,6 +377,7 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
 | notice_title | 提示标题 | title, name, noticeTitle | - |
 | notice_text | 提示内容 | content, message, text, tips, tip, description, desc | - |
 | config_name | 配置名称 | configName, configKey, key, code | - |
@@ -389,13 +420,42 @@
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
 | rank | 竞争圈排名 | rank, rank2, visitorRank, rankOfAmount, rankOfOrderQuantity, competitorRank, ranking | - |
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -456,13 +516,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -494,13 +583,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -532,13 +650,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -610,13 +757,42 @@
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
 | rank | 竞争圈排名 | rank, rank2, visitorRank, rankOfAmount, rankOfOrderQuantity, competitorRank, ranking | - |
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -851,13 +1027,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -876,13 +1081,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -910,13 +1144,42 @@
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
 | rank | 竞争圈排名 | rank, rank2, visitorRank, rankOfAmount, rankOfOrderQuantity, competitorRank, ranking | - |
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -944,13 +1207,42 @@
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
 | rank | 竞争圈排名 | rank, rank2, visitorRank, rankOfAmount, rankOfOrderQuantity, competitorRank, ranking | - |
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -969,13 +1261,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -994,13 +1315,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -1019,13 +1369,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -1100,6 +1479,22 @@
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
 
+### comment_review_aggregate
+
+- 模块：经营报告-概要
+- 数据类型：quality
+- URL关键词：getCommentList
+- 备注：只采集点评条数和好评/差评聚合计数，不保存点评明文。
+
+| 标准字段 | 中文名 | 来源字段 | 说明 |
+|---|---|---|---|
+| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
+| date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| comment_rows | 点评数据条数 | comments, commentList, reviews, totalCount | 统计 getCommentList 返回点评行数，不保存点评明文 |
+| good_review_count | 好评数 | score, commentScore, rating | score >= 4.0 计数，不保存点评明文 |
+| bad_review_count | 差评数 | score, commentScore, rating | 0 < score < 4.0 计数，不保存点评明文 |
+
 ### competitor_management
 
 - 模块：竞争圈动态-概览
@@ -1145,13 +1540,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -1196,13 +1620,42 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |
@@ -1359,7 +1812,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
 | ad_clicks | 广告点击 | click, clicks, clickCount | - |
-| ad_cost | 广告花费 | todayCost, cost, cashCost, bonusCost, spend, amount | - |
+| ad_cost | 广告花费 | todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge, spend, amount | - |
 | ad_order_amount | 广告预订金额 | orderAmount, saleAmount, revenue | - |
 | ad_orders | 广告预订订单 | orderCount, bookingCount, bookings | - |
 | ad_room_nights | 广告预订间夜 | roomNights, nights, quantity | - |
@@ -1382,7 +1835,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
 | ad_clicks | 广告点击 | click, clicks, clickCount | - |
-| ad_cost | 广告花费 | todayCost, cost, cashCost, bonusCost, spend, amount | - |
+| ad_cost | 广告花费 | todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge, spend, amount | - |
 | ad_order_amount | 广告预订金额 | orderAmount, saleAmount, revenue | - |
 | ad_orders | 广告预订订单 | orderCount, bookingCount, bookings | - |
 | ad_room_nights | 广告预订间夜 | roomNights, nights, quantity | - |
@@ -1405,7 +1858,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
 | ad_clicks | 广告点击 | click, clicks, clickCount | - |
-| ad_cost | 广告花费 | todayCost, cost, cashCost, bonusCost, spend, amount | - |
+| ad_cost | 广告花费 | todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge, spend, amount | - |
 | ad_order_amount | 广告预订金额 | orderAmount, saleAmount, revenue | - |
 | ad_orders | 广告预订订单 | orderCount, bookingCount, bookings | - |
 | ad_room_nights | 广告预订间夜 | roomNights, nights, quantity | - |
@@ -1428,7 +1881,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
 | ad_clicks | 广告点击 | click, clicks, clickCount | - |
-| ad_cost | 广告花费 | todayCost, cost, cashCost, bonusCost, spend, amount | - |
+| ad_cost | 广告花费 | todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge, spend, amount | - |
 | ad_order_amount | 广告预订金额 | orderAmount, saleAmount, revenue | - |
 | ad_orders | 广告预订订单 | orderCount, bookingCount, bookings | - |
 | ad_room_nights | 广告预订间夜 | roomNights, nights, quantity | - |
@@ -1451,7 +1904,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
 | ad_clicks | 广告点击 | click, clicks, clickCount | - |
-| ad_cost | 广告花费 | todayCost, cost, cashCost, bonusCost, spend, amount | - |
+| ad_cost | 广告花费 | todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge, spend, amount | - |
 | ad_order_amount | 广告预订金额 | orderAmount, saleAmount, revenue | - |
 | ad_orders | 广告预订订单 | orderCount, bookingCount, bookings | - |
 | ad_room_nights | 广告预订间夜 | roomNights, nights, quantity | - |
@@ -1474,7 +1927,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
 | ad_clicks | 广告点击 | click, clicks, clickCount | - |
-| ad_cost | 广告花费 | todayCost, cost, cashCost, bonusCost, spend, amount | - |
+| ad_cost | 广告花费 | todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge, spend, amount | - |
 | ad_order_amount | 广告预订金额 | orderAmount, saleAmount, revenue | - |
 | ad_orders | 广告预订订单 | orderCount, bookingCount, bookings | - |
 | ad_room_nights | 广告预订间夜 | roomNights, nights, quantity | - |
@@ -1497,7 +1950,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
 | ad_clicks | 广告点击 | click, clicks, clickCount | - |
-| ad_cost | 广告花费 | todayCost, cost, cashCost, bonusCost, spend, amount | - |
+| ad_cost | 广告花费 | todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge, spend, amount | - |
 | ad_order_amount | 广告预订金额 | orderAmount, saleAmount, revenue | - |
 | ad_orders | 广告预订订单 | orderCount, bookingCount, bookings | - |
 | ad_room_nights | 广告预订间夜 | roomNights, nights, quantity | - |
@@ -1522,7 +1975,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
 | ad_clicks | 广告点击 | click, clicks, clickCount | - |
-| ad_cost | 广告花费 | todayCost, cost, cashCost, bonusCost, spend, amount | - |
+| ad_cost | 广告花费 | todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge, spend, amount | - |
 | ad_order_amount | 广告预订金额 | orderAmount, saleAmount, revenue | - |
 | ad_orders | 广告预订订单 | orderCount, bookingCount, bookings | - |
 | ad_room_nights | 广告预订间夜 | roomNights, nights, quantity | - |
@@ -1543,6 +1996,7 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
 | notice_title | 提示标题 | title, name, noticeTitle | - |
 | notice_text | 提示内容 | content, message, text, tips, tip, description, desc | - |
 | config_name | 配置名称 | configName, configKey, key, code | - |
@@ -1560,6 +2014,7 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
 | notice_title | 提示标题 | title, name, noticeTitle | - |
 | notice_text | 提示内容 | content, message, text, tips, tip, description, desc | - |
 | config_name | 配置名称 | configName, configKey, key, code | - |
@@ -1577,6 +2032,7 @@
 | hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
 | notice_title | 提示标题 | title, name, noticeTitle | - |
 | notice_text | 提示内容 | content, message, text, tips, tip, description, desc | - |
 | config_name | 配置名称 | configName, configKey, key, code | - |
@@ -1845,13 +2301,42 @@
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
 | rank | 竞争圈排名 | rank, rank2, visitorRank, rankOfAmount, rankOfOrderQuantity, competitorRank, ranking | - |
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
-| page_views | 昨日浏览量 | pvDataList, pageViewDataList, PV, pv, pageViews | 携程流量数据页昨日浏览量 |
+| page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | - |
-| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | - |
-| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | - |
-| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | - |
-| flow_rate | 流量转化率 | conversionsRatesDataList, flowRate, transforRate, transferRate, convertRate | - |
+| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
+| detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
+| competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
+| order_page_visitor | 订单页访客量 | orderFillingNum, orderVisitors, fillUsers | 取 queryFlowTransforNewV1 本店行 orderFillingNum |
+| competitor_order_page_visitor | 竞争圈平均订单页访客量 | orderFillingNum, competitorOrderFillingNum, avgOrderFillingNum, competitorOrderVisitors | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum |
+| order_fill_rate | 下单转化率 | orderFillingNum/detailExposure | 本店行 orderFillingNum / detailExposure * 100 |
+| competitor_order_fill_rate | 竞争圈平均下单转化率 | hotelId=-1.orderFillingNum/detailExposure | 取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| order_submit_user | 订单提交人数 | orderSubmitNum, submitUsers, submitNum | 取 queryFlowTransforNewV1 本店行 orderSubmitNum |
+| competitor_order_submit_user | 竞争圈平均订单提交人数 | orderSubmitNum, competitorOrderSubmitNum, avgOrderSubmitNum, competitorSubmitUsers | 取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum |
+| deal_rate | 成交转化率 | orderSubmitNum/orderFillingNum | 本店行 orderSubmitNum / orderFillingNum * 100 |
+| competitor_deal_rate | 竞争圈平均成交转化率 | hotelId=-1.orderSubmitNum/orderFillingNum | 取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| qunar_list_exposure | 去哪儿列表页曝光量 | platform=Qunar.listExposure | platform=Qunar 本店行 listExposure |
+| qunar_competitor_list_exposure | 去哪儿竞争圈平均列表页曝光量 | platform=Qunar.hotelId=-1.listExposure | platform=Qunar 且 hotelId=-1 的 listExposure |
+| qunar_detail_visitor | 去哪儿详情页访客量 | platform=Qunar.detailExposure | platform=Qunar 本店行 detailExposure |
+| qunar_competitor_detail_visitor | 去哪儿竞争圈平均详情页访客量 | platform=Qunar.hotelId=-1.detailExposure | platform=Qunar 且 hotelId=-1 的 detailExposure |
+| qunar_flow_rate | 去哪儿曝光转化率 | platform=Qunar.flowRate | platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_competitor_flow_rate | 去哪儿竞争圈平均曝光转化率 | platform=Qunar.hotelId=-1.flowRate | platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| qunar_order_page_visitor | 去哪儿订单页访客量 | platform=Qunar.orderFillingNum | platform=Qunar 本店行 orderFillingNum |
+| qunar_competitor_order_page_visitor | 去哪儿竞争圈平均订单页访客量 | platform=Qunar.hotelId=-1.orderFillingNum | platform=Qunar 且 hotelId=-1 的 orderFillingNum |
+| qunar_order_fill_rate | 去哪儿下单转化率 | platform=Qunar.orderFillingNum/detailExposure | platform=Qunar 本店行 orderFillingNum / detailExposure * 100 |
+| qunar_competitor_order_fill_rate | 去哪儿竞争圈平均下单转化率 | platform=Qunar.hotelId=-1.orderFillingNum/detailExposure | platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100 |
+| qunar_order_submit_user | 去哪儿订单提交人数 | platform=Qunar.orderSubmitNum | platform=Qunar 本店行 orderSubmitNum |
+| qunar_competitor_order_submit_user | 去哪儿竞争圈平均订单提交人数 | platform=Qunar.hotelId=-1.orderSubmitNum | platform=Qunar 且 hotelId=-1 的 orderSubmitNum |
+| qunar_deal_rate | 去哪儿成交转化率 | platform=Qunar.orderSubmitNum/orderFillingNum | platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100 |
+| qunar_competitor_deal_rate | 去哪儿竞争圈平均成交转化率 | platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum | platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100 |
+| weekly_order_page_visitor | 周报订单页访客 | weeklyOrderFillingNum, weekOrderFillingNum, orderFillingNum | - |
+| weekly_competitor_avg_order_page_visitor | 周报订单页访客竞圈均值 | avgOrderFillingNum, competitorAvgOrderVisitors | - |
+| weekly_top_competitor_order_page_visitor | 周报订单页访客最高竞品 | topOrderFillingNum, topCompetitorOrderVisitors | - |
+| weekly_submit_user | 周报提交人数 | weeklyOrderSubmitNum, weekOrderSubmitNum, orderSubmitNum | - |
+| weekly_competitor_avg_submit_user | 周报提交人数竞圈均值 | avgOrderSubmitNum, competitorAvgSubmitUsers | - |
+| weekly_top_competitor_submit_user | 周报提交人数最高竞品 | topOrderSubmitNum, topCompetitorSubmitUsers | - |
+| flow_rate | 曝光转化率 | flowRate, conversionsRatesDataList, transforRate, transferRate, convertRate | 取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核 |
+| competitor_flow_rate | 竞争圈平均曝光转化率 | hotelId=-1.flowRate, competitorFlowRate, avgFlowRate, competitorConversionRate | 取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核 |
 | visitor_rank | 访客排名 | visitorRank | - |
 | competitor_avg_visitor | 竞争圈平均访客 | competitorAvgNumber | - |
 | qunar_visitor_rank | 去哪儿访客排名 | qunarVisitorRank | - |

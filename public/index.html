@@ -18,10 +18,22 @@
         <div v-if="!isLoggedIn" class="login-bg min-h-screen flex items-center justify-center p-4 relative">
             <!-- 底部光晕 -->
             <div class="login-glow-bottom"></div>
-            <!-- 紫色装饰光晕 -->
+            <!-- 左侧装饰光晕 -->
             <div class="login-glow-purple"></div>
 
-            <div class="login-card rounded-2xl p-10 w-full max-w-md relative z-10">
+            <div class="login-stage relative z-10">
+                <section class="login-context-panel" aria-label="宿析OS工作流">
+                    <div class="login-context-kicker">酒店全周期经营决策系统</div>
+                    <p class="login-brand-mark">宿析OS</p>
+                    <h2 class="login-hero-lines">
+                        <span>看见数据</span>
+                        <span>看懂经营</span>
+                        <span>看清未来</span>
+                    </h2>
+                    <p class="login-hero-lead">让酒店每个关键决策，都有数据依据</p>
+                </section>
+
+                <div class="login-card rounded-2xl p-10 w-full max-w-md relative">
                 <div data-locale-switch class="locale-switch login-locale-switch">
                     <label>{{ aiModelConfigText('global.languageLabel') }}</label>
                     <select :value="currentLocale" @change="switchLocale($event.target.value)">
@@ -35,9 +47,9 @@
                         <img src="images/logo.svg" alt="宿析OS" class="w-12 h-12 object-contain drop-shadow-lg" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                         <i class="fas fa-hotel text-4xl text-white" style="display:none"></i>
                     </div>
-                    <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
-                    <p class="login-slogan text-base font-medium tracking-wide">OTA Revenue Intelligence</p>
-                    <p class="login-copy">授权OTA数据驱动的经营诊断与动作闭环</p>
+                    <h1 class="login-title text-3xl font-bold mb-2">登录宿析OS</h1>
+                    <p class="login-slogan text-base font-medium tracking-wide">进入酒店经营决策中心</p>
+                    <p class="login-copy">让酒店从经验判断走向数据决策</p>
                 </div>
 
                 <!-- 登录表单 -->
@@ -105,7 +117,7 @@
                         </template>
                         <template v-else>
                             <i class="fas fa-sign-in-alt"></i>
-                            <span>进入工作台</span>
+                            <span>进入决策中心</span>
                         </template>
                     </button>
                 </form>
@@ -206,7 +218,7 @@
 
                 <div class="slogan-container text-center">
                     <p class="login-system-note">
-                        <i class="fas fa-chart-line"></i>字段口径 · 竞争圈诊断 · 待确认AI建议 · 动作复盘
+                        <i class="fas fa-chart-line"></i>数据采集 · AI分析 · 策略推演 · 结果追踪
                     </p>
                 </div>
 
@@ -223,8 +235,9 @@
 
                 <!-- 底部品牌信息 -->
                 <div class="brand-footer">
-                    <div class="brand-name">宿析OS · OTA经营反馈系统</div>
+                    <div class="brand-name">宿析OS · 酒店全周期经营决策系统</div>
                     <div class="version">v2.0.0</div>
+                </div>
                 </div>
             </div>
 
@@ -11371,6 +11384,10 @@
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'cookies' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         Cookies管理
                                     </button>
+                                    <button @click="onlineDataTab = 'profile-fields'; loadCtripProfileFields()"
+                                        :class="['px-6 py-3 font-medium', onlineDataTab === 'profile-fields' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                        获取字段
+                                    </button>
                                 </div>
 
                                 <div v-if="onlineDataTab === 'data-health'" data-testid="online-data-health-panel" class="space-y-6">
@@ -13913,6 +13930,159 @@
                                     </div>
                                 </div>
 
+                                <div v-if="onlineDataTab === 'profile-fields'" class="space-y-4">
+                                    <div class="border rounded-lg bg-white overflow-hidden">
+                                        <div class="p-4 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                            <div>
+                                                <h4 class="text-lg font-semibold text-gray-900">携程 Profile 获取字段</h4>
+                                                <div class="text-xs text-gray-500 mt-1">
+                                                    共 {{ ctripProfileFieldSummary.total || ctripProfileFields.length }} 个字段，启用 {{ ctripProfileFieldSummary.enabled || 0 }} 个，已有样例 {{ ctripProfileFieldSampledCount }} 个
+                                                </div>
+                                            </div>
+                                            <div class="flex flex-wrap gap-2">
+                                                <button type="button" @click="applyCtripProfileFieldSections" :disabled="ctripProfileFieldLoading"
+                                                    class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
+                                                    <i class="fas fa-layer-group mr-1"></i>同步范围
+                                                </button>
+                                                <button type="button" @click="openCtripProfileFieldCreateForm"
+                                                    class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                                    <i class="fas fa-plus mr-1"></i>新增字段
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="p-4 border-b bg-gray-50 grid grid-cols-1 md:grid-cols-6 gap-3">
+                                            <input v-model.trim="ctripProfileFieldFilters.keyword" type="text"
+                                                class="md:col-span-2 px-3 py-2 border rounded-lg text-sm"
+                                                placeholder="搜索字段、来源、样例">
+                                            <select v-model="ctripProfileFieldFilters.section" class="px-3 py-2 border rounded-lg text-sm">
+                                                <option value="">全部模块</option>
+                                                <option v-for="option in ctripProfileFieldSectionOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                                            </select>
+                                            <select v-model="ctripProfileFieldFilters.status" class="px-3 py-2 border rounded-lg text-sm">
+                                                <option value="">全部状态</option>
+                                                <option value="confirmed">已确认</option>
+                                                <option value="needs_section">需采集范围</option>
+                                                <option value="needs_parser">待补解析</option>
+                                                <option value="not_captured">未采集</option>
+                                                <option value="pending">待确认</option>
+                                                <option value="paused">停用</option>
+                                            </select>
+                                            <select v-model="ctripProfileFieldFilters.enabled" class="px-3 py-2 border rounded-lg text-sm">
+                                                <option value="">全部启用</option>
+                                                <option value="enabled">启用</option>
+                                                <option value="disabled">停用</option>
+                                            </select>
+                                            <div class="flex items-center gap-2">
+                                                <select v-model="ctripProfileFieldFilters.sample" class="w-full px-3 py-2 border rounded-lg text-sm">
+                                                    <option value="">全部样例</option>
+                                                    <option value="with_sample">有样例</option>
+                                                    <option value="without_sample">无样例</option>
+                                                </select>
+                                                <button type="button" @click="resetCtripProfileFieldFilters" class="px-3 py-2 border rounded-lg text-sm hover:bg-white whitespace-nowrap">清空</button>
+                                            </div>
+                                            <div class="md:col-span-6 text-xs text-gray-500">
+                                                筛选 {{ filteredCtripProfileFields.length }} / {{ ctripProfileFields.length }} 个字段
+                                            </div>
+                                        </div>
+
+                                        <div v-if="showCtripProfileFieldForm" class="p-4 border-b bg-slate-50 space-y-3">
+                                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                <input v-model.trim="ctripProfileFieldForm.field_key" type="text" class="px-3 py-2 border rounded-lg text-sm" placeholder="字段编码">
+                                                <input v-model.trim="ctripProfileFieldForm.field_name" type="text" class="px-3 py-2 border rounded-lg text-sm" placeholder="字段名称">
+                                                <select v-model="ctripProfileFieldForm.section" class="px-3 py-2 border rounded-lg text-sm">
+                                                    <option v-for="option in ctripProfileFieldSectionOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                                                </select>
+                                                <select v-model="ctripProfileFieldForm.status" class="px-3 py-2 border rounded-lg text-sm">
+                                                    <option value="confirmed">已确认</option>
+                                                    <option value="needs_section">需采集范围</option>
+                                                    <option value="needs_parser">待补解析</option>
+                                                    <option value="not_captured">未采集</option>
+                                                    <option value="pending">待确认</option>
+                                                    <option value="paused">停用</option>
+                                                </select>
+                                                <input v-model.trim="ctripProfileFieldForm.source_interface" type="text" class="md:col-span-2 px-3 py-2 border rounded-lg text-sm" placeholder="来源接口">
+                                                <input v-model.trim="ctripProfileFieldForm.source_keys" type="text" class="md:col-span-2 px-3 py-2 border rounded-lg text-sm" placeholder="来源字段">
+                                                <input v-model.trim="ctripProfileFieldForm.value_type" type="text" class="px-3 py-2 border rounded-lg text-sm" placeholder="值类型">
+                                                <input v-model.trim="ctripProfileFieldForm.unit" type="text" class="px-3 py-2 border rounded-lg text-sm" placeholder="单位">
+                                                <input v-model.number="ctripProfileFieldForm.sort_order" type="number" class="px-3 py-2 border rounded-lg text-sm" placeholder="排序">
+                                                <label class="px-3 py-2 border rounded-lg text-sm bg-white flex items-center gap-2">
+                                                    <input v-model="ctripProfileFieldForm.enabled" type="checkbox" class="rounded">
+                                                    启用
+                                                </label>
+                                                <input v-model.trim="ctripProfileFieldForm.transform_rule" type="text" class="md:col-span-2 px-3 py-2 border rounded-lg text-sm" placeholder="转换规则">
+                                                <input v-model.trim="ctripProfileFieldForm.notes" type="text" class="md:col-span-2 px-3 py-2 border rounded-lg text-sm" placeholder="备注">
+                                            </div>
+                                            <div class="flex justify-end gap-2">
+                                                <button type="button" @click="resetCtripProfileFieldForm" class="px-3 py-2 border rounded-lg text-sm hover:bg-white">取消</button>
+                                                <button type="button" @click="saveCtripProfileField" :disabled="ctripProfileFieldSaving" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:bg-gray-400">
+                                                    {{ ctripProfileFieldSaving ? '保存中...' : '保存字段' }}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="ctripProfileFieldLoading" class="p-8 text-center text-gray-500">字段加载中...</div>
+                                        <div v-else class="overflow-x-auto">
+                                            <table class="w-full table-fixed text-sm">
+                                                <thead class="bg-gray-50 text-gray-600">
+                                                    <tr>
+                                                        <th class="w-[160px] px-4 py-3 text-left font-medium">字段</th>
+                                                        <th class="w-[76px] px-4 py-3 text-left font-medium">模块</th>
+                                                        <th class="w-[330px] px-4 py-3 text-left font-medium">最近值</th>
+                                                        <th class="w-[88px] px-4 py-3 text-left font-medium">状态</th>
+                                                        <th class="w-[70px] px-4 py-3 text-left font-medium">启用</th>
+                                                        <th class="w-[140px] px-4 py-3 text-left font-medium">更新时间</th>
+                                                        <th class="w-[260px] px-4 py-3 text-left font-medium">来源</th>
+                                                        <th class="w-[72px] px-4 py-3 text-right font-medium">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-200">
+                                                    <tr v-for="field in filteredCtripProfileFields" :key="field.id" class="hover:bg-gray-50">
+                                                        <td class="px-4 py-3 align-top">
+                                                            <div class="font-medium text-gray-900 truncate" :title="field.field_name">{{ field.field_name || '-' }}</div>
+                                                            <div class="text-xs text-gray-500 font-mono truncate" :title="field.field_key">{{ field.field_key || '-' }}</div>
+                                                        </td>
+                                                        <td class="px-4 py-3 align-top text-gray-700">{{ ctripProfileCaptureSectionText(field.section) }}</td>
+                                                        <td class="px-4 py-3 align-top">
+                                                            <div v-if="ctripProfileFieldSampleItems(field).length" class="space-y-1">
+                                                                <div v-for="(sample, index) in ctripProfileFieldSampleItems(field)" :key="`${field.id}-sample-${index}`" class="rounded border bg-white px-2 py-1">
+                                                                    <div class="font-mono text-gray-900 whitespace-pre-wrap break-words leading-5" :title="ctripProfileFieldSampleValueText(sample)">
+                                                                        {{ ctripProfileFieldSampleValueText(sample) }}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div v-else class="text-gray-400">
+                                                                {{ field.latest_sample_note || '未采到样例' }}
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-4 py-3 align-top">
+                                                            <span :class="['px-2 py-1 rounded-full border text-xs whitespace-nowrap', ctripProfileFieldStatusClass(field.status)]">{{ ctripProfileFieldStatusText(field.status) }}</span>
+                                                        </td>
+                                                        <td class="px-4 py-3 align-top">
+                                                            <span :class="['px-2 py-1 rounded-full text-xs whitespace-nowrap', field.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500']">{{ field.enabled ? '启用' : '停用' }}</span>
+                                                        </td>
+                                                        <td class="px-4 py-3 align-top text-gray-500 whitespace-nowrap">{{ field.update_time || '-' }}</td>
+                                                        <td class="px-4 py-3 align-top">
+                                                            <div class="text-gray-900 truncate" :title="field.source_interface">{{ field.source_interface || '-' }}</div>
+                                                            <div class="text-xs text-gray-500 truncate" :title="field.source_keys">{{ field.source_keys || '-' }}</div>
+                                                            <div v-if="ctripProfileFieldSampleSourceText(field)" class="text-xs text-blue-600 truncate mt-1" :title="ctripProfileFieldSampleSourceText(field)">
+                                                                {{ ctripProfileFieldSampleSourceText(field) }}
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-4 py-3 align-top text-right whitespace-nowrap">
+                                                            <button type="button" @click="editCtripProfileField(field)" class="text-blue-600 hover:text-blue-700 mr-3"><i class="fas fa-edit"></i></button>
+                                                            <button type="button" @click="deleteCtripProfileField(field)" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="filteredCtripProfileFields.length === 0">
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-500">暂无匹配字段</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Cookies管理 -->
                                 <div v-if="onlineDataTab === 'cookies'">
                                     <div class="mb-4 p-4 bg-gray-50 rounded-lg">
@@ -16293,6 +16463,120 @@
             const platformDataSourceDeletingId = ref(null);
             const platformDataImporting = ref(false);
             const platformDataSourceError = ref('');
+            const ctripProfileFields = ref([]);
+            const ctripProfileFieldSummary = ref({});
+            const ctripProfileFieldLoading = ref(false);
+            const ctripProfileFieldSaving = ref(false);
+            const showCtripProfileFieldForm = ref(false);
+            const ctripProfileFieldSectionOptions = [
+                { value: 'business_overview', label: '经营概况' },
+                { value: 'traffic_report', label: '流量报告' },
+                { value: 'room_type', label: '房型/竞品酒店' },
+                { value: 'comment_review', label: '点评数据' },
+                { value: 'ads_pyramid', label: '金字塔广告' },
+                { value: 'competitor_rank', label: '竞争排名' },
+                { value: 'quality_psi', label: 'PSI服务质量' },
+            ];
+            const createCtripProfileFieldForm = () => ({
+                id: '',
+                field_key: '',
+                field_name: '',
+                section: 'business_overview',
+                data_type: 'business',
+                source_interface: '',
+                source_keys: '',
+                value_type: '',
+                unit: '',
+                transform_rule: '',
+                status: 'pending',
+                enabled: true,
+                notes: '',
+                sort_order: 0,
+            });
+            const ctripProfileFieldForm = ref(createCtripProfileFieldForm());
+            const ctripProfileFieldFilters = ref({
+                keyword: '',
+                section: '',
+                status: '',
+                enabled: '',
+                sample: '',
+            });
+            const ctripProfileFieldSampleValueText = (sample) => {
+                if (sample && typeof sample === 'object') {
+                    const value = sample.value ?? sample.latest_value ?? '';
+                    const unit = sample.unit ? String(sample.unit) : '';
+                    return `${value === null || value === undefined ? '' : String(value)}${unit}`.trim();
+                }
+                return sample === null || sample === undefined ? '' : String(sample).trim();
+            };
+            const ctripProfileFieldSampleItems = (field) => {
+                if (!field) return [];
+                if (Array.isArray(field.latest_values) && field.latest_values.length > 0) {
+                    return field.latest_values
+                        .map(sample => {
+                            if (sample && typeof sample === 'object') return sample;
+                            return { value: sample };
+                        })
+                        .filter(sample => ctripProfileFieldSampleValueText(sample));
+                }
+                const value = String(field.latest_value || '').trim();
+                if (!value) return [];
+                return value.split(' / ').map(item => ({ value: item })).filter(sample => ctripProfileFieldSampleValueText(sample));
+            };
+            const ctripProfileFieldSampleMetaText = (sample) => {
+                if (!sample || typeof sample !== 'object') return '';
+                return [
+                    sample.data_date ? `日期 ${sample.data_date}` : '',
+                    sample.hotel_name ? `门店 ${sample.hotel_name}` : '',
+                    sample.source_key ? `字段 ${sample.source_key}` : '',
+                    sample.source_path ? `路径 ${sample.source_path}` : '',
+                ].filter(Boolean).join(' · ');
+            };
+            const ctripProfileFieldSampleSourceText = (field) => {
+                const sample = ctripProfileFieldSampleItems(field)[0];
+                if (!sample || typeof sample !== 'object') return '';
+                return [
+                    sample.endpoint_id || sample.capture_section || '',
+                    sample.source_key || '',
+                    sample.source_path || '',
+                ].filter(Boolean).join(' · ');
+            };
+            const ctripProfileFieldSampleText = (field) => ctripProfileFieldSampleItems(field)
+                .map(sample => `${ctripProfileFieldSampleValueText(sample)} ${ctripProfileFieldSampleMetaText(sample)}`.trim())
+                .filter(Boolean)
+                .join(' / ');
+            const ctripProfileFieldSampledCount = computed(() => {
+                const value = Number(ctripProfileFieldSummary.value?.sampled_field_count ?? NaN);
+                if (Number.isFinite(value)) return value;
+                return ctripProfileFields.value.filter(field => ctripProfileFieldSampleText(field)).length;
+            });
+            const filteredCtripProfileFields = computed(() => {
+                const filters = ctripProfileFieldFilters.value;
+                const keyword = String(filters.keyword || '').trim().toLowerCase();
+                return ctripProfileFields.value.filter(field => {
+                    if (filters.section && String(field.section || '') !== filters.section) return false;
+                    if (filters.status && String(field.status || '') !== filters.status) return false;
+                    if (filters.enabled === 'enabled' && !field.enabled) return false;
+                    if (filters.enabled === 'disabled' && field.enabled) return false;
+                    const sampleText = ctripProfileFieldSampleText(field);
+                    if (filters.sample === 'with_sample' && !sampleText) return false;
+                    if (filters.sample === 'without_sample' && sampleText) return false;
+                    if (!keyword) return true;
+                    return [
+                        field.field_key,
+                        field.field_name,
+                        ctripProfileCaptureSectionText(field.section),
+                        field.source_interface,
+                        field.source_keys,
+                        field.value_type,
+                        field.unit,
+                        field.transform_rule,
+                        field.notes,
+                        sampleText,
+                        field.latest_sample_note,
+                    ].some(item => String(item || '').toLowerCase().includes(keyword));
+                });
+            });
             const defaultPlatformDataSourceForm = () => ({
                 id: '',
                 name: '',
@@ -20830,6 +21114,9 @@
                 if (newTab === 'platform-sources') {
                     loadPlatformDataSourcePanel();
                 }
+                if (newTab === 'profile-fields') {
+                    loadCtripProfileFields();
+                }
                 // 加载携程配置列表
                 if (newTab === 'ctrip-config' || newTab === 'ctrip-traffic' || newTab === 'ctrip-overview') {
                     loadCtripConfigList();
@@ -22291,6 +22578,141 @@
                 if (status === 'failed') return 'bg-red-50 text-red-700';
                 if (status === 'partial_success') return 'bg-amber-50 text-amber-700';
                 return 'bg-blue-50 text-blue-700';
+            };
+
+            const ctripProfileCaptureSectionText = (section) => {
+                const key = String(section || '').trim();
+                return ctripProfileFieldSectionOptions.find(option => option.value === key)?.label || key || '-';
+            };
+
+            const ctripProfileFieldStatusText = (status) => ({
+                confirmed: '已确认',
+                needs_section: '需采集范围',
+                needs_parser: '待补解析',
+                not_captured: '未采集',
+                pending: '待确认',
+                paused: '停用',
+            }[String(status || '')] || '待确认');
+
+            const ctripProfileFieldStatusClass = (status) => {
+                if (status === 'confirmed') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                if (status === 'needs_parser') return 'bg-amber-50 text-amber-700 border-amber-100';
+                if (status === 'needs_section') return 'bg-sky-50 text-sky-700 border-sky-100';
+                if (status === 'not_captured') return 'bg-red-50 text-red-700 border-red-100';
+                if (status === 'paused') return 'bg-gray-100 text-gray-500 border-gray-200';
+                return 'bg-blue-50 text-blue-700 border-blue-100';
+            };
+
+            const resetCtripProfileFieldFilters = () => {
+                ctripProfileFieldFilters.value = {
+                    keyword: '',
+                    section: '',
+                    status: '',
+                    enabled: '',
+                    sample: '',
+                };
+            };
+
+            const resetCtripProfileFieldForm = () => {
+                ctripProfileFieldForm.value = createCtripProfileFieldForm();
+                showCtripProfileFieldForm.value = false;
+            };
+
+            const openCtripProfileFieldCreateForm = () => {
+                ctripProfileFieldForm.value = createCtripProfileFieldForm();
+                showCtripProfileFieldForm.value = true;
+            };
+
+            const loadCtripProfileFields = async () => {
+                ctripProfileFieldLoading.value = true;
+                try {
+                    const res = await request('/online-data/ctrip-profile-fields');
+                    if (res.code === 200) {
+                        const data = res.data || {};
+                        ctripProfileFields.value = Array.isArray(data.list) ? data.list : [];
+                        ctripProfileFieldSummary.value = data.summary || {};
+                    } else {
+                        showToast(res.message || '字段加载失败', 'error');
+                    }
+                } catch (error) {
+                    showToast('字段加载失败: ' + error.message, 'error');
+                } finally {
+                    ctripProfileFieldLoading.value = false;
+                }
+            };
+
+            const applyCtripProfileFieldSections = async () => {
+                await loadCtripProfileFields();
+                showToast('同步范围已刷新');
+            };
+
+            const editCtripProfileField = (field) => {
+                ctripProfileFieldForm.value = {
+                    ...createCtripProfileFieldForm(),
+                    id: field.id || '',
+                    field_key: field.field_key || '',
+                    field_name: field.field_name || '',
+                    section: field.section || 'business_overview',
+                    data_type: field.data_type || 'business',
+                    source_interface: field.source_interface || '',
+                    source_keys: field.source_keys || '',
+                    value_type: field.value_type || '',
+                    unit: field.unit || '',
+                    transform_rule: field.transform_rule || '',
+                    status: field.status || 'pending',
+                    enabled: Boolean(field.enabled),
+                    notes: field.notes || '',
+                    sort_order: Number(field.sort_order || 0),
+                };
+                showCtripProfileFieldForm.value = true;
+            };
+
+            const saveCtripProfileField = async () => {
+                const form = ctripProfileFieldForm.value;
+                if (!String(form.field_key || '').trim() || !String(form.field_name || '').trim()) {
+                    showToast('字段编码和字段名称不能为空', 'error');
+                    return;
+                }
+                ctripProfileFieldSaving.value = true;
+                try {
+                    const res = await request('/online-data/save-ctrip-profile-field', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            ...form,
+                            enabled: form.enabled ? 1 : 0,
+                            sort_order: Number(form.sort_order || 0),
+                        }),
+                    });
+                    if (res.code === 200) {
+                        showToast(res.message || '字段配置已保存');
+                        resetCtripProfileFieldForm();
+                        await loadCtripProfileFields();
+                    } else {
+                        showToast(res.message || '字段保存失败', 'error');
+                    }
+                } catch (error) {
+                    showToast('字段保存失败: ' + error.message, 'error');
+                } finally {
+                    ctripProfileFieldSaving.value = false;
+                }
+            };
+
+            const deleteCtripProfileField = async (field) => {
+                if (!field?.id) return;
+                if (!confirm(`确认删除字段「${field.field_name || field.field_key || field.id}」？`)) return;
+                try {
+                    const res = await request(`/online-data/delete-ctrip-profile-field?id=${encodeURIComponent(field.id)}`, {
+                        method: 'DELETE',
+                    });
+                    if (res.code === 200) {
+                        showToast(res.message || '字段配置已删除');
+                        await loadCtripProfileFields();
+                    } else {
+                        showToast(res.message || '字段删除失败', 'error');
+                    }
+                } catch (error) {
+                    showToast('字段删除失败: ' + error.message, 'error');
+                }
             };
 
             const platformSyncActionText = (message) => {
@@ -35237,6 +35659,7 @@
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
                 onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, platformProfileStatusLabel, platformProfileStatusBadgeClass, platformProfileBindingText, platformProfileStrategyText, platformProfilePrimaryActionText, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSaving, showCtripProfileFieldForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, filteredCtripProfileFields, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, loadCtripProfileFields, applyCtripProfileFieldSections, editCtripProfileField, saveCtripProfileField, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
