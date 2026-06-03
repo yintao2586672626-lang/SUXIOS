@@ -5,10 +5,13 @@
 CREATE TABLE IF NOT EXISTS `system_configs` (
   `id` INT(11) NOT NULL AUTO_INCREMENT,
   `config_key` VARCHAR(50) NOT NULL,
-  `config_value` TEXT DEFAULT NULL,
+  `config_value` LONGTEXT DEFAULT NULL,
   `description` VARCHAR(255) DEFAULT NULL,
   `create_time` DATETIME DEFAULT NULL,
   `update_time` DATETIME DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `config_key` (`config_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+ALTER TABLE `system_configs`
+  MODIFY COLUMN `config_value` LONGTEXT DEFAULT NULL;

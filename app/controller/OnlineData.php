@@ -15,7 +15,88 @@ use think\facade\Db;
 class OnlineData extends Base
 {
     private const CTRIP_PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
-    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 10;
+    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 13;
+    private const CTRIP_BUSINESS_REPORT_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
+    private const CTRIP_FLOW_TRANSFORM_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true';
+    private const CTRIP_FLOW_TRANSFORM_REQUEST_URL = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking';
+    private const CTRIP_PSI_PAGE_URL = 'https://ebooking.ctrip.com/psi/index?microJump=true';
+    private const CTRIP_PSI_REQUEST_URL = 'https://ebooking.ctrip.com/psi/api/getHotelPsiV2';
+    private const CTRIP_ADS_PAGE_URL = 'https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true';
+    private const CTRIP_ADS_REQUEST_URL = 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE';
+    private const CTRIP_PROFILE_KEY_FIELD_KEYS = [
+        'last_visitor_total',
+        'visitor_count',
+        'visitor_rank',
+        'visitor_count_last_week',
+        'competitor_avg_visitor',
+        'qunar_visitor_count',
+        'qunar_visitor_rank',
+        'qunar_visitor_count_last_week',
+        'qunar_competitor_avg_visitor',
+        'order_count',
+        'order_count_sync',
+        'order_count_rank',
+        'competitor_avg_orders',
+        'ctrip_order_count',
+        'ctrip_order_count_sync',
+        'ctrip_order_count_rank',
+        'qunar_order_count',
+        'qunar_order_count_sync',
+        'qunar_order_count_rank',
+        'elong_order_count',
+        'elong_order_count_sync',
+        'elong_order_count_rank',
+        'self_order_count',
+        'order_amount',
+        'order_amount_last_week',
+        'amount_rank',
+        'room_nights',
+        'room_nights_last_week',
+        'quantity_rank',
+        'occupied_rooms',
+        'occupied_rooms_sync',
+        'occupied_rooms_rank',
+        'competitor_avg_occupied_rooms',
+        'avg_price',
+        'avg_price_last_week',
+        'avg_price_rank',
+        'close_rate',
+        'close_rate_last_week',
+        'close_rate_rank',
+        'occupancy_rate',
+        'occupancy_rate_sync',
+        'occupancy_rate_rank',
+        'competitor_average',
+        'competition_rank',
+        'seq_rank',
+        'competitor_visitor',
+        'competitor_orders',
+        'competitor_revenue',
+        'competitor_hotel_list',
+        'list_exposure',
+        'competitor_list_exposure',
+        'detail_visitor',
+        'competitor_detail_visitor',
+        'flow_rate',
+        'competitor_flow_rate',
+        'order_page_visitor',
+        'competitor_order_page_visitor',
+        'order_fill_rate',
+        'competitor_order_fill_rate',
+        'order_submit_user',
+        'competitor_order_submit_user',
+        'deal_rate',
+        'competitor_deal_rate',
+        'psi_score',
+        'service_score_rank',
+        'ctrip_rating',
+        'comment_score_summary',
+        'reply_rate',
+        'reply_rank',
+        'hotel_collect',
+        'hotel_collect_rank',
+        'ad_cost',
+    ];
 
     private function shouldVerifyOtaSsl(): bool
     {
@@ -2243,9 +2324,11 @@ class OnlineData extends Base
             $this->updateCtripLatestFetchStatus((int)$systemHotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
         }
 
-        $responsePayload = [
+        $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'];
+        $responsePayload = array_merge([
             'saved_count' => $savedCount,
-            'row_count' => (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'],
+            'row_count' => $rowCount,
+        ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, $savedCount, $rowCount), [
             'counts' => [
                 'business' => (int)$saveResult['business_saved'],
                 'traffic' => (int)$saveResult['traffic_saved'],
@@ -2273,7 +2356,7 @@ class OnlineData extends Base
             'xhr_urls' => array_slice($payload['xhr_urls'] ?? [], 0, 20),
             'screenshots' => $payload['screenshots'] ?? [],
             'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
-        ];
+        ]);
         if ($dataSourceBinding !== null) {
             $responsePayload['data_source'] = $dataSourceBinding;
             $responsePayload['data_source_binding'] = ['status' => 'success', 'data_source_id' => (int)($dataSourceBinding['id'] ?? 0)];
@@ -3358,7 +3441,7 @@ class OnlineData extends Base
 
     private function getCtripCaptureBlockingFailedCheckIds(array $failedCheckIds): array
     {
-        $softCheckIds = ['field_coverage'];
+        $softCheckIds = ['field_coverage', 'endpoint_coverage'];
         return array_values(array_filter(
             $failedCheckIds,
             static fn($checkId): bool => !in_array((string)$checkId, $softCheckIds, true)
@@ -3390,7 +3473,7 @@ class OnlineData extends Base
         $failedCheckIds = is_array($captureGateDecision['failed_check_ids'] ?? null) ? $captureGateDecision['failed_check_ids'] : [];
         return [
             'level' => 'warning',
-            'message' => 'Ctrip browser Profile captured usable rows, but field coverage is below the configured threshold. Saved captured fields and kept missing-field evidence in diagnostics.',
+            'message' => 'Ctrip browser Profile captured usable rows, but capture gate coverage has gaps. Saved captured rows and kept diagnostics for missing coverage.',
             'status' => (string)($captureGateDecision['status'] ?? 'unknown'),
             'failed_check_ids' => $failedCheckIds,
             'blocking_failed_check_ids' => $this->getCtripCaptureBlockingFailedCheckIds($failedCheckIds),
@@ -3522,6 +3605,18 @@ class OnlineData extends Base
         ];
     }
 
+    private function buildCtripCaptureFactRowCountPayload(array $capturedCounts, int $savedCount, int $parsedRowCount): array
+    {
+        return [
+            'saved_fact_row_count' => $savedCount,
+            'parsed_fact_row_count' => $parsedRowCount,
+            'standard_row_count' => (int)($capturedCounts['standard_rows'] ?? 0),
+            'catalog_fact_count' => (int)($capturedCounts['catalog_facts'] ?? 0),
+            'legacy_business_row_count' => (int)($capturedCounts['business'] ?? 0),
+            'legacy_traffic_row_count' => (int)($capturedCounts['traffic'] ?? 0),
+        ];
+    }
+
     private function buildCtripCaptureDiagnosisSummary(array $payload): array
     {
         $metricLabels = $this->ctripCaptureDiagnosisMetricLabels();
@@ -3629,10 +3724,10 @@ class OnlineData extends Base
     private function ctripCaptureDiagnosisGroups(): array
     {
         return [
-            '收益销售' => ['order_count', 'room_nights', 'order_amount', 'avg_price', 'occupancy_rate', 'tensity'],
+            '收益销售' => ['order_count', 'room_nights', 'room_nights_last_week', 'quantity_rank', 'order_amount', 'order_amount_last_week', 'amount_rank', 'avg_price', 'avg_price_last_week', 'avg_price_rank', 'close_rate', 'close_rate_last_week', 'close_rate_rank', 'occupancy_rate', 'tensity'],
             '流量转化' => ['visitor_count', 'list_exposure', 'detail_visitor', 'order_page_visitor', 'order_submit_user', 'flow_rate', 'conversion_rate'],
             '竞争圈' => ['rank', 'competitor_average', 'common_view_rate', 'loss_order_count', 'loss_room_nights', 'loss_order_amount'],
-            '服务质量/IM' => ['psi_score', 'base_score', 'reward_score', 'deduct_score', 'reply_rate', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank', 'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate', 'im_score', 'hotel_collect', 'comment_score_summary'],
+            '服务质量/IM' => ['psi_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score', 'reply_rate', 'reply_rank', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank', 'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_rating', 'comment_score_summary'],
             '广告推广' => ['ad_impressions', 'ad_clicks', 'ad_cost', 'ad_order_amount', 'ad_orders', 'ad_room_nights', 'ctr', 'cvr', 'roas'],
             '商旅BPI' => ['bpi_score', 'basis_score', 'plus_score', 'minus_score', 'agreement_accept_rate', 'business_room_nights', 'business_amount'],
             '辅助事实' => ['hot_spot_name', 'start_date', 'end_date', 'user_sex', 'user_age', 'user_source', 'user_type', 'strategy', 'benefit_name', 'notice_title'],
@@ -3643,9 +3738,18 @@ class OnlineData extends Base
     {
         return [
             'order_count' => '预订订单数',
-            'room_nights' => '间夜/在店间夜',
-            'order_amount' => '预订销售额',
-            'avg_price' => '平均卖价/起价',
+            'room_nights' => '离店间夜量',
+            'room_nights_last_week' => '离店间夜量上周同期',
+            'quantity_rank' => '离店间夜量竞争圈排名',
+            'order_amount' => '离店销售额',
+            'order_amount_last_week' => '离店销售额上周同期',
+            'amount_rank' => '离店销售额竞争圈排名',
+            'avg_price' => '平均卖价',
+            'avg_price_last_week' => '平均卖价上周同期',
+            'avg_price_rank' => '平均卖价竞争圈排名',
+            'close_rate' => '成交率',
+            'close_rate_last_week' => '成交率上周同期',
+            'close_rate_rank' => '成交率竞争圈排名',
             'occupancy_rate' => '出租率',
             'tensity' => '紧张度',
             'visitor_count' => '访客量',
@@ -3662,10 +3766,12 @@ class OnlineData extends Base
             'loss_room_nights' => '流失间夜',
             'loss_order_amount' => '流失订单金额',
             'psi_score' => 'PSI服务质量分',
+            'service_score_rank' => 'PSI服务质量分竞争圈排名',
             'base_score' => '基础分',
             'reward_score' => '奖励分',
             'deduct_score' => '减分项',
-            'reply_rate' => '回复率',
+            'reply_rate' => '5分钟回复率',
+            'reply_rank' => '5分钟回复率竞争圈排名',
             'five_min_reply_rate' => '5分钟回复率',
             'manual_reply_rate' => '5分钟人工回复率',
             'robot_resolution_rate' => '机器人解决率',
@@ -3676,7 +3782,9 @@ class OnlineData extends Base
             'im_order_conversion_rate' => 'IM客人转化率',
             'im_score' => 'IM指标',
             'hotel_collect' => '酒店收藏数',
-            'comment_score_summary' => '点评分',
+            'hotel_collect_rank' => '酒店收藏数竞争圈排名',
+            'ctrip_rating' => '酒店点评分',
+            'comment_score_summary' => '酒店点评分',
             'ad_impressions' => '广告曝光',
             'ad_clicks' => '广告点击',
             'ad_cost' => '广告花费',
@@ -7718,9 +7826,12 @@ class OnlineData extends Base
 
         foreach ($dataList as $item) {
             if (!is_array($item)) continue;
+            if (!$this->canSaveCtripLegacyBusinessMetricItem($item)) {
+                continue;
+            }
 
-            // 尝试多种字段名获取酒店ID
-            $hotelId = $item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? null;
+            // 尝试多种字段名获取酒店ID，masterHotelId 优先作为携程酒店实体归属 ID。
+            $hotelId = $this->resolveCtripPlatformHotelId($item);
             if (empty($hotelId)) continue;
 
             // 尝试多种字段名获取酒店名称
@@ -7816,6 +7927,54 @@ class OnlineData extends Base
         }
 
         return $savedCount;
+    }
+
+    private function canSaveCtripLegacyBusinessMetricItem(array $item): bool
+    {
+        $sourceUrl = strtolower((string)($item['_source_url'] ?? $item['source_url'] ?? $item['url'] ?? ''));
+        $endpointId = strtolower((string)($item['_endpoint_id'] ?? $item['endpoint_id'] ?? ''));
+        if ($sourceUrl === '' && $endpointId === '') {
+            return true;
+        }
+        if ($this->isCtripRankOnlyBusinessItem($item)) {
+            return false;
+        }
+
+        foreach ([
+            'queryhomepagerealtimedata',
+            'getdayreportrealtimedate',
+            'fetchmarketoverviewv2',
+            'fetchcapacityoverviewv4',
+            'getdayreportflowcompete',
+            'getdayreportserverquantity',
+            'fetchvisitortitlev2',
+        ] as $needle) {
+            if (str_contains($sourceUrl, $needle) || str_contains($endpointId, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isCtripRankOnlyBusinessItem(array $item): bool
+    {
+        $sourceUrl = strtolower((string)($item['_source_url'] ?? $item['source_url'] ?? $item['url'] ?? ''));
+        $endpointId = strtolower((string)($item['_endpoint_id'] ?? $item['endpoint_id'] ?? ''));
+        if ($endpointId === 'weekly_compete_report' || $endpointId === 'competitor_rank') {
+            return true;
+        }
+        if (str_contains($sourceUrl, 'getcompetehotelreportv1') || str_contains($sourceUrl, 'getcompetingrank')) {
+            return true;
+        }
+
+        foreach (['bookingGMVrank', 'bookingOrdersrank', 'stayInRNrank', 'rentalRaterank'] as $key) {
+            if (array_key_exists($key, $item)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function extractCtripBusinessDataList($responseData): array
@@ -9735,14 +9894,76 @@ JAVASCRIPT;
 
         try {
             $fields = array_values($this->readCtripProfileCaptureFields());
-            $sampleSummary = $this->hydrateCtripProfileFieldLatestSamples($fields);
+            $autoFetchCandidates = $this->discoverCtripProfileAutoFetchFieldCandidates();
+            $candidateScope = $this->scopeCtripProfileAutoFetchFieldCandidates($autoFetchCandidates);
+            $includeSamples = !in_array(strtolower(trim((string)$this->request->get('include_samples', '1'))), ['0', 'false', 'no'], true);
+            $sampleSummary = $includeSamples
+                ? $this->hydrateCtripProfileFieldLatestSamples($fields)
+                : [
+                    'sampled_field_count' => 0,
+                    'latest_sample_time' => null,
+                    'latest_sample_batch_key' => null,
+                    'sample_pending' => true,
+                ];
             return $this->success([
                 'list' => $fields,
-                'summary' => array_merge($this->summarizeCtripProfileCaptureFields($fields), $sampleSummary),
+                'summary' => array_merge(
+                    $this->summarizeCtripProfileCaptureFields($fields),
+                    $sampleSummary,
+                    $this->summarizeCtripProfileAutoFetchFieldCandidates(
+                        $fields,
+                        $candidateScope['key_candidates'],
+                        $candidateScope['skipped_candidates']
+                    )
+                ),
             ]);
         } catch (\Throwable $e) {
             \think\facade\Log::error('获取携程 Profile 字段目录失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取携程 Profile 字段目录失败', 500);
+        }
+    }
+
+    public function syncCtripProfileFields(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $fields = $this->readCtripProfileCaptureFields();
+            $candidates = $this->discoverCtripProfileAutoFetchFieldCandidates();
+            $candidateScope = $this->scopeCtripProfileAutoFetchFieldCandidates($candidates);
+            $syncResult = $this->mergeCtripProfileAutoFetchFieldCandidates($fields, $candidates);
+            if ((int)$syncResult['added_count'] > 0) {
+                $this->writeCtripProfileCaptureFields($fields);
+            }
+
+            $fieldList = array_values($fields);
+            $sampleSummary = $this->hydrateCtripProfileFieldLatestSamples($fieldList);
+            $summary = array_merge(
+                $this->summarizeCtripProfileCaptureFields($fieldList),
+                $sampleSummary,
+                $this->summarizeCtripProfileAutoFetchFieldCandidates(
+                    $fieldList,
+                    $candidateScope['key_candidates'],
+                    $candidateScope['skipped_candidates']
+                )
+            );
+
+            OperationLog::record(
+                'online_data',
+                'sync_ctrip_profile_fields',
+                '同步携程 Profile 自动获取字段: 新增 ' . (int)$syncResult['added_count'] . ' 个',
+                $this->currentUser->id
+            );
+
+            return $this->success([
+                'list' => $fieldList,
+                'summary' => $summary,
+                'sync_result' => $syncResult,
+            ], '自动获取字段同步完成');
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('同步携程 Profile 自动获取字段失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('同步携程 Profile 自动获取字段失败: ' . $e->getMessage(), 500);
         }
     }
 
@@ -9760,6 +9981,10 @@ JAVASCRIPT;
                 return $this->error('字段配置不存在', 404);
             }
 
+            $requestData = $this->prepareCtripProfileFieldSaveData($requestData, $original, $id === '');
+            if ($id === '' && !$this->hasRequiredCtripProfileFieldEvidence($requestData)) {
+                return $this->error('新增字段配置请填写网页URL、接口URL、JSON或JSON路径、我要取的值、代表的含义');
+            }
             $fieldKey = trim((string)($requestData['field_key'] ?? $requestData['fieldKey'] ?? ($original['field_key'] ?? '')));
             $fieldName = trim((string)($requestData['field_name'] ?? $requestData['fieldName'] ?? ($original['field_name'] ?? '')));
             if ($fieldKey === '' || $fieldName === '') {
@@ -9825,6 +10050,199 @@ JAVASCRIPT;
         }
     }
 
+    public function verifyCtripProfileFieldSample(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $requestData = $this->requestData();
+            $id = trim((string)($requestData['id'] ?? ''));
+            $rawStatus = strtolower(trim((string)($requestData['sample_verification_status'] ?? $requestData['status'] ?? '')));
+            if ($id === '') {
+                return $this->error('字段ID不能为空');
+            }
+            if (!in_array($rawStatus, ['matched', 'match', 'mismatched', 'mismatch'], true)) {
+                return $this->error('人工核验状态只能是数值相符或数据不符');
+            }
+
+            $fields = $this->readCtripProfileCaptureFields();
+            if (!isset($fields[$id])) {
+                return $this->error('字段配置不存在', 404);
+            }
+
+            $status = $this->normalizeCtripProfileFieldSampleVerificationStatus($rawStatus);
+            $field = $this->normalizeCtripProfileCaptureField(array_merge($fields[$id], [
+                'status' => $this->statusForCtripProfileFieldSampleVerification($status, (string)($fields[$id]['status'] ?? 'pending')),
+                'sample_verification_status' => $status,
+                'sample_verified_at' => date('Y-m-d H:i:s'),
+                'sample_verified_by' => $this->currentUser->id ?? null,
+                'update_time' => date('Y-m-d H:i:s'),
+            ]), $fields[$id]);
+
+            $fields[$id] = $field;
+            $this->writeCtripProfileCaptureFields($fields);
+
+            $fieldName = (string)($field['field_name'] ?? $id);
+            $statusText = $status === 'matched' ? '数值相符' : '数据不符';
+            OperationLog::record('online_data', 'verify_ctrip_profile_field_sample', '人工核验携程 Profile 字段样例: ' . $fieldName . ' / ' . $statusText, $this->currentUser->id);
+
+            return $this->success($field, '人工核验状态已保存');
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('保存携程 Profile 字段人工核验状态失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('保存人工核验状态失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function recheckCtripProfileMismatchedFields(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $fields = $this->readCtripProfileCaptureFields();
+            $targetsById = [];
+            foreach ($fields as $id => $field) {
+                $sampleStatus = $this->normalizeCtripProfileFieldSampleVerificationStatus($field['sample_verification_status'] ?? 'unverified');
+                $status = (string)($field['status'] ?? 'pending');
+                if ($sampleStatus === 'mismatched' || $status === 'needs_parser') {
+                    $targetsById[$id] = $field;
+                }
+            }
+
+            $targetList = array_values($targetsById);
+            $this->hydrateCtripProfileFieldLatestSamples($targetList);
+
+            $refreshed = [];
+            $unresolved = [];
+            foreach ($targetList as $field) {
+                $id = (string)($field['id'] ?? '');
+                if ($id === '' || !isset($fields[$id])) {
+                    continue;
+                }
+
+                $latestValue = trim((string)($field['latest_value'] ?? ''));
+                if ($latestValue !== '') {
+                    $fields[$id] = $this->normalizeCtripProfileCaptureField(array_merge($fields[$id], [
+                        'status' => 'pending',
+                        'sample_verification_status' => 'unverified',
+                        'sample_verified_at' => '',
+                        'sample_verified_by' => null,
+                        'update_time' => date('Y-m-d H:i:s'),
+                    ]), $fields[$id]);
+                    $latestSample = is_array($field['latest_sample'] ?? null) ? $field['latest_sample'] : [];
+                    $refreshed[] = [
+                        'id' => $id,
+                        'field_key' => (string)($field['field_key'] ?? ''),
+                        'field_name' => (string)($field['field_name'] ?? ''),
+                        'latest_value' => $latestValue,
+                        'source_key' => (string)($latestSample['source_key'] ?? ''),
+                        'source_path' => (string)($latestSample['source_path'] ?? ''),
+                        'captured_at' => (string)($latestSample['captured_at'] ?? ''),
+                    ];
+                    continue;
+                }
+
+                $fields[$id] = $this->normalizeCtripProfileCaptureField(array_merge($fields[$id], [
+                    'status' => 'needs_parser',
+                    'update_time' => date('Y-m-d H:i:s'),
+                ]), $fields[$id]);
+                $unresolved[] = [
+                    'id' => $id,
+                    'field_key' => (string)($field['field_key'] ?? ''),
+                    'field_name' => (string)($field['field_name'] ?? ''),
+                ];
+            }
+
+            if ($targetsById) {
+                $this->writeCtripProfileCaptureFields($fields);
+            }
+
+            $fieldList = array_values($fields);
+            $sampleSummary = $this->hydrateCtripProfileFieldLatestSamples($fieldList);
+            $candidates = $this->discoverCtripProfileAutoFetchFieldCandidates();
+            $candidateScope = $this->scopeCtripProfileAutoFetchFieldCandidates($candidates);
+            $summary = array_merge(
+                $this->summarizeCtripProfileCaptureFields($fieldList),
+                $sampleSummary,
+                $this->summarizeCtripProfileAutoFetchFieldCandidates(
+                    $fieldList,
+                    $candidateScope['key_candidates'],
+                    $candidateScope['skipped_candidates']
+                )
+            );
+
+            OperationLog::record(
+                'online_data',
+                'recheck_ctrip_profile_mismatched_fields',
+                '重跑携程 Profile 不符字段取值: 待处理 ' . count($targetsById) . ' 个，重新解析 ' . count($refreshed) . ' 个',
+                $this->currentUser->id
+            );
+
+            return $this->success([
+                'list' => $fieldList,
+                'summary' => $summary,
+                'recheck_result' => [
+                    'checked_count' => count($targetsById),
+                    'refreshed_count' => count($refreshed),
+                    'unresolved_count' => count($unresolved),
+                    'refreshed_fields' => $refreshed,
+                    'unresolved_fields' => $unresolved,
+                ],
+            ], '不符字段取值已重跑');
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('重跑携程 Profile 不符字段取值失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('重跑不符字段取值失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function ctripProfileKeyFieldMap(): array
+    {
+        return array_fill_keys(self::CTRIP_PROFILE_KEY_FIELD_KEYS, true);
+    }
+
+    private function isCtripProfileKeyField(string $fieldKey): bool
+    {
+        $fieldKey = strtolower(trim($fieldKey));
+        return $fieldKey !== '' && isset($this->ctripProfileKeyFieldMap()[$fieldKey]);
+    }
+
+    private function filterCtripProfileKeyFields(array $fields): array
+    {
+        $filtered = [];
+        foreach ($fields as $id => $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+            if ($this->isCtripProfileKeyField((string)($field['field_key'] ?? ''))) {
+                $filtered[$id] = $field;
+            }
+        }
+
+        return $filtered;
+    }
+
+    private function scopeCtripProfileAutoFetchFieldCandidates(array $candidates): array
+    {
+        $keyCandidates = [];
+        $skippedCandidates = [];
+        foreach ($candidates as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            if ($this->isCtripProfileKeyField((string)($candidate['field_key'] ?? ''))) {
+                $keyCandidates[] = $candidate;
+            } else {
+                $skippedCandidates[] = $candidate;
+            }
+        }
+
+        return [
+            'key_candidates' => $keyCandidates,
+            'skipped_candidates' => $skippedCandidates,
+        ];
+    }
+
     private function readCtripProfileCaptureFields(): array
     {
         $row = \think\facade\Db::name('system_configs')->where('config_key', self::CTRIP_PROFILE_FIELDS_CONFIG_KEY)->find();
@@ -9834,9 +10252,17 @@ JAVASCRIPT;
             return $fields;
         }
 
-        $payload = json_decode((string)($row['config_value'] ?? ''), true);
+        $rawConfigValue = (string)($row['config_value'] ?? '');
+        $payload = json_decode($rawConfigValue, true);
         if (!is_array($payload)) {
-            return [];
+            \think\facade\Log::warning('携程 Profile 字段目录配置无法解析，已恢复默认字段目录', [
+                'config_key' => self::CTRIP_PROFILE_FIELDS_CONFIG_KEY,
+                'json_error' => json_last_error_msg(),
+                'stored_length' => strlen($rawConfigValue),
+            ]);
+            $fields = $this->defaultCtripProfileCaptureFields();
+            $this->writeCtripProfileCaptureFields($fields);
+            return $fields;
         }
 
         $payloadVersion = (int)($payload['version'] ?? 0);
@@ -9857,7 +10283,7 @@ JAVASCRIPT;
 
         if ($payloadVersion < self::CTRIP_PROFILE_FIELDS_CONFIG_VERSION) {
             $defaultFields = $this->defaultCtripProfileCaptureFields();
-            $refreshDefaultFieldKeys = ['ad_cost', 'notice_count', 'page_views', 'list_exposure', 'competitor_list_exposure', 'detail_visitor', 'competitor_detail_visitor', 'flow_rate', 'competitor_flow_rate', 'flow_conversion_rate', 'order_page_visitor', 'competitor_order_page_visitor', 'order_fill_rate', 'competitor_order_fill_rate', 'order_submit_user', 'competitor_order_submit_user', 'deal_rate', 'competitor_deal_rate', 'qunar_list_exposure', 'qunar_competitor_list_exposure', 'qunar_detail_visitor', 'qunar_competitor_detail_visitor', 'qunar_flow_rate', 'qunar_competitor_flow_rate', 'qunar_order_page_visitor', 'qunar_competitor_order_page_visitor', 'qunar_order_fill_rate', 'qunar_competitor_order_fill_rate', 'qunar_order_submit_user', 'qunar_competitor_order_submit_user', 'qunar_deal_rate', 'qunar_competitor_deal_rate', 'comment_rows', 'good_review_count', 'bad_review_count'];
+            $refreshDefaultFieldKeys = self::CTRIP_PROFILE_KEY_FIELD_KEYS;
             $hasNewDefaults = false;
             foreach ($defaultFields as $id => $field) {
                 if (!isset($fields[$id])) {
@@ -9871,6 +10297,9 @@ JAVASCRIPT;
                     $fields[$id] = array_merge($field, [
                         'id' => $existing['id'] ?? $field['id'],
                         'created_at' => $existing['created_at'] ?? $field['created_at'],
+                        'sample_verification_status' => $existing['sample_verification_status'] ?? 'unverified',
+                        'sample_verified_at' => $existing['sample_verified_at'] ?? '',
+                        'sample_verified_by' => $existing['sample_verified_by'] ?? null,
                         'update_time' => date('Y-m-d H:i:s'),
                         'user_id' => $existing['user_id'] ?? null,
                     ]);
@@ -9880,6 +10309,26 @@ JAVASCRIPT;
             if ($hasNewDefaults) {
                 $this->writeCtripProfileCaptureFields($fields);
             }
+        }
+
+        if (empty($fields)) {
+            \think\facade\Log::warning('携程 Profile 字段目录为空，已恢复默认字段目录', [
+                'config_key' => self::CTRIP_PROFILE_FIELDS_CONFIG_KEY,
+                'payload_version' => $payloadVersion,
+            ]);
+            $fields = $this->defaultCtripProfileCaptureFields();
+            $this->writeCtripProfileCaptureFields($fields);
+        }
+
+        $keyFields = $this->filterCtripProfileKeyFields($fields);
+        if (count($keyFields) < count($fields)) {
+            \think\facade\Log::warning('携程 Profile 字段目录已按关键字段白名单收敛', [
+                'config_key' => self::CTRIP_PROFILE_FIELDS_CONFIG_KEY,
+                'before_count' => count($fields),
+                'after_count' => count($keyFields),
+            ]);
+            $fields = $keyFields;
+            $this->writeCtripProfileCaptureFields($fields);
         }
 
         uasort($fields, function (array $a, array $b): int {
@@ -9901,7 +10350,7 @@ JAVASCRIPT;
                 continue;
             }
             $field = $this->normalizeCtripProfileCaptureField($item);
-            if ($field['id'] !== '') {
+            if ($field['id'] !== '' && $this->isCtripProfileKeyField((string)($field['field_key'] ?? ''))) {
                 $normalized[$field['id']] = $field;
             }
         }
@@ -9933,6 +10382,117 @@ JAVASCRIPT;
         ]);
     }
 
+    private function normalizeCtripProfileFieldSampleVerificationStatus($value): string
+    {
+        $status = strtolower(trim((string)$value));
+        if (in_array($status, ['matched', 'match', 'ok', 'correct'], true)) {
+            return 'matched';
+        }
+        if (in_array($status, ['mismatched', 'mismatch', 'wrong', 'incorrect'], true)) {
+            return 'mismatched';
+        }
+        return 'unverified';
+    }
+
+    private function statusForCtripProfileFieldSampleVerification(string $sampleStatus, string $currentStatus): string
+    {
+        if ($sampleStatus === 'matched') {
+            return 'confirmed';
+        }
+        if ($sampleStatus === 'mismatched') {
+            return 'needs_parser';
+        }
+
+        return in_array($currentStatus, ['confirmed', 'needs_section', 'needs_parser', 'not_captured', 'pending', 'paused'], true)
+            ? $currentStatus
+            : 'pending';
+    }
+
+    private function buildCtripProfileFieldKeyFromText(string $value): string
+    {
+        $text = strtolower(trim($value));
+        $key = trim((string)preg_replace('/[^a-z0-9_\-]+/', '_', $text), '_-');
+        if ($key !== '') {
+            return $key;
+        }
+
+        return 'custom_' . substr(hash('crc32b', $text !== '' ? $text : microtime(true)), 0, 8);
+    }
+
+    private function firstCtripProfileFieldText(array $item, array $keys, array $original = []): string
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $item)) {
+                $value = trim((string)$item[$key]);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $original)) {
+                $value = trim((string)$original[$key]);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function hasRequiredCtripProfileFieldEvidence(array $requestData): bool
+    {
+        return $this->firstCtripProfileFieldText($requestData, ['page_url', 'pageUrl']) !== ''
+            && $this->firstCtripProfileFieldText($requestData, ['request_url', 'requestUrl', 'source_url', 'sourceUrl']) !== ''
+            && $this->firstCtripProfileFieldText($requestData, ['json_path', 'jsonPath', 'json', 'jsonEvidence']) !== ''
+            && $this->firstCtripProfileFieldText($requestData, ['target_value', 'targetValue', 'target_field', 'targetField', 'requested_field', 'requestedField', 'source_keys', 'sourceKeys']) !== ''
+            && $this->firstCtripProfileFieldText($requestData, ['value_meaning', 'valueMeaning', 'business_meaning', 'businessMeaning', 'field_name', 'fieldName']) !== '';
+    }
+
+    private function prepareCtripProfileFieldSaveData(array $requestData, array $original = [], bool $isNew = false): array
+    {
+        $pageUrl = $this->firstCtripProfileFieldText($requestData, ['page_url', 'pageUrl'], $original);
+        $requestUrl = $this->firstCtripProfileFieldText($requestData, ['request_url', 'requestUrl', 'source_url', 'sourceUrl'], $original);
+        $jsonPath = $this->firstCtripProfileFieldText($requestData, ['json_path', 'jsonPath', 'json', 'jsonEvidence'], $original);
+        $targetValue = $this->firstCtripProfileFieldText($requestData, ['target_value', 'targetValue', 'target_field', 'targetField', 'requested_field', 'requestedField', 'source_keys', 'sourceKeys'], $original);
+        $valueMeaning = $this->firstCtripProfileFieldText($requestData, ['value_meaning', 'valueMeaning', 'business_meaning', 'businessMeaning', 'field_name', 'fieldName'], $original);
+
+        if (($requestData['field_key'] ?? $requestData['fieldKey'] ?? '') === '') {
+            $requestData['field_key'] = $this->buildCtripProfileFieldKeyFromText($targetValue !== '' ? $targetValue : ($valueMeaning !== '' ? $valueMeaning : $pageUrl));
+        }
+        if (($requestData['field_name'] ?? $requestData['fieldName'] ?? '') === '' && $valueMeaning !== '') {
+            $requestData['field_name'] = $valueMeaning;
+        }
+        if (($requestData['source_keys'] ?? $requestData['sourceKeys'] ?? '') === '' && $targetValue !== '') {
+            $requestData['source_keys'] = $targetValue;
+        }
+        if (($requestData['target_value'] ?? $requestData['targetValue'] ?? '') === '' && $targetValue !== '') {
+            $requestData['target_value'] = $targetValue;
+        }
+        if (($requestData['target_field'] ?? $requestData['targetField'] ?? '') === '' && $targetValue !== '') {
+            $requestData['target_field'] = $targetValue;
+        }
+        if (($requestData['value_meaning'] ?? $requestData['valueMeaning'] ?? '') === '' && $valueMeaning !== '') {
+            $requestData['value_meaning'] = $valueMeaning;
+        }
+        if (($requestData['page_url'] ?? $requestData['pageUrl'] ?? '') === '' && $pageUrl !== '') {
+            $requestData['page_url'] = $pageUrl;
+        }
+        if (($requestData['request_url'] ?? $requestData['requestUrl'] ?? '') === '' && $requestUrl !== '') {
+            $requestData['request_url'] = $requestUrl;
+        }
+        if (($requestData['json_path'] ?? $requestData['jsonPath'] ?? '') === '' && $jsonPath !== '') {
+            $requestData['json_path'] = $jsonPath;
+        }
+        if ($isNew && (($requestData['status'] ?? '') === '' || ($requestData['status'] ?? '') === 'pending')) {
+            $requestData['status'] = 'needs_parser';
+        }
+
+        return $requestData;
+    }
+
     private function normalizeCtripProfileCaptureField(array $item, array $original = []): array
     {
         $id = trim((string)($item['id'] ?? $original['id'] ?? ''));
@@ -9948,6 +10508,18 @@ JAVASCRIPT;
         if (is_array($sourceKeys)) {
             $sourceKeys = implode(', ', array_values(array_filter(array_map('strval', $sourceKeys))));
         }
+        $sampleVerificationStatus = $this->normalizeCtripProfileFieldSampleVerificationStatus(
+            $item['sample_verification_status']
+                ?? $item['sampleVerificationStatus']
+                ?? $original['sample_verification_status']
+                ?? 'unverified'
+        );
+        $sampleVerifiedAt = trim((string)($item['sample_verified_at'] ?? $item['sampleVerifiedAt'] ?? $original['sample_verified_at'] ?? ''));
+        $sampleVerifiedBy = $item['sample_verified_by'] ?? $item['sampleVerifiedBy'] ?? $original['sample_verified_by'] ?? null;
+        if ($sampleVerificationStatus === 'unverified') {
+            $sampleVerifiedAt = '';
+            $sampleVerifiedBy = null;
+        }
 
         return [
             'id' => $id,
@@ -9955,13 +10527,25 @@ JAVASCRIPT;
             'field_name' => trim((string)($item['field_name'] ?? $item['fieldName'] ?? $original['field_name'] ?? '')),
             'section' => $section,
             'data_type' => strtolower(trim((string)($item['data_type'] ?? $item['dataType'] ?? $original['data_type'] ?? 'business'))),
+            'page_location' => trim((string)($item['page_location'] ?? $item['pageLocation'] ?? $original['page_location'] ?? '')),
+            'target_field' => trim((string)($item['target_field'] ?? $item['targetField'] ?? $original['target_field'] ?? '')),
+            'target_value' => trim((string)($item['target_value'] ?? $item['targetValue'] ?? $original['target_value'] ?? '')),
+            'value_meaning' => trim((string)($item['value_meaning'] ?? $item['valueMeaning'] ?? $original['value_meaning'] ?? '')),
             'source_interface' => trim((string)($item['source_interface'] ?? $item['sourceInterface'] ?? $original['source_interface'] ?? '')),
+            'page_url' => trim((string)($item['page_url'] ?? $item['pageUrl'] ?? $original['page_url'] ?? '')),
+            'request_url' => trim((string)($item['request_url'] ?? $item['requestUrl'] ?? $item['source_url'] ?? $item['sourceUrl'] ?? $original['request_url'] ?? $original['source_url'] ?? '')),
+            'json_path' => trim((string)($item['json_path'] ?? $item['jsonPath'] ?? $item['json'] ?? $item['jsonEvidence'] ?? $original['json_path'] ?? '')),
+            'ownership_rule' => trim((string)($item['ownership_rule'] ?? $item['ownershipRule'] ?? $original['ownership_rule'] ?? '')),
+            'storage_field' => trim((string)($item['storage_field'] ?? $item['storageField'] ?? $original['storage_field'] ?? '')),
             'source_keys' => trim((string)$sourceKeys),
             'value_type' => trim((string)($item['value_type'] ?? $item['valueType'] ?? $original['value_type'] ?? '')),
             'unit' => trim((string)($item['unit'] ?? $original['unit'] ?? '')),
             'transform_rule' => trim((string)($item['transform_rule'] ?? $item['transformRule'] ?? $original['transform_rule'] ?? '')),
             'status' => $status,
             'enabled' => array_key_exists('enabled', $item) ? $this->meituanBool($item['enabled']) : (bool)($original['enabled'] ?? true),
+            'sample_verification_status' => $sampleVerificationStatus,
+            'sample_verified_at' => $sampleVerifiedAt,
+            'sample_verified_by' => $sampleVerifiedBy,
             'notes' => trim((string)($item['notes'] ?? $original['notes'] ?? '')),
             'sort_order' => (int)($item['sort_order'] ?? $item['sortOrder'] ?? $original['sort_order'] ?? 0),
             'created_at' => (string)($item['created_at'] ?? $original['created_at'] ?? date('Y-m-d H:i:s')),
@@ -9973,12 +10557,19 @@ JAVASCRIPT;
     private function summarizeCtripProfileCaptureFields(array $fields): array
     {
         $statusCounts = [];
+        $sampleVerificationCounts = [
+            'unverified' => 0,
+            'matched' => 0,
+            'mismatched' => 0,
+        ];
         $sections = [];
         $enabled = 0;
         foreach ($fields as $field) {
             $status = (string)($field['status'] ?? 'pending');
             $section = (string)($field['section'] ?? 'business_overview');
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
+            $sampleVerificationStatus = $this->normalizeCtripProfileFieldSampleVerificationStatus($field['sample_verification_status'] ?? 'unverified');
+            $sampleVerificationCounts[$sampleVerificationStatus] = ($sampleVerificationCounts[$sampleVerificationStatus] ?? 0) + 1;
             $sections[$section] = ($sections[$section] ?? 0) + 1;
             if (!empty($field['enabled'])) {
                 $enabled++;
@@ -9992,12 +10583,280 @@ JAVASCRIPT;
             'total' => count($fields),
             'enabled' => $enabled,
             'status_counts' => $statusCounts,
+            'sample_verification_counts' => $sampleVerificationCounts,
             'sections' => $sections,
         ];
     }
 
+    private function discoverCtripProfileAutoFetchFieldCandidates(int $limit = 5): array
+    {
+        try {
+            $rows = Db::name('platform_data_raw_records')
+                ->field('id,raw_payload,received_at')
+                ->where('platform', 'ctrip')
+                ->where('ingestion_method', 'browser_profile')
+                ->order('received_at', 'desc')
+                ->order('id', 'desc')
+                ->limit(max(1, min(10, $limit)))
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('读取携程 Profile 自动获取原始载荷失败: ' . $e->getMessage());
+            return [];
+        }
+
+        $candidates = [];
+        foreach ($rows as $row) {
+            $payload = json_decode((string)($row['raw_payload'] ?? ''), true);
+            if (!is_array($payload)) {
+                continue;
+            }
+            foreach ($this->extractCtripProfileFieldCandidatesFromPayload($payload, (string)($row['received_at'] ?? '')) as $candidate) {
+                $fieldKey = (string)($candidate['field_key'] ?? '');
+                if ($fieldKey === '') {
+                    continue;
+                }
+                if (!isset($candidates[$fieldKey])) {
+                    $candidates[$fieldKey] = $candidate;
+                    continue;
+                }
+                $candidates[$fieldKey] = $this->mergeCtripProfileAutoFetchFieldCandidate($candidates[$fieldKey], $candidate);
+            }
+        }
+
+        ksort($candidates);
+        return array_values($candidates);
+    }
+
+    private function extractCtripProfileFieldCandidatesFromPayload(array $payload, string $capturedAt = ''): array
+    {
+        $candidates = [];
+        foreach (is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            foreach ($this->buildCtripProfileAutoFetchFieldCandidatesFromStandardRow($row, $capturedAt) as $candidate) {
+                $fieldKey = (string)($candidate['field_key'] ?? '');
+                if ($fieldKey === '') {
+                    continue;
+                }
+                if (!isset($candidates[$fieldKey])) {
+                    $candidates[$fieldKey] = $candidate;
+                    continue;
+                }
+                $candidates[$fieldKey] = $this->mergeCtripProfileAutoFetchFieldCandidate($candidates[$fieldKey], $candidate);
+            }
+        }
+
+        return array_values($candidates);
+    }
+
+    private function buildCtripProfileAutoFetchFieldCandidatesFromStandardRow(array $row, string $capturedAt = ''): array
+    {
+        $rawData = $row['raw_data'] ?? [];
+        if (is_string($rawData) && trim($rawData) !== '') {
+            $decoded = json_decode($rawData, true);
+            $rawData = is_array($decoded) ? $decoded : [];
+        }
+        $rawData = is_array($rawData) ? $rawData : [];
+        $facts = is_array($rawData['facts'] ?? null) ? $rawData['facts'] : [];
+        if ($facts === []) {
+            $facts = [[
+                'metric_key' => $row['metric_key'] ?? $this->metricKeyFromCtripProfileDimension((string)($row['dimension'] ?? '')),
+                'metric_label' => $row['metric_label'] ?? '',
+                'source_key' => $row['source_key'] ?? '',
+                'source_path' => $row['source_path'] ?? '',
+                'value' => $row['value'] ?? $row['data_value'] ?? $row['amount'] ?? $row['quantity'] ?? $row['book_order_num'] ?? null,
+            ]];
+        }
+
+        $section = strtolower(trim((string)($row['capture_section'] ?? $rawData['section'] ?? '')));
+        if ($section === '') {
+            $section = $this->sectionFromCtripProfileDimension((string)($row['dimension'] ?? '')) ?: 'business_overview';
+        }
+        $endpointId = trim((string)($row['endpoint_id'] ?? $rawData['endpoint_id'] ?? ''));
+        $dataType = strtolower(trim((string)($row['data_type'] ?? 'business'))) ?: 'business';
+        $candidates = [];
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
+            $metricKey = preg_replace('/[^a-z0-9_\-]+/', '_', $metricKey) ?: '';
+            if ($metricKey === '') {
+                continue;
+            }
+            $sourceKey = trim((string)($fact['source_key'] ?? ''));
+            $sourcePath = trim((string)($fact['source_path'] ?? ''));
+            $sourceKeys = array_values(array_unique(array_filter([$sourceKey, $sourcePath, $metricKey], static fn($value): bool => trim((string)$value) !== '')));
+            $value = $fact['value'] ?? null;
+            $valueType = is_numeric(is_array($value) ? null : $value) ? 'number' : 'text';
+            if (in_array((string)($rawData['metric_status'] ?? ''), ['non_numeric_fact'], true)) {
+                $valueType = 'text';
+            }
+
+            $candidates[] = [
+                'field_key' => $metricKey,
+                'field_name' => trim((string)($fact['metric_label'] ?? '')) ?: $metricKey,
+                'section' => $section,
+                'data_type' => $dataType,
+                'source_interface' => $endpointId,
+                'source_keys' => implode(', ', $sourceKeys),
+                'value_type' => $valueType,
+                'unit' => '',
+                'status' => 'pending',
+                'enabled' => false,
+                'transform_rule' => '自动获取发现字段，需确认口径后启用',
+                'notes' => '来自最近携程 Profile 自动获取；默认停用，确认后可启用。',
+                'captured_at' => $capturedAt,
+            ];
+        }
+
+        return $candidates;
+    }
+
+    private function mergeCtripProfileAutoFetchFieldCandidate(array $existing, array $candidate): array
+    {
+        foreach (['source_interface', 'source_keys'] as $key) {
+            $values = array_values(array_unique(array_filter(array_merge(
+                preg_split('/\s*,\s*/', (string)($existing[$key] ?? '')) ?: [],
+                preg_split('/\s*,\s*/', (string)($candidate[$key] ?? '')) ?: []
+            ), static fn($value): bool => trim((string)$value) !== '')));
+            $existing[$key] = implode(', ', $values);
+        }
+        foreach (['field_name', 'section', 'data_type', 'value_type', 'captured_at'] as $key) {
+            if (trim((string)($existing[$key] ?? '')) === '' && trim((string)($candidate[$key] ?? '')) !== '') {
+                $existing[$key] = $candidate[$key];
+            }
+        }
+        return $existing;
+    }
+
+    private function mergeCtripProfileAutoFetchFieldCandidates(array &$fields, array $candidates): array
+    {
+        $candidateScope = $this->scopeCtripProfileAutoFetchFieldCandidates($candidates);
+        $candidates = $candidateScope['key_candidates'];
+        $existingKeys = [];
+        $maxSortOrder = 0;
+        foreach ($fields as $field) {
+            $fieldKey = (string)($field['field_key'] ?? '');
+            if ($fieldKey !== '') {
+                $existingKeys[$fieldKey] = true;
+            }
+            $maxSortOrder = max($maxSortOrder, (int)($field['sort_order'] ?? 0));
+        }
+
+        $added = [];
+        $matched = 0;
+        foreach ($candidates as $candidate) {
+            $fieldKey = (string)($candidate['field_key'] ?? '');
+            if ($fieldKey === '') {
+                continue;
+            }
+            if (isset($existingKeys[$fieldKey])) {
+                $matched++;
+                continue;
+            }
+            $maxSortOrder += 10;
+            $idBase = 'profile_field_' . trim(preg_replace('/[^a-z0-9_\-]+/', '_', $fieldKey) ?: $fieldKey, '_');
+            $id = $idBase;
+            $suffix = 1;
+            while (isset($fields[$id])) {
+                $suffix++;
+                $id = $idBase . '_' . $suffix;
+            }
+            $field = $this->normalizeCtripProfileCaptureField(array_merge($candidate, [
+                'id' => $id,
+                'sort_order' => $maxSortOrder,
+                'created_at' => date('Y-m-d H:i:s'),
+                'update_time' => date('Y-m-d H:i:s'),
+                'user_id' => $this->currentUser->id ?? null,
+            ]));
+            $fields[$id] = $field;
+            $existingKeys[$fieldKey] = true;
+            $added[] = [
+                'id' => $id,
+                'field_key' => $fieldKey,
+                'field_name' => (string)($field['field_name'] ?? ''),
+                'section' => (string)($field['section'] ?? ''),
+                'source_interface' => (string)($field['source_interface'] ?? ''),
+            ];
+        }
+
+        return [
+            'discovered_count' => count($candidates),
+            'skipped_count' => count($candidateScope['skipped_candidates']),
+            'matched_count' => $matched,
+            'added_count' => count($added),
+            'added_fields' => $added,
+        ];
+    }
+
+    private function summarizeCtripProfileAutoFetchFieldCandidates(array $fields, array $candidates, array $skippedCandidates = []): array
+    {
+        $existingKeys = [];
+        foreach ($fields as $field) {
+            $fieldKey = (string)($field['field_key'] ?? '');
+            if ($fieldKey !== '') {
+                $existingKeys[$fieldKey] = true;
+            }
+        }
+
+        $missing = [];
+        $configured = 0;
+        $latestTime = '';
+        foreach ($candidates as $candidate) {
+            $fieldKey = (string)($candidate['field_key'] ?? '');
+            if ($fieldKey === '') {
+                continue;
+            }
+            if (isset($existingKeys[$fieldKey])) {
+                $configured++;
+            } else {
+                $missing[] = [
+                    'field_key' => $fieldKey,
+                    'field_name' => (string)($candidate['field_name'] ?? ''),
+                    'section' => (string)($candidate['section'] ?? ''),
+                    'source_interface' => (string)($candidate['source_interface'] ?? ''),
+                ];
+            }
+            $capturedAt = (string)($candidate['captured_at'] ?? '');
+            if ($capturedAt !== '' && $capturedAt > $latestTime) {
+                $latestTime = $capturedAt;
+            }
+        }
+
+        return [
+            'auto_fetch_field_count' => count($candidates),
+            'auto_fetch_configured_field_count' => $configured,
+            'auto_fetch_missing_field_count' => count($missing),
+            'auto_fetch_missing_fields' => $missing,
+            'auto_fetch_skipped_field_count' => count($skippedCandidates),
+            'auto_fetch_skipped_fields' => array_slice(array_map(static fn(array $candidate): array => [
+                'field_key' => (string)($candidate['field_key'] ?? ''),
+                'field_name' => (string)($candidate['field_name'] ?? ''),
+                'section' => (string)($candidate['section'] ?? ''),
+                'source_interface' => (string)($candidate['source_interface'] ?? ''),
+            ], $skippedCandidates), 0, 50),
+            'auto_fetch_latest_time' => $latestTime !== '' ? $latestTime : null,
+        ];
+    }
+
+    private function metricKeyFromCtripProfileDimension(string $dimension): string
+    {
+        $parts = explode(':', $dimension);
+        return count($parts) >= 4 && $parts[0] === 'catalog' ? (string)$parts[3] : '';
+    }
+
+    private function sectionFromCtripProfileDimension(string $dimension): string
+    {
+        $parts = explode(':', $dimension);
+        return count($parts) >= 2 && $parts[0] === 'catalog' ? (string)$parts[1] : '';
+    }
+
     private function hydrateCtripProfileFieldLatestSamples(array &$fields): array
     {
+        $sampleLimit = 8;
         $fieldKeys = [];
         foreach ($fields as $field) {
             $fieldKey = (string)($field['field_key'] ?? '');
@@ -10018,6 +10877,7 @@ JAVASCRIPT;
             return [
                 'sampled_field_count' => 0,
                 'latest_sample_time' => null,
+                'latest_sample_batch_key' => null,
             ];
         }
 
@@ -10034,12 +10894,16 @@ JAVASCRIPT;
             return [
                 'sampled_field_count' => 0,
                 'latest_sample_time' => null,
+                'latest_sample_batch_key' => null,
                 'sample_error' => '读取最近样例失败',
             ];
         }
 
         $samplesByKey = [];
         $latestSampleTime = null;
+        $latestSampleBatchKey = null;
+        $this->hydrateCtripProfileFieldSamplesFromOnlineDailyData($samplesByKey, $fields, $latestSampleTime, $latestSampleBatchKey, $sampleLimit);
+
         foreach ($rows as $row) {
             $metricKey = (string)($row['metric_key'] ?? '');
             if ($metricKey === '' || !isset($fieldKeys[$metricKey])) {
@@ -10067,7 +10931,12 @@ JAVASCRIPT;
             }
 
             $samplesByKey[$metricKey]['seen'][$value] = true;
-            if (count($samplesByKey[$metricKey]['items']) < 3) {
+            $capturedAt = (string)($row['captured_at'] ?? '');
+            $runId = trim((string)($row['run_id'] ?? ''));
+            $batchKey = $runId !== ''
+                ? 'run:' . $runId
+                : ($capturedAt !== '' ? 'captured_at:' . $capturedAt : '');
+            if (count($samplesByKey[$metricKey]['items']) < $sampleLimit) {
                 $samplesByKey[$metricKey]['items'][] = [
                     'value' => $value,
                     'unit' => (string)($row['unit'] ?? ''),
@@ -10078,17 +10947,17 @@ JAVASCRIPT;
                     'source_key' => (string)($row['source_key'] ?? ''),
                     'source_path' => (string)($row['source_path'] ?? ''),
                     'capture_status' => (string)($row['capture_status'] ?? ''),
-                    'captured_at' => (string)($row['captured_at'] ?? ''),
+                    'captured_at' => $capturedAt,
+                    'sample_batch_key' => $batchKey,
+                    'run_id' => $runId,
                 ];
             }
 
-            $capturedAt = (string)($row['captured_at'] ?? '');
             if ($capturedAt !== '' && ($latestSampleTime === null || $capturedAt > $latestSampleTime)) {
                 $latestSampleTime = $capturedAt;
+                $latestSampleBatchKey = $batchKey;
             }
         }
-
-        $this->hydrateCtripProfileFieldSamplesFromOnlineDailyData($samplesByKey, $fields, $latestSampleTime);
 
         $sampledFieldCount = 0;
         foreach ($fields as &$field) {
@@ -10109,10 +10978,11 @@ JAVASCRIPT;
         return [
             'sampled_field_count' => $sampledFieldCount,
             'latest_sample_time' => $latestSampleTime,
+            'latest_sample_batch_key' => $latestSampleBatchKey,
         ];
     }
 
-    private function hydrateCtripProfileFieldSamplesFromOnlineDailyData(array &$samplesByKey, array $fields, ?string &$latestSampleTime): void
+    private function hydrateCtripProfileFieldSamplesFromOnlineDailyData(array &$samplesByKey, array $fields, ?string &$latestSampleTime, ?string &$latestSampleBatchKey, int $sampleLimit = 8): void
     {
         $fieldSpecs = [];
         foreach ($fields as $field) {
@@ -10144,7 +11014,8 @@ JAVASCRIPT;
 
         try {
             $query = \think\facade\Db::name('online_daily_data')
-                ->field('id,hotel_id,hotel_name,source,platform,compare_type,data_date,amount,quantity,book_order_num,comment_score,qunar_comment_score,raw_data,create_time,update_time,data_value,data_type,dimension,validation_status,list_exposure,detail_exposure,flow_rate,order_filling_num,order_submit_num')
+                ->field('id,hotel_id,hotel_name,source,platform,compare_type,data_date,amount,quantity,book_order_num,comment_score,qunar_comment_score,raw_data,create_time,update_time,data_value,data_type,dimension,validation_status,list_exposure,detail_exposure,flow_rate,order_filling_num,order_submit_num,sync_task_id,source_trace_id')
+                ->order('update_time', 'desc')
                 ->order('create_time', 'desc')
                 ->order('id', 'desc')
                 ->limit(500);
@@ -10163,12 +11034,17 @@ JAVASCRIPT;
             $rowPlatform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
             $rowSource = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $rowPlatform);
             $raw = json_decode((string)($row['raw_data'] ?? ''), true);
-            $rawMap = is_array($raw) ? $this->flattenCtripProfileRawValues($raw) : [];
+            $raw = is_array($raw) ? $raw : [];
+            $rawMap = $this->flattenCtripProfileRawValues($raw);
+            $rowIsRankFact = $this->isCtripOnlineDailyRankFactRow($row, $raw);
             foreach ($fieldSpecs as $fieldKey => $spec) {
-                if (count($samplesByKey[$fieldKey]['items'] ?? []) >= 3) {
+                if (count($samplesByKey[$fieldKey]['items'] ?? []) >= $sampleLimit) {
                     continue;
                 }
                 if ($rowSource !== (string)($spec['source'] ?? 'ctrip')) {
+                    continue;
+                }
+                if ($rowIsRankFact && !$this->isCtripProfileRankFieldKey((string)$fieldKey)) {
                     continue;
                 }
 
@@ -10191,6 +11067,11 @@ JAVASCRIPT;
                 }
 
                 $samplesByKey[$fieldKey]['seen'][$value] = true;
+                $capturedAt = (string)($row['update_time'] ?? $row['create_time'] ?? '');
+                $syncTaskId = (int)($row['sync_task_id'] ?? 0);
+                $batchKey = $syncTaskId > 0
+                    ? 'sync_task:' . $syncTaskId
+                    : ($capturedAt !== '' ? 'captured_at:' . $capturedAt : '');
                 $samplesByKey[$fieldKey]['items'][] = [
                     'value' => $value,
                     'unit' => (string)($spec['field']['unit'] ?? ''),
@@ -10201,15 +11082,38 @@ JAVASCRIPT;
                     'source_key' => $matchedKey,
                     'source_path' => $sourcePath,
                     'capture_status' => (string)($row['validation_status'] ?? ''),
-                    'captured_at' => (string)($row['create_time'] ?? ''),
+                    'captured_at' => $capturedAt,
+                    'created_at' => (string)($row['create_time'] ?? ''),
+                    'sample_batch_key' => $batchKey,
+                    'sync_task_id' => $syncTaskId,
+                    'source_trace_id' => (string)($row['source_trace_id'] ?? ''),
                 ];
 
-                $capturedAt = (string)($row['create_time'] ?? '');
                 if ($capturedAt !== '' && ($latestSampleTime === null || $capturedAt > $latestSampleTime)) {
                     $latestSampleTime = $capturedAt;
+                    $latestSampleBatchKey = $batchKey;
                 }
             }
         }
+    }
+
+    private function isCtripOnlineDailyRankFactRow(array $row, array $raw): bool
+    {
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if ($dataType === 'ranking') {
+            return true;
+        }
+
+        $metricStatus = strtolower(trim((string)($raw['metric_status'] ?? '')));
+        return $metricStatus === 'rank_fact';
+    }
+
+    private function isCtripProfileRankFieldKey(string $fieldKey): bool
+    {
+        $fieldKey = strtolower(trim($fieldKey));
+        return $fieldKey === 'competition_rank'
+            || $fieldKey === 'seq_rank'
+            || str_ends_with($fieldKey, '_rank');
     }
 
     private function ctripProfileFieldSampleSource(array $field): string
@@ -10233,10 +11137,12 @@ JAVASCRIPT;
             'hotel_id' => ['hotel_id'],
             'hotel_name' => ['hotel_name'],
             'date' => ['data_date'],
+            'last_visitor_total' => ['visitor_count'],
             'order_amount' => ['amount'],
             'room_nights' => ['quantity'],
             'order_count' => ['book_order_num'],
             'comment_score_summary' => ['comment_score', 'qunar_comment_score'],
+            'close_rate' => ['conversion_rate'],
             'page_views' => ['list_exposure'],
             'list_exposure' => ['list_exposure'],
             'competitor_list_exposure' => ['competitor_list_exposure'],
@@ -10641,18 +11547,852 @@ JAVASCRIPT;
         return strlen($value) > 240 ? substr($value, 0, 240) . '...' : $value;
     }
 
+    private function defaultCtripFlowTransformFieldMeta(string $fieldKey): array
+    {
+        $selfRule = 'hotelId/masterHotelId=当前携程酒店ID（如 6866634）为本店数据';
+        $competitorRule = 'hotelId=-1 为竞争圈平均数据';
+        $common = [
+            'page_url' => self::CTRIP_FLOW_TRANSFORM_PAGE_URL,
+            'request_url' => self::CTRIP_FLOW_TRANSFORM_REQUEST_URL,
+        ];
+        $map = [
+            'list_exposure' => ['response[hotelId=当前携程酒店ID].listExposure', $selfRule, 'online_daily_data.list_exposure'],
+            'detail_visitor' => ['response[hotelId=当前携程酒店ID].detailExposure', $selfRule, 'online_daily_data.detail_exposure'],
+            'flow_rate' => ['response[hotelId=当前携程酒店ID].flowRate', $selfRule, 'online_daily_data.flow_rate'],
+            'order_page_visitor' => ['response[hotelId=当前携程酒店ID].orderFillingNum', $selfRule, 'online_daily_data.order_filling_num'],
+            'order_submit_user' => ['response[hotelId=当前携程酒店ID].orderSubmitNum', $selfRule, 'online_daily_data.order_submit_num'],
+            'order_fill_rate' => ['response[hotelId=当前携程酒店ID].orderFillingNum / response[hotelId=当前携程酒店ID].detailExposure', $selfRule, 'online_daily_data.raw_data.facts.metric_key=order_fill_rate'],
+            'deal_rate' => ['response[hotelId=当前携程酒店ID].orderSubmitNum / response[hotelId=当前携程酒店ID].orderFillingNum', $selfRule, 'online_daily_data.raw_data.facts.metric_key=deal_rate'],
+            'competitor_list_exposure' => ['response[hotelId=-1].listExposure', $competitorRule, 'online_daily_data.list_exposure where compare_type=competitor_avg'],
+            'competitor_detail_visitor' => ['response[hotelId=-1].detailExposure', $competitorRule, 'online_daily_data.detail_exposure where compare_type=competitor_avg'],
+            'competitor_flow_rate' => ['response[hotelId=-1].flowRate', $competitorRule, 'online_daily_data.flow_rate where compare_type=competitor_avg'],
+            'competitor_order_page_visitor' => ['response[hotelId=-1].orderFillingNum', $competitorRule, 'online_daily_data.order_filling_num where compare_type=competitor_avg'],
+            'competitor_order_submit_user' => ['response[hotelId=-1].orderSubmitNum', $competitorRule, 'online_daily_data.order_submit_num where compare_type=competitor_avg'],
+            'competitor_order_fill_rate' => ['response[hotelId=-1].orderFillingNum / response[hotelId=-1].detailExposure', $competitorRule, 'online_daily_data.raw_data.facts.metric_key=competitor_order_fill_rate'],
+            'competitor_deal_rate' => ['response[hotelId=-1].orderSubmitNum / response[hotelId=-1].orderFillingNum', $competitorRule, 'online_daily_data.raw_data.facts.metric_key=competitor_deal_rate'],
+        ];
+        if (!isset($map[$fieldKey])) {
+            return [];
+        }
+
+        [$jsonPath, $ownershipRule, $storageField] = $map[$fieldKey];
+        return array_merge($common, [
+            'json_path' => $jsonPath,
+            'ownership_rule' => $ownershipRule,
+            'storage_field' => $storageField,
+        ]);
+    }
+
+    private function defaultCtripProfileFieldMeta(string $fieldKey): array
+    {
+        $flowMeta = $this->defaultCtripFlowTransformFieldMeta($fieldKey);
+        if ($flowMeta !== []) {
+            $flowSourceKeys = [
+                'list_exposure' => 'listExposure',
+                'competitor_list_exposure' => 'listExposure',
+                'detail_visitor' => 'detailExposure',
+                'competitor_detail_visitor' => 'detailExposure',
+                'flow_rate' => 'flowRate',
+                'competitor_flow_rate' => 'flowRate',
+                'order_page_visitor' => 'orderFillingNum',
+                'competitor_order_page_visitor' => 'orderFillingNum',
+                'order_fill_rate' => 'orderFillingNum / detailExposure',
+                'competitor_order_fill_rate' => 'orderFillingNum / detailExposure',
+                'order_submit_user' => 'orderSubmitNum',
+                'competitor_order_submit_user' => 'orderSubmitNum',
+                'deal_rate' => 'orderSubmitNum / orderFillingNum',
+                'competitor_deal_rate' => 'orderSubmitNum / orderFillingNum',
+            ];
+            return array_merge([
+                'source_interface' => 'queryFlowTransforNewV1',
+                'source_keys' => $flowSourceKeys[$fieldKey] ?? '',
+                'status' => 'confirmed',
+                'enabled' => true,
+                'notes' => '携程流量漏斗固定接口；按 hotelId/masterHotelId 区分本店与竞争圈平均。',
+            ], $flowMeta);
+        }
+
+        $businessPage = self::CTRIP_BUSINESS_REPORT_PAGE_URL;
+        $selfRule = '本店口径：masterHotelId/hotelId 必须等于当前携程酒店ID；stat_date/data_date 使用业务日期，不使用采集时间。';
+        $competitorRule = '竞品口径：仅作为竞争圈或竞品指标，不写入本店经营额、间夜或订单数。';
+        $rankRule = '榜单/排名口径：只保留 ranking/data_value/raw_data.rank_metrics，不写入 amount、quantity、book_order_num。';
+        $realtimeUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate';
+        $marketUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/sale/fetchMarketOverViewV2';
+        $visitorTitleUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2';
+        $capacityUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCapacityOverViewV4';
+        $flowCompeteUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportFlowCompete';
+        $serverQuantityUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportServerQuantity';
+
+        return [
+            'last_visitor_total' => [
+                'page_url' => $businessPage,
+                'request_url' => $realtimeUrl,
+                'json_path' => 'data.lastVisitorTotal',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=last_visitor_total',
+                'source_interface' => 'getDayReportRealTimeDate',
+                'source_keys' => 'lastVisitorTotal',
+                'target_value' => 'lastVisitorTotal',
+                'value_meaning' => '昨日携程 OTA 访客数',
+                'notes' => '严格固定口径；不再从 UV、visitorTotal 或长文本中猜字段。',
+            ],
+            'visitor_count' => [
+                'page_url' => $businessPage,
+                'request_url' => $visitorTitleUrl,
+                'json_path' => 'data.visitorTotal',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=visitor_count',
+                'source_interface' => 'fetchVisitorTitleV2',
+                'source_keys' => 'visitorTotal',
+                'target_value' => 'visitorTotal',
+                'value_meaning' => '经营报告概要日报：实时访客量',
+                'notes' => '严格固定取 data.visitorTotal；lastVisitorTotal 在该接口是上周同期。',
+            ],
+            'visitor_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $visitorTitleUrl,
+                'json_path' => 'data.visitorRank',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.visitor_rank',
+                'source_interface' => 'fetchVisitorTitleV2',
+                'source_keys' => 'visitorRank',
+                'target_value' => 'visitorRank',
+                'value_meaning' => '实时访客量竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入访客量。',
+            ],
+            'visitor_count_last_week' => [
+                'page_url' => $businessPage,
+                'request_url' => $visitorTitleUrl,
+                'json_path' => 'data.lastVisitorTotal',
+                'ownership_rule' => '上周同期对比值：仅作对比维度，不覆盖本期实时访客量。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=visitor_count_last_week',
+                'source_interface' => 'fetchVisitorTitleV2',
+                'source_keys' => 'lastVisitorTotal',
+                'target_value' => 'lastVisitorTotal',
+                'value_meaning' => '实时访客量上周同期',
+                'notes' => '严格固定取 data.lastVisitorTotal。',
+            ],
+            'competitor_avg_visitor' => [
+                'page_url' => $businessPage,
+                'request_url' => $visitorTitleUrl,
+                'json_path' => 'data.competitorAvgNumber',
+                'ownership_rule' => $competitorRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=competitor_avg_visitor',
+                'source_interface' => 'fetchVisitorTitleV2',
+                'source_keys' => 'competitorAvgNumber',
+                'target_value' => 'competitorAvgNumber',
+                'value_meaning' => '携程竞对平均访客数',
+                'notes' => '竞对平均值单独保留，不覆盖本店实时访客量。',
+            ],
+            'qunar_visitor_count' => [
+                'page_url' => $businessPage,
+                'request_url' => $visitorTitleUrl,
+                'json_path' => 'data.qunarVisitorTotal',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=qunar_visitor_count',
+                'source_interface' => 'fetchVisitorTitleV2',
+                'source_keys' => 'qunarVisitorTotal',
+                'target_value' => 'qunarVisitorTotal',
+                'value_meaning' => '去哪儿实时访客量',
+                'notes' => '去哪儿渠道单独保留，不覆盖携程 visitor_count。',
+            ],
+            'qunar_visitor_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $visitorTitleUrl,
+                'json_path' => 'data.qunarCompetitorRank',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.qunar_visitor_rank',
+                'source_interface' => 'fetchVisitorTitleV2',
+                'source_keys' => 'qunarCompetitorRank',
+                'target_value' => 'qunarCompetitorRank',
+                'value_meaning' => '去哪儿实时访客量竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入访客量。',
+            ],
+            'qunar_visitor_count_last_week' => [
+                'page_url' => $businessPage,
+                'request_url' => $visitorTitleUrl,
+                'json_path' => 'data.lastQunarVisitorTotal',
+                'ownership_rule' => '上周同期对比值：仅作对比维度，不覆盖本期去哪儿实时访客量。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=qunar_visitor_count_last_week',
+                'source_interface' => 'fetchVisitorTitleV2',
+                'source_keys' => 'lastQunarVisitorTotal',
+                'target_value' => 'lastQunarVisitorTotal',
+                'value_meaning' => '去哪儿实时访客量上周同期',
+                'notes' => '严格固定取 data.lastQunarVisitorTotal。',
+            ],
+            'qunar_competitor_avg_visitor' => [
+                'page_url' => $businessPage,
+                'request_url' => $visitorTitleUrl,
+                'json_path' => 'data.qunarCompetitorAvgNumber',
+                'ownership_rule' => $competitorRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=qunar_competitor_avg_visitor',
+                'source_interface' => 'fetchVisitorTitleV2',
+                'source_keys' => 'qunarCompetitorAvgNumber',
+                'target_value' => 'qunarCompetitorAvgNumber',
+                'value_meaning' => '去哪儿竞对平均访客数',
+                'notes' => '竞对平均值单独保留，不覆盖去哪儿实时访客量。',
+            ],
+            'order_count' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.orderQuantity',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'online_daily_data.book_order_num',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'orderQuantity',
+                'target_value' => 'orderQuantity',
+                'value_meaning' => '经营报告概要日报：总订单量',
+                'notes' => '严格固定取 data.orderQuantity；渠道订单量另用 ctrip/qunar/elong 字段。',
+            ],
+            'order_count_sync' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.synchronizationOrderQuantity',
+                'ownership_rule' => '同步后对比值：仅作对比维度，不覆盖总订单量。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=order_count_sync',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'synchronizationOrderQuantity',
+                'target_value' => 'synchronizationOrderQuantity',
+                'value_meaning' => '同步后总订单量',
+                'notes' => '严格固定取 data.synchronizationOrderQuantity。',
+            ],
+            'order_count_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.rankOfOrderQuantity',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.order_count_rank',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'rankOfOrderQuantity',
+                'target_value' => 'rankOfOrderQuantity',
+                'value_meaning' => '订单量竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入订单量。',
+            ],
+            'competitor_avg_orders' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.competitorsAverageOrderQuantity',
+                'ownership_rule' => $competitorRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=competitor_avg_orders',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'competitorsAverageOrderQuantity',
+                'target_value' => 'competitorsAverageOrderQuantity',
+                'value_meaning' => '竞对平均订单量',
+                'notes' => '竞对平均值单独保留，不覆盖本店订单量。',
+            ],
+            'ctrip_order_count' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.ctripOrderQuantity',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=ctrip_order_count',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'ctripOrderQuantity',
+                'target_value' => 'ctripOrderQuantity',
+                'value_meaning' => '携程订单量',
+                'notes' => '携程渠道订单量，不覆盖总订单量。',
+            ],
+            'ctrip_order_count_sync' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.ctripSynchronizationOrderQuantity',
+                'ownership_rule' => '同步后对比值：仅作对比维度，不覆盖携程订单量。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=ctrip_order_count_sync',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'ctripSynchronizationOrderQuantity',
+                'target_value' => 'ctripSynchronizationOrderQuantity',
+                'value_meaning' => '携程同步后订单量',
+                'notes' => '严格固定取 data.ctripSynchronizationOrderQuantity。',
+            ],
+            'ctrip_order_count_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.ctripRankOfOrderQuantity',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.ctrip_order_count_rank',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'ctripRankOfOrderQuantity',
+                'target_value' => 'ctripRankOfOrderQuantity',
+                'value_meaning' => '携程订单量竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入订单量。',
+            ],
+            'qunar_order_count' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.qunarOrderQuantity',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=qunar_order_count',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'qunarOrderQuantity',
+                'target_value' => 'qunarOrderQuantity',
+                'value_meaning' => '去哪儿订单量',
+                'notes' => '去哪儿渠道订单量，不覆盖总订单量。',
+            ],
+            'qunar_order_count_sync' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.qunarSynchronizationOrderQuantity',
+                'ownership_rule' => '同步后对比值：仅作对比维度，不覆盖去哪儿订单量。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=qunar_order_count_sync',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'qunarSynchronizationOrderQuantity',
+                'target_value' => 'qunarSynchronizationOrderQuantity',
+                'value_meaning' => '去哪儿同步后订单量',
+                'notes' => '严格固定取 data.qunarSynchronizationOrderQuantity。',
+            ],
+            'qunar_order_count_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.qunarRankOfOrderQuantity',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.qunar_order_count_rank',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'qunarRankOfOrderQuantity',
+                'target_value' => 'qunarRankOfOrderQuantity',
+                'value_meaning' => '去哪儿订单量竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入订单量。',
+            ],
+            'elong_order_count' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.elongOrderQuantity',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=elong_order_count',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'elongOrderQuantity',
+                'target_value' => 'elongOrderQuantity',
+                'value_meaning' => '艺龙订单量',
+                'notes' => '艺龙渠道订单量，不覆盖总订单量。',
+            ],
+            'elong_order_count_sync' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.elongSynchronizationOrderQuantity',
+                'ownership_rule' => '同步后对比值：仅作对比维度，不覆盖艺龙订单量。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=elong_order_count_sync',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'elongSynchronizationOrderQuantity',
+                'target_value' => 'elongSynchronizationOrderQuantity',
+                'value_meaning' => '艺龙同步后订单量',
+                'notes' => '严格固定取 data.elongSynchronizationOrderQuantity。',
+            ],
+            'elong_order_count_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.elongRankOfOrderQuantity',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.elong_order_count_rank',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'elongRankOfOrderQuantity',
+                'target_value' => 'elongRankOfOrderQuantity',
+                'value_meaning' => '艺龙订单量竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入订单量。',
+            ],
+            'self_order_count' => [
+                'page_url' => $businessPage,
+                'request_url' => $realtimeUrl,
+                'json_path' => 'data.synchronizationOrderQuantity',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'online_daily_data.book_order_num',
+                'source_interface' => 'getDayReportRealTimeDate',
+                'source_keys' => 'synchronizationOrderQuantity',
+                'target_value' => 'synchronizationOrderQuantity',
+                'value_meaning' => '本店订单兼容字段',
+                'status' => 'paused',
+                'enabled' => false,
+                'notes' => '与 order_count 口径重复，默认停用；保留配置便于旧数据兼容。',
+            ],
+            'order_amount' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.amount',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'online_daily_data.amount',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'amount',
+                'target_value' => 'amount',
+                'value_meaning' => '经营报告概要日报卡片：离店销售额',
+                'notes' => '严格固定取卡片主值 data.amount；bookAmount 是预订口径，不能覆盖离店销售额。',
+            ],
+            'order_amount_last_week' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.synchronizationAmount',
+                'ownership_rule' => '上周同期对比值：仅作对比维度，不覆盖本期离店销售额。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=order_amount_last_week',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'synchronizationAmount',
+                'target_value' => 'synchronizationAmount',
+                'value_meaning' => '离店销售额上周同期',
+                'notes' => '严格固定取 data.synchronizationAmount。',
+            ],
+            'amount_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.rankOfAmount',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.amount_rank',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'rankOfAmount',
+                'target_value' => 'rankOfAmount',
+                'value_meaning' => '离店销售额竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入销售额。',
+            ],
+            'room_nights' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.quantity',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'online_daily_data.quantity',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'quantity',
+                'target_value' => 'quantity',
+                'value_meaning' => '经营报告概要日报卡片：离店间夜量',
+                'notes' => '严格固定取卡片主值 data.quantity；bookQuantity 是预订间夜，不能覆盖离店间夜。',
+            ],
+            'room_nights_last_week' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.synchronizationQuantity',
+                'ownership_rule' => '上周同期对比值：仅作对比维度，不覆盖本期离店间夜。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=room_nights_last_week',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'synchronizationQuantity',
+                'target_value' => 'synchronizationQuantity',
+                'value_meaning' => '离店间夜量上周同期',
+                'notes' => '严格固定取 data.synchronizationQuantity。',
+            ],
+            'quantity_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.rankOfQuantity',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.quantity_rank',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'rankOfQuantity',
+                'target_value' => 'rankOfQuantity',
+                'value_meaning' => '离店间夜量竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入间夜量。',
+            ],
+            'occupied_rooms' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.occupiedRooms',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=occupied_rooms',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'occupiedRooms',
+                'target_value' => 'occupiedRooms',
+                'value_meaning' => '已售间夜 / 已入住房间数',
+                'notes' => '严格固定取 data.occupiedRooms；不覆盖离店间夜量 data.quantity。',
+            ],
+            'occupied_rooms_sync' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.synchronizationOccupiedRooms',
+                'ownership_rule' => '同步后对比值：仅作对比维度，不覆盖本期已售间夜。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=occupied_rooms_sync',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'synchronizationOccupiedRooms',
+                'target_value' => 'synchronizationOccupiedRooms',
+                'value_meaning' => '同步后已售间夜',
+                'notes' => '严格固定取 data.synchronizationOccupiedRooms。',
+            ],
+            'occupied_rooms_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.rankOfOccupiedRooms',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.occupied_rooms_rank',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'rankOfOccupiedRooms',
+                'target_value' => 'rankOfOccupiedRooms',
+                'value_meaning' => '已售间夜竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入已售间夜。',
+            ],
+            'competitor_avg_occupied_rooms' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.competitorsAverageOccupiedRooms',
+                'ownership_rule' => $competitorRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=competitor_avg_occupied_rooms',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'competitorsAverageOccupiedRooms',
+                'target_value' => 'competitorsAverageOccupiedRooms',
+                'value_meaning' => '竞对平均已售间夜',
+                'notes' => '竞对平均值单独保留，不覆盖本店已售间夜。',
+            ],
+            'avg_price' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.averagePrice',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'online_daily_data.data_value where metric_key=avg_price',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'averagePrice',
+                'target_value' => 'averagePrice',
+                'value_meaning' => '经营报告概要日报卡片：平均卖价',
+                'notes' => '严格固定取 data.averagePrice；不把 minPrice 当平均卖价。',
+            ],
+            'avg_price_last_week' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.synchronizationAveragePrice',
+                'ownership_rule' => '上周同期对比值：仅作对比维度，不覆盖本期平均卖价。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=avg_price_last_week',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'synchronizationAveragePrice',
+                'target_value' => 'synchronizationAveragePrice',
+                'value_meaning' => '平均卖价上周同期',
+                'notes' => '严格固定取 data.synchronizationAveragePrice。',
+            ],
+            'avg_price_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.rankOfAveragePrice',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.avg_price_rank',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'rankOfAveragePrice',
+                'target_value' => 'rankOfAveragePrice',
+                'value_meaning' => '平均卖价竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入平均卖价。',
+            ],
+            'close_rate' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.closeRate',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'online_daily_data.data_value where metric_key=close_rate',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'closeRate',
+                'target_value' => 'closeRate',
+                'value_meaning' => '经营报告概要日报卡片：成交率',
+                'notes' => '严格固定取 data.closeRate；曝光转化率另走 queryFlowTransforNewV1.flowRate。',
+            ],
+            'close_rate_last_week' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.synchronizationCloseRate',
+                'ownership_rule' => '上周同期对比值：仅作对比维度，不覆盖本期成交率。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=close_rate_last_week',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'synchronizationCloseRate',
+                'target_value' => 'synchronizationCloseRate',
+                'value_meaning' => '成交率上周同期',
+                'notes' => '严格固定取 data.synchronizationCloseRate。',
+            ],
+            'close_rate_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.rankOfCloseRate',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.close_rate_rank',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'rankOfCloseRate',
+                'target_value' => 'rankOfCloseRate',
+                'value_meaning' => '成交率竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入成交率。',
+            ],
+            'occupancy_rate' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.occupancyRate',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=occupancy_rate',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'occupancyRate',
+                'target_value' => 'occupancyRate',
+                'value_meaning' => '经营报告概要日报：平台入住率',
+                'status' => 'confirmed',
+                'enabled' => true,
+                'notes' => '严格固定取 data.occupancyRate；仅代表携程概要日报口径，不包装成全酒店出租率。',
+            ],
+            'occupancy_rate_sync' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.synchronizationOccupancyRate',
+                'ownership_rule' => '同步后对比值：仅作对比维度，不覆盖本期入住率。',
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=occupancy_rate_sync',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'synchronizationOccupancyRate',
+                'target_value' => 'synchronizationOccupancyRate',
+                'value_meaning' => '同步后入住率',
+                'notes' => '严格固定取 data.synchronizationOccupancyRate。',
+            ],
+            'occupancy_rate_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $capacityUrl,
+                'json_path' => 'data.rankOfOccupancyRate',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.occupancy_rate_rank',
+                'source_interface' => 'fetchCapacityOverViewV4',
+                'source_keys' => 'rankOfOccupancyRate',
+                'target_value' => 'rankOfOccupancyRate',
+                'value_meaning' => '入住率竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入入住率。',
+            ],
+            'competitor_average' => [
+                'page_url' => $businessPage,
+                'json_path' => '待拆分：competitorAvgNumber / competitorsAverageOrderQuantity / competitorsAverageOccupiedRooms',
+                'ownership_rule' => $competitorRule,
+                'storage_field' => 'ota_ctrip_metric_facts',
+                'source_interface' => '待拆分',
+                'source_keys' => 'competitorAvgNumber, competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms',
+                'target_value' => '待拆分',
+                'value_meaning' => '竞争圈平均值泛化字段',
+                'status' => 'paused',
+                'enabled' => false,
+                'notes' => '泛化字段不允许启用；应拆成竞争圈平均访客、订单、间夜等独立字段。',
+            ],
+            'competition_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $marketUrl,
+                'json_path' => 'data.rankOfAmount',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.data_type=ranking',
+                'source_interface' => 'fetchMarketOverViewV2',
+                'source_keys' => 'rankOfAmount',
+                'target_value' => 'rankOfAmount',
+                'value_meaning' => '竞争圈成交排名',
+                'status' => 'paused',
+                'enabled' => false,
+                'notes' => '排名不是销售额/订单/间夜，默认停用；需要时按 ranking 类型查看。',
+            ],
+            'seq_rank' => [
+                'page_url' => $businessPage,
+                'json_path' => 'data.rank',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.data_type=ranking',
+                'source_interface' => 'fetchCurrentHotelSeqInfoV1',
+                'source_keys' => 'rank',
+                'target_value' => 'rank',
+                'value_meaning' => '当前酒店实时排名',
+                'status' => 'paused',
+                'enabled' => false,
+                'notes' => '排名字段不参与经营数值汇总；确认展示方式后再启用。',
+            ],
+            'competitor_visitor' => [
+                'page_url' => $businessPage,
+                'request_url' => $flowCompeteUrl,
+                'json_path' => 'data.comhtluv',
+                'ownership_rule' => $competitorRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=competitor_visitor',
+                'source_interface' => 'getDayReportFlowCompete',
+                'source_keys' => 'comhtluv',
+                'target_value' => 'comhtluv',
+                'value_meaning' => '竞争圈/竞品访客',
+                'notes' => '竞品指标单独保留，不覆盖本店 visitor_count。',
+            ],
+            'competitor_orders' => [
+                'page_url' => $businessPage,
+                'request_url' => $flowCompeteUrl,
+                'json_path' => 'data.ordquantity',
+                'ownership_rule' => $competitorRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=competitor_orders',
+                'source_interface' => 'getDayReportFlowCompete',
+                'source_keys' => 'ordquantity',
+                'target_value' => 'ordquantity',
+                'value_meaning' => '竞争圈/竞品订单',
+                'notes' => '竞品指标单独保留，不覆盖本店 order_count。',
+            ],
+            'competitor_revenue' => [
+                'page_url' => $businessPage,
+                'request_url' => $flowCompeteUrl,
+                'json_path' => 'data.ordamount',
+                'ownership_rule' => $competitorRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=competitor_revenue',
+                'source_interface' => 'getDayReportFlowCompete',
+                'source_keys' => 'ordamount',
+                'target_value' => 'ordamount',
+                'value_meaning' => '竞争圈/竞品收入',
+                'notes' => '竞品指标单独保留，不覆盖本店 order_amount。',
+            ],
+            'competitor_hotel_list' => [
+                'page_url' => $businessPage,
+                'json_path' => 'data.competingHotels[]',
+                'ownership_rule' => '竞品实体列表，不是标量指标；每条必须保留 masterHotelId/hotelName。',
+                'storage_field' => 'raw_data.entity_snapshot',
+                'source_interface' => 'queryCompetingHotelsV2',
+                'source_keys' => 'masterHotelId, hotelName, distance, starLevel, zoneName',
+                'target_value' => 'data.competingHotels[]',
+                'value_meaning' => '竞品酒店实体快照',
+                'status' => 'paused',
+                'enabled' => false,
+                'notes' => '实体列表不进入默认字段采集；需要单独做竞品实体管理。',
+            ],
+            'psi_score' => [
+                'page_url' => $businessPage . ' / ' . self::CTRIP_PSI_PAGE_URL,
+                'request_url' => $serverQuantityUrl . ' / ' . self::CTRIP_PSI_REQUEST_URL,
+                'json_path' => 'data.serviceScore / data.psiScoreBo.totalScore',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=psi_score',
+                'source_interface' => 'getDayReportServerQuantity / getHotelPsiV2',
+                'source_keys' => 'serviceScore, totalScore',
+                'target_value' => 'serviceScore',
+                'value_meaning' => 'PSI 服务质量分',
+                'status' => 'confirmed',
+                'enabled' => true,
+                'notes' => '两个 PSI 来源应为同一业务分值：经营日报取 data.serviceScore，PSI 详情取本店 data.psiScoreBo.totalScore；relHtlPsiBoList 只作相关酒店事实。',
+            ],
+            'service_score' => [
+                'page_url' => $businessPage,
+                'request_url' => $serverQuantityUrl,
+                'json_path' => 'data.serviceScore',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=service_score',
+                'source_interface' => 'getDayReportServerQuantity',
+                'source_keys' => 'serviceScore',
+                'target_value' => 'serviceScore',
+                'value_meaning' => '携程服务质量分',
+                'status' => 'paused',
+                'enabled' => false,
+                'notes' => '兼容旧字段；标准字段使用 psi_score，避免同一 serviceScore 重复入库。',
+            ],
+            'service_score_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $serverQuantityUrl,
+                'json_path' => 'data.serviceScoreRank',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.service_score_rank',
+                'source_interface' => 'getDayReportServerQuantity',
+                'source_keys' => 'serviceScoreRank',
+                'target_value' => 'serviceScoreRank',
+                'value_meaning' => 'PSI 服务质量分竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入 PSI 分值。',
+            ],
+            'ctrip_rating' => [
+                'page_url' => $businessPage,
+                'request_url' => $serverQuantityUrl,
+                'json_path' => 'data.ctripRatingall',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=ctrip_rating',
+                'source_interface' => 'getDayReportServerQuantity',
+                'source_keys' => 'ctripRatingall',
+                'target_value' => 'ctripRatingall',
+                'value_meaning' => '酒店点评分',
+                'notes' => '只采评分汇总，不采点评明文。',
+            ],
+            'comment_score_summary' => [
+                'page_url' => $businessPage,
+                'request_url' => $serverQuantityUrl,
+                'json_path' => 'data.ctripRatingall',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'online_daily_data.comment_score',
+                'source_interface' => 'getDayReportServerQuantity',
+                'source_keys' => 'ctripRatingall',
+                'target_value' => 'ctripRatingall',
+                'value_meaning' => '酒店点评分兼容字段，标准口径同 ctrip_rating',
+                'notes' => '兼容旧 field_key；新增配置优先看 ctrip_rating。',
+            ],
+            'reply_rate' => [
+                'page_url' => $businessPage,
+                'request_url' => $serverQuantityUrl,
+                'json_path' => 'data.replyrate5m',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=reply_rate',
+                'source_interface' => 'getDayReportServerQuantity',
+                'source_keys' => 'replyrate5m',
+                'target_value' => 'replyrate5m',
+                'value_meaning' => '5分钟回复率',
+                'notes' => '严格固定口径；IM 看板同名字段另行管理。',
+            ],
+            'reply_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $serverQuantityUrl,
+                'json_path' => 'data.imScoreHtlrank',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.reply_rank',
+                'source_interface' => 'getDayReportServerQuantity',
+                'source_keys' => 'imScoreHtlrank',
+                'target_value' => 'imScoreHtlrank',
+                'value_meaning' => '5分钟回复率竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入回复率。',
+            ],
+            'hotel_collect' => [
+                'page_url' => $businessPage,
+                'request_url' => $serverQuantityUrl,
+                'json_path' => 'data.hotelCollect',
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=hotel_collect',
+                'source_interface' => 'getDayReportServerQuantity',
+                'source_keys' => 'hotelCollect',
+                'target_value' => 'hotelCollect',
+                'value_meaning' => '酒店收藏数',
+                'notes' => '严格固定取 data.hotelCollect。',
+            ],
+            'hotel_collect_rank' => [
+                'page_url' => $businessPage,
+                'request_url' => $serverQuantityUrl,
+                'json_path' => 'data.hotelCollectRank',
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.hotel_collect_rank',
+                'source_interface' => 'getDayReportServerQuantity',
+                'source_keys' => 'hotelCollectRank',
+                'target_value' => 'hotelCollectRank',
+                'value_meaning' => '酒店收藏数竞争圈排名',
+                'notes' => '排名只进入 rank_metrics/data_value 展示，不写入收藏数。',
+            ],
+            'ad_cost' => [
+                'page_url' => self::CTRIP_ADS_PAGE_URL,
+                'request_url' => self::CTRIP_ADS_REQUEST_URL,
+                'json_path' => 'records[].todayCost',
+                'ownership_rule' => '广告口径：仅写 advertising，不得混入 order_amount/revenue。',
+                'storage_field' => 'online_daily_data.amount where data_type=advertising',
+                'source_interface' => 'queryCampaignReportList',
+                'source_keys' => 'records[].todayCost, records[].cashCost, records[].bonusCost',
+                'target_value' => 'todayCost',
+                'value_meaning' => '携程广告花费',
+                'notes' => '广告成本只进入 advertising 数据层，不进入经营销售额。',
+            ],
+        ][$fieldKey] ?? [];
+    }
+
     private function defaultCtripProfileCaptureFields(): array
     {
         $defaults = [
             ['last_visitor_total', '昨日UV', 'business_overview', 'traffic', 'getDayReportRealTimeDate', 'lastVisitorTotal', 'integer', '人', 'confirmed', '直接取整数'],
-            ['visitor_count', '访客量', 'business_overview', 'traffic', 'getDayReportRealTimeDate / fetchVisitorTitleV2', 'lastVisitorTotal, visitorTotal, UV, visitorCount', 'integer', '人', 'confirmed', '直接取整数'],
-            ['order_count', '订单数', 'business_overview', 'business', 'getDayReportRealTimeDate / fetchMarketOverViewV2', 'synchronizationOrderQuantity, orderQuantity, bookOrderNum', 'integer', '单', 'confirmed', '直接取整数'],
+            ['visitor_count', '实时访客量', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'visitorTotal', 'integer', '人', 'confirmed', '固定取 data.visitorTotal'],
+            ['visitor_rank', '实时访客量竞争圈排名', 'business_overview', 'ranking', 'fetchVisitorTitleV2', 'visitorRank', 'rank', '名', 'confirmed', '固定取 data.visitorRank'],
+            ['visitor_count_last_week', '实时访客量上周同期', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'lastVisitorTotal', 'integer', '人', 'confirmed', '固定取 data.lastVisitorTotal'],
+            ['competitor_avg_visitor', '携程竞对平均访客数', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'competitorAvgNumber', 'integer', '人', 'confirmed', '固定取 data.competitorAvgNumber'],
+            ['qunar_visitor_count', '去哪儿实时访客量', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'qunarVisitorTotal', 'integer', '人', 'confirmed', '固定取 data.qunarVisitorTotal'],
+            ['qunar_visitor_rank', '去哪儿实时访客量竞争圈排名', 'business_overview', 'ranking', 'fetchVisitorTitleV2', 'qunarCompetitorRank', 'rank', '名', 'confirmed', '固定取 data.qunarCompetitorRank'],
+            ['qunar_visitor_count_last_week', '去哪儿实时访客量上周同期', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'lastQunarVisitorTotal', 'integer', '人', 'confirmed', '固定取 data.lastQunarVisitorTotal'],
+            ['qunar_competitor_avg_visitor', '去哪儿竞对平均访客数', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'qunarCompetitorAvgNumber', 'integer', '人', 'confirmed', '固定取 data.qunarCompetitorAvgNumber'],
+            ['order_count', '总订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'orderQuantity', 'integer', '单', 'confirmed', '固定取 data.orderQuantity'],
+            ['order_count_sync', '同步后总订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'synchronizationOrderQuantity', 'integer', '单', 'confirmed', '固定取 data.synchronizationOrderQuantity'],
+            ['order_count_rank', '订单量竞争圈排名', 'business_overview', 'ranking', 'fetchCapacityOverViewV4', 'rankOfOrderQuantity', 'rank', '名', 'confirmed', '固定取 data.rankOfOrderQuantity'],
+            ['competitor_avg_orders', '竞对平均订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'competitorsAverageOrderQuantity', 'integer', '单', 'confirmed', '固定取 data.competitorsAverageOrderQuantity'],
+            ['ctrip_order_count', '携程订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'ctripOrderQuantity', 'integer', '单', 'confirmed', '固定取 data.ctripOrderQuantity'],
+            ['ctrip_order_count_sync', '携程同步后订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'ctripSynchronizationOrderQuantity', 'integer', '单', 'confirmed', '固定取 data.ctripSynchronizationOrderQuantity'],
+            ['ctrip_order_count_rank', '携程订单量竞争圈排名', 'business_overview', 'ranking', 'fetchCapacityOverViewV4', 'ctripRankOfOrderQuantity', 'rank', '名', 'confirmed', '固定取 data.ctripRankOfOrderQuantity'],
+            ['qunar_order_count', '去哪儿订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'qunarOrderQuantity', 'integer', '单', 'confirmed', '固定取 data.qunarOrderQuantity'],
+            ['qunar_order_count_sync', '去哪儿同步后订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'qunarSynchronizationOrderQuantity', 'integer', '单', 'confirmed', '固定取 data.qunarSynchronizationOrderQuantity'],
+            ['qunar_order_count_rank', '去哪儿订单量竞争圈排名', 'business_overview', 'ranking', 'fetchCapacityOverViewV4', 'qunarRankOfOrderQuantity', 'rank', '名', 'confirmed', '固定取 data.qunarRankOfOrderQuantity'],
+            ['elong_order_count', '艺龙订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'elongOrderQuantity', 'integer', '单', 'confirmed', '固定取 data.elongOrderQuantity'],
+            ['elong_order_count_sync', '艺龙同步后订单量', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'elongSynchronizationOrderQuantity', 'integer', '单', 'confirmed', '固定取 data.elongSynchronizationOrderQuantity'],
+            ['elong_order_count_rank', '艺龙订单量竞争圈排名', 'business_overview', 'ranking', 'fetchCapacityOverViewV4', 'elongRankOfOrderQuantity', 'rank', '名', 'confirmed', '固定取 data.elongRankOfOrderQuantity'],
             ['self_order_count', '本店订单', 'business_overview', 'business', 'getDayReportFlowCompete', 'orderQuantity, bookOrderNum', 'integer', '单', 'confirmed', '直接取整数'],
-            ['order_amount', '预订销售额', 'business_overview', 'business', 'fetchMarketOverViewV2 / getDayReportFlowCompete', 'bookAmount, orderAmount, amount, ordamount', 'amount', '元', 'confirmed', '去逗号后转金额'],
-            ['room_nights', '间夜', 'business_overview', 'business', 'fetchMarketOverViewV2 / fetchCapacityOverViewV4', 'bookQuantity, quantity, roomNights, occupiedRooms', 'integer', '间夜', 'confirmed', '转整数'],
-            ['avg_price', '均价', 'business_overview', 'business', 'fetchMarketOverViewV2', 'averagePrice, avgPrice', 'amount', '元', 'confirmed', '转金额'],
-            ['close_rate', '成交率', 'business_overview', 'traffic', 'fetchMarketOverViewV2', 'closeRate, conversionRate', 'percent', '%', 'confirmed', '去掉 % 后转小数'],
-            ['occupancy_rate', '出租率', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'rentalRate, occupancyRate', 'percent', '%', 'confirmed', '去掉 % 后转小数'],
+            ['order_amount', '离店销售额', 'business_overview', 'business', 'fetchMarketOverViewV2', 'amount', 'amount', '元', 'confirmed', '固定取 data.amount'],
+            ['order_amount_last_week', '离店销售额上周同期', 'business_overview', 'business', 'fetchMarketOverViewV2', 'synchronizationAmount', 'amount', '元', 'confirmed', '固定取 data.synchronizationAmount'],
+            ['amount_rank', '离店销售额竞争圈排名', 'business_overview', 'ranking', 'fetchMarketOverViewV2', 'rankOfAmount', 'rank', '名', 'confirmed', '固定取 data.rankOfAmount'],
+            ['room_nights', '离店间夜量', 'business_overview', 'business', 'fetchMarketOverViewV2', 'quantity', 'integer', '间夜', 'confirmed', '固定取 data.quantity'],
+            ['room_nights_last_week', '离店间夜量上周同期', 'business_overview', 'business', 'fetchMarketOverViewV2', 'synchronizationQuantity', 'integer', '间夜', 'confirmed', '固定取 data.synchronizationQuantity'],
+            ['quantity_rank', '离店间夜量竞争圈排名', 'business_overview', 'ranking', 'fetchMarketOverViewV2', 'rankOfQuantity', 'rank', '名', 'confirmed', '固定取 data.rankOfQuantity'],
+            ['occupied_rooms', '已售间夜 / 已入住房间数', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'occupiedRooms', 'integer', '间夜', 'confirmed', '固定取 data.occupiedRooms'],
+            ['occupied_rooms_sync', '同步后已售间夜', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'synchronizationOccupiedRooms', 'integer', '间夜', 'confirmed', '固定取 data.synchronizationOccupiedRooms'],
+            ['occupied_rooms_rank', '已售间夜竞争圈排名', 'business_overview', 'ranking', 'fetchCapacityOverViewV4', 'rankOfOccupiedRooms', 'rank', '名', 'confirmed', '固定取 data.rankOfOccupiedRooms'],
+            ['competitor_avg_occupied_rooms', '竞对平均已售间夜', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'competitorsAverageOccupiedRooms', 'integer', '间夜', 'confirmed', '固定取 data.competitorsAverageOccupiedRooms'],
+            ['avg_price', '平均卖价', 'business_overview', 'business', 'fetchMarketOverViewV2', 'averagePrice', 'amount', '元', 'confirmed', '固定取 data.averagePrice'],
+            ['avg_price_last_week', '平均卖价上周同期', 'business_overview', 'business', 'fetchMarketOverViewV2', 'synchronizationAveragePrice', 'amount', '元', 'confirmed', '固定取 data.synchronizationAveragePrice'],
+            ['avg_price_rank', '平均卖价竞争圈排名', 'business_overview', 'ranking', 'fetchMarketOverViewV2', 'rankOfAveragePrice', 'rank', '名', 'confirmed', '固定取 data.rankOfAveragePrice'],
+            ['close_rate', '成交率', 'business_overview', 'traffic', 'fetchMarketOverViewV2', 'closeRate', 'percent', '%', 'confirmed', '固定取 data.closeRate'],
+            ['close_rate_last_week', '成交率上周同期', 'business_overview', 'traffic', 'fetchMarketOverViewV2', 'synchronizationCloseRate', 'percent', '%', 'confirmed', '固定取 data.synchronizationCloseRate'],
+            ['close_rate_rank', '成交率竞争圈排名', 'business_overview', 'ranking', 'fetchMarketOverViewV2', 'rankOfCloseRate', 'rank', '名', 'confirmed', '固定取 data.rankOfCloseRate'],
+            ['occupancy_rate', '平台入住率', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'occupancyRate', 'percent', '%', 'confirmed', '固定取 data.occupancyRate'],
+            ['occupancy_rate_sync', '同步后入住率', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'synchronizationOccupancyRate', 'percent', '%', 'confirmed', '固定取 data.synchronizationOccupancyRate'],
+            ['occupancy_rate_rank', '入住率竞争圈排名', 'business_overview', 'ranking', 'fetchCapacityOverViewV4', 'rankOfOccupancyRate', 'rank', '名', 'confirmed', '固定取 data.rankOfOccupancyRate'],
             ['competitor_average', '竞争圈平均值', 'business_overview', 'business', 'fetchCapacityOverViewV4 / fetchVisitorTitleV2', 'competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber', 'number', '', 'confirmed', '按源字段直接记录'],
             ['competition_rank', '竞争圈排名', 'business_overview', 'business', 'fetchCapacityOverViewV4', 'rank, rank2, competitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
             ['seq_rank', '实时排名', 'business_overview', 'traffic', 'fetchCurrentHotelSeqInfoV1', 'rank, qunarRank, competitorRank, qunarCompetitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
@@ -10698,13 +12438,15 @@ JAVASCRIPT;
             ['competitor_avg_visitor', '竞争圈平均访客', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'competitorAvgNumber', 'integer', '人', 'confirmed', '直接取整数'],
             ['qunar_visitor_rank', '去哪儿访客排名', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'qunarVisitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
             ['qunar_competitor_avg_visitor', '去哪儿竞争圈平均访客', 'business_overview', 'traffic', 'fetchVisitorTitleV2', 'qunarCompetitorAvgNumber', 'integer', '人', 'confirmed', '直接取整数'],
-            ['hotel_collect', '酒店收藏数', 'business_overview', 'quality', 'getDayReportServerQuantity', 'hotelCollect', 'integer', '次', 'confirmed', '转整数'],
-            ['hotel_collect_rank', '酒店收藏排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'hotelCollectRank', 'rank', '名', 'confirmed', '直接取排名值'],
-            ['psi_score', 'PSI服务质量分', 'quality_psi', 'quality', 'getHotelPsiV2 / getDayReportServerQuantity', 'psi, PSI, psiScore, qualityscore, totalScore', 'number', '分', 'confirmed', '直接取分值'],
-            ['service_score', '服务质量分', 'business_overview', 'quality', 'getDayReportServerQuantity', 'serviceScore', 'number', '分', 'confirmed', '直接取分值'],
-            ['service_score_rank', '服务质量排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'serviceScoreRank', 'rank', '名', 'confirmed', '直接取排名值'],
-            ['comment_score_summary', '携程评分/点评分汇总', 'business_overview', 'quality', 'getDayReportServerQuantity / getCommentsScoreV2', 'ctripRatingall, qunarRatingall, HotelRating, ratingall', 'number', '分', 'confirmed', '只采集评分汇总，不采集点评明文'],
-            ['reply_rate', '5分钟回复率', 'business_overview', 'quality', 'getDayReportServerQuantity / getImIndex', 'replyrate5m, replyRate, fiveMinuteReplyRate, fiveMinReplyRate', 'percent', '%', 'confirmed', '去掉 % 后转小数'],
+            ['hotel_collect', '酒店收藏数', 'business_overview', 'quality', 'getDayReportServerQuantity', 'hotelCollect', 'integer', '次', 'confirmed', '固定取 data.hotelCollect'],
+            ['hotel_collect_rank', '酒店收藏数竞争圈排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'hotelCollectRank', 'rank', '名', 'confirmed', '固定取 data.hotelCollectRank'],
+            ['psi_score', 'PSI服务质量分', 'business_overview', 'quality', 'getDayReportServerQuantity / getHotelPsiV2', 'serviceScore, totalScore', 'number', '分', 'confirmed', '经营日报取 serviceScore；PSI 详情页取 totalScore，二者应同值'],
+            ['service_score', '服务质量分旧字段', 'business_overview', 'quality', 'getDayReportServerQuantity', 'serviceScore', 'number', '分', 'paused', '旧字段兼容，不默认启用', false, '标准字段使用 psi_score，避免同一 serviceScore 重复入库'],
+            ['service_score_rank', 'PSI服务质量分竞争圈排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'serviceScoreRank', 'rank', '名', 'confirmed', '固定取 data.serviceScoreRank'],
+            ['ctrip_rating', '酒店点评分', 'business_overview', 'quality', 'getDayReportServerQuantity', 'ctripRatingall', 'number', '分', 'confirmed', '固定取 data.ctripRatingall'],
+            ['comment_score_summary', '酒店点评分兼容字段', 'business_overview', 'quality', 'getDayReportServerQuantity / getCommentsScoreV2', 'ctripRatingall, qunarRatingall, HotelRating, ratingall', 'number', '分', 'confirmed', '只采集评分汇总，不采集点评明文'],
+            ['reply_rate', '5分钟回复率', 'business_overview', 'quality', 'getDayReportServerQuantity / getImIndex', 'replyrate5m, replyRate, fiveMinuteReplyRate, fiveMinReplyRate', 'percent', '%', 'confirmed', '固定取 data.replyrate5m'],
+            ['reply_rank', '5分钟回复率竞争圈排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'imScoreHtlrank', 'rank', '名', 'confirmed', '固定取 data.imScoreHtlrank'],
             ['diagnosis_score', '数据诊断分', 'business_overview', 'quality', 'getHotelAdvice', 'score', 'number', '分', 'confirmed', '直接取分值'],
             ['diagnosis_level', '评级', 'business_overview', 'quality', 'getHotelAdvice', 'scorelevel, level', 'text', '', 'confirmed', '直接取文本'],
             ['advice_text', '经营建议', 'business_overview', 'quality', 'getHotelAdvice', 'tasktext, taskname, taskbutton', 'text', '', 'confirmed', '保留建议文本和动作入口'],
@@ -10724,7 +12466,7 @@ JAVASCRIPT;
         foreach ($defaults as $index => $row) {
             [$key, $name, $section, $dataType, $sourceInterface, $sourceKeys, $valueType, $unit, $status, $rule, $enabled, $notes] = array_pad($row, 12, null);
             $id = 'profile_field_' . $key;
-            $fields[$id] = $this->normalizeCtripProfileCaptureField([
+            $fieldConfig = array_merge([
                 'id' => $id,
                 'field_key' => $key,
                 'field_name' => $name,
@@ -10739,10 +12481,11 @@ JAVASCRIPT;
                 'transform_rule' => $rule,
                 'notes' => $notes ?? '携程 OTA 渠道口径',
                 'sort_order' => ($index + 1) * 10,
-            ]);
+            ], $this->defaultCtripProfileFieldMeta((string)$key));
+            $fields[$id] = $this->normalizeCtripProfileCaptureField($fieldConfig);
         }
 
-        return $fields;
+        return $this->filterCtripProfileKeyFields($fields);
     }
 
     /**
@@ -12191,6 +13934,8 @@ JAVASCRIPT;
             $dataType = 'business';
         }
         $isNonNumericFact = $this->isOnlineDataNonNumericFactRow($raw);
+        $isRankFact = $dataType === 'ranking'
+            || in_array((string)($raw['metric_status'] ?? ''), ['rank_fact'], true);
 
         $missing = [];
         $abnormal = [];
@@ -12203,6 +13948,8 @@ JAVASCRIPT;
         if ($source === 'meituan') {
             $this->addOnlineDataMissingMetric($missing, $row, $raw, 'data_value', '指标值', ['data_value'], ['dataValue', 'data_value', 'monthRoomNights']);
             $this->addOnlineDataMissingMetric($missing, $row, $raw, 'dimension', '榜单维度', ['dimension'], ['dimension', 'dimName', '_dimName']);
+        } elseif ($isRankFact) {
+            // 榜单名次只表示排名事实，不要求营业额/间夜/订单等具体经营值。
         } elseif ($dataType === 'traffic') {
             if (!$isNonNumericFact) {
                 $this->addOnlineDataMissingMetric($missing, $row, $raw, 'exposure', '曝光', ['list_exposure', 'exposure_count', 'exposure', 'data_value'], ['listExposure', 'exposure', 'exposure_count']);
@@ -15040,7 +16787,7 @@ JAVASCRIPT;
         $success = (bool)($platformResult['success'] ?? false);
         $skipped = (bool)($platformResult['skipped'] ?? false);
         $status = $success ? 'success' : ($skipped ? 'skipped' : 'failed');
-        $runTime = (string)($run['run_time'] ?? '');
+        $runTime = (string)($run['run_time'] ?? $run['run_at'] ?? '');
         $dataDate = (string)($run['data_date'] ?? '');
         $moduleSummary = $this->formatAutoFetchModuleSummary(is_array($platformResult['modules'] ?? null) ? $platformResult['modules'] : []);
         $id = substr(sha1(implode('|', [$hotelId, $runTime, $dataDate, $platform, (string)$runIndex, (string)$platformIndex])), 0, 24);
@@ -15091,7 +16838,7 @@ JAVASCRIPT;
         $endDate = trim((string)($filters['end_date'] ?? ''));
         $source = trim((string)($filters['source'] ?? ''));
         $status = trim((string)($filters['status'] ?? ''));
-        $dataDate = (string)($record['data_date'] ?? '');
+        $dataDate = (string)($record['data_date_value'] ?? $record['data_date'] ?? '');
 
         if ($startDate !== '' && $dataDate !== '' && $dataDate < $startDate) {
             return false;
@@ -15107,6 +16854,27 @@ JAVASCRIPT;
         }
 
         return true;
+    }
+
+    private function isAutoFetchDataRecordListRow(array $record): bool
+    {
+        if ((string)($record['source_record_type'] ?? '') === 'platform_sync_task') {
+            return true;
+        }
+
+        if ((string)($record['status'] ?? '') !== 'skipped' || (int)($record['saved_count'] ?? 0) > 0) {
+            return true;
+        }
+
+        $message = strtolower((string)($record['message'] ?? ''));
+        $moduleSummary = strtolower((string)($record['module_summary'] ?? ''));
+        return !(
+            str_contains($moduleSummary, 'configuration[')
+            || str_contains($message, '未配置')
+            || str_contains($message, 'partner')
+            || str_contains($message, 'poi')
+            || str_contains($message, 'cookies')
+        );
     }
 
     private function removeAutoFetchRecordIds(array $status, int $hotelId, array $idSet): array
@@ -15350,7 +17118,20 @@ JAVASCRIPT;
             if (!is_array($status)) {
                 continue;
             }
-            $rows = array_merge($rows, $this->buildAutoFetchRecordRows($status, (int)$hotelId, (string)($hotelMap[(int)$hotelId] ?? '门店ID ' . $hotelId), $filters));
+            $cacheRows = $this->buildAutoFetchRecordRows($status, (int)$hotelId, (string)($hotelMap[(int)$hotelId] ?? '门店ID ' . $hotelId), $filters);
+            $cacheRows = array_values(array_filter($cacheRows, [$this, 'isAutoFetchDataRecordListRow']));
+            $rows = array_merge($rows, $cacheRows);
+        }
+        $existingRecordKeys = array_fill_keys(array_filter(array_map([$this, 'autoFetchRecordLogicalKey'], $rows)), true);
+        foreach ($this->buildPlatformSyncTaskAutoFetchRecordRows($hotelIds, $hotelMap, $filters) as $taskRecord) {
+            $recordKey = $this->autoFetchRecordLogicalKey($taskRecord);
+            if ($recordKey !== '' && isset($existingRecordKeys[$recordKey])) {
+                continue;
+            }
+            if ($recordKey !== '') {
+                $existingRecordKeys[$recordKey] = true;
+            }
+            $rows[] = $taskRecord;
         }
 
         usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['run_time'] ?? ''), (string)($a['run_time'] ?? '')));
@@ -15366,6 +17147,309 @@ JAVASCRIPT;
                 'page_size' => $pageSize,
             ],
         ]);
+    }
+
+    private function autoFetchRecordLogicalKey(array $record): string
+    {
+        $hotelId = (int)($record['hotel_id'] ?? 0);
+        $platform = trim((string)($record['platform'] ?? ''));
+        $dataDate = trim((string)($record['data_date_value'] ?? $record['data_date'] ?? ''));
+        if ($hotelId <= 0 || $platform === '' || $dataDate === '') {
+            return '';
+        }
+        return $hotelId . '|' . $platform . '|' . $dataDate;
+    }
+
+    private function buildPlatformSyncTaskAutoFetchRecordRows(array $hotelIds, array $hotelMap, array $filters = []): array
+    {
+        $hotelIds = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
+        if (empty($hotelIds)) {
+            return [];
+        }
+
+        try {
+            $query = Db::name('platform_data_sync_tasks')
+                ->whereIn('system_hotel_id', $hotelIds)
+                ->where('trigger_type', 'auto_fetch')
+                ->order('started_at', 'desc')
+                ->order('id', 'desc')
+                ->limit(200);
+            $source = trim((string)($filters['source'] ?? ''));
+            if ($source !== '') {
+                $query->where('platform', $source);
+            }
+            $tasks = $query->select()->toArray();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('读取平台同步任务记录失败: ' . $e->getMessage());
+            return [];
+        }
+
+        $taskDataMap = $this->buildPlatformSyncTaskDataDateMap(array_column($tasks, 'id'));
+        $rows = [];
+        foreach ($tasks as $task) {
+            if (!is_array($task)) {
+                continue;
+            }
+            $hotelId = (int)($task['system_hotel_id'] ?? 0);
+            $record = $this->normalizePlatformSyncTaskAutoFetchRecordRow(
+                $task,
+                (string)($hotelMap[$hotelId] ?? ('门店ID ' . $hotelId)),
+                $taskDataMap[(int)($task['id'] ?? 0)] ?? []
+            );
+            if ($this->matchesAutoFetchRecordFilters($record, $filters)) {
+                $rows[] = $record;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function buildPlatformSyncTaskDataDateMap(array $taskIds): array
+    {
+        $taskIds = array_values(array_unique(array_filter(array_map('intval', $taskIds), static fn(int $id): bool => $id > 0)));
+        if (empty($taskIds)) {
+            return [];
+        }
+
+        $columns = $this->getOnlineDailyDataColumns();
+        if (!isset($columns['sync_task_id'])) {
+            return [];
+        }
+
+        try {
+            $rows = Db::name('online_daily_data')
+                ->field('sync_task_id, MIN(data_date) as min_date, MAX(data_date) as max_date, COUNT(*) as row_count')
+                ->whereIn('sync_task_id', $taskIds)
+                ->group('sync_task_id')
+                ->select()
+                ->toArray();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('读取平台同步任务入库日期失败: ' . $e->getMessage());
+            return [];
+        }
+
+        $map = [];
+        foreach ($rows as $row) {
+            $taskId = (int)($row['sync_task_id'] ?? 0);
+            if ($taskId <= 0) {
+                continue;
+            }
+            $minDate = (string)($row['min_date'] ?? '');
+            $maxDate = (string)($row['max_date'] ?? '');
+            $map[$taskId] = [
+                'data_date' => $maxDate !== '' ? $maxDate : $minDate,
+                'data_date_label' => $minDate !== '' && $maxDate !== '' && $minDate !== $maxDate ? ($minDate . ' 至 ' . $maxDate) : ($maxDate ?: $minDate),
+                'row_count' => (int)($row['row_count'] ?? 0),
+            ];
+        }
+
+        return $map;
+    }
+
+    private function normalizePlatformSyncTaskAutoFetchRecordRow(array $task, string $hotelName, array $taskData = []): array
+    {
+        $taskId = (int)($task['id'] ?? 0);
+        $stats = json_decode((string)($task['stats_json'] ?? ''), true);
+        $stats = is_array($stats) ? $stats : [];
+        $savedCount = (int)($stats['saved_count'] ?? $taskData['row_count'] ?? 0);
+        $normalizedCount = (int)($stats['normalized_count'] ?? 0);
+        $status = $this->normalizePlatformSyncTaskAutoFetchStatus((string)($task['status'] ?? ''), $savedCount);
+        $runTime = (string)($task['finished_at'] ?? '') ?: ((string)($task['started_at'] ?? '') ?: (string)($task['create_time'] ?? ''));
+        $moduleSummary = trim((string)($task['data_type'] ?? ''));
+        $ingestionMethod = trim((string)($task['ingestion_method'] ?? ''));
+        if ($moduleSummary !== '') {
+            $moduleSummary .= '[' . ($ingestionMethod !== '' ? $ingestionMethod . ':' : '') . $status . ':' . $savedCount . ']';
+        }
+        if ($normalizedCount > 0) {
+            $moduleSummary .= ($moduleSummary !== '' ? ' / ' : '') . '标准行 ' . $normalizedCount;
+        }
+
+        return [
+            'id' => 'sync_task_' . $taskId,
+            'sync_task_id' => $taskId,
+            'source_record_type' => 'platform_sync_task',
+            'hotel_id' => (int)($task['system_hotel_id'] ?? 0),
+            'hotel_name' => $hotelName,
+            'run_time' => $runTime,
+            'data_date' => (string)($taskData['data_date_label'] ?? $taskData['data_date'] ?? ''),
+            'data_date_value' => (string)($taskData['data_date'] ?? ''),
+            'platform' => strtolower((string)($task['platform'] ?? '')),
+            'platform_label' => strtolower((string)($task['platform'] ?? '')) === 'meituan' ? '美团' : (strtolower((string)($task['platform'] ?? '')) === 'ctrip' ? '携程' : '其他'),
+            'status' => $status,
+            'status_label' => $this->platformSyncTaskAutoFetchStatusLabel($status),
+            'saved_count' => $savedCount,
+            'module_summary' => $moduleSummary !== '' ? $moduleSummary : '-',
+            'message' => (string)($task['message'] ?? '-'),
+            'run_message' => (string)($task['message'] ?? ''),
+            'auto_fetch_mode' => (string)($task['ingestion_method'] ?? ''),
+            'mode_label' => (string)($task['ingestion_method'] ?? ''),
+        ];
+    }
+
+    private function normalizePlatformSyncTaskAutoFetchStatus(string $status, int $savedCount): string
+    {
+        $status = strtolower(trim($status));
+        if ($status === 'success') {
+            return 'success';
+        }
+        if (in_array($status, ['pending', 'running'], true)) {
+            return $status;
+        }
+        if ($status === 'partial_success') {
+            return $savedCount > 0 ? 'success' : 'failed';
+        }
+        return in_array($status, ['failed', 'waiting_config'], true) ? 'failed' : ($savedCount > 0 ? 'success' : 'failed');
+    }
+
+    private function platformSyncTaskAutoFetchStatusLabel(string $status): string
+    {
+        return [
+            'success' => '成功',
+            'failed' => '失败',
+            'skipped' => '跳过',
+            'pending' => '待执行',
+            'running' => '运行中',
+        ][$status] ?? '失败';
+    }
+
+    private function extractAutoFetchSyncTaskIdsFromRecordIds(array $ids): array
+    {
+        $taskIds = [];
+        foreach ($ids as $id) {
+            $value = trim((string)$id);
+            if ($value === '' || !preg_match('/^sync_task_(\d+)$/', $value, $matches)) {
+                continue;
+            }
+            $taskId = (int)$matches[1];
+            if ($taskId > 0) {
+                $taskIds[$taskId] = true;
+            }
+        }
+
+        return array_keys($taskIds);
+    }
+
+    private function isAutoFetchPlatformSyncTaskDeletableStatus(string $status): bool
+    {
+        return !in_array(strtolower(trim($status)), ['pending', 'running'], true);
+    }
+
+    private function getTableColumnsSafe(string $table): array
+    {
+        static $columns = [];
+        if (isset($columns[$table])) {
+            return $columns[$table];
+        }
+
+        try {
+            $rows = Db::query('SHOW COLUMNS FROM `' . str_replace('`', '``', $table) . '`');
+            $columns[$table] = array_fill_keys(array_column($rows, 'Field'), true);
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('Read table columns failed for ' . $table . ': ' . $e->getMessage());
+            $columns[$table] = [];
+        }
+
+        return $columns[$table];
+    }
+
+    private function deleteRowsBySyncTaskIds(string $table, array $taskIds, array $hotelIds): int
+    {
+        $taskIds = array_values(array_unique(array_filter(array_map('intval', $taskIds), static fn(int $id): bool => $id > 0)));
+        $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0)));
+        if (empty($taskIds) || empty($hotelIds)) {
+            return 0;
+        }
+
+        $columns = $this->getTableColumnsSafe($table);
+        if (!isset($columns['sync_task_id'])) {
+            return 0;
+        }
+
+        try {
+            $query = Db::name($table)->whereIn('sync_task_id', $taskIds);
+            if (isset($columns['system_hotel_id'])) {
+                $query->whereIn('system_hotel_id', $hotelIds);
+            }
+            return (int)$query->delete();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('Delete rows by sync_task_id failed for ' . $table . ': ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    private function deletePlatformSyncTaskAutoFetchRecords(array $hotelIds, array $taskIds = []): array
+    {
+        $result = $this->emptyPlatformSyncTaskDeleteResult();
+        $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0)));
+        $taskIds = array_values(array_unique(array_filter(array_map('intval', $taskIds), static fn(int $id): bool => $id > 0)));
+        if (empty($hotelIds)) {
+            return $result;
+        }
+
+        $taskColumns = $this->getTableColumnsSafe('platform_data_sync_tasks');
+        foreach (['id', 'system_hotel_id', 'trigger_type', 'status'] as $requiredColumn) {
+            if (!isset($taskColumns[$requiredColumn])) {
+                return $result;
+            }
+        }
+
+        try {
+            $query = Db::name('platform_data_sync_tasks')
+                ->field('id,status')
+                ->whereIn('system_hotel_id', $hotelIds)
+                ->where('trigger_type', 'auto_fetch');
+            if (!empty($taskIds)) {
+                $query->whereIn('id', $taskIds);
+            }
+            $tasks = $query->select()->toArray();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('Read platform auto fetch sync tasks for delete failed: ' . $e->getMessage());
+            return $result;
+        }
+
+        $deletableTaskIds = [];
+        foreach ($tasks as $task) {
+            $taskId = (int)($task['id'] ?? 0);
+            if ($taskId <= 0) {
+                continue;
+            }
+            if (!$this->isAutoFetchPlatformSyncTaskDeletableStatus((string)($task['status'] ?? ''))) {
+                $result['skipped_count']++;
+                continue;
+            }
+            $deletableTaskIds[] = $taskId;
+        }
+        if (empty($deletableTaskIds)) {
+            return $result;
+        }
+
+        $result['online_daily_deleted_count'] = $this->deleteRowsBySyncTaskIds('online_daily_data', $deletableTaskIds, $hotelIds);
+        $result['raw_record_deleted_count'] = $this->deleteRowsBySyncTaskIds('platform_data_raw_records', $deletableTaskIds, $hotelIds);
+        $result['log_deleted_count'] = $this->deleteRowsBySyncTaskIds('platform_data_sync_logs', $deletableTaskIds, $hotelIds);
+
+        try {
+            $result['deleted_count'] = (int)Db::name('platform_data_sync_tasks')
+                ->whereIn('id', $deletableTaskIds)
+                ->whereIn('system_hotel_id', $hotelIds)
+                ->where('trigger_type', 'auto_fetch')
+                ->delete();
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('Delete platform auto fetch sync tasks failed: ' . $e->getMessage());
+            $result['deleted_count'] = 0;
+        }
+
+        return $result;
+    }
+
+    private function emptyPlatformSyncTaskDeleteResult(): array
+    {
+        return [
+            'deleted_count' => 0,
+            'skipped_count' => 0,
+            'online_daily_deleted_count' => 0,
+            'raw_record_deleted_count' => 0,
+            'log_deleted_count' => 0,
+        ];
     }
 
     public function batchDeleteAutoFetchRecords(): Response
@@ -15385,6 +17469,11 @@ JAVASCRIPT;
 
         $hotelIds = $this->resolveAutoFetchRecordHotelIds($this->request->post('hotel_id', ''));
         $deletedCount = 0;
+        $taskIds = $this->extractAutoFetchSyncTaskIdsFromRecordIds($ids);
+        $taskDeleteResult = !empty($taskIds)
+            ? $this->deletePlatformSyncTaskAutoFetchRecords($hotelIds, $taskIds)
+            : $this->emptyPlatformSyncTaskDeleteResult();
+        $deletedCount += (int)$taskDeleteResult['deleted_count'];
         foreach ($hotelIds as $hotelId) {
             $statusKey = $this->autoFetchStatusKey((int)$hotelId);
             $status = cache($statusKey);
@@ -15400,7 +17489,12 @@ JAVASCRIPT;
 
         OperationLog::record('online_data', 'batch_delete_auto_fetch_records', '批量删除自动抓取记录: ' . $deletedCount . '条', $this->currentUser->id);
 
-        return $this->success(['deleted_count' => $deletedCount], '删除成功');
+        return $this->success([
+            'deleted_count' => $deletedCount,
+            'platform_sync_task_deleted_count' => (int)$taskDeleteResult['deleted_count'],
+            'platform_sync_task_skipped_count' => (int)$taskDeleteResult['skipped_count'],
+            'online_daily_deleted_count' => (int)$taskDeleteResult['online_daily_deleted_count'],
+        ], '删除成功');
     }
 
     public function clearAutoFetchRecords(): Response
@@ -15410,6 +17504,8 @@ JAVASCRIPT;
 
         $hotelIds = $this->resolveAutoFetchRecordHotelIds($this->request->post('hotel_id', ''));
         $clearedCount = 0;
+        $taskDeleteResult = $this->deletePlatformSyncTaskAutoFetchRecords($hotelIds);
+        $clearedCount += (int)$taskDeleteResult['deleted_count'];
         foreach ($hotelIds as $hotelId) {
             $statusKey = $this->autoFetchStatusKey((int)$hotelId);
             $status = cache($statusKey);
@@ -15427,7 +17523,12 @@ JAVASCRIPT;
 
         OperationLog::record('online_data', 'clear_auto_fetch_records', '清空自动抓取历史记录: ' . $clearedCount . '条', $this->currentUser->id);
 
-        return $this->success(['cleared_count' => $clearedCount], '历史记录已清空');
+        return $this->success([
+            'cleared_count' => $clearedCount,
+            'platform_sync_task_deleted_count' => (int)$taskDeleteResult['deleted_count'],
+            'platform_sync_task_skipped_count' => (int)$taskDeleteResult['skipped_count'],
+            'online_daily_deleted_count' => (int)$taskDeleteResult['online_daily_deleted_count'],
+        ], '历史记录已清空');
     }
 
     /**
@@ -15900,7 +18001,7 @@ JAVASCRIPT;
                         continue;
                     }
 
-                    $hotelId = $item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? $item['nodeId'] ?? $item['node_id'] ?? null;
+                    $hotelId = $this->resolveCtripPlatformHotelId($item);
                     $compareText = strtolower((string)($item['compareType'] ?? $item['compare_type'] ?? $item['type'] ?? $item['rankType'] ?? $item['name'] ?? $item['hotelName'] ?? ''));
                     $isCompetitor = str_contains($compareText, 'competitor')
                         || str_contains($compareText, 'peer')
@@ -16807,6 +18908,7 @@ JAVASCRIPT;
     private function syncCtripBrowserProfileDataSourcesForAutoFetch(int $hotelId, string $dataDate, bool $interactiveBrowser, ?array $sources = null): array
     {
         $sources = $sources ?? $this->listEnabledCtripBrowserProfileDataSources($hotelId);
+        $sources = $this->selectCurrentBrowserProfileDataSources($sources);
         if (empty($sources)) {
             return [
                 'attempted' => false,
@@ -16838,6 +18940,12 @@ JAVASCRIPT;
                 ? "携程 Profile 数据源同步成功 {$savedCount} 条"
                 : '携程 Profile 数据源同步失败：' . implode('；', array_slice($messages, 0, 3)),
         ];
+    }
+
+    private function selectCurrentBrowserProfileDataSources(array $sources): array
+    {
+        $sources = array_values(array_filter($sources, static fn($source): bool => is_array($source)));
+        return $sources === [] ? [] : [$sources[0]];
     }
 
     private function markCtripProfileStatusFromDataSourceSync(int $hotelId, array $source, array $result): void
@@ -17454,11 +19562,13 @@ JAVASCRIPT;
                 $captureGateWarning = $this->buildCtripCaptureGateWarning($captureGateDecision);
             } else {
                 $capturedCounts = $this->buildCtripCaptureCounts($payload);
-                return [
+                $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'];
+                return array_merge([
                     'success' => false,
                     'message' => 'Profile 真实采集门禁未通过，未入库且未更新最新采集状态',
                     'saved_count' => 0,
-                    'row_count' => (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'],
+                    'row_count' => $rowCount,
+                ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, 0, $rowCount), [
                     'captured_counts' => $capturedCounts,
                     'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
                     'auth_status' => $payload['auth_status'] ?? null,
@@ -17478,7 +19588,7 @@ JAVASCRIPT;
                             'message' => 'Profile capture gate failed: ' . implode(',', $captureGateDecision['failed_check_ids']),
                         ],
                     ],
-                ];
+                ]);
             }
         }
         $requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? $profileId);
@@ -17511,13 +19621,15 @@ JAVASCRIPT;
             $detailParts[] = "标准字段 {$saveResult['standard_saved']}";
         }
 
-        return [
+        $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'];
+        return array_merge([
             'success' => $savedCount > 0,
             'message' => $savedCount > 0
                 ? "Profile 真实采集入库 {$savedCount} 条（" . implode('，', $detailParts) . "）" . ($captureGateWarning !== null ? '；字段覆盖率未达阈值，已保留诊断告警' : '')
                 : 'Profile 真实采集未解析到可入库数据',
             'saved_count' => $savedCount,
-            'row_count' => (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'],
+            'row_count' => $rowCount,
+        ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, $savedCount, $rowCount), [
             'captured_counts' => $capturedCounts,
             'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
             'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
@@ -17533,7 +19645,7 @@ JAVASCRIPT;
             'capture_gate_warning' => $captureGateWarning,
             'modules' => $saveResult['modules'],
             'output' => $outputPath,
-        ];
+        ]);
     }
 
     private function saveCtripBrowserProfilePayload(array $payload, int $hotelId, string $dataDate, string $requestHotelId, ?int $dataSourceId = null): array
@@ -17642,7 +19754,7 @@ JAVASCRIPT;
     private function extractExpectedCtripPlatformHotelIds(array $config, int $systemHotelId): array
     {
         $ids = [];
-        foreach (['ota_hotel_id', 'ctrip_hotel_id', 'ctripHotelId', 'platform_hotel_id', 'platformHotelId'] as $key) {
+        foreach (['masterHotelId', 'master_hotel_id', 'ota_hotel_id', 'ctrip_hotel_id', 'ctripHotelId', 'platform_hotel_id', 'platformHotelId'] as $key) {
             $value = trim((string)($config[$key] ?? ''));
             if ($this->isMeaningfulCtripPlatformHotelId($value, $systemHotelId)) {
                 $ids[$value] = true;
@@ -17786,6 +19898,28 @@ JAVASCRIPT;
         $ids[$id] = true;
     }
 
+    private function resolveCtripPlatformHotelId(array $row, mixed $fallback = ''): string
+    {
+        foreach (['masterHotelId', 'masterhotelid', 'master_hotel_id', 'hotelId', 'hotel_id', 'HotelId', 'hotelID', 'ota_hotel_id', 'ctrip_hotel_id'] as $key) {
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+            $value = $row[$key];
+            if (is_array($value) || is_object($value)) {
+                continue;
+            }
+            $id = trim((string)$value);
+            if ($id !== '') {
+                return $id;
+            }
+        }
+
+        if (is_array($fallback) || is_object($fallback)) {
+            return '';
+        }
+        return trim((string)$fallback);
+    }
+
     private function isCtripCompetitorLikeValue(array $value): bool
     {
         $hotelId = trim((string)($value['hotel_id'] ?? $value['hotelId'] ?? $value['HotelId'] ?? $value['_overview_source_hotel_id'] ?? ''));
@@ -17895,7 +20029,7 @@ JAVASCRIPT;
             $source = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $platform);
 
             $standardRow = [
-                'hotel_id' => trim((string)($row['hotel_id'] ?? '')) ?: $requestHotelId,
+                'hotel_id' => $this->resolveCtripPlatformHotelId($row, $requestHotelId),
                 'hotel_name' => trim((string)($row['hotel_name'] ?? '')),
                 'system_hotel_id' => $systemHotelId,
                 'source' => $source,

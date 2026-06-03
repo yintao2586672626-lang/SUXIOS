@@ -103,6 +103,14 @@ http://127.0.0.1:8080/
 
 ### 方式二：手动启动
 
+先启动 MySQL：
+
+```powershell
+Start-Process -FilePath "C:\xampp\mysql\bin\mysqld.exe" -ArgumentList "--defaults-file=C:\xampp\mysql\bin\my.ini", "--standalone" -WorkingDirectory "C:\xampp\mysql\bin"
+```
+
+确认 MySQL 已运行后再启动 PHP：
+
 ```powershell
 C:\xampp\php\php.exe think run --host 127.0.0.1 --port 8080
 ```

@@ -208,7 +208,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
         return [
             'status' => 'success',
-            'message' => 'Ctrip browser Profile capture completed.' . ($gateWarning !== null ? ' Field coverage warning retained.' : ''),
+            'message' => 'Ctrip browser Profile capture completed.' . ($gateWarning !== null ? ' Capture gate warning retained.' : ''),
             'payload' => $payload,
         ];
     }
@@ -267,7 +267,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function captureGateBlockingFailedCheckIds(array $failedCheckIds): array
     {
-        $softCheckIds = ['field_coverage'];
+        $softCheckIds = ['field_coverage', 'endpoint_coverage'];
         return array_values(array_filter(
             $failedCheckIds,
             static fn($checkId): bool => !in_array((string)$checkId, $softCheckIds, true)
@@ -295,7 +295,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
     {
         return [
             'level' => 'warning',
-            'message' => 'Ctrip browser Profile captured usable rows, but field coverage is below the configured threshold. Saved captured fields and kept missing-field evidence in diagnostics.',
+            'message' => 'Ctrip browser Profile captured usable rows, but capture gate coverage has gaps. Saved captured rows and kept diagnostics for missing coverage.',
             'status' => (string)($gate['status'] ?? 'unknown'),
             'failed_check_ids' => $failedCheckIds,
             'blocking_failed_check_ids' => $this->captureGateBlockingFailedCheckIds($failedCheckIds),

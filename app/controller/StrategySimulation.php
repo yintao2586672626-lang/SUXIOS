@@ -13,6 +13,8 @@ use Throwable;
 
 class StrategySimulation extends Base
 {
+    private const STRATEGY_POI_AI_MODEL_KEY = 'xiaomi_mimo_pro';
+
     private const PROPERTY_FIT_CONFIG = [
         '中端精选' => ['area_per_room_min' => 30, 'area_per_room_max' => 50, 'preferred_room_count_min' => 70],
         '经济型' => ['area_per_room_min' => 22, 'area_per_room_max' => 36, 'preferred_room_count_min' => 60],
@@ -37,7 +39,7 @@ class StrategySimulation extends Base
             $scores = $this->calculateScores($input, $localData, $externalData);
             $recommendation = $this->buildRecommendation($input, $scores);
             $recommendation = $this->attachAiRecommendation($input, $localData, $externalData, $scores, $recommendation);
-            $externalData = $this->attachAiDataStatus($externalData, $recommendation['ai_evaluation'] ?? []);
+            $externalData = $this->attachAiDataStatus($externalData, $recommendation['ai_evaluation'] ?? [], $input, $localData);
             $dataSnapshot = $this->buildDataSnapshot($localData, $externalData);
             $risk = $this->buildRisk($scores, $recommendation);
             $recordId = $this->saveRecord($input, $dataSnapshot, $scores, $recommendation, $risk);
@@ -541,16 +543,41 @@ class StrategySimulation extends Base
         ];
     }
 
-    private function attachAiDataStatus(array $externalData, array $aiEvaluation): array
+    private function attachAiDataStatus(array $externalData, array $aiEvaluation, array $input = [], array $localData = []): array
     {
         $source = (string)($aiEvaluation['source'] ?? '');
         $modelKey = trim((string)($aiEvaluation['model_key'] ?? 'deepseek_v4_default'));
+        $client = new LlmClient();
+        $modelLabel = $this->strategyModelChainLabel($modelKey, $client);
         $aiUsed = $source === 'llm';
         $externalData['ai_available'] = $aiUsed;
         $externalData['ai_used'] = $aiUsed;
         $externalData['ai_model_key'] = $modelKey;
-        $externalData['ai_source_summary'] = $aiUsed ? 'AI模型已接入：' . $modelKey : 'AI模型未生成，已使用本地兜底';
+        $externalData['ai_model_label'] = $modelLabel;
+        $externalData['ai_source_summary'] = $aiUsed ? 'AI模型已接入：' . $modelLabel : 'AI模型未生成，已使用本地兜底';
         $externalData['ai_error'] = $aiUsed ? '' : (string)($aiEvaluation['error'] ?? '');
+
+        if ($aiUsed && !(bool)($externalData['used'] ?? false)) {
+            $poiSearch = $this->buildAiPoiSearch($input, $localData, $aiEvaluation, $client);
+            $externalData['ai_search_available'] = (bool)($poiSearch['available'] ?? false);
+            $externalData['ai_search_used'] = (bool)($poiSearch['used'] ?? false);
+            $externalData['ai_search_provider'] = $modelLabel;
+            $externalData['ai_poi_search'] = $poiSearch;
+
+            if (($poiSearch['used'] ?? false) === true) {
+                $externalData['source_summary'][] = 'AI搜索补充地图/POI：' . $modelLabel;
+            } else {
+                $externalData['missing_data'] = array_values(array_unique(array_merge(
+                    (array)($externalData['missing_data'] ?? []),
+                    ['AI_POI_SEARCH']
+                )));
+            }
+        } else {
+            $externalData['ai_search_available'] = false;
+            $externalData['ai_search_used'] = false;
+            $externalData['ai_search_provider'] = '';
+            $externalData['ai_poi_search'] = [];
+        }
 
         if (!$aiUsed) {
             $externalData['missing_data'] = array_values(array_unique(array_merge(
@@ -560,6 +587,125 @@ class StrategySimulation extends Base
         }
 
         return $externalData;
+    }
+
+    private function strategyModelChainLabel(string $modelKey, ?LlmClient $client = null): string
+    {
+        $key = strtolower(trim($modelKey));
+        $primary = str_contains($key, 'deepseek') ? 'DeepSeek' : trim($modelKey);
+        if ($primary === '') {
+            $primary = 'AI';
+        }
+
+        $client = $client ?: new LlmClient();
+        $mimoConfigured = false;
+        try {
+            $mimoConfigured = $client->isConfiguredModelKey(self::STRATEGY_POI_AI_MODEL_KEY);
+        } catch (Throwable $e) {
+            $mimoConfigured = false;
+        }
+
+        if (!$mimoConfigured) {
+            return $primary;
+        }
+
+        return $primary === 'DeepSeek' ? 'DeepSeek + MIMO' : $primary . ' + MIMO';
+    }
+
+    private function buildAiPoiSearch(array $input, array $localData, array $aiEvaluation, LlmClient $client): array
+    {
+        $modelKey = self::STRATEGY_POI_AI_MODEL_KEY;
+        if (!$client->isConfiguredModelKey($modelKey)) {
+            return [
+                'available' => false,
+                'used' => false,
+                'model_key' => $modelKey,
+                'summary' => '',
+                'error' => 'MIMO_MODEL_NOT_CONFIGURED',
+            ];
+        }
+
+        try {
+            $analysis = $client->createJsonResponse([
+                [
+                    'role' => 'system',
+                    'content' => '你是酒店选址 POI 辅助搜索分析师。使用 MIMO 对用户给定城市、区域、地址、商圈类型和本地经营数据进行位置与周边业态判断。必须明确这是 AI 搜索/推断，不是地图 API 实采；不得编造具体门店名称、精确距离或未验证经营数字；输出 JSON。',
+                ],
+                [
+                    'role' => 'user',
+                    'content' => json_encode([
+                        'project_input' => $input,
+                        'local_data_summary' => [
+                            'data_sources' => $localData['data_sources'] ?? [],
+                            'daily_reports' => $localData['daily_reports'] ?? [],
+                            'online_daily_data' => $localData['online_daily_data'] ?? [],
+                            'competitor_analysis' => $localData['competitor_analysis'] ?? [],
+                            'missing_data' => $localData['missing_data'] ?? [],
+                        ],
+                        'deepseek_strategy_evaluation' => [
+                            'summary' => $aiEvaluation['summary'] ?? '',
+                            'decision' => $aiEvaluation['decision'] ?? '',
+                            'main_risks' => $aiEvaluation['main_risks'] ?? [],
+                            'next_data_to_verify' => $aiEvaluation['next_data_to_verify'] ?? [],
+                            'assumptions' => $aiEvaluation['assumptions'] ?? [],
+                        ],
+                        'output_language' => 'zh-CN',
+                    ], JSON_UNESCAPED_UNICODE),
+                ],
+            ], $this->strategyAiPoiSearchSchema(), $modelKey);
+
+            return $this->normalizeAiPoiSearch($analysis, $modelKey);
+        } catch (Throwable $e) {
+            return [
+                'available' => true,
+                'used' => false,
+                'model_key' => $modelKey,
+                'summary' => '',
+                'error' => mb_substr(trim($e->getMessage()), 0, 160),
+            ];
+        }
+    }
+
+    private function strategyAiPoiSearchSchema(): array
+    {
+        $stringArray = ['type' => 'array', 'items' => ['type' => 'string']];
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => [
+                'summary',
+                'demand_signals',
+                'competition_signals',
+                'poi_assumptions',
+                'verification_items',
+                'confidence_note',
+            ],
+            'properties' => [
+                'summary' => ['type' => 'string'],
+                'demand_signals' => $stringArray,
+                'competition_signals' => $stringArray,
+                'poi_assumptions' => $stringArray,
+                'verification_items' => $stringArray,
+                'confidence_note' => ['type' => 'string'],
+            ],
+        ];
+    }
+
+    private function normalizeAiPoiSearch(array $raw, string $modelKey): array
+    {
+        return [
+            'available' => true,
+            'used' => true,
+            'source' => 'mimo_ai_search',
+            'model_key' => $modelKey,
+            'summary' => $this->textOrFallback($raw['summary'] ?? null, 'MIMO 已完成位置/POI 辅助搜索判断，需用地图或实地调研复核。'),
+            'demand_signals' => $this->stringList($raw['demand_signals'] ?? [], []),
+            'competition_signals' => $this->stringList($raw['competition_signals'] ?? [], []),
+            'poi_assumptions' => $this->stringList($raw['poi_assumptions'] ?? [], []),
+            'verification_items' => $this->stringList($raw['verification_items'] ?? [], []),
+            'confidence_note' => $this->textOrFallback($raw['confidence_note'] ?? null, 'AI 搜索不能替代地图 API、实地踩点和 OTA 竞品样本。'),
+            'generated_at' => date('Y-m-d H:i:s'),
+        ];
     }
 
     private function formatRecord(array $row, bool $withDetail): array
@@ -847,6 +993,11 @@ class StrategySimulation extends Base
             'ai_data_used' => $aiUsed,
             'ai_data_available' => $aiAvailable,
             'ai_model_key' => (string)($externalData['ai_model_key'] ?? ''),
+            'ai_model_label' => (string)($externalData['ai_model_label'] ?? ''),
+            'ai_search_available' => (bool)($externalData['ai_search_available'] ?? false),
+            'ai_search_used' => (bool)($externalData['ai_search_used'] ?? false),
+            'ai_search_provider' => (string)($externalData['ai_search_provider'] ?? ''),
+            'ai_poi_search' => $externalData['ai_poi_search'] ?? [],
             'ai_error' => (string)($externalData['ai_error'] ?? ''),
             'freshness' => $externalUsed ? ($externalData['freshness'] ?? 'today_cache') : 'local_only',
             'source_summary' => array_values(array_unique(array_filter($sourceSummary))),

@@ -603,6 +603,19 @@ function classifyByUrl(url) {
   return findCtripEndpointByUrl(url, { preferredSection: activeCaptureSection })?.section || '';
 }
 
+function isLegacyCtripBusinessMetricUrl(url) {
+  const text = String(url || '').toLowerCase();
+  return [
+    'queryhomepagerealtimedata',
+    'getdayreportrealtimedate',
+    'fetchmarketoverviewv2',
+    'fetchcapacityoverviewv4',
+    'getdayreportflowcompete',
+    'getdayreportserverquantity',
+    'fetchvisitortitlev2',
+  ].some(name => text.includes(name));
+}
+
 function inferSection(value, url) {
   if (!value || typeof value !== 'object') {
     return '';
@@ -643,6 +656,9 @@ function normalizeRows(value, section, sourceUrl) {
     return normalizeGenericList(value, 'traffic')
       .map(row => normalizeTrafficRow(row, sourceUrl))
       .filter(Boolean);
+  }
+  if (!isLegacyCtripBusinessMetricUrl(sourceUrl)) {
+    return [];
   }
   return normalizeGenericList(value, 'business')
     .map(row => normalizeBusinessRow(row, sourceUrl))
@@ -762,7 +778,7 @@ function normalizeBusinessRow(row, sourceUrl) {
   }
 
   const dataDate = normalizeDate(firstValue(row, ['dataDate', 'date', 'data_date', 'statDate', 'stat_date', 'bizDate', 'businessDate', 'reportDate'])) || defaultDataDate;
-  const resolvedHotelId = stringValue(firstValue(row, ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'nodeId', 'node_id'], hotelId || profileId));
+  const resolvedHotelId = ctripPlatformHotelId(row, hotelId || profileId);
   if (!resolvedHotelId) {
     return null;
   }
@@ -820,7 +836,7 @@ function normalizeTrafficRow(row, sourceUrl) {
 
   const compareText = String(firstValue(row, ['compareType', 'compare_type', 'type', 'rankType', 'name', 'hotelName'], '')).toLowerCase();
   const isCompetitor = /competitor|peer|average|avg|compete/.test(compareText);
-  const resolvedHotelId = stringValue(firstValue(row, ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'nodeId', 'node_id'], isCompetitor ? '-1' : (hotelId || profileId)));
+  const resolvedHotelId = ctripPlatformHotelId(row, isCompetitor ? '-1' : (hotelId || profileId));
   if (!resolvedHotelId) {
     return null;
   }
@@ -957,6 +973,21 @@ function stringValue(value) {
     return String(value);
   }
   return '';
+}
+
+function ctripPlatformHotelId(row, fallback = '') {
+  if (!row || typeof row !== 'object') {
+    return stringValue(fallback);
+  }
+  return stringValue(firstValue(row, [
+    'masterHotelId',
+    'masterhotelid',
+    'master_hotel_id',
+    'hotelId',
+    'hotel_id',
+    'HotelId',
+    'hotelID',
+  ], fallback));
 }
 
 function normalizeScore(value) {
@@ -1187,11 +1218,14 @@ function compactCaptureAudit(audit) {
   const missingBySection = {};
   for (const [section, stats] of Object.entries(audit.endpoint_coverage?.sections || {})) {
     if ((stats.missing_endpoint_count || 0) > 0) {
+      const missingEndpointIds = Array.isArray(stats.missing_endpoint_ids) && stats.missing_endpoint_ids.length > 0
+        ? stats.missing_endpoint_ids
+        : (stats.missing_endpoints || []).map((endpoint) => endpoint?.id).filter(Boolean);
       missingBySection[section] = {
         expected_endpoint_count: stats.expected_endpoint_count || 0,
         captured_endpoint_count: stats.captured_endpoint_count || 0,
         missing_endpoint_count: stats.missing_endpoint_count || 0,
-        missing_endpoint_ids: stats.missing_endpoint_ids || [],
+        missing_endpoint_ids: missingEndpointIds,
       };
     }
   }

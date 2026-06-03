@@ -168,17 +168,18 @@ class MacroSignalService
         $weather = $this->buildWeatherForecast($hotelIds);
         $forecast = $weather['forecast'] ?? [];
         if (empty($forecast)) {
+            $reason = trim((string)($weather['error_message'] ?? '天气自动获取未返回可用结果'));
             return $this->card(
                 'weather',
                 '天气信号',
                 'pending',
                 '自动获取中',
                 'gray',
-                '天气信息会按门店城市自动获取，当前缺少可用城市或天气服务返回',
+                $reason !== '' ? $reason : '天气信息会按门店城市自动获取，当前缺少可用城市或天气服务返回',
                 [$this->metric('获取方式', '自动获取')],
-                ['检查门店地址是否包含城市，或检查高德天气配置'],
+                ['检查门店地址是否包含城市，或稍后重试公开天气接口'],
                 '查看详情',
-                ['天气自动获取未返回可用结果']
+                [$reason !== '' ? $reason : '天气自动获取未返回可用结果']
             );
         }
 
@@ -983,37 +984,24 @@ class MacroSignalService
             $forecast = $result['forecast'] ?? [];
             return [
                 'forecast' => is_array($forecast) ? $forecast : [],
-                'source_text' => '高德天气自动获取',
+                'source_text' => $this->weatherSourceText((string)($result['source'] ?? '')),
             ];
         }
 
         return [
-            'forecast' => $this->buildLocalWeatherFallback($location),
-            'source_text' => '系统按门店城市自动生成',
+            'forecast' => [],
+            'source_text' => '天气自动获取失败',
+            'error_message' => (string)($result['message'] ?? '天气接口未返回可用数据'),
         ];
     }
 
-    private function buildLocalWeatherFallback(string $location): array
+    private function weatherSourceText(string $source): string
     {
-        $seed = abs((int)sprintf('%u', crc32($location)));
-        $conditions = ['晴', '多云', '阴', '小雨', '阵雨', '中雨'];
-        $winds = ['东风', '南风', '西风', '北风'];
-        $forecast = [];
-
-        for ($i = 0; $i < 7; $i++) {
-            $date = strtotime('+' . $i . ' day');
-            $forecast[] = [
-                'location' => $location,
-                'date' => date('m-d', $date),
-                'week' => ['日', '一', '二', '三', '四', '五', '六'][(int)date('w', $date)],
-                'temp_high' => 24 + (($seed + $i) % 6),
-                'temp_low' => 16 + (($seed + $i) % 5),
-                'condition' => $conditions[($seed + $i) % count($conditions)],
-                'wind' => $winds[($seed + $i) % count($winds)] . ' 2-3级',
-            ];
-        }
-
-        return $forecast;
+        return match ($source) {
+            'AMap weather' => '高德天气自动获取',
+            'Open-Meteo weather' => 'Open-Meteo 公开天气自动获取',
+            default => '天气接口自动获取',
+        };
     }
 
     private function resolveWeatherLocation(array $hotelIds): string
@@ -1028,10 +1016,9 @@ class MacroSignalService
             if (!$hotel && !empty($ids)) {
                 $hotel = Db::name('hotels')->field('id,address,status')->whereIn('id', $ids)->order('id', 'asc')->find();
             }
-            $location = $this->extractCityFromAddress((string)($hotel['address'] ?? ''));
-            return $location !== '' ? $location : '本地';
+            return $this->extractCityFromAddress((string)($hotel['address'] ?? ''));
         } catch (Throwable $e) {
-            return '本地';
+            return '';
         }
     }
 

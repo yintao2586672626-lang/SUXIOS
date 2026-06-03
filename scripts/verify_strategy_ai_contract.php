@@ -37,6 +37,10 @@ assert_strategy_ai_contract(
     str_contains($source, "'ai_data_available'") && str_contains($source, "'ai_data_used'"),
     'strategy data snapshot must expose AI availability separately from map/POI external data'
 );
+assert_strategy_ai_contract(
+    str_contains($source, 'buildAiPoiSearch') && str_contains($source, "'ai_search_used'") && str_contains($source, "'ai_model_label'"),
+    'strategy simulation must expose DeepSeek + MIMO AI search status for map/POI gaps'
+);
 
 $ref = new ReflectionClass(StrategySimulation::class);
 assert_strategy_ai_contract($ref->hasMethod('buildDataSnapshot'), 'strategy data snapshot method is required');
@@ -61,6 +65,13 @@ $snapshot = $method->invokeArgs($controller, [
         'ai_used' => true,
         'ai_source_summary' => 'AI模型已接入：deepseek_chat',
         'ai_model_key' => 'deepseek_chat',
+        'ai_model_label' => 'DeepSeek + MIMO',
+        'ai_search_available' => true,
+        'ai_search_used' => true,
+        'ai_search_provider' => 'DeepSeek + MIMO',
+        'ai_poi_search' => [
+            'summary' => 'AI搜索已补充周边POI判断，仍需地图或实地复核。',
+        ],
         'ai_error' => '',
     ],
 ]);
@@ -68,11 +79,17 @@ $snapshot = $method->invokeArgs($controller, [
 assert_strategy_ai_contract(($snapshot['external_data_available'] ?? true) === false, 'map/POI external status must keep its original meaning');
 assert_strategy_ai_contract(($snapshot['ai_data_available'] ?? false) === true, 'AI availability must be shown when DeepSeek config exists');
 assert_strategy_ai_contract(($snapshot['ai_data_used'] ?? false) === true, 'AI usage must be shown when the AI result is generated');
+assert_strategy_ai_contract(($snapshot['ai_search_used'] ?? false) === true, 'AI search usage must be shown when MIMO fills map/POI gap');
+assert_strategy_ai_contract(($snapshot['ai_model_label'] ?? '') === 'DeepSeek + MIMO', 'AI model label must show DeepSeek + MIMO instead of raw model key only');
 assert_strategy_ai_contract(in_array('AI模型已接入：deepseek_chat', $snapshot['source_summary'] ?? [], true), 'AI source summary must be included in data口径');
 
 assert_strategy_ai_contract(
     str_contains($publicSource, 'strategyAiSourceLabel') && str_contains($publicSource, 'ai_data_used'),
     'frontend strategy result must render AI data status instead of only external map status'
+);
+assert_strategy_ai_contract(
+    str_contains($publicSource, 'strategyAiModelDisplayLabel') && str_contains($publicSource, 'strategyPoiDataSourceLabel') && str_contains($publicSource, 'AI搜索') && str_contains($publicSource, 'DeepSeek + MIMO'),
+    'frontend strategy data rows must show DeepSeek + MIMO and AI search for map/POI'
 );
 assert_strategy_ai_contract(
     str_contains($publicSource, '<h3 class="font-bold text-gray-800">AI赋能战略推演结果</h3>') && str_contains($publicSource, 'AI推演结论'),

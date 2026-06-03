@@ -2,7 +2,7 @@
   "platform": "ctrip",
   "section_count": 16,
   "endpoint_count": 72,
-  "field_count": 162,
+  "field_count": 171,
   "default_sections": [
     "business_overview",
     "room_type",
@@ -425,10 +425,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -1557,7 +1558,6 @@
             "PSI",
             "psiScore",
             "qualityscore",
-            "serviceScore",
             "totalScore"
           ],
           "description": "",
@@ -1772,6 +1772,29 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -1887,10 +1910,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -2101,10 +2125,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -2314,10 +2339,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -2477,10 +2503,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -3618,10 +3645,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -3912,10 +3940,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -3979,18 +4008,50 @@
           "confidenceStatus": ""
         },
         {
-          "id": "order_count",
-          "label": "预订订单数",
+          "id": "order_amount",
+          "label": "离店销售额",
           "sourceKeys": [
-            "orderQuantity",
-            "synchronizationOrderQuantity",
-            "bookOrderNum",
-            "orderCount",
-            "orderNum",
-            "ordquantity",
-            "bookingCount"
+            "amount"
           ],
-          "description": "OTA预订订单量",
+          "description": "经营报告概要日报卡片主值",
+          "scope": "ota_channel",
+          "unit": "CNY",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_amount_last_week",
+          "label": "离店销售额上周同期",
+          "sourceKeys": [
+            "synchronizationAmount"
+          ],
+          "description": "上周同期对比值，不覆盖本期销售额",
+          "scope": "ota_channel",
+          "unit": "CNY",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "amount_rank",
+          "label": "离店销售额竞争圈排名",
+          "sourceKeys": [
+            "rankOfAmount"
+          ],
+          "description": "",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -4005,17 +4066,11 @@
         },
         {
           "id": "room_nights",
-          "label": "间夜量",
+          "label": "离店间夜量",
           "sourceKeys": [
-            "quantity",
-            "bookQuantity",
-            "synchronizationBookQuantity",
-            "roomNights",
-            "nightNum",
-            "occupiedRooms",
-            "checkOutQuantity"
+            "quantity"
           ],
-          "description": "OTA间夜或在店间夜",
+          "description": "经营报告概要日报卡片主值",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -4029,21 +4084,90 @@
           "confidenceStatus": ""
         },
         {
-          "id": "order_amount",
-          "label": "预订销售额",
+          "id": "room_nights_last_week",
+          "label": "离店间夜量上周同期",
           "sourceKeys": [
-            "amount",
-            "bookAmount",
-            "synchronizationBookAmount",
-            "orderAmount",
-            "saleAmount",
-            "ordamount",
-            "totalAmount",
-            "bookingAmount"
+            "synchronizationQuantity"
           ],
-          "description": "OTA预订或离店销售额",
+          "description": "上周同期对比值，不覆盖本期间夜",
           "scope": "ota_channel",
-          "unit": "CNY",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "quantity_rank",
+          "label": "离店间夜量竞争圈排名",
+          "sourceKeys": [
+            "rankOfQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "close_rate",
+          "label": "成交率",
+          "sourceKeys": [
+            "closeRate"
+          ],
+          "description": "经营报告概要日报卡片主值",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "close_rate_last_week",
+          "label": "成交率上周同期",
+          "sourceKeys": [
+            "synchronizationCloseRate"
+          ],
+          "description": "上周同期对比值，不覆盖本期成交率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "close_rate_rank",
+          "label": "成交率竞争圈排名",
+          "sourceKeys": [
+            "rankOfCloseRate"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -4058,13 +4182,9 @@
           "id": "avg_price",
           "label": "平均卖价",
           "sourceKeys": [
-            "averagePrice",
-            "synchronizationAveragePrice",
-            "avgPrice",
-            "adr",
-            "minPrice"
+            "averagePrice"
           ],
-          "description": "OTA均价或起价",
+          "description": "经营报告概要日报卡片主值",
           "scope": "ota_channel",
           "unit": "CNY",
           "required": false,
@@ -4078,18 +4198,14 @@
           "confidenceStatus": ""
         },
         {
-          "id": "conversion_rate",
-          "label": "成交/下单转化率",
+          "id": "avg_price_last_week",
+          "label": "平均卖价上周同期",
           "sourceKeys": [
-            "orderConversionRate",
-            "closeRate",
-            "conversionRate",
-            "convertionRate",
-            "cvr"
+            "synchronizationAveragePrice"
           ],
-          "description": "从流量到订单的转化",
+          "description": "上周同期对比值，不覆盖本期平均卖价",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "CNY",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -4101,80 +4217,10 @@
           "confidenceStatus": ""
         },
         {
-          "id": "occupancy_rate",
-          "label": "出租率",
+          "id": "avg_price_rank",
+          "label": "平均卖价竞争圈排名",
           "sourceKeys": [
-            "rentalRate",
-            "occupancyRate"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "tensity",
-          "label": "紧张度",
-          "sourceKeys": [
-            "tensityScore",
-            "tensity",
-            "Tensity",
-            "nowTensityDetail"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "rank",
-          "label": "竞争圈排名",
-          "sourceKeys": [
-            "rank",
-            "rank2",
-            "visitorRank",
-            "rankOfAmount",
-            "rankOfOrderQuantity",
-            "competitorRank",
-            "ranking"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_average",
-          "label": "竞争圈平均值",
-          "sourceKeys": [
-            "competitorsAverageOrderQuantity",
-            "competitorsAverageOccupiedRooms",
-            "competitorAvgNumber",
-            "competitorTensityScore"
+            "rankOfAveragePrice"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -4206,10 +4252,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -5423,10 +5470,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -6353,10 +6401,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -6460,10 +6509,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -7390,10 +7440,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -7460,33 +7511,9 @@
           "id": "psi_score",
           "label": "PSI服务质量分",
           "sourceKeys": [
-            "psi",
-            "PSI",
-            "psiScore",
-            "qualityscore",
-            "serviceScore",
-            "totalScore"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "service_score",
-          "label": "服务质量分",
-          "sourceKeys": [
             "serviceScore"
           ],
-          "description": "",
+          "description": "经营日报固定取 data.serviceScore",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -7501,7 +7528,7 @@
         },
         {
           "id": "service_score_rank",
-          "label": "服务质量排名",
+          "label": "PSI服务质量分竞争圈排名",
           "sourceKeys": [
             "serviceScoreRank"
           ],
@@ -7519,11 +7546,10 @@
           "confidenceStatus": ""
         },
         {
-          "id": "base_score",
-          "label": "基础分",
+          "id": "comment_score_summary",
+          "label": "酒店点评分",
           "sourceKeys": [
-            "baseScore",
-            "basicScore"
+            "ctripRatingall"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -7539,31 +7565,10 @@
           "confidenceStatus": ""
         },
         {
-          "id": "reward_score",
-          "label": "奖励分",
+          "id": "ctrip_rating",
+          "label": "酒店点评分",
           "sourceKeys": [
-            "rewardScore",
-            "bonusScore"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "deduct_score",
-          "label": "减分项",
-          "sourceKeys": [
-            "deductScore",
-            "penaltyScore"
+            "ctripRatingall"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -7582,9 +7587,7 @@
           "id": "reply_rate",
           "label": "5分钟回复率",
           "sourceKeys": [
-            "replyrate5m",
-            "replyRate",
-            "fiveMinuteReplyRate"
+            "replyrate5m"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -7601,10 +7604,47 @@
         },
         {
           "id": "reply_rank",
-          "label": "回复排名",
+          "label": "5分钟回复率竞争圈排名",
           "sourceKeys": [
-            "imScoreHtlrank",
-            "replyrate5mRank"
+            "imScoreHtlrank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_collect",
+          "label": "酒店收藏数",
+          "sourceKeys": [
+            "hotelCollect"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_collect_rank",
+          "label": "酒店收藏数竞争圈排名",
+          "sourceKeys": [
+            "hotelCollectRank"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -7639,72 +7679,10 @@
           "confidenceStatus": ""
         },
         {
-          "id": "hotel_collect",
-          "label": "酒店收藏数",
+          "id": "deduct_score",
+          "label": "减分项",
           "sourceKeys": [
-            "hotelCollect",
-            "favoriteCount",
-            "collectCount"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "hotel_collect_rank",
-          "label": "酒店收藏排名",
-          "sourceKeys": [
-            "hotelCollectRank"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "comment_score_summary",
-          "label": "点评分汇总",
-          "sourceKeys": [
-            "ctripRatingall",
-            "qunarRatingall",
-            "HotelRating",
-            "ratingall"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "ctrip_rating",
-          "label": "携程评分",
-          "sourceKeys": [
-            "ctripRatingall"
+            "penaltyScore"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -7756,10 +7734,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -7962,10 +7941,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -9270,10 +9250,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -9564,10 +9545,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -9858,10 +9840,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -10153,10 +10136,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -10448,10 +10432,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -10742,10 +10727,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -10864,10 +10850,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -11158,10 +11145,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -11341,10 +11329,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -11500,10 +11489,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -11795,10 +11785,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -11918,10 +11909,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -12850,10 +12842,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -13780,10 +13773,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -14921,10 +14915,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -16063,10 +16058,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -16994,10 +16990,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -17924,10 +17921,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -18854,10 +18852,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -18975,10 +18974,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -19049,7 +19049,6 @@
             "PSI",
             "psiScore",
             "qualityscore",
-            "serviceScore",
             "totalScore"
           ],
           "description": "",
@@ -19251,6 +19250,29 @@
             "hotelCollectRank"
           ],
           "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -19341,10 +19363,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -19415,7 +19438,6 @@
             "PSI",
             "psiScore",
             "qualityscore",
-            "serviceScore",
             "totalScore"
           ],
           "description": "",
@@ -19630,6 +19652,29 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -19707,10 +19752,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -19761,6 +19807,29 @@
             "updateTime"
           ],
           "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -19854,10 +19923,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -20148,10 +20218,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -20254,10 +20325,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -21184,10 +21256,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -21258,7 +21331,6 @@
             "PSI",
             "psiScore",
             "qualityscore",
-            "serviceScore",
             "totalScore"
           ],
           "description": "",
@@ -21473,6 +21545,29 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -21550,10 +21645,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -22480,10 +22576,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -22685,10 +22782,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -22848,10 +22946,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -23114,10 +23213,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -23376,10 +23476,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -23836,10 +23937,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -24009,10 +24111,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -24179,10 +24282,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -24496,10 +24600,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -24813,10 +24918,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -25131,10 +25237,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -25448,10 +25555,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -25765,10 +25873,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -26083,10 +26192,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -26443,10 +26553,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -26760,10 +26871,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -26973,10 +27085,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -27186,10 +27299,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -27399,10 +27513,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -27473,7 +27588,6 @@
             "PSI",
             "psiScore",
             "qualityscore",
-            "serviceScore",
             "totalScore"
           ],
           "description": "",
@@ -27675,6 +27789,29 @@
             "hotelCollectRank"
           ],
           "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -27766,10 +27903,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -27840,7 +27978,6 @@
             "PSI",
             "psiScore",
             "qualityscore",
-            "serviceScore",
             "totalScore"
           ],
           "description": "",
@@ -28042,6 +28179,29 @@
             "hotelCollectRank"
           ],
           "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -28175,10 +28335,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -28249,7 +28410,6 @@
             "PSI",
             "psiScore",
             "qualityscore",
-            "serviceScore",
             "totalScore"
           ],
           "description": "",
@@ -28464,6 +28624,29 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -28541,10 +28724,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -28664,10 +28848,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -28804,10 +28989,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -29052,10 +29238,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -29217,10 +29404,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -29465,10 +29653,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -29714,10 +29903,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -29962,10 +30152,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -30422,10 +30613,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",
@@ -31728,10 +31920,11 @@
           "id": "hotel_id",
           "label": "酒店ID",
           "sourceKeys": [
-            "hotelId",
-            "hotel_id",
             "masterHotelId",
             "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
             "hotelID"
           ],
           "description": "",

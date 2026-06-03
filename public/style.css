@@ -6670,3 +6670,1583 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
         font-size: 1.64rem !important;
     }
 }
+
+/* SUXIOS logged-in app taste polish: scoped to .suxi-app-shell; login page intentionally excluded. */
+aside.sidebar:not(.collapsed) {
+    overflow-x: hidden;
+}
+
+.sidebar * {
+    min-width: 0;
+}
+
+.sidebar a,
+.sidebar button {
+    max-width: 100%;
+}
+
+.suxi-app-shell {
+    --sx-page-bg: #eef3f8;
+    --sx-surface: #ffffff;
+    --sx-surface-muted: #f8fafc;
+    --sx-surface-raised: #ffffff;
+    --sx-border: #d9e2ec;
+    --sx-border-strong: #b8c7d8;
+    --sx-text: #0f172a;
+    --sx-text-muted: #64748b;
+    --sx-text-soft: #94a3b8;
+    --sx-accent: #2563eb;
+    --sx-accent-dark: #1d4ed8;
+    --sx-accent-soft: #dbeafe;
+    --sx-page-accent: #2563eb;
+    --sx-page-accent-dark: #1d4ed8;
+    --sx-page-accent-soft: #dbeafe;
+    --sx-page-glow-rgb: 37, 99, 235;
+    --sx-sidebar-bg: #0d1826;
+    --sx-sidebar-bg-deep: #08111d;
+    --sx-shadow-soft: 0 12px 30px rgba(15, 23, 42, .06), 0 1px 2px rgba(15, 23, 42, .04);
+    --sx-shadow-lift: 0 18px 42px rgba(15, 23, 42, .10), 0 1px 2px rgba(15, 23, 42, .06);
+    --sx-danger: #dc2626;
+    --sx-success: #059669;
+    --sx-warning: #d97706;
+    color: var(--sx-text);
+    background: var(--sx-page-bg);
+    font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.suxi-app-shell.h-screen {
+    height: 100dvh !important;
+    min-height: 100dvh;
+}
+
+.suxi-app-shell,
+.suxi-app-shell * {
+    box-sizing: border-box;
+}
+
+.suxi-app-shell :focus-visible {
+    outline: 2px solid rgba(37, 99, 235, .36);
+    outline-offset: 2px;
+}
+
+.suxi-app-shell .text-xs { font-size: 12px !important; }
+.suxi-app-shell .text-sm { font-size: 13px !important; }
+.suxi-app-shell .text-base { font-size: 14px !important; }
+.suxi-app-shell .text-lg { font-size: 16px !important; }
+.suxi-app-shell .text-xl { font-size: 18px !important; }
+.suxi-app-shell .text-2xl { font-size: 22px !important; }
+.suxi-app-shell .text-3xl { font-size: 26px !important; }
+.suxi-app-shell .text-4xl { font-size: 32px !important; }
+
+.suxi-app-shell main[data-testid="app-main"] {
+    background:
+        radial-gradient(circle at 12% -8%, rgba(var(--sx-page-glow-rgb), .12), transparent 30%),
+        radial-gradient(circle at 92% 10%, rgba(20, 184, 166, .08), transparent 26%),
+        linear-gradient(180deg, rgba(248, 250, 252, .94), rgba(238, 243, 248, .98)),
+        var(--sx-page-bg) !important;
+    color: var(--sx-text);
+}
+
+.suxi-app-shell .suxi-page-body {
+    position: relative;
+    isolation: isolate;
+    width: 100%;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 20px !important;
+}
+
+.suxi-app-shell .suxi-page-body::before {
+    content: "";
+    position: absolute;
+    inset: 0 12px auto 12px;
+    z-index: -1;
+    height: 220px;
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 12% 0%, rgba(var(--sx-page-glow-rgb), .12), transparent 38%),
+        linear-gradient(180deg, rgba(255, 255, 255, .62), transparent);
+    pointer-events: none;
+}
+
+.suxi-app-shell main[data-current-page] {
+    --sx-page-accent: #2563eb;
+    --sx-page-accent-dark: #1d4ed8;
+    --sx-page-accent-soft: #dbeafe;
+    --sx-page-glow-rgb: 37, 99, 235;
+}
+
+.suxi-app-shell main[data-current-page="compass"] {
+    --sx-page-accent: #2563eb;
+    --sx-page-accent-dark: #1d4ed8;
+    --sx-page-accent-soft: #dbeafe;
+    --sx-page-glow-rgb: 37, 99, 235;
+}
+
+.suxi-app-shell main[data-current-page="ai-strategy"],
+.suxi-app-shell main[data-current-page="ai-simulation"],
+.suxi-app-shell main[data-current-page="ai-feasibility"],
+.suxi-app-shell main[data-current-page="agent-center"],
+.suxi-app-shell main[data-current-page="ai-model-config"] {
+    --sx-page-accent: #2563eb;
+    --sx-page-accent-dark: #1d4ed8;
+    --sx-page-accent-soft: #dbeafe;
+    --sx-page-glow-rgb: 37, 99, 235;
+}
+
+.suxi-app-shell main[data-current-page="opening-overview"],
+.suxi-app-shell main[data-current-page="opening-checklist"],
+.suxi-app-shell main[data-current-page="lifecycle"] {
+    --sx-page-accent: #0891b2;
+    --sx-page-accent-dark: #0e7490;
+    --sx-page-accent-soft: #cffafe;
+    --sx-page-glow-rgb: 8, 145, 178;
+}
+
+.suxi-app-shell main[data-current-page="ops-source"],
+.suxi-app-shell main[data-current-page="ops-analysis"],
+.suxi-app-shell main[data-current-page="ops-insight"],
+.suxi-app-shell main[data-current-page="ops-plan"],
+.suxi-app-shell main[data-current-page="ops-track"] {
+    --sx-page-accent: #059669;
+    --sx-page-accent-dark: #047857;
+    --sx-page-accent-soft: #d1fae5;
+    --sx-page-glow-rgb: 5, 150, 105;
+}
+
+.suxi-app-shell main[data-current-page="market-evaluation"],
+.suxi-app-shell main[data-current-page="market-eval"],
+.suxi-app-shell main[data-current-page="benchmark-model"],
+.suxi-app-shell main[data-current-page="collaboration-efficiency"],
+.suxi-app-shell main[data-current-page="sync-efficiency"],
+.suxi-app-shell main[data-current-page="asset-pricing"],
+.suxi-app-shell main[data-current-page="timing-strategy"],
+.suxi-app-shell main[data-current-page="decision-board"],
+.suxi-app-shell main[data-current-page="revenue-research-center"] {
+    --sx-page-accent: #b45309;
+    --sx-page-accent-dark: #92400e;
+    --sx-page-accent-soft: #fef3c7;
+    --sx-page-glow-rgb: 180, 83, 9;
+}
+
+.suxi-app-shell main[data-current-page="online-data"],
+.suxi-app-shell main[data-current-page="data-config"] {
+    --sx-page-accent: #0f766e;
+    --sx-page-accent-dark: #115e59;
+    --sx-page-accent-soft: #ccfbf1;
+    --sx-page-glow-rgb: 15, 118, 110;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] {
+    --sx-page-accent: #1e40af;
+    --sx-page-accent-dark: #1e3a8a;
+    --sx-page-accent-soft: #dbeafe;
+    --sx-page-glow-rgb: 30, 64, 175;
+    --sx-manual-header-from: #07111f;
+    --sx-manual-header-to: #12315f;
+    --sx-manual-surface: #f5f8fc;
+    --sx-manual-border: #cad7e6;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] {
+    --sx-page-accent: #9a5b13;
+    --sx-page-accent-dark: #78350f;
+    --sx-page-accent-soft: #fef3c7;
+    --sx-page-glow-rgb: 154, 91, 19;
+    --sx-manual-header-from: #101827;
+    --sx-manual-header-to: #3a2c18;
+    --sx-manual-surface: #f8f6f1;
+    --sx-manual-border: #d9c7a6;
+}
+
+.suxi-app-shell main[data-current-page="hotels"],
+.suxi-app-shell main[data-current-page="users"],
+.suxi-app-shell main[data-current-page="roles"],
+.suxi-app-shell main[data-current-page="operation-logs"],
+.suxi-app-shell main[data-current-page="system-config"] {
+    --sx-page-accent: #475569;
+    --sx-page-accent-dark: #334155;
+    --sx-page-accent-soft: #e2e8f0;
+    --sx-page-glow-rgb: 71, 85, 105;
+}
+
+.suxi-app-shell main[data-current-page="knowledge-center"] {
+    --sx-page-accent: #7c3aed;
+    --sx-page-accent-dark: #6d28d9;
+    --sx-page-accent-soft: #ede9fe;
+    --sx-page-glow-rgb: 124, 58, 237;
+}
+
+.suxi-app-shell .page-enter {
+    animation: sxPageIn .22s ease-out;
+}
+
+@keyframes sxPageIn {
+    from {
+        opacity: .72;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.suxi-app-shell aside.sidebar {
+    border-right: 1px solid rgba(255, 255, 255, .08) !important;
+    background:
+        radial-gradient(circle at 20% 0%, rgba(37, 99, 235, .20), transparent 32%),
+        linear-gradient(180deg, var(--sx-sidebar-bg), var(--sx-sidebar-bg-deep)) !important;
+    box-shadow: 14px 0 34px rgba(8, 17, 29, .16);
+}
+
+.suxi-app-shell aside.sidebar::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 1px;
+    height: 100%;
+    background: linear-gradient(180deg, rgba(147, 197, 253, .32), rgba(255, 255, 255, .04), rgba(147, 197, 253, .16));
+    pointer-events: none;
+}
+
+.suxi-app-shell .sidebar-item {
+    border: 1px solid transparent;
+    border-radius: 8px !important;
+    color: rgba(226, 232, 240, .78);
+}
+
+.suxi-app-shell .sidebar-item:hover {
+    border-color: rgba(148, 163, 184, .16);
+    background: rgba(255, 255, 255, .07) !important;
+    color: #fff;
+}
+
+.suxi-app-shell .sidebar-item.active {
+    border-color: rgba(147, 197, 253, .26);
+    background: linear-gradient(135deg, rgba(37, 99, 235, .24), rgba(20, 184, 166, .12)) !important;
+    color: #fff;
+    box-shadow: inset 3px 0 0 rgba(147, 197, 253, .88);
+}
+
+.suxi-app-shell .sidebar-item i {
+    color: #93c5fd !important;
+}
+
+.suxi-app-shell .header {
+    border-bottom: 1px solid var(--sx-border) !important;
+    background: rgba(255, 255, 255, .90) !important;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, .05) !important;
+    backdrop-filter: blur(12px);
+}
+
+.suxi-app-shell .header h1 {
+    color: var(--sx-text) !important;
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0;
+}
+
+.suxi-app-shell .header-locale-switch,
+.suxi-app-shell .locale-switch:not(.login-locale-switch) {
+    min-height: 34px;
+    border: 1px solid var(--sx-border) !important;
+    border-radius: 8px !important;
+    background: #fff !important;
+    box-shadow: none !important;
+}
+
+.suxi-app-shell .header .rounded-full,
+.suxi-app-shell .header [class*="bg-gray-100"] {
+    border: 1px solid var(--sx-border) !important;
+    border-radius: 8px !important;
+    background: rgba(248, 250, 252, .88) !important;
+    color: #475569 !important;
+}
+
+.suxi-app-shell main :where(h2, h3, h4) {
+    color: var(--sx-text);
+    letter-spacing: 0;
+    text-wrap: pretty;
+}
+
+.suxi-app-shell main :where(h2) {
+    line-height: 1.16;
+}
+
+.suxi-app-shell main :where(.text-xl.font-bold, .text-2xl.font-bold, .text-2xl.font-semibold, .text-3xl.font-bold) {
+    letter-spacing: 0;
+    text-wrap: balance;
+}
+
+.suxi-app-shell main :where(p) {
+    text-wrap: pretty;
+}
+
+.suxi-app-shell main[data-current-page] .suxi-page-body > div {
+    position: relative;
+}
+
+.suxi-app-shell main[data-current-page] .suxi-page-body > div > :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card, .table-container, .compass-shell-card):first-child {
+    border-top-color: rgba(var(--sx-page-glow-rgb), .34) !important;
+}
+
+.suxi-app-shell main[data-current-page] .suxi-page-body > div > :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card, .table-container):first-child::before {
+    content: "";
+    display: block;
+    height: 2px;
+    margin: -1px -1px 0 -1px;
+    border-radius: 8px 8px 0 0;
+    background: linear-gradient(90deg, var(--sx-page-accent), rgba(var(--sx-page-glow-rgb), .08));
+}
+
+.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card, .table-container) {
+    border: 1px solid var(--sx-border) !important;
+    border-radius: 8px !important;
+    background: var(--sx-surface-raised) !important;
+    box-shadow: var(--sx-shadow-soft) !important;
+}
+
+.suxi-app-shell main .bg-white.rounded-xl,
+.suxi-app-shell main .bg-white.rounded-lg,
+.suxi-app-shell main .bg-white.rounded-2xl,
+.suxi-app-shell main .card,
+.suxi-app-shell main .table-container {
+    border: 1px solid var(--sx-border) !important;
+    border-radius: 8px !important;
+    background: var(--sx-surface-raised) !important;
+    box-shadow: var(--sx-shadow-soft) !important;
+}
+
+.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card, .table-container):hover {
+    border-color: var(--sx-border-strong) !important;
+}
+
+.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card, .table-container):focus-within {
+    border-color: rgba(var(--sx-page-glow-rgb), .46) !important;
+    box-shadow: 0 0 0 3px rgba(var(--sx-page-glow-rgb), .10), var(--sx-shadow-soft) !important;
+}
+
+.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card, .table-container) > :where(.border-b, .border-t) {
+    border-color: #e5eaf0 !important;
+}
+
+.suxi-app-shell main :where(.bg-gray-50.rounded-xl, .bg-gray-50.rounded-lg, .bg-slate-50.rounded-xl, .bg-slate-50.rounded-lg) {
+    border: 1px solid #e5eaf0 !important;
+    border-radius: 8px !important;
+    background: var(--sx-surface-muted) !important;
+}
+
+.suxi-app-shell main .bg-gray-50.rounded-xl,
+.suxi-app-shell main .bg-gray-50.rounded-lg,
+.suxi-app-shell main .bg-slate-50.rounded-xl,
+.suxi-app-shell main .bg-slate-50.rounded-lg {
+    border: 1px solid #e5eaf0 !important;
+    border-radius: 8px !important;
+    background: var(--sx-surface-muted) !important;
+}
+
+.suxi-app-shell main :where(.rounded-xl, .rounded-lg, .rounded-2xl) {
+    border-radius: 8px !important;
+}
+
+.suxi-app-shell main .rounded-xl,
+.suxi-app-shell main .rounded-lg,
+.suxi-app-shell main .rounded-2xl {
+    border-radius: 8px !important;
+}
+
+.suxi-app-shell main :where(.rounded-full) {
+    border-radius: 999px !important;
+}
+
+.suxi-app-shell main [class*="shadow"] {
+    box-shadow: var(--sx-shadow-soft) !important;
+}
+
+.suxi-app-shell main :where(.ai-page-hero, .feasibility-hero-main),
+.suxi-app-shell main :where([class*="bg-gradient-to-r"], [class*="bg-gradient-to-br"]).text-white {
+    border: 1px solid rgba(148, 163, 184, .22) !important;
+    border-radius: 8px !important;
+    background:
+        radial-gradient(circle at 82% 8%, rgba(20, 184, 166, .18), transparent 28%),
+        linear-gradient(135deg, #0f172a 0%, #111827 58%, #0b1320 100%) !important;
+    color: #f8fafc !important;
+    box-shadow: var(--sx-shadow-lift) !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] :where(
+    .feasibility-panel,
+    .feasibility-report,
+    .feasibility-ai-result,
+    .feasibility-decision-card,
+    .feasibility-empty,
+    .feasibility-hero-metric
+) {
+    border: 1px solid rgba(var(--sx-page-glow-rgb), .22) !important;
+    border-radius: 8px !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(248, 250, 252, .98)) !important;
+    box-shadow: var(--sx-shadow-soft) !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] :where(
+    .feasibility-panel,
+    .feasibility-report,
+    .feasibility-ai-result,
+    .feasibility-decision-card,
+    .feasibility-hero-metric
+):focus-within {
+    border-color: rgba(var(--sx-page-glow-rgb), .46) !important;
+    box-shadow: 0 0 0 3px rgba(var(--sx-page-glow-rgb), .10), var(--sx-shadow-soft) !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] :where(.feasibility-section-head, .feasibility-ai-result-head, .feasibility-report-header) {
+    border-bottom-color: rgba(var(--sx-page-glow-rgb), .16) !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] :where(.feasibility-count-badge, .feasibility-ai-source, .feasibility-grade-badge) {
+    border-color: rgba(var(--sx-page-glow-rgb), .24) !important;
+    background: color-mix(in srgb, var(--sx-page-accent-soft) 68%, #ffffff) !important;
+    color: var(--sx-page-accent-dark) !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero {
+    border-color: rgba(96, 165, 250, .38) !important;
+    background:
+        radial-gradient(circle at 88% 8%, rgba(14, 165, 233, .28), transparent 34%),
+        radial-gradient(circle at 12% 0%, rgba(37, 99, 235, .20), transparent 30%),
+        linear-gradient(135deg, #07111f 0%, #0d2445 56%, #0f4c75 100%) !important;
+    color: #f8fafc !important;
+    box-shadow: 0 20px 48px rgba(8, 17, 29, .20) !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero-main.feasibility-hero-main {
+    border-color: rgba(191, 219, 254, .18) !important;
+    background:
+        linear-gradient(135deg, rgba(15, 23, 42, .68), rgba(15, 76, 117, .30)) !important;
+    box-shadow: none !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-eyebrow {
+    border-color: rgba(191, 219, 254, .30) !important;
+    background: rgba(15, 23, 42, .38) !important;
+    color: #dbeafe !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero h2,
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero h2 span {
+    color: #ffffff !important;
+    text-shadow: 0 1px 2px rgba(8, 17, 29, .28);
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero p {
+    color: #cfe4ff !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-action-primary {
+    border-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-action-secondary {
+    border-color: rgba(191, 219, 254, .36) !important;
+    background: rgba(15, 23, 42, .30) !important;
+    color: #eaf4ff !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-actions button:disabled {
+    opacity: .76 !important;
+    color: rgba(226, 232, 240, .82) !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero-metric.feasibility-hero-metric {
+    border-color: rgba(219, 231, 244, .92) !important;
+    background: rgba(248, 250, 252, .96) !important;
+    box-shadow: 0 12px 26px rgba(8, 17, 29, .10) !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero-metric span,
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero-metric em {
+    color: #52657c !important;
+}
+
+.suxi-app-shell main[data-current-page="ai-feasibility"] .feasibility-hero-metric strong {
+    color: #0f172a !important;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-page-body > div > :where(
+    .bg-white.rounded-xl,
+    .bg-white.rounded-2xl,
+    .rounded-xl.border
+),
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-page-body > div :where(
+    .bg-white.rounded-xl,
+    .bg-white.rounded-2xl,
+    .rounded-xl.border,
+    .bg-gradient-to-br.rounded-xl
+) {
+    border-color: rgba(var(--sx-page-glow-rgb), .22) !important;
+    border-radius: 8px !important;
+    box-shadow: var(--sx-shadow-soft) !important;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-page-body > div > .bg-white.rounded-2xl {
+    overflow: hidden;
+    background: linear-gradient(180deg, #ffffff, #f8fafc) !important;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-page-body > div > .bg-white.rounded-2xl > [class*="bg-gradient-to-r"] {
+    border-bottom: 1px solid rgba(255, 255, 255, .20);
+    background:
+        radial-gradient(circle at 88% 0%, rgba(255, 255, 255, .20), transparent 28%),
+        linear-gradient(135deg, var(--sx-page-accent-dark), var(--sx-page-accent)) !important;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-page-body > div :where(.text-blue-600, .text-green-600, .text-orange-600, .text-purple-600, .text-cyan-600, .text-indigo-600) {
+    color: var(--sx-page-accent-dark) !important;
+}
+
+.suxi-app-shell main .grid,
+.suxi-app-shell main .flex,
+.suxi-app-shell main table,
+.suxi-app-shell main td,
+.suxi-app-shell main th {
+    min-width: 0;
+}
+
+.suxi-app-shell main :where(.grid) {
+    align-items: stretch;
+}
+
+.suxi-app-shell main :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea, .input-field) {
+    min-height: 34px;
+    border: 1px solid var(--sx-border) !important;
+    border-radius: 7px !important;
+    background: rgba(255, 255, 255, .96) !important;
+    color: var(--sx-text) !important;
+    font-size: 13px !important;
+    line-height: 1.35;
+    box-shadow: none !important;
+    transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+
+.suxi-app-shell main :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea, .input-field):focus {
+    border-color: rgba(var(--sx-page-glow-rgb), .50) !important;
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgba(var(--sx-page-glow-rgb), .13) !important;
+}
+
+.suxi-app-shell main label {
+    color: #475569 !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+}
+
+.suxi-app-shell main :where(input, select, textarea)::placeholder {
+    color: #94a3b8 !important;
+}
+
+.suxi-app-shell main button,
+.suxi-app-shell main a[role="button"] {
+    border-radius: 7px !important;
+    box-shadow: none !important;
+    letter-spacing: 0;
+    transition: background-color .16s ease, border-color .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+
+.suxi-app-shell main button:hover,
+.suxi-app-shell main a[role="button"]:hover {
+    transform: translateY(-1px);
+}
+
+.suxi-app-shell main button:active,
+.suxi-app-shell main a[role="button"]:active {
+    transform: translateY(0);
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-blue-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-blue-600"],
+.suxi-app-shell main :where(button, a)[class*="bg-blue-700"],
+.suxi-app-shell main :where(button, a)[class*="from-blue-"],
+.suxi-app-shell main :where(button, a)[class*="bg-gradient-to-r"] {
+    border-color: var(--sx-page-accent) !important;
+    background: var(--sx-page-accent) !important;
+    color: #fff !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-purple-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-purple-600"],
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-600"] {
+    border-color: var(--sx-page-accent) !important;
+    background: var(--sx-page-accent) !important;
+    color: #fff !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-blue-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-blue-600"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-blue-700"]:hover,
+.suxi-app-shell main :where(button, a)[class*="from-blue-"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-gradient-to-r"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-purple-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-purple-600"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-500"]:hover,
+.suxi-app-shell main :where(button, a)[class*="bg-indigo-600"]:hover {
+    background: var(--sx-page-accent-dark) !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-red-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-red-600"] {
+    border-color: var(--sx-danger) !important;
+    background: var(--sx-danger) !important;
+    color: #fff !important;
+}
+
+.suxi-app-shell main :where(button, a)[class*="bg-green-500"],
+.suxi-app-shell main :where(button, a)[class*="bg-green-600"] {
+    border-color: var(--sx-success) !important;
+    background: var(--sx-success) !important;
+    color: #fff !important;
+}
+
+.suxi-app-shell main button:disabled {
+    cursor: not-allowed;
+    opacity: .58;
+}
+
+.suxi-app-shell main :where(.btn-secondary, button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]) {
+    border: 1px solid var(--sx-border) !important;
+    background: #fff !important;
+    color: #334155 !important;
+}
+
+.suxi-app-shell main :where(.btn-secondary, button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]):hover {
+    border-color: var(--sx-border-strong) !important;
+    background: #f8fafc !important;
+    color: #0f172a !important;
+}
+
+.suxi-app-shell main .table-container {
+    overflow: auto !important;
+}
+
+.suxi-app-shell main table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.suxi-app-shell main thead,
+.suxi-app-shell main thead tr,
+.suxi-app-shell main tr[class*="bg-gradient-to-b"] {
+    background: linear-gradient(180deg, #f8fafc, #f1f5f9) !important;
+}
+
+.suxi-app-shell main th {
+    border-bottom: 1px solid var(--sx-border) !important;
+    color: #475569 !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+.suxi-app-shell main td {
+    border-bottom-color: #eef2f6 !important;
+    color: #334155;
+    font-size: 13px !important;
+    line-height: 1.45;
+    vertical-align: middle;
+}
+
+.suxi-app-shell main tbody tr:hover {
+    background: #f8fbff !important;
+}
+
+.suxi-app-shell main[data-current-page] :where(tbody tr:hover, .hover\:bg-gray-50:hover) {
+    background: rgba(var(--sx-page-glow-rgb), .045) !important;
+}
+
+.suxi-app-shell main :where(.divide-y > :not([hidden]) ~ :not([hidden])) {
+    border-color: #eef2f6 !important;
+}
+
+.suxi-app-shell main :where(.text-gray-400, .text-gray-500, .text-slate-500) {
+    color: var(--sx-text-muted) !important;
+}
+
+.suxi-app-shell main :where(.text-blue-500, .text-blue-600, .text-blue-700) {
+    color: var(--sx-page-accent) !important;
+}
+
+.suxi-app-shell main :where(.text-green-500, .text-green-600, .text-green-700) {
+    color: var(--sx-success) !important;
+}
+
+.suxi-app-shell main :where(.text-red-500, .text-red-600, .text-red-700) {
+    color: var(--sx-danger) !important;
+}
+
+.suxi-app-shell main :where(.bg-blue-50, .bg-cyan-50, .bg-indigo-50) {
+    background: color-mix(in srgb, var(--sx-page-accent-soft) 58%, #ffffff) !important;
+}
+
+.suxi-app-shell main :where(.bg-purple-50, .bg-violet-50, .bg-pink-50) {
+    background: color-mix(in srgb, var(--sx-page-accent-soft) 58%, #ffffff) !important;
+}
+
+.suxi-app-shell main :where(.bg-green-50) {
+    background: #ecfdf5 !important;
+}
+
+.suxi-app-shell main :where(.bg-red-50) {
+    background: #fef2f2 !important;
+}
+
+.suxi-app-shell main :where(.bg-yellow-50, .bg-amber-50, .bg-orange-50) {
+    background: #fffbeb !important;
+}
+
+.suxi-app-shell main :where(.text-purple-500, .text-purple-600, .text-purple-700, .text-indigo-500, .text-indigo-600, .text-indigo-700) {
+    color: var(--sx-page-accent) !important;
+}
+
+.suxi-app-shell main :where(.border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200) {
+    border-color: var(--sx-border) !important;
+}
+
+.suxi-app-shell main :where(.p-12.text-center, .py-16.text-center, .py-12.text-center, .py-8.text-center) {
+    border: 1px dashed var(--sx-border) !important;
+    border-radius: 8px !important;
+    background: #f8fafc !important;
+    color: var(--sx-text-muted) !important;
+}
+
+.suxi-app-shell main :where(.badge, [class*="rounded-full"][class*="text-xs"], [class*="rounded-md"][class*="text-xs"]) {
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+.suxi-app-shell main[data-current-page] :where([class*="rounded-full"][class*="text-xs"], [class*="rounded-md"][class*="text-xs"])[class*="blue"],
+.suxi-app-shell main[data-current-page] :where([class*="rounded-full"][class*="text-xs"], [class*="rounded-md"][class*="text-xs"])[class*="indigo"],
+.suxi-app-shell main[data-current-page] :where([class*="rounded-full"][class*="text-xs"], [class*="rounded-md"][class*="text-xs"])[class*="purple"] {
+    border-color: rgba(var(--sx-page-glow-rgb), .24) !important;
+    background: color-mix(in srgb, var(--sx-page-accent-soft) 70%, #ffffff) !important;
+    color: var(--sx-page-accent-dark) !important;
+}
+
+.suxi-app-shell main[data-current-page^="ai-"] .ai-page-hero,
+.suxi-app-shell main[data-current-page="agent-center"] .ai-page-hero,
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .ai-page-hero,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .ai-page-hero,
+.suxi-app-shell main[data-current-page="online-data"] .ai-page-hero {
+    position: relative;
+    overflow: hidden;
+}
+
+.suxi-app-shell main[data-current-page^="ai-"] .ai-page-hero::after,
+.suxi-app-shell main[data-current-page="agent-center"] .ai-page-hero::after,
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .ai-page-hero::after,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .ai-page-hero::after,
+.suxi-app-shell main[data-current-page="online-data"] .ai-page-hero::after {
+    content: "";
+    position: absolute;
+    inset: auto -8% -42% 46%;
+    height: 170px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(var(--sx-page-glow-rgb), .22), transparent 64%);
+    pointer-events: none;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .table-container),
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .table-container),
+.suxi-app-shell main[data-current-page="online-data"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .table-container) {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(248, 250, 252, .98)) !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow {
+    overflow: hidden;
+    border-color: var(--sx-manual-border) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .99), rgba(248, 250, 252, .96)) !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-4.border-b,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-4.border-b {
+    border-bottom-color: rgba(255, 255, 255, .12) !important;
+    background:
+        radial-gradient(circle at 86% -24%, rgba(var(--sx-page-glow-rgb), .34), transparent 36%),
+        linear-gradient(135deg, var(--sx-manual-header-from), var(--sx-manual-header-to)) !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-4.border-b h3,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-4.border-b h3 {
+    color: #f8fafc !important;
+    font-weight: 700 !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 {
+    background:
+        radial-gradient(circle at 4% 0%, rgba(var(--sx-page-glow-rgb), .08), transparent 28%),
+        linear-gradient(180deg, #ffffff, var(--sx-manual-surface)) !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 {
+    gap: 6px;
+    margin-bottom: 20px !important;
+    padding: 6px;
+    border: 1px solid var(--sx-manual-border) !important;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .74) !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 > button,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 > button {
+    min-height: 36px;
+    border: 1px solid transparent !important;
+    border-radius: 7px !important;
+    background: transparent !important;
+    color: #475569 !important;
+    padding: 8px 12px !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 > button:hover,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 > button:hover {
+    border-color: var(--sx-manual-border) !important;
+    background: #ffffff !important;
+    color: var(--sx-page-accent-dark) !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 > button[class*="border-b-2"],
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .flex.flex-wrap.border-b.mb-6 > button[class*="border-b-2"] {
+    border-color: var(--sx-page-accent-dark) !important;
+    background: var(--sx-page-accent-dark) !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 18px rgba(var(--sx-page-glow-rgb), .16) !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .grid.mb-6 > .bg-gray-50,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .suxi-page-body > div > .bg-white.rounded-lg.shadow > .p-6 > .grid.mb-6 > .bg-gray-50 {
+    border-color: var(--sx-manual-border) !important;
+    background: rgba(255, 255, 255, .82) !important;
+}
+
+.suxi-app-shell main[data-current-page="ctrip-ebooking"] [data-testid="ctrip-overview-fetch-actions"] > .p-4.border-b,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(.bg-yellow-50, .bg-amber-50, .bg-orange-50) {
+    border-color: var(--sx-manual-border) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(248, 250, 252, .88)) !important;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(.border-yellow-200, .border-amber-200, .border-orange-200) {
+    border-color: var(--sx-manual-border) !important;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(.text-yellow-500, .text-yellow-600, .text-yellow-700, .text-yellow-800, .text-amber-500, .text-amber-600, .text-amber-700, .text-amber-800) {
+    color: var(--sx-page-accent-dark) !important;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(button, a)[class*="bg-yellow-500"],
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(button, a)[class*="bg-amber-500"] {
+    border-color: var(--sx-page-accent) !important;
+    background: var(--sx-page-accent) !important;
+    color: #ffffff !important;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(button, a)[class*="hover:bg-yellow-600"]:hover,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(button, a)[class*="hover:bg-amber-600"]:hover {
+    border-color: var(--sx-page-accent-dark) !important;
+    background: var(--sx-page-accent-dark) !important;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] :where(input[type="checkbox"], input[type="radio"]) {
+    accent-color: var(--sx-page-accent);
+}
+
+.suxi-app-shell main[data-current-page="hotels"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card),
+.suxi-app-shell main[data-current-page="users"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card),
+.suxi-app-shell main[data-current-page="roles"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card),
+.suxi-app-shell main[data-current-page="operation-logs"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card),
+.suxi-app-shell main[data-current-page="system-config"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card) {
+    box-shadow: 0 10px 26px rgba(51, 65, 85, .07), 0 1px 2px rgba(15, 23, 42, .04) !important;
+}
+
+.suxi-app-shell [class*="fixed"][class*="inset-0"] {
+    backdrop-filter: blur(6px);
+}
+
+.suxi-app-shell .modal-overlay {
+    background: rgba(15, 23, 42, .42) !important;
+}
+
+.suxi-app-shell [role="dialog"],
+.suxi-app-shell .modal-content {
+    border: 1px solid var(--sx-border) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 28px 72px rgba(15, 23, 42, .24) !important;
+}
+
+.suxi-app-shell .toast,
+.suxi-app-shell [data-testid*="toast"] {
+    border-radius: 8px !important;
+    box-shadow: var(--sx-shadow-lift) !important;
+}
+
+.suxi-app-shell .custom-scrollbar::-webkit-scrollbar,
+.suxi-app-shell main *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.suxi-app-shell .custom-scrollbar::-webkit-scrollbar-thumb,
+.suxi-app-shell main *::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] {
+    --sx-page-accent: #0f766e;
+    --sx-page-accent-dark: #0f4f4a;
+    --sx-page-accent-soft: #d8f3ee;
+    --sx-page-glow-rgb: 15, 118, 110;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-page-body {
+    max-width: 1540px;
+}
+
+.suxi-lifecycle-view {
+    position: relative;
+    isolation: isolate;
+    color: #0f172a;
+}
+
+.suxi-lifecycle-view::before {
+    content: "";
+    position: absolute;
+    inset: 76px -10px auto -10px;
+    z-index: -1;
+    height: 420px;
+    border-radius: 8px;
+    background:
+        radial-gradient(circle at 18% 8%, rgba(15, 118, 110, .16), transparent 34%),
+        radial-gradient(circle at 86% 18%, rgba(8, 145, 178, .14), transparent 30%),
+        linear-gradient(180deg, rgba(255, 255, 255, .82), rgba(241, 247, 249, .20));
+    pointer-events: none;
+}
+
+.suxi-lifecycle-hero {
+    min-height: 168px;
+    border: 1px solid rgba(148, 163, 184, .20) !important;
+    border-radius: 8px !important;
+    background:
+        radial-gradient(circle at 78% 16%, rgba(45, 212, 191, .18), transparent 28%),
+        radial-gradient(circle at 24% -16%, rgba(56, 189, 248, .16), transparent 34%),
+        linear-gradient(135deg, #08111d 0%, #0e2233 52%, #0f4f4a 100%) !important;
+    box-shadow: 0 24px 64px rgba(8, 17, 29, .22), 0 1px 0 rgba(255, 255, 255, .10) inset !important;
+}
+
+.suxi-lifecycle-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .028) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: linear-gradient(90deg, rgba(0, 0, 0, .92), transparent 78%);
+    pointer-events: none;
+}
+
+.suxi-lifecycle-hero::after {
+    content: "";
+    position: absolute;
+    right: -80px;
+    bottom: -160px;
+    width: 360px;
+    height: 360px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(45, 212, 191, .20), transparent 68%);
+    pointer-events: none;
+}
+
+.suxi-lifecycle-hero > .absolute {
+    inset: 0 auto 0 0 !important;
+    width: 3px !important;
+    height: auto !important;
+    background: linear-gradient(180deg, #67e8f9, rgba(20, 184, 166, .14)) !important;
+}
+
+.suxi-lifecycle-hero h2 {
+    max-width: 760px;
+    color: #f8fafc !important;
+    font-size: 24px !important;
+    line-height: 1.18 !important;
+    font-weight: 800 !important;
+}
+
+.suxi-lifecycle-hero p {
+    max-width: 820px;
+    color: rgba(226, 232, 240, .82) !important;
+}
+
+.suxi-lifecycle-pill,
+.suxi-lifecycle-tag {
+    border-color: rgba(203, 213, 225, .20) !important;
+    border-radius: 7px !important;
+    background: rgba(15, 23, 42, .26) !important;
+    color: rgba(248, 250, 252, .90) !important;
+    box-shadow: none !important;
+}
+
+.suxi-lifecycle-tag {
+    background: rgba(255, 255, 255, .075) !important;
+}
+
+.suxi-lifecycle-kpi {
+    min-height: 68px;
+    border-color: rgba(203, 213, 225, .18) !important;
+    border-radius: 8px !important;
+    background: rgba(15, 23, 42, .28) !important;
+    text-align: left !important;
+}
+
+.suxi-lifecycle-kpi > div:first-child {
+    color: #f8fafc;
+    font-size: 21px !important;
+    font-weight: 800;
+}
+
+.suxi-lifecycle-sync-panel {
+    border-color: rgba(15, 118, 110, .18) !important;
+    border-radius: 8px !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(247, 251, 251, .98)) !important;
+    box-shadow: 0 18px 46px rgba(15, 23, 42, .08), 0 1px 2px rgba(15, 23, 42, .04) !important;
+}
+
+.suxi-lifecycle-sync-icon {
+    border: 1px solid rgba(15, 118, 110, .16);
+    background: #ecfdf5 !important;
+    color: #0f766e !important;
+}
+
+.suxi-lifecycle-stage-grid {
+    align-items: stretch;
+}
+
+.suxi-lifecycle-status-card {
+    position: relative;
+    min-height: 172px;
+    border-color: #dbe7eb !important;
+    background: linear-gradient(180deg, #ffffff, #f8fbfc) !important;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.suxi-lifecycle-status-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: var(--life-stage, #0f766e);
+}
+
+.suxi-lifecycle-status-card:nth-child(1) { --life-stage: #0f766e; }
+.suxi-lifecycle-status-card:nth-child(2) { --life-stage: #059669; }
+.suxi-lifecycle-status-card:nth-child(3) { --life-stage: #2563eb; }
+.suxi-lifecycle-status-card:nth-child(4) { --life-stage: #b45309; }
+.suxi-lifecycle-status-card:nth-child(5) { --life-stage: #7c3aed; }
+
+.suxi-lifecycle-status-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(var(--sx-page-glow-rgb), .34) !important;
+    box-shadow: 0 20px 48px rgba(15, 23, 42, .10) !important;
+}
+
+.suxi-lifecycle-status-card .rounded-lg.bg-white\/70 {
+    border-color: #e8eef2 !important;
+    background: #f8fafc !important;
+}
+
+.suxi-lifecycle-status-card .rounded-lg.bg-white\/70 span:last-child {
+    color: #0f172a !important;
+}
+
+.suxi-lifecycle-chain {
+    position: relative;
+    padding-left: 18px;
+}
+
+.suxi-lifecycle-chain::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    bottom: 10px;
+    left: 3px;
+    width: 1px;
+    background: linear-gradient(180deg, rgba(15, 118, 110, .40), rgba(148, 163, 184, .20), rgba(15, 118, 110, .28));
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl {
+    position: relative;
+    border-color: #dbe7eb !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    box-shadow: 0 16px 42px rgba(15, 23, 42, .07), 0 1px 2px rgba(15, 23, 42, .04) !important;
+    overflow: hidden;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl::before {
+    content: "";
+    position: absolute;
+    top: 24px;
+    left: -23px;
+    z-index: 1;
+    width: 10px;
+    height: 10px;
+    border: 2px solid #ffffff;
+    border-radius: 999px;
+    background: var(--life-stage, #0f766e);
+    box-shadow: 0 0 0 4px rgba(15, 118, 110, .14);
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl:nth-child(1) { --life-stage: #0f766e; }
+.suxi-lifecycle-chain > .bg-white.rounded-2xl:nth-child(2) { --life-stage: #059669; }
+.suxi-lifecycle-chain > .bg-white.rounded-2xl:nth-child(3) { --life-stage: #b45309; }
+.suxi-lifecycle-chain > .bg-white.rounded-2xl:nth-child(4) { --life-stage: #4f46e5; }
+.suxi-lifecycle-chain > .bg-white.rounded-2xl:nth-child(5) { --life-stage: #7c3aed; }
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl > :first-child {
+    border-bottom: 1px solid rgba(255, 255, 255, .10);
+    background:
+        radial-gradient(circle at 82% 12%, color-mix(in srgb, var(--life-stage) 34%, transparent), transparent 28%),
+        linear-gradient(135deg, #0b1220, #111827 62%, color-mix(in srgb, var(--life-stage) 52%, #0b1220)) !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl > :first-child .w-14,
+.suxi-lifecycle-chain > .bg-white.rounded-2xl > :first-child .sm\:w-14 {
+    border: 1px solid rgba(255, 255, 255, .22) !important;
+    background: rgba(255, 255, 255, .12) !important;
+    color: #ffffff !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl > :first-child :where(h3, p, span, i) {
+    color: rgba(248, 250, 252, .92) !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl > :nth-child(2) {
+    background: linear-gradient(180deg, #ffffff, #f8fafc) !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl :where(.bg-gradient-to-r, .bg-gradient-to-br):not(.text-white) {
+    border-color: #e1eaf0 !important;
+    background: linear-gradient(180deg, #f8fafc, #ffffff) !important;
+    box-shadow: none !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl > :first-child,
+.suxi-lifecycle-chain > .bg-white.rounded-2xl > :first-child[class*="bg-gradient-to-r"] {
+    border-bottom: 1px solid rgba(255, 255, 255, .10) !important;
+    background:
+        radial-gradient(circle at 82% 12%, color-mix(in srgb, var(--life-stage) 34%, transparent), transparent 28%),
+        linear-gradient(135deg, #0b1220, #111827 62%, color-mix(in srgb, var(--life-stage) 52%, #0b1220)) !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl :where(.bg-gradient-to-r, .bg-gradient-to-br).text-white {
+    border: 1px solid rgba(15, 23, 42, .08) !important;
+    background:
+        radial-gradient(circle at 82% 0%, color-mix(in srgb, var(--life-stage) 30%, transparent), transparent 30%),
+        linear-gradient(135deg, #101827, #172033) !important;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, .14) !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl :where(.text-blue-600, .text-green-600, .text-orange-600, .text-purple-600, .text-cyan-600, .text-indigo-600, .text-pink-600) {
+    color: var(--life-stage) !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl :where(.bg-blue-500, .bg-green-500, .bg-orange-500, .bg-purple-500, .bg-cyan-500, .bg-indigo-500, .bg-pink-500) {
+    background: var(--life-stage) !important;
+}
+
+.suxi-lifecycle-chain > .bg-white.rounded-2xl .bg-white\/60 {
+    border: 1px solid #e5edf2;
+    background: rgba(255, 255, 255, .78) !important;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-lifecycle-footer.suxi-lifecycle-footer {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border: 1px solid rgba(94, 234, 212, .20) !important;
+    border-radius: 8px !important;
+    background:
+        radial-gradient(circle at 50% -20%, rgba(20, 184, 166, .20), transparent 34%),
+        radial-gradient(circle at 92% 100%, rgba(37, 99, 235, .14), transparent 34%),
+        linear-gradient(135deg, #08111d 0%, #0d2233 54%, #0f3f46 100%) !important;
+    color: #f8fafc !important;
+    box-shadow: 0 18px 44px rgba(8, 17, 29, .18), 0 1px 0 rgba(255, 255, 255, .08) inset !important;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-lifecycle-footer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+        linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .028) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: linear-gradient(90deg, rgba(0, 0, 0, .92), transparent 82%);
+    pointer-events: none;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-lifecycle-footer .text-3xl {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-bottom: 12px !important;
+    border: 1px solid rgba(153, 246, 228, .26);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, .28);
+    color: #99f6e4 !important;
+    font-size: 20px !important;
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-lifecycle-footer h3 {
+    color: #f8fafc !important;
+    text-shadow: 0 1px 2px rgba(8, 17, 29, .28);
+}
+
+.suxi-app-shell main[data-current-page="lifecycle"] .suxi-lifecycle-footer p {
+    color: #bfd3df !important;
+    font-weight: 500;
+}
+
+@media (max-width: 768px) {
+    .suxi-lifecycle-hero h2 {
+        font-size: 22px !important;
+    }
+
+    .suxi-lifecycle-chain {
+        padding-left: 0;
+    }
+
+    .suxi-lifecycle-chain::before,
+    .suxi-lifecycle-chain > .bg-white.rounded-2xl::before {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .suxi-app-shell .page-enter,
+    .suxi-app-shell main *,
+    .suxi-app-shell .sidebar-item {
+        animation: none !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .suxi-app-shell .suxi-page-body {
+        padding: 14px !important;
+    }
+
+    .suxi-app-shell .header {
+        padding: 12px 14px !important;
+    }
+
+    .suxi-app-shell main th,
+    .suxi-app-shell main td {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+    }
+}
+
+.suxi-dashboard-scope {
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+.suxi-dashboard-scope .suxi-panel {
+    border: 1px solid #d9e2ec;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.suxi-dashboard-scope .suxi-panel-muted {
+    border: 1px solid #d9e2ec;
+    background: #f8fafc;
+    border-radius: 8px;
+}
+
+.suxi-dashboard-scope .suxi-cockpit-header {
+    border: 1px solid #1f2937;
+    background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+.suxi-dashboard-scope .suxi-kicker {
+    color: #93a4b8;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.suxi-dashboard-scope .suxi-scope-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    border-radius: 6px;
+    border: 1px solid rgba(148, 163, 184, .28);
+    background: rgba(15, 23, 42, .52);
+    padding: 4px 8px;
+    color: #dbe5ef;
+    font-size: 12px;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+
+.suxi-dashboard-scope .suxi-tab-button {
+    border: 1px solid transparent;
+    background: transparent;
+    color: #475569;
+}
+
+.suxi-dashboard-scope .suxi-tab-button:hover {
+    border-color: #d9e2ec;
+    background: #fff;
+    color: #0f172a;
+}
+
+.suxi-dashboard-scope .suxi-tab-button.is-active {
+    border-color: #0f172a;
+    background: #0f172a;
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .14);
+}
+
+.suxi-dashboard-scope .suxi-metric-card {
+    min-width: 0;
+    border: 1px solid #d9e2ec;
+    border-radius: 8px;
+    background: #fff;
+    padding: 14px;
+    transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+}
+
+.suxi-dashboard-scope .suxi-metric-card:hover {
+    border-color: #b7c6d7;
+    background: #f8fafc;
+    transform: translateY(-1px);
+}
+
+.suxi-dashboard-scope .suxi-metric-label {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.suxi-dashboard-scope .suxi-metric-value {
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+}
+
+.suxi-dashboard-scope .suxi-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid #e5eaf0;
+    background: #f8fafc;
+    padding: 12px 14px;
+}
+
+.suxi-dashboard-scope .suxi-table-panel {
+    overflow: hidden;
+    border: 1px solid #d9e2ec;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.suxi-dashboard-scope .suxi-dense-row {
+    min-width: 0;
+    border-top: 1px solid #eef2f6;
+    padding: 11px 12px;
+}
+
+.suxi-dashboard-scope .suxi-dense-row:first-child {
+    border-top: 0;
+}
+
+.suxi-dashboard-scope .suxi-issue-card {
+    min-width: 0;
+    border: 1px solid #d9e2ec;
+    border-left: 3px solid #64748b;
+    border-radius: 8px;
+    background: #fff;
+    padding: 12px;
+}
+
+.suxi-dashboard-scope .suxi-evidence {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.suxi-dashboard-scope .suxi-action-text {
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.suxi-dashboard-scope .suxi-quick-card {
+    min-height: 82px;
+    border: 1px solid #d9e2ec;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.suxi-dashboard-scope .suxi-quick-card:hover {
+    border-color: #9fb2c7;
+    background: #f8fafc;
+}
+
+.suxi-dashboard-scope .suxi-chart-shell {
+    position: relative;
+    min-height: 288px;
+    overflow: hidden;
+    border: 1px solid #d9e2ec;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.suxi-dashboard-scope .suxi-chart-grid {
+    position: absolute;
+    inset: 0;
+    opacity: .9;
+    background-image:
+        linear-gradient(#e5eaf0 1px, transparent 1px),
+        linear-gradient(90deg, #edf2f7 1px, transparent 1px);
+    background-size: 100% 25%, 64px 100%;
+}
+
+.suxi-dashboard-scope .suxi-spark-bar {
+    flex: 1;
+    border-radius: 4px 4px 0 0;
+    background: #93c5fd;
+}
+
+.suxi-dashboard-scope .compass-shell-card,
+.suxi-dashboard-scope .home-hero-panel,
+.suxi-dashboard-scope > .bg-white.rounded-xl {
+    border-color: #d9e2ec !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+}
+
+.suxi-dashboard-scope .compass-shell-card > .bg-gray-900 {
+    background: linear-gradient(180deg, #111827 0%, #0f172a 100%) !important;
+}
+
+.suxi-dashboard-scope [data-testid="home-quick-card"] {
+    border-color: #d9e2ec !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.suxi-dashboard-scope [data-testid="home-quick-card"]:hover {
+    border-color: #9fb2c7 !important;
+    background: #f8fafc !important;
+}
+
+.suxi-dashboard-scope .home-trend-tab {
+    border-bottom: 2px solid transparent;
+    padding-bottom: 6px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.suxi-dashboard-scope .home-trend-tab.is-active {
+    border-color: #2563eb;
+    color: #1d4ed8;
+    font-weight: 700;
+}
+
+.suxi-dashboard-scope .macro-signal-card,
+.suxi-dashboard-scope .home-trend-insight-card,
+.suxi-dashboard-scope .hero-info-card,
+.suxi-dashboard-scope .compass-weather-day,
+.suxi-dashboard-scope .compass-weather-current {
+    border-color: #d9e2ec !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.suxi-dashboard-scope .macro-signal-icon,
+.suxi-dashboard-scope [data-testid="home-quick-card"] .w-8.h-8 {
+    border-radius: 6px !important;
+    background: #e0f2fe !important;
+    color: #075985 !important;
+}
+
+.suxi-dashboard-scope .home-hero-panel {
+    background: #fff !important;
+}
+
+.suxi-dashboard-scope .home-hero-data-module,
+.suxi-dashboard-scope .home-observation-footer,
+.suxi-dashboard-scope .home-forecast-summary-action {
+    border-color: #d9e2ec !important;
+    background: #f8fafc !important;
+}
+
+.suxi-dashboard-scope .suxi-signal-button {
+    margin-top: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    background: #eff6ff;
+    padding: 5px 8px;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.suxi-dashboard-scope .suxi-signal-button:hover {
+    background: #dbeafe;
+}
+
+@media (max-width: 640px) {
+    .suxi-dashboard-scope .suxi-scope-chip {
+        white-space: normal;
+    }
+
+    .suxi-dashboard-scope .suxi-metric-value {
+        font-size: 19px;
+    }
+}

@@ -212,6 +212,40 @@ test('does not treat Ctrip nodeId as a hotel_id catalog fact', () => {
   assert.equal(hotelIdFacts.some((fact) => fact.source_key === 'nodeId'), false);
 });
 
+test('uses masterHotelId as Ctrip platform hotel ownership id', () => {
+  const endpoint = findCtripEndpointByUrl('https://ebooking.ctrip.com/restapi/soa2/24588/getManagementData');
+  const facts = extractCtripCatalogFacts({
+    data: {
+      hotelId: 24588,
+      masterHotelId: 6866634,
+      hotelName: '西安天诚',
+      amount: 100,
+      quantity: 2,
+      bookOrderNum: 1,
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: 'profile-24588',
+    dataDate: '2026-06-02',
+    capturedAt: '2026-06-04T01:40:00.000Z',
+    url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getManagementData',
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 7,
+    hotelName: '西安天诚',
+    profileId: 'profile-24588',
+    dataDate: '2026-06-02',
+  });
+
+  assert.ok(rows.length >= 1);
+  assert.equal(rows[0].hotel_id, '6866634');
+  assert.equal(rows[0].raw_data.metrics.hotel_id, 6866634);
+  assert.equal(rows[0].raw_data.hotel_id_source_key, 'masterHotelId');
+});
+
 test('extracts Ctrip metric-pair response items into catalog facts and standard rows', () => {
   const url = 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData';
   const endpoint = findCtripEndpointByUrl(url);
@@ -321,7 +355,7 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
         flowRanksBO: [],
         serviceRanksBO: [],
       },
-      expected: { data_type: 'traffic', data_value: 12 },
+      expected: { data_type: 'ranking', amount: 0, quantity: 0, book_order_num: 0, data_value: 0 },
       expected_metrics: {
         order_rank: 12,
         amount_rank: 12,
@@ -329,6 +363,18 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
         comment_score_rank: 21,
         visitor_rank: 14,
         conversion_rate_rank: 4,
+      },
+      expected_rank_metrics: {
+        order_rank: 12,
+        amount_rank: 12,
+        room_nights_rank: 8,
+        comment_score_rank: 21,
+        visitor_rank: 14,
+        conversion_rate_rank: 4,
+      },
+      expected_raw: {
+        fact_only: true,
+        metric_status: 'rank_fact',
       },
     },
     {
@@ -346,7 +392,7 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
           convertionRate: 4,
         }],
       },
-      expected: { data_type: 'business', data_value: 12 },
+      expected: { data_type: 'ranking', amount: 0, quantity: 0, book_order_num: 0, data_value: 0 },
       expected_metrics: {
         amount_rank: 12,
         room_nights_rank: 8,
@@ -354,6 +400,18 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
         comment_score_rank: 21,
         visitor_rank: 14,
         conversion_rate_rank: 4,
+      },
+      expected_rank_metrics: {
+        amount_rank: 12,
+        room_nights_rank: 8,
+        order_rank: 12,
+        comment_score_rank: 21,
+        visitor_rank: 14,
+        conversion_rate_rank: 4,
+      },
+      expected_raw: {
+        fact_only: true,
+        metric_status: 'rank_fact',
       },
     },
     {
@@ -393,6 +451,12 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
     }
     for (const [key, value] of Object.entries(item.expected_metrics || {})) {
       assert.equal(row.raw_data.metrics[key], value, `${item.url} raw_data.metrics.${key}`);
+    }
+    for (const [key, value] of Object.entries(item.expected_rank_metrics || {})) {
+      assert.equal(row.raw_data.rank_metrics?.[key], value, `${item.url} raw_data.rank_metrics.${key}`);
+    }
+    for (const [key, value] of Object.entries(item.expected_raw || {})) {
+      assert.equal(row.raw_data[key], value, `${item.url} raw_data.${key}`);
     }
   }
 });
@@ -437,6 +501,53 @@ test('marks Ctrip weekly competition rows for non-current hotels as competitors'
   assert.equal(selfRow.compare_type, 'self');
   assert.equal(nodeResourceRow.compare_type, 'competitor');
   assert.equal(competitorRow.compare_type, 'competitor');
+});
+
+test('keeps Ctrip getCompetingRank sellRanksBO rows as ranking facts', () => {
+  const url = 'https://ebooking.ctrip.com/restapi/soa2/24588/getCompetingRank';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.ok(endpoint, url);
+
+  const facts = extractCtripCatalogFacts({
+    sellRanksBO: [{
+      masterHotelId: 6866634,
+      hotelName: 'Xi An Airport Hotel',
+      bookingOrdersrank: 18,
+      bookingGMVrank: 7,
+      stayInRNrank: 2,
+      rentalRaterank: 3,
+    }],
+    flowRanksBO: [],
+    serviceRanksBO: [],
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-03',
+    capturedAt: '2026-06-04T01:20:00.000Z',
+    url,
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'Xi An Airport Hotel',
+    profileId: '6866634',
+    dataDate: '2026-06-03',
+  });
+
+  const row = rows.find((candidate) => candidate.hotel_id === '6866634');
+  assert.ok(row, 'sellRanksBO ranking row must be present');
+  assert.equal(row.data_type, 'ranking');
+  assert.equal(row.amount, 0);
+  assert.equal(row.quantity, 0);
+  assert.equal(row.book_order_num, 0);
+  assert.equal(row.data_value, 0);
+  assert.equal(row.raw_data.metric_status, 'rank_fact');
+  assert.equal(row.raw_data.rank_metrics.order_rank, 18);
+  assert.equal(row.raw_data.rank_metrics.amount_rank, 7);
+  assert.equal(row.raw_data.rank_metrics.room_nights_rank, 2);
+  assert.equal(row.raw_data.rank_metrics.occupancy_rate_rank, 3);
 });
 
 test('extracts Ctrip competitor comparison cards into self value, peer average and rank rows', () => {

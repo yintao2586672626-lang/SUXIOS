@@ -583,9 +583,50 @@ final class PlatformDataSyncServiceTest extends TestCase
             $result = $adapter->fetch($source, ['interactive_browser' => false]);
 
             self::assertSame('success', $result['status']);
-            self::assertStringContainsString('Field coverage warning', $result['message']);
+            self::assertStringContainsString('Capture gate warning', $result['message']);
             self::assertCount(1, $result['payload']['rows']);
             self::assertSame(['field_coverage'], $result['payload']['capture_gate_warning']['failed_check_ids']);
+            self::assertSame([], $result['payload']['capture_gate_warning']['blocking_failed_check_ids']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterAllowsEndpointCoverageWarningWhenRowsExist(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => [
+                    'status' => 'fail',
+                    'failed_check_ids' => ['endpoint_coverage'],
+                    'checks' => [
+                        ['id' => 'endpoint_coverage', 'status' => 'fail', 'actual' => '13/14', 'expected' => 'missing<=0'],
+                    ],
+                ],
+                'responses' => [['url' => 'https://ebooking.ctrip.com/restapi/test']],
+                'standard_rows' => [
+                    [
+                        'hotel_id' => '24588',
+                        'hotel_name' => 'Ctrip Demo Hotel',
+                        'data_date' => '2026-05-31',
+                        'data_type' => 'business',
+                        'amount' => '1288.50',
+                        'source_trace_id' => 'trace-endpoint-soft-gate-row',
+                    ],
+                ],
+                'business' => [],
+                'traffic' => [],
+            ]));
+            $source = $this->ctripBrowserProfileSource();
+            $result = $adapter->fetch($source, ['interactive_browser' => false]);
+
+            self::assertSame('success', $result['status']);
+            self::assertStringContainsString('Capture gate warning', $result['message']);
+            self::assertCount(1, $result['payload']['rows']);
+            self::assertSame(['endpoint_coverage'], $result['payload']['capture_gate_warning']['failed_check_ids']);
             self::assertSame([], $result['payload']['capture_gate_warning']['blocking_failed_check_ids']);
         } finally {
             $this->removeDirectory($root);

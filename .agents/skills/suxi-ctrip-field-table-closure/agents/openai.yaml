@@ -1,0 +1,6 @@
+interface:
+  display_name: "SUXIOS Ctrip Field Closure"
+  short_description: "Close one Ctrip endpoint from response evidence to fields, storage, UI status, and verifier."
+  default_prompt: "Use $suxi-ctrip-field-table-closure when converting Ctrip endpoint evidence into SUXIOS metric fields, tables, UI states, and verification."
+policy:
+  allow_implicit_invocation: true

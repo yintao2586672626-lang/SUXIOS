@@ -258,7 +258,7 @@ function buildBaseRow(mapping, context, groupPath, index) {
   return {
     source: 'ctrip',
     platform: 'ctrip',
-    hotel_id: String(context.hotelId || context.profileId || ''),
+    hotel_id: String(context.masterHotelId || context.master_hotel_id || context.hotelId || context.profileId || ''),
     hotel_name: String(context.hotelName || ''),
     system_hotel_id: context.systemHotelId ?? context.system_hotel_id ?? null,
     data_date: String(context.dataDate || context.defaultDataDate || ''),

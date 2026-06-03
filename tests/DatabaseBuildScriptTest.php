@@ -53,6 +53,18 @@ final class DatabaseBuildScriptTest extends TestCase
         }
     }
 
+    public function testSystemConfigsValueColumnCanStoreLargeProfileFieldCatalog(): void
+    {
+        $root = realpath(__DIR__ . '/..');
+        self::assertIsString($root);
+
+        $migration = file_get_contents($root . '/database/migrations/20260530_create_system_configs_table.sql');
+        self::assertIsString($migration);
+
+        self::assertMatchesRegularExpression('/`config_value`\s+LONGTEXT\b/i', $migration);
+        self::assertMatchesRegularExpression('/MODIFY\s+COLUMN\s+`config_value`\s+LONGTEXT\b/i', $migration);
+    }
+
     private function resolvePowerShellBinary(): ?string
     {
         $candidates = PHP_OS_FAMILY === 'Windows'

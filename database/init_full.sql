@@ -9,6 +9,7 @@ SOURCE ./database/hotel_admin_mysql.sql;
 SOURCE ./database/login_logs.sql;
 SOURCE ./database/complaint_tables.sql;
 SOURCE ./database/update_system_config.sql;
+SOURCE ./database/migrations/20260603_create_china_division_dim.sql;
 SOURCE ./database/migrations/20250402_create_agent_tables.sql;
 SOURCE ./database/migrations/20250402_enhance_agent_tables.sql;
 SOURCE ./database/migrations/20260509_create_strategy_simulation_tables.sql;

@@ -258,7 +258,7 @@ class InitDatabase extends Command
             CREATE TABLE IF NOT EXISTS system_configs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 config_key VARCHAR(50) NOT NULL UNIQUE,
-                config_value TEXT,
+                config_value LONGTEXT,
                 description VARCHAR(255),
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

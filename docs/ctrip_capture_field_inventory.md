@@ -131,17 +131,17 @@
 | 昨日访客数 | 携程OTA渠道 | 昨日 | 整数 | 人 | 昨日概况页 | `getDayReportRealTimeDate / lastVisitorTotal` | 直接取整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 昨日订单数 | 携程OTA渠道 | 昨日 | 整数 | 单 | 昨日概况页 | `getDayReportRealTimeDate / synchronizationOrderQuantity` | 直接取整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 昨日转化率 | 携程OTA渠道 | 昨日 | 小数 | % | 流量数据页 | `queryScanFlowDetailsV2 / conversionsRatesDataList` | 去掉 % 后转小数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
-| 成交收入 | 携程OTA渠道 | 昨日 | 金额 | 元 | 昨日概况页 | `fetchMarketOverViewV2 / bookAmount` | 去逗号后转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 成交间夜 | 携程OTA渠道 | 昨日 | 整数 | 间夜 | 昨日概况页 | `fetchMarketOverViewV2 / bookQuantity` | 转整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 平均房价 | 携程OTA渠道 | 昨日 | 金额 | 元 | 昨日概况页 | `fetchMarketOverViewV2 / averagePrice` | 转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 成交率 | 携程OTA渠道 | 昨日 | 小数 | % | 昨日概况页 | `fetchMarketOverViewV2 / closeRate` | 去掉 % 后转小数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 离店销售额 | 携程OTA渠道 | 昨日 | 金额 | 元 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / amount` | 去逗号后转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 离店间夜量 | 携程OTA渠道 | 昨日 | 整数 | 间夜 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / quantity` | 转整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 平均卖价 | 携程OTA渠道 | 昨日 | 金额 | 元 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / averagePrice` | 转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 成交率 | 携程OTA渠道 | 昨日 | 小数 | % | 经营报告-概要-日报 | `fetchMarketOverViewV2 / closeRate` | 去掉 % 后转小数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 下单转化率 | 携程OTA渠道 | 昨日 | 小数 | % | 昨日概况页 | `fetchMarketOverViewV2 / orderConversionRate` | 去掉 % 后转小数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 曝光转化率 | 携程OTA渠道 | 昨日 | 小数 | % | 昨日概况页 | `fetchMarketOverViewV2 / orderConversionRate` | 当前代码同取下单转化率，不应自动确认 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
-| 竞争圈成交排名 | 携程OTA渠道 | 昨日 | 文本/排名 | 名 | 昨日概况页 | `rankOfAmount + competitorNumber` | 拼成 `排名/总数` | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 上周同期收入 | 携程OTA渠道 | 上周同期 | 金额 | 元 | 昨日概况页 | `fetchMarketOverViewV2 / synchronizationBookAmount` | 去逗号后转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 上周同期间夜 | 携程OTA渠道 | 上周同期 | 整数 | 间夜 | 昨日概况页 | `fetchMarketOverViewV2 / synchronizationBookQuantity` | 转整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 上周同期均价 | 携程OTA渠道 | 上周同期 | 金额 | 元 | 昨日概况页 | `fetchMarketOverViewV2 / synchronizationAveragePrice` | 转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 携程评分 | 携程OTA渠道 | 当前/昨日概况 | 小数 | 分 | 昨日概况页 | `getDayReportServerQuantity / ctripRatingall` | 转 0-5 分 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 离店销售额竞争圈排名 | 携程OTA渠道 | 昨日 | 文本/排名 | 名 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / rankOfAmount + competitorNumber` | 拼成 `排名/总数` | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 上周同期离店销售额 | 携程OTA渠道 | 上周同期 | 金额 | 元 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / synchronizationAmount` | 去逗号后转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 上周同期离店间夜量 | 携程OTA渠道 | 上周同期 | 整数 | 间夜 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / synchronizationQuantity` | 转整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 上周同期平均卖价 | 携程OTA渠道 | 上周同期 | 金额 | 元 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / synchronizationAveragePrice` | 转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 酒店点评分 | 携程OTA渠道 | 当前/昨日概况 | 小数 | 分 | 经营报告-概要-日报 | `getDayReportServerQuantity / ctripRatingall` | 转 0-5 分 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 携程好评数 | 携程OTA渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / score` | score >= 4.0 计数，不保存点评明文 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 携程差评数 | 携程OTA渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / score` | 0 < score < 4.0 计数，不保存点评明文 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 同程评分 | 携程关联渠道 | 当前点评列表 | 小数 | 分 | 点评页 | `getCommentList / channel=同程 + score` | 按渠道筛选后计算评分 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
@@ -153,12 +153,12 @@
 | 智行评分 | 携程关联渠道 | 当前点评列表 | 小数 | 分 | 点评页 | `getCommentList / channel=智行 + score` | 按渠道筛选后计算评分 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
 | 智行好评数 | 携程关联渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / channel=智行 + score` | channel=智行 且 score >= 4.0 计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
 | 智行差评数 | 携程关联渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / channel=智行 + score` | channel=智行 且 0 < score < 4.0 计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
-| 服务质量分 | 携程OTA渠道 | 昨日概况 | 小数 | 分 | 昨日概况页 | `getDayReportServerQuantity / serviceScore` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 服务质量排名 | 携程OTA渠道 | 昨日概况 | 整数 | 名 | 昨日概况页 | `getDayReportServerQuantity / serviceScoreRank` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 5分钟回复率 | 携程OTA渠道 | 昨日概况 | 小数 | % | 昨日概况页 | `getDayReportServerQuantity / replyrate5m` | 去掉 % 后转小数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 回复排名 | 携程OTA渠道 | 昨日概况 | 整数 | 名 | 昨日概况页 | `getDayReportServerQuantity / imScoreHtlrank` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 酒店收藏数 | 携程OTA渠道 | 昨日概况 | 整数 | 次 | 昨日概况页 | `getDayReportServerQuantity / hotelCollect` | 转整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 酒店收藏排名 | 携程OTA渠道 | 昨日概况 | 整数 | 名 | 昨日概况页 | `getDayReportServerQuantity / hotelCollectRank` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| PSI服务质量分 | 携程OTA渠道 | 昨日概况 | 小数 | 分 | 经营报告-概要-日报 | `getDayReportServerQuantity / serviceScore` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| PSI服务质量分竞争圈排名 | 携程OTA渠道 | 昨日概况 | 整数 | 名 | 经营报告-概要-日报 | `getDayReportServerQuantity / serviceScoreRank` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 5分钟回复率 | 携程OTA渠道 | 昨日概况 | 小数 | % | 经营报告-概要-日报 | `getDayReportServerQuantity / replyrate5m` | 去掉 % 后转小数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 5分钟回复率竞争圈排名 | 携程OTA渠道 | 昨日概况 | 整数 | 名 | 经营报告-概要-日报 | `getDayReportServerQuantity / imScoreHtlrank` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 酒店收藏数 | 携程OTA渠道 | 昨日概况 | 整数 | 次 | 经营报告-概要-日报 | `getDayReportServerQuantity / hotelCollect` | 转整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
+| 酒店收藏数竞争圈排名 | 携程OTA渠道 | 昨日概况 | 整数 | 名 | 经营报告-概要-日报 | `getDayReportServerQuantity / hotelCollectRank` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 差评标签 | 携程OTA渠道 | 昨日概况 | JSON | 标签次数 | 昨日概况页 | `getDayReportServerQuantity / dingPingEntityList[].tag` | 按标签聚合计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 竞品访客 | 携程竞争圈 | 昨日 | 整数 | 人 | 昨日概况页 | `getDayReportFlowCompete / comhtluv` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 竞品订单 | 携程竞争圈 | 昨日 | 整数 | 单 | 昨日概况页 | `getDayReportFlowCompete / ordquantity` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
@@ -195,7 +195,7 @@
 
 - 模块数：16
 - 接口规则数：72
-- 去重字段数：162
+- 去重字段数：171
 - 页面交互计划：14 个模块 / 74 个触发动作
 - 点评明文采集：默认禁用；仅保留评分汇总、回复率等非点评明文指标。
 
@@ -277,7 +277,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -331,7 +331,7 @@
 | qunar_competitor_avg_visitor | 去哪儿竞争圈平均访客 | qunarCompetitorAvgNumber | - |
 | source_name | 流量来源 | sourceName, sourceNameTag | - |
 | keyword | 搜索关键词 | keyword, searchKeyword, filterWords | - |
-| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, serviceScore, totalScore | - |
+| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, totalScore | - |
 | service_score | 服务质量分 | serviceScore | - |
 | service_score_rank | 服务质量排名 | serviceScoreRank | - |
 | base_score | 基础分 | baseScore, basicScore | - |
@@ -342,6 +342,7 @@
 | im_score | IM评分 | imScore | - |
 | hotel_collect | 酒店收藏数 | hotelCollect, favoriteCount, collectCount | - |
 | hotel_collect_rank | 酒店收藏排名 | hotelCollectRank | - |
+| comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
@@ -356,7 +357,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
@@ -374,7 +375,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
@@ -392,7 +393,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | diagnosis_score | 数据诊断分 | score | - |
@@ -408,7 +409,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -471,7 +472,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -492,18 +493,21 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
-| room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
-| order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
-| conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
-| occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
-| tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
-| rank | 竞争圈排名 | rank, rank2, visitorRank, rankOfAmount, rankOfOrderQuantity, competitorRank, ranking | - |
-| competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
+| order_amount | 离店销售额 | amount | 经营报告概要日报卡片主值 |
+| order_amount_last_week | 离店销售额上周同期 | synchronizationAmount | 上周同期对比值，不覆盖本期销售额 |
+| amount_rank | 离店销售额竞争圈排名 | rankOfAmount | - |
+| room_nights | 离店间夜量 | quantity | 经营报告概要日报卡片主值 |
+| room_nights_last_week | 离店间夜量上周同期 | synchronizationQuantity | 上周同期对比值，不覆盖本期间夜 |
+| quantity_rank | 离店间夜量竞争圈排名 | rankOfQuantity | - |
+| close_rate | 成交率 | closeRate | 经营报告概要日报卡片主值 |
+| close_rate_last_week | 成交率上周同期 | synchronizationCloseRate | 上周同期对比值，不覆盖本期成交率 |
+| close_rate_rank | 成交率竞争圈排名 | rankOfCloseRate | - |
+| avg_price | 平均卖价 | averagePrice | 经营报告概要日报卡片主值 |
+| avg_price_last_week | 平均卖价上周同期 | synchronizationAveragePrice | 上周同期对比值，不覆盖本期平均卖价 |
+| avg_price_rank | 平均卖价竞争圈排名 | rankOfAveragePrice | - |
 
 ### business_flow_compete
 
@@ -513,7 +517,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -580,7 +584,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -634,7 +638,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | seq_rank | 实时排名 | rank, qunarRank, competitorRank, qunarCompetitorRank | - |
@@ -647,7 +651,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -701,22 +705,19 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, serviceScore, totalScore | - |
-| service_score | 服务质量分 | serviceScore | - |
-| service_score_rank | 服务质量排名 | serviceScoreRank | - |
-| base_score | 基础分 | baseScore, basicScore | - |
-| reward_score | 奖励分 | rewardScore, bonusScore | - |
-| deduct_score | 减分项 | deductScore, penaltyScore | - |
-| reply_rate | 5分钟回复率 | replyrate5m, replyRate, fiveMinuteReplyRate | - |
-| reply_rank | 回复排名 | imScoreHtlrank, replyrate5mRank | - |
+| psi_score | PSI服务质量分 | serviceScore | 经营日报固定取 data.serviceScore |
+| service_score_rank | PSI服务质量分竞争圈排名 | serviceScoreRank | - |
+| comment_score_summary | 酒店点评分 | ctripRatingall | - |
+| ctrip_rating | 酒店点评分 | ctripRatingall | - |
+| reply_rate | 5分钟回复率 | replyrate5m | - |
+| reply_rank | 5分钟回复率竞争圈排名 | imScoreHtlrank | - |
+| hotel_collect | 酒店收藏数 | hotelCollect | - |
+| hotel_collect_rank | 酒店收藏数竞争圈排名 | hotelCollectRank | - |
 | im_score | IM评分 | imScore | - |
-| hotel_collect | 酒店收藏数 | hotelCollect, favoriteCount, collectCount | - |
-| hotel_collect_rank | 酒店收藏排名 | hotelCollectRank | - |
-| comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
-| ctrip_rating | 携程评分 | ctripRatingall | - |
+| deduct_score | 减分项 | penaltyScore | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
 
 ### weekly_compete_report
@@ -727,7 +728,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | amount_rank | 预订销售额排名 | amount | - |
@@ -745,7 +746,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -816,7 +817,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -837,7 +838,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -858,7 +859,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -879,7 +880,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -900,7 +901,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -921,7 +922,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | min_price | 实时起价 | minPrice | - |
@@ -935,7 +936,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -956,7 +957,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | room_type_id | 房型ID | roomId, roomTypeId, basicRoomTypeId | - |
@@ -973,7 +974,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | competitor_hotel_name | 竞品酒店名称 | hotelName | - |
@@ -989,7 +990,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -1010,7 +1011,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | sale_status | 售卖状态 | saleStatus, status | - |
@@ -1024,7 +1025,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -1078,7 +1079,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -1132,7 +1133,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -1195,7 +1196,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -1258,7 +1259,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -1312,7 +1313,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -1366,7 +1367,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -1420,7 +1421,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | min_price | 实时起价 | minPrice | - |
@@ -1434,10 +1435,10 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, serviceScore, totalScore | - |
+| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, totalScore | - |
 | service_score | 服务质量分 | serviceScore | - |
 | service_score_rank | 服务质量排名 | serviceScoreRank | - |
 | base_score | 基础分 | baseScore, basicScore | - |
@@ -1448,6 +1449,7 @@
 | im_score | IM评分 | imScore | - |
 | hotel_collect | 酒店收藏数 | hotelCollect, favoriteCount, collectCount | - |
 | hotel_collect_rank | 酒店收藏排名 | hotelCollectRank | - |
+| comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
@@ -1461,10 +1463,10 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, serviceScore, totalScore | - |
+| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, totalScore | - |
 | service_score | 服务质量分 | serviceScore | - |
 | service_score_rank | 服务质量排名 | serviceScoreRank | - |
 | base_score | 基础分 | baseScore, basicScore | - |
@@ -1475,6 +1477,7 @@
 | im_score | IM评分 | imScore | - |
 | hotel_collect | 酒店收藏数 | hotelCollect, favoriteCount, collectCount | - |
 | hotel_collect_rank | 酒店收藏排名 | hotelCollectRank | - |
+| comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
@@ -1488,9 +1491,10 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | comment_rows | 点评数据条数 | comments, commentList, reviews, totalCount | 统计 getCommentList 返回点评行数，不保存点评明文 |
 | good_review_count | 好评数 | score, commentScore, rating | score >= 4.0 计数，不保存点评明文 |
 | bad_review_count | 差评数 | score, commentScore, rating | 0 < score < 4.0 计数，不保存点评明文 |
@@ -1503,7 +1507,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
@@ -1524,7 +1528,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | hotel_label | 酒店标签 | label, labelName, tagName, hotelLabel, labelValue | - |
@@ -1537,7 +1541,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -1591,10 +1595,10 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, serviceScore, totalScore | - |
+| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, totalScore | - |
 | service_score | 服务质量分 | serviceScore | - |
 | service_score_rank | 服务质量排名 | serviceScoreRank | - |
 | base_score | 基础分 | baseScore, basicScore | - |
@@ -1605,6 +1609,7 @@
 | im_score | IM评分 | imScore | - |
 | hotel_collect | 酒店收藏数 | hotelCollect, favoriteCount, collectCount | - |
 | hotel_collect_rank | 酒店收藏排名 | hotelCollectRank | - |
+| comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
@@ -1617,7 +1622,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
@@ -1671,7 +1676,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | loss_order_count | 流失订单量 | lossOrderCount, lossOrderNum, orderCount | - |
@@ -1689,7 +1694,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | competitor_hotel_name | 流失酒店名称 | hotelName, competeHotelName | - |
@@ -1705,7 +1710,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | rank_metric | 榜单指标 | rankType, metric, rankName | - |
@@ -1726,7 +1731,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | user_sex | 用户性别 | sex, gender, userSex | - |
@@ -1746,7 +1751,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | user_sex | 用户性别 | sex, gender, userSex | - |
@@ -1775,7 +1780,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | five_min_reply_rate | 5分钟回复率 | replyRate5m, fiveMinReplyRate, replyRate | - |
@@ -1791,7 +1796,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | session_count | 会话量 | sessionCount, totalSession, totalSessions, totalsessions, conversationCount, validsnum | - |
@@ -1807,7 +1812,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
@@ -1830,7 +1835,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
@@ -1853,7 +1858,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
@@ -1876,7 +1881,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
@@ -1899,7 +1904,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
@@ -1922,7 +1927,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
@@ -1945,7 +1950,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
@@ -1970,7 +1975,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | ad_impressions | 广告曝光 | impression, impressions, exposure, showCount | - |
@@ -1993,7 +1998,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
@@ -2011,7 +2016,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
@@ -2029,7 +2034,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | notice_count | 通知数量 | messageList, notices, notifications, totalCount | - |
@@ -2047,10 +2052,10 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, serviceScore, totalScore | - |
+| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, totalScore | - |
 | service_score | 服务质量分 | serviceScore | - |
 | service_score_rank | 服务质量排名 | serviceScoreRank | - |
 | base_score | 基础分 | baseScore, basicScore | - |
@@ -2061,6 +2066,7 @@
 | im_score | IM评分 | imScore | - |
 | hotel_collect | 酒店收藏数 | hotelCollect, favoriteCount, collectCount | - |
 | hotel_collect_rank | 酒店收藏排名 | hotelCollectRank | - |
+| comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
@@ -2073,10 +2079,10 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, serviceScore, totalScore | - |
+| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, totalScore | - |
 | service_score | 服务质量分 | serviceScore | - |
 | service_score_rank | 服务质量排名 | serviceScoreRank | - |
 | base_score | 基础分 | baseScore, basicScore | - |
@@ -2087,6 +2093,7 @@
 | im_score | IM评分 | imScore | - |
 | hotel_collect | 酒店收藏数 | hotelCollect, favoriteCount, collectCount | - |
 | hotel_collect_rank | 酒店收藏排名 | hotelCollectRank | - |
+| comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
@@ -2101,10 +2108,10 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, serviceScore, totalScore | - |
+| psi_score | PSI服务质量分 | psi, PSI, psiScore, qualityscore, totalScore | - |
 | service_score | 服务质量分 | serviceScore | - |
 | service_score_rank | 服务质量排名 | serviceScoreRank | - |
 | base_score | 基础分 | baseScore, basicScore | - |
@@ -2115,6 +2122,7 @@
 | im_score | IM评分 | imScore | - |
 | hotel_collect | 酒店收藏数 | hotelCollect, favoriteCount, collectCount | - |
 | hotel_collect_rank | 酒店收藏排名 | hotelCollectRank | - |
+| comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
@@ -2127,7 +2135,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | course_title | 推荐课程 | title, courseTitle | - |
@@ -2141,7 +2149,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | hot_spot_name | 热点名称 | hotSpotName | - |
@@ -2156,7 +2164,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | bpi_score | BPI总分 | bpiScore, score, totalScore | - |
@@ -2176,7 +2184,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | benefit_name | 权益名称 | benefitName, name, title | - |
@@ -2192,7 +2200,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | bpi_score | BPI总分 | bpiScore, score, totalScore | - |
@@ -2212,7 +2220,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | bpi_score | BPI总分 | bpiScore, score, totalScore | - |
@@ -2232,7 +2240,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | bpi_score | BPI总分 | bpiScore, score, totalScore | - |
@@ -2252,7 +2260,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | bpi_score | BPI总分 | bpiScore, score, totalScore | - |
@@ -2281,7 +2289,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | bpi_score | BPI总分 | bpiScore, score, totalScore | - |
@@ -2352,7 +2360,7 @@
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
-| hotel_id | 酒店ID | hotelId, hotel_id, masterHotelId, masterhotelid, hotelID | - |
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | announcement | 公告提示 | content, message, title | - |

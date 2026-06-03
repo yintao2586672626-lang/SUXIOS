@@ -2188,6 +2188,67 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ctrip-ota-24588', $resolved);
     }
 
+    public function testCtripPlatformHotelIdPrefersMasterHotelIdForOwnership(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame('6866634', $this->invokeNonPublic($controller, 'resolveCtripPlatformHotelId', [[
+            'hotelId' => 'node-should-not-win',
+            'masterHotelId' => 6866634,
+        ]]));
+        self::assertSame('6866634', $this->invokeNonPublic($controller, 'resolveCtripPlatformHotelId', [[
+            'hotel_id' => 'legacy-24588',
+            'master_hotel_id' => '6866634',
+        ]]));
+        self::assertSame('fallback-1', $this->invokeNonPublic($controller, 'resolveCtripPlatformHotelId', [[], 'fallback-1']));
+    }
+
+    public function testCtripRankOnlyBusinessItemDetectsRankingEndpoints(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripRankOnlyBusinessItem', [[
+            'hotelId' => '6866634',
+            'amount' => 7,
+            'quantity' => 2,
+            'bookOrderNum' => 3,
+            '_source_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getCompeteHotelReportV1',
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'canSaveCtripLegacyBusinessMetricItem', [[
+            'hotelId' => '6866634',
+            'amount' => 7,
+            'quantity' => 2,
+            'bookOrderNum' => 3,
+            '_source_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getCompeteHotelReportV1',
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripRankOnlyBusinessItem', [[
+            'masterHotelId' => '6866634',
+            'bookingOrdersrank' => 18,
+            'bookingGMVrank' => 7,
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'canSaveCtripLegacyBusinessMetricItem', [[
+            'hotelId' => '6866634',
+            'amount' => 123,
+            'quantity' => 4,
+            'bookOrderNum' => 2,
+            '_source_url' => 'https://ebooking.ctrip.com/restapi/soa2/24588/unknownNewApi',
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripRankOnlyBusinessItem', [[
+            'hotelId' => '6866634',
+            'amount' => 33856.25,
+            'quantity' => 137,
+            'bookOrderNum' => 72,
+            '_source_url' => 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData',
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'canSaveCtripLegacyBusinessMetricItem', [[
+            'hotelId' => '6866634',
+            'amount' => 33856.25,
+            'quantity' => 137,
+            'bookOrderNum' => 72,
+            '_source_url' => 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData',
+        ]]));
+    }
+
     public function testCtripProfileStatusReportsReusableProfileWithoutLeakingCookie(): void
     {
         $controller = $this->controller();
@@ -2243,6 +2304,50 @@ final class OnlineDataTest extends TestCase
         self::assertSame('cookie_config', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['api']));
         self::assertSame('cookie_config', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['cookie-config']));
         self::assertSame('profile_browser', $this->invokeNonPublic($controller, 'normalizeAutoFetchMode', ['browser_profile']));
+    }
+
+    public function testAutoFetchSyncTaskDeleteHelpersProtectRunningTasks(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame([12, 45], $this->invokeNonPublic($controller, 'extractAutoFetchSyncTaskIdsFromRecordIds', [[
+            'sync_task_12',
+            'cache_7_0_0',
+            'sync_task_45',
+            'sync_task_12',
+            'sync_task_0',
+            'sync_task_bad',
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isAutoFetchPlatformSyncTaskDeletableStatus', ['failed']));
+        self::assertTrue($this->invokeNonPublic($controller, 'isAutoFetchPlatformSyncTaskDeletableStatus', ['success']));
+        self::assertTrue($this->invokeNonPublic($controller, 'isAutoFetchPlatformSyncTaskDeletableStatus', ['partial_success']));
+        self::assertFalse($this->invokeNonPublic($controller, 'isAutoFetchPlatformSyncTaskDeletableStatus', ['pending']));
+        self::assertFalse($this->invokeNonPublic($controller, 'isAutoFetchPlatformSyncTaskDeletableStatus', ['running']));
+    }
+
+    public function testAutoFetchDataRecordListHidesConfigurationOnlySkippedRows(): void
+    {
+        $controller = $this->controller();
+
+        self::assertFalse($this->invokeNonPublic($controller, 'isAutoFetchDataRecordListRow', [[
+            'status' => 'skipped',
+            'saved_count' => 0,
+            'module_summary' => 'configuration[cookie_config:skip:0]',
+            'message' => '未配置美团 Partner ID / POI ID / Cookies',
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isAutoFetchDataRecordListRow', [[
+            'status' => 'success',
+            'saved_count' => 77,
+            'module_summary' => 'business[browser_profile:success:77]',
+            'message' => 'Platform data synchronized.',
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isAutoFetchDataRecordListRow', [[
+            'source_record_type' => 'platform_sync_task',
+            'status' => 'failed',
+            'saved_count' => 0,
+            'module_summary' => 'business[browser_profile:failed:0]',
+            'message' => 'Ctrip login timeout after 30 seconds',
+        ]]));
     }
 
     public function testAutoFetchCostStrategyOnlyRunsProfileWhenExplicitlySelected(): void
@@ -2490,7 +2595,49 @@ final class OnlineDataTest extends TestCase
         }
 
         foreach ([
-            'page_views',
+            'visitor_count',
+            'visitor_rank',
+            'visitor_count_last_week',
+            'competitor_avg_visitor',
+            'qunar_visitor_count',
+            'qunar_visitor_rank',
+            'qunar_visitor_count_last_week',
+            'qunar_competitor_avg_visitor',
+            'order_count',
+            'order_count_sync',
+            'order_count_rank',
+            'competitor_avg_orders',
+            'ctrip_order_count',
+            'ctrip_order_count_sync',
+            'ctrip_order_count_rank',
+            'qunar_order_count',
+            'qunar_order_count_sync',
+            'qunar_order_count_rank',
+            'elong_order_count',
+            'elong_order_count_sync',
+            'elong_order_count_rank',
+            'order_amount',
+            'order_amount_last_week',
+            'amount_rank',
+            'room_nights',
+            'room_nights_last_week',
+            'quantity_rank',
+            'occupied_rooms',
+            'occupied_rooms_sync',
+            'occupied_rooms_rank',
+            'competitor_avg_occupied_rooms',
+            'avg_price',
+            'avg_price_last_week',
+            'avg_price_rank',
+            'close_rate',
+            'close_rate_last_week',
+            'close_rate_rank',
+            'occupancy_rate',
+            'occupancy_rate_sync',
+            'occupancy_rate_rank',
+            'competition_rank',
+            'seq_rank',
+            'competitor_hotel_list',
             'list_exposure',
             'competitor_list_exposure',
             'detail_visitor',
@@ -2505,36 +2652,37 @@ final class OnlineDataTest extends TestCase
             'competitor_order_submit_user',
             'deal_rate',
             'competitor_deal_rate',
-            'qunar_list_exposure',
-            'qunar_competitor_list_exposure',
-            'qunar_detail_visitor',
-            'qunar_competitor_detail_visitor',
-            'qunar_flow_rate',
-            'qunar_competitor_flow_rate',
-            'qunar_order_page_visitor',
-            'qunar_competitor_order_page_visitor',
-            'qunar_order_fill_rate',
-            'qunar_competitor_order_fill_rate',
-            'qunar_order_submit_user',
-            'qunar_competitor_order_submit_user',
-            'qunar_deal_rate',
-            'qunar_competitor_deal_rate',
-            'occupancy_rate',
-            'seq_rank',
             'psi_score',
             'service_score_rank',
+            'ctrip_rating',
             'comment_score_summary',
             'reply_rate',
+            'reply_rank',
+            'hotel_collect',
+            'hotel_collect_rank',
+            'ad_cost',
+        ] as $requiredKey) {
+            self::assertArrayHasKey($requiredKey, $byKey);
+        }
+
+        foreach ([
+            'notice_count',
+            'notice_title',
+            'notice_text',
+            'target_url',
             'diagnosis_score',
             'diagnosis_level',
-            'notice_count',
-            'target_url',
-            'ad_cost',
+            'advice_text',
             'comment_rows',
             'good_review_count',
             'bad_review_count',
-        ] as $requiredKey) {
-            self::assertArrayHasKey($requiredKey, $byKey);
+            'qunar_list_exposure',
+            'qunar_flow_rate',
+            'weekly_order_page_visitor',
+            'page_views',
+            'flow_conversion_rate',
+        ] as $skippedKey) {
+            self::assertArrayNotHasKey($skippedKey, $byKey);
         }
 
         self::assertSame('confirmed', $byKey['ad_cost']['status']);
@@ -2542,17 +2690,24 @@ final class OnlineDataTest extends TestCase
         self::assertStringContainsString('todayCost', $byKey['ad_cost']['source_keys']);
         self::assertStringContainsString('cashCost', $byKey['ad_cost']['source_keys']);
         self::assertStringContainsString('bonusCost', $byKey['ad_cost']['source_keys']);
-        self::assertSame('paused', $byKey['notice_count']['status']);
-        self::assertFalse($byKey['notice_count']['enabled']);
-        self::assertSame('confirmed', $byKey['flow_conversion_rate']['status']);
-        self::assertStringContainsString('flowRate', $byKey['flow_conversion_rate']['source_keys']);
-        self::assertSame('confirmed', $byKey['page_views']['status']);
-        self::assertStringContainsString('queryFlowTransforNewV1', $byKey['page_views']['source_interface']);
-        self::assertStringContainsString('listExposure', $byKey['page_views']['source_keys']);
-        self::assertStringContainsString('list_exposure', $byKey['page_views']['transform_rule']);
         self::assertStringContainsString('queryFlowTransforNewV1', $byKey['flow_rate']['source_interface']);
+        self::assertSame('data.amount', $byKey['order_amount']['json_path']);
+        self::assertSame('data.quantity', $byKey['room_nights']['json_path']);
+        self::assertSame('data.visitorTotal', $byKey['visitor_count']['json_path']);
+        self::assertSame('data.occupiedRooms', $byKey['occupied_rooms']['json_path']);
+        self::assertSame('data.orderQuantity', $byKey['order_count']['json_path']);
+        self::assertSame('data.occupancyRate', $byKey['occupancy_rate']['json_path']);
+        self::assertSame('data.serviceScore / data.psiScoreBo.totalScore', $byKey['psi_score']['json_path']);
+        self::assertSame('data.serviceScoreRank', $byKey['service_score_rank']['json_path']);
+        self::assertStringContainsString('queryFlowTransforNewV1', $byKey['flow_rate']['request_url']);
+        self::assertStringContainsString('flowdata', $byKey['flow_rate']['page_url']);
+        self::assertStringContainsString('hotelId=当前携程酒店ID', $byKey['flow_rate']['json_path']);
+        self::assertStringContainsString('当前携程酒店ID', $byKey['flow_rate']['ownership_rule']);
+        self::assertSame('online_daily_data.flow_rate', $byKey['flow_rate']['storage_field']);
         self::assertStringContainsString('detailExposure / listExposure', $byKey['flow_rate']['transform_rule']);
         self::assertStringContainsString('hotelId=-1', $byKey['competitor_flow_rate']['transform_rule']);
+        self::assertStringContainsString('hotelId=-1', $byKey['competitor_flow_rate']['json_path']);
+        self::assertStringContainsString('竞争圈平均', $byKey['competitor_flow_rate']['ownership_rule']);
         self::assertStringContainsString('flowRate', $byKey['competitor_flow_rate']['source_keys']);
         self::assertStringContainsString('hotelId=-1', $byKey['competitor_detail_visitor']['transform_rule']);
         self::assertStringContainsString('detailExposure', $byKey['competitor_detail_visitor']['source_keys']);
@@ -2566,22 +2721,214 @@ final class OnlineDataTest extends TestCase
         self::assertStringContainsString('orderSubmitNum / orderFillingNum', $byKey['competitor_deal_rate']['transform_rule']);
         self::assertStringContainsString('hotelId=-1', $byKey['competitor_order_submit_user']['transform_rule']);
         self::assertStringContainsString('orderSubmitNum', $byKey['competitor_order_submit_user']['source_keys']);
-        self::assertStringContainsString('platform=Qunar', $byKey['qunar_flow_rate']['transform_rule']);
-        self::assertStringContainsString('queryFlowTransforNewV1', $byKey['qunar_flow_rate']['source_interface']);
-        self::assertStringContainsString('platform=Qunar', $byKey['qunar_competitor_flow_rate']['transform_rule']);
-        self::assertStringContainsString('hotelId=-1', $byKey['qunar_competitor_flow_rate']['transform_rule']);
-        self::assertStringContainsString('platform=Qunar', $byKey['qunar_order_fill_rate']['transform_rule']);
-        self::assertStringContainsString('orderFillingNum / detailExposure', $byKey['qunar_order_fill_rate']['transform_rule']);
-        self::assertStringContainsString('platform=Qunar', $byKey['qunar_competitor_order_fill_rate']['transform_rule']);
-        self::assertStringContainsString('hotelId=-1', $byKey['qunar_competitor_order_fill_rate']['transform_rule']);
-        self::assertStringContainsString('platform=Qunar', $byKey['qunar_deal_rate']['transform_rule']);
-        self::assertStringContainsString('orderSubmitNum / orderFillingNum', $byKey['qunar_deal_rate']['transform_rule']);
-        self::assertStringContainsString('platform=Qunar', $byKey['qunar_competitor_deal_rate']['transform_rule']);
-        self::assertStringContainsString('hotelId=-1', $byKey['qunar_competitor_deal_rate']['transform_rule']);
-        self::assertSame('confirmed', $byKey['comment_rows']['status']);
-        self::assertTrue($byKey['comment_rows']['enabled']);
-        self::assertSame('score >= 4.0 计数，不保存点评明文', $byKey['good_review_count']['transform_rule']);
-        self::assertSame('0 < score < 4.0 计数，不保存点评明文', $byKey['bad_review_count']['transform_rule']);
+    }
+
+    public function testCtripProfileFieldSimpleEvidenceCreatesFieldConfig(): void
+    {
+        $controller = $this->controller();
+
+        $payload = [
+            'page_url' => 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true',
+            'request_url' => 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+            'json' => 'response[hotelId=6866634].detailExposure',
+            'target_value' => 'detailExposure',
+            'value_meaning' => '详情页访客量',
+            'section' => 'traffic_report',
+        ];
+
+        $prepared = $this->invokeNonPublic($controller, 'prepareCtripProfileFieldSaveData', [$payload, [], true]);
+
+        self::assertTrue($this->invokeNonPublic($controller, 'hasRequiredCtripProfileFieldEvidence', [$prepared]));
+        self::assertSame('detailexposure', $prepared['field_key']);
+        self::assertSame('详情页访客量', $prepared['field_name']);
+        self::assertSame('detailExposure', $prepared['source_keys']);
+        self::assertSame('needs_parser', $prepared['status']);
+
+        $normalized = $this->invokeNonPublic($controller, 'normalizeCtripProfileCaptureField', [$prepared]);
+
+        self::assertSame($payload['page_url'], $normalized['page_url']);
+        self::assertSame($payload['request_url'], $normalized['request_url']);
+        self::assertSame($payload['json'], $normalized['json_path']);
+        self::assertSame('detailExposure', $normalized['target_value']);
+        self::assertSame('详情页访客量', $normalized['value_meaning']);
+        self::assertSame('traffic_report', $normalized['section']);
+        self::assertSame('needs_parser', $normalized['status']);
+    }
+
+    public function testCtripProfileAutoFetchFieldCandidatesCanBeMergedIntoFieldDirectory(): void
+    {
+        $controller = $this->controller();
+
+        $payload = [
+            'standard_rows' => [
+                [
+                    'capture_section' => 'business_overview',
+                    'endpoint_id' => 'platform_notifications',
+                    'data_type' => 'business',
+                    'dimension' => 'catalog:business_overview:platform_notifications:new_notice_title:notifyList.0',
+                    'raw_data' => [
+                        'section' => 'business_overview',
+                        'endpoint_id' => 'platform_notifications',
+                        'facts' => [
+                            [
+                                'metric_key' => 'new_notice_title',
+                                'metric_label' => '新通知标题',
+                                'value' => '到账提醒',
+                                'source_key' => 'title',
+                                'source_path' => 'notifyList.0.title',
+                            ],
+                        ],
+                        'metric_status' => 'non_numeric_fact',
+                    ],
+                ],
+                [
+                    'capture_section' => 'business_overview',
+                    'endpoint_id' => 'business_realtime',
+                    'data_type' => 'business',
+                    'dimension' => 'catalog:business_overview:business_realtime:order_count',
+                    'raw_data' => [
+                        'section' => 'business_overview',
+                        'endpoint_id' => 'business_realtime',
+                        'facts' => [
+                            [
+                                'metric_key' => 'order_count',
+                                'metric_label' => '订单数',
+                                'value' => 18,
+                                'source_key' => 'orderQuantity',
+                                'source_path' => 'data.orderQuantity',
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    'capture_section' => 'ads_pyramid',
+                    'endpoint_id' => 'queryCampaignReportList',
+                    'data_type' => 'advertising',
+                    'dimension' => 'catalog:ads_pyramid:queryCampaignReportList:ad_cost',
+                    'raw_data' => [
+                        'section' => 'ads_pyramid',
+                        'endpoint_id' => 'queryCampaignReportList',
+                        'facts' => [
+                            [
+                                'metric_key' => 'ad_cost',
+                                'metric_label' => '广告花费',
+                                'value' => 128.5,
+                                'source_key' => 'todayCost',
+                                'source_path' => 'records.0.todayCost',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $candidates = $this->invokeNonPublic($controller, 'extractCtripProfileFieldCandidatesFromPayload', [$payload, '2026-06-03 20:05:26']);
+        self::assertCount(3, $candidates);
+
+        $fields = [
+            'profile_field_order_count' => [
+                'id' => 'profile_field_order_count',
+                'field_key' => 'order_count',
+                'field_name' => '订单数',
+                'section' => 'business_overview',
+                'data_type' => 'business',
+                'source_interface' => 'business_realtime',
+                'source_keys' => 'orderQuantity',
+                'value_type' => 'integer',
+                'unit' => '单',
+                'transform_rule' => '直接取整数',
+                'status' => 'confirmed',
+                'enabled' => true,
+                'notes' => '',
+                'sort_order' => 10,
+                'created_at' => '2026-06-01 00:00:00',
+                'update_time' => '2026-06-01 00:00:00',
+                'user_id' => null,
+            ],
+        ];
+
+        $syncResult = $this->invokeNonPublic($controller, 'mergeCtripProfileAutoFetchFieldCandidates', [&$fields, $candidates]);
+
+        self::assertSame(2, $syncResult['discovered_count']);
+        self::assertSame(1, $syncResult['skipped_count']);
+        self::assertSame(1, $syncResult['matched_count']);
+        self::assertSame(1, $syncResult['added_count']);
+        self::assertArrayNotHasKey('profile_field_new_notice_title', $fields);
+        self::assertArrayHasKey('profile_field_ad_cost', $fields);
+        self::assertSame('ad_cost', $fields['profile_field_ad_cost']['field_key']);
+        self::assertSame('广告花费', $fields['profile_field_ad_cost']['field_name']);
+        self::assertSame('pending', $fields['profile_field_ad_cost']['status']);
+        self::assertFalse($fields['profile_field_ad_cost']['enabled']);
+        self::assertSame('queryCampaignReportList', $fields['profile_field_ad_cost']['source_interface']);
+        self::assertStringContainsString('records.0.todayCost', $fields['profile_field_ad_cost']['source_keys']);
+    }
+
+    public function testCtripProfileFieldSampleVerificationStatusIsNormalized(): void
+    {
+        $controller = $this->controller();
+
+        $matched = $this->invokeNonPublic($controller, 'normalizeCtripProfileCaptureField', [[
+            'id' => 'profile_field_order_count',
+            'field_key' => 'order_count',
+            'field_name' => 'Order Count',
+            'sample_verification_status' => 'matched',
+            'sample_verified_at' => '2026-06-03 23:48:00',
+            'sample_verified_by' => 7,
+        ]]);
+        self::assertSame('matched', $matched['sample_verification_status']);
+        self::assertSame('2026-06-03 23:48:00', $matched['sample_verified_at']);
+        self::assertSame(7, $matched['sample_verified_by']);
+
+        $mismatched = $this->invokeNonPublic($controller, 'normalizeCtripProfileCaptureField', [[
+            'id' => 'profile_field_order_amount',
+            'field_key' => 'order_amount',
+            'field_name' => 'Order Amount',
+            'sampleVerificationStatus' => 'mismatch',
+            'sampleVerifiedAt' => '2026-06-03 23:49:00',
+            'sampleVerifiedBy' => 8,
+        ]]);
+        self::assertSame('mismatched', $mismatched['sample_verification_status']);
+        self::assertSame('2026-06-03 23:49:00', $mismatched['sample_verified_at']);
+        self::assertSame(8, $mismatched['sample_verified_by']);
+
+        $invalid = $this->invokeNonPublic($controller, 'normalizeCtripProfileCaptureField', [[
+            'id' => 'profile_field_room_nights',
+            'field_key' => 'room_nights',
+            'field_name' => 'Room Nights',
+            'sample_verification_status' => 'unknown',
+            'sample_verified_at' => '2026-06-03 23:50:00',
+            'sample_verified_by' => 9,
+        ]]);
+        self::assertSame('unverified', $invalid['sample_verification_status']);
+        self::assertSame('', $invalid['sample_verified_at']);
+        self::assertNull($invalid['sample_verified_by']);
+
+        $summary = $this->invokeNonPublic($controller, 'summarizeCtripProfileCaptureFields', [[$matched, $mismatched, $invalid]]);
+        self::assertSame(1, $summary['sample_verification_counts']['matched']);
+        self::assertSame(1, $summary['sample_verification_counts']['mismatched']);
+        self::assertSame(1, $summary['sample_verification_counts']['unverified']);
+    }
+
+    public function testCtripProfileFieldSampleVerificationStatusControlsFieldStatus(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(
+            'confirmed',
+            $this->invokeNonPublic($controller, 'statusForCtripProfileFieldSampleVerification', ['matched', 'needs_parser'])
+        );
+        self::assertSame(
+            'needs_parser',
+            $this->invokeNonPublic($controller, 'statusForCtripProfileFieldSampleVerification', ['mismatched', 'confirmed'])
+        );
+        self::assertSame(
+            'paused',
+            $this->invokeNonPublic($controller, 'statusForCtripProfileFieldSampleVerification', ['unverified', 'paused'])
+        );
+        self::assertSame(
+            'pending',
+            $this->invokeNonPublic($controller, 'statusForCtripProfileFieldSampleVerification', ['unverified', 'invalid_status'])
+        );
     }
 
     public function testCtripProfileTrafficFunnelSamplesResolveConcreteValues(): void
@@ -2694,6 +3041,48 @@ final class OnlineDataTest extends TestCase
         self::assertSame(
             ['21.53', 'detailExposure / listExposure', 'online_daily_data#99'],
             $this->invokeNonPublic($controller, 'resolveCtripProfileTrafficDerivedSample', ['qunar_competitor_flow_rate', $storedQunarCompetitorRow, []])
+        );
+    }
+
+    public function testCtripProfileOnlineDailySamplesResolveLegacyFieldAliases(): void
+    {
+        $controller = $this->controller();
+        $row = [
+            'id' => 9419,
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'compare_type' => 'self',
+            'data_value' => 34,
+            'book_order_num' => 2,
+        ];
+        $raw = [
+            'row' => [
+                'raw_data' => [
+                    'metrics' => [
+                        'visitor_count' => 15,
+                        'conversion_rate' => 100,
+                    ],
+                ],
+            ],
+        ];
+        $rawMap = $this->invokeNonPublic($controller, 'flattenCtripProfileRawValues', [$raw]);
+
+        $lastVisitorKeys = array_merge(
+            ['last_visitor_total', 'lastVisitorTotal'],
+            $this->invokeNonPublic($controller, 'onlineDailyDataSampleAliases', ['last_visitor_total'])
+        );
+        self::assertSame(
+            [15, 'visitor_count', 'online_daily_data#9419'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileOnlineDailyFieldSample', ['last_visitor_total', $row, $raw, $rawMap, $lastVisitorKeys])
+        );
+
+        $closeRateKeys = array_merge(
+            ['close_rate', 'closeRate'],
+            $this->invokeNonPublic($controller, 'onlineDailyDataSampleAliases', ['close_rate'])
+        );
+        self::assertSame(
+            [100, 'conversion_rate', 'online_daily_data#9419'],
+            $this->invokeNonPublic($controller, 'resolveCtripProfileOnlineDailyFieldSample', ['close_rate', $row, $raw, $rawMap, $closeRateKeys])
         );
     }
 
@@ -3454,7 +3843,21 @@ final class OnlineDataTest extends TestCase
         self::assertSame('pass', $passed['status']);
     }
 
-    public function testCtripFieldCoverageOnlyGateFailureCanContinueWithWarning(): void
+    public function testAutoFetchUsesCurrentBrowserProfileSourceOnly(): void
+    {
+        $controller = $this->controller();
+
+        $sources = [
+            ['id' => 10, 'platform' => 'ctrip'],
+            ['id' => 9, 'platform' => 'ctrip'],
+        ];
+        $selected = $this->invokeNonPublic($controller, 'selectCurrentBrowserProfileDataSources', [$sources]);
+
+        self::assertCount(1, $selected);
+        self::assertSame(10, $selected[0]['id']);
+    }
+
+    public function testCtripSoftCoverageGateFailureCanContinueWithWarning(): void
     {
         $controller = $this->controller();
         $payload = [
@@ -3485,6 +3888,17 @@ final class OnlineDataTest extends TestCase
         self::assertSame('warning', $warning['level']);
         self::assertSame(['field_coverage'], $warning['failed_check_ids']);
         self::assertSame([], $warning['blocking_failed_check_ids']);
+
+        $endpointPayload = $payload;
+        $endpointPayload['capture_gate']['failed_check_ids'] = ['endpoint_coverage'];
+        $endpointDecision = $this->invokeNonPublic($controller, 'buildCtripCaptureGateDecision', [$endpointPayload]);
+        self::assertFalse($endpointDecision['accepted']);
+        self::assertSame(['endpoint_coverage'], $endpointDecision['failed_check_ids']);
+        self::assertTrue($this->invokeNonPublic($controller, 'canContinueCtripCaptureWithSoftGateWarning', [$endpointPayload, $endpointDecision]));
+
+        $endpointWarning = $this->invokeNonPublic($controller, 'buildCtripCaptureGateWarning', [$endpointDecision]);
+        self::assertSame(['endpoint_coverage'], $endpointWarning['failed_check_ids']);
+        self::assertSame([], $endpointWarning['blocking_failed_check_ids']);
 
         $hardDecision = $this->invokeNonPublic($controller, 'buildCtripCaptureGateDecision', [[
             'capture_gate' => [
