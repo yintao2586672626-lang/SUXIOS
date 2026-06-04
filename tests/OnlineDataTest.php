@@ -3005,6 +3005,69 @@ final class OnlineDataTest extends TestCase
         self::assertStringContainsString('records.0.todayCost', $fields['profile_field_ad_cost']['source_keys']);
     }
 
+    public function testCtripProfileAutoFetchFieldCandidatesAreScopedBySection(): void
+    {
+        $controller = $this->controller();
+
+        $fields = [
+            'profile_field_order_count' => [
+                'id' => 'profile_field_order_count',
+                'field_key' => 'order_count',
+                'field_name' => '订单数',
+                'section' => 'business_overview',
+                'data_type' => 'business',
+                'source_interface' => 'business_realtime',
+                'source_keys' => 'orderQuantity',
+                'value_type' => 'integer',
+                'unit' => '单',
+                'transform_rule' => '直接取整数',
+                'status' => 'confirmed',
+                'enabled' => true,
+                'notes' => '',
+                'sort_order' => 10,
+                'created_at' => '2026-06-01 00:00:00',
+                'update_time' => '2026-06-01 00:00:00',
+                'user_id' => null,
+            ],
+        ];
+        $candidates = [
+            [
+                'field_key' => 'order_count',
+                'field_name' => '订单数',
+                'section' => 'business_overview',
+                'data_type' => 'business',
+                'source_interface' => 'business_realtime',
+                'source_keys' => 'orderQuantity',
+                'value_type' => 'integer',
+                'unit' => '单',
+                'status' => 'pending',
+                'enabled' => false,
+            ],
+            [
+                'field_key' => 'order_count',
+                'field_name' => '销售数据订单数',
+                'section' => 'sales_report',
+                'data_type' => 'business',
+                'source_interface' => 'sales_report',
+                'source_keys' => 'orderCount',
+                'value_type' => 'integer',
+                'unit' => '单',
+                'status' => 'pending',
+                'enabled' => false,
+            ],
+        ];
+
+        $syncResult = $this->invokeNonPublic($controller, 'mergeCtripProfileAutoFetchFieldCandidates', [&$fields, $candidates]);
+
+        self::assertSame(2, $syncResult['discovered_count']);
+        self::assertSame(1, $syncResult['matched_count']);
+        self::assertSame(1, $syncResult['added_count']);
+        self::assertArrayHasKey('profile_field_sales_report_order_count', $fields);
+        self::assertSame('order_count', $fields['profile_field_sales_report_order_count']['field_key']);
+        self::assertSame('sales_report', $fields['profile_field_sales_report_order_count']['section']);
+        self::assertFalse($fields['profile_field_sales_report_order_count']['enabled']);
+    }
+
     public function testCtripProfileCaptureFieldSectionIsClassifiedByPageUrl(): void
     {
         $controller = $this->controller();
@@ -3088,6 +3151,42 @@ final class OnlineDataTest extends TestCase
             'enabled' => true,
         ]]);
         self::assertSame('quality_psi', $unknownField['section']);
+    }
+
+    public function testCtripProfileDeletedDefaultModuleRestoresFromDuplicatePageUrl(): void
+    {
+        $controller = $this->controller();
+
+        $defaultUrl = 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true';
+        $modules = [
+            'competitor_overview' => $this->invokeNonPublic($controller, 'normalizeCtripProfileCaptureModule', [[
+                'id' => 'competitor_overview',
+                'label' => '竞争圈动态-竞争圈概览',
+                'page_url' => $defaultUrl,
+                'primary_category' => '竞争力数据',
+                'enabled' => false,
+                'system' => true,
+                'sort_order' => 60,
+                'deleted_at' => '2026-06-04 19:00:14',
+            ]]),
+            'module_2de12be6' => $this->invokeNonPublic($controller, 'normalizeCtripProfileCaptureModule', [[
+                'id' => 'module_2de12be6',
+                'label' => '竞争圈概览',
+                'page_url' => $defaultUrl,
+                'primary_category' => '竞争力数据',
+                'enabled' => true,
+                'sort_order' => 5,
+            ]]),
+        ];
+
+        [$merged, $changed] = $this->invokeNonPublic($controller, 'mergeDefaultCtripProfileCaptureModules', [$modules]);
+
+        self::assertTrue($changed);
+        self::assertSame('', $merged['competitor_overview']['deleted_at']);
+        self::assertTrue($merged['competitor_overview']['enabled']);
+        self::assertSame('竞争圈动态-竞争圈概览', $merged['competitor_overview']['label']);
+        self::assertNotSame('', $merged['module_2de12be6']['deleted_at']);
+        self::assertFalse($merged['module_2de12be6']['enabled']);
     }
 
     public function testCtripProfileDeletedAndDisabledFieldsStayOutOfCaptureScope(): void
