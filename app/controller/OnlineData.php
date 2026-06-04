@@ -15,7 +15,7 @@ use think\facade\Db;
 class OnlineData extends Base
 {
     private const CTRIP_PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
-    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 21;
+    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 22;
     private const CTRIP_PROFILE_MODULES_CONFIG_KEY = 'ctrip_profile_capture_modules';
     private const CTRIP_PROFILE_MODULES_CONFIG_VERSION = 3;
     private const CTRIP_BUSINESS_REPORT_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
@@ -102,6 +102,17 @@ class OnlineData extends Base
         'competition_profile_order_fill_rate',
         'competition_profile_psi_score',
         'competition_profile_ctrip_rating',
+        'competition_rank_order_count',
+        'competition_rank_order_amount',
+        'competition_rank_room_nights',
+        'competition_rank_occupancy_rate',
+        'competition_rank_app_detail_visitor',
+        'competition_rank_app_conversion_rate',
+        'competition_rank_psi_score',
+        'competition_rank_ctrip_rating',
+        'competition_rank_qunar_rating',
+        'competition_rank_tongcheng_rating',
+        'competition_rank_zhixing_rating',
         'competitor_rank',
         'seq_rank',
         'competitor_visitor',
@@ -13839,6 +13850,17 @@ JAVASCRIPT;
             ['competition_profile_order_fill_rate', '竞争圈概览-App下单转化', 'competitor_overview', 'traffic', 'getFlowData', 'indexType=10, val, avgComp, rankComp', 'percent', '%', 'confirmed', 'val 为本店值；avgComp/rankComp 入 raw_data.metrics', true, '截图核对允许计数差 <=1 或百分比差 <=0.05pct；接口未采到时不兜底。'],
             ['competition_profile_ctrip_rating', '竞争圈概览-携程点评分', 'competitor_overview', 'quality', 'getServiceData', 'indexType=11, val, avgComp, rankComp', 'number', '分', 'confirmed', 'val 为本店值；avgComp/rankComp 入 raw_data.metrics', true, '截图核对允许计数差 <=1 或百分比差 <=0.05pct；接口未采到时不兜底。'],
             ['competition_profile_psi_score', '竞争圈概览-PSI服务质量', 'competitor_overview', 'quality', 'getServiceData', 'indexType=12, val, avgComp, rankComp', 'number', '分', 'confirmed', 'val 为本店值；avgComp/rankComp 入 raw_data.metrics', true, '截图核对允许计数差 <=1 或百分比差 <=0.05pct；接口未采到时不兜底。'],
+            ['competition_rank_order_count', '竞争圈榜单-预订订单量排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'bookingOrdersrank, orderRank, orderQuantityRank, bookOrderNum', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入订单量。', true, '销售排名榜单字段；接口未采到时不兜底。'],
+            ['competition_rank_order_amount', '竞争圈榜单-预订销售额排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'bookingGMVrank, amountRank, orderAmountRank, amount', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入销售额。', true, '销售排名榜单字段；接口未采到时不兜底。'],
+            ['competition_rank_room_nights', '竞争圈榜单-在店间夜排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'stayInRNrank, quantity', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入间夜量。', true, '销售排名榜单字段；接口未采到时不兜底。'],
+            ['competition_rank_occupancy_rate', '竞争圈榜单-出租率排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'rentalRaterank', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入出租率。', true, '销售排名榜单字段；接口未采到时不兜底。'],
+            ['competition_rank_app_detail_visitor', '竞争圈榜单-APP详情页访客量排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'totalDetailNum, detailVisitorRank, appDetailUvRank', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入访客量。', true, '流量排名榜单字段；接口未采到时不兜底。'],
+            ['competition_rank_app_conversion_rate', '竞争圈榜单-APP详情页转化率排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'convertionRate, conversionRate, detailConversionRateRank', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入转化率。', true, '流量排名榜单字段；接口未采到时不兜底。'],
+            ['competition_rank_psi_score', '竞争圈榜单-PSI分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'serviceScoreRank, psiScoreRank, psiRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入 PSI 分值。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
+            ['competition_rank_ctrip_rating', '竞争圈榜单-携程点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'commentScore, commentScoreRank, ctripCommentScoreRank, ctripRatingRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
+            ['competition_rank_qunar_rating', '竞争圈榜单-去哪儿点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'qunarCommentScoreRank, qunarRatingRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
+            ['competition_rank_tongcheng_rating', '竞争圈榜单-同程点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'tongchengCommentScoreRank, tongChengCommentScoreRank, tongchengRatingRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
+            ['competition_rank_zhixing_rating', '竞争圈榜单-智行点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'zhixingCommentScoreRank, zhiXingCommentScoreRank, zhixingRatingRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
             ['seq_rank', '实时排名', 'business_overview', 'traffic', 'fetchCurrentHotelSeqInfoV1', 'rank, qunarRank, competitorRank, qunarCompetitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
             ['competitor_visitor', '竞品访客', 'business_overview', 'traffic', 'getDayReportFlowCompete', 'comhtluv', 'integer', '人', 'confirmed', '直接取整数'],
             ['competitor_orders', '竞品订单', 'business_overview', 'business', 'getDayReportFlowCompete', 'ordquantity', 'integer', '单', 'confirmed', '直接取整数'],

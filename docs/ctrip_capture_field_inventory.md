@@ -199,7 +199,7 @@
 
 - 模块数：18
 - 接口规则数：77
-- 去重字段数：191
+- 去重字段数：202
 - 页面交互计划：16 个模块 / 80 个触发动作
 - 点评明文采集：默认禁用；Profile 仅保留评分汇总、回复率、点评条数和好评/差评聚合等非点评明文指标。
 
@@ -249,24 +249,6 @@
 - 只有 `approved: true` 的映射会参与 P3 响应提取；未审核草案不会自动生效。
 - 候选文件转正式规则前，必须人工确认 mapping 和字段级 `approved`，确认 source path、隐私处理和入库列后再启用。
 - 提取结果写入 `standard_rows`，隐私字段只保留 hash 或掩码，不保存订单号、住客姓名、手机号明文。
-
-## 字段命名参考
-
-- 来源：fixture_i18n_translations.json
-- 模块数：1
-- 词条数：3
-- 已命中核心词：预订订单数、销售额、列表页曝光量
-- 使用方式：i18n 只作为命名和页面语义参考；中文名优先采用语言包和页面展示中的既有术语，正式字段仍以接口证据、source path 和可复现上下文为准。
-- 数据边界：翻译包本身不是业务数据；功能、按钮、指标、提示语、节假日、国家地区和前端埋点上报代码不能直接生成经营指标。
-- 边界：无法确认时保留接口字段名和来源路径，不自行改写为未验证口径；竞争圈、商旅、广告和 OTA 零售渠道必须分开表达。
-
-### 指标口径速查
-
-| 术语 | 语言包口径/说明 | 来源Key |
-|---|---|---|
-| 预订订单数 | 预订订单数：统计所选日期内的订单数量。 | Key.DataCenter.IndexType.Order.HoverText |
-| 预订销售额 | 预订销售额：统计所选日期内的预订金额。 | Key.DataCenter.IndexType.Sale.HoverText |
-| 列表页曝光量 | 列表页曝光量 | Key.DataCenter.IndexType.ListExposure.Title |
 
 ## 模块
 
@@ -1823,6 +1805,17 @@
 | hotel_name | 酒店名称 | hotelName, hotel_name, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | rank_metric | 榜单指标 | rankType, metric, rankName | - |
+| competition_rank_order_count | 竞争圈榜单-预订订单量排名 | bookingOrdersrank, orderRank, orderQuantityRank, bookOrderNum | - |
+| competition_rank_order_amount | 竞争圈榜单-预订销售额排名 | bookingGMVrank, amountRank, orderAmountRank, amount | - |
+| competition_rank_room_nights | 竞争圈榜单-在店间夜排名 | stayInRNrank, quantity | - |
+| competition_rank_occupancy_rate | 竞争圈榜单-出租率排名 | rentalRaterank | - |
+| competition_rank_app_detail_visitor | 竞争圈榜单-APP详情页访客量排名 | totalDetailNum, detailVisitorRank, appDetailUvRank | - |
+| competition_rank_app_conversion_rate | 竞争圈榜单-APP详情页转化率排名 | convertionRate, conversionRate, detailConversionRateRank | - |
+| competition_rank_psi_score | 竞争圈榜单-PSI分排名 | serviceScoreRank, psiScoreRank, psiRank | - |
+| competition_rank_ctrip_rating | 竞争圈榜单-携程点评分排名 | commentScore, commentScoreRank, ctripCommentScoreRank, ctripRatingRank | - |
+| competition_rank_qunar_rating | 竞争圈榜单-去哪儿点评分排名 | qunarCommentScoreRank, qunarRatingRank | - |
+| competition_rank_tongcheng_rating | 竞争圈榜单-同程点评分排名 | tongchengCommentScoreRank, tongChengCommentScoreRank, tongchengRatingRank | - |
+| competition_rank_zhixing_rating | 竞争圈榜单-智行点评分排名 | zhixingCommentScoreRank, zhiXingCommentScoreRank, zhixingRatingRank | - |
 | order_rank | 预订订单量排名 | orderRank, orderQuantityRank, bookingOrdersrank, bookOrderNum | - |
 | amount_rank | 预订销售额排名 | amountRank, orderAmountRank, bookingGMVrank, amount | - |
 | room_nights_rank | 在店间夜排名 | stayInRNrank, quantity | - |

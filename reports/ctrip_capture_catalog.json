@@ -2,7 +2,7 @@
   "platform": "ctrip",
   "section_count": 18,
   "endpoint_count": 77,
-  "field_count": 191,
+  "field_count": 202,
   "default_sections": [
     "business_overview",
     "business_weekly_overview",
@@ -23909,6 +23909,236 @@
           "confidenceStatus": ""
         },
         {
+          "id": "competition_rank_order_count",
+          "label": "竞争圈榜单-预订订单量排名",
+          "sourceKeys": [
+            "bookingOrdersrank",
+            "orderRank",
+            "orderQuantityRank",
+            "bookOrderNum"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_order_amount",
+          "label": "竞争圈榜单-预订销售额排名",
+          "sourceKeys": [
+            "bookingGMVrank",
+            "amountRank",
+            "orderAmountRank",
+            "amount"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_room_nights",
+          "label": "竞争圈榜单-在店间夜排名",
+          "sourceKeys": [
+            "stayInRNrank",
+            "quantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_occupancy_rate",
+          "label": "竞争圈榜单-出租率排名",
+          "sourceKeys": [
+            "rentalRaterank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_app_detail_visitor",
+          "label": "竞争圈榜单-APP详情页访客量排名",
+          "sourceKeys": [
+            "totalDetailNum",
+            "detailVisitorRank",
+            "appDetailUvRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_app_conversion_rate",
+          "label": "竞争圈榜单-APP详情页转化率排名",
+          "sourceKeys": [
+            "convertionRate",
+            "conversionRate",
+            "detailConversionRateRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_psi_score",
+          "label": "竞争圈榜单-PSI分排名",
+          "sourceKeys": [
+            "serviceScoreRank",
+            "psiScoreRank",
+            "psiRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_ctrip_rating",
+          "label": "竞争圈榜单-携程点评分排名",
+          "sourceKeys": [
+            "commentScore",
+            "commentScoreRank",
+            "ctripCommentScoreRank",
+            "ctripRatingRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_qunar_rating",
+          "label": "竞争圈榜单-去哪儿点评分排名",
+          "sourceKeys": [
+            "qunarCommentScoreRank",
+            "qunarRatingRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_tongcheng_rating",
+          "label": "竞争圈榜单-同程点评分排名",
+          "sourceKeys": [
+            "tongchengCommentScoreRank",
+            "tongChengCommentScoreRank",
+            "tongchengRatingRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competition_rank_zhixing_rating",
+          "label": "竞争圈榜单-智行点评分排名",
+          "sourceKeys": [
+            "zhixingCommentScoreRank",
+            "zhiXingCommentScoreRank",
+            "zhixingRatingRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "order_rank",
           "label": "预订订单量排名",
           "sourceKeys": [
@@ -32979,31 +33209,5 @@
       ]
     }
   ],
-  "i18n_reference": {
-    "source": "fixture_i18n_translations.json",
-    "total_modules": 1,
-    "total_entries": 3,
-    "matched_terms": [
-      "预订订单数",
-      "销售额",
-      "列表页曝光量"
-    ],
-    "metric_definitions": [
-      {
-        "term": "预订订单数",
-        "definition": "预订订单数：统计所选日期内的订单数量。",
-        "source_key": "Key.DataCenter.IndexType.Order.HoverText"
-      },
-      {
-        "term": "预订销售额",
-        "definition": "预订销售额：统计所选日期内的预订金额。",
-        "source_key": "Key.DataCenter.IndexType.Sale.HoverText"
-      },
-      {
-        "term": "列表页曝光量",
-        "definition": "列表页曝光量",
-        "source_key": "Key.DataCenter.IndexType.ListExposure.Title"
-      }
-    ]
-  }
+  "i18n_reference": null
 }
