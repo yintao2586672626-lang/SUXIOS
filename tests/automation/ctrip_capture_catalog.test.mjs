@@ -839,6 +839,74 @@ test('keeps Ctrip getCompetingRank sellRanksBO rows as ranking facts', () => {
   assert.equal(row.raw_data.rank_metrics.amount_rank, 7);
   assert.equal(row.raw_data.rank_metrics.room_nights_rank, 2);
   assert.equal(row.raw_data.rank_metrics.occupancy_rate_rank, 3);
+  assert.equal(row.raw_data.rank_metrics.competition_rank_order_count, 18);
+  assert.equal(row.raw_data.rank_metrics.competition_rank_order_amount, 7);
+  assert.equal(row.raw_data.rank_metrics.competition_rank_room_nights, 2);
+  assert.equal(row.raw_data.rank_metrics.competition_rank_occupancy_rate, 3);
+});
+
+test('keeps Ctrip getCompetingRank flowRanksBO and serviceRanksBO rows as scoped ranking facts', () => {
+  const url = 'https://ebooking.ctrip.com/restapi/soa2/24588/getCompetingRank';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.ok(endpoint, url);
+
+  const facts = extractCtripCatalogFacts({
+    sellRanksBO: [],
+    flowRanksBO: [{
+      masterHotelId: 6866634,
+      hotelName: 'Xi An Airport Hotel',
+      totalDetailNum: 16,
+      convertionRate: 10,
+    }],
+    serviceRanksBO: [{
+      masterHotelId: 6866634,
+      hotelName: 'Xi An Airport Hotel',
+      serviceScoreRank: 19,
+      commentScore: 4,
+      qunarCommentScoreRank: 5,
+      tongchengCommentScoreRank: 1,
+      zhixingCommentScoreRank: 3,
+    }],
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-03',
+    capturedAt: '2026-06-04T01:20:00.000Z',
+    url,
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'Xi An Airport Hotel',
+    profileId: '6866634',
+    dataDate: '2026-06-03',
+  });
+
+  const flowRow = rows.find((row) => row.raw_data.rank_metrics?.competition_rank_app_detail_visitor === 16);
+  const serviceRow = rows.find((row) => row.raw_data.rank_metrics?.competition_rank_psi_score === 19);
+  assert.ok(flowRow, 'flowRanksBO ranking row must be present');
+  assert.ok(serviceRow, 'serviceRanksBO ranking row must be present');
+
+  assert.equal(flowRow.data_type, 'ranking');
+  assert.equal(flowRow.amount, 0);
+  assert.equal(flowRow.quantity, 0);
+  assert.equal(flowRow.book_order_num, 0);
+  assert.equal(flowRow.detail_exposure, 0);
+  assert.equal(flowRow.raw_data.metric_status, 'rank_fact');
+  assert.equal(flowRow.raw_data.rank_metrics.competition_rank_app_conversion_rate, 10);
+
+  assert.equal(serviceRow.data_type, 'ranking');
+  assert.equal(serviceRow.amount, 0);
+  assert.equal(serviceRow.quantity, 0);
+  assert.equal(serviceRow.book_order_num, 0);
+  assert.equal(serviceRow.comment_score, 0);
+  assert.equal(serviceRow.raw_data.metric_status, 'rank_fact');
+  assert.equal(serviceRow.raw_data.rank_metrics.competition_rank_ctrip_rating, 4);
+  assert.equal(serviceRow.raw_data.rank_metrics.competition_rank_qunar_rating, 5);
+  assert.equal(serviceRow.raw_data.rank_metrics.competition_rank_tongcheng_rating, 1);
+  assert.equal(serviceRow.raw_data.rank_metrics.competition_rank_zhixing_rating, 3);
 });
 
 test('extracts Ctrip competitor comparison cards into self value, peer average and rank rows', () => {

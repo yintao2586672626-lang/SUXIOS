@@ -338,6 +338,24 @@ function verifyCatalog() {
     assertContract(field?.sourceKeys.includes(sourceKey), `business_visitor_title ${fieldId} must include source key: ${sourceKey}`);
   }
 
+  const competitorRankEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'competitor_rank');
+  for (const [fieldId, sourceKey] of [
+    ['competition_rank_order_count', 'bookingOrdersrank'],
+    ['competition_rank_order_amount', 'bookingGMVrank'],
+    ['competition_rank_room_nights', 'stayInRNrank'],
+    ['competition_rank_occupancy_rate', 'rentalRaterank'],
+    ['competition_rank_app_detail_visitor', 'totalDetailNum'],
+    ['competition_rank_app_conversion_rate', 'convertionRate'],
+    ['competition_rank_psi_score', 'serviceScoreRank'],
+    ['competition_rank_ctrip_rating', 'commentScore'],
+    ['competition_rank_qunar_rating', 'qunarCommentScoreRank'],
+    ['competition_rank_tongcheng_rating', 'tongchengCommentScoreRank'],
+    ['competition_rank_zhixing_rating', 'zhixingCommentScoreRank'],
+  ]) {
+    const field = competitorRankEndpoint?.fields.find((item) => item.id === fieldId);
+    assertContract(field?.sourceKeys.includes(sourceKey), `competitor_rank ${fieldId} must include source key: ${sourceKey}`);
+  }
+
   const adsPyramidUrls = new Set((CTRIP_CAPTURE_SECTIONS.ads_pyramid?.pageUrls || []).map((item) => item.url));
   assertContract(adsPyramidUrls.has('https://ebooking.ctrip.com/toolcenter/cpc/pyramid'), 'ads_pyramid must include observed CPC pyramid homepage');
   const adsReportEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'ads_report_list');
@@ -461,6 +479,34 @@ function verifyCatalog() {
     assertContract(Math.abs(Number(competitorRow?.flow_rate) - 21.53) < 0.001, `${platform} competitor APP funnel row must store computed exposure conversion rate`);
   }
   const onlineDataSource = readFileSync('app/controller/OnlineData.php', 'utf8');
+  for (const fieldKey of [
+    'competition_rank_order_count',
+    'competition_rank_order_amount',
+    'competition_rank_room_nights',
+    'competition_rank_occupancy_rate',
+    'competition_rank_app_detail_visitor',
+    'competition_rank_app_conversion_rate',
+    'competition_rank_psi_score',
+    'competition_rank_ctrip_rating',
+    'competition_rank_qunar_rating',
+    'competition_rank_tongcheng_rating',
+    'competition_rank_zhixing_rating',
+  ]) {
+    assertContract(onlineDataSource.includes(`'${fieldKey}'`), `OnlineData default Profile fields must include ${fieldKey}`);
+    assertContract(
+      onlineDataSource.includes(`raw_data.rank_metrics.${fieldKey}`),
+      `OnlineData field meta must store ${fieldKey} in raw_data.rank_metrics`,
+    );
+  }
+  assertContract(
+    onlineDataSource.includes("'competitor_rank', '竞争圈动态-竞争圈榜单'"),
+    'OnlineData competitor_rank module label must match the Ctrip competition list page',
+  );
+  const publicIndexSource = readFileSync('public/index.html', 'utf8');
+  assertContract(
+    publicIndexSource.includes("label: '竞争圈动态-竞争圈榜单'"),
+    'Profile field-management UI must expose competitor_rank as 竞争圈动态-竞争圈榜单',
+  );
   const saveStandardRowsMatch = onlineDataSource.match(/private function saveCtripStandardRows[\s\S]*?private function extractCtripCapturedResponseData/);
   assertContract(saveStandardRowsMatch, 'saveCtripStandardRows function must be present');
   assertContract(
