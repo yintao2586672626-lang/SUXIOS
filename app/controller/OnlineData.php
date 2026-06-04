@@ -10587,6 +10587,7 @@ JAVASCRIPT;
             ['quality_psi', 'PSI服务质量', 'https://ebooking.ctrip.com/toolcenter/psi/index?microJump=true', '服务质量数据'],
             ['market_calendar', '市场分析-市场热度', 'https://ebooking.ctrip.com/ebkgrowth/datacenter/marketanalysis/marketheat?microJump=true', '竞争力数据'],
             ['user_profile', '用户行为/点评分析', 'https://ebooking.ctrip.com/ebkgrowth/datacenter/userbehavior/user?microJump=true', '流量转化数据'],
+            ['im_board', '用户行为-IM看板', 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im', '服务质量数据'],
             ['ads_pyramid', '金字塔广告', 'https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true', '流量转化数据'],
         ];
 
@@ -10713,6 +10714,7 @@ JAVASCRIPT;
     {
         return [
             'competitor_overview' => ['竞争圈动态-概览', '竞争圈-概览', '竞争圈概览'],
+            'im_board' => ['IM看板', '用户行为IM看板'],
         ];
     }
 
@@ -11448,6 +11450,12 @@ JAVASCRIPT;
         if ($normalizedUrl === '') {
             return $currentSection !== '' ? $currentSection : 'business_overview';
         }
+        if (
+            (str_contains($normalizedUrl, '/datacenter/userbehavior/user') || str_contains($normalizedUrl, '/datacenter/inland/userbehavior/user'))
+            && str_contains($normalizedUrl, 'goto=im')
+        ) {
+            return 'im_board';
+        }
 
         $rules = [
             ['path' => '/datacenter/inland/businessreport/outline', 'section' => 'business_overview'],
@@ -11455,6 +11463,7 @@ JAVASCRIPT;
             ['path' => '/datacenter/inland/businessreport/beneficialdata', 'section' => 'sales_report'],
             ['path' => '/datacenter/inland/businessreport/flowdata', 'section' => 'traffic_report'],
             ['path' => '/comment/commentlist', 'section' => 'comment_review'],
+            ['path' => '/datacenter/inland/userbehavior/im', 'section' => 'im_board'],
             ['path' => '/datacenter/userbehavior/user', 'section' => 'user_profile'],
             ['path' => '/datacenter/inland/userbehavior/user', 'section' => 'user_profile'],
             ['path' => '/ebkgrowth/datacenter/competition/competitionprofile', 'section' => 'competitor_overview'],
@@ -11873,14 +11882,56 @@ JAVASCRIPT;
         return count($parts) >= 2 && $parts[0] === 'catalog' ? (string)$parts[1] : '';
     }
 
+    private function ctripProfileSampleBucketKeyForRow(string $fieldKey, string $section, array $fieldScopesByMetric): ?string
+    {
+        $fieldKey = strtolower(trim($fieldKey));
+        $fieldKey = preg_replace('/[^a-z0-9_\-]+/', '_', $fieldKey) ?: '';
+        if ($fieldKey === '' || empty($fieldScopesByMetric[$fieldKey])) {
+            return null;
+        }
+
+        $section = strtolower(trim($section));
+        $section = preg_replace('/[^a-z0-9_\-]+/', '_', $section) ?: '';
+        if ($section !== '') {
+            $scopeKey = $this->ctripProfileFieldScopeKey($fieldKey, $section);
+            if (isset($fieldScopesByMetric[$fieldKey][$scopeKey])) {
+                return $scopeKey;
+            }
+        }
+
+        if (count($fieldScopesByMetric[$fieldKey]) === 1) {
+            return array_key_first($fieldScopesByMetric[$fieldKey]);
+        }
+
+        return null;
+    }
+
+    private function ctripProfileSampleSectionFromOnlineDailyRow(array $row, array $raw): string
+    {
+        $section = strtolower(trim((string)($row['capture_section'] ?? $raw['capture_section'] ?? $raw['section'] ?? '')));
+        if ($section === '') {
+            $section = $this->sectionFromCtripProfileDimension((string)($row['dimension'] ?? ''));
+        }
+
+        $section = strtolower(trim($section));
+        return preg_replace('/[^a-z0-9_\-]+/', '_', $section) ?: '';
+    }
+
     private function hydrateCtripProfileFieldLatestSamples(array &$fields): array
     {
         $sampleLimit = 8;
         $fieldKeys = [];
+        $fieldScopesByMetric = [];
         foreach ($fields as $field) {
             $fieldKey = (string)($field['field_key'] ?? '');
             if ($fieldKey !== '') {
                 $fieldKeys[$fieldKey] = true;
+                $normalizedFieldKey = strtolower(trim($fieldKey));
+                $normalizedFieldKey = preg_replace('/[^a-z0-9_\-]+/', '_', $normalizedFieldKey) ?: '';
+                $scopeKey = $this->ctripProfileFieldScopeKey($fieldKey, (string)($field['section'] ?? ''));
+                if ($normalizedFieldKey !== '' && $scopeKey !== '') {
+                    $fieldScopesByMetric[$normalizedFieldKey][$scopeKey] = true;
+                }
             }
         }
 
@@ -11931,6 +11982,14 @@ JAVASCRIPT;
             if ($this->ctripProfilePrefersOnlineDailySamples($metricKey)) {
                 continue;
             }
+            $bucketKey = $this->ctripProfileSampleBucketKeyForRow(
+                $metricKey,
+                (string)($row['capture_section'] ?? ''),
+                $fieldScopesByMetric
+            );
+            if ($bucketKey === null) {
+                continue;
+            }
 
             $value = $this->formatCtripProfileFieldSampleValue(
                 $row['value_decimal'] ?? null,
@@ -11941,22 +12000,22 @@ JAVASCRIPT;
                 continue;
             }
 
-            $samplesByKey[$metricKey] ??= [
+            $samplesByKey[$bucketKey] ??= [
                 'items' => [],
                 'seen' => [],
             ];
-            if (isset($samplesByKey[$metricKey]['seen'][$value])) {
+            if (isset($samplesByKey[$bucketKey]['seen'][$value])) {
                 continue;
             }
 
-            $samplesByKey[$metricKey]['seen'][$value] = true;
+            $samplesByKey[$bucketKey]['seen'][$value] = true;
             $capturedAt = (string)($row['captured_at'] ?? '');
             $runId = trim((string)($row['run_id'] ?? ''));
             $batchKey = $runId !== ''
                 ? 'run:' . $runId
                 : ($capturedAt !== '' ? 'captured_at:' . $capturedAt : '');
-            if (count($samplesByKey[$metricKey]['items']) < $sampleLimit) {
-                $samplesByKey[$metricKey]['items'][] = [
+            if (count($samplesByKey[$bucketKey]['items']) < $sampleLimit) {
+                $samplesByKey[$bucketKey]['items'][] = [
                     'value' => $value,
                     'unit' => (string)($row['unit'] ?? ''),
                     'data_date' => (string)($row['data_date'] ?? ''),
@@ -11981,7 +12040,8 @@ JAVASCRIPT;
         $sampledFieldCount = 0;
         foreach ($fields as &$field) {
             $fieldKey = (string)($field['field_key'] ?? '');
-            $items = $samplesByKey[$fieldKey]['items'] ?? [];
+            $bucketKey = $this->ctripProfileFieldScopeKey($fieldKey, (string)($field['section'] ?? ''));
+            $items = $samplesByKey[$bucketKey]['items'] ?? [];
             if (!$items) {
                 continue;
             }
@@ -12004,14 +12064,24 @@ JAVASCRIPT;
     private function hydrateCtripProfileFieldSamplesFromOnlineDailyData(array &$samplesByKey, array $fields, ?string &$latestSampleTime, ?string &$latestSampleBatchKey, int $sampleLimit = 8): void
     {
         $fieldSpecs = [];
+        $fieldScopeCountByMetric = [];
         foreach ($fields as $field) {
             $fieldKey = (string)($field['field_key'] ?? '');
             if ($fieldKey === '') {
                 continue;
             }
 
+            $scopeKey = $this->ctripProfileFieldScopeKey($fieldKey, (string)($field['section'] ?? ''));
+            if ($scopeKey === '') {
+                continue;
+            }
+            $normalizedFieldKey = strtolower(trim($fieldKey));
+            $normalizedFieldKey = preg_replace('/[^a-z0-9_\-]+/', '_', $normalizedFieldKey) ?: $fieldKey;
+            $fieldScopeCountByMetric[$normalizedFieldKey] = ($fieldScopeCountByMetric[$normalizedFieldKey] ?? 0) + 1;
             $sourceKeys = preg_split('/\s*,\s*/', (string)($field['source_keys'] ?? '')) ?: [];
-            $fieldSpecs[$fieldKey] = [
+            $fieldSpecs[$scopeKey] = [
+                'field_key' => $fieldKey,
+                'section' => strtolower(trim((string)($field['section'] ?? ''))),
                 'field' => $field,
                 'source' => $this->ctripProfileFieldSampleSource($field),
                 'keys' => array_values(array_unique(array_filter(array_merge(
@@ -12056,11 +12126,23 @@ JAVASCRIPT;
             $raw = is_array($raw) ? $raw : [];
             $rawMap = $this->flattenCtripProfileRawValues($raw);
             $rowIsRankFact = $this->isCtripOnlineDailyRankFactRow($row, $raw);
-            foreach ($fieldSpecs as $fieldKey => $spec) {
-                if (count($samplesByKey[$fieldKey]['items'] ?? []) >= $sampleLimit) {
+            $rowSection = $this->ctripProfileSampleSectionFromOnlineDailyRow($row, $raw);
+            foreach ($fieldSpecs as $bucketKey => $spec) {
+                if (count($samplesByKey[$bucketKey]['items'] ?? []) >= $sampleLimit) {
                     continue;
                 }
                 if ($rowSource !== (string)($spec['source'] ?? 'ctrip')) {
+                    continue;
+                }
+                $fieldKey = (string)($spec['field_key'] ?? '');
+                $fieldSection = strtolower(trim((string)($spec['section'] ?? '')));
+                $fieldSection = preg_replace('/[^a-z0-9_\-]+/', '_', $fieldSection) ?: '';
+                if ($rowSection !== '' && $fieldSection !== '' && $fieldSection !== 'unknown' && $rowSection !== $fieldSection) {
+                    continue;
+                }
+                $normalizedFieldKey = strtolower(trim($fieldKey));
+                $normalizedFieldKey = preg_replace('/[^a-z0-9_\-]+/', '_', $normalizedFieldKey) ?: $fieldKey;
+                if ($rowSection === '' && ($fieldScopeCountByMetric[$normalizedFieldKey] ?? 0) > 1) {
                     continue;
                 }
                 if ($rowIsRankFact && !$this->isCtripProfileRankFieldKey((string)$fieldKey)) {
@@ -12077,26 +12159,26 @@ JAVASCRIPT;
                     continue;
                 }
 
-                $samplesByKey[$fieldKey] ??= [
+                $samplesByKey[$bucketKey] ??= [
                     'items' => [],
                     'seen' => [],
                 ];
-                if (isset($samplesByKey[$fieldKey]['seen'][$value])) {
+                if (isset($samplesByKey[$bucketKey]['seen'][$value])) {
                     continue;
                 }
 
-                $samplesByKey[$fieldKey]['seen'][$value] = true;
+                $samplesByKey[$bucketKey]['seen'][$value] = true;
                 $capturedAt = (string)($row['update_time'] ?? $row['create_time'] ?? '');
                 $syncTaskId = (int)($row['sync_task_id'] ?? 0);
                 $batchKey = $syncTaskId > 0
                     ? 'sync_task:' . $syncTaskId
                     : ($capturedAt !== '' ? 'captured_at:' . $capturedAt : '');
-                $samplesByKey[$fieldKey]['items'][] = [
+                $samplesByKey[$bucketKey]['items'][] = [
                     'value' => $value,
                     'unit' => (string)($spec['field']['unit'] ?? ''),
                     'data_date' => (string)($row['data_date'] ?? ''),
                     'hotel_name' => (string)($row['hotel_name'] ?? ''),
-                    'capture_section' => (string)($row['data_type'] ?? 'online_daily_data'),
+                    'capture_section' => $rowSection !== '' ? $rowSection : (string)($row['data_type'] ?? 'online_daily_data'),
                     'endpoint_id' => 'online_daily_data',
                     'source_key' => $matchedKey,
                     'source_path' => $sourcePath,
@@ -12739,7 +12821,7 @@ JAVASCRIPT;
         $businessPage = self::CTRIP_BUSINESS_REPORT_PAGE_URL;
         $selfRule = '本店口径：masterHotelId/hotelId 必须等于当前携程酒店ID；stat_date/data_date 使用业务日期，不使用采集时间。';
         $competitorRule = '竞品口径：仅作为竞争圈或竞品指标，不写入本店经营额、间夜或订单数。';
-        $rankRule = '榜单/排名口径：只保留 ranking/data_value/raw_data.rank_metrics，不写入 amount、quantity、book_order_num。';
+        $rankRule = '榜单名次口径：字段值均为第几名，只保留 ranking/data_value/raw_data.rank_metrics；即使接口字段名包含 amount、quantity、bookOrderNum、score、rate、Num，也不写入订单量、金额、间夜、评分、访客量或转化率。';
         $realtimeUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate';
         $marketUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/sale/fetchMarketOverViewV2';
         $visitorTitleUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2';
@@ -13513,7 +13595,7 @@ JAVASCRIPT;
                 'source_keys' => 'serviceScoreRank, psiScoreRank, psiRank',
                 'target_value' => 'serviceScoreRank',
                 'value_meaning' => '竞争圈榜单：PSI分排名',
-                'notes' => '页面字段已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
+                'notes' => '页面字段是榜单名次，已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
             ],
             'competition_rank_ctrip_rating' => [
                 'page_url' => 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionlist?microJump=true',
@@ -13525,7 +13607,7 @@ JAVASCRIPT;
                 'source_keys' => 'commentScore, commentScoreRank, ctripCommentScoreRank, ctripRatingRank',
                 'target_value' => 'commentScore',
                 'value_meaning' => '竞争圈榜单：携程点评分排名',
-                'notes' => '页面字段已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
+                'notes' => '页面字段是榜单名次，已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
             ],
             'competition_rank_qunar_rating' => [
                 'page_url' => 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionlist?microJump=true',
@@ -13537,7 +13619,7 @@ JAVASCRIPT;
                 'source_keys' => 'qunarCommentScoreRank, qunarRatingRank',
                 'target_value' => 'qunarCommentScoreRank',
                 'value_meaning' => '竞争圈榜单：去哪儿点评分排名',
-                'notes' => '页面字段已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
+                'notes' => '页面字段是榜单名次，已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
             ],
             'competition_rank_tongcheng_rating' => [
                 'page_url' => 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionlist?microJump=true',
@@ -13549,7 +13631,7 @@ JAVASCRIPT;
                 'source_keys' => 'tongchengCommentScoreRank, tongChengCommentScoreRank, tongchengRatingRank',
                 'target_value' => 'tongchengCommentScoreRank',
                 'value_meaning' => '竞争圈榜单：同程点评分排名',
-                'notes' => '页面字段已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
+                'notes' => '页面字段是榜单名次，已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
             ],
             'competition_rank_zhixing_rating' => [
                 'page_url' => 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionlist?microJump=true',
@@ -13561,7 +13643,7 @@ JAVASCRIPT;
                 'source_keys' => 'zhixingCommentScoreRank, zhiXingCommentScoreRank, zhixingRatingRank',
                 'target_value' => 'zhixingCommentScoreRank',
                 'value_meaning' => '竞争圈榜单：智行点评分排名',
-                'notes' => '页面字段已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
+                'notes' => '页面字段是榜单名次，已确认；source key 需用完整 Response 复核，缺失时显式标记，不用兜底值。',
             ],
             'psi_score' => [
                 'page_url' => $businessPage . ' / ' . self::CTRIP_PSI_PAGE_URL,
@@ -13982,17 +14064,17 @@ JAVASCRIPT;
             ['competition_profile_order_fill_rate', '竞争圈概览-App下单转化', 'competitor_overview', 'traffic', 'getFlowData', 'indexType=10, val, avgComp, rankComp', 'percent', '%', 'confirmed', 'val 为本店值；avgComp/rankComp 入 raw_data.metrics', true, '截图核对允许计数差 <=1 或百分比差 <=0.05pct；接口未采到时不兜底。'],
             ['competition_profile_ctrip_rating', '竞争圈概览-携程点评分', 'competitor_overview', 'quality', 'getServiceData', 'indexType=11, val, avgComp, rankComp', 'number', '分', 'confirmed', 'val 为本店值；avgComp/rankComp 入 raw_data.metrics', true, '截图核对允许计数差 <=1 或百分比差 <=0.05pct；接口未采到时不兜底。'],
             ['competition_profile_psi_score', '竞争圈概览-PSI服务质量', 'competitor_overview', 'quality', 'getServiceData', 'indexType=12, val, avgComp, rankComp', 'number', '分', 'confirmed', 'val 为本店值；avgComp/rankComp 入 raw_data.metrics', true, '截图核对允许计数差 <=1 或百分比差 <=0.05pct；接口未采到时不兜底。'],
-            ['competition_rank_order_count', '竞争圈榜单-预订订单量排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'bookingOrdersrank, orderRank, orderQuantityRank, bookOrderNum', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入订单量。', true, '销售排名榜单字段；接口未采到时不兜底。'],
-            ['competition_rank_order_amount', '竞争圈榜单-预订销售额排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'bookingGMVrank, amountRank, orderAmountRank, amount', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入销售额。', true, '销售排名榜单字段；接口未采到时不兜底。'],
-            ['competition_rank_room_nights', '竞争圈榜单-在店间夜排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'stayInRNrank, quantity', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入间夜量。', true, '销售排名榜单字段；接口未采到时不兜底。'],
-            ['competition_rank_occupancy_rate', '竞争圈榜单-出租率排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'rentalRaterank', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入出租率。', true, '销售排名榜单字段；接口未采到时不兜底。'],
-            ['competition_rank_app_detail_visitor', '竞争圈榜单-APP详情页访客量排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'totalDetailNum, detailVisitorRank, appDetailUvRank', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入访客量。', true, '流量排名榜单字段；接口未采到时不兜底。'],
-            ['competition_rank_app_conversion_rate', '竞争圈榜单-APP详情页转化率排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'convertionRate, conversionRate, detailConversionRateRank', 'rank', '名', 'confirmed', '只写 ranking/raw_data.rank_metrics，不写入转化率。', true, '流量排名榜单字段；接口未采到时不兜底。'],
-            ['competition_rank_psi_score', '竞争圈榜单-PSI分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'serviceScoreRank, psiScoreRank, psiRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入 PSI 分值。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
-            ['competition_rank_ctrip_rating', '竞争圈榜单-携程点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'commentScore, commentScoreRank, ctripCommentScoreRank, ctripRatingRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
-            ['competition_rank_qunar_rating', '竞争圈榜单-去哪儿点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'qunarCommentScoreRank, qunarRatingRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
-            ['competition_rank_tongcheng_rating', '竞争圈榜单-同程点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'tongchengCommentScoreRank, tongChengCommentScoreRank, tongchengRatingRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
-            ['competition_rank_zhixing_rating', '竞争圈榜单-智行点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'zhixingCommentScoreRank, zhiXingCommentScoreRank, zhixingRatingRank', 'rank', '名', 'needs_parser', '只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '服务排名页面已确认；source key 需用完整 Response 复核。'],
+            ['competition_rank_order_count', '竞争圈榜单-预订订单量排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'bookingOrdersrank, orderRank, orderQuantityRank, bookOrderNum', 'rank', '名', 'confirmed', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入订单量。', true, '值为第几名，不是订单量；接口未采到时不兜底。'],
+            ['competition_rank_order_amount', '竞争圈榜单-预订销售额排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'bookingGMVrank, amountRank, orderAmountRank, amount', 'rank', '名', 'confirmed', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入销售额。', true, '值为第几名，不是销售额；接口未采到时不兜底。'],
+            ['competition_rank_room_nights', '竞争圈榜单-在店间夜排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'stayInRNrank, quantity', 'rank', '名', 'confirmed', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入间夜量。', true, '值为第几名，不是在店间夜数；接口未采到时不兜底。'],
+            ['competition_rank_occupancy_rate', '竞争圈榜单-出租率排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'rentalRaterank', 'rank', '名', 'confirmed', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入出租率。', true, '值为第几名，不是出租率；接口未采到时不兜底。'],
+            ['competition_rank_app_detail_visitor', '竞争圈榜单-APP详情页访客量排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'totalDetailNum, detailVisitorRank, appDetailUvRank', 'rank', '名', 'confirmed', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入访客量。', true, '值为第几名，不是访客量；接口未采到时不兜底。'],
+            ['competition_rank_app_conversion_rate', '竞争圈榜单-APP详情页转化率排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'convertionRate, conversionRate, detailConversionRateRank', 'rank', '名', 'confirmed', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入转化率。', true, '值为第几名，不是转化率；接口未采到时不兜底。'],
+            ['competition_rank_psi_score', '竞争圈榜单-PSI分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'serviceScoreRank, psiScoreRank, psiRank', 'rank', '名', 'needs_parser', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入 PSI 分值。', true, '值为第几名，不是 PSI 分值；source key 需用完整 Response 复核。'],
+            ['competition_rank_ctrip_rating', '竞争圈榜单-携程点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'commentScore, commentScoreRank, ctripCommentScoreRank, ctripRatingRank', 'rank', '名', 'needs_parser', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '值为第几名，不是携程点评分；source key 需用完整 Response 复核。'],
+            ['competition_rank_qunar_rating', '竞争圈榜单-去哪儿点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'qunarCommentScoreRank, qunarRatingRank', 'rank', '名', 'needs_parser', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '值为第几名，不是去哪儿点评分；source key 需用完整 Response 复核。'],
+            ['competition_rank_tongcheng_rating', '竞争圈榜单-同程点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'tongchengCommentScoreRank, tongChengCommentScoreRank, tongchengRatingRank', 'rank', '名', 'needs_parser', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '值为第几名，不是同程点评分；source key 需用完整 Response 复核。'],
+            ['competition_rank_zhixing_rating', '竞争圈榜单-智行点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'zhixingCommentScoreRank, zhiXingCommentScoreRank, zhixingRatingRank', 'rank', '名', 'needs_parser', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入点评分。', true, '值为第几名，不是智行点评分；source key 需用完整 Response 复核。'],
             ['seq_rank', '实时排名', 'business_overview', 'traffic', 'fetchCurrentHotelSeqInfoV1', 'rank, qunarRank, competitorRank, qunarCompetitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
             ['competitor_visitor', '竞品访客', 'business_overview', 'traffic', 'getDayReportFlowCompete', 'comhtluv', 'integer', '人', 'confirmed', '直接取整数'],
             ['competitor_orders', '竞品订单', 'business_overview', 'business', 'getDayReportFlowCompete', 'ordquantity', 'integer', '单', 'confirmed', '直接取整数'],
@@ -24328,7 +24410,12 @@ JAVASCRIPT;
                 'session_count', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate',
                 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate', 'im_rank',
             ],
-            'quality_psi' => ['psi_score', 'base_score', 'reward_score', 'deduct_score', 'task_name', 'course_title'],
+            'quality_psi' => [
+                'psi_score', 'base_score', 'reward_score', 'deduct_score', 'task_name', 'course_title',
+                'psi_basic_item_type', 'psi_basic_item_code', 'psi_basic_item_name', 'psi_basic_item_weight', 'psi_basic_item_score',
+                'psi_basic_item_rank', 'psi_basic_item_score_gap', 'psi_basic_item_score_gap_unit',
+                'psi_basic_item_start_date', 'psi_basic_item_end_date', 'psi_basic_item_tips',
+            ],
             'competitor_overview' => [
                 'order_amount', 'room_nights', 'order_count', 'avg_price', 'occupancy_rate',
                 'visitor_count', 'conversion_rate', 'rank', 'comment_score_summary', 'psi_score',

@@ -283,9 +283,14 @@ function verifyCatalog() {
     ['https://ebooking.ctrip.com/comment/api/getCommentList', 'comment_review'],
     ['https://ebooking.ctrip.com/datacenter/api/getTripartiteOrderLoss', 'loss_analysis'],
     ['https://ebooking.ctrip.com/datacenter/api/getCompetingRank', 'competitor_rank'],
-    ['https://ebooking.ctrip.com/userbehavior/getImIndex?hostType=Ebooking', 'im_board'],
+    ['https://ebooking.ctrip.com/userbehavior/getImIndex?hostType=Ebooking&v=0.4544692596916936', 'im_board'],
+    ['https://ebooking.ctrip.com/userbehavior/getImDateDistribute?hostType=Ebooking&v=0.889990888095976', 'im_board'],
+    ['https://ebooking.ctrip.com/userbehavior/getImSessionDistribute?hostType=Ebooking&v=0.3581193674166786', 'im_board'],
+    ['https://ebooking.ctrip.com/userbehavior/getImOrderConversionRateByDay?hostType=Ebooking&v=0.7937016081022331', 'im_board'],
+    ['https://ebooking.ctrip.com/userbehavior/getImOrderConversionDetail?hostType=Ebooking&v=0.3644864469238388', 'im_board'],
     ['https://ebooking.ctrip.com/pyramidad/api/queryCampaignSummaryReport', 'ads_pyramid'],
     ['https://ebooking.ctrip.com/psi/api/getHotelPsiV2', 'quality_psi'],
+    ['https://ebooking.ctrip.com/toolcenter/api/psiV2/getHotelPsiV2?hostType=HE&v=0.14653639846260236', 'quality_psi'],
     ['https://ebooking.ctrip.com/toolcenter/api/psi/queryHistPsiScoreList?hostType=HE&v=0.8928221408368409', 'quality_psi'],
     ['https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo', 'market_calendar'],
     ['https://bbk.ctripbiz.cn/api/searchBpiOverview', 'biztravel_bpi'],
@@ -502,13 +507,25 @@ function verifyCatalog() {
     );
   }
   assertContract(
+    onlineDataSource.includes('榜单名次口径：字段值均为第几名') && onlineDataSource.includes('不是携程点评分'),
+    'OnlineData competitor_rank fields must be documented as rank positions, not business metric values',
+  );
+  assertContract(
     onlineDataSource.includes("'competitor_rank', '竞争圈动态-竞争圈榜单'"),
     'OnlineData competitor_rank module label must match the Ctrip competition list page',
+  );
+  assertContract(
+    onlineDataSource.includes("'im_board', '用户行为-IM看板'"),
+    'OnlineData default Profile modules must expose user behavior IM board',
   );
   const publicIndexSource = readFileSync('public/index.html', 'utf8');
   assertContract(
     publicIndexSource.includes("label: '竞争圈动态-竞争圈榜单'"),
     'Profile field-management UI must expose competitor_rank as 竞争圈动态-竞争圈榜单',
+  );
+  assertContract(
+    publicIndexSource.includes("value: 'im_board', label: '用户行为-IM看板'"),
+    'Profile field-management UI must expose user behavior IM board',
   );
   const saveStandardRowsMatch = onlineDataSource.match(/private function saveCtripStandardRows[\s\S]*?private function extractCtripCapturedResponseData/);
   assertContract(saveStandardRowsMatch, 'saveCtripStandardRows function must be present');

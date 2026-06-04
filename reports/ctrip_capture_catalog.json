@@ -2,7 +2,7 @@
   "platform": "ctrip",
   "section_count": 18,
   "endpoint_count": 77,
-  "field_count": 202,
+  "field_count": 216,
   "default_sections": [
     "business_overview",
     "business_weekly_overview",
@@ -28975,6 +28975,272 @@
           "sourceKeys": [
             "dingPingEntityList",
             "tag"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_id",
+          "label": "PSI基础分明细ID",
+          "sourceKeys": [
+            "id"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_type",
+          "label": "PSI基础分明细指标类型",
+          "sourceKeys": [
+            "__psiBasicItemType"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_code",
+          "label": "PSI基础分明细编码",
+          "sourceKeys": [
+            "code"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_name",
+          "label": "PSI基础分明细指标",
+          "sourceKeys": [
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_weight",
+          "label": "PSI基础分明细项目权重",
+          "sourceKeys": [
+            "weight"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_score",
+          "label": "PSI基础分明细得分",
+          "sourceKeys": [
+            "score"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_rank",
+          "label": "PSI基础分明细命中规则",
+          "sourceKeys": [
+            "rank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_score_gap",
+          "label": "PSI基础分明细差距值",
+          "sourceKeys": [
+            "scoreGap"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_score_gap_unit",
+          "label": "PSI基础分明细差距单位",
+          "sourceKeys": [
+            "scoreGapUnit"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_start_date",
+          "label": "PSI基础分明细开始日期",
+          "sourceKeys": [
+            "startDate"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_end_date",
+          "label": "PSI基础分明细结束日期",
+          "sourceKeys": [
+            "endDate"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_tips",
+          "label": "PSI基础分明细计算说明",
+          "sourceKeys": [
+            "tips"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_activity_name",
+          "label": "PSI基础分明细建议动作",
+          "sourceKeys": [
+            "activityName"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "psi_basic_item_activity_url",
+          "label": "PSI基础分明细建议入口",
+          "sourceKeys": [
+            "activityUrl"
           ],
           "description": "",
           "scope": "ota_channel",

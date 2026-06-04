@@ -243,6 +243,28 @@ test('covers additional observed Ctrip screenshot endpoints outside review conte
   );
 });
 
+test('maps Ctrip user behavior IM board observed endpoints', () => {
+  for (const [url, endpointId] of [
+    ['https://ebooking.ctrip.com/userbehavior/getImIndex?hostType=Ebooking&v=0.4544692596916936', 'im_index'],
+    ['https://ebooking.ctrip.com/userbehavior/getImDateDistribute?hostType=Ebooking&v=0.889990888095976', 'im_trend'],
+    ['https://ebooking.ctrip.com/userbehavior/getImSessionDistribute?hostType=Ebooking&v=0.3581193674166786', 'im_trend'],
+    ['https://ebooking.ctrip.com/userbehavior/getImOrderConversionRateByDay?hostType=Ebooking&v=0.7937016081022331', 'im_trend'],
+    ['https://ebooking.ctrip.com/userbehavior/getImOrderConversionDetail?hostType=Ebooking&v=0.3644864469238388', 'im_trend'],
+  ]) {
+    const endpoint = findCtripEndpointByUrl(url);
+    assert.equal(endpoint?.id, endpointId, url);
+    assert.equal(endpoint?.section, 'im_board', url);
+  }
+
+  const imIndex = findCtripEndpointByUrl('https://ebooking.ctrip.com/userbehavior/getImIndex?hostType=Ebooking&v=0.4544692596916936');
+  const imTrend = findCtripEndpointByUrl('https://ebooking.ctrip.com/userbehavior/getImDateDistribute?hostType=Ebooking&v=0.889990888095976');
+  assert.equal(imIndex?.fields.some((field) => field.id === 'five_min_reply_rate'), true);
+  assert.equal(imIndex?.fields.some((field) => field.id === 'manual_reply_rate'), true);
+  assert.equal(imIndex?.fields.some((field) => field.id === 'robot_resolution_rate'), true);
+  assert.equal(imTrend?.fields.some((field) => field.id === 'session_count'), true);
+  assert.equal(imTrend?.fields.some((field) => field.id === 'im_order_conversion_rate'), true);
+});
+
 test('maps Ctrip business overview visitor title daily fields', () => {
   const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2';
   const endpoint = findCtripEndpointByUrl(url, { preferredSection: 'business_overview' });
@@ -658,6 +680,85 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
       assert.equal(fact?.source_key, value, `${item.url} raw_data.facts.${key}.source_key`);
     }
   }
+});
+
+test('keeps Ctrip PSI V2 base-score detail items as fact-only diagnostic rows', () => {
+  const url = 'https://ebooking.ctrip.com/toolcenter/api/psiV2/getHotelPsiV2?hostType=HE&v=0.14653639846260236';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'psi_overview');
+  assert.equal(endpoint?.section, 'quality_psi');
+
+  const facts = extractCtripCatalogFacts({
+    psiScoreBo: {
+      masterHotelId: 6866634,
+      hotelName: '西安空港新城天诚商务宾馆',
+      basicScore: 4.67,
+      basicScoreExtList: [{
+        id: 1,
+        code: 'A',
+        name: '历史间夜量',
+        tips: '根据酒店历史30天成交间夜量排名评定',
+        score: 4.33,
+        rank: '达同城前30%',
+        scoreGap: 206,
+        scoreGapUnit: '间夜',
+        startDate: '2026/05/06',
+        endDate: '2026/06/04',
+        weight: '20%',
+        activityName: '购买金字塔广告',
+        activityUrl: '/toolcenter/cpc/pyramid',
+        ruleConfigList: [
+          { name: '达同城前10%', value: '5.0', desc: '达同城前10%' },
+        ],
+      }],
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-05',
+    capturedAt: '2026-06-05T00:00:00.000Z',
+    url,
+  });
+
+  const itemFacts = facts.filter((fact) => fact.source_parent_path === 'psiScoreBo.basicScoreExtList.0');
+  const byMetric = new Map(itemFacts.map((fact) => [fact.metric_key, fact]));
+  assert.equal(byMetric.get('psi_basic_item_type')?.value, '经营产能');
+  assert.equal(byMetric.get('psi_basic_item_code')?.value, 'A');
+  assert.equal(byMetric.get('psi_basic_item_name')?.value, '历史间夜量');
+  assert.equal(byMetric.get('psi_basic_item_weight')?.value, '20%');
+  assert.equal(byMetric.get('psi_basic_item_score')?.value, 4.33);
+  assert.equal(byMetric.get('psi_basic_item_score_gap')?.value, 206);
+  assert.equal(byMetric.get('psi_basic_item_start_date')?.value, '2026/05/06');
+  assert.equal(byMetric.get('psi_basic_item_end_date')?.value, '2026/06/04');
+  assert.equal(itemFacts.some((fact) => fact.metric_key === 'date'), false);
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 7,
+    hotelName: '西安空港新城天诚商务宾馆',
+    profileId: '6866634',
+    dataDate: '2026-06-05',
+  });
+  const baseRow = rows.find((row) => row.dimension === 'catalog:quality_psi:psi_overview:hotel_id+hotel_name+base_score:psiScoreBo');
+  assert.ok(baseRow);
+  assert.equal(baseRow.data_type, 'quality');
+  assert.equal(baseRow.data_value, 4.67);
+
+  const detailRow = rows.find((row) => row.raw_data.metrics?.psi_basic_item_code === 'A');
+  assert.ok(detailRow);
+  assert.equal(detailRow.data_type, 'quality');
+  assert.equal(detailRow.data_value, 0);
+  assert.equal(detailRow.data_date, '2026-06-05');
+  assert.equal(detailRow.raw_data.fact_only, true);
+  assert.equal(detailRow.raw_data.metric_status, 'non_numeric_fact');
+  assert.equal(detailRow.raw_data.metrics.psi_basic_item_score, 4.33);
+  assert.equal(detailRow.raw_data.metrics.psi_basic_item_type, '经营产能');
+  assert.equal(detailRow.raw_data.metrics.psi_basic_item_weight, 20);
+  assert.equal(detailRow.raw_data.dimension_values.psi_basic_item_type, '经营产能');
+  assert.equal(detailRow.raw_data.dimension_values.psi_basic_item_weight, '20%');
+  assert.equal(detailRow.raw_data.dimension_values.psi_basic_item_start_date, '2026/05/06');
+  assert.equal(detailRow.raw_data.dimension_values.psi_basic_item_end_date, '2026/06/04');
 });
 
 test('maps Ctrip loss-analysis screenshot summary fields into loss metrics', () => {

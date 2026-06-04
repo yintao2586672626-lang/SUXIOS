@@ -14009,7 +14009,7 @@
                                             <div>
                                                 <h4 class="text-lg font-semibold text-gray-900">携程 Profile 获取字段配置</h4>
                                                 <div class="text-xs text-gray-500 mt-1">
-                                                    配置 {{ ctripProfileFieldSummary.total || ctripProfileFields.length }} 个字段，已确认 {{ ctripProfileConfirmedFieldCount }} 个，存疑待修正 {{ ctripProfileDoubtfulFieldCount }} 个，启用 {{ ctripProfileFieldSummary.enabled || 0 }} 个；历史样例 {{ ctripProfileFieldSampleLoading ? '加载中' : (ctripProfileFieldSamplesLoaded ? ctripProfileFieldSampledCount + ' 个字段' : '未加载，点击查看历史样例') }}；人工核验 相符 {{ ctripProfileFieldSummary.sample_verification_counts?.matched || 0 }} / 不符 {{ ctripProfileFieldSummary.sample_verification_counts?.mismatched || 0 }} / 待核验 {{ ctripProfileFieldSummary.sample_verification_counts?.unverified || 0 }}；自动获取关键字段 {{ ctripProfileFieldSummary.auto_fetch_field_count || 0 }} 个，待同步 {{ ctripProfileFieldSummary.auto_fetch_missing_field_count || 0 }} 个，已跳过非关键字段 {{ ctripProfileFieldSummary.auto_fetch_skipped_field_count || 0 }} 个
+                                                    配置 {{ ctripProfileFieldSummary.total || ctripProfileFields.length }} 个字段，已确认 {{ ctripProfileConfirmedFieldCount }} 个，存疑待修正 {{ ctripProfileDoubtfulFieldCount }} 个，启用 {{ ctripProfileFieldSummary.enabled || 0 }} 个；获取值 {{ ctripProfileFieldSampleLoading ? '加载中' : (ctripProfileFieldSamplesLoaded ? ctripProfileFieldSampledCount + ' 个字段' : '未加载，点击查看历史获取值') }}；人工核验 相符 {{ ctripProfileFieldSummary.sample_verification_counts?.matched || 0 }} / 不符 {{ ctripProfileFieldSummary.sample_verification_counts?.mismatched || 0 }} / 待核验 {{ ctripProfileFieldSummary.sample_verification_counts?.unverified || 0 }}；自动获取关键字段 {{ ctripProfileFieldSummary.auto_fetch_field_count || 0 }} 个，待同步 {{ ctripProfileFieldSummary.auto_fetch_missing_field_count || 0 }} 个，已跳过非关键字段 {{ ctripProfileFieldSummary.auto_fetch_skipped_field_count || 0 }} 个
                                                 </div>
                                             </div>
                                             <div class="flex flex-wrap gap-2">
@@ -14054,13 +14054,13 @@
                                             <div class="mt-3 h-2 rounded-full bg-white border border-blue-100 overflow-hidden">
                                                 <div :class="['h-full rounded-full transition-all', ctripProfileFieldRecheckState.type === 'error' ? 'bg-red-500' : (ctripProfileFieldRecheckState.type === 'success' ? 'bg-emerald-500' : (ctripProfileFieldRecheckState.type === 'warning' ? 'bg-amber-500' : 'bg-blue-600'))]" :style="{ width: ctripProfileFieldRecheckProgress.percent + '%' }"></div>
                                             </div>
-                                            <div class="mt-2 text-xs text-slate-500">百分比为前端按阶段估算，真实结束以“完成/失败”提示和样例刷新结果为准。</div>
+                                            <div class="mt-2 text-xs text-slate-500">百分比为前端按阶段估算，真实结束以“完成/失败”提示和获取值刷新结果为准。</div>
                                         </div>
 
                                         <div class="p-4 border-b bg-gray-50 grid grid-cols-1 md:grid-cols-6 gap-3">
                                             <input v-model.trim="ctripProfileFieldFilters.keyword" type="text"
                                                 class="md:col-span-2 px-3 py-2 border rounded-lg text-sm"
-                                                placeholder="搜索字段、接口、JSON路径、入库字段、样例">
+                                                placeholder="搜索字段、接口、JSON路径、入库字段、获取值">
                                             <select v-model="ctripProfileFieldFilters.section" class="px-3 py-2 border rounded-lg text-sm">
                                                 <option value="">全部模块</option>
                                                 <option v-for="option in ctripProfileFieldSectionOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -14081,14 +14081,14 @@
                                             </select>
                                             <div class="flex items-center gap-2">
                                                 <select v-model="ctripProfileFieldFilters.sample" class="w-full px-3 py-2 border rounded-lg text-sm">
-                                                    <option value="">全部样例</option>
-                                                    <option value="with_sample">有样例</option>
-                                                    <option value="without_sample">无样例</option>
+                                                    <option value="">全部获取值</option>
+                                                    <option value="with_sample">有获取值</option>
+                                                    <option value="without_sample">无获取值</option>
                                                 </select>
                                                 <button type="button" @click="resetCtripProfileFieldFilters" class="px-3 py-2 border rounded-lg text-sm hover:bg-white whitespace-nowrap">清空</button>
                                             </div>
                                                 <div class="md:col-span-6 text-xs text-gray-500">
-                                                筛选 {{ filteredCtripProfileFields.length }} / {{ ctripProfileFields.length }} 个字段<span v-if="ctripProfileFieldSampleLoading">；历史样例加载中...</span><span v-else-if="!ctripProfileFieldSamplesLoaded">；历史样例未加载</span>
+                                                筛选 {{ filteredCtripProfileFields.length }} / {{ ctripProfileFields.length }} 个字段<span v-if="ctripProfileFieldSampleLoading">；获取值加载中...</span><span v-else-if="!ctripProfileFieldSamplesLoaded">；获取值未加载</span>
                                             </div>
                                         </div>
 
@@ -14247,7 +14247,7 @@
                                                             {{ ctripProfileFieldForm.id ? '编辑字段配置' : '新增字段配置' }}
                                                         </div>
                                                         <div class="mt-1 text-xs text-gray-500">
-                                                            只需要确认来源、字段含义和样例；采集范围、字段编码、来源字段和入库规则由系统按 URL 与 JSON 路径预判。
+                                                            只需要确认来源、字段含义和获取值；采集范围、字段编码、来源字段和入库规则由系统按 URL 与 JSON 路径预判。
                                                         </div>
                                                     </div>
                                                     <button type="button" @click="resetCtripProfileFieldForm"
@@ -14261,7 +14261,7 @@
                                                         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                                                             <div>
                                                                 <div class="text-sm font-semibold text-gray-900">来源与业务含义</div>
-                                                                <div class="text-xs text-gray-500">优先填页面、JSON 路径和字段含义；接口 URL 可由样例或抓包补充。</div>
+                                                                <div class="text-xs text-gray-500">优先填页面、JSON 路径和字段含义；接口 URL 可由获取值或抓包补充。</div>
                                                             </div>
                                                             <button type="button" @click="applyCtripProfileFieldSmartDefaults"
                                                                 class="rounded-lg border bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
@@ -14397,14 +14397,14 @@
 
                                                 <div v-if="ctripProfileFieldForm.id" class="rounded-lg border bg-white p-3">
                                                 <div class="flex items-center justify-between gap-3 mb-2">
-                                                    <div class="text-sm font-medium text-gray-800">当前字段采集样例</div>
+                                                    <div class="text-sm font-medium text-gray-800">当前字段获取值</div>
                                                     <button type="button" @click="openCtripProfileFieldSamplePanel(editingCtripProfileField)"
                                                         class="text-xs text-blue-600 hover:text-blue-700">
-                                                        查看历史样例
+                                                        查看历史获取值
                                                     </button>
                                                 </div>
                                                 <div v-if="ctripProfileFieldForm.verified_sample_value" class="mb-2 rounded border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
-                                                    已选正确样例：<span class="font-mono">{{ ctripProfileFieldForm.verified_sample_value }}</span>
+                                                    已选正确获取值：<span class="font-mono">{{ ctripProfileFieldForm.verified_sample_value }}</span>
                                                     <span v-if="ctripProfileFieldForm.verified_sample_source_path"> · {{ ctripProfileFieldForm.verified_sample_source_path }}</span>
                                                 </div>
                                                 <div v-if="editingCtripProfileFieldSamples.length" class="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -14413,7 +14413,7 @@
                                                         <div class="flex items-start justify-between gap-2">
                                                             <div class="min-w-0">
                                                                 <div class="font-mono text-gray-900 break-words">{{ ctripProfileFieldSampleValueText(sample) }}</div>
-                                                                <div class="text-xs text-gray-500 mt-1">{{ ctripProfileFieldSampleMetaText(sample) || '无样例上下文' }}</div>
+                                                                <div class="text-xs text-gray-500 mt-1">{{ ctripProfileFieldSampleMetaText(sample) || '无获取值上下文' }}</div>
                                                             </div>
                                                             <button type="button" @click="selectCtripProfileCorrectSample(editingCtripProfileField, sample)"
                                                                 :class="['shrink-0 rounded border px-2 py-1 text-xs', isCtripProfileCorrectSampleSelected(sample, ctripProfileFieldForm) ? 'border-emerald-200 bg-emerald-100 text-emerald-700' : 'border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100']">
@@ -14422,7 +14422,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else class="text-sm text-gray-400">{{ ctripProfileFieldSampleLoading ? '字段样例加载中...' : '这个字段当前没有采集样例，需检查来源接口、来源字段或采集范围。' }}</div>
+                                                <div v-else class="text-sm text-gray-400">{{ ctripProfileFieldSampleLoading ? '字段获取值加载中...' : '这个字段当前没有获取值，需检查来源接口、来源字段或采集范围。' }}</div>
                                                 </div>
                                             </div>
 
@@ -14442,11 +14442,11 @@
                                                 <div class="px-4 py-3 border-b flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                                                     <div>
                                                         <div class="text-sm font-semibold text-gray-900">
-                                                            样例明细：{{ selectedCtripProfileSampleField.field_name || '-' }}
+                                                            获取值明细：{{ selectedCtripProfileSampleField.field_name || '-' }}
                                                         </div>
                                                         <div class="text-xs text-gray-500 font-mono mt-1">{{ selectedCtripProfileSampleField.field_key || '-' }}</div>
                                                         <div class="text-xs text-gray-500 mt-1">
-                                                            历史样例 {{ ctripProfileFieldSampleLoading ? '加载中...' : (ctripProfileFieldLatestSampleTime(selectedCtripProfileSampleField) || '未采到样例') }}；仅显示最近一次采集批次
+                                                            历史获取值 {{ ctripProfileFieldSampleLoading ? '加载中...' : (ctripProfileFieldLatestSampleTime(selectedCtripProfileSampleField) || '未获取到值') }}；仅显示最近一次采集批次
                                                         </div>
                                                     </div>
                                                     <div class="flex items-center gap-2">
@@ -14464,7 +14464,7 @@
                                                     <table class="w-full text-xs">
                                                         <thead class="bg-gray-50 text-gray-500">
                                                             <tr>
-                                                                <th class="px-3 py-2 text-left font-medium w-[150px]">采集值</th>
+                                                                <th class="px-3 py-2 text-left font-medium w-[150px]">获取值</th>
                                                                 <th class="px-3 py-2 text-left font-medium w-[120px]">日期/门店</th>
                                                                 <th class="px-3 py-2 text-left font-medium w-[180px]">来源接口</th>
                                                                 <th class="px-3 py-2 text-left font-medium w-[160px]">来源字段</th>
@@ -14499,16 +14499,16 @@
                                                     </table>
                                                 </div>
                                                 <div v-else class="p-4 text-sm text-gray-500">
-                                                    {{ ctripProfileFieldSampleLoading ? '最近批次样例加载中...' : '当前字段没有历史样例。优先检查来源接口、来源字段、采集范围，或先执行一次自动获取后再回到这里确认。' }}
+                                                    {{ ctripProfileFieldSampleLoading ? '最近批次获取值加载中...' : '当前字段没有历史获取值。优先检查来源接口、来源字段、采集范围，或先执行一次自动获取后再回到这里确认。' }}
                                                 </div>
                                             </div>
                                         </div>
 
                                         <div v-if="ctripProfileFieldLoading" class="p-8 text-center text-gray-500">字段加载中...</div>
                                         <div v-else class="overflow-x-auto">
-                                            <table class="w-full table-fixed text-sm" style="min-width: 1400px;">
+                                            <table class="w-full table-fixed text-sm" style="min-width: 1460px;">
                                                 <colgroup>
-                                                    <col style="width: 160px;">
+                                                    <col style="width: 220px;">
                                                     <col style="width: 76px;">
                                                     <col style="width: 330px;">
                                                     <col style="width: 88px;">
@@ -14519,9 +14519,9 @@
                                                 </colgroup>
                                                 <thead class="bg-gray-50 text-gray-600">
                                                     <tr>
-                                                        <th class="w-[160px] px-4 py-3 text-left font-medium">字段配置</th>
+                                                        <th class="w-[220px] px-4 py-3 text-left font-medium">字段配置</th>
                                                         <th class="w-[76px] px-4 py-3 text-left font-medium">采集范围</th>
-                                                        <th class="w-[330px] px-4 py-3 text-left font-medium">采集样例 / 人工核验</th>
+                                                        <th class="w-[330px] px-4 py-3 text-left font-medium">获取值 / 人工核验</th>
                                                         <th class="w-[88px] px-4 py-3 text-left font-medium">配置状态</th>
                                                         <th class="w-[96px] px-4 py-3 text-left font-medium">开关</th>
                                                         <th class="w-[150px] px-4 py-3 text-left font-medium">最近采集/更新</th>
@@ -14535,6 +14535,19 @@
                                                             <div class="font-medium text-gray-900 truncate" :title="field.field_name">{{ field.field_name || '-' }}</div>
                                                             <div class="text-xs text-gray-500 font-mono truncate" :title="field.field_key">{{ field.field_key || '-' }}</div>
                                                             <div v-if="field.value_meaning" class="text-xs text-gray-500 truncate mt-1" :title="field.value_meaning">{{ field.value_meaning }}</div>
+                                                            <div class="mt-2 border-t border-gray-100 pt-2 text-xs">
+                                                                <div v-if="ctripProfileFieldPreviewSampleItems(field).length" class="space-y-1">
+                                                                    <div v-for="(sample, index) in ctripProfileFieldPreviewSampleItems(field)" :key="`${field.id}-field-sample-${index}`">
+                                                                        <div class="text-[11px] text-gray-500">{{ ctripProfileFieldDisplaySampleLabel(field) }}</div>
+                                                                        <div class="font-mono text-blue-700 break-words leading-5" :title="ctripProfileFieldSampleValueText(sample)">
+                                                                            {{ ctripProfileFieldSampleValueText(sample) }}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div v-else class="text-gray-400">
+                                                                    获取值：{{ ctripProfileFieldSampleLoading ? '获取值加载中...' : (ctripProfileFieldSamplesLoaded ? (field.latest_sample_note || '未获取到值') : '获取值未加载') }}
+                                                                </div>
+                                                            </div>
                                                         </td>
                                                         <td class="px-4 py-3 align-top text-gray-700">{{ ctripProfileCaptureSectionText(field.section) }}</td>
                                                         <td class="px-4 py-3 align-top">
@@ -14542,24 +14555,28 @@
                                                                 <div v-for="(sample, index) in ctripProfileFieldPreviewSampleItems(field)" :key="`${field.id}-sample-${index}`" class="rounded border bg-white px-2 py-1.5">
                                                                     <div class="flex items-start justify-between gap-2">
                                                                         <div class="min-w-0">
-                                                                            <div class="font-mono text-gray-900 truncate leading-5" :title="ctripProfileFieldSampleValueText(sample)">
+                                                                            <div class="text-[11px] text-gray-500">{{ ctripProfileFieldDisplaySampleLabel(field) }}</div>
+                                                                            <div class="font-mono text-gray-900 break-words leading-5" :title="ctripProfileFieldSampleValueText(sample)">
                                                                                 {{ ctripProfileFieldSampleValueText(sample) }}
                                                                             </div>
                                                                             <div v-if="ctripProfileFieldSampleBriefMetaText(sample)" class="text-xs text-gray-400 mt-1 truncate" :title="ctripProfileFieldSampleMetaText(sample)">
                                                                                 {{ ctripProfileFieldSampleBriefMetaText(sample) }}
                                                                             </div>
                                                                         </div>
-                                                                        <button v-if="ctripProfileFieldLatestBatchSampleCount(field) > 1" type="button"
+                                                                        <button v-if="ctripProfileFieldDisplaySampleCount(field) > 1" type="button"
                                                                             @click="openCtripProfileFieldSamplePanel(field)"
                                                                             class="shrink-0 rounded border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700 hover:bg-blue-100"
-                                                                            title="查看本批全部样例">
-                                                                            {{ ctripProfileFieldLatestBatchSampleCount(field) }}条
+                                                                            title="查看全部获取值">
+                                                                            {{ ctripProfileFieldDisplaySampleCount(field) }}条
                                                                         </button>
                                                                     </div>
                                                                 </div>
                                                             </div>
-                                                            <div v-else class="text-gray-400">
-                                                                {{ ctripProfileFieldSampleLoading ? '历史样例加载中...' : (ctripProfileFieldSamplesLoaded ? (field.latest_sample_note || '未采到样例') : '未加载历史样例') }}
+                                                            <div v-else class="rounded border border-dashed border-gray-200 bg-gray-50 px-2 py-1.5 text-xs">
+                                                                <div class="text-gray-500">获取值</div>
+                                                                <div class="mt-0.5 text-gray-400">
+                                                                    {{ ctripProfileFieldSampleLoading ? '获取值加载中...' : (ctripProfileFieldSamplesLoaded ? (field.latest_sample_note || '未获取到值') : '获取值未加载') }}
+                                                                </div>
                                                             </div>
                                                             <div class="mt-2 flex flex-wrap items-center gap-1.5">
                                                                 <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs whitespace-nowrap', ctripProfileFieldVerificationBadgeClass(field.sample_verification_status)]">
@@ -14610,7 +14627,7 @@
                                                         </td>
                                                         <td class="px-4 py-3 align-top whitespace-nowrap">
                                                             <div v-if="ctripProfileFieldLatestSampleTime(field)" class="text-gray-700">{{ ctripProfileFieldLatestSampleTime(field) }}</div>
-                                                            <div v-else class="text-gray-400">{{ ctripProfileFieldSampleLoading ? '历史样例加载中...' : (ctripProfileFieldSamplesLoaded ? '未采到样例' : '未加载历史样例') }}</div>
+                                                            <div v-else class="text-gray-400">{{ ctripProfileFieldSampleLoading ? '获取值加载中...' : (ctripProfileFieldSamplesLoaded ? '未获取到值' : '获取值未加载') }}</div>
                                                             <div class="text-xs text-gray-400 mt-1">配置 {{ field.update_time || '-' }}</div>
                                                         </td>
                                                         <td class="px-4 py-3 align-top">
@@ -14636,7 +14653,7 @@
                                                             </div>
                                                         </td>
                                                         <td class="px-4 py-3 align-top text-right whitespace-nowrap">
-                                                            <button type="button" @click="openCtripProfileFieldSamplePanel(field)" class="text-slate-600 hover:text-slate-800 mr-3" title="查看历史样例"><i class="fas fa-eye"></i></button>
+                                                            <button type="button" @click="openCtripProfileFieldSamplePanel(field)" class="text-slate-600 hover:text-slate-800 mr-3" title="查看历史获取值"><i class="fas fa-eye"></i></button>
                                                             <button type="button" @click="editCtripProfileField(field)" class="text-blue-600 hover:text-blue-700 mr-3"><i class="fas fa-edit"></i></button>
                                                             <button type="button" @click="deleteCtripProfileField(field)" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
                                                         </td>
@@ -16948,6 +16965,7 @@
                 { value: 'quality_psi', label: 'PSI服务质量', page_url: 'https://ebooking.ctrip.com/toolcenter/psi/index?microJump=true', primary_category: '服务质量数据' },
                 { value: 'market_calendar', label: '市场分析-市场热度', page_url: 'https://ebooking.ctrip.com/ebkgrowth/datacenter/marketanalysis/marketheat?microJump=true', primary_category: '竞争力数据' },
                 { value: 'user_profile', label: '用户行为/点评分析', page_url: 'https://ebooking.ctrip.com/ebkgrowth/datacenter/userbehavior/user?microJump=true', primary_category: '流量转化数据' },
+                { value: 'im_board', label: '用户行为-IM看板', page_url: 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im', primary_category: '服务质量数据' },
                 { value: 'ads_pyramid', label: '金字塔广告', page_url: 'https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true', primary_category: '流量转化数据' },
             ];
             const ctripProfileModules = ref([]);
@@ -17069,10 +17087,23 @@
                 if (latestBatchKey) return items.filter(sample => ctripProfileFieldSampleBatchKey(sample) === latestBatchKey);
                 return items.slice(0, 3);
             };
-            const ctripProfileFieldPreviewSampleItems = (field) => ctripProfileFieldLatestBatchSampleItems(field).slice(0, 1);
+            const ctripProfileFieldDisplaySampleItems = (field) => {
+                const latestBatchItems = ctripProfileFieldLatestBatchSampleItems(field);
+                if (latestBatchItems.length > 0) return latestBatchItems;
+                return ctripProfileFieldSampleItems(field).slice(0, 3);
+            };
+            const ctripProfileFieldHasOnlyHistoricalSamples = (field) => (
+                ctripProfileFieldSampleItems(field).length > 0
+                && ctripProfileFieldLatestBatchSampleItems(field).length === 0
+            );
+            const ctripProfileFieldDisplaySampleLabel = (field) => (
+                ctripProfileFieldHasOnlyHistoricalSamples(field) ? '最近历史获取值' : '获取值'
+            );
+            const ctripProfileFieldPreviewSampleItems = (field) => ctripProfileFieldDisplaySampleItems(field).slice(0, 1);
             const ctripProfileFieldLatestBatchSampleCount = (field) => ctripProfileFieldLatestBatchSampleItems(field).length;
+            const ctripProfileFieldDisplaySampleCount = (field) => ctripProfileFieldDisplaySampleItems(field).length;
             const ctripProfileFieldLatestSampleTime = (field) => {
-                const times = ctripProfileFieldLatestBatchSampleItems(field)
+                const times = ctripProfileFieldDisplaySampleItems(field)
                     .map(ctripProfileFieldSampleCapturedAt)
                     .filter(Boolean)
                     .sort()
@@ -17096,7 +17127,7 @@
                 ].filter(Boolean).join(' · ');
             };
             const ctripProfileFieldSampleSourceText = (field) => {
-                const sample = ctripProfileFieldLatestBatchSampleItems(field)[0] || ctripProfileFieldSampleItems(field)[0];
+                const sample = ctripProfileFieldDisplaySampleItems(field)[0] || ctripProfileFieldSampleItems(field)[0];
                 if (!sample || typeof sample !== 'object') return '';
                 return [
                     sample.endpoint_id || sample.capture_section || '',
@@ -17149,8 +17180,8 @@
                 if (!id) return null;
                 return ctripProfileFields.value.find(field => String(field.id || '') === id) || null;
             });
-            const editingCtripProfileFieldSamples = computed(() => ctripProfileFieldLatestBatchSampleItems(editingCtripProfileField.value));
-            const selectedCtripProfileFieldSamples = computed(() => ctripProfileFieldLatestBatchSampleItems(selectedCtripProfileSampleField.value));
+            const editingCtripProfileFieldSamples = computed(() => ctripProfileFieldDisplaySampleItems(editingCtripProfileField.value));
+            const selectedCtripProfileFieldSamples = computed(() => ctripProfileFieldDisplaySampleItems(selectedCtripProfileSampleField.value));
             const ctripProfileFieldSampledCount = computed(() => {
                 const value = Number(ctripProfileFieldSummary.value?.sampled_field_count ?? NaN);
                 if (Number.isFinite(value)) return value;
@@ -23321,7 +23352,7 @@
                     idle: '待重抓',
                     preparing: '准备重抓',
                     capture: '浏览器采集',
-                    refresh_samples: '刷新样例',
+                    refresh_samples: '刷新获取值',
                     done: '重抓完成',
                     partial: '部分完成',
                     error: '重抓失败',
@@ -23640,11 +23671,11 @@
                     if (res.code === 200) {
                         applyCtripProfileFieldResponse(res.data || {}, { includeSamples: true });
                     } else {
-                        showToast(res.message || '字段样例加载失败', 'error');
+                        showToast(res.message || '字段获取值加载失败', 'error');
                     }
                 } catch (error) {
                     if (requestSeq === ctripProfileFieldRequestSeq) {
-                        showToast('字段样例加载失败: ' + error.message, 'error');
+                        showToast('字段获取值加载失败: ' + error.message, 'error');
                     }
                 } finally {
                     if (requestSeq === ctripProfileFieldRequestSeq) {
@@ -23761,7 +23792,7 @@
                     stage: canRecapture ? 'capture' : 'refresh_samples',
                     message: canRecapture
                         ? `正在重抓 ${targets.length} 个存疑字段，浏览器会按模块触发接口；${ctripProfileFieldRecheckEstimatedText.value}。`
-                        : '未选目标酒店，无法启动浏览器重抓，正在刷新已有历史样例。',
+                        : '未选目标酒店，无法启动浏览器重抓，正在刷新已有历史获取值。',
                     started_at: startedAt,
                     finished_at: '',
                     target_count: targets.length,
@@ -23782,8 +23813,8 @@
                             type: captureSucceeded ? 'running' : 'warning',
                             stage: 'refresh_samples',
                             message: captureSucceeded
-                                ? '浏览器采集已返回，正在刷新字段样例并恢复为待二次确认。'
-                                : `浏览器采集未完整完成：${captureMessage || '后端未返回成功状态'}；正在刷新已有字段样例。`,
+                                ? '浏览器采集已返回，正在刷新字段获取值并恢复为待二次确认。'
+                                : `浏览器采集未完整完成：${captureMessage || '后端未返回成功状态'}；正在刷新已有字段获取值。`,
                         };
                     } else {
                         captureSkipped = true;
@@ -23801,7 +23832,7 @@
                         const result = data.recheck_result || {};
                         const prefix = captureSucceeded
                             ? 'Profile 已重抓'
-                            : (captureSkipped ? '未选目标酒店，仅刷新历史样例' : 'Profile 重抓未完成，已刷新历史样例');
+                            : (captureSkipped ? '未选目标酒店，仅刷新历史获取值' : 'Profile 重抓未完成，已刷新历史获取值');
                         const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
                         const finalMessage = `${prefix}：待二次确认 ${result.second_confirmation_count || result.refreshed_count || 0} 个，待补解析 ${result.unresolved_count || 0} 个（耗时 ${durationText}）`;
                         ctripProfileFieldRecheckState.value = {
@@ -23848,7 +23879,7 @@
                                 active: false,
                                 type: 'warning',
                                 stage: 'partial',
-                                message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前样例状态或再次重抓。',
+                                message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。',
                                 finished_at: new Date().toLocaleString('zh-CN', { hour12: false }),
                             };
                         }
@@ -23930,7 +23961,7 @@
                     verified_sample_hotel_name: String(sample.hotel_name || '').trim(),
                     verified_sample_captured_at: String(sample.captured_at || sample.created_at || '').trim(),
                 };
-                showToast('已选择正确样例，点击“保存字段”后写入配置');
+                showToast('已选择正确获取值，点击“保存字段”后写入配置');
             };
 
             const ctripProfileSimpleHash = (value) => {
@@ -37299,7 +37330,7 @@
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
                 onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, platformProfileStatusLabel, platformProfileStatusBadgeClass, platformProfileBindingText, platformProfileStrategyText, platformProfilePrimaryActionText, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
-                ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
+                ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,

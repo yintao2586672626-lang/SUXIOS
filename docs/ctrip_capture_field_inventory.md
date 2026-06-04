@@ -199,7 +199,7 @@
 
 - 模块数：18
 - 接口规则数：77
-- 去重字段数：202
+- 去重字段数：216
 - 页面交互计划：16 个模块 / 80 个触发动作
 - 点评明文采集：默认禁用；Profile 仅保留评分汇总、回复率、点评条数和好评/差评聚合等非点评明文指标。
 
@@ -2172,6 +2172,20 @@
 | comment_score_summary | 点评分汇总 | ctripRatingall, qunarRatingall, HotelRating, ratingall | - |
 | ctrip_rating | 携程评分 | ctripRatingall | - |
 | bad_review_tag | 差评标签 | dingPingEntityList, tag | - |
+| psi_basic_item_id | PSI基础分明细ID | id | - |
+| psi_basic_item_type | PSI基础分明细指标类型 | __psiBasicItemType | - |
+| psi_basic_item_code | PSI基础分明细编码 | code | - |
+| psi_basic_item_name | PSI基础分明细指标 | name | - |
+| psi_basic_item_weight | PSI基础分明细项目权重 | weight | - |
+| psi_basic_item_score | PSI基础分明细得分 | score | - |
+| psi_basic_item_rank | PSI基础分明细命中规则 | rank | - |
+| psi_basic_item_score_gap | PSI基础分明细差距值 | scoreGap | - |
+| psi_basic_item_score_gap_unit | PSI基础分明细差距单位 | scoreGapUnit | - |
+| psi_basic_item_start_date | PSI基础分明细开始日期 | startDate | - |
+| psi_basic_item_end_date | PSI基础分明细结束日期 | endDate | - |
+| psi_basic_item_tips | PSI基础分明细计算说明 | tips | - |
+| psi_basic_item_activity_name | PSI基础分明细建议动作 | activityName | - |
+| psi_basic_item_activity_url | PSI基础分明细建议入口 | activityUrl | - |
 
 ### psi_growth_task
 

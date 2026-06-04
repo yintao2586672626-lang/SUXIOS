@@ -140,6 +140,15 @@ test('Ctrip store data overview diagnoses missing metrics and keeps supplement c
 test('Ctrip profile field config manages modules from the same panel', () => {
   assert.ok(ctripProfileFieldConfigPanel.length > 0, 'profile field config panel must exist');
   assert.match(ctripProfileFieldConfigPanel, /模块管理/);
+  assert.match(ctripProfileFieldConfigPanel, /获取值 \/ 人工核验/);
+  assert.match(ctripProfileFieldConfigPanel, /ctripProfileFieldDisplaySampleLabel\(field\)/);
+  assert.match(html, /最近历史获取值/);
+  assert.match(ctripProfileFieldConfigPanel, /未获取到值/);
+  assert.match(html, /const ctripProfileFieldSampleItems = \(field\) =>/);
+  assert.match(html, /const ctripProfileFieldDisplaySampleItems = \(field\) =>/);
+  assert.match(html, /field\.latest_values/);
+  assert.match(html, /field\.latest_value/);
+  assert.match(html, /include_samples=1/);
   assert.match(ctripProfileFieldConfigPanel, /data-testid="ctrip-profile-module-manager"/);
   assert.match(ctripProfileFieldConfigPanel, /对应网页URL/);
   assert.match(ctripProfileFieldConfigPanel, /打开对应网页/);

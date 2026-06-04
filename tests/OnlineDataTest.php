@@ -2611,12 +2611,15 @@ final class OnlineDataTest extends TestCase
         self::assertSame('https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true', $modules['traffic_report']['page_url']);
         self::assertSame('竞争圈动态-竞争圈概览', $modules['competitor_overview']['label']);
         self::assertSame('https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true', $modules['competitor_overview']['page_url']);
+        self::assertSame('用户行为-IM看板', $modules['im_board']['label']);
+        self::assertSame('https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im', $modules['im_board']['page_url']);
         self::assertSame('经营收益数据', $modules['business_overview']['primary_category']);
         self::assertSame('经营收益数据', $modules['sales_report']['primary_category']);
         self::assertSame('流量转化数据', $modules['traffic_report']['primary_category']);
         self::assertSame('流量转化数据', $modules['ads_pyramid']['primary_category']);
         self::assertSame('服务质量数据', $modules['comment_review']['primary_category']);
         self::assertSame('服务质量数据', $modules['quality_psi']['primary_category']);
+        self::assertSame('服务质量数据', $modules['im_board']['primary_category']);
         self::assertSame('竞争力数据', $modules['competitor_rank']['primary_category']);
         foreach ($modules as $module) {
             self::assertNotSame('', trim((string)($module['page_url'] ?? '')));
@@ -2847,6 +2850,10 @@ final class OnlineDataTest extends TestCase
         self::assertSame('data.lossOrderVo.ordernum', $byKey['flow_lost_order_num']['json_path']);
         self::assertSame('getHotRoomsV1', $byKey['top_hot_room']['source_interface']);
         self::assertSame('count(data[])', $byKey['hot_words_count']['json_path']);
+        self::assertSame('im_board', $this->invokeNonPublic($controller, 'classifyCtripProfileCaptureSectionByPageUrl', [
+            'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im',
+            '',
+        ]));
     }
 
     public function testCtripProfileCaptureModuleDefaultsRefreshLegacySystemLabelsOnly(): void
@@ -3536,6 +3543,59 @@ final class OnlineDataTest extends TestCase
         self::assertSame(
             [550, 'rank', 'data.rank'],
             $this->invokeNonPublic($controller, 'resolveCtripProfileOnlineDailyFieldSample', ['seq_rank', $rankRow, $rankRaw, $rankRawMap, ['seq_rank', 'rank']])
+        );
+    }
+
+    public function testCtripProfileSampleBucketUsesSectionForRepeatedMetricKey(): void
+    {
+        $controller = $this->controller();
+        $scopes = [
+            'order_amount' => [
+                'business_overview:order_amount' => true,
+                'sales_report:order_amount' => true,
+            ],
+            'flow_rate' => [
+                'traffic_report:flow_rate' => true,
+            ],
+        ];
+
+        self::assertSame(
+            'sales_report:order_amount',
+            $this->invokeNonPublic($controller, 'ctripProfileSampleBucketKeyForRow', ['order_amount', 'sales_report', $scopes])
+        );
+        self::assertNull(
+            $this->invokeNonPublic($controller, 'ctripProfileSampleBucketKeyForRow', ['order_amount', '', $scopes])
+        );
+        self::assertSame(
+            'traffic_report:flow_rate',
+            $this->invokeNonPublic($controller, 'ctripProfileSampleBucketKeyForRow', ['flow_rate', '', $scopes])
+        );
+    }
+
+    public function testCtripProfileOnlineDailySampleSectionResolvesFromRawOrDimension(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(
+            'traffic_report',
+            $this->invokeNonPublic($controller, 'ctripProfileSampleSectionFromOnlineDailyRow', [
+                ['dimension' => 'catalog:sales_report:manual_checkout:order_amount:self'],
+                ['capture_section' => 'traffic_report'],
+            ])
+        );
+        self::assertSame(
+            'sales_report',
+            $this->invokeNonPublic($controller, 'ctripProfileSampleSectionFromOnlineDailyRow', [
+                ['dimension' => 'catalog:sales_report:manual_checkout:order_amount:self'],
+                [],
+            ])
+        );
+        self::assertSame(
+            '',
+            $this->invokeNonPublic($controller, 'ctripProfileSampleSectionFromOnlineDailyRow', [
+                ['dimension' => ''],
+                [],
+            ])
         );
     }
 

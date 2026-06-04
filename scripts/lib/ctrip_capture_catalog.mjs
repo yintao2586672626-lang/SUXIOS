@@ -348,6 +348,23 @@ const qualityFields = [
   field('bad_review_tag', '差评标签', ['dingPingEntityList', 'tag']),
 ];
 
+const psiBasicScoreDetailFields = [
+  field('psi_basic_item_id', 'PSI基础分明细ID', ['id']),
+  field('psi_basic_item_type', 'PSI基础分明细指标类型', ['__psiBasicItemType']),
+  field('psi_basic_item_code', 'PSI基础分明细编码', ['code']),
+  field('psi_basic_item_name', 'PSI基础分明细指标', ['name']),
+  field('psi_basic_item_weight', 'PSI基础分明细项目权重', ['weight']),
+  field('psi_basic_item_score', 'PSI基础分明细得分', ['score']),
+  field('psi_basic_item_rank', 'PSI基础分明细命中规则', ['rank']),
+  field('psi_basic_item_score_gap', 'PSI基础分明细差距值', ['scoreGap']),
+  field('psi_basic_item_score_gap_unit', 'PSI基础分明细差距单位', ['scoreGapUnit']),
+  field('psi_basic_item_start_date', 'PSI基础分明细开始日期', ['startDate']),
+  field('psi_basic_item_end_date', 'PSI基础分明细结束日期', ['endDate']),
+  field('psi_basic_item_tips', 'PSI基础分明细计算说明', ['tips']),
+  field('psi_basic_item_activity_name', 'PSI基础分明细建议动作', ['activityName']),
+  field('psi_basic_item_activity_url', 'PSI基础分明细建议入口', ['activityUrl']),
+];
+
 const dailyServiceQualityFields = [
   field('psi_score', 'PSI服务质量分', ['serviceScore'], '经营日报固定取 data.serviceScore'),
   field('service_score_rank', 'PSI服务质量分竞争圈排名', ['serviceScoreRank']),
@@ -468,6 +485,20 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'user_source',
   'user_type',
   'bad_review_tag',
+  'psi_basic_item_id',
+  'psi_basic_item_type',
+  'psi_basic_item_code',
+  'psi_basic_item_name',
+  'psi_basic_item_weight',
+  'psi_basic_item_score',
+  'psi_basic_item_rank',
+  'psi_basic_item_score_gap',
+  'psi_basic_item_score_gap_unit',
+  'psi_basic_item_start_date',
+  'psi_basic_item_end_date',
+  'psi_basic_item_tips',
+  'psi_basic_item_activity_name',
+  'psi_basic_item_activity_url',
 ]);
 
 const CTRIP_COMPETITOR_RANK_FIELD_IDS = new Set([
@@ -748,7 +779,7 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('ads_dynamic_config', 'ads_pyramid', ['getDynamicConfig'], [...supportNoticeFields], { status: 'supporting' }),
   endpoint('ads_report_injection', 'ads_pyramid', ['reportInjectFnInfo'], [...supportNoticeFields], { status: 'supporting' }),
 
-  endpoint('psi_overview', 'quality_psi', ['getHotelPsiV2'], [...qualityFields]),
+  endpoint('psi_overview', 'quality_psi', ['getHotelPsiV2'], [...qualityFields, ...psiBasicScoreDetailFields]),
   endpoint('psi_growth_task', 'quality_psi', ['queryPsiGrowthTaskList', 'queryRewardScoreActivityList'], [...qualityFields, field('task_name', '提分任务', ['taskName', 'title', 'name']), field('task_action', '行动入口', ['action', 'targetUrl', 'activityUrl', 'url'])]),
   endpoint('psi_history', 'quality_psi', ['queryHistPsiScoreList'], [...qualityFields]),
   endpoint('psi_course', 'quality_psi', ['getRecommendedCourseBy'], [field('course_title', '推荐课程', ['title', 'courseTitle']), field('course_url', '课程链接', ['url', 'targetUrl'])]),
@@ -1364,12 +1395,28 @@ function filterCtripCatalogFieldsBySourceContext(fields, sourceKey, path = []) {
     return [];
   }
   const key = String(sourceKey || '').toLowerCase();
-  const parent = path.map((item) => String(item || '').toLowerCase()).join('.');
-  const inLossOrderVo = parent.split('.').includes('lossordervo');
-  if (!inLossOrderVo || !['ordernum', 'ordquantity', 'ordamount'].includes(key)) {
-    return fields;
+  const parentSegments = path.map((item) => String(item || '').toLowerCase());
+  const parent = parentSegments.join('.');
+  const inPsiBasicScoreItem = parentSegments.includes('basicscoreextlist')
+    && !parentSegments.includes('ruleconfiglist');
+  let result = fields;
+
+  if (inPsiBasicScoreItem) {
+    if (['startdate', 'enddate'].includes(key)) {
+      result = result.filter((item) => String(item.id || '') !== 'date');
+    }
+    if (key === 'name') {
+      result = result.filter((item) => String(item.id || '') !== 'hotel_name');
+    }
+  } else {
+    result = result.filter((item) => !String(item.id || '').startsWith('psi_basic_item_'));
   }
-  return fields.filter((item) => !['order_count', 'order_amount'].includes(String(item.id || '')));
+
+  const inLossOrderVo = parentSegments.includes('lossordervo');
+  if (!inLossOrderVo || !['ordernum', 'ordquantity', 'ordamount'].includes(key)) {
+    return result;
+  }
+  return result.filter((item) => !['order_count', 'order_amount'].includes(String(item.id || '')));
 }
 
 const COMPETITOR_INDEX_FIELD_IDS = new Map([
@@ -1390,6 +1437,9 @@ const COMPETITOR_INDEX_FIELD_IDS = new Map([
 
 function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo) {
   const endpointId = endpointInfo?.id || '';
+  if (endpointId === 'psi_overview') {
+    return extractPsiBasicScoreItemFacts(node, path, fields, context, endpointInfo);
+  }
   if (!['competitor_management', 'competitor_flow', 'competitor_service'].includes(endpointId)) {
     return [];
   }
@@ -1432,6 +1482,60 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
     sourceKey: 'rankComp',
   });
   return facts;
+}
+
+function extractPsiBasicScoreItemFacts(node, path, fields, context, endpointInfo) {
+  const parentSegments = path.map((item) => String(item || '').toLowerCase());
+  if (!parentSegments.includes('basicscoreextlist')
+    || parentSegments.includes('ruleconfiglist')
+    || !Object.prototype.hasOwnProperty.call(node, 'code')) {
+    return [];
+  }
+
+  const itemType = psiBasicScoreItemType(node.code);
+  if (!itemType) {
+    return [];
+  }
+  const fieldInfo = fields.find((item) => item.id === 'psi_basic_item_type');
+  if (!fieldInfo) {
+    return [];
+  }
+
+  return [{
+    platform: normalizeCtripCapturePlatform(context.platform),
+    section: context.section || endpointInfo?.section || '',
+    endpoint_id: endpointInfo?.id || '',
+    endpoint_label: endpointInfo?.label || '',
+    data_type: endpointInfo?.dataType || context.dataType || '',
+    metric_key: fieldInfo.id,
+    metric_label: fieldInfo.label,
+    metric_scope: fieldInfo.scope,
+    unit: fieldInfo.unit,
+    source_key: 'code',
+    source_path: [...path, 'code'].join('.'),
+    value: itemType,
+    value_type: 'string',
+    hotel_id: context.hotelId || '',
+    data_date: context.dataDate || '',
+    captured_at: context.capturedAt || '',
+    source_url: context.url || '',
+    source_parent_path: path.join('.'),
+    derived_from: 'psi_basic_item_code',
+  }];
+}
+
+function psiBasicScoreItemType(code) {
+  const value = String(code || '').trim().toUpperCase();
+  if (['A', 'B', 'C'].includes(value)) {
+    return '经营产能';
+  }
+  if (['D', 'E', 'F'].includes(value)) {
+    return '房源保障';
+  }
+  if (['G', 'H', 'I'].includes(value)) {
+    return '客户服务';
+  }
+  return '';
 }
 
 function pushEndpointSpecificFact(target, { node, path, fields, context, endpointInfo, metricFieldId, sourceKey }) {
