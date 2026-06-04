@@ -197,7 +197,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
 
 const commonFields = [
   field('hotel_id', '酒店ID', ['masterHotelId', 'masterhotelid', 'master_hotel_id', 'hotelId', 'hotel_id', 'hotelID']),
-  field('hotel_name', '酒店名称', ['hotelName', 'hotel_name', 'name']),
+  field('hotel_name', '酒店名称', ['hotelName', 'hotel_name', 'hotelname', 'name']),
   field('date', '日期', ['date', 'dataDate', 'effectDate', 'effectTime', 'statDate', 'startDate', 'endDate', 'updateTime']),
 ];
 
@@ -343,8 +343,20 @@ const qualityFields = [
   field('hotel_collect', '酒店收藏数', ['hotelCollect', 'favoriteCount', 'collectCount']),
   field('hotel_collect_rank', '酒店收藏排名', ['hotelCollectRank']),
   field('comment_count', '点评数量', ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount'], '只采集点评/评论数量，不保存点评明文'),
+  field('ctrip_comment_count', '携程点评数量', ['ctripCommentCount'], '只采集点评数量，不保存点评明文'),
+  field('qunar_comment_count', '去哪儿点评数量', ['qunarCommentCount'], '只采集点评数量，不保存点评明文'),
+  field('elong_comment_count', '艺龙点评数量', ['elongCommentCount'], '只采集点评数量，不保存点评明文'),
   field('comment_score_summary', '点评分汇总', ['ctripRatingall', 'qunarRatingall', 'HotelRating', 'ratingall']),
   field('ctrip_rating', '携程评分', ['ctripRatingall']),
+  field('qunar_rating', '去哪儿评分', ['qunarRatingall']),
+  field('elong_rating', '艺龙评分', ['elongRatingall']),
+  field('ctrip_rating_rank', '携程评分排名', ['ctripRatingAllRanking']),
+  field('qunar_rating_rank', '去哪儿评分排名', ['qunarRatingAllRanking']),
+  field('comment_response_rate', '点评回复率', ['responseRate'], '点评/评论回复率，不等同于 IM 5分钟回复率', { unit: '%' }),
+  field('rating_competitor_total', '点评竞争圈酒店数', ['competitorHotelTotal']),
+  field('ctrip_comment_id', '携程点评主体ID', ['ctripId']),
+  field('qunar_comment_id', '去哪儿点评主体ID', ['qunarId']),
+  field('elong_comment_id', '艺龙点评主体ID', ['elongId']),
   field('bad_review_tag', '差评标签', ['dingPingEntityList', 'tag']),
 ];
 
@@ -403,11 +415,27 @@ const adsFields = [
 const userProfileFields = [
   field('user_sex', '用户性别', ['sex', 'gender', 'userSex']),
   field('user_age', '年龄段', ['age', 'ageRange', 'userAge']),
+  field('avg_user_age', '平均年龄', ['avgUserAge'], 'queryUserAge.data.avg，单位岁', { unit: '岁' }),
   field('user_source', '客源来源', ['source', 'userSource', 'cityName']),
-  field('user_type', '用户类型', ['userType', 'travelType']),
-  field('booking_days', '提前预订天数', ['bookingDays', 'advanceDays', 'leadTime']),
-  field('stay_days', '入住天数', ['stayDays', 'stayLength']),
-  field('price_band', '消费档位', ['price', 'priceInfo', 'priceBand']),
+  field('user_source_scope', '客源范围', ['userSourceScope']),
+  field('source_region', '客源省份/地区', ['sourceRegion']),
+  field('source_city', '客源城市', ['sourceCity']),
+  field('user_type', '用户类型', ['userType', 'travelType', 'type']),
+  field('travel_time', '出行时间', ['traveltime', 'travelTime']),
+  field('booking_hour', '24小时预订时段', ['bookingHour', 'orderHour', 'hour', 'time']),
+  field('avg_booking_days', '平均提前预订天数', ['avgBookingDays'], 'queryUserBookingDays.data.avg，单位天', { unit: '天' }),
+  field('booking_days', '提前预订天数区间', ['bookingDays', 'bookingdays', 'advanceDays', 'leadTime']),
+  field('avg_stay_days', '平均入住天数', ['avgStayDays'], 'queryUserStayDays.data.avg，单位天', { unit: '天' }),
+  field('stay_days', '入住天数区间', ['stayDays', 'staydays', 'stayLength']),
+  field('hotel_star_preference', '酒店星级偏好', ['star', 'starLevel', 'hotelStar', 'userStar']),
+  field('price_band', '消费档位', ['price', 'priceInfo', 'priceBand', 'consumer']),
+  field('consumption_power', '消费能力', ['userPrice', 'consumptionPower', 'consumerPower', 'priceRange']),
+  field('price_sensitivity', '价格敏感度', ['priceSensitivity']),
+  field('booking_method', '预订方式', ['orderType', 'bookingMethod', 'bookingChannel', 'orderMethod']),
+  field('order_hotel_count', '订购酒店次数', ['userOrders', 'hotelOrderCount', 'orderHotelCount', 'orders']),
+  field('order_preference', '订购偏好', ['orderPreference']),
+  field('preference_frequency', '偏好频次', ['preferenceFrequency']),
+  field('distribution_share', '分布占比', ['distributionShare'], '用户行为分布图表占比，来自对应接口 value / valueList / rate 字段', { unit: '%' }),
   field('strategy', '提升策略', ['strategy', 'suggestion', 'imageList']),
 ];
 
@@ -462,6 +490,8 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'benefit_name',
   'benefit_status',
   'benefit_text',
+  'ctrip_comment_id',
+  'elong_comment_id',
   'hot_spot_name',
   'hotel_label',
   'notice_title',
@@ -480,10 +510,26 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'target_url',
   'task_action',
   'task_name',
+  'booking_hour',
+  'booking_method',
+  'consumption_power',
+  'hotel_star_preference',
+  'order_hotel_count',
+  'order_preference',
+  'preference_frequency',
+  'qunar_comment_id',
   'user_age',
+  'booking_days',
+  'price_band',
+  'source_city',
+  'source_region',
+  'stay_days',
+  'travel_time',
   'user_sex',
   'user_source',
+  'user_source_scope',
   'user_type',
+  'price_sensitivity',
   'bad_review_tag',
   'psi_basic_item_id',
   'psi_basic_item_type',
@@ -1440,6 +1486,9 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
   if (endpointId === 'psi_overview') {
     return extractPsiBasicScoreItemFacts(node, path, fields, context, endpointInfo);
   }
+  if (endpointId === 'user_profile_dimensions') {
+    return extractUserProfileDistributionFacts(node, path, fields, context, endpointInfo);
+  }
   if (!['competitor_management', 'competitor_flow', 'competitor_service'].includes(endpointId)) {
     return [];
   }
@@ -1484,6 +1533,357 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
   return facts;
 }
 
+function extractUserProfileDistributionFacts(node, path, fields, context, endpointInfo) {
+  const lowerUrl = String(context.url || '').toLowerCase();
+  if (!lowerUrl.includes('/userbehavior/')) {
+    return [];
+  }
+
+  if (lowerUrl.includes('queryuserpriceinfo')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      dimensionFieldId: 'price_sensitivity',
+      syntheticPathName: 'priceSensitivity',
+    });
+  }
+
+  if (lowerUrl.includes('getorderdistribution')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      dimensionFieldId: 'booking_hour',
+      syntheticPathName: 'bookingHour',
+    });
+  }
+
+  if (lowerUrl.includes('queryusertraveltime')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      dimensionFieldId: 'travel_time',
+      syntheticPathName: 'travelTime',
+    });
+  }
+
+  if (lowerUrl.includes('queryuserstar')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      dimensionFieldId: 'hotel_star_preference',
+      syntheticPathName: 'hotelStar',
+    });
+  }
+
+  if (lowerUrl.includes('queryuserprice')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      dimensionFieldId: 'consumption_power',
+      syntheticPathName: 'consumptionPower',
+    });
+  }
+
+  if (lowerUrl.includes('queryordertype')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      dimensionFieldId: 'booking_method',
+      syntheticPathName: 'bookingMethod',
+    });
+  }
+
+  if (lowerUrl.includes('queryuserorders')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      dimensionFieldId: 'order_hotel_count',
+      syntheticPathName: 'orderHotelCount',
+    });
+  }
+
+  if (lowerUrl.includes('queryuserage')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      avgFieldId: 'avg_user_age',
+      dimensionFieldId: 'user_age',
+      syntheticPathName: 'userAge',
+    });
+  }
+
+  if (lowerUrl.includes('queryuserpoint')) {
+    return extractUserPointPreferenceFacts(node, path, fields, context, endpointInfo);
+  }
+
+  if (lowerUrl.includes('queryuserbookingdays')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      avgFieldId: 'avg_booking_days',
+      dimensionFieldId: 'booking_days',
+      syntheticPathName: 'bookingDays',
+    });
+  }
+
+  if (lowerUrl.includes('queryuserstaydays')) {
+    return extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, {
+      avgFieldId: 'avg_stay_days',
+      dimensionFieldId: 'stay_days',
+      syntheticPathName: 'stayDays',
+    });
+  }
+
+  if (lowerUrl.includes('queryusersource')) {
+    return extractUserSourceDistributionFacts(node, path, fields, context, endpointInfo);
+  }
+
+  const metricFieldId = userProfileNameValueMetricFieldId(lowerUrl);
+  if (!metricFieldId || !isNameValueDistributionNode(node)) {
+    return [];
+  }
+
+  return buildUserDistributionFactPair({
+    fields,
+    context,
+    endpointInfo,
+    path,
+    dimensionFieldId: metricFieldId,
+    dimensionSourceKey: 'name',
+    dimensionValue: node.name,
+    shareSourceKey: 'value',
+    shareValue: node.value,
+  });
+}
+
+function userProfileNameValueMetricFieldId(lowerUrl) {
+  if (lowerUrl.includes('queryusersex')) {
+    return 'user_sex';
+  }
+  if (lowerUrl.includes('queryusertype')) {
+    return 'user_type';
+  }
+  if (lowerUrl.includes('getorderdistribution')) {
+    return 'booking_hour';
+  }
+  if (lowerUrl.includes('queryusertraveltime')) {
+    return 'travel_time';
+  }
+  if (lowerUrl.includes('queryuserstar')) {
+    return 'hotel_star_preference';
+  }
+  if (lowerUrl.includes('queryuserprice') && !lowerUrl.includes('queryuserpriceinfo')) {
+    return 'consumption_power';
+  }
+  if (lowerUrl.includes('queryordertype')) {
+    return 'booking_method';
+  }
+  if (lowerUrl.includes('queryuserorders')) {
+    return 'order_hotel_count';
+  }
+  return '';
+}
+
+function isNameValueDistributionNode(node) {
+  return Boolean(
+    node
+    && typeof node === 'object'
+    && !Array.isArray(node)
+    && isScalar(node.name)
+    && isScalar(node.value)
+  );
+}
+
+function extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, options = {}) {
+  if (!node || typeof node !== 'object' || Array.isArray(node) || !Array.isArray(node.titleList) || !Array.isArray(node.valueList)) {
+    return [];
+  }
+
+  const facts = [];
+  const avgFieldId = String(options.avgFieldId || '');
+  if (avgFieldId && isScalar(node.avg)) {
+    const avgField = fields.find((item) => item.id === avgFieldId);
+    if (avgField) {
+      facts.push(buildEndpointSpecificFact({
+        context,
+        endpointInfo,
+        fieldInfo: avgField,
+        sourceKey: 'avg',
+        sourcePath: [...path, 'avg'],
+        sourceParentPath: path,
+        value: node.avg,
+      }));
+    }
+  }
+
+  const dimensionFieldId = String(options.dimensionFieldId || '');
+  const syntheticPathName = String(options.syntheticPathName || dimensionFieldId || 'distribution');
+  if (!dimensionFieldId) {
+    return facts;
+  }
+
+  node.titleList.forEach((title, index) => {
+    const share = node.valueList[index];
+    if (!isScalar(title) || !isScalar(share)) {
+      return;
+    }
+    facts.push(...buildUserDistributionFactPair({
+      fields,
+      context,
+      endpointInfo,
+      path: [...path, syntheticPathName, String(index)],
+      dimensionFieldId,
+      dimensionSourceKey: 'titleList',
+      dimensionSourcePath: [...path, 'titleList', String(index)],
+      dimensionValue: title,
+      shareSourceKey: 'valueList',
+      shareSourcePath: [...path, 'valueList', String(index)],
+      shareValue: share,
+    }));
+  });
+  return facts;
+}
+
+function extractUserSourceDistributionFacts(node, path, fields, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    return [];
+  }
+
+  const facts = [];
+  if (path.length === 1 && String(path[0] || '').toLowerCase() === 'data') {
+    for (const [sourceKey, label] of [
+      ['localCityRate', '本地'],
+      ['otherCityRate', '异地'],
+      ['topCityRate', 'TOP5城市'],
+    ]) {
+      if (!isScalar(node[sourceKey])) {
+        continue;
+      }
+      facts.push(...buildUserDistributionFactPair({
+        fields,
+        context,
+        endpointInfo,
+        path: [...path, sourceKey],
+        dimensionFieldId: 'user_source_scope',
+        dimensionSourceKey: sourceKey,
+        dimensionSourcePath: [...path, sourceKey],
+        dimensionValue: label,
+        shareSourceKey: sourceKey,
+        shareSourcePath: [...path, sourceKey],
+        shareValue: node[sourceKey],
+      }));
+    }
+    return facts;
+  }
+
+  const parent = path.map((item) => String(item || '').toLowerCase());
+  const lastParent = parent[parent.length - 2] || '';
+  if (!isNameValueDistributionNode(node) || !['provinces', 'cities'].includes(lastParent)) {
+    return [];
+  }
+
+  return buildUserDistributionFactPair({
+    fields,
+    context,
+    endpointInfo,
+    path,
+    dimensionFieldId: lastParent === 'cities' ? 'source_city' : 'source_region',
+    dimensionSourceKey: 'name',
+    dimensionValue: node.name,
+    shareSourceKey: 'value',
+    shareValue: node.value,
+  });
+}
+
+function extractUserPointPreferenceFacts(node, path, fields, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)
+    || !Array.isArray(node.titleList)
+    || !Array.isArray(node.userColumnBos)) {
+    return [];
+  }
+  if (path.length !== 1 || String(path[0] || '').toLowerCase() !== 'data') {
+    return [];
+  }
+
+  const preferenceField = fields.find((item) => item.id === 'order_preference');
+  const frequencyField = fields.find((item) => item.id === 'preference_frequency');
+  const shareField = fields.find((item) => item.id === 'distribution_share');
+  if (!preferenceField || !frequencyField || !shareField) {
+    return [];
+  }
+
+  const facts = [];
+  node.userColumnBos.forEach((column, frequencyIndex) => {
+    if (!column || typeof column !== 'object' || Array.isArray(column)
+      || !Array.isArray(column.titleList)
+      || !Array.isArray(column.valueList)) {
+      return;
+    }
+    const frequency = column.titleList[frequencyIndex];
+    if (!isScalar(frequency)) {
+      return;
+    }
+    node.titleList.forEach((preference, preferenceIndex) => {
+      const share = column.valueList[preferenceIndex];
+      if (!isScalar(preference) || !isScalar(share)) {
+        return;
+      }
+      const cellPath = [...path, 'userPoint', String(frequencyIndex), String(preferenceIndex)];
+      facts.push(buildEndpointSpecificFact({
+        context,
+        endpointInfo,
+        fieldInfo: preferenceField,
+        sourceKey: 'titleList',
+        sourcePath: [...path, 'titleList', String(preferenceIndex)],
+        sourceParentPath: cellPath,
+        value: preference,
+      }));
+      facts.push(buildEndpointSpecificFact({
+        context,
+        endpointInfo,
+        fieldInfo: frequencyField,
+        sourceKey: 'titleList',
+        sourcePath: [...path, 'userColumnBos', String(frequencyIndex), 'titleList', String(frequencyIndex)],
+        sourceParentPath: cellPath,
+        value: frequency,
+      }));
+      facts.push(buildEndpointSpecificFact({
+        context,
+        endpointInfo,
+        fieldInfo: shareField,
+        sourceKey: 'valueList',
+        sourcePath: [...path, 'userColumnBos', String(frequencyIndex), 'valueList', String(preferenceIndex)],
+        sourceParentPath: cellPath,
+        value: share,
+      }));
+    });
+  });
+  return facts;
+}
+
+function buildUserDistributionFactPair({
+  fields,
+  context,
+  endpointInfo,
+  path,
+  dimensionFieldId,
+  dimensionSourceKey,
+  dimensionSourcePath = null,
+  dimensionValue,
+  shareSourceKey,
+  shareSourcePath = null,
+  shareValue,
+}) {
+  const dimensionField = fields.find((item) => item.id === dimensionFieldId);
+  const shareField = fields.find((item) => item.id === 'distribution_share');
+  if (!dimensionField || !shareField || !isScalar(dimensionValue) || !isScalar(shareValue)) {
+    return [];
+  }
+
+  return [
+    buildEndpointSpecificFact({
+      context,
+      endpointInfo,
+      fieldInfo: dimensionField,
+      sourceKey: dimensionSourceKey,
+      sourcePath: dimensionSourcePath || [...path, dimensionSourceKey],
+      sourceParentPath: path,
+      value: dimensionValue,
+    }),
+    buildEndpointSpecificFact({
+      context,
+      endpointInfo,
+      fieldInfo: shareField,
+      sourceKey: shareSourceKey,
+      sourcePath: shareSourcePath || [...path, shareSourceKey],
+      sourceParentPath: path,
+      value: shareValue,
+    }),
+  ];
+}
+
 function extractPsiBasicScoreItemFacts(node, path, fields, context, endpointInfo) {
   const parentSegments = path.map((item) => String(item || '').toLowerCase());
   if (!parentSegments.includes('basicscoreextlist')
@@ -1501,27 +1901,16 @@ function extractPsiBasicScoreItemFacts(node, path, fields, context, endpointInfo
     return [];
   }
 
-  return [{
-    platform: normalizeCtripCapturePlatform(context.platform),
-    section: context.section || endpointInfo?.section || '',
-    endpoint_id: endpointInfo?.id || '',
-    endpoint_label: endpointInfo?.label || '',
-    data_type: endpointInfo?.dataType || context.dataType || '',
-    metric_key: fieldInfo.id,
-    metric_label: fieldInfo.label,
-    metric_scope: fieldInfo.scope,
-    unit: fieldInfo.unit,
-    source_key: 'code',
-    source_path: [...path, 'code'].join('.'),
+  return [buildEndpointSpecificFact({
+    context,
+    endpointInfo,
+    fieldInfo,
+    sourceKey: 'code',
+    sourcePath: [...path, 'code'],
+    sourceParentPath: path,
     value: itemType,
-    value_type: 'string',
-    hotel_id: context.hotelId || '',
-    data_date: context.dataDate || '',
-    captured_at: context.capturedAt || '',
-    source_url: context.url || '',
-    source_parent_path: path.join('.'),
     derived_from: 'psi_basic_item_code',
-  }];
+  })];
 }
 
 function psiBasicScoreItemType(code) {
@@ -1546,7 +1935,28 @@ function pushEndpointSpecificFact(target, { node, path, fields, context, endpoin
   if (!fieldInfo || !isScalar(node[sourceKey])) {
     return;
   }
-  target.push({
+  target.push(buildEndpointSpecificFact({
+    context,
+    endpointInfo,
+    fieldInfo,
+    sourceKey,
+    sourcePath: [...path, sourceKey],
+    sourceParentPath: path,
+    value: node[sourceKey],
+  }));
+}
+
+function buildEndpointSpecificFact({
+  context,
+  endpointInfo,
+  fieldInfo,
+  sourceKey,
+  sourcePath,
+  sourceParentPath,
+  value,
+  derived_from = '',
+}) {
+  return {
     platform: normalizeCtripCapturePlatform(context.platform),
     section: context.section || endpointInfo?.section || '',
     endpoint_id: endpointInfo?.id || '',
@@ -1557,15 +1967,16 @@ function pushEndpointSpecificFact(target, { node, path, fields, context, endpoin
     metric_scope: fieldInfo.scope,
     unit: fieldInfo.unit,
     source_key: sourceKey,
-    source_path: [...path, sourceKey].join('.'),
-    value: normalizeFactValue(node[sourceKey]),
-    value_type: typeof node[sourceKey],
+    source_path: sourcePath.map((item) => String(item)).join('.'),
+    value: normalizeFactValue(value),
+    value_type: typeof value,
     hotel_id: context.hotelId || '',
     data_date: context.dataDate || '',
     captured_at: context.capturedAt || '',
     source_url: context.url || '',
-    source_parent_path: path.join('.'),
-  });
+    source_parent_path: sourceParentPath.map((item) => String(item)).join('.'),
+    ...(derived_from ? { derived_from } : {}),
+  };
 }
 
 function endpointSpecificFallbackField(metricFieldId) {
@@ -2209,7 +2620,10 @@ function standardDataTypeForFacts(facts) {
   if (ids.some((id) => [
     'psi_score', 'service_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score',
     'reply_rate', 'reply_rank', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_rating',
-    'comment_count', 'comment_score_summary', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
+    'comment_count', 'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
+    'ctrip_rating', 'qunar_rating', 'elong_rating',
+    'ctrip_rating_rank', 'qunar_rating_rank', 'comment_response_rate', 'rating_competitor_total',
+    'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
     'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate',
     'bpi_score', 'basis_score', 'plus_score', 'minus_score',
   ].includes(id))) {
@@ -2265,7 +2679,10 @@ function standardDataTypeForField(fieldId) {
   if ([
     'psi_score', 'service_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score',
     'reply_rate', 'reply_rank', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_rating',
-    'comment_count', 'comment_score_summary', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
+    'comment_count', 'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
+    'ctrip_rating', 'qunar_rating', 'elong_rating',
+    'ctrip_rating_rank', 'qunar_rating_rank', 'comment_response_rate', 'rating_competitor_total',
+    'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
     'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate',
     'bpi_score', 'basis_score', 'plus_score', 'minus_score',
   ].includes(fieldId)) {
@@ -2402,13 +2819,48 @@ function applyFactToStandardRow(row, fact) {
       }
       break;
     case 'comment_score_summary':
-      row.comment_score = number;
+      if (row.comment_score === 0) {
+        row.comment_score = number;
+      }
       if (row.data_value === 0) {
         row.data_value = number;
       }
       break;
+    case 'ctrip_rating':
+      row.comment_score = number;
+      row.data_value = number;
+      break;
+    case 'qunar_rating':
+      row.qunar_comment_score = number;
+      break;
+    case 'elong_rating':
+      break;
+    case 'comment_response_rate':
+      row.flow_rate = normalizeCommentResponseRate(number);
+      break;
     case 'comment_count':
       row.data_value = Math.round(number);
+      break;
+    case 'ctrip_comment_count':
+    case 'qunar_comment_count':
+    case 'elong_comment_count':
+      if (row.data_value === 0) {
+        row.data_value = Math.round(number);
+      }
+      break;
+    case 'ctrip_rating_rank':
+    case 'qunar_rating_rank':
+      {
+        const rankMetrics = row.raw_data.rank_metrics ||= {};
+        rankMetrics[id] = number === null ? fact.value : number;
+      }
+      break;
+    case 'rating_competitor_total':
+      break;
+    case 'avg_user_age':
+    case 'avg_booking_days':
+    case 'avg_stay_days':
+      row.data_value = number;
       break;
     case 'order_amount_last_week':
     case 'room_nights_last_week':
@@ -2608,6 +3060,13 @@ function normalizeFactPercent(number) {
     return Math.round(number * 10000) / 100;
   }
   return Math.round(number * 100) / 100;
+}
+
+function normalizeCommentResponseRate(number) {
+  if (number > 0 && number <= 2) {
+    return Math.round(number * 10000) / 100;
+  }
+  return normalizeFactPercent(number);
 }
 
 function normalizeFactDate(value) {

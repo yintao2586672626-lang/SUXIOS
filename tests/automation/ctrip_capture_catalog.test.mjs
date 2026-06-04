@@ -265,6 +265,235 @@ test('maps Ctrip user behavior IM board observed endpoints', () => {
   assert.equal(imTrend?.fields.some((field) => field.id === 'im_order_conversion_rate'), true);
 });
 
+test('maps Ctrip user behavior user-analysis distribution responses', () => {
+  const buildRows = (url, payload, expectedEndpointId = 'user_profile_dimensions') => {
+    const endpoint = findCtripEndpointByUrl(url);
+    assert.equal(endpoint?.id, expectedEndpointId, url);
+    const facts = extractCtripCatalogFacts(payload, {
+      endpoint,
+      section: endpoint.section,
+      dataType: endpoint.dataType,
+      hotelId: '6866634',
+      dataDate: '2026-06-05',
+      capturedAt: '2026-06-05T00:00:00.000Z',
+      url,
+    });
+    return buildCtripStandardRowsFromFacts(facts, {
+      systemHotelId: 58,
+      hotelName: '西安天诚',
+      profileId: '6866634',
+      dataDate: '2026-06-05',
+    });
+  };
+
+  const sexRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserSex', {
+    rcode: 0,
+    data: [{ name: '女', value: 47.19 }, { name: '男', value: 52.81 }],
+  });
+  const femaleRow = sexRows.find((row) => row.raw_data.dimension_values?.user_sex === '女');
+  assert.ok(femaleRow);
+  assert.equal(femaleRow.data_value, 47.19);
+  assert.equal(femaleRow.raw_data.metrics.distribution_share, 47.19);
+  assert.equal(femaleRow.raw_data.metrics.user_sex, '女');
+
+  const typeRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserType', {
+    rcode: 0,
+    data: [{ name: '休闲型', value: 71.6 }, { name: '商务型', value: 28.4 }],
+  });
+  const leisureRow = typeRows.find((row) => row.raw_data.dimension_values?.user_type === '休闲型');
+  assert.ok(leisureRow);
+  assert.equal(leisureRow.data_value, 71.6);
+
+  const priceRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserPriceInfo', {
+    rcode: 0,
+    data: {
+      avg: null,
+      titleList: ['极度敏感', '比较敏感', '不太敏感', '非常不敏感'],
+      valueList: [28.94, 39.04, 27.05, 4.97],
+    },
+  });
+  const sensitiveRow = priceRows.find((row) => row.raw_data.dimension_values?.price_sensitivity === '比较敏感');
+  assert.ok(sensitiveRow);
+  assert.equal(sensitiveRow.data_value, 39.04);
+  assert.equal(sensitiveRow.raw_data.facts.some((fact) => fact.source_path === 'data.valueList.1'), true);
+
+  const ageRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserAge', {
+    rcode: 0,
+    data: {
+      avg: '41.5',
+      titleList: ['<25', '25-34', '35-44', '45-54', '>=55'],
+      valueList: [10.75, 19.62, 32.94, 18.09, 18.6],
+    },
+  });
+  const avgAgeRow = ageRows.find((row) => row.raw_data.metrics.avg_user_age === 41.5);
+  assert.ok(avgAgeRow);
+  assert.equal(avgAgeRow.data_value, 41.5);
+  const ageBandRow = ageRows.find((row) => row.raw_data.dimension_values?.user_age === '35-44');
+  assert.ok(ageBandRow);
+  assert.equal(ageBandRow.data_value, 32.94);
+  assert.equal(ageBandRow.raw_data.metrics.distribution_share, 32.94);
+
+  const bookingRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserBookingDays', {
+    rcode: 0,
+    data: {
+      avg: '1.9',
+      titleList: ['当天预订', '提前1天预订', '提前2-7天预订', '提前一周预订'],
+      valueList: [63.82, 13.51, 15.24, 7.42],
+    },
+  });
+  const avgBookingRow = bookingRows.find((row) => row.raw_data.metrics.avg_booking_days === 1.9);
+  assert.ok(avgBookingRow);
+  assert.equal(avgBookingRow.data_value, 1.9);
+  const sameDayBookingRow = bookingRows.find((row) => row.raw_data.dimension_values?.booking_days === '当天预订');
+  assert.ok(sameDayBookingRow);
+  assert.equal(sameDayBookingRow.data_value, 63.82);
+  assert.equal(sameDayBookingRow.raw_data.metrics.distribution_share, 63.82);
+  assert.equal(sameDayBookingRow.raw_data.facts.some((fact) => fact.source_path === 'data.valueList.0'), true);
+
+  const stayRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserStayDays', {
+    rcode: 0,
+    data: {
+      avg: '1.0',
+      titleList: ['1天', '2天', '3-5天', '6天以上'],
+      valueList: [99.37, 0.55, 0.08, 0.0],
+    },
+  });
+  const avgStayRow = stayRows.find((row) => row.raw_data.metrics.avg_stay_days === 1);
+  assert.ok(avgStayRow);
+  assert.equal(avgStayRow.data_value, 1);
+  const oneDayStayRow = stayRows.find((row) => row.raw_data.dimension_values?.stay_days === '1天');
+  assert.ok(oneDayStayRow);
+  assert.equal(oneDayStayRow.data_value, 99.37);
+  assert.equal(oneDayStayRow.raw_data.metrics.distribution_share, 99.37);
+
+  const pointRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserPoint', {
+    rcode: 0,
+    data: {
+      titleList: ['促销类型敏感度', '优惠券偏好', '早餐订购'],
+      userColumnBos: [
+        { avg: null, titleList: ['从未', '偶尔', '较少', '经常'], valueList: [0.66, 13.82, 25.66] },
+        { avg: null, titleList: ['从未', '偶尔', '较少', '经常'], valueList: [0.66, 71.71, 55.1] },
+        { avg: null, titleList: ['从未', '偶尔', '较少', '经常'], valueList: [0.33, 6.25, 17.11] },
+        { avg: null, titleList: ['从未', '偶尔', '较少', '经常'], valueList: [98.36, 8.22, 2.14] },
+      ],
+    },
+  });
+  const couponOccasionallyRow = pointRows.find((row) => (
+    row.raw_data.dimension_values?.order_preference === '优惠券偏好'
+    && row.raw_data.dimension_values?.preference_frequency === '偶尔'
+  ));
+  assert.ok(couponOccasionallyRow);
+  assert.equal(couponOccasionallyRow.data_value, 71.71);
+  assert.equal(couponOccasionallyRow.raw_data.metrics.distribution_share, 71.71);
+  assert.equal(couponOccasionallyRow.raw_data.facts.some((fact) => fact.source_path === 'data.userColumnBos.1.valueList.1'), true);
+
+  const featureRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserFeatures', {
+    rcode: 0,
+    data: [
+      {
+        hotelname: '',
+        age: '35-44',
+        sex: '男',
+        source: '异地',
+        type: '休闲型',
+        traveltime: '工作日',
+        consumer: '中低档',
+        bookingdays: '当天预定',
+        staydays: '1天',
+      },
+    ],
+  }, 'user_profile_features');
+  const featureRow = featureRows.find((row) => row.raw_data.dimension_values?.user_age === '35-44');
+  assert.ok(featureRow);
+  assert.equal(featureRow.raw_data.dimension_values.user_sex, '男');
+  assert.equal(featureRow.raw_data.dimension_values.user_source, '异地');
+  assert.equal(featureRow.raw_data.dimension_values.user_type, '休闲型');
+  assert.equal(featureRow.raw_data.dimension_values.travel_time, '工作日');
+  assert.equal(featureRow.raw_data.dimension_values.price_band, '中低档');
+  assert.equal(featureRow.raw_data.dimension_values.booking_days, '当天预定');
+  assert.equal(featureRow.raw_data.dimension_values.stay_days, '1天');
+  assert.equal(featureRow.raw_data.fact_only, true);
+
+  const sourceRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserSource', {
+    rcode: 0,
+    data: {
+      localCityRate: 5.03,
+      otherCityRate: 94.97,
+      topCityRate: 14.27,
+      provinces: [{ name: '陕西', value: 9.12 }, { name: '广东', value: 10.53 }],
+      cities: [{ name: '西安', value: 5.03 }, { name: '茂名', value: 2.57 }],
+    },
+  });
+  const localRow = sourceRows.find((row) => row.raw_data.dimension_values?.user_source_scope === '本地');
+  assert.ok(localRow);
+  assert.equal(localRow.data_value, 5.03);
+  assert.equal(localRow.raw_data.facts.some((fact) => fact.source_path === 'data.localCityRate'), true);
+  assert.equal(localRow.raw_data.facts.some((fact) => fact.source_path === 'data.localCityRate.localCityRate'), false);
+  const cityRow = sourceRows.find((row) => row.raw_data.dimension_values?.source_city === '西安');
+  assert.ok(cityRow);
+  assert.equal(cityRow.data_value, 5.03);
+  const regionRow = sourceRows.find((row) => row.raw_data.dimension_values?.source_region === '陕西');
+  assert.ok(regionRow);
+  assert.equal(regionRow.data_value, 9.12);
+
+  for (const item of [
+    ['getOrderDistribution', 'booking_hour', '14:00'],
+    ['queryUserTravelTime', 'travel_time', 'weekday'],
+    ['queryUserStar', 'hotel_star_preference', '3-star'],
+    ['queryUserPrice', 'consumption_power', '<=200'],
+    ['queryOrderType', 'booking_method', 'mobile'],
+    ['queryUserOrders', 'order_hotel_count', '1'],
+  ]) {
+    const [endpointName, dimensionKey, dimensionValue] = item;
+    const rows = buildRows(`https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/${endpointName}`, {
+      rcode: 0,
+      data: {
+        titleList: [dimensionValue, 'other'],
+        valueList: [11.97, 88.03],
+      },
+    });
+    const row = rows.find((candidate) => candidate.raw_data.dimension_values?.[dimensionKey] === dimensionValue);
+    assert.ok(row, `${endpointName} should map ${dimensionKey}`);
+    assert.equal(row.data_value, 11.97);
+    assert.equal(row.raw_data.metrics.distribution_share, 11.97);
+  }
+
+  const commentRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2', {
+    rcode: 0,
+    data: {
+      ctripCommentCount: 578,
+      qunarCommentCount: null,
+      elongCommentCount: null,
+      ctripRatingall: 4.8,
+      qunarRatingall: 4.9,
+      elongRatingall: null,
+      ctripRatingAllRanking: 4,
+      qunarRatingAllRanking: 8,
+      competitorHotelTotal: 26,
+      responseRate: 1.0019999742507935,
+      ctripId: null,
+      qunarId: null,
+      elongId: null,
+    },
+  }, 'traffic_comment_score_summary');
+  const commentRow = commentRows[0];
+  assert.ok(commentRow);
+  assert.equal(commentRow.data_value, 4.8);
+  assert.equal(commentRow.raw_data.metrics.ctrip_comment_count, 578);
+  assert.equal(commentRow.raw_data.metrics.ctrip_rating, 4.8);
+  assert.equal(commentRow.comment_score, 4.8);
+  assert.equal(commentRow.qunar_comment_score, 4.9);
+  assert.equal(commentRow.raw_data.rank_metrics.ctrip_rating_rank, 4);
+  assert.equal(commentRow.raw_data.rank_metrics.qunar_rating_rank, 8);
+  assert.equal(commentRow.raw_data.metrics.rating_competitor_total, 26);
+  assert.equal(commentRow.flow_rate, 100.2);
+  assert.equal(commentRow.raw_data.metrics.elong_comment_count, null);
+  assert.equal(commentRow.raw_data.metrics.elong_rating, null);
+  assert.equal(commentRow.raw_data.metrics.ctrip_comment_id, null);
+  assert.equal(commentRow.raw_data.metrics.qunar_comment_id, null);
+  assert.equal(commentRow.raw_data.metrics.elong_comment_id, null);
+});
+
 test('maps Ctrip business overview visitor title daily fields', () => {
   const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2';
   const endpoint = findCtripEndpointByUrl(url, { preferredSection: 'business_overview' });

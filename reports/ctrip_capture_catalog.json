@@ -2,7 +2,7 @@
   "platform": "ctrip",
   "section_count": 18,
   "endpoint_count": 77,
-  "field_count": 216,
+  "field_count": 244,
   "default_sections": [
     "business_overview",
     "business_weekly_overview",
@@ -510,6 +510,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -1855,6 +1856,63 @@
           "confidenceStatus": ""
         },
         {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -1881,6 +1939,177 @@
           "label": "携程评分",
           "sourceKeys": [
             "ctripRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating",
+          "label": "去哪儿评分",
+          "sourceKeys": [
+            "qunarRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_rating",
+          "label": "艺龙评分",
+          "sourceKeys": [
+            "elongRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_rating_rank",
+          "label": "携程评分排名",
+          "sourceKeys": [
+            "ctripRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating_rank",
+          "label": "去哪儿评分排名",
+          "sourceKeys": [
+            "qunarRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "rating_competitor_total",
+          "label": "点评竞争圈酒店数",
+          "sourceKeys": [
+            "competitorHotelTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_comment_id",
+          "label": "携程点评主体ID",
+          "sourceKeys": [
+            "ctripId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_id",
+          "label": "去哪儿点评主体ID",
+          "sourceKeys": [
+            "qunarId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_id",
+          "label": "艺龙点评主体ID",
+          "sourceKeys": [
+            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -1996,6 +2225,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -2211,6 +2441,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -2425,6 +2656,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -2589,6 +2821,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -3732,6 +3965,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -4196,6 +4430,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -4508,6 +4743,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -5727,6 +5963,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -5963,6 +6200,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -6071,6 +6309,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -7003,6 +7242,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -7297,6 +7537,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -7505,6 +7746,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -8705,6 +8947,25 @@
           "confidenceStatus": ""
         },
         {
+          "id": "avg_user_age",
+          "label": "平均年龄",
+          "sourceKeys": [
+            "avgUserAge"
+          ],
+          "description": "queryUserAge.data.avg，单位岁",
+          "scope": "ota_channel",
+          "unit": "岁",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "user_source",
           "label": "客源来源",
           "sourceKeys": [
@@ -8726,11 +8987,10 @@
           "confidenceStatus": ""
         },
         {
-          "id": "user_type",
-          "label": "用户类型",
+          "id": "user_source_scope",
+          "label": "客源范围",
           "sourceKeys": [
-            "userType",
-            "travelType"
+            "userSourceScope"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -8746,10 +9006,131 @@
           "confidenceStatus": ""
         },
         {
+          "id": "source_region",
+          "label": "客源省份/地区",
+          "sourceKeys": [
+            "sourceRegion"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "source_city",
+          "label": "客源城市",
+          "sourceKeys": [
+            "sourceCity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "user_type",
+          "label": "用户类型",
+          "sourceKeys": [
+            "userType",
+            "travelType",
+            "type"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "travel_time",
+          "label": "出行时间",
+          "sourceKeys": [
+            "traveltime",
+            "travelTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "booking_hour",
+          "label": "24小时预订时段",
+          "sourceKeys": [
+            "bookingHour",
+            "orderHour",
+            "hour",
+            "time"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "avg_booking_days",
+          "label": "平均提前预订天数",
+          "sourceKeys": [
+            "avgBookingDays"
+          ],
+          "description": "queryUserBookingDays.data.avg，单位天",
+          "scope": "ota_channel",
+          "unit": "天",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "booking_days",
-          "label": "提前预订天数",
+          "label": "提前预订天数区间",
           "sourceKeys": [
             "bookingDays",
+            "bookingdays",
             "advanceDays",
             "leadTime"
           ],
@@ -8767,11 +9148,53 @@
           "confidenceStatus": ""
         },
         {
+          "id": "avg_stay_days",
+          "label": "平均入住天数",
+          "sourceKeys": [
+            "avgStayDays"
+          ],
+          "description": "queryUserStayDays.data.avg，单位天",
+          "scope": "ota_channel",
+          "unit": "天",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "stay_days",
-          "label": "入住天数",
+          "label": "入住天数区间",
           "sourceKeys": [
             "stayDays",
+            "staydays",
             "stayLength"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_star_preference",
+          "label": "酒店星级偏好",
+          "sourceKeys": [
+            "star",
+            "starLevel",
+            "hotelStar",
+            "userStar"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -8792,11 +9215,154 @@
           "sourceKeys": [
             "price",
             "priceInfo",
-            "priceBand"
+            "priceBand",
+            "consumer"
           ],
           "description": "",
           "scope": "ota_channel",
           "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "consumption_power",
+          "label": "消费能力",
+          "sourceKeys": [
+            "userPrice",
+            "consumptionPower",
+            "consumerPower",
+            "priceRange"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "price_sensitivity",
+          "label": "价格敏感度",
+          "sourceKeys": [
+            "priceSensitivity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "booking_method",
+          "label": "预订方式",
+          "sourceKeys": [
+            "orderType",
+            "bookingMethod",
+            "bookingChannel",
+            "orderMethod"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_hotel_count",
+          "label": "订购酒店次数",
+          "sourceKeys": [
+            "userOrders",
+            "hotelOrderCount",
+            "orderHotelCount",
+            "orders"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_preference",
+          "label": "订购偏好",
+          "sourceKeys": [
+            "orderPreference"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "preference_frequency",
+          "label": "偏好频次",
+          "sourceKeys": [
+            "preferenceFrequency"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "distribution_share",
+          "label": "分布占比",
+          "sourceKeys": [
+            "distributionShare"
+          ],
+          "description": "用户行为分布图表占比，来自对应接口 value / valueList / rate 字段",
+          "scope": "ota_channel",
+          "unit": "%",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -8872,6 +9438,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -9167,6 +9734,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -9462,6 +10030,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -9758,6 +10327,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -10054,6 +10624,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -10349,6 +10920,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -10472,6 +11044,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -10767,6 +11340,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -11231,6 +11805,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -11445,6 +12020,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -11629,6 +12205,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -11789,6 +12366,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -12085,6 +12663,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -12209,6 +12788,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -13141,6 +13721,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -13252,6 +13833,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -14184,6 +14766,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -15327,6 +15910,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -16470,6 +17054,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -16707,6 +17292,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -17639,6 +18225,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -17854,6 +18441,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -18786,6 +19374,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -19718,6 +20307,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -19840,6 +20430,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -20126,6 +20717,63 @@
           "confidenceStatus": ""
         },
         {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -20152,6 +20800,177 @@
           "label": "携程评分",
           "sourceKeys": [
             "ctripRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating",
+          "label": "去哪儿评分",
+          "sourceKeys": [
+            "qunarRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_rating",
+          "label": "艺龙评分",
+          "sourceKeys": [
+            "elongRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_rating_rank",
+          "label": "携程评分排名",
+          "sourceKeys": [
+            "ctripRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating_rank",
+          "label": "去哪儿评分排名",
+          "sourceKeys": [
+            "qunarRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "rating_competitor_total",
+          "label": "点评竞争圈酒店数",
+          "sourceKeys": [
+            "competitorHotelTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_comment_id",
+          "label": "携程点评主体ID",
+          "sourceKeys": [
+            "ctripId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_id",
+          "label": "去哪儿点评主体ID",
+          "sourceKeys": [
+            "qunarId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_id",
+          "label": "艺龙点评主体ID",
+          "sourceKeys": [
+            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -20229,6 +21048,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -20515,6 +21335,63 @@
           "confidenceStatus": ""
         },
         {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -20541,6 +21418,177 @@
           "label": "携程评分",
           "sourceKeys": [
             "ctripRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating",
+          "label": "去哪儿评分",
+          "sourceKeys": [
+            "qunarRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_rating",
+          "label": "艺龙评分",
+          "sourceKeys": [
+            "elongRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_rating_rank",
+          "label": "携程评分排名",
+          "sourceKeys": [
+            "ctripRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating_rank",
+          "label": "去哪儿评分排名",
+          "sourceKeys": [
+            "qunarRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "rating_competitor_total",
+          "label": "点评竞争圈酒店数",
+          "sourceKeys": [
+            "competitorHotelTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_comment_id",
+          "label": "携程点评主体ID",
+          "sourceKeys": [
+            "ctripId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_id",
+          "label": "去哪儿点评主体ID",
+          "sourceKeys": [
+            "qunarId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_id",
+          "label": "艺龙点评主体ID",
+          "sourceKeys": [
+            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -20618,6 +21666,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -20789,6 +21838,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -21084,6 +22134,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -21191,6 +22242,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -22123,6 +23175,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -22409,6 +23462,63 @@
           "confidenceStatus": ""
         },
         {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -22435,6 +23545,177 @@
           "label": "携程评分",
           "sourceKeys": [
             "ctripRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating",
+          "label": "去哪儿评分",
+          "sourceKeys": [
+            "qunarRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_rating",
+          "label": "艺龙评分",
+          "sourceKeys": [
+            "elongRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_rating_rank",
+          "label": "携程评分排名",
+          "sourceKeys": [
+            "ctripRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating_rank",
+          "label": "去哪儿评分排名",
+          "sourceKeys": [
+            "qunarRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "rating_competitor_total",
+          "label": "点评竞争圈酒店数",
+          "sourceKeys": [
+            "competitorHotelTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_comment_id",
+          "label": "携程点评主体ID",
+          "sourceKeys": [
+            "ctripId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_id",
+          "label": "去哪儿点评主体ID",
+          "sourceKeys": [
+            "qunarId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_id",
+          "label": "艺龙点评主体ID",
+          "sourceKeys": [
+            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -22512,6 +23793,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -23444,6 +24726,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -23657,6 +24940,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -23846,6 +25130,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -24343,6 +25628,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -24427,6 +25713,25 @@
           "confidenceStatus": ""
         },
         {
+          "id": "avg_user_age",
+          "label": "平均年龄",
+          "sourceKeys": [
+            "avgUserAge"
+          ],
+          "description": "queryUserAge.data.avg，单位岁",
+          "scope": "ota_channel",
+          "unit": "岁",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "user_source",
           "label": "客源来源",
           "sourceKeys": [
@@ -24448,11 +25753,10 @@
           "confidenceStatus": ""
         },
         {
-          "id": "user_type",
-          "label": "用户类型",
+          "id": "user_source_scope",
+          "label": "客源范围",
           "sourceKeys": [
-            "userType",
-            "travelType"
+            "userSourceScope"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -24468,10 +25772,131 @@
           "confidenceStatus": ""
         },
         {
+          "id": "source_region",
+          "label": "客源省份/地区",
+          "sourceKeys": [
+            "sourceRegion"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "source_city",
+          "label": "客源城市",
+          "sourceKeys": [
+            "sourceCity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "user_type",
+          "label": "用户类型",
+          "sourceKeys": [
+            "userType",
+            "travelType",
+            "type"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "travel_time",
+          "label": "出行时间",
+          "sourceKeys": [
+            "traveltime",
+            "travelTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "booking_hour",
+          "label": "24小时预订时段",
+          "sourceKeys": [
+            "bookingHour",
+            "orderHour",
+            "hour",
+            "time"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "avg_booking_days",
+          "label": "平均提前预订天数",
+          "sourceKeys": [
+            "avgBookingDays"
+          ],
+          "description": "queryUserBookingDays.data.avg，单位天",
+          "scope": "ota_channel",
+          "unit": "天",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "booking_days",
-          "label": "提前预订天数",
+          "label": "提前预订天数区间",
           "sourceKeys": [
             "bookingDays",
+            "bookingdays",
             "advanceDays",
             "leadTime"
           ],
@@ -24489,11 +25914,53 @@
           "confidenceStatus": ""
         },
         {
+          "id": "avg_stay_days",
+          "label": "平均入住天数",
+          "sourceKeys": [
+            "avgStayDays"
+          ],
+          "description": "queryUserStayDays.data.avg，单位天",
+          "scope": "ota_channel",
+          "unit": "天",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "stay_days",
-          "label": "入住天数",
+          "label": "入住天数区间",
           "sourceKeys": [
             "stayDays",
+            "staydays",
             "stayLength"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_star_preference",
+          "label": "酒店星级偏好",
+          "sourceKeys": [
+            "star",
+            "starLevel",
+            "hotelStar",
+            "userStar"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -24514,11 +25981,154 @@
           "sourceKeys": [
             "price",
             "priceInfo",
-            "priceBand"
+            "priceBand",
+            "consumer"
           ],
           "description": "",
           "scope": "ota_channel",
           "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "consumption_power",
+          "label": "消费能力",
+          "sourceKeys": [
+            "userPrice",
+            "consumptionPower",
+            "consumerPower",
+            "priceRange"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "price_sensitivity",
+          "label": "价格敏感度",
+          "sourceKeys": [
+            "priceSensitivity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "booking_method",
+          "label": "预订方式",
+          "sourceKeys": [
+            "orderType",
+            "bookingMethod",
+            "bookingChannel",
+            "orderMethod"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_hotel_count",
+          "label": "订购酒店次数",
+          "sourceKeys": [
+            "userOrders",
+            "hotelOrderCount",
+            "orderHotelCount",
+            "orders"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_preference",
+          "label": "订购偏好",
+          "sourceKeys": [
+            "orderPreference"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "preference_frequency",
+          "label": "偏好频次",
+          "sourceKeys": [
+            "preferenceFrequency"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "distribution_share",
+          "label": "分布占比",
+          "sourceKeys": [
+            "distributionShare"
+          ],
+          "description": "用户行为分布图表占比，来自对应接口 value / valueList / rate 字段",
+          "scope": "ota_channel",
+          "unit": "%",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -24606,6 +26216,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -24690,6 +26301,25 @@
           "confidenceStatus": ""
         },
         {
+          "id": "avg_user_age",
+          "label": "平均年龄",
+          "sourceKeys": [
+            "avgUserAge"
+          ],
+          "description": "queryUserAge.data.avg，单位岁",
+          "scope": "ota_channel",
+          "unit": "岁",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "user_source",
           "label": "客源来源",
           "sourceKeys": [
@@ -24711,11 +26341,10 @@
           "confidenceStatus": ""
         },
         {
-          "id": "user_type",
-          "label": "用户类型",
+          "id": "user_source_scope",
+          "label": "客源范围",
           "sourceKeys": [
-            "userType",
-            "travelType"
+            "userSourceScope"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -24731,10 +26360,131 @@
           "confidenceStatus": ""
         },
         {
+          "id": "source_region",
+          "label": "客源省份/地区",
+          "sourceKeys": [
+            "sourceRegion"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "source_city",
+          "label": "客源城市",
+          "sourceKeys": [
+            "sourceCity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "user_type",
+          "label": "用户类型",
+          "sourceKeys": [
+            "userType",
+            "travelType",
+            "type"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "travel_time",
+          "label": "出行时间",
+          "sourceKeys": [
+            "traveltime",
+            "travelTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "booking_hour",
+          "label": "24小时预订时段",
+          "sourceKeys": [
+            "bookingHour",
+            "orderHour",
+            "hour",
+            "time"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "avg_booking_days",
+          "label": "平均提前预订天数",
+          "sourceKeys": [
+            "avgBookingDays"
+          ],
+          "description": "queryUserBookingDays.data.avg，单位天",
+          "scope": "ota_channel",
+          "unit": "天",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "booking_days",
-          "label": "提前预订天数",
+          "label": "提前预订天数区间",
           "sourceKeys": [
             "bookingDays",
+            "bookingdays",
             "advanceDays",
             "leadTime"
           ],
@@ -24752,11 +26502,53 @@
           "confidenceStatus": ""
         },
         {
+          "id": "avg_stay_days",
+          "label": "平均入住天数",
+          "sourceKeys": [
+            "avgStayDays"
+          ],
+          "description": "queryUserStayDays.data.avg，单位天",
+          "scope": "ota_channel",
+          "unit": "天",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "stay_days",
-          "label": "入住天数",
+          "label": "入住天数区间",
           "sourceKeys": [
             "stayDays",
+            "staydays",
             "stayLength"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_star_preference",
+          "label": "酒店星级偏好",
+          "sourceKeys": [
+            "star",
+            "starLevel",
+            "hotelStar",
+            "userStar"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -24777,11 +26569,154 @@
           "sourceKeys": [
             "price",
             "priceInfo",
-            "priceBand"
+            "priceBand",
+            "consumer"
           ],
           "description": "",
           "scope": "ota_channel",
           "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "consumption_power",
+          "label": "消费能力",
+          "sourceKeys": [
+            "userPrice",
+            "consumptionPower",
+            "consumerPower",
+            "priceRange"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "price_sensitivity",
+          "label": "价格敏感度",
+          "sourceKeys": [
+            "priceSensitivity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "booking_method",
+          "label": "预订方式",
+          "sourceKeys": [
+            "orderType",
+            "bookingMethod",
+            "bookingChannel",
+            "orderMethod"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_hotel_count",
+          "label": "订购酒店次数",
+          "sourceKeys": [
+            "userOrders",
+            "hotelOrderCount",
+            "orderHotelCount",
+            "orders"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_preference",
+          "label": "订购偏好",
+          "sourceKeys": [
+            "orderPreference"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "preference_frequency",
+          "label": "偏好频次",
+          "sourceKeys": [
+            "preferenceFrequency"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "distribution_share",
+          "label": "分布占比",
+          "sourceKeys": [
+            "distributionShare"
+          ],
+          "description": "用户行为分布图表占比，来自对应接口 value / valueList / rate 字段",
+          "scope": "ota_channel",
+          "unit": "%",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -25067,6 +27002,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -25241,6 +27177,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -25412,6 +27349,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -25730,6 +27668,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -26048,6 +27987,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -26367,6 +28307,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -26685,6 +28626,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -27003,6 +28945,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -27322,6 +29265,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -27683,6 +29627,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -28001,6 +29946,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -28215,6 +30161,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -28429,6 +30376,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -28643,6 +30591,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -28929,6 +30878,63 @@
           "confidenceStatus": ""
         },
         {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -28955,6 +30961,177 @@
           "label": "携程评分",
           "sourceKeys": [
             "ctripRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating",
+          "label": "去哪儿评分",
+          "sourceKeys": [
+            "qunarRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_rating",
+          "label": "艺龙评分",
+          "sourceKeys": [
+            "elongRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_rating_rank",
+          "label": "携程评分排名",
+          "sourceKeys": [
+            "ctripRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating_rank",
+          "label": "去哪儿评分排名",
+          "sourceKeys": [
+            "qunarRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "rating_competitor_total",
+          "label": "点评竞争圈酒店数",
+          "sourceKeys": [
+            "competitorHotelTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_comment_id",
+          "label": "携程点评主体ID",
+          "sourceKeys": [
+            "ctripId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_id",
+          "label": "去哪儿点评主体ID",
+          "sourceKeys": [
+            "qunarId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_id",
+          "label": "艺龙点评主体ID",
+          "sourceKeys": [
+            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -29299,6 +31476,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -29585,6 +31763,63 @@
           "confidenceStatus": ""
         },
         {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -29611,6 +31846,177 @@
           "label": "携程评分",
           "sourceKeys": [
             "ctripRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating",
+          "label": "去哪儿评分",
+          "sourceKeys": [
+            "qunarRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_rating",
+          "label": "艺龙评分",
+          "sourceKeys": [
+            "elongRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_rating_rank",
+          "label": "携程评分排名",
+          "sourceKeys": [
+            "ctripRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating_rank",
+          "label": "去哪儿评分排名",
+          "sourceKeys": [
+            "qunarRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "rating_competitor_total",
+          "label": "点评竞争圈酒店数",
+          "sourceKeys": [
+            "competitorHotelTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_comment_id",
+          "label": "携程点评主体ID",
+          "sourceKeys": [
+            "ctripId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_id",
+          "label": "去哪儿点评主体ID",
+          "sourceKeys": [
+            "qunarId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_id",
+          "label": "艺龙点评主体ID",
+          "sourceKeys": [
+            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -29731,6 +32137,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -30017,6 +32424,63 @@
           "confidenceStatus": ""
         },
         {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCommentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_score_summary",
           "label": "点评分汇总",
           "sourceKeys": [
@@ -30043,6 +32507,177 @@
           "label": "携程评分",
           "sourceKeys": [
             "ctripRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating",
+          "label": "去哪儿评分",
+          "sourceKeys": [
+            "qunarRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_rating",
+          "label": "艺龙评分",
+          "sourceKeys": [
+            "elongRatingall"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_rating_rank",
+          "label": "携程评分排名",
+          "sourceKeys": [
+            "ctripRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_rating_rank",
+          "label": "去哪儿评分排名",
+          "sourceKeys": [
+            "qunarRatingAllRanking"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "rating_competitor_total",
+          "label": "点评竞争圈酒店数",
+          "sourceKeys": [
+            "competitorHotelTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_comment_id",
+          "label": "携程点评主体ID",
+          "sourceKeys": [
+            "ctripId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_id",
+          "label": "去哪儿点评主体ID",
+          "sourceKeys": [
+            "qunarId"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_id",
+          "label": "艺龙点评主体ID",
+          "sourceKeys": [
+            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -30120,6 +32755,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -30244,6 +32880,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -30385,6 +33022,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -30634,6 +33272,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -30800,6 +33439,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -31049,6 +33689,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -31299,6 +33940,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -31548,6 +34190,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -32009,6 +34652,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",
@@ -33317,6 +35961,7 @@
           "sourceKeys": [
             "hotelName",
             "hotel_name",
+            "hotelname",
             "name"
           ],
           "description": "",

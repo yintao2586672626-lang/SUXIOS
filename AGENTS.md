@@ -442,6 +442,7 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 6. 来源不明、与当前任务无关、只是“可能有用”的 Skill 不安装。
 7. 需要账号授权、密钥、敏感数据访问、生产环境写入，或安装器出现高风险告警时，必须先说明风险并等待用户确认。
 8. 默认允许项目 Skill 隐式调用；只有明确不希望自动触发时，才在 `agents/openai.yaml` 设置 `policy.allow_implicit_invocation: false`。
+9. 当任务涉及 Scrapling、网页抓取、HTML 解析、selector 证据、解析器 fixture 或 OTA 页面字段提取时，自动参考 `.agents/skills/scrapling/SKILL.md`；仅处理授权来源，不静默安装 Python 依赖，不绕过登录、验证码、短信、人机验证或平台权限控制。
 
 ### Taste/UI Skill 自适应调用策略
 
