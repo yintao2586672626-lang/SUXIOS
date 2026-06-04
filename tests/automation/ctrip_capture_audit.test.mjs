@@ -400,7 +400,35 @@ test('summarizes requested Ctrip field coverage without treating missing fields 
 
   const markdown = renderCtripCaptureAuditMarkdown(audit);
   assert.equal(markdown.includes('字段覆盖'), true);
-  assert.equal(markdown.includes('order_amount'), true);
+  assert.equal(markdown.includes(audit.field_coverage.sections.business_overview.missing_field_ids[0]), true);
+});
+
+test('limits Ctrip field coverage to enabled profile field config keys', () => {
+  const audit = buildCtripCaptureAudit([{
+    path: 'field_config_coverage.json',
+    payload: {
+      requested_sections: ['business_overview'],
+      responses: [
+        { section: 'business_overview', endpoint_id: 'business_realtime' },
+      ],
+      catalog_facts: [
+        { section: 'business_overview', endpoint_id: 'business_realtime', metric_key: 'order_count' },
+      ],
+      standard_rows: [
+        { dimension: 'catalog:business_overview:business_realtime:order_count:root' },
+      ],
+      pages: [
+        { name: 'business_overview', url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true' },
+      ],
+    },
+  }], {
+    generatedAt: '2026-05-31T11:30:00.000Z',
+    allowedFieldKeys: ['order_count'],
+  });
+
+  assert.equal(audit.field_coverage.sections.business_overview.expected_field_count, 1);
+  assert.deepEqual(audit.field_coverage.sections.business_overview.missing_field_ids, []);
+  assert.equal(audit.capture_gap_report.missing_fields_by_section.business_overview, undefined);
 });
 
 test('Ctrip browser capture payload keeps the structured capture gap report', () => {

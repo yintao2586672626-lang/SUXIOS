@@ -139,7 +139,9 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
   const generatedAt = options.generatedAt || new Date().toISOString();
   const p3EvidenceMatrix = buildCtripEndpointEvidenceMatrix(p3EvidenceDrafts, { generatedAt });
   const endpointCoverage = buildEndpointCoverage([...requestedSections], capturedEndpoints);
-  const fieldCoverage = buildFieldCoverage([...requestedSections], capturedFieldsBySection);
+  const fieldCoverage = buildFieldCoverage([...requestedSections], capturedFieldsBySection, {
+    allowedFieldKeys: normalizeAllowedFieldKeys(options.allowedFieldKeys || options.allowed_field_keys),
+  });
   const authStatus = buildAuthStatus({
     pageCount,
     loginPageCount,
@@ -484,6 +486,20 @@ function numberValue(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function normalizeAllowedFieldKeys(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const keys = value
+    .map((item) => normalizeCoverageFieldKey(item))
+    .filter(Boolean);
+  return keys.length > 0 ? new Set(keys) : null;
+}
+
+function normalizeCoverageFieldKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
 function normalizeAuditInputs(inputs) {
   const list = Array.isArray(inputs) ? inputs : [inputs];
   return list
@@ -553,19 +569,23 @@ function buildEndpointCoverage(requestedSections, capturedEndpoints) {
   };
 }
 
-function buildFieldCoverage(requestedSections, capturedFieldsBySection) {
+function buildFieldCoverage(requestedSections, capturedFieldsBySection, options = {}) {
   const selectedSections = [...new Set((requestedSections || []).filter(Boolean))].sort();
+  const allowedFieldKeys = options.allowedFieldKeys instanceof Set ? options.allowedFieldKeys : null;
   const sections = {};
   const expectedFieldUnion = new Set();
   const capturedFieldUnion = new Set();
   const missingFieldUnion = new Set();
 
   for (const section of selectedSections) {
-    const expectedFieldIds = uniqueSorted(CTRIP_CAPTURE_ENDPOINTS
+    let expectedFieldIds = uniqueSorted(CTRIP_CAPTURE_ENDPOINTS
       .filter((endpoint) => endpoint.section === section)
       .flatMap((endpoint) => endpoint.fields || [])
       .map((field) => String(field?.id || '').trim())
       .filter((fieldId) => fieldId && !FIELD_COVERAGE_CONTEXT_FIELD_IDS.has(fieldId)));
+    if (allowedFieldKeys && allowedFieldKeys.size > 0) {
+      expectedFieldIds = expectedFieldIds.filter((fieldId) => allowedFieldKeys.has(normalizeCoverageFieldKey(fieldId)));
+    }
     const capturedFieldIds = uniqueSorted([...(capturedFieldsBySection[section] || [])]
       .filter((fieldId) => expectedFieldIds.includes(fieldId)));
     const unexpectedFieldIds = uniqueSorted([...(capturedFieldsBySection[section] || [])]

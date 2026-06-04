@@ -1,32 +1,49 @@
 {
   "platform": "ctrip",
-  "section_count": 16,
-  "endpoint_count": 72,
-  "field_count": 171,
+  "section_count": 18,
+  "endpoint_count": 77,
+  "field_count": 191,
   "default_sections": [
     "business_overview",
-    "room_type",
-    "traffic_report"
+    "business_weekly_overview",
+    "traffic_report",
+    "comment_review",
+    "competitor_overview",
+    "loss_analysis",
+    "competitor_rank",
+    "quality_psi",
+    "ads_pyramid",
+    "market_calendar",
+    "user_profile"
   ],
   "presets": {
     "default": [
       "business_overview",
-      "room_type",
-      "traffic_report"
+      "business_weekly_overview",
+      "traffic_report",
+      "comment_review",
+      "competitor_overview",
+      "loss_analysis",
+      "competitor_rank",
+      "quality_psi",
+      "ads_pyramid",
+      "market_calendar",
+      "user_profile"
     ],
     "core": [
       "homepage",
       "business_overview",
+      "business_weekly_overview",
       "sales_report",
-      "room_type",
       "traffic_report"
     ],
     "wide": [
       "homepage",
       "business_overview",
+      "business_weekly_overview",
       "sales_report",
-      "room_type",
       "traffic_report",
+      "comment_review",
       "competitor_overview",
       "loss_analysis",
       "competitor_rank",
@@ -40,8 +57,8 @@
       "biztravel_competitor"
     ]
   },
-  "interaction_plan_section_count": 14,
-  "interaction_plan_step_count": 74,
+  "interaction_plan_section_count": 16,
+  "interaction_plan_step_count": 80,
   "sections": {
     "homepage": {
       "label": "首页实时概览",
@@ -63,7 +80,7 @@
       ]
     },
     "business_overview": {
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "aliases": [
         "business",
@@ -75,7 +92,20 @@
         {
           "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
           "confidence": "observed"
-        },
+        }
+      ]
+    },
+    "business_weekly_overview": {
+      "label": "经营报告-概要-周报",
+      "dataType": "business",
+      "aliases": [
+        "weekly",
+        "week_report",
+        "week",
+        "business_weekly",
+        "weekly_overview"
+      ],
+      "pageUrls": [
         {
           "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/weekReport?micro=true&microJump=true",
           "confidence": "observed_from_user"
@@ -98,10 +128,6 @@
         {
           "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true",
           "confidence": "observed_from_user"
-        },
-        {
-          "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
-          "confidence": "observed"
         }
       ]
     },
@@ -117,11 +143,7 @@
       "pageUrls": [
         {
           "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true",
-          "confidence": "observed_from_user"
-        },
-        {
-          "url": "https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true",
-          "confidence": "observed"
+          "confidence": "sales_data_subtab"
         }
       ]
     },
@@ -140,8 +162,27 @@
         }
       ]
     },
+    "comment_review": {
+      "label": "订单点评-点评聚合",
+      "dataType": "quality",
+      "aliases": [
+        "comment",
+        "comments",
+        "review",
+        "reviews",
+        "comment_review",
+        "order_comment",
+        "order_reviews"
+      ],
+      "pageUrls": [
+        {
+          "url": "https://ebooking.ctrip.com/comment/commentList?microJump=true",
+          "confidence": "observed_from_user"
+        }
+      ]
+    },
     "competitor_overview": {
-      "label": "竞争圈动态-概览",
+      "label": "竞争圈动态-竞争圈概览",
       "dataType": "business",
       "aliases": [
         "competitor",
@@ -225,7 +266,9 @@
         "user",
         "user_behavior",
         "user_profile",
-        "profile"
+        "profile",
+        "comment_analysis",
+        "review_analysis"
       ],
       "pageUrls": [
         {
@@ -238,6 +281,10 @@
         },
         {
           "url": "https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?microJump=true",
+          "confidence": "observed_from_user"
+        },
+        {
+          "url": "https://ebooking.ctrip.com/ebkgrowth/datacenter/userbehavior/user?microJump=true",
           "confidence": "observed_from_user"
         }
       ]
@@ -282,7 +329,15 @@
           "confidence": "observed_from_user"
         },
         {
+          "url": "https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true",
+          "confidence": "observed_from_user"
+        },
+        {
           "url": "https://ebooking.ctrip.com/toolcenter/cpc/dataReport",
+          "confidence": "observed_from_user"
+        },
+        {
+          "url": "https://ebooking.ctrip.com/toolcenter/cpc/dataReport?microJump=true",
           "confidence": "observed_from_user"
         },
         {
@@ -335,12 +390,16 @@
       ]
     },
     "market_calendar": {
-      "label": "热点日历",
+      "label": "市场分析-市场热度",
       "dataType": "business",
       "aliases": [
         "calendar",
         "hot_calendar",
-        "events"
+        "events",
+        "market",
+        "market_analysis",
+        "market_heat",
+        "marketanalysis"
       ],
       "pageUrls": [
         {
@@ -1475,6 +1534,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -1900,7 +1960,7 @@
     {
       "id": "platform_resource_popups",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "getEbkResourcePopups"
@@ -2114,7 +2174,7 @@
     {
       "id": "platform_notifications",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "getMultiNotifyMessage",
@@ -2329,7 +2389,7 @@
     {
       "id": "hotel_advice",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "quality",
       "keywords": [
         "getHotelAdvice"
@@ -2493,7 +2553,7 @@
     {
       "id": "business_realtime",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "getDayReportRealTimeDate"
@@ -3553,6 +3613,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -3635,7 +3696,7 @@
     {
       "id": "business_capacity",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "fetchCapacityOverViewV4"
@@ -3713,18 +3774,12 @@
           "confidenceStatus": ""
         },
         {
-          "id": "order_count",
-          "label": "预订订单数",
+          "id": "occupied_rooms",
+          "label": "已售间夜 / 已入住房间数",
           "sourceKeys": [
-            "orderQuantity",
-            "synchronizationOrderQuantity",
-            "bookOrderNum",
-            "orderCount",
-            "orderNum",
-            "ordquantity",
-            "bookingCount"
+            "occupiedRooms"
           ],
-          "description": "OTA预订订单量",
+          "description": "",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -3738,18 +3793,12 @@
           "confidenceStatus": ""
         },
         {
-          "id": "room_nights",
-          "label": "间夜量",
+          "id": "occupied_rooms_sync",
+          "label": "同步后已售间夜",
           "sourceKeys": [
-            "quantity",
-            "bookQuantity",
-            "synchronizationBookQuantity",
-            "roomNights",
-            "nightNum",
-            "occupiedRooms",
-            "checkOutQuantity"
+            "synchronizationOccupiedRooms"
           ],
-          "description": "OTA间夜或在店间夜",
+          "description": "",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -3763,21 +3812,14 @@
           "confidenceStatus": ""
         },
         {
-          "id": "order_amount",
-          "label": "预订销售额",
+          "id": "occupied_rooms_rank",
+          "label": "已售间夜竞争圈排名",
           "sourceKeys": [
-            "amount",
-            "bookAmount",
-            "synchronizationBookAmount",
-            "orderAmount",
-            "saleAmount",
-            "ordamount",
-            "totalAmount",
-            "bookingAmount"
+            "rankOfOccupiedRooms"
           ],
-          "description": "OTA预订或离店销售额",
+          "description": "",
           "scope": "ota_channel",
-          "unit": "CNY",
+          "unit": "",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -3789,39 +3831,12 @@
           "confidenceStatus": ""
         },
         {
-          "id": "avg_price",
-          "label": "平均卖价",
+          "id": "competitor_avg_occupied_rooms",
+          "label": "竞对平均已售间夜",
           "sourceKeys": [
-            "averagePrice",
-            "synchronizationAveragePrice",
-            "avgPrice",
-            "adr",
-            "minPrice"
+            "competitorsAverageOccupiedRooms"
           ],
-          "description": "OTA均价或起价",
-          "scope": "ota_channel",
-          "unit": "CNY",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "conversion_rate",
-          "label": "成交/下单转化率",
-          "sourceKeys": [
-            "orderConversionRate",
-            "closeRate",
-            "conversionRate",
-            "convertionRate",
-            "cvr"
-          ],
-          "description": "从流量到订单的转化",
+          "description": "",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -3836,14 +3851,13 @@
         },
         {
           "id": "occupancy_rate",
-          "label": "出租率",
+          "label": "平台入住率",
           "sourceKeys": [
-            "rentalRate",
             "occupancyRate"
           ],
           "description": "",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "%",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -3855,13 +3869,29 @@
           "confidenceStatus": ""
         },
         {
-          "id": "tensity",
-          "label": "紧张度",
+          "id": "occupancy_rate_sync",
+          "label": "同步后入住率",
           "sourceKeys": [
-            "tensityScore",
-            "tensity",
-            "Tensity",
-            "nowTensityDetail"
+            "synchronizationOccupancyRate"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "occupancy_rate_rank",
+          "label": "入住率竞争圈排名",
+          "sourceKeys": [
+            "rankOfOccupancyRate"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -3877,16 +3907,10 @@
           "confidenceStatus": ""
         },
         {
-          "id": "rank",
-          "label": "竞争圈排名",
+          "id": "order_count",
+          "label": "总订单量",
           "sourceKeys": [
-            "rank",
-            "rank2",
-            "visitorRank",
-            "rankOfAmount",
-            "rankOfOrderQuantity",
-            "competitorRank",
-            "ranking"
+            "orderQuantity"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -3902,13 +3926,219 @@
           "confidenceStatus": ""
         },
         {
-          "id": "competitor_average",
-          "label": "竞争圈平均值",
+          "id": "order_count_sync",
+          "label": "同步后总订单量",
           "sourceKeys": [
-            "competitorsAverageOrderQuantity",
-            "competitorsAverageOccupiedRooms",
-            "competitorAvgNumber",
-            "competitorTensityScore"
+            "synchronizationOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_count_rank",
+          "label": "订单量竞争圈排名",
+          "sourceKeys": [
+            "rankOfOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competitor_avg_orders",
+          "label": "竞对平均订单量",
+          "sourceKeys": [
+            "competitorsAverageOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_order_count",
+          "label": "携程订单量",
+          "sourceKeys": [
+            "ctripOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_order_count_sync",
+          "label": "携程同步后订单量",
+          "sourceKeys": [
+            "ctripSynchronizationOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_order_count_rank",
+          "label": "携程订单量竞争圈排名",
+          "sourceKeys": [
+            "ctripRankOfOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_order_count",
+          "label": "去哪儿订单量",
+          "sourceKeys": [
+            "qunarOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_order_count_sync",
+          "label": "去哪儿同步后订单量",
+          "sourceKeys": [
+            "qunarSynchronizationOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_order_count_rank",
+          "label": "去哪儿订单量竞争圈排名",
+          "sourceKeys": [
+            "qunarRankOfOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_order_count",
+          "label": "艺龙订单量",
+          "sourceKeys": [
+            "elongOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_order_count_sync",
+          "label": "艺龙同步后订单量",
+          "sourceKeys": [
+            "elongSynchronizationOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_order_count_rank",
+          "label": "艺龙订单量竞争圈排名",
+          "sourceKeys": [
+            "elongRankOfOrderQuantity"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -3930,7 +4160,7 @@
     {
       "id": "business_market_overview",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "fetchMarketOverViewV2"
@@ -4242,7 +4472,7 @@
     {
       "id": "business_flow_compete",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "getDayReportFlowCompete"
@@ -5091,6 +5321,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -5460,7 +5691,7 @@
     {
       "id": "business_visitor_title",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "fetchVisitorTitleV2"
@@ -5538,725 +5769,14 @@
           "confidenceStatus": ""
         },
         {
-          "id": "page_views",
-          "label": "列表页曝光量旧映射",
-          "sourceKeys": [
-            "listExposure",
-            "pvDataList",
-            "pageViewDataList",
-            "PV",
-            "pv",
-            "pageViews"
-          ],
-          "description": "legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
           "id": "visitor_count",
-          "label": "访客量",
+          "label": "实时访客量",
           "sourceKeys": [
-            "lastVisitorTotal",
-            "visitorTotal",
-            "UV",
-            "uv",
-            "visitorCount",
-            "pageViews"
+            "visitorTotal"
           ],
           "description": "",
           "scope": "ota_channel",
           "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "list_exposure",
-          "label": "列表页曝光量",
-          "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
-          ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_list_exposure",
-          "label": "竞争圈平均列表页曝光量",
-          "sourceKeys": [
-            "listExposure",
-            "competitorListExposure",
-            "competitorExposure",
-            "avgListExposure"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "detail_visitor",
-          "label": "详情页访客量",
-          "sourceKeys": [
-            "detailExposure",
-            "detailUv",
-            "detailVisitors"
-          ],
-          "description": "取 queryFlowTransforNewV1 本店行 detailExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_detail_visitor",
-          "label": "竞争圈平均详情页访客量",
-          "sourceKeys": [
-            "detailExposure",
-            "competitorDetailUv",
-            "competitorDetailVisitors",
-            "avgDetailUv"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "order_page_visitor",
-          "label": "订单页访客量",
-          "sourceKeys": [
-            "orderFillingNum",
-            "orderVisitors",
-            "fillUsers"
-          ],
-          "description": "取 queryFlowTransforNewV1 本店行 orderFillingNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_order_page_visitor",
-          "label": "竞争圈平均订单页访客量",
-          "sourceKeys": [
-            "orderFillingNum",
-            "competitorOrderFillingNum",
-            "avgOrderFillingNum",
-            "competitorOrderVisitors"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "order_fill_rate",
-          "label": "下单转化率",
-          "sourceKeys": [
-            "orderFillingNum/detailExposure"
-          ],
-          "description": "本店行 orderFillingNum / detailExposure * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_order_fill_rate",
-          "label": "竞争圈平均下单转化率",
-          "sourceKeys": [
-            "hotelId=-1.orderFillingNum/detailExposure"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "order_submit_user",
-          "label": "订单提交人数",
-          "sourceKeys": [
-            "orderSubmitNum",
-            "submitUsers",
-            "submitNum"
-          ],
-          "description": "取 queryFlowTransforNewV1 本店行 orderSubmitNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_order_submit_user",
-          "label": "竞争圈平均订单提交人数",
-          "sourceKeys": [
-            "orderSubmitNum",
-            "competitorOrderSubmitNum",
-            "avgOrderSubmitNum",
-            "competitorSubmitUsers"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "deal_rate",
-          "label": "成交转化率",
-          "sourceKeys": [
-            "orderSubmitNum/orderFillingNum"
-          ],
-          "description": "本店行 orderSubmitNum / orderFillingNum * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_deal_rate",
-          "label": "竞争圈平均成交转化率",
-          "sourceKeys": [
-            "hotelId=-1.orderSubmitNum/orderFillingNum"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_list_exposure",
-          "label": "去哪儿列表页曝光量",
-          "sourceKeys": [
-            "platform=Qunar.listExposure"
-          ],
-          "description": "platform=Qunar 本店行 listExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_list_exposure",
-          "label": "去哪儿竞争圈平均列表页曝光量",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.listExposure"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 listExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_detail_visitor",
-          "label": "去哪儿详情页访客量",
-          "sourceKeys": [
-            "platform=Qunar.detailExposure"
-          ],
-          "description": "platform=Qunar 本店行 detailExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_detail_visitor",
-          "label": "去哪儿竞争圈平均详情页访客量",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.detailExposure"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 detailExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_flow_rate",
-          "label": "去哪儿曝光转化率",
-          "sourceKeys": [
-            "platform=Qunar.flowRate"
-          ],
-          "description": "platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_flow_rate",
-          "label": "去哪儿竞争圈平均曝光转化率",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.flowRate"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_order_page_visitor",
-          "label": "去哪儿订单页访客量",
-          "sourceKeys": [
-            "platform=Qunar.orderFillingNum"
-          ],
-          "description": "platform=Qunar 本店行 orderFillingNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_order_page_visitor",
-          "label": "去哪儿竞争圈平均订单页访客量",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.orderFillingNum"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 orderFillingNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_order_fill_rate",
-          "label": "去哪儿下单转化率",
-          "sourceKeys": [
-            "platform=Qunar.orderFillingNum/detailExposure"
-          ],
-          "description": "platform=Qunar 本店行 orderFillingNum / detailExposure * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_order_fill_rate",
-          "label": "去哪儿竞争圈平均下单转化率",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.orderFillingNum/detailExposure"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_order_submit_user",
-          "label": "去哪儿订单提交人数",
-          "sourceKeys": [
-            "platform=Qunar.orderSubmitNum"
-          ],
-          "description": "platform=Qunar 本店行 orderSubmitNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_order_submit_user",
-          "label": "去哪儿竞争圈平均订单提交人数",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.orderSubmitNum"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 orderSubmitNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_deal_rate",
-          "label": "去哪儿成交转化率",
-          "sourceKeys": [
-            "platform=Qunar.orderSubmitNum/orderFillingNum"
-          ],
-          "description": "platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_deal_rate",
-          "label": "去哪儿竞争圈平均成交转化率",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_order_page_visitor",
-          "label": "周报订单页访客",
-          "sourceKeys": [
-            "weeklyOrderFillingNum",
-            "weekOrderFillingNum",
-            "orderFillingNum"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_competitor_avg_order_page_visitor",
-          "label": "周报订单页访客竞圈均值",
-          "sourceKeys": [
-            "avgOrderFillingNum",
-            "competitorAvgOrderVisitors"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_top_competitor_order_page_visitor",
-          "label": "周报订单页访客最高竞品",
-          "sourceKeys": [
-            "topOrderFillingNum",
-            "topCompetitorOrderVisitors"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_submit_user",
-          "label": "周报提交人数",
-          "sourceKeys": [
-            "weeklyOrderSubmitNum",
-            "weekOrderSubmitNum",
-            "orderSubmitNum"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_competitor_avg_submit_user",
-          "label": "周报提交人数竞圈均值",
-          "sourceKeys": [
-            "avgOrderSubmitNum",
-            "competitorAvgSubmitUsers"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_top_competitor_submit_user",
-          "label": "周报提交人数最高竞品",
-          "sourceKeys": [
-            "topOrderSubmitNum",
-            "topCompetitorSubmitUsers"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "flow_rate",
-          "label": "曝光转化率",
-          "sourceKeys": [
-            "flowRate",
-            "conversionsRatesDataList",
-            "transforRate",
-            "transferRate",
-            "convertRate"
-          ],
-          "description": "取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_flow_rate",
-          "label": "竞争圈平均曝光转化率",
-          "sourceKeys": [
-            "hotelId=-1.flowRate",
-            "competitorFlowRate",
-            "avgFlowRate",
-            "competitorConversionRate"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核",
-          "scope": "ota_channel",
-          "unit": "%",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -6269,7 +5789,7 @@
         },
         {
           "id": "visitor_rank",
-          "label": "访客排名",
+          "label": "实时访客量竞争圈排名",
           "sourceKeys": [
             "visitorRank"
           ],
@@ -6287,8 +5807,27 @@
           "confidenceStatus": ""
         },
         {
+          "id": "visitor_count_last_week",
+          "label": "实时访客量上周同期",
+          "sourceKeys": [
+            "lastVisitorTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "competitor_avg_visitor",
-          "label": "竞争圈平均访客",
+          "label": "携程竞对平均访客数",
           "sourceKeys": [
             "competitorAvgNumber"
           ],
@@ -6306,10 +5845,48 @@
           "confidenceStatus": ""
         },
         {
-          "id": "qunar_visitor_rank",
-          "label": "去哪儿访客排名",
+          "id": "qunar_visitor_count",
+          "label": "去哪儿实时访客量",
           "sourceKeys": [
-            "qunarVisitorRank"
+            "qunarVisitorTotal"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_visitor_rank",
+          "label": "去哪儿实时访客量竞争圈排名",
+          "sourceKeys": [
+            "qunarCompetitorRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_visitor_count_last_week",
+          "label": "去哪儿实时访客量上周同期",
+          "sourceKeys": [
+            "lastQunarVisitorTotal"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -6326,50 +5903,9 @@
         },
         {
           "id": "qunar_competitor_avg_visitor",
-          "label": "去哪儿竞争圈平均访客",
+          "label": "去哪儿竞对平均访客数",
           "sourceKeys": [
             "qunarCompetitorAvgNumber"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "source_name",
-          "label": "流量来源",
-          "sourceKeys": [
-            "sourceName",
-            "sourceNameTag"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "keyword",
-          "label": "搜索关键词",
-          "sourceKeys": [
-            "keyword",
-            "searchKeyword",
-            "filterWords"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -6391,7 +5927,7 @@
     {
       "id": "business_hotel_seq",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "fetchCurrentHotelSeqInfoV1"
@@ -6497,7 +6033,7 @@
     {
       "id": "business_flow_transform",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "traffic",
       "keywords": [
         "queryFlowTransformNewV1",
@@ -7348,6 +6884,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -7430,7 +6967,7 @@
     {
       "id": "business_service_quantity",
       "section": "business_overview",
-      "label": "经营报告-概要",
+      "label": "经营报告-概要-日报",
       "dataType": "business",
       "keywords": [
         "getDayReportServerQuantity"
@@ -7723,8 +7260,8 @@
     },
     {
       "id": "weekly_compete_report",
-      "section": "business_overview",
-      "label": "经营报告-概要",
+      "section": "business_weekly_overview",
+      "label": "经营报告-概要-周报",
       "dataType": "business",
       "keywords": [
         "getCompeteHotelReportV1"
@@ -7922,8 +7459,8 @@
     },
     {
       "id": "weekly_report",
-      "section": "business_overview",
-      "label": "经营报告-概要",
+      "section": "business_weekly_overview",
+      "label": "经营报告-概要-周报",
       "dataType": "business",
       "keywords": [
         "getReportSuggestV1",
@@ -7931,6 +7468,7 @@
         "getWeekSuggestionV1",
         "getTrafficReportV1",
         "getUserBehaviorV1",
+        "getUserBehavorV1",
         "getHotRoomsV1",
         "getFlowHotelsV1",
         "getHotHotelsV1",
@@ -7998,6 +7536,63 @@
           "description": "",
           "scope": "ota_channel",
           "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "loss_order_count",
+          "label": "流失订单量",
+          "sourceKeys": [
+            "ordernum"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "loss_room_nights",
+          "label": "流失间夜量",
+          "sourceKeys": [
+            "ordquantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "loss_order_amount",
+          "label": "流失订单金额",
+          "sourceKeys": [
+            "ordamount"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "CNY",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -8991,6 +8586,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -11133,6 +10729,684 @@
       "notes": ""
     },
     {
+      "id": "sales_capacity_overview",
+      "section": "sales_report",
+      "label": "经营报告-销售数据",
+      "dataType": "business",
+      "keywords": [
+        "fetchCapacityOverViewV4"
+      ],
+      "fields": [
+        {
+          "id": "hotel_id",
+          "label": "酒店ID",
+          "sourceKeys": [
+            "masterHotelId",
+            "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
+            "hotelID"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_name",
+          "label": "酒店名称",
+          "sourceKeys": [
+            "hotelName",
+            "hotel_name",
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "date",
+          "label": "日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "effectDate",
+            "effectTime",
+            "statDate",
+            "startDate",
+            "endDate",
+            "updateTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "occupied_rooms",
+          "label": "已售间夜 / 已入住房间数",
+          "sourceKeys": [
+            "occupiedRooms"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "occupied_rooms_sync",
+          "label": "同步后已售间夜",
+          "sourceKeys": [
+            "synchronizationOccupiedRooms"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "occupied_rooms_rank",
+          "label": "已售间夜竞争圈排名",
+          "sourceKeys": [
+            "rankOfOccupiedRooms"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competitor_avg_occupied_rooms",
+          "label": "竞对平均已售间夜",
+          "sourceKeys": [
+            "competitorsAverageOccupiedRooms"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "occupancy_rate",
+          "label": "平台入住率",
+          "sourceKeys": [
+            "occupancyRate"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "occupancy_rate_sync",
+          "label": "同步后入住率",
+          "sourceKeys": [
+            "synchronizationOccupancyRate"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "occupancy_rate_rank",
+          "label": "入住率竞争圈排名",
+          "sourceKeys": [
+            "rankOfOccupancyRate"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_count",
+          "label": "总订单量",
+          "sourceKeys": [
+            "orderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_count_sync",
+          "label": "同步后总订单量",
+          "sourceKeys": [
+            "synchronizationOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "order_count_rank",
+          "label": "订单量竞争圈排名",
+          "sourceKeys": [
+            "rankOfOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "competitor_avg_orders",
+          "label": "竞对平均订单量",
+          "sourceKeys": [
+            "competitorsAverageOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_order_count",
+          "label": "携程订单量",
+          "sourceKeys": [
+            "ctripOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_order_count_sync",
+          "label": "携程同步后订单量",
+          "sourceKeys": [
+            "ctripSynchronizationOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_order_count_rank",
+          "label": "携程订单量竞争圈排名",
+          "sourceKeys": [
+            "ctripRankOfOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_order_count",
+          "label": "去哪儿订单量",
+          "sourceKeys": [
+            "qunarOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_order_count_sync",
+          "label": "去哪儿同步后订单量",
+          "sourceKeys": [
+            "qunarSynchronizationOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_order_count_rank",
+          "label": "去哪儿订单量竞争圈排名",
+          "sourceKeys": [
+            "qunarRankOfOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_order_count",
+          "label": "艺龙订单量",
+          "sourceKeys": [
+            "elongOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_order_count_sync",
+          "label": "艺龙同步后订单量",
+          "sourceKeys": [
+            "elongSynchronizationOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_order_count_rank",
+          "label": "艺龙订单量竞争圈排名",
+          "sourceKeys": [
+            "elongRankOfOrderQuantity"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        }
+      ],
+      "status": "supporting",
+      "notes": "Observed on the beneficialdata sales page; keep field ownership evidence-bound to the active page context."
+    },
+    {
+      "id": "sales_resource_popups",
+      "section": "sales_report",
+      "label": "经营报告-销售数据",
+      "dataType": "business",
+      "keywords": [
+        "getEbkResourcePopups"
+      ],
+      "fields": [
+        {
+          "id": "hotel_id",
+          "label": "酒店ID",
+          "sourceKeys": [
+            "masterHotelId",
+            "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
+            "hotelID"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_name",
+          "label": "酒店名称",
+          "sourceKeys": [
+            "hotelName",
+            "hotel_name",
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "date",
+          "label": "日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "effectDate",
+            "effectTime",
+            "statDate",
+            "startDate",
+            "endDate",
+            "updateTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_count",
+          "label": "通知数量",
+          "sourceKeys": [
+            "messageList",
+            "notices",
+            "notifications",
+            "totalCount"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_title",
+          "label": "提示标题",
+          "sourceKeys": [
+            "title",
+            "name",
+            "noticeTitle"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_text",
+          "label": "提示内容",
+          "sourceKeys": [
+            "content",
+            "message",
+            "text",
+            "tips",
+            "tip",
+            "description",
+            "desc"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "config_name",
+          "label": "配置名称",
+          "sourceKeys": [
+            "configName",
+            "configKey",
+            "key",
+            "code"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "config_value",
+          "label": "配置值",
+          "sourceKeys": [
+            "configValue",
+            "value"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "target_url",
+          "label": "页面跳转地址",
+          "sourceKeys": [
+            "targetUrl",
+            "url"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        }
+      ],
+      "status": "supporting",
+      "notes": "Sales-page support notice only; do not treat popup content as revenue metrics."
+    },
+    {
       "id": "room_type_info",
       "section": "room_type",
       "label": "经营报告-房型",
@@ -12748,6 +13022,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -12809,6 +13084,115 @@
             "keyword",
             "searchKeyword",
             "filterWords"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        }
+      ],
+      "status": "observed",
+      "notes": ""
+    },
+    {
+      "id": "traffic_hotel_seq",
+      "section": "traffic_report",
+      "label": "经营报告-流量数据",
+      "dataType": "traffic",
+      "keywords": [
+        "fetchCurrentHotelSeqInfoV1"
+      ],
+      "fields": [
+        {
+          "id": "hotel_id",
+          "label": "酒店ID",
+          "sourceKeys": [
+            "masterHotelId",
+            "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
+            "hotelID"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_name",
+          "label": "酒店名称",
+          "sourceKeys": [
+            "hotelName",
+            "hotel_name",
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "date",
+          "label": "日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "effectDate",
+            "effectTime",
+            "statDate",
+            "startDate",
+            "endDate",
+            "updateTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "traffic_rank",
+          "label": "实时流量排名",
+          "sourceKeys": [
+            "rank",
+            "seqRank",
+            "trafficRank",
+            "appDetailUvRank",
+            "qunarRank",
+            "competitorRank",
+            "qunarCompetitorRank"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -13681,6 +14065,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -14823,6 +15208,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -15965,6 +16351,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -16043,6 +16430,242 @@
       ],
       "status": "observed",
       "notes": ""
+    },
+    {
+      "id": "traffic_flow_source_popups",
+      "section": "traffic_report",
+      "label": "经营报告-流量数据",
+      "dataType": "traffic",
+      "keywords": [
+        "queryFlowSourcePopups"
+      ],
+      "fields": [
+        {
+          "id": "hotel_id",
+          "label": "酒店ID",
+          "sourceKeys": [
+            "masterHotelId",
+            "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
+            "hotelID"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_name",
+          "label": "酒店名称",
+          "sourceKeys": [
+            "hotelName",
+            "hotel_name",
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "date",
+          "label": "日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "effectDate",
+            "effectTime",
+            "statDate",
+            "startDate",
+            "endDate",
+            "updateTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "source_name",
+          "label": "流量来源弹窗",
+          "sourceKeys": [
+            "sourceName",
+            "sourceNameTag",
+            "title",
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_count",
+          "label": "通知数量",
+          "sourceKeys": [
+            "messageList",
+            "notices",
+            "notifications",
+            "totalCount"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_title",
+          "label": "提示标题",
+          "sourceKeys": [
+            "title",
+            "name",
+            "noticeTitle"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_text",
+          "label": "提示内容",
+          "sourceKeys": [
+            "content",
+            "message",
+            "text",
+            "tips",
+            "tip",
+            "description",
+            "desc"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "config_name",
+          "label": "配置名称",
+          "sourceKeys": [
+            "configName",
+            "configKey",
+            "key",
+            "code"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "config_value",
+          "label": "配置值",
+          "sourceKeys": [
+            "configValue",
+            "value"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "target_url",
+          "label": "页面跳转地址",
+          "sourceKeys": [
+            "targetUrl",
+            "url"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        }
+      ],
+      "status": "supporting",
+      "notes": "流量来源辅助弹窗，只保留来源/提示信息，不作为核心流量指标。"
     },
     {
       "id": "traffic_flow_source",
@@ -16897,6 +17520,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -16975,6 +17599,220 @@
       ],
       "status": "observed",
       "notes": ""
+    },
+    {
+      "id": "traffic_menu_key",
+      "section": "traffic_report",
+      "label": "经营报告-流量数据",
+      "dataType": "traffic",
+      "keywords": [
+        "queryMenuKey"
+      ],
+      "fields": [
+        {
+          "id": "hotel_id",
+          "label": "酒店ID",
+          "sourceKeys": [
+            "masterHotelId",
+            "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
+            "hotelID"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_name",
+          "label": "酒店名称",
+          "sourceKeys": [
+            "hotelName",
+            "hotel_name",
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "date",
+          "label": "日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "effectDate",
+            "effectTime",
+            "statDate",
+            "startDate",
+            "endDate",
+            "updateTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_count",
+          "label": "通知数量",
+          "sourceKeys": [
+            "messageList",
+            "notices",
+            "notifications",
+            "totalCount"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_title",
+          "label": "提示标题",
+          "sourceKeys": [
+            "title",
+            "name",
+            "noticeTitle"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "notice_text",
+          "label": "提示内容",
+          "sourceKeys": [
+            "content",
+            "message",
+            "text",
+            "tips",
+            "tip",
+            "description",
+            "desc"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "config_name",
+          "label": "配置名称",
+          "sourceKeys": [
+            "configName",
+            "configKey",
+            "key",
+            "code"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "config_value",
+          "label": "配置值",
+          "sourceKeys": [
+            "configValue",
+            "value"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "target_url",
+          "label": "页面跳转地址",
+          "sourceKeys": [
+            "targetUrl",
+            "url"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        }
+      ],
+      "status": "supporting",
+      "notes": "流量页菜单/权限辅助接口，只用于判断页面上下文，不作为经营指标。"
     },
     {
       "id": "traffic_city_keywords",
@@ -17829,6 +18667,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -18760,6 +19599,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -19741,8 +20581,8 @@
     },
     {
       "id": "comment_review_aggregate",
-      "section": "business_overview",
-      "label": "经营报告-概要",
+      "section": "comment_review",
+      "label": "订单点评-点评聚合",
       "dataType": "quality",
       "keywords": [
         "getCommentList"
@@ -19913,7 +20753,7 @@
     {
       "id": "competitor_management",
       "section": "competitor_overview",
-      "label": "竞争圈动态-概览",
+      "label": "竞争圈动态-竞争圈概览",
       "dataType": "business",
       "keywords": [
         "getManagementData"
@@ -20208,7 +21048,7 @@
     {
       "id": "competitor_hotel_label",
       "section": "competitor_overview",
-      "label": "竞争圈动态-概览",
+      "label": "竞争圈动态-竞争圈概览",
       "dataType": "business",
       "keywords": [
         "getMasterHotelLabel"
@@ -20315,7 +21155,7 @@
     {
       "id": "competitor_flow",
       "section": "competitor_overview",
-      "label": "竞争圈动态-概览",
+      "label": "竞争圈动态-竞争圈概览",
       "dataType": "business",
       "keywords": [
         "getFlowData"
@@ -21164,6 +22004,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -21246,7 +22087,7 @@
     {
       "id": "competitor_service",
       "section": "competitor_overview",
-      "label": "竞争圈动态-概览",
+      "label": "竞争圈动态-竞争圈概览",
       "dataType": "business",
       "keywords": [
         "getServiceData"
@@ -21635,7 +22476,7 @@
     {
       "id": "competitor_flow_source",
       "section": "competitor_overview",
-      "label": "竞争圈动态-概览",
+      "label": "竞争圈动态-竞争圈概览",
       "dataType": "business",
       "keywords": [
         "getFlowSource"
@@ -22484,6 +23325,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -22649,7 +23491,9 @@
           "sourceKeys": [
             "lossOrderCount",
             "lossOrderNum",
-            "orderCount"
+            "orderCount",
+            "orderNum",
+            "ordernum"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -22670,7 +23514,9 @@
           "sourceKeys": [
             "lossRoomNight",
             "lossNightCount",
-            "roomNights"
+            "roomNights",
+            "nightNum",
+            "ordquantity"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -22690,7 +23536,8 @@
           "label": "流失订单金额",
           "sourceKeys": [
             "lossOrderAmount",
-            "amount"
+            "amount",
+            "ordamount"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -22710,11 +23557,12 @@
           "label": "共同浏览率",
           "sourceKeys": [
             "commonViewRate",
-            "browseRate"
+            "browseRate",
+            "proportion"
           ],
           "description": "",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "%",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -22730,11 +23578,12 @@
           "label": "下单转化率",
           "sourceKeys": [
             "orderConversionRate",
-            "conversionRate"
+            "conversionRate",
+            "orderPro"
           ],
           "description": "",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "%",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -22874,11 +23723,12 @@
           "label": "共同浏览率",
           "sourceKeys": [
             "commonViewRate",
-            "browseRate"
+            "browseRate",
+            "proportion"
           ],
           "description": "",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "%",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -22894,7 +23744,31 @@
           "label": "下单转化率",
           "sourceKeys": [
             "orderConversionRate",
-            "conversionRate"
+            "conversionRate",
+            "orderPro"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "loss_order_count",
+          "label": "流失订单数",
+          "sourceKeys": [
+            "lossOrderCount",
+            "lossOrderNum",
+            "orderCount",
+            "orderNum",
+            "ordernum"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -28838,7 +29712,7 @@
     {
       "id": "hot_calendar",
       "section": "market_calendar",
-      "label": "热点日历",
+      "label": "市场分析-市场热度",
       "dataType": "business",
       "keywords": [
         "queryHotCalendarInfo"
@@ -31828,6 +32702,7 @@
           "id": "qunar_visitor_rank",
           "label": "去哪儿访客排名",
           "sourceKeys": [
+            "qunarCompetitorRank",
             "qunarVisitorRank"
           ],
           "description": "",
@@ -32104,5 +32979,31 @@
       ]
     }
   ],
-  "i18n_reference": null
+  "i18n_reference": {
+    "source": "fixture_i18n_translations.json",
+    "total_modules": 1,
+    "total_entries": 3,
+    "matched_terms": [
+      "预订订单数",
+      "销售额",
+      "列表页曝光量"
+    ],
+    "metric_definitions": [
+      {
+        "term": "预订订单数",
+        "definition": "预订订单数：统计所选日期内的订单数量。",
+        "source_key": "Key.DataCenter.IndexType.Order.HoverText"
+      },
+      {
+        "term": "预订销售额",
+        "definition": "预订销售额：统计所选日期内的预订金额。",
+        "source_key": "Key.DataCenter.IndexType.Sale.HoverText"
+      },
+      {
+        "term": "列表页曝光量",
+        "definition": "列表页曝光量",
+        "source_key": "Key.DataCenter.IndexType.ListExposure.Title"
+      }
+    ]
+  }
 }

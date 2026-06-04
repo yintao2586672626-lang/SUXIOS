@@ -165,7 +165,7 @@ export function validateCtripEndpointEvidenceBundle(bundle = {}, options = {}) {
   const pageContext = bundle.page_context ?? bundle.pageContext ?? {};
   const params = bundle.params ?? bundle.parameters ?? {};
 
-  const formalEndpoint = findCtripEndpointByUrl(requestUrl);
+  const formalEndpoint = findCtripEndpointByUrl(requestUrl, { pageContext });
   const candidate = buildCtripEndpointCandidates([{ url: requestUrl }])[0] || null;
   const candidateSection = candidate?.candidate_section || formalEndpoint?.section || '';
   const dataType = candidate?.data_type || formalEndpoint?.dataType || 'business';

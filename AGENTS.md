@@ -297,6 +297,7 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 | Token 存储 | `localStorage.getItem('token')` |
 | 页面切换 | 通过 `currentPage` ref 变量控制 v-if 显示 |
 | 模板闭合检查 | 修改大段页面模板后，必须确认后续页面、弹窗、toast 仍在 `#app` 内；若页面显示 `{{ xxx }}` 原文，优先检查是否有多余 `</template>` 或 `</div>` 导致 DOM 脱离 Vue 挂载范围 |
+| 全局弹窗边界 | `teleport`、字段配置弹窗、数据配置弹窗、toast 仍必须由 `#app` 管理；修改后运行 `npm run verify:public-entry`，禁止让全局弹窗成为 `body` 顶层静态 DOM |
 | 不要构建 | **不要在 public/ 目录下运行 vite build** |
 
 ### 7.3 数据库规则

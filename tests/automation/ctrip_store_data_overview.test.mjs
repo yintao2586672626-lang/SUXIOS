@@ -31,6 +31,16 @@ const ctripCatalogPanel = sliceBetween(
   'data-testid="ctrip-capture-catalog-health"',
   'data-testid="ctrip-cookie-health-panel"'
 );
+const ctripProfileFieldConfigPanel = sliceBetween(
+  html,
+  'data-testid="ctrip-profile-field-config-panel"',
+  '<!-- 展开数据 -->'
+);
+const onlineDataRecordPanel = sliceBetween(
+  html,
+  '<!-- 数据记录 -->',
+  '<!-- 数据分析 -->'
+);
 
 test('Ctrip eBooking first tab is a business-first store data overview with diagnostics collapsed', () => {
   assert.ok(ctripPageStart > 0, 'Ctrip eBooking page section must exist');
@@ -127,6 +137,76 @@ test('Ctrip store data overview diagnoses missing metrics and keeps supplement c
   assert.match(html, /字段映射\/入库/);
 });
 
+test('Ctrip profile field config manages modules from the same panel', () => {
+  assert.ok(ctripProfileFieldConfigPanel.length > 0, 'profile field config panel must exist');
+  assert.match(ctripProfileFieldConfigPanel, /模块管理/);
+  assert.match(ctripProfileFieldConfigPanel, /data-testid="ctrip-profile-module-manager"/);
+  assert.match(ctripProfileFieldConfigPanel, /对应网页URL/);
+  assert.match(ctripProfileFieldConfigPanel, /打开对应网页/);
+  assert.match(ctripProfileFieldConfigPanel, /外部打开/);
+  assert.match(ctripProfileFieldConfigPanel, /一级指标/);
+  assert.match(ctripProfileFieldConfigPanel, /v-for="category in ctripProfilePrimaryCategoryCards"/);
+  assert.doesNotMatch(ctripProfileFieldConfigPanel, /二级分类/);
+  assert.doesNotMatch(ctripProfileFieldConfigPanel, /典型指标/);
+  assert.match(ctripProfileFieldConfigPanel, /lg:grid-cols-12/);
+  assert.match(ctripProfileFieldConfigPanel, /table-fixed/);
+  assert.match(ctripProfileFieldConfigPanel, /target="_blank"/);
+  assert.match(ctripProfileFieldConfigPanel, /rel="noopener noreferrer"/);
+  assert.match(html, /const ctripProfileFieldSectionOptions = computed/);
+  assert.match(html, /const openCtripProfileModulePage = \(module\) =>/);
+  assert.match(html, /const ctripProfileModulePageDisplay = \(module\) =>/);
+  assert.match(html, /const ctripProfilePrimaryCategoryOptions = \['流量转化数据', '经营收益数据', '服务质量数据', '竞争力数据'\]/);
+  assert.match(html, /primary_category: '流量转化数据'/);
+  assert.match(html, /primary_category: '经营收益数据'/);
+  assert.match(html, /primary_category: '服务质量数据'/);
+  assert.match(html, /primary_category: '竞争力数据'/);
+  assert.match(html, /const ctripProfilePrimaryCategoryCards = computed/);
+  assert.match(html, /ctripProfileModulePageUrl\(module\)/);
+  assert.match(html, /\/online-data\/ctrip-profile-modules/);
+  assert.match(html, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/outline\?microJump=true/);
+  assert.match(html, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/weekReport\?microJump=true/);
+  assert.match(html, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/beneficialdata\?microJump=true/);
+  assert.match(html, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/flowdata\?microJump=true/);
+  assert.match(backend, /CTRIP_PROFILE_MODULES_CONFIG_KEY/);
+  assert.match(backend, /'page_url' => trim/);
+  assert.match(backend, /'primary_category' => trim/);
+  assert.match(backend, /resolveCtripProfileCaptureSectionsForRun/);
+  assert.match(backend, /'allowed_sections' => array_keys\(\$allowedSections\)/);
+  assert.match(backend, /--sections=' \. implode\(',', \$sectionsList/);
+  assert.match(backend, /array_intersect_key\(array_fill_keys\(\$metricKeys, true\), \$enabledFieldKeys\)/);
+  assert.match(backend, /empty\(\$matchedMetricKeys\)/);
+  assert.match(readFileSync('scripts/ctrip_browser_capture.mjs', 'utf8'), /constrainRequestedSectionsByProfileFieldConfig/);
+  assert.doesNotMatch(ctripProfileFieldConfigPanel, /房型\/竞品酒店/);
+  assert.doesNotMatch(html, /'ctrip-flow-overview': \(\) => runCtripOverviewCookieApiCapture\(\['business_overview', 'sales_report', 'room_type'\]/);
+});
+
+test('Online data records tab reads persisted daily data instead of task logs', () => {
+  assert.ok(onlineDataRecordPanel.length > 0, 'online data record panel must exist');
+  assert.match(onlineDataRecordPanel, /数据类型/);
+  assert.match(onlineDataRecordPanel, /维度 \/ 字段/);
+  assert.match(onlineDataRecordPanel, /暂无入库数据/);
+  assert.doesNotMatch(onlineDataRecordPanel, /抓取状态/);
+  assert.doesNotMatch(onlineDataRecordPanel, /暂无自动抓取记录/);
+
+  const loader = sliceBetween(
+    html,
+    'const loadOnlineDataList = async () =>',
+    '// 加载数据汇总'
+  );
+  assert.match(loader, /\/online-data\/daily-data-list/);
+  assert.doesNotMatch(loader, /\/online-data\/auto-fetch-records/);
+  assert.match(loader, /system_hotel_id/);
+  assert.match(loader, /data_quality_summary/);
+
+  const batchDelete = sliceBetween(
+    html,
+    'const batchDeleteOnlineData = async () =>',
+    'const clearAutoFetchRecordHistory = async () =>'
+  );
+  assert.match(batchDelete, /\/online-data\/batch-delete/);
+  assert.doesNotMatch(batchDelete, /batch-delete-auto-fetch-records/);
+});
+
 test('Ctrip overview one-click core capture stays on overview and supplemental fetches execute directly', () => {
   const quickActions = sliceBetween(
     ctripPage,
@@ -158,7 +238,7 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.match(html, /resolveCtripCookieApiRequestHotelId\(systemHotelId, activeConfig, \{ allowForm: false \}\)/);
   assert.doesNotMatch(html, /hotel_id:\s*ctripBrowserCaptureForm\.value\.hotelId[\s\S]*\|\|\s*ctripForm\.value\.nodeId/);
   assert.match(html, /'ctrip-ranking': \(\) => runCtripOverviewCookieApiCapture\(\['competitor_overview', 'competitor_rank'\]/);
-  assert.match(html, /'ctrip-flow-overview': \(\) => runCtripOverviewCookieApiCapture\(\['business_overview', 'sales_report', 'room_type'\]/);
+  assert.match(html, /'ctrip-flow-overview': \(\) => runCtripOverviewCookieApiCapture\(\['business_overview', 'sales_report'\]/);
   assert.match(html, /'ctrip-traffic': \(\) => runCtripOverviewCookieApiCapture\(\['traffic_report'\]/);
   assert.match(html, /'ctrip-quality': \(\) => runCtripOverviewCookieApiCapture\(\['quality_psi'\]/);
   assert.match(html, /'ctrip-ads': \(\) => runCtripOverviewCookieApiCapture\(\['ads_pyramid'\]/);
@@ -396,9 +476,9 @@ test('Ctrip learning table records scope, source, conversion, missing status and
   const requiredRows = [
     '| 昨日浏览量 | 携程OTA渠道 | 昨日 | 整数 | 次 | 流量数据页 | `queryScanFlowDetailsV2 / pvDataList` | 取列表最后一个有效数值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |',
     '| 昨日访客数 | 携程OTA渠道 | 昨日 | 整数 | 人 | 昨日概况页 | `getDayReportRealTimeDate / lastVisitorTotal` | 直接取整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |',
-    '| 成交收入 | 携程OTA渠道 | 昨日 | 金额 | 元 | 昨日概况页 | `fetchMarketOverViewV2 / bookAmount` | 去逗号后转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |',
+    '| 离店销售额 | 携程OTA渠道 | 昨日 | 金额 | 元 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / amount` | 去逗号后转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |',
     '| 曝光转化率 | 携程OTA渠道 | 昨日 | 小数 | % | 昨日概况页 | `fetchMarketOverViewV2 / orderConversionRate` | 当前代码同取下单转化率，不应自动确认 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |',
-    '| 竞争圈成交排名 | 携程OTA渠道 | 昨日 | 文本/排名 | 名 | 昨日概况页 | `rankOfAmount + competitorNumber` | 拼成 `排名/总数` | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |',
+    '| 离店销售额竞争圈排名 | 携程OTA渠道 | 昨日 | 文本/排名 | 名 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / rankOfAmount + competitorNumber` | 拼成 `排名/总数` | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |',
     '| 竞品访客 | 携程竞争圈 | 昨日 | 整数 | 人 | 昨日概况页 | `getDayReportFlowCompete / comhtluv` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |',
   ];
 

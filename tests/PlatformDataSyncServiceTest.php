@@ -633,6 +633,170 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testCtripBrowserProfileAdapterInfersSectionsFromEnabledFieldConfig(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $capturedArgs = [];
+        $capturedFieldConfigs = [];
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', function (array $args) use (&$capturedArgs, &$capturedFieldConfigs, $root): array {
+                $capturedArgs[] = $args;
+                $outputPath = '';
+                $section = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                    }
+                    if (str_starts_with((string)$arg, '--sections=')) {
+                        $section = substr((string)$arg, strlen('--sections='));
+                    }
+                    if (str_starts_with((string)$arg, '--field-config=')) {
+                        $fieldConfigPath = substr((string)$arg, strlen('--field-config='));
+                        $capturedFieldConfigs[] = json_decode((string)file_get_contents($fieldConfigPath), true);
+                    }
+                }
+                if ($outputPath !== '') {
+                    file_put_contents($outputPath, json_encode([
+                        'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                        'capture_gate' => ['status' => 'pass'],
+                        'by_section' => [
+                            $section => [['metric_key' => 'field-config-row-' . $section]],
+                        ],
+                        'standard_rows' => [
+                            [
+                                'hotel_id' => '24588',
+                                'hotel_name' => 'Ctrip Demo Hotel',
+                                'data_date' => '2026-05-31',
+                                'data_type' => $section === 'traffic_report' ? 'traffic' : 'business',
+                                'list_exposure' => '100',
+                                'source_trace_id' => 'field-config-row-' . $section,
+                            ],
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                }
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $source = $this->ctripBrowserProfileSource();
+            $source['config']['capture_sections'] = 'core';
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'profile_field_config' => [
+                    'fields' => [
+                        [
+                            'id' => 'weekly_self_list_exposure',
+                            'field_key' => 'weekly_self_list_exposure',
+                            'field_name' => 'Weekly self exposure',
+                            'section' => 'business_weekly_overview',
+                            'enabled' => true,
+                        ],
+                        [
+                            'id' => 'detail_visitor',
+                            'field_key' => 'detail_visitor',
+                            'field_name' => 'Detail visitor',
+                            'section' => 'traffic_report',
+                            'enabled' => true,
+                        ],
+                        [
+                            'id' => 'order_count',
+                            'field_key' => 'order_count',
+                            'field_name' => 'Order count',
+                            'section' => 'business_overview',
+                            'enabled' => false,
+                        ],
+                    ],
+                ],
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertCount(2, $capturedArgs);
+            $sectionArgs = array_map(static function (array $args): string {
+                $sectionArg = current(array_filter($args, static fn($arg): bool => str_starts_with((string)$arg, '--sections=')));
+                return is_string($sectionArg) ? substr($sectionArg, strlen('--sections=')) : '';
+            }, $capturedArgs);
+            self::assertSame(['business_weekly_overview', 'traffic_report'], $sectionArgs);
+            self::assertSame([['business_weekly_overview'], ['traffic_report']], array_map(
+                static fn(array $config): array => $config['allowed_sections'] ?? [],
+                $capturedFieldConfigs
+            ));
+            self::assertSame('business_weekly_overview,traffic_report', $result['payload']['data_source_capture']['capture_sections']);
+            self::assertSame('sequential_sections', $result['payload']['data_source_capture']['capture_mode']);
+            self::assertCount(2, $result['payload']['capture_module_results']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterKeepsSuccessfulSectionRowsWhenLaterSectionFails(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args): array {
+                $outputPath = '';
+                $section = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                    }
+                    if (str_starts_with((string)$arg, '--sections=')) {
+                        $section = substr((string)$arg, strlen('--sections='));
+                    }
+                }
+
+                if ($section === 'ads_pyramid') {
+                    return ['success' => false, 'message' => 'Ctrip browser capture timed out.', 'stdout' => '', 'stderr' => ''];
+                }
+                file_put_contents($outputPath, json_encode([
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'standard_rows' => [
+                        [
+                            'hotel_id' => '24588',
+                            'hotel_name' => 'Ctrip Demo Hotel',
+                            'data_date' => '2026-05-31',
+                            'data_type' => 'traffic',
+                            'list_exposure' => '100',
+                            'source_trace_id' => 'traffic-section-row',
+                        ],
+                    ],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'profile_field_config' => [
+                    'fields' => [
+                        [
+                            'id' => 'detail_visitor',
+                            'field_key' => 'detail_visitor',
+                            'section' => 'traffic_report',
+                            'enabled' => true,
+                        ],
+                        [
+                            'id' => 'ad_exposure',
+                            'field_key' => 'ad_exposure',
+                            'section' => 'ads_pyramid',
+                            'enabled' => true,
+                        ],
+                    ],
+                ],
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertStringContainsString('Some sections failed', $result['message']);
+            self::assertCount(1, $result['payload']['rows']);
+            self::assertSame(['ads_pyramid'], $result['payload']['capture_module_warning']['failed_sections']);
+            self::assertSame(['success', 'failed'], array_column($result['payload']['capture_module_results'], 'status'));
+            self::assertSame(1, $result['payload']['sync_summary']['module_failure_count']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripBrowserProfileAdapterRowsNormalizeWithTraceability(): void
     {
         $root = $this->createCtripBrowserProfileTestRoot('hotel_001');

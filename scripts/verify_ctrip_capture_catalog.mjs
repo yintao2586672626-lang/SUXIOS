@@ -10,6 +10,7 @@ import {
   classifyCtripUrl,
   ctripCatalogSummary,
   extractCtripCatalogFacts,
+  findCtripEndpointByUrl,
   generateCtripCaptureMarkdown,
   normalizeCtripCaptureSections,
 } from './lib/ctrip_capture_catalog.mjs';
@@ -275,7 +276,9 @@ function verifyCatalog() {
 
   const samples = [
     ['https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData', 'homepage'],
+    ['https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2', 'business_overview'],
     ['https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/competitor/queryCompetingHotelsV2', 'room_type'],
+    ['https://ebooking.ctrip.com/comment/api/getCommentList', 'comment_review'],
     ['https://ebooking.ctrip.com/datacenter/api/getTripartiteOrderLoss', 'loss_analysis'],
     ['https://ebooking.ctrip.com/datacenter/api/getCompetingRank', 'competitor_rank'],
     ['https://ebooking.ctrip.com/userbehavior/getImIndex?hostType=Ebooking', 'im_board'],
@@ -291,11 +294,49 @@ function verifyCatalog() {
     assertContract(classifyCtripUrl(url) === expected, `classify ${url} as ${expected}`);
   }
 
+  for (const [section, url] of [
+    ['competitor_overview', 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true'],
+    ['loss_analysis', 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/lossanalysis?microJump=true'],
+    ['competitor_rank', 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionlist?microJump=true'],
+    ['comment_review', 'https://ebooking.ctrip.com/comment/commentList?microJump=true'],
+    ['quality_psi', 'https://ebooking.ctrip.com/toolcenter/psi/index?fromType=menu&microJump=true'],
+    ['ads_pyramid', 'https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true'],
+    ['ads_pyramid', 'https://ebooking.ctrip.com/toolcenter/cpc/dataReport?microJump=true'],
+    ['ads_pyramid', 'https://ebooking.ctrip.com/toolcenter/cpc/comparison?microJump=true'],
+    ['ads_pyramid', 'https://ebooking.ctrip.com/advertise/cpc/diagnosisReport?microJump=true'],
+    ['market_calendar', 'https://ebooking.ctrip.com/ebkgrowth/datacenter/marketanalysis/marketheat?microJump=true'],
+    ['user_profile', 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?microJump=true'],
+    ['user_profile', 'https://ebooking.ctrip.com/ebkgrowth/datacenter/userbehavior/user?microJump=true'],
+  ]) {
+    const sectionUrls = new Set((CTRIP_CAPTURE_SECTIONS[section]?.pageUrls || []).map((item) => item.url));
+    assertContract(sectionUrls.has(url), `${section} must include page URL: ${url}`);
+  }
+
   assertContract(JSON.stringify(normalizeCtripCaptureSections('business,traffic')) === JSON.stringify(['business_overview', 'traffic_report']), 'legacy business/traffic aliases must work');
-  assertContract(normalizeCtripCaptureSections('default').includes('room_type'), 'default Profile capture must include room-type competitor hotels');
+  assertContract(!normalizeCtripCaptureSections('default').includes('room_type'), 'default Profile capture must not include room_type');
+  assertContract(!normalizeCtripCaptureSections('core').includes('room_type'), 'core Profile capture must not include room_type');
+  for (const section of ['comment_review', 'competitor_overview', 'loss_analysis', 'competitor_rank', 'quality_psi', 'ads_pyramid', 'market_calendar', 'user_profile']) {
+    assertContract(normalizeCtripCaptureSections('default').includes(section), `default Profile capture must include ${section}`);
+  }
+  assertContract(normalizeCtripCaptureSections('marketanalysis')[0] === 'market_calendar', 'marketanalysis alias must route to market_calendar');
   assertContract(normalizeCtripCaptureSections('all').length === Object.keys(CTRIP_CAPTURE_SECTIONS).length, 'all sections must expand');
   assertContract(CTRIP_ENDPOINT_CANDIDATE_RULES.length >= 5, 'P3 candidate rules must cover remaining capture directions');
   assertContract(buildCtripEndpointCandidates([{ url: 'https://bbk.ctripbiz.cn/api/contractPre' }]).some((item) => item.candidate_section === 'contract_mice_rfp'), 'contractPre must remain a P3 candidate until payload is verified');
+
+  const visitorTitleEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'business_visitor_title');
+  for (const [fieldId, sourceKey] of [
+    ['visitor_count', 'visitorTotal'],
+    ['visitor_rank', 'visitorRank'],
+    ['visitor_count_last_week', 'lastVisitorTotal'],
+    ['competitor_avg_visitor', 'competitorAvgNumber'],
+    ['qunar_visitor_count', 'qunarVisitorTotal'],
+    ['qunar_visitor_rank', 'qunarCompetitorRank'],
+    ['qunar_visitor_count_last_week', 'lastQunarVisitorTotal'],
+    ['qunar_competitor_avg_visitor', 'qunarCompetitorAvgNumber'],
+  ]) {
+    const field = visitorTitleEndpoint?.fields.find((item) => item.id === fieldId);
+    assertContract(field?.sourceKeys.includes(sourceKey), `business_visitor_title ${fieldId} must include source key: ${sourceKey}`);
+  }
 
   const adsPyramidUrls = new Set((CTRIP_CAPTURE_SECTIONS.ads_pyramid?.pageUrls || []).map((item) => item.url));
   assertContract(adsPyramidUrls.has('https://ebooking.ctrip.com/toolcenter/cpc/pyramid'), 'ads_pyramid must include observed CPC pyramid homepage');
@@ -305,6 +346,33 @@ function verifyCatalog() {
     assertContract(adCostField?.sourceKeys.includes(sourceKey), `ad_cost must include source key: ${sourceKey}`);
   }
   const trafficFlowEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'traffic_flow_transform');
+  const trafficSeqEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'traffic_hotel_seq');
+  assertContract(trafficSeqEndpoint?.section === 'traffic_report', 'fetchCurrentHotelSeqInfoV1 must be available under traffic_report');
+  assertContract(trafficSeqEndpoint?.dataType === 'traffic', 'traffic_hotel_seq must remain traffic data');
+  const trafficRankField = trafficSeqEndpoint?.fields.find((field) => field.id === 'traffic_rank');
+  for (const sourceKey of ['rank', 'seqRank', 'trafficRank', 'qunarRank', 'qunarCompetitorRank']) {
+    assertContract(trafficRankField?.sourceKeys.includes(sourceKey), `traffic_rank must include source key: ${sourceKey}`);
+  }
+  assertContract(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCurrentHotelSeqInfoV1',
+      { pageUrl: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true' },
+    )?.id === 'traffic_hotel_seq',
+    'flowdata page context must route fetchCurrentHotelSeqInfoV1 to traffic_hotel_seq',
+  );
+  assertContract(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCurrentHotelSeqInfoV1',
+      { preferredSection: 'business_overview' },
+    )?.id === 'business_hotel_seq',
+    'business overview context must keep fetchCurrentHotelSeqInfoV1 on business_hotel_seq',
+  );
+  const flowSourcePopupEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'traffic_flow_source_popups');
+  assertContract(flowSourcePopupEndpoint?.status === 'supporting', 'queryFlowSourcePopups must stay a supporting traffic endpoint');
+  assertContract(flowSourcePopupEndpoint?.fields.some((field) => field.id === 'source_name'), 'queryFlowSourcePopups must expose source_name as fact-only context');
+  const trafficMenuKeyEndpoint = CTRIP_CAPTURE_ENDPOINTS.find((endpoint) => endpoint.id === 'traffic_menu_key');
+  assertContract(trafficMenuKeyEndpoint?.status === 'supporting', 'queryMenuKey must stay a supporting traffic endpoint');
+  assertContract(findCtripEndpointByUrl('https://ebooking.ctrip.com/api/collect2?metaSender=1.3.81') === null, 'collect2 must not become a Ctrip capture endpoint');
   const trafficPlanTexts = (CTRIP_SECTION_INTERACTION_PLANS.traffic_report || []).map((step) => String(step.text || ''));
   assertContract(trafficPlanTexts.includes('携程'), 'traffic_report interaction plan must click Ctrip traffic tab');
   assertContract(trafficPlanTexts.includes('去哪儿'), 'traffic_report interaction plan must click Qunar traffic tab');

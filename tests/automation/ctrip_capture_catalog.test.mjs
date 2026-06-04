@@ -20,17 +20,31 @@ test('normalizes Ctrip capture presets for core and wide collection', () => {
   assert.deepEqual(normalizeCtripCaptureSections('core'), [
     'homepage',
     'business_overview',
+    'business_weekly_overview',
     'sales_report',
-    'room_type',
     'traffic_report',
+  ]);
+
+  assert.deepEqual(normalizeCtripCaptureSections('default'), [
+    'business_overview',
+    'business_weekly_overview',
+    'traffic_report',
+    'comment_review',
+    'competitor_overview',
+    'loss_analysis',
+    'competitor_rank',
+    'quality_psi',
+    'ads_pyramid',
+    'market_calendar',
+    'user_profile',
   ]);
 
   const wide = normalizeCtripCaptureSections('wide');
   for (const section of [
     'homepage',
     'business_overview',
+    'business_weekly_overview',
     'sales_report',
-    'room_type',
     'traffic_report',
     'competitor_overview',
     'loss_analysis',
@@ -46,6 +60,7 @@ test('normalizes Ctrip capture presets for core and wide collection', () => {
   ]) {
     assert.equal(wide.includes(section), true, section);
   }
+  assert.equal(wide.includes('room_type'), false, 'room_type is not part of default/core/wide capture');
   assert.equal(new Set(wide).size, wide.length);
 
   const summary = ctripCatalogSummary();
@@ -58,6 +73,9 @@ test('defines Ctrip section interaction plans for tabbed capture pages', () => {
   assert.equal(sales.includes('\u9500\u552e\u6570\u636e'), true);
   assert.equal(sales.includes('\u603b\u5e73\u53f0'), true);
   assert.equal(sales.includes('\u53bb\u54ea\u513f'), true);
+  for (const label of ['\u5b9e\u65f6', '\u6309\u65e5', '\u6309\u5468', '\u6309\u6708', '\u6309\u5b63', '\u81ea\u5b9a\u4e49']) {
+    assert.equal(sales.includes(label), true, label);
+  }
 
   const roomType = getCtripSectionInteractionPlan('room_type').map(step => step.text);
   assert.deepEqual(roomType, ['\u9500\u552e\u6570\u636e', '\u623f\u578b']);
@@ -66,6 +84,9 @@ test('defines Ctrip section interaction plans for tabbed capture pages', () => {
   for (const label of ['\u6d41\u91cf\u6570\u636e', '\u643a\u7a0b', '\u53bb\u54ea\u513f', '\u624b\u673aAPP', '\u7535\u8111\u7f51\u9875\u7248']) {
     assert.equal(traffic.includes(label), true, label);
   }
+
+  const weekly = getCtripSectionInteractionPlan('business_weekly_overview').map(step => step.text);
+  assert.deepEqual(weekly, ['\u6309\u5468']);
 
   const biztravel = getCtripSectionInteractionPlan('biztravel_competitor').map(step => step.text);
   assert.equal(biztravel.includes('\u7ade\u4e89\u5708\u699c\u5355'), true);
@@ -91,10 +112,72 @@ test('prefers the active Ctrip page section for duplicate endpoint keywords', ()
 
   assert.equal(
     findCtripEndpointByUrl(
-      'https://ebooking.ctrip.com/datacenter/api/getReportSuggestV1',
+      'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCurrentHotelSeqInfoV1',
+      { preferredSection: 'traffic_report' },
+    )?.id,
+    'traffic_hotel_seq',
+  );
+  assert.equal(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCurrentHotelSeqInfoV1',
       { preferredSection: 'business_overview' },
     )?.id,
+    'business_hotel_seq',
+  );
+  assert.equal(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCurrentHotelSeqInfoV1',
+      { pageUrl: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true' },
+    )?.id,
+    'traffic_hotel_seq',
+  );
+
+  assert.equal(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/datacenter/api/getReportSuggestV1',
+      { preferredSection: 'business_weekly_overview' },
+    )?.id,
     'weekly_report',
+  );
+  assert.equal(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getUserBehavorV1',
+      { preferredSection: 'business_weekly_overview' },
+    )?.id,
+    'weekly_report',
+  );
+  assert.equal(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCapacityOverViewV4',
+      { preferredSection: 'business_overview' },
+    )?.id,
+    'business_capacity',
+  );
+  assert.equal(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCapacityOverViewV4',
+      { pageUrl: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true' },
+    )?.id,
+    'sales_capacity_overview',
+  );
+  assert.equal(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/restapi/soa2/24588/getEbkResourcePopups',
+      { pageContext: { page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true' } },
+    )?.id,
+    'sales_resource_popups',
+  );
+  assert.equal(
+    findCtripEndpointByUrl(
+      'https://ebooking.ctrip.com/restapi/soa2/24588/getEbkResourcePopups',
+      {
+        pageContext: {
+          page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true',
+          active_section: 'business_overview',
+        },
+      },
+    )?.id,
+    'platform_resource_popups',
   );
 });
 
@@ -113,6 +196,10 @@ test('covers additional observed Ctrip screenshot endpoints outside review conte
   assert.equal(
     findCtripEndpointByUrl('https://ebooking.ctrip.com/datacenter/api/queryVendibilityRoom')?.id,
     'room_venderbility',
+  );
+  assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/comment/api/getCommentList')?.section,
+    'comment_review',
   );
   assert.equal(
     findCtripEndpointByUrl('https://ebooking.ctrip.com/datacenter/api/getMasterHotelLabel')?.id,
@@ -142,6 +229,83 @@ test('covers additional observed Ctrip screenshot endpoints outside review conte
     findCtripEndpointByUrl('https://ebooking.ctrip.com/comment/api/listNegativeComment')?.id,
     undefined,
   );
+  assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/restapi/soa2/24588/queryFlowSourcePopups?hostType=Ebooking')?.id,
+    'traffic_flow_source_popups',
+  );
+  assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/api/queryMenuKey?_fxpcqlniredt=demo')?.id,
+    'traffic_menu_key',
+  );
+  assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/api/collect2?metaSender=1.3.81')?.id,
+    undefined,
+  );
+});
+
+test('maps Ctrip business overview visitor title daily fields', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2';
+  const endpoint = findCtripEndpointByUrl(url, { preferredSection: 'business_overview' });
+  assert.equal(endpoint?.id, 'business_visitor_title');
+  assert.equal(endpoint?.section, 'business_overview');
+
+  const sourceKeyByField = new Map(endpoint.fields.map((item) => [item.id, item.sourceKeys]));
+  for (const [fieldId, sourceKey] of [
+    ['visitor_count', 'visitorTotal'],
+    ['visitor_rank', 'visitorRank'],
+    ['visitor_count_last_week', 'lastVisitorTotal'],
+    ['competitor_avg_visitor', 'competitorAvgNumber'],
+    ['qunar_visitor_count', 'qunarVisitorTotal'],
+    ['qunar_visitor_rank', 'qunarCompetitorRank'],
+    ['qunar_visitor_count_last_week', 'lastQunarVisitorTotal'],
+    ['qunar_competitor_avg_visitor', 'qunarCompetitorAvgNumber'],
+  ]) {
+    assert.equal(sourceKeyByField.get(fieldId)?.includes(sourceKey), true, `${fieldId} source key`);
+  }
+
+  const facts = extractCtripCatalogFacts({
+    visitorTotal: 2,
+    visitorRank: 15,
+    lastVisitorTotal: 16,
+    competitorAvgNumber: 37,
+    qunarVisitorTotal: 1,
+    qunarCompetitorRank: 11,
+    lastQunarVisitorTotal: 6,
+    qunarCompetitorAvgNumber: 23,
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-04',
+    capturedAt: '2026-06-04T10:00:00.000Z',
+    url,
+  });
+
+  const metricKeys = new Set(facts.map((fact) => fact.metric_key));
+  for (const fieldId of sourceKeyByField.keys()) {
+    if (fieldId !== 'hotel_id' && fieldId !== 'hotel_name' && fieldId !== 'date') {
+      assert.equal(metricKeys.has(fieldId), true, `${fieldId} fact`);
+    }
+  }
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: '西安天诚',
+    profileId: '6866634',
+    dataDate: '2026-06-04',
+  });
+  const row = rows.find((item) => item.dimension.includes('business_visitor_title'));
+  assert.ok(row, 'visitor title standard row');
+  assert.equal(row.data_type, 'traffic');
+  assert.equal(row.detail_exposure, 2);
+  assert.equal(row.raw_data.metrics.visitor_count_last_week, 16);
+  assert.equal(row.raw_data.metrics.competitor_avg_visitor, 37);
+  assert.equal(row.raw_data.metrics.qunar_visitor_count, 1);
+  assert.equal(row.raw_data.metrics.qunar_visitor_count_last_week, 6);
+  assert.equal(row.raw_data.metrics.qunar_competitor_avg_visitor, 23);
+  assert.equal(row.raw_data.rank_metrics.visitor_rank, 15);
+  assert.equal(row.raw_data.rank_metrics.qunar_visitor_rank, 11);
 });
 
 test('covers reusable Ctrip platform notice endpoints as support facts only', () => {
@@ -159,6 +323,10 @@ test('covers reusable Ctrip platform notice endpoints as support facts only', ()
   );
   assert.equal(
     findCtripEndpointByUrl('https://ebooking.ctrip.com/api/collect?metaSender=1.3.81')?.id,
+    undefined,
+  );
+  assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/api/collect2?metaSender=1.3.81')?.id,
     undefined,
   );
 
@@ -459,6 +627,129 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
       assert.equal(row.raw_data[key], value, `${item.url} raw_data.${key}`);
     }
   }
+});
+
+test('maps Ctrip loss-analysis screenshot summary fields into loss metrics', () => {
+  const url = 'https://ebooking.ctrip.com/restapi/soa2/24588/getTripartiteOrderLoss';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'loss_order_summary');
+
+  const facts = extractCtripCatalogFacts({
+    data: {
+      lossOrderVo: {
+        ordernum: 49,
+        ordquantity: 76,
+        ordamount: 18578.8,
+      },
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '24588',
+    dataDate: '2026-05-31',
+    capturedAt: '2026-06-05T10:00:00.000Z',
+    url,
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'Xian Tiancheng',
+    profileId: '24588',
+    dataDate: '2026-05-31',
+  });
+  const row = rows.find((candidate) => candidate.endpoint_id === 'loss_order_summary');
+  assert.ok(row);
+  assert.equal(row.amount, 18578.8);
+  assert.equal(row.quantity, 76);
+  assert.equal(row.book_order_num, 49);
+  assert.equal(row.raw_data.metrics.loss_order_count, 49);
+  assert.equal(row.raw_data.metrics.loss_room_nights, 76);
+  assert.equal(row.raw_data.metrics.loss_order_amount, 18578.8);
+  assert.equal(row.raw_data.metrics.order_count, undefined);
+  assert.equal(row.raw_data.metrics.order_amount, undefined);
+});
+
+test('keeps Ctrip weekly lossOrderVo fields as loss metrics', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getFlowHotelsV1';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'weekly_report');
+
+  const facts = extractCtripCatalogFacts({
+    data: {
+      lossOrderVo: {
+        ordernum: 49,
+        ordquantity: 76,
+        ordamount: 18578.8,
+      },
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '24588',
+    dataDate: '2026-05-31',
+    capturedAt: '2026-06-05T10:00:00.000Z',
+    url,
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'Xian Tiancheng',
+    profileId: '24588',
+    dataDate: '2026-05-31',
+  });
+  const row = rows.find((candidate) => candidate.endpoint_id === 'weekly_report');
+  assert.ok(row);
+  assert.equal(row.amount, 18578.8);
+  assert.equal(row.quantity, 76);
+  assert.equal(row.book_order_num, 49);
+  assert.equal(row.raw_data.metrics.loss_order_count, 49);
+  assert.equal(row.raw_data.metrics.loss_room_nights, 76);
+  assert.equal(row.raw_data.metrics.loss_order_amount, 18578.8);
+  assert.equal(row.raw_data.metrics.order_count, undefined);
+  assert.equal(row.raw_data.metrics.order_amount, undefined);
+});
+
+test('maps Ctrip loss-analysis hotel rows into per-hotel loss metrics', () => {
+  const url = 'https://ebooking.ctrip.com/restapi/soa2/24588/getLossOrderCompeteHotel';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'loss_compete_hotel');
+
+  const facts = extractCtripCatalogFacts({
+    data: {
+      list: [{
+        hotelName: 'Competitor A',
+        proportion: '31.78%',
+        orderPro: '24.39%',
+        ordernum: 10,
+        followStatus: 1,
+      }],
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '24588',
+    dataDate: '2026-05-31',
+    capturedAt: '2026-06-05T10:00:00.000Z',
+    url,
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'Xian Tiancheng',
+    profileId: '24588',
+    dataDate: '2026-05-31',
+  });
+  const row = rows.find((candidate) => candidate.raw_data.metrics.competitor_hotel_name === 'Competitor A');
+  assert.ok(row);
+  assert.equal(row.book_order_num, 10);
+  assert.equal(row.raw_data.metrics.loss_order_count, 10);
+  assert.equal(row.raw_data.metrics.common_view_rate, 31.78);
+  assert.equal(row.raw_data.metrics.order_conversion_rate, 24.39);
+  assert.equal(row.raw_data.metrics.follow_status, 1);
+  assert.equal(row.raw_data.metrics.order_count, undefined);
 });
 
 test('marks Ctrip weekly competition rows for non-current hotels as competitors', () => {

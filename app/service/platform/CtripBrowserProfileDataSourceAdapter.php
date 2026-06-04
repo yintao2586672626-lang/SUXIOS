@@ -4,9 +4,13 @@ declare(strict_types=1);
 namespace app\service\platform;
 
 use app\contract\DataSourceAdapter;
+use think\facade\Db;
 
 final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 {
+    private const PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
+    private const PROFILE_MODULES_CONFIG_KEY = 'ctrip_profile_capture_modules';
+
     private string $projectRoot;
     private string $nodeBinary;
 
@@ -90,12 +94,202 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if ($dataDate === '') {
             $dataDate = date('Y-m-d', strtotime('-1 day'));
         }
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_source_' . $this->safeName($profileId) . '_' . date('YmdHis') . '.json';
-        $sections = $this->sanitizeSections($this->firstString($options, $config, ['capture_sections', 'captureSections', 'sections', 'profile_sections'], 'business_overview'));
+        $fieldConfigPayload = $this->buildProfileFieldConfigPayload($options);
+        if (!empty($fieldConfigPayload['configured']) && empty($fieldConfigPayload['allowed_field_keys'])) {
+            $this->releaseLock($lock);
+            return [
+                'status' => 'waiting_config',
+                'message' => 'Ctrip Profile field config has no enabled capture fields.',
+                'payload' => [],
+            ];
+        }
+        $sections = $this->resolveCaptureSections($options, $config, $fieldConfigPayload);
+        $sectionList = $this->captureSectionList($sections);
         $hotelId = $this->firstString($options, $config, ['hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'node_id', 'nodeId']);
         $hotelName = $this->firstString($options, $config, ['hotel_name', 'hotelName', 'name']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
 
+        $cookieFile = $this->createCookieFile((string)($secret['cookies'] ?? $secret['cookie'] ?? ''));
+        try {
+            if ($this->shouldCaptureSectionsSequentially($options, $sectionList)) {
+                return $this->runSequentialCaptureSections(
+                    $source,
+                    $scriptPath,
+                    $profileId,
+                    $systemHotelId,
+                    $dataDate,
+                    $sectionList,
+                    $outputDir,
+                    $hotelId,
+                    $hotelName,
+                    $interactive,
+                    $timeoutSeconds,
+                    $fieldConfigPayload,
+                    $cookieFile
+                );
+            }
+
+            $outputPath = $this->captureOutputPath($outputDir, $profileId);
+            return $this->runCaptureProcess(
+                $source,
+                $scriptPath,
+                $profileId,
+                $systemHotelId,
+                $dataDate,
+                implode(',', $sectionList),
+                $outputPath,
+                $hotelId,
+                $hotelName,
+                $interactive,
+                $timeoutSeconds,
+                $fieldConfigPayload,
+                $cookieFile
+            );
+        } finally {
+            if ($cookieFile !== '' && is_file($cookieFile)) {
+                @unlink($cookieFile);
+            }
+            $this->releaseLock($lock);
+        }
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $fallbackHotelId): array
+    {
+        $rows = [];
+        foreach (['standard_rows', 'business', 'traffic'] as $section) {
+            $sectionRows = is_array($payload[$section] ?? null) ? $payload[$section] : [];
+            foreach ($sectionRows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $row['source'] = 'ctrip';
+                $row['platform'] = $row['platform'] ?? 'ctrip';
+                $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
+                $row['hotel_id'] = $row['hotel_id'] ?? $row['hotelId'] ?? $fallbackHotelId;
+                $row['hotel_name'] = $row['hotel_name'] ?? $row['hotelName'] ?? $source['name'] ?? '';
+                $row['data_date'] = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? '')) ?: $dataDate;
+                if (!isset($row['data_type'])) {
+                    $row['data_type'] = $section === 'traffic' ? 'traffic' : 'business';
+                }
+                $row['acquisition_method'] = 'browser_profile';
+                $rows[] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param array<int, string> $sectionList
+     */
+    private function runSequentialCaptureSections(
+        array $source,
+        string $scriptPath,
+        string $profileId,
+        int $systemHotelId,
+        string $dataDate,
+        array $sectionList,
+        string $outputDir,
+        string $hotelId,
+        string $hotelName,
+        bool $interactive,
+        int $timeoutSeconds,
+        array $fieldConfigPayload,
+        string $cookieFile
+    ): array {
+        $payloads = [];
+        $moduleResults = [];
+        $firstFailure = null;
+
+        foreach ($sectionList as $section) {
+            $sectionFieldConfig = $this->filterProfileFieldConfigPayloadForSections($fieldConfigPayload, [$section]);
+            $outputPath = $this->captureOutputPath($outputDir, $profileId, $section);
+            $result = $this->runCaptureProcess(
+                $source,
+                $scriptPath,
+                $profileId,
+                $systemHotelId,
+                $dataDate,
+                $section,
+                $outputPath,
+                $hotelId,
+                $hotelName,
+                $interactive,
+                $timeoutSeconds,
+                $sectionFieldConfig,
+                $cookieFile
+            );
+            $moduleResults[] = $this->captureModuleResultSummary($section, $result);
+
+            if (($result['status'] ?? '') === 'success') {
+                $payloads[] = $result['payload'];
+                continue;
+            }
+
+            if ($firstFailure === null) {
+                $firstFailure = $result;
+            }
+            if (($result['status'] ?? '') === 'waiting_config') {
+                break;
+            }
+        }
+
+        if ($payloads === []) {
+            $failurePayload = is_array($firstFailure['payload'] ?? null) ? $firstFailure['payload'] : [];
+            $failurePayload['capture_module_results'] = $moduleResults;
+            return [
+                'status' => (string)($firstFailure['status'] ?? 'failed'),
+                'message' => 'Ctrip browser Profile section capture failed: ' . (string)($firstFailure['message'] ?? 'unknown error'),
+                'payload' => $failurePayload,
+            ];
+        }
+
+        $payload = $this->mergeSequentialCapturePayloads(
+            $payloads,
+            $moduleResults,
+            $sectionList,
+            $profileId,
+            $dataDate
+        );
+        $failures = array_values(array_filter(
+            $moduleResults,
+            static fn(array $item): bool => ($item['status'] ?? '') !== 'success'
+        ));
+        $message = 'Ctrip browser Profile capture completed by section.';
+        if ($failures !== []) {
+            $payload['capture_module_warning'] = [
+                'level' => 'warning',
+                'message' => 'Some Ctrip Profile sections failed. Saved successful section rows and retained failed section diagnostics.',
+                'failed_sections' => array_values(array_map(static fn(array $item): string => (string)$item['section'], $failures)),
+            ];
+            $message .= ' Some sections failed; diagnostics retained.';
+        }
+
+        return [
+            'status' => 'success',
+            'message' => $message,
+            'payload' => $payload,
+        ];
+    }
+
+    private function runCaptureProcess(
+        array $source,
+        string $scriptPath,
+        string $profileId,
+        int $systemHotelId,
+        string $dataDate,
+        string $sections,
+        string $outputPath,
+        string $hotelId,
+        string $hotelName,
+        bool $interactive,
+        int $timeoutSeconds,
+        array $fieldConfigPayload,
+        string $cookieFile
+    ): array {
         $args = [
             $this->nodeBinary,
             $scriptPath,
@@ -114,7 +308,18 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             $args[] = '--hotel-name=' . $hotelName;
         }
 
-        $cookieFile = $this->createCookieFile((string)($secret['cookies'] ?? $secret['cookie'] ?? ''));
+        $fieldConfigPath = '';
+        if (!empty($fieldConfigPayload['configured'])) {
+            $fieldConfigPath = $this->createProfileFieldConfigFile($fieldConfigPayload);
+            if ($fieldConfigPath === '') {
+                return [
+                    'status' => 'failed',
+                    'message' => 'Cannot create Ctrip Profile field config snapshot.',
+                    'payload' => ['capture_sections' => $sections],
+                ];
+            }
+            $args[] = '--field-config=' . $fieldConfigPath;
+        }
         if ($cookieFile !== '') {
             $args[] = '--cookies-file=' . $cookieFile;
         }
@@ -122,12 +327,33 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         try {
             $runResult = $this->runProcess($args, $this->projectRoot, $timeoutSeconds);
         } finally {
-            if ($cookieFile !== '' && is_file($cookieFile)) {
-                @unlink($cookieFile);
+            if ($fieldConfigPath !== '' && is_file($fieldConfigPath)) {
+                @unlink($fieldConfigPath);
             }
-            $this->releaseLock($lock);
         }
 
+        return $this->buildCaptureResultFromOutput(
+            $source,
+            $profileId,
+            $systemHotelId,
+            $dataDate,
+            $sections,
+            $outputPath,
+            $hotelId,
+            $runResult
+        );
+    }
+
+    private function buildCaptureResultFromOutput(
+        array $source,
+        string $profileId,
+        int $systemHotelId,
+        string $dataDate,
+        string $sections,
+        string $outputPath,
+        string $hotelId,
+        array $runResult
+    ): array {
         if (!is_file($outputPath)) {
             $message = $this->buildProcessFailureMessage(
                 'Ctrip browser capture did not produce an output file',
@@ -138,6 +364,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'message' => $message,
                 'payload' => [
                     'error_summary' => $message,
+                    'capture_sections' => $sections,
                     'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
                     'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
                 ],
@@ -149,7 +376,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             return [
                 'status' => 'failed',
                 'message' => 'Ctrip browser capture output is not valid JSON.',
-                'payload' => ['output' => $outputPath],
+                'payload' => ['output' => $outputPath, 'capture_sections' => $sections],
             ];
         }
         $payload['output'] = $outputPath;
@@ -214,32 +441,170 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @param array<int, array<string, mixed>> $payloads
+     * @param array<int, array<string, mixed>> $moduleResults
+     * @param array<int, string> $sectionList
      */
-    private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $fallbackHotelId): array
+    private function mergeSequentialCapturePayloads(array $payloads, array $moduleResults, array $sectionList, string $profileId, string $dataDate): array
     {
-        $rows = [];
-        foreach (['standard_rows', 'business', 'traffic'] as $section) {
-            $sectionRows = is_array($payload[$section] ?? null) ? $payload[$section] : [];
-            foreach ($sectionRows as $row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-                $row['source'] = 'ctrip';
-                $row['platform'] = $row['platform'] ?? 'ctrip';
-                $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
-                $row['hotel_id'] = $row['hotel_id'] ?? $row['hotelId'] ?? $fallbackHotelId;
-                $row['hotel_name'] = $row['hotel_name'] ?? $row['hotelName'] ?? $source['name'] ?? '';
-                $row['data_date'] = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? '')) ?: $dataDate;
-                if (!isset($row['data_type'])) {
-                    $row['data_type'] = $section === 'traffic' ? 'traffic' : 'business';
-                }
-                $row['acquisition_method'] = 'browser_profile';
-                $rows[] = $row;
+        $base = $payloads[0];
+        foreach (['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'screenshots'] as $key) {
+            $base[$key] = $this->mergePayloadLists($payloads, $key);
+        }
+
+        $bySection = array_fill_keys($sectionList, []);
+        foreach ($payloads as $payload) {
+            foreach (is_array($payload['by_section'] ?? null) ? $payload['by_section'] : [] as $section => $rows) {
+                $section = (string)$section;
+                $bySection[$section] = array_merge($bySection[$section] ?? [], is_array($rows) ? $rows : []);
             }
         }
 
-        return $rows;
+        $failures = array_values(array_filter(
+            $moduleResults,
+            static fn(array $item): bool => ($item['status'] ?? '') !== 'success'
+        ));
+        $base['requested_sections'] = $sectionList;
+        $base['by_section'] = $bySection;
+        $base['outputs'] = array_values(array_filter(array_map(
+            static fn(array $item): string => (string)($item['output'] ?? ''),
+            $moduleResults
+        )));
+        $base['capture_module_results'] = $moduleResults;
+        $base['capture_gate'] = [
+            'status' => $failures === [] ? 'pass' : 'partial',
+            'failed_check_ids' => $failures === [] ? [] : ['module_capture'],
+            'module_failure_count' => count($failures),
+        ];
+        $base['data_source_capture'] = [
+            'platform' => 'ctrip',
+            'acquisition_method' => 'browser_profile',
+            'profile_id' => $profileId,
+            'capture_sections' => implode(',', $sectionList),
+            'capture_mode' => 'sequential_sections',
+            'data_date' => $dataDate,
+            'captured_by' => 'platform_data_source_sync',
+        ];
+        if (is_array($base['profile_field_config'] ?? null)) {
+            $base['profile_field_config']['allowed_sections'] = $sectionList;
+            $base['profile_field_config']['allowed_section_count'] = count($sectionList);
+        }
+        $base['sync_summary'] = [
+            'row_count' => count(is_array($base['rows'] ?? null) ? $base['rows'] : []),
+            'standard_row_count' => count(is_array($base['standard_rows'] ?? null) ? $base['standard_rows'] : []),
+            'business_count' => count(is_array($base['business'] ?? null) ? $base['business'] : []),
+            'traffic_count' => count(is_array($base['traffic'] ?? null) ? $base['traffic'] : []),
+            'section_count' => count($sectionList),
+            'module_success_count' => count($moduleResults) - count($failures),
+            'module_failure_count' => count($failures),
+        ];
+
+        return $base;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $payloads
+     * @return array<int, mixed>
+     */
+    private function mergePayloadLists(array $payloads, string $key): array
+    {
+        $merged = [];
+        foreach ($payloads as $payload) {
+            $rows = is_array($payload[$key] ?? null) ? $payload[$key] : [];
+            foreach ($rows as $row) {
+                $merged[] = $row;
+            }
+        }
+        return $merged;
+    }
+
+    private function captureModuleResultSummary(string $section, array $result): array
+    {
+        $payload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
+        return [
+            'section' => $section,
+            'status' => (string)($result['status'] ?? 'unknown'),
+            'message' => (string)($result['message'] ?? ''),
+            'output' => (string)($payload['output'] ?? ''),
+            'row_count' => count(is_array($payload['rows'] ?? null) ? $payload['rows'] : []),
+            'standard_row_count' => count(is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : []),
+            'business_count' => count(is_array($payload['business'] ?? null) ? $payload['business'] : []),
+            'traffic_count' => count(is_array($payload['traffic'] ?? null) ? $payload['traffic'] : []),
+            'capture_gate_status' => (string)($payload['capture_gate']['status'] ?? ''),
+        ];
+    }
+
+    private function captureOutputPath(string $outputDir, string $profileId, string $section = ''): string
+    {
+        $suffix = date('YmdHis') . ($section !== '' ? '_' . $this->safeName($section) : '');
+        return $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_source_' . $this->safeName($profileId) . '_' . $suffix . '.json';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function captureSectionList(string $sections): array
+    {
+        $items = array_values(array_unique(array_filter(array_map(
+            fn($item): string => $this->normalizeSectionKey((string)$item),
+            preg_split('/[,\s]+/', $sections) ?: []
+        ))));
+        return $items !== [] ? $items : ['business_overview'];
+    }
+
+    /**
+     * @param array<int, string> $sectionList
+     */
+    private function shouldCaptureSectionsSequentially(array $options, array $sectionList): bool
+    {
+        if (count($sectionList) <= 1) {
+            return false;
+        }
+        foreach (['sequential_sections', 'sequentialSections', 'section_sequential', 'sectionSequential'] as $key) {
+            if (array_key_exists($key, $options)) {
+                return $this->truthy($options[$key]);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param array<int, string> $sections
+     */
+    private function filterProfileFieldConfigPayloadForSections(array $payload, array $sections): array
+    {
+        if (empty($payload['configured'])) {
+            return $payload;
+        }
+        $sectionMap = array_fill_keys(array_map(fn($section): string => $this->normalizeSectionKey((string)$section), $sections), true);
+        $fields = [];
+        $allowedKeys = [];
+        foreach (is_array($payload['fields'] ?? null) ? $payload['fields'] : [] as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+            $section = $this->normalizeSectionKey((string)($field['section'] ?? ''));
+            if ($section === '' || !isset($sectionMap[$section])) {
+                continue;
+            }
+            $fields[] = $field;
+            $fieldKey = $this->normalizeFieldKey((string)($field['field_key'] ?? $field['fieldKey'] ?? $field['id'] ?? ''));
+            if ($fieldKey !== '') {
+                $allowedKeys[$fieldKey] = true;
+            }
+        }
+
+        $next = $payload;
+        $next['allowed_sections'] = array_keys($sectionMap);
+        $next['fields'] = $fields;
+        $next['allowed_field_keys'] = $allowedKeys !== []
+            ? array_keys($allowedKeys)
+            : array_values(array_filter(array_map(
+                fn($key): string => $this->normalizeFieldKey((string)$key),
+                is_array($payload['allowed_field_keys'] ?? null) ? $payload['allowed_field_keys'] : []
+            )));
+
+        return $next;
     }
 
     private function compactFailurePayload(array $payload, array $runResult): array
@@ -336,7 +701,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             }
             if (time() - $startedAt > $timeoutSeconds) {
                 $timedOut = true;
-                proc_terminate($process);
+                $this->terminateProcessTree((int)($status['pid'] ?? 0), $process);
                 break;
             }
             usleep(250000);
@@ -355,6 +720,17 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         return ['success' => true, 'message' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    private function terminateProcessTree(int $pid, $process): void
+    {
+        if ($pid > 0 && PHP_OS_FAMILY === 'Windows') {
+            @exec('taskkill /PID ' . (int)$pid . ' /T /F 2>NUL');
+            return;
+        }
+        if (is_resource($process)) {
+            @proc_terminate($process);
+        }
     }
 
     private function createCookieFile(string $cookies): string
@@ -432,6 +808,234 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $sections = strtolower(preg_replace('/[^a-z,_\-\s]+/i', '', $sections) ?: '');
         $parts = array_values(array_unique(array_filter(array_map('trim', preg_split('/[,\s]+/', $sections) ?: []))));
         return implode(',', $parts) ?: 'business_overview';
+    }
+
+    private function resolveCaptureSections(array $options, array $config, array $fieldConfigPayload): string
+    {
+        $allowedSections = array_values(array_unique(array_filter(array_map(
+            fn($item): string => $this->normalizeSectionKey((string)$item),
+            is_array($fieldConfigPayload['allowed_sections'] ?? null) ? $fieldConfigPayload['allowed_sections'] : []
+        ))));
+        if (!empty($fieldConfigPayload['configured']) && $allowedSections !== []) {
+            $optionSections = $this->firstString($options, [], ['capture_sections', 'captureSections', 'sections', 'profile_sections'], '');
+            $tokens = array_values(array_unique(array_filter(array_map(
+                'trim',
+                preg_split('/[,\s]+/', strtolower($optionSections)) ?: []
+            ))));
+            $presetTokens = ['default' => true, 'core' => true, 'wide' => true, 'all' => true];
+            if ($tokens === [] || (count($tokens) === 1 && isset($presetTokens[$tokens[0]]))) {
+                return implode(',', $allowedSections);
+            }
+
+            $aliases = [
+                'business' => 'business_overview',
+                'overview' => 'business_overview',
+                'outline' => 'business_overview',
+                'weekly' => 'business_weekly_overview',
+                'week' => 'business_weekly_overview',
+                'sales' => 'sales_report',
+                'sale' => 'sales_report',
+                'traffic' => 'traffic_report',
+                'flow' => 'traffic_report',
+                'rank' => 'competitor_rank',
+                'ranking' => 'competitor_rank',
+                'ads' => 'ads_pyramid',
+                'ad' => 'ads_pyramid',
+                'psi' => 'quality_psi',
+                'quality' => 'quality_psi',
+                'market' => 'market_calendar',
+                'user' => 'user_profile',
+                'profile' => 'user_profile',
+            ];
+            $allowedMap = array_fill_keys($allowedSections, true);
+            $selected = [];
+            foreach ($tokens as $token) {
+                $section = $aliases[$token] ?? $this->normalizeSectionKey($token);
+                if (isset($allowedMap[$section]) && !in_array($section, $selected, true)) {
+                    $selected[] = $section;
+                }
+            }
+
+            return implode(',', $selected ?: $allowedSections);
+        }
+
+        return $this->sanitizeSections($this->firstString($options, $config, ['capture_sections', 'captureSections', 'sections', 'profile_sections'], 'business_overview'));
+    }
+
+    private function buildProfileFieldConfigPayload(array $options = []): array
+    {
+        $payload = $this->profileFieldConfigFromOptions($options);
+        $configured = $payload !== null;
+        if ($payload === null) {
+            $payload = $this->readSystemConfigPayload(self::PROFILE_FIELDS_CONFIG_KEY);
+            $configured = $payload !== null;
+        }
+        if ($payload === null) {
+            return ['configured' => false, 'allowed_sections' => [], 'allowed_field_keys' => [], 'fields' => []];
+        }
+
+        $moduleMap = $this->activeProfileModuleMap();
+        $rawFields = is_array($payload['fields'] ?? null) ? $payload['fields'] : [];
+        if ($rawFields === [] && !$this->hasListPayload($payload)) {
+            $rawFields = $payload;
+        }
+
+        $fields = [];
+        $allowedKeys = [];
+        $allowedSections = [];
+        foreach ($rawFields as $key => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (empty($item['id']) && is_string($key)) {
+                $item['id'] = $key;
+            }
+            if ($this->fieldDeleted($item) || !$this->fieldEnabled($item['enabled'] ?? true)) {
+                continue;
+            }
+            $section = $this->normalizeSectionKey((string)($item['section'] ?? $item['module'] ?? ''));
+            if ($section === '' || ($moduleMap !== [] && !isset($moduleMap[$section]))) {
+                continue;
+            }
+            $fieldKey = $this->normalizeFieldKey((string)($item['field_key'] ?? $item['fieldKey'] ?? $item['id'] ?? ''));
+            if ($fieldKey === '') {
+                continue;
+            }
+
+            $allowedKeys[$fieldKey] = true;
+            $allowedSections[$section] = true;
+            $fields[] = [
+                'id' => (string)($item['id'] ?? ''),
+                'field_key' => $fieldKey,
+                'field_name' => (string)($item['field_name'] ?? $item['fieldName'] ?? ''),
+                'section' => $section,
+                'data_type' => (string)($item['data_type'] ?? $item['dataType'] ?? ''),
+                'source_interface' => (string)($item['source_interface'] ?? $item['sourceInterface'] ?? ''),
+                'source_keys' => (string)($item['source_keys'] ?? $item['sourceKeys'] ?? ''),
+                'status' => (string)($item['status'] ?? ''),
+            ];
+        }
+
+        foreach (is_array($payload['allowed_field_keys'] ?? null) ? $payload['allowed_field_keys'] : [] as $key) {
+            $fieldKey = $this->normalizeFieldKey((string)$key);
+            if ($fieldKey !== '') {
+                $allowedKeys[$fieldKey] = true;
+            }
+        }
+        foreach (is_array($payload['allowed_sections'] ?? null) ? $payload['allowed_sections'] : [] as $section) {
+            $sectionKey = $this->normalizeSectionKey((string)$section);
+            if ($sectionKey !== '' && ($moduleMap === [] || isset($moduleMap[$sectionKey]))) {
+                $allowedSections[$sectionKey] = true;
+            }
+        }
+
+        return [
+            'configured' => $configured,
+            'source' => self::PROFILE_FIELDS_CONFIG_KEY,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'allowed_sections' => array_keys($allowedSections),
+            'allowed_field_keys' => array_keys($allowedKeys),
+            'fields' => $fields,
+        ];
+    }
+
+    private function profileFieldConfigFromOptions(array $options): ?array
+    {
+        $value = $options['profile_field_config'] ?? $options['profileFieldConfig'] ?? null;
+        if (is_array($value)) {
+            return $value;
+        }
+        if (is_string($value) && trim($value) !== '') {
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : null;
+        }
+        return null;
+    }
+
+    private function readSystemConfigPayload(string $key): ?array
+    {
+        try {
+            $raw = Db::name('system_configs')->where('config_key', $key)->value('config_value');
+        } catch (\Throwable $e) {
+            return null;
+        }
+        if (!is_string($raw) || trim($raw) === '') {
+            return null;
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private function activeProfileModuleMap(): array
+    {
+        $payload = $this->readSystemConfigPayload(self::PROFILE_MODULES_CONFIG_KEY);
+        if ($payload === null) {
+            return [];
+        }
+        $rawModules = is_array($payload['modules'] ?? null) ? $payload['modules'] : $payload;
+        $modules = [];
+        foreach ($rawModules as $key => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $id = $this->normalizeSectionKey((string)($item['id'] ?? (is_string($key) ? $key : '')));
+            if ($id === '' || $this->fieldDeleted($item) || !$this->fieldEnabled($item['enabled'] ?? true)) {
+                continue;
+            }
+            $modules[$id] = true;
+        }
+        return $modules;
+    }
+
+    private function createProfileFieldConfigFile(array $payload): string
+    {
+        $dir = $this->projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'platform_data_sources';
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return '';
+        }
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($json)) {
+            return '';
+        }
+        $path = $dir . DIRECTORY_SEPARATOR . 'ctrip_profile_field_config_' . bin2hex(random_bytes(6)) . '.json';
+        return file_put_contents($path, $json, LOCK_EX) === false ? '' : $path;
+    }
+
+    private function hasListPayload(array $payload): bool
+    {
+        return array_key_exists('version', $payload)
+            || array_key_exists('fields', $payload)
+            || array_key_exists('allowed_field_keys', $payload)
+            || array_key_exists('allowed_sections', $payload);
+    }
+
+    private function fieldDeleted(array $item): bool
+    {
+        return trim((string)($item['deleted_at'] ?? $item['deletedAt'] ?? '')) !== '';
+    }
+
+    private function fieldEnabled(mixed $value): bool
+    {
+        if ($value === null || $value === '') {
+            return true;
+        }
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (int)$value !== 0;
+        }
+        return !in_array(strtolower(trim((string)$value)), ['0', 'false', 'no', 'off', 'disabled'], true);
+    }
+
+    private function normalizeFieldKey(string $value): string
+    {
+        return trim((string)preg_replace('/[^a-z0-9_-]+/', '_', strtolower(trim($value))), '_-');
+    }
+
+    private function normalizeSectionKey(string $value): string
+    {
+        return trim((string)preg_replace('/[^a-z0-9_-]+/', '_', strtolower(trim($value))), '_-');
     }
 
     private function normalizeDate(string $value): string

@@ -171,6 +171,42 @@ test('previews standard rows for cataloged Ctrip endpoint evidence', () => {
   assert.equal(result.catalog_preview.metric_keys.includes('visitor_count'), true);
 });
 
+test('uses Ctrip sales page context for shared beneficialdata endpoints', () => {
+  const result = validateCtripEndpointEvidenceBundle({
+    request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/fetchCapacityOverViewV4',
+    method: 'POST',
+    payload: {
+      nodeId: 'ctrip-1001',
+      startDate: '2026-06-04',
+      endDate: '2026-06-04',
+    },
+    response: {
+      data: {
+        orderQuantity: 5,
+        occupiedRooms: 5,
+        amount: 389,
+      },
+    },
+    page_context: {
+      page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true',
+      page: '经营报告-销售数据',
+      tab: '酒店',
+    },
+    params: {
+      hotel_id: 'ctrip-1001',
+      system_hotel_id: 7,
+      data_date: '2026-06-04',
+    },
+  }, {
+    capturedAt: '2026-06-04T09:30:00.000Z',
+  });
+
+  assert.equal(result.endpoint_id, 'sales_capacity_overview');
+  assert.equal(result.candidate_section, 'sales_report');
+  assert.equal(result.catalog_ready, true);
+  assert.equal(result.catalog_preview.standard_rows.every((row) => row.capture_section === 'sales_report'), true);
+});
+
 test('keeps incomplete Ctrip evidence out of the formal catalog', () => {
   const result = validateCtripEndpointEvidenceBundle({
     request_url: 'https://ebooking.ctrip.com/restapi/soa2/12345/settlementBillList',

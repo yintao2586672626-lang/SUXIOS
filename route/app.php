@@ -152,11 +152,14 @@ Route::group('api/online-data', function () {
     Route::get('/ctrip-diagnosis-snapshot', 'OnlineData/ctripDiagnosisSnapshot');
     Route::get('/ctrip-profile-status', 'OnlineData/ctripProfileStatus');
     Route::get('/ctrip-profile-fields', 'OnlineData/getCtripProfileFields');
+    Route::get('/ctrip-profile-modules', 'OnlineData/getCtripProfileModules');
     Route::post('/sync-ctrip-profile-fields', 'OnlineData/syncCtripProfileFields');
     Route::post('/save-ctrip-profile-field', 'OnlineData/saveCtripProfileField');
+    Route::post('/save-ctrip-profile-module', 'OnlineData/saveCtripProfileModule');
     Route::post('/verify-ctrip-profile-field-sample', 'OnlineData/verifyCtripProfileFieldSample');
     Route::post('/recheck-ctrip-profile-mismatched-fields', 'OnlineData/recheckCtripProfileMismatchedFields');
     Route::delete('/delete-ctrip-profile-field', 'OnlineData/deleteCtripProfileField');
+    Route::delete('/delete-ctrip-profile-module', 'OnlineData/deleteCtripProfileModule');
     Route::get('/meituan-profile-status', 'OnlineData/meituanProfileStatus');
     Route::get('/platform-profile-status', 'OnlineData/platformProfileStatus');
     Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');

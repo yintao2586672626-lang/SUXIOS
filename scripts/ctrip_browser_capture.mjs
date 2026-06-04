@@ -41,7 +41,7 @@ if (!profileId) {
 }
 
 const loginOnly = booleanArg(args.loginOnly) || booleanArg(args.authOnly);
-const requestedSections = normalizeSections(args.sections || args.captureSections || args.only || 'default');
+const rawRequestedSections = normalizeSections(args.sections || args.captureSections || args.only || 'default');
 const hotelId = stringValue(args.hotelId || '').trim();
 const defaultDataDate = stringValue(args.dataDate || '').trim();
 const storageDir = resolve(args.profileDir || join('storage', `ctrip_profile_${safeName(profileId)}`));
@@ -53,6 +53,11 @@ const approvedMappingsPath = stringValue(args.approvedMappings || args.approvedM
 const approvedMappings = approvedMappingsPath
   ? normalizeCtripApprovedMappings(JSON.parse((await readFile(resolve(approvedMappingsPath), 'utf8')).replace(/^\uFEFF/, '')))
   : [];
+const fieldConfigPath = stringValue(args.fieldConfig || args.fieldConfigPath || args.profileFieldConfig || '').trim();
+const profileFieldConfig = fieldConfigPath
+  ? normalizeProfileFieldConfig(JSON.parse((await readFile(resolve(fieldConfigPath), 'utf8')).replace(/^\uFEFF/, '')))
+  : normalizeProfileFieldConfig(null);
+const requestedSections = constrainRequestedSectionsByProfileFieldConfig(rawRequestedSections, profileFieldConfig);
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -75,6 +80,14 @@ const payload = {
     configured: Boolean(approvedMappingsPath),
     path: approvedMappingsPath,
     mapping_count: approvedMappings.length,
+  },
+  profile_field_config: {
+    configured: profileFieldConfig.configured,
+    path: fieldConfigPath,
+    allowed_field_count: profileFieldConfig.allowedFieldKeys ? profileFieldConfig.allowedFieldKeys.size : null,
+    allowed_section_count: profileFieldConfig.allowedSections ? profileFieldConfig.allowedSections.size : null,
+    allowed_sections: profileFieldConfig.allowedSections ? [...profileFieldConfig.allowedSections] : [],
+    field_count: profileFieldConfig.fieldCount,
   },
   pages: [],
   responses: [],
@@ -206,7 +219,10 @@ async function finalizePayload() {
   dedupeRows(payload.standard_rows, row => JSON.stringify([row.source, row.data_type, row.hotel_id, row.system_hotel_id || '', row.data_date, row.dimension]));
   payload.endpoint_candidates = buildCtripEndpointCandidates(payload.unmatched_xhr_urls);
   payload.p3_evidence_matrix = buildCtripEndpointEvidenceMatrix(payload.p3_evidence_drafts, { generatedAt: capturedAt });
-  const audit = buildCtripCaptureAudit([{ path: outputPath, payload }], { generatedAt: capturedAt });
+  const audit = buildCtripCaptureAudit([{ path: outputPath, payload }], {
+    generatedAt: capturedAt,
+    allowedFieldKeys: profileFieldConfig.allowedFieldKeys ? [...profileFieldConfig.allowedFieldKeys] : null,
+  });
   payload.capture_gate = evaluateCtripCaptureAuditGate(audit, captureGateOptions());
   payload.capture_gap_report = audit.capture_gap_report;
   payload.capture_audit = compactCaptureAudit(audit);
@@ -547,7 +563,7 @@ function registerResponseCapture(page, target) {
       url,
       platform,
     };
-    const catalogFacts = extractCtripCatalogFacts(safeBody, factContext);
+    const catalogFacts = filterCatalogFactsByProfileFieldConfig(extractCtripCatalogFacts(safeBody, factContext));
     const standardRows = buildCtripStandardRowsFromFacts(catalogFacts, {
       ...factContext,
       systemHotelId: payload.system_hotel_id,
@@ -555,14 +571,14 @@ function registerResponseCapture(page, target) {
       profileId,
       defaultDataDate,
     });
-    const approvedRows = extractCtripApprovedMappingRows(body, {
+    const approvedRows = filterStandardRowsByProfileFieldConfig(extractCtripApprovedMappingRows(body, {
       ...factContext,
       mappings: approvedMappings,
       systemHotelId: payload.system_hotel_id,
       hotelName: payload.hotel_name,
       profileId,
       defaultDataDate,
-    });
+    }));
     target.catalog_facts.push(...catalogFacts);
     target.standard_rows.push(...standardRows);
     target.standard_rows.push(...approvedRows);
@@ -1166,6 +1182,151 @@ function ctripLoginEntryUrl() {
 
 function normalizeSections(value) {
   return normalizeCtripCaptureSections(value);
+}
+
+function normalizeProfileFieldConfig(value) {
+  if (!value || typeof value !== 'object') {
+    return { configured: false, allowedFieldKeys: null, allowedSections: null, fieldCount: 0 };
+  }
+  const keys = new Set();
+  const sections = new Set();
+  const rawSections = Array.isArray(value.allowed_sections)
+    ? value.allowed_sections
+    : (Array.isArray(value.allowedSections) ? value.allowedSections : []);
+  for (const section of rawSections) {
+    const normalized = normalizeProfileSectionKey(section);
+    if (normalized) {
+      sections.add(normalized);
+    }
+  }
+  const rawKeys = Array.isArray(value.allowed_field_keys)
+    ? value.allowed_field_keys
+    : (Array.isArray(value.allowedFieldKeys) ? value.allowedFieldKeys : []);
+  for (const key of rawKeys) {
+    const normalized = normalizeProfileFieldKey(key);
+    if (normalized) {
+      keys.add(normalized);
+    }
+  }
+  const fields = Array.isArray(value.fields) ? value.fields : [];
+  for (const field of fields) {
+    if (!field || typeof field !== 'object') {
+      continue;
+    }
+    if (field.deleted_at || field.deletedAt || !profileFieldEnabled(field.enabled)) {
+      continue;
+    }
+    const normalized = normalizeProfileFieldKey(field.field_key || field.fieldKey || field.id || '');
+    if (normalized) {
+      keys.add(normalized);
+    }
+    const section = normalizeProfileSectionKey(field.section || field.module || '');
+    if (section) {
+      sections.add(section);
+    }
+  }
+  return { configured: true, allowedFieldKeys: keys, allowedSections: sections, fieldCount: fields.length };
+}
+
+function normalizeProfileFieldKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function normalizeProfileSectionKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function constrainRequestedSectionsByProfileFieldConfig(sections, config) {
+  if (!Array.isArray(sections) || !config?.configured || !config.allowedSections || config.allowedSections.size === 0) {
+    return Array.isArray(sections) ? sections : [];
+  }
+  return sections.filter(section => config.allowedSections.has(normalizeProfileSectionKey(section)));
+}
+
+function profileFieldEnabled(value) {
+  if (value === undefined || value === null || value === '') {
+    return true;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  return !['0', 'false', 'no', 'off', 'disabled'].includes(String(value).trim().toLowerCase());
+}
+
+function filterCatalogFactsByProfileFieldConfig(facts) {
+  if (!Array.isArray(facts) || !profileFieldConfig.configured || !profileFieldConfig.allowedFieldKeys) {
+    return facts;
+  }
+  return facts.filter((fact) => profileFieldConfig.allowedFieldKeys.has(normalizeProfileFieldKey(fact?.metric_key || '')));
+}
+
+function filterStandardRowsByProfileFieldConfig(rows) {
+  if (!Array.isArray(rows) || !profileFieldConfig.configured || !profileFieldConfig.allowedFieldKeys) {
+    return rows;
+  }
+  return rows.map((row) => filterStandardRowMetricsByProfileFieldConfig(row)).filter(Boolean);
+}
+
+function standardRowMetricKey(row) {
+  const dimension = String(row?.dimension || '').trim();
+  const dimensionMatch = dimension.match(/^catalog:[^:]+:[^:]+:([^:]+)/);
+  if (dimensionMatch) {
+    return normalizeProfileFieldKey(dimensionMatch[1]);
+  }
+  const metrics = row?.raw_data?.metrics;
+  if (metrics && typeof metrics === 'object' && !Array.isArray(metrics)) {
+    return normalizeProfileFieldKey(Object.keys(metrics)[0] || '');
+  }
+  return '';
+}
+
+function standardRowMetricKeys(row) {
+  const keys = new Set();
+  const dimensionKey = standardRowMetricKey(row);
+  for (const key of String(dimensionKey || '').split('|')) {
+    const normalized = normalizeProfileFieldKey(key);
+    if (normalized) keys.add(normalized);
+  }
+  const metrics = row?.raw_data?.metrics;
+  if (metrics && typeof metrics === 'object' && !Array.isArray(metrics)) {
+    for (const key of Object.keys(metrics)) {
+      const normalized = normalizeProfileFieldKey(key);
+      if (normalized) keys.add(normalized);
+    }
+  }
+  const facts = Array.isArray(row?.raw_data?.facts) ? row.raw_data.facts : [];
+  for (const fact of facts) {
+    const normalized = normalizeProfileFieldKey(fact?.metric_key || '');
+    if (normalized) keys.add(normalized);
+  }
+  return [...keys];
+}
+
+function filterStandardRowMetricsByProfileFieldConfig(row) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  const allowed = profileFieldConfig.allowedFieldKeys;
+  const metricKeys = standardRowMetricKeys(row);
+  if (metricKeys.length === 0 || !metricKeys.some(key => allowed.has(key))) {
+    return null;
+  }
+  const next = { ...row };
+  if (row.raw_data && typeof row.raw_data === 'object' && !Array.isArray(row.raw_data)) {
+    next.raw_data = { ...row.raw_data };
+    if (next.raw_data.metrics && typeof next.raw_data.metrics === 'object' && !Array.isArray(next.raw_data.metrics)) {
+      next.raw_data.metrics = Object.fromEntries(
+        Object.entries(next.raw_data.metrics).filter(([key]) => allowed.has(normalizeProfileFieldKey(key))),
+      );
+    }
+    if (Array.isArray(next.raw_data.facts)) {
+      next.raw_data.facts = next.raw_data.facts.filter(fact => allowed.has(normalizeProfileFieldKey(fact?.metric_key || '')));
+    }
+  }
+  return next;
 }
 
 function approvedMappingsForUrl(url) {

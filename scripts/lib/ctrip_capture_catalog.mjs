@@ -29,11 +29,18 @@ export const CTRIP_CAPTURE_SECTIONS = {
     ],
   },
   business_overview: {
-    label: '经营报告-概要',
+    label: '经营报告-概要-日报',
     dataType: 'business',
     aliases: ['business', 'overview', 'report', 'outline'],
     pageUrls: [
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true'),
+    ],
+  },
+  business_weekly_overview: {
+    label: '经营报告-概要-周报',
+    dataType: 'business',
+    aliases: ['weekly', 'week_report', 'week', 'business_weekly', 'weekly_overview'],
+    pageUrls: [
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/weekReport?micro=true&microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/weekReport?microJump=true', 'observed_from_cached_router'),
     ],
@@ -44,7 +51,6 @@ export const CTRIP_CAPTURE_SECTIONS = {
     aliases: ['sales', 'sale', 'sales_data'],
     pageUrls: [
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true', 'observed_from_user'),
-      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true'),
     ],
   },
   room_type: {
@@ -52,8 +58,7 @@ export const CTRIP_CAPTURE_SECTIONS = {
     dataType: 'business',
     aliases: ['room', 'rooms', 'room_type', 'roomtype'],
     pageUrls: [
-      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true', 'observed_from_user'),
-      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true'),
+      sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true', 'sales_data_subtab'),
     ],
   },
   traffic_report: {
@@ -64,8 +69,16 @@ export const CTRIP_CAPTURE_SECTIONS = {
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true', 'observed_from_user'),
     ],
   },
+  comment_review: {
+    label: '订单点评-点评聚合',
+    dataType: 'quality',
+    aliases: ['comment', 'comments', 'review', 'reviews', 'comment_review', 'order_comment', 'order_reviews'],
+    pageUrls: [
+      sectionUrl('https://ebooking.ctrip.com/comment/commentList?microJump=true', 'observed_from_user'),
+    ],
+  },
   competitor_overview: {
-    label: '竞争圈动态-概览',
+    label: '竞争圈动态-竞争圈概览',
     dataType: 'business',
     aliases: ['competitor', 'compete', 'competitor_overview', 'marketanalysis'],
     pageUrls: [
@@ -99,11 +112,12 @@ export const CTRIP_CAPTURE_SECTIONS = {
   user_profile: {
     label: '用户行为-用户分析',
     dataType: 'business',
-    aliases: ['user', 'user_behavior', 'user_profile', 'profile'],
+    aliases: ['user', 'user_behavior', 'user_profile', 'profile', 'comment_analysis', 'review_analysis'],
     pageUrls: [
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true', 'sidebar_navigation'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/userbehavior/index?microJump=true', 'inferred'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?microJump=true', 'observed_from_user'),
+      sectionUrl('https://ebooking.ctrip.com/ebkgrowth/datacenter/userbehavior/user?microJump=true', 'observed_from_user'),
     ],
   },
   im_board: {
@@ -122,7 +136,9 @@ export const CTRIP_CAPTURE_SECTIONS = {
     aliases: ['ads', 'ad', 'advertising', 'campaign', 'pyramid', 'cpc'],
     pageUrls: [
       sectionUrl('https://ebooking.ctrip.com/toolcenter/cpc/pyramid', 'observed_from_user'),
+      sectionUrl('https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/toolcenter/cpc/dataReport', 'observed_from_user'),
+      sectionUrl('https://ebooking.ctrip.com/toolcenter/cpc/dataReport?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/toolcenter/cpc/comparison?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/advertise/cpc/dataReport?micro=true&microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/advertise/cpc/comparison?micro=true&microJump=true', 'observed_from_user'),
@@ -142,9 +158,9 @@ export const CTRIP_CAPTURE_SECTIONS = {
     ],
   },
   market_calendar: {
-    label: '热点日历',
+    label: '市场分析-市场热度',
     dataType: 'business',
-    aliases: ['calendar', 'hot_calendar', 'events'],
+    aliases: ['calendar', 'hot_calendar', 'events', 'market', 'market_analysis', 'market_heat', 'marketanalysis'],
     pageUrls: [
       sectionUrl('https://ebooking.ctrip.com/ebkgrowth/datacenter/marketanalysis/marketheat?microJump=true', 'observed_from_user'),
       sectionUrl('https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true', 'observed_from_endpoint'),
@@ -195,6 +211,29 @@ const revenueFields = [
   field('tensity', '紧张度', ['tensityScore', 'tensity', 'Tensity', 'nowTensityDetail']),
   field('rank', '竞争圈排名', ['rank', 'rank2', 'visitorRank', 'rankOfAmount', 'rankOfOrderQuantity', 'competitorRank', 'ranking']),
   field('competitor_average', '竞争圈平均值', ['competitorsAverageOrderQuantity', 'competitorsAverageOccupiedRooms', 'competitorAvgNumber', 'competitorTensityScore']),
+];
+
+const weeklyLossOrderFields = [
+  field('loss_order_count', '流失订单量', ['ordernum']),
+  field('loss_room_nights', '流失间夜量', ['ordquantity']),
+  field('loss_order_amount', '流失订单金额', ['ordamount'], '', { unit: 'CNY' }),
+];
+
+const lossOrderSummaryFields = [
+  field('loss_order_count', '流失订单量', ['lossOrderCount', 'lossOrderNum', 'orderCount', 'orderNum', 'ordernum']),
+  field('loss_room_nights', '流失间夜量', ['lossRoomNight', 'lossNightCount', 'roomNights', 'nightNum', 'ordquantity']),
+  field('loss_order_amount', '流失订单金额', ['lossOrderAmount', 'amount', 'ordamount'], '', { unit: 'CNY' }),
+  field('common_view_rate', '共同浏览率', ['commonViewRate', 'browseRate', 'proportion'], '', { unit: '%' }),
+  field('order_conversion_rate', '下单转化率', ['orderConversionRate', 'conversionRate', 'orderPro'], '', { unit: '%' }),
+  field('competitor_hotel_name', '流失酒店名称', ['hotelName', 'competeHotelName']),
+];
+
+const lossCompeteHotelFields = [
+  field('competitor_hotel_name', '流失酒店名称', ['hotelName', 'competeHotelName']),
+  field('common_view_rate', '共同浏览率', ['commonViewRate', 'browseRate', 'proportion'], '', { unit: '%' }),
+  field('order_conversion_rate', '下单转化率', ['orderConversionRate', 'conversionRate', 'orderPro'], '', { unit: '%' }),
+  field('loss_order_count', '流失订单数', ['lossOrderCount', 'lossOrderNum', 'orderCount', 'orderNum', 'ordernum']),
+  field('follow_status', '关注状态', ['followStatus', 'isFollow']),
 ];
 
 const marketOverviewFields = [
@@ -285,7 +324,7 @@ const trafficFields = [
   field('competitor_flow_rate', '竞争圈平均曝光转化率', ['hotelId=-1.flowRate', 'competitorFlowRate', 'avgFlowRate', 'competitorConversionRate'], '取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核', { unit: '%' }),
   field('visitor_rank', '访客排名', ['visitorRank']),
   field('competitor_avg_visitor', '竞争圈平均访客', ['competitorAvgNumber']),
-  field('qunar_visitor_rank', '去哪儿访客排名', ['qunarVisitorRank']),
+  field('qunar_visitor_rank', '去哪儿访客排名', ['qunarCompetitorRank', 'qunarVisitorRank']),
   field('qunar_competitor_avg_visitor', '去哪儿竞争圈平均访客', ['qunarCompetitorAvgNumber']),
   field('source_name', '流量来源', ['sourceName', 'sourceNameTag']),
   field('keyword', '搜索关键词', ['keyword', 'searchKeyword', 'filterWords']),
@@ -432,6 +471,7 @@ const FACT_ONLY_FIELD_IDS = new Set([
 ]);
 
 const CTRIP_COMPETITOR_RANK_FIELD_IDS = new Set([
+  'seq_rank',
   'order_rank',
   'amount_rank',
   'quantity_rank',
@@ -446,6 +486,8 @@ const CTRIP_COMPETITOR_RANK_FIELD_IDS = new Set([
 ]);
 
 const CTRIP_RANKING_ENDPOINT_IDS = new Set([
+  'business_hotel_seq',
+  'traffic_hotel_seq',
   'competitor_rank',
   'weekly_compete_report',
 ]);
@@ -521,10 +563,14 @@ export const CTRIP_CORE_METRIC_LEARNING_ROWS = [
   metricLearningRow('竞品访客', '携程竞争圈', '昨日', '整数', '人', '昨日概况页', 'getDayReportFlowCompete / comhtluv', '直接取值', '已确认'),
   metricLearningRow('竞品订单', '携程竞争圈', '昨日', '整数', '单', '昨日概况页', 'getDayReportFlowCompete / ordquantity', '直接取值', '已确认'),
   metricLearningRow('竞品收入', '携程竞争圈', '昨日', '金额', '元', '昨日概况页', 'getDayReportFlowCompete / ordamount', '转金额', '已确认'),
-  metricLearningRow('访客排名', '携程竞争圈', '昨日', '整数', '名', '昨日概况页', 'fetchVisitorTitleV2 / visitorRank', '直接取值', '已确认'),
-  metricLearningRow('竞争圈平均访客', '携程竞争圈', '昨日', '整数', '人', '昨日概况页', 'fetchVisitorTitleV2 / competitorAvgNumber', '直接取值', '已确认'),
-  metricLearningRow('去哪儿访客排名', '携程竞争圈', '昨日', '整数', '名', '昨日概况页', 'fetchVisitorTitleV2 / qunarVisitorRank', '直接取值', '已确认'),
-  metricLearningRow('去哪儿竞争圈平均访客', '携程竞争圈', '昨日', '整数', '人', '昨日概况页', 'fetchVisitorTitleV2 / qunarCompetitorAvgNumber', '直接取值', '已确认'),
+  metricLearningRow('实时访客量', '携程OTA渠道', '实时', '整数', '人', '经营报告-概要-日报', 'fetchVisitorTitleV2 / visitorTotal', '直接取值', '已确认'),
+  metricLearningRow('实时访客量排名', '携程竞争圈', '实时', '整数', '名', '经营报告-概要-日报', 'fetchVisitorTitleV2 / visitorRank', '直接取值', '已确认'),
+  metricLearningRow('实时访客量上周同期', '携程OTA渠道', '上周同期', '整数', '人', '经营报告-概要-日报', 'fetchVisitorTitleV2 / lastVisitorTotal', '直接取值', '已确认'),
+  metricLearningRow('携程竞对平均访客数', '携程竞争圈', '实时', '整数', '人', '经营报告-概要-日报', 'fetchVisitorTitleV2 / competitorAvgNumber', '直接取值', '已确认'),
+  metricLearningRow('去哪实时访客量', '去哪儿OTA渠道', '实时', '整数', '人', '经营报告-概要-日报', 'fetchVisitorTitleV2 / qunarVisitorTotal', '直接取值', '已确认'),
+  metricLearningRow('去哪实时访客量排名', '去哪儿竞争圈', '实时', '整数', '名', '经营报告-概要-日报', 'fetchVisitorTitleV2 / qunarCompetitorRank', '直接取值', '已确认'),
+  metricLearningRow('去哪实时访客量上周同期', '去哪儿OTA渠道', '上周同期', '整数', '人', '经营报告-概要-日报', 'fetchVisitorTitleV2 / lastQunarVisitorTotal', '直接取值', '已确认'),
+  metricLearningRow('去哪儿竞对平均访客数', '去哪儿竞争圈', '实时', '整数', '人', '经营报告-概要-日报', 'fetchVisitorTitleV2 / qunarCompetitorAvgNumber', '直接取值', '已确认'),
 ];
 
 const endpoint = (id, section, keywords, fields, extra = {}) => ({
@@ -562,7 +608,7 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('business_hotel_seq', 'business_overview', ['fetchCurrentHotelSeqInfoV1'], [field('seq_rank', '实时排名', ['rank', 'qunarRank', 'competitorRank', 'qunarCompetitorRank'])]),
   endpoint('business_flow_transform', 'business_overview', ['queryFlowTransformNewV1', 'queryFlowTransforNewV1', 'queryFlowTransferNewV1'], [...trafficFields], { dataType: 'traffic' }),
   endpoint('business_service_quantity', 'business_overview', ['getDayReportServerQuantity'], [...dailyServiceQualityFields]),
-  endpoint('weekly_compete_report', 'business_overview', ['getCompeteHotelReportV1'], [
+  endpoint('weekly_compete_report', 'business_weekly_overview', ['getCompeteHotelReportV1'], [
     field('amount_rank', '预订销售额排名', ['amount']),
     field('room_nights_rank', '在店间夜排名', ['quantity']),
     field('order_rank', '预订订单量排名', ['bookOrderNum']),
@@ -570,7 +616,7 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
     field('visitor_rank', 'APP访客量排名', ['totalDetailNum']),
     field('conversion_rate_rank', 'APP转化率排名', ['convertionRate', 'conversionRate']),
   ]),
-  endpoint('weekly_report', 'business_overview', ['getReportSuggestV1', 'getLastWeekReportV1', 'getWeekSuggestionV1', 'getTrafficReportV1', 'getUserBehaviorV1', 'getHotRoomsV1', 'getFlowHotelsV1', 'getHotHotelsV1', 'getHotWordsV1'], [...revenueFields, ...trafficFields, ...userProfileFields]),
+  endpoint('weekly_report', 'business_weekly_overview', ['getReportSuggestV1', 'getLastWeekReportV1', 'getWeekSuggestionV1', 'getTrafficReportV1', 'getUserBehaviorV1', 'getUserBehavorV1', 'getHotRoomsV1', 'getFlowHotelsV1', 'getHotHotelsV1', 'getHotWordsV1'], [...weeklyLossOrderFields, ...revenueFields, ...trafficFields, ...userProfileFields]),
 
   endpoint('sales_market_detail', 'sales_report', ['queryMarketDetails', 'queryMarketDetailsV1'], [...revenueFields]),
   endpoint('sales_tensity_overview', 'sales_report', ['fetchTensityOverViewV1'], [...revenueFields]),
@@ -579,6 +625,14 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('sales_tensities', 'sales_report', ['queryHotelTensitiesV1', 'queryRoomTensitiesV1'], [...revenueFields]),
   endpoint('sales_min_price', 'sales_report', ['queryHotelMinPriceV1'], [field('min_price', '实时起价', ['minPrice']), field('min_price_rank', '起价排名', ['minPriceRank'])]),
   endpoint('sales_market_room_tensity', 'sales_report', ['queryMarketRoomTensity', 'queryRoomOccupiedTrend'], [...revenueFields]),
+  endpoint('sales_capacity_overview', 'sales_report', ['fetchCapacityOverViewV4'], [...capacityOverviewFields], {
+    status: 'supporting',
+    notes: 'Observed on the beneficialdata sales page; keep field ownership evidence-bound to the active page context.',
+  }),
+  endpoint('sales_resource_popups', 'sales_report', ['getEbkResourcePopups'], [...supportNoticeFields], {
+    status: 'supporting',
+    notes: 'Sales-page support notice only; do not treat popup content as revenue metrics.',
+  }),
 
   endpoint('room_type_info', 'room_type', ['queryRoomTypeInfo'], [
     field('room_type_id', '房型ID', ['roomId', 'roomTypeId', 'basicRoomTypeId']),
@@ -597,16 +651,30 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('room_venderbility', 'room_type', ['queryVendibilityRoom', 'queryVenderbilityRoom'], [field('sale_status', '售卖状态', ['saleStatus', 'status']), field('suggest_action', '建议操作', ['suggestAction', 'action'])], { status: 'screenshot_only' }),
 
   endpoint('traffic_scan_flow', 'traffic_report', ['queryScanFlowDetailsV2'], [...trafficFields]),
+  endpoint('traffic_hotel_seq', 'traffic_report', ['fetchCurrentHotelSeqInfoV1'], [
+    field('traffic_rank', '实时流量排名', ['rank', 'seqRank', 'trafficRank', 'appDetailUvRank', 'qunarRank', 'competitorRank', 'qunarCompetitorRank']),
+  ], { dataType: 'traffic' }),
   endpoint('traffic_flow_transform', 'traffic_report', ['queryFlowTransformNewV1', 'queryFlowTransforNewV1', 'queryFlowTransferNewV1'], [...trafficFields], { dataType: 'traffic' }),
   endpoint('traffic_order_overview', 'traffic_report', ['fetchOrderOverView'], [...revenueFields, ...trafficFields]),
   endpoint('traffic_order_trend', 'traffic_report', ['queryOrderTrendV1'], [...revenueFields, ...trafficFields]),
+  endpoint('traffic_flow_source_popups', 'traffic_report', ['queryFlowSourcePopups'], [
+    field('source_name', '流量来源弹窗', ['sourceName', 'sourceNameTag', 'title', 'name']),
+    ...supportNoticeFields,
+  ], {
+    status: 'supporting',
+    notes: '流量来源辅助弹窗，只保留来源/提示信息，不作为核心流量指标。',
+  }),
   endpoint('traffic_flow_source', 'traffic_report', ['queryFlowSource', 'getRealTimeVisitorSourceV1'], [...trafficFields]),
+  endpoint('traffic_menu_key', 'traffic_report', ['queryMenuKey'], [...supportNoticeFields], {
+    status: 'supporting',
+    notes: '流量页菜单/权限辅助接口，只用于判断页面上下文，不作为经营指标。',
+  }),
   endpoint('traffic_city_keywords', 'traffic_report', ['queryCityHotKeywords', 'queryQunarCityHotSearch'], [...trafficFields]),
   endpoint('traffic_search_details', 'traffic_report', ['querySearchFlowDetails'], [...trafficFields]),
   endpoint('traffic_hotel_min_price', 'traffic_report', ['queryHotelMinPriceV1'], [field('min_price', '实时起价', ['minPrice']), field('min_price_rank', '起价排名', ['minPriceRank'])]),
   endpoint('traffic_picture_quality', 'traffic_report', ['getPictureQualityScore'], [...qualityFields]),
   endpoint('traffic_comment_score_summary', 'traffic_report', ['getCommentsScoreV2'], [...qualityFields], { notes: '只采集评分汇总，不采集点评明文。' }),
-  endpoint('comment_review_aggregate', 'business_overview', ['getCommentList'], [...commentAggregateFields], {
+  endpoint('comment_review_aggregate', 'comment_review', ['getCommentList'], [...commentAggregateFields], {
     dataType: 'quality',
     status: 'aggregate_only',
     notes: '只采集点评条数和好评/差评聚合计数，不保存点评明文。',
@@ -617,20 +685,8 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('competitor_flow', 'competitor_overview', ['getFlowData'], [...trafficFields]),
   endpoint('competitor_service', 'competitor_overview', ['getServiceData'], [...qualityFields]),
   endpoint('competitor_flow_source', 'competitor_overview', ['getFlowSource'], [...trafficFields]),
-  endpoint('loss_order_summary', 'loss_analysis', ['getTripartiteOrderLoss'], [
-    field('loss_order_count', '流失订单量', ['lossOrderCount', 'lossOrderNum', 'orderCount']),
-    field('loss_room_nights', '流失间夜量', ['lossRoomNight', 'lossNightCount', 'roomNights']),
-    field('loss_order_amount', '流失订单金额', ['lossOrderAmount', 'amount'], '', { unit: 'CNY' }),
-    field('common_view_rate', '共同浏览率', ['commonViewRate', 'browseRate']),
-    field('order_conversion_rate', '下单转化率', ['orderConversionRate', 'conversionRate']),
-    field('competitor_hotel_name', '流失酒店名称', ['hotelName', 'competeHotelName']),
-  ]),
-  endpoint('loss_compete_hotel', 'loss_analysis', ['getLossOrderCompeteHotel'], [
-    field('competitor_hotel_name', '流失酒店名称', ['hotelName', 'competeHotelName']),
-    field('common_view_rate', '共同浏览率', ['commonViewRate', 'browseRate']),
-    field('order_conversion_rate', '下单转化率', ['orderConversionRate', 'conversionRate']),
-    field('follow_status', '关注状态', ['followStatus', 'isFollow']),
-  ]),
+  endpoint('loss_order_summary', 'loss_analysis', ['getTripartiteOrderLoss'], [...lossOrderSummaryFields]),
+  endpoint('loss_compete_hotel', 'loss_analysis', ['getLossOrderCompeteHotel'], [...lossCompeteHotelFields]),
   endpoint('competitor_rank', 'competitor_rank', ['getCompetingRank'], [
     field('rank_metric', '榜单指标', ['rankType', 'metric', 'rankName']),
     field('order_rank', '预订订单量排名', ['orderRank', 'orderQuantityRank', 'bookingOrdersrank', 'bookOrderNum']),
@@ -748,16 +804,29 @@ const SECTION_ALIAS_MAP = Object.fromEntries(
   ]),
 );
 
-export const DEFAULT_CTRIP_CAPTURE_SECTIONS = ['business_overview', 'room_type', 'traffic_report'];
+export const DEFAULT_CTRIP_CAPTURE_SECTIONS = [
+  'business_overview',
+  'business_weekly_overview',
+  'traffic_report',
+  'comment_review',
+  'competitor_overview',
+  'loss_analysis',
+  'competitor_rank',
+  'quality_psi',
+  'ads_pyramid',
+  'market_calendar',
+  'user_profile',
+];
 export const CTRIP_CAPTURE_SECTION_PRESETS = {
   default: [...DEFAULT_CTRIP_CAPTURE_SECTIONS],
-  core: ['homepage', 'business_overview', 'sales_report', 'room_type', 'traffic_report'],
+  core: ['homepage', 'business_overview', 'business_weekly_overview', 'sales_report', 'traffic_report'],
   wide: [
     'homepage',
     'business_overview',
+    'business_weekly_overview',
     'sales_report',
-    'room_type',
     'traffic_report',
+    'comment_review',
     'competitor_overview',
     'loss_analysis',
     'competitor_rank',
@@ -787,6 +856,8 @@ const C = {
   daily: '\u6309\u65e5',
   weekly: '\u6309\u5468',
   monthly: '\u6309\u6708',
+  quarterly: '\u6309\u5b63',
+  custom: '\u81ea\u5b9a\u4e49',
   flowData: '\u6d41\u91cf\u6570\u636e',
   all: '\u5168\u90e8',
   app: '\u624b\u673aAPP',
@@ -800,6 +871,8 @@ const C = {
   competitorRank: '\u7ade\u4e89\u5708\u699c\u5355',
   salesRank: '\u9500\u552e\u6392\u540d',
   trafficRank: '\u6d41\u91cf\u6392\u540d',
+  orderComment: '\u8ba2\u5355\u70b9\u8bc4',
+  commentList: '\u70b9\u8bc4\u5217\u8868',
   dataCenter: '\u6570\u636e\u4e2d\u5fc3',
   userBehavior: '\u7528\u6237\u884c\u4e3a',
   userProfile: '\u7528\u6237\u5206\u6790',
@@ -829,6 +902,8 @@ export const CTRIP_SECTION_INTERACTION_PLANS = {
   business_overview: [
     clickText(C.realtime, 'trigger real-time overview cards'),
     clickText(C.daily, 'trigger daily overview charts'),
+  ],
+  business_weekly_overview: [
     clickText(C.weekly, 'trigger weekly overview charts'),
   ],
   sales_report: [
@@ -838,9 +913,12 @@ export const CTRIP_SECTION_INTERACTION_PLANS = {
     clickText(C.ctrip, 'trigger Ctrip split'),
     clickText(C.tongcheng, 'trigger Tongcheng split'),
     clickText(C.qunar, 'trigger Qunar split'),
+    clickText(C.realtime, 'trigger real-time sales trend'),
     clickText(C.daily, 'trigger daily sales trend'),
     clickText(C.weekly, 'trigger weekly sales trend'),
     clickText(C.monthly, 'trigger monthly sales trend'),
+    clickText(C.quarterly, 'trigger quarterly sales trend'),
+    clickText(C.custom, 'trigger custom-date sales trend'),
   ],
   room_type: [
     clickText(C.salesData, 'open sales report tab'),
@@ -858,6 +936,11 @@ export const CTRIP_SECTION_INTERACTION_PLANS = {
     clickText(C.h5, 'trigger mobile H5 traffic'),
     clickText(C.pc, 'trigger desktop traffic'),
     clickText(C.wechatMini, 'trigger mini-program traffic'),
+  ],
+  comment_review: [
+    clickText(C.orderComment, 'open order review page'),
+    clickText(C.commentList, 'trigger review list'),
+    clickText(C.all, 'trigger all review filters'),
   ],
   competitor_overview: [
     clickText(C.dataCenter, 'expand data center sidebar'),
@@ -995,16 +1078,55 @@ export function findCtripEndpointByUrl(url, options = {}) {
   const preferredSections = Array.isArray(options.preferredSections)
     ? options.preferredSections
     : [options.preferredSection].filter(Boolean);
+  const contextSections = inferCtripSectionsFromContext(options);
+  const orderedPreferredSections = [...new Set([...preferredSections, ...contextSections])];
   const matches = CTRIP_CAPTURE_ENDPOINTS.filter((endpoint) => (
     endpoint.keywords.some((keyword) => lower.includes(String(keyword).toLowerCase()))
   ));
-  if (preferredSections.length > 0) {
-    const preferred = matches.find((endpoint) => preferredSections.includes(endpoint.section));
+  if (orderedPreferredSections.length > 0) {
+    const preferred = matches.find((endpoint) => orderedPreferredSections.includes(endpoint.section));
     if (preferred) {
       return preferred;
     }
   }
   return matches[0] || null;
+}
+
+function inferCtripSectionsFromContext(options = {}) {
+  const context = options.pageContext || options.page_context || {};
+  const sections = [];
+  for (const value of [
+    context.active_section,
+    context.activeSection,
+    context.capture_section,
+    context.captureSection,
+    context.section,
+    context.module,
+  ]) {
+    const section = SECTION_ALIAS_MAP[String(value || '').trim().toLowerCase()];
+    if (section) {
+      sections.push(section);
+    }
+  }
+
+  const pageUrl = String(
+    options.pageUrl
+      || options.page_url
+      || context.page_url
+      || context.pageUrl
+      || context.url
+      || '',
+  ).toLowerCase();
+  if (pageUrl) {
+    for (const [section, config] of Object.entries(CTRIP_CAPTURE_SECTIONS)) {
+      if ((config.pageUrls || []).some((item) => pageUrl.includes(String(item.url || '').split('?')[0].toLowerCase()))) {
+        sections.push(section);
+        break;
+      }
+    }
+  }
+
+  return [...new Set(sections)];
 }
 
 export function buildCtripEndpointCandidates(entries = []) {
@@ -1176,7 +1298,11 @@ export function extractCtripCatalogFacts(value, context = {}) {
     facts.push(...extractMetricPairFacts(node, path, fields, nodeContext));
     const metricPairLike = isMetricPairObject(node);
     for (const [key, child] of Object.entries(node)) {
-      const matchedFields = fieldsBySourceKey.get(String(key).toLowerCase()) || [];
+      const matchedFields = filterCtripCatalogFieldsBySourceContext(
+        fieldsBySourceKey.get(String(key).toLowerCase()) || [],
+        key,
+        path,
+      );
       if (matchedFields.length > 0 && isScalar(child)) {
         for (const item of matchedFields) {
           if (metricPairLike && key === 'name' && item.id === 'hotel_name') {
@@ -1209,6 +1335,19 @@ export function extractCtripCatalogFacts(value, context = {}) {
   };
   walk(value);
   return facts;
+}
+
+function filterCtripCatalogFieldsBySourceContext(fields, sourceKey, path = []) {
+  if (!Array.isArray(fields) || fields.length === 0) {
+    return [];
+  }
+  const key = String(sourceKey || '').toLowerCase();
+  const parent = path.map((item) => String(item || '').toLowerCase()).join('.');
+  const inLossOrderVo = parent.split('.').includes('lossordervo');
+  if (!inLossOrderVo || !['ordernum', 'ordquantity', 'ordamount'].includes(key)) {
+    return fields;
+  }
+  return fields.filter((item) => !['order_count', 'order_amount'].includes(String(item.id || '')));
 }
 
 const COMPETITOR_INDEX_FIELD_IDS = new Map([
@@ -1439,8 +1578,8 @@ export function generateCtripCaptureMarkdown({ i18nReference = null } = {}) {
     '',
     '| 优先级 | 范围 | 用途 |',
     '|---|---|---|',
-    '| P0 | 首页实时、经营报告概要、销售数据、流量数据、房型 | 收益分析、日报、流量漏斗、房型库存和核心运营诊断 |',
-    '| P1 | 竞争圈概览、流失分析、竞争圈榜单、热点日历、用户分析 | 竞对对比、流失去向、市场热度和客群结构判断 |',
+    '| P0 | 首页实时、经营报告概要、销售数据、流量数据 | 收益分析、日报、流量漏斗和核心运营诊断 |',
+    '| P1 | 订单点评聚合、竞争圈概览、流失分析、竞争圈榜单、PSI、热点日历、用户分析 | 点评聚合、竞对对比、流失去向、服务质量、市场热度和客群结构判断 |',
     '| P2 | 金字塔推广、PSI 服务质量分、IM 看板、BPI 分、携程商旅经营报告 | 广告投放、服务质量、客服响应、商旅渠道和企业客户表现 |',
     '| P3 | 订单明细、价格房态、促销活动、结算财务、合同/MICE/RFP | 仍需补充真实接口 Payload / Response 后再进入字段目录 |',
     '',
@@ -1449,7 +1588,7 @@ export function generateCtripCaptureMarkdown({ i18nReference = null } = {}) {
     '| 预设 | 覆盖范围 | 使用场景 |',
     '|---|---|---|',
     '| `default` | 经营报告概要、流量数据 | 日常低成本自动抓取 |',
-    '| `core` | 首页实时、经营报告概要、销售数据、房型、流量数据 | P0 核心经营诊断 |',
+    '| `core` | 首页实时、经营报告概要、销售数据、流量数据 | P0 核心经营诊断 |',
     '| `wide` | P0 + 竞争圈、流失、榜单、用户行为、IM、金字塔、PSI、商旅 BPI/经营/竞争圈 | 周期性全量经营复核 |',
     '| `all` | 字段目录内全部非点评明文模块 | 手动盘点或接口变更复核 |',
     '',
@@ -1496,7 +1635,7 @@ export function generateCtripCaptureMarkdown({ i18nReference = null } = {}) {
     `- 接口规则数：${CTRIP_CAPTURE_ENDPOINTS.length}`,
     `- 去重字段数：${ctripCatalogSummary().field_count}`,
     `- 页面交互计划：${ctripCatalogSummary().interaction_plan_section_count} 个模块 / ${ctripCatalogSummary().interaction_plan_step_count} 个触发动作`,
-    '- 点评明文采集：默认禁用；仅保留评分汇总、回复率等非点评明文指标。',
+    '- 点评明文采集：默认禁用；Profile 仅保留评分汇总、回复率、点评条数和好评/差评聚合等非点评明文指标。',
     '',
   ];
 
@@ -1756,7 +1895,7 @@ function metricPairField(fields, metricText) {
     ['tensity', /tensity|紧张度/],
     ['visitor_rank', /访客排名|visitorrank/],
     ['competitor_avg_visitor', /竞争圈平均访客|竞圈平均访客|competitoravgnumber/],
-    ['qunar_visitor_rank', /去哪儿访客排名|qunarvisitorkrank|qunarvisitorrank/],
+    ['qunar_visitor_rank', /去哪儿访客排名|qunarvisitorkrank|qunarvisitorrank|qunarcompetitorrank/],
     ['qunar_competitor_avg_visitor', /去哪儿竞争圈平均访客|qunarcompetitoravgnumber/],
     ['rank', /rank|排名/],
     ['competitor_average', /竞争圈平均|竞圈平均|同行平均|平均/],
@@ -2167,6 +2306,7 @@ function applyFactToStandardRow(row, fact) {
     case 'elong_order_count_sync':
       break;
     case 'amount_rank':
+    case 'seq_rank':
     case 'quantity_rank':
     case 'occupied_rooms_rank':
     case 'avg_price_rank':
