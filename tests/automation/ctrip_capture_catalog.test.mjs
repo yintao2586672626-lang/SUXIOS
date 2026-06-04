@@ -1178,7 +1178,7 @@ test('catalog verifier can resolve i18n terminology from SUXIOS_CTRIP_I18N_FILE 
     },
   }), 'utf8');
 
-  const output = execFileSync('node', ['scripts/verify_ctrip_capture_catalog.mjs', '--json'], {
+  const output = execFileSync('node', ['scripts/verify_ctrip_capture_catalog.mjs', '--json', '--no-write'], {
     cwd: process.cwd(),
     encoding: 'utf8',
     env: {

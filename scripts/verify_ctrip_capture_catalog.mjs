@@ -16,10 +16,12 @@ import {
 } from './lib/ctrip_capture_catalog.mjs';
 
 function parseArgs(argv) {
-  const args = { i18n: '', json: false };
+  const args = { i18n: '', json: false, write: true };
   for (const item of argv) {
     if (item === '--json') {
       args.json = true;
+    } else if (item === '--no-write') {
+      args.write = false;
     } else if (item.startsWith('--i18n=')) {
       args.i18n = item.slice('--i18n='.length);
     }
@@ -550,9 +552,7 @@ function verifyCatalog() {
   }
 }
 
-function writeReports(i18nReference) {
-  mkdirSync('docs', { recursive: true });
-  mkdirSync('reports', { recursive: true });
+function writeReports(i18nReference, options = {}) {
   const markdown = generateCtripCaptureMarkdown({ i18nReference });
   const summary = {
     ...ctripCatalogSummary(),
@@ -561,8 +561,12 @@ function writeReports(i18nReference) {
     p3_candidate_rules: CTRIP_ENDPOINT_CANDIDATE_RULES,
     i18n_reference: i18nReference,
   };
-  writeFileSync(join('docs', 'ctrip_capture_field_inventory.md'), `${markdown.trimEnd()}\n`, 'utf8');
-  writeFileSync(join('reports', 'ctrip_capture_catalog.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+  if (options.write !== false) {
+    mkdirSync('docs', { recursive: true });
+    mkdirSync('reports', { recursive: true });
+    writeFileSync(join('docs', 'ctrip_capture_field_inventory.md'), `${markdown.trimEnd()}\n`, 'utf8');
+    writeFileSync(join('reports', 'ctrip_capture_catalog.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+  }
   return summary;
 }
 
@@ -570,7 +574,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   verifyCatalog();
   const i18nReference = inspectI18n(resolveI18nPath(args.i18n));
-  const summary = writeReports(i18nReference);
+  const summary = writeReports(i18nReference, { write: args.write });
   if (args.json) {
     console.log(JSON.stringify(summary, null, 2));
   } else {
