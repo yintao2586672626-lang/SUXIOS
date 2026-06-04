@@ -588,6 +588,33 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
       expected: { data_type: 'quality', data_value: 4.54, flow_rate: 100 },
     },
     {
+      url: 'https://ebooking.ctrip.com/toolcenter/api/psi/queryHistPsiScoreList?hostType=HE&v=0.8928221408368409',
+      payload: {
+        data: {
+          list: [{
+            date: '2026-06-04',
+            totalScore: '4.97',
+            basicScore: '4.67',
+            rewardScore: '0.30',
+            deductScore: '-0.00',
+          }],
+        },
+      },
+      expected: { data_type: 'quality', data_date: '2026-06-04', data_value: 4.97 },
+      expected_metrics: {
+        psi_score: 4.97,
+        base_score: 4.67,
+        reward_score: 0.3,
+        deduct_score: -0,
+      },
+      expected_fact_sources: {
+        psi_score: 'totalScore',
+        base_score: 'basicScore',
+        reward_score: 'rewardScore',
+        deduct_score: 'deductScore',
+      },
+    },
+    {
       url: 'https://bbk.ctripbiz.cn/api/dataCenterBusinessReportDetail',
       payload: { data: { rows: [{ statDate: '2026-05-31', roomNights: 1, amount: '340.00', orderQuantity: 2 }] } },
       expected: { data_type: 'business', amount: 340, quantity: 1, book_order_num: 2 },
@@ -625,6 +652,10 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
     }
     for (const [key, value] of Object.entries(item.expected_raw || {})) {
       assert.equal(row.raw_data[key], value, `${item.url} raw_data.${key}`);
+    }
+    for (const [key, value] of Object.entries(item.expected_fact_sources || {})) {
+      const fact = row.raw_data.facts.find((candidate) => candidate.metric_key === key);
+      assert.equal(fact?.source_key, value, `${item.url} raw_data.facts.${key}.source_key`);
     }
   }
 });
