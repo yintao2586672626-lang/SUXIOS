@@ -286,6 +286,7 @@ function verifyCatalog() {
     ['https://ebooking.ctrip.com/userbehavior/getImIndex?hostType=Ebooking', 'im_board'],
     ['https://ebooking.ctrip.com/pyramidad/api/queryCampaignSummaryReport', 'ads_pyramid'],
     ['https://ebooking.ctrip.com/psi/api/getHotelPsiV2', 'quality_psi'],
+    ['https://ebooking.ctrip.com/toolcenter/api/psi/queryHistPsiScoreList?hostType=HE&v=0.8928221408368409', 'quality_psi'],
     ['https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo', 'market_calendar'],
     ['https://bbk.ctripbiz.cn/api/searchBpiOverview', 'biztravel_bpi'],
     ['https://bbk.ctripbiz.cn/api/dataCenterBusinessReportDetail', 'biztravel_business_report'],
