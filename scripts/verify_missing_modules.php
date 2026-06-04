@@ -84,7 +84,11 @@ assert_true(str_contains($macro, 'ExternalSignalService'), 'MacroSignalService m
 assert_true(
     str_contains($macro, "'source_text' => '高德天气自动获取'")
     || str_contains($macro, "'source_text' => 'AMap weather'")
-    || str_contains($macro, "source_text'] = 'AMap weather'"),
+    || str_contains($macro, "source_text'] = 'AMap weather'")
+    || (
+        str_contains($macro, 'function weatherSourceText(')
+        && str_contains($macro, "'AMap weather' => '高德天气自动获取'")
+    ),
     'Weather signal must expose external data source'
 );
 $checks[] = 'external_signal';
