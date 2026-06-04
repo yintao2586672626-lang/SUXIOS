@@ -11725,12 +11725,12 @@ JAVASCRIPT;
     {
         $candidateScope = $this->scopeCtripProfileAutoFetchFieldCandidates($candidates);
         $candidates = $candidateScope['key_candidates'];
-        $existingKeys = [];
+        $existingScopeKeys = [];
         $maxSortOrder = 0;
         foreach ($fields as $field) {
             $fieldKey = (string)($field['field_key'] ?? '');
             if ($fieldKey !== '') {
-                $existingKeys[$fieldKey] = true;
+                $existingScopeKeys[$this->ctripProfileFieldScopeKey($fieldKey, (string)($field['section'] ?? ''))] = true;
             }
             $maxSortOrder = max($maxSortOrder, (int)($field['sort_order'] ?? 0));
         }
@@ -11742,12 +11742,19 @@ JAVASCRIPT;
             if ($fieldKey === '') {
                 continue;
             }
-            if (isset($existingKeys[$fieldKey])) {
+            $section = (string)($candidate['section'] ?? '');
+            $scopeKey = $this->ctripProfileFieldScopeKey($fieldKey, $section);
+            if (isset($existingScopeKeys[$scopeKey])) {
                 $matched++;
                 continue;
             }
             $maxSortOrder += 10;
-            $idBase = 'profile_field_' . trim(preg_replace('/[^a-z0-9_\-]+/', '_', $fieldKey) ?: $fieldKey, '_');
+            $idPart = trim(preg_replace('/[^a-z0-9_\-]+/', '_', $fieldKey) ?: $fieldKey, '_');
+            $sectionPart = trim(preg_replace('/[^a-z0-9_\-]+/', '_', $section) ?: '', '_');
+            $idBase = 'profile_field_' . $idPart;
+            if (isset($fields[$idBase]) && $sectionPart !== '') {
+                $idBase = 'profile_field_' . $sectionPart . '_' . $idPart;
+            }
             $id = $idBase;
             $suffix = 1;
             while (isset($fields[$id])) {
@@ -11762,7 +11769,7 @@ JAVASCRIPT;
                 'user_id' => $this->currentUser->id ?? null,
             ]));
             $fields[$id] = $field;
-            $existingKeys[$fieldKey] = true;
+            $existingScopeKeys[$scopeKey] = true;
             $added[] = [
                 'id' => $id,
                 'field_key' => $fieldKey,
@@ -11783,11 +11790,11 @@ JAVASCRIPT;
 
     private function summarizeCtripProfileAutoFetchFieldCandidates(array $fields, array $candidates, array $skippedCandidates = []): array
     {
-        $existingKeys = [];
+        $existingScopeKeys = [];
         foreach ($fields as $field) {
             $fieldKey = (string)($field['field_key'] ?? '');
             if ($fieldKey !== '') {
-                $existingKeys[$fieldKey] = true;
+                $existingScopeKeys[$this->ctripProfileFieldScopeKey($fieldKey, (string)($field['section'] ?? ''))] = true;
             }
         }
 
@@ -11799,7 +11806,7 @@ JAVASCRIPT;
             if ($fieldKey === '') {
                 continue;
             }
-            if (isset($existingKeys[$fieldKey])) {
+            if (isset($existingScopeKeys[$this->ctripProfileFieldScopeKey($fieldKey, (string)($candidate['section'] ?? ''))])) {
                 $configured++;
             } else {
                 $missing[] = [
@@ -11829,6 +11836,18 @@ JAVASCRIPT;
             ], $skippedCandidates), 0, 50),
             'auto_fetch_latest_time' => $latestTime !== '' ? $latestTime : null,
         ];
+    }
+
+    private function ctripProfileFieldScopeKey(string $fieldKey, string $section): string
+    {
+        $fieldKey = strtolower(trim($fieldKey));
+        $fieldKey = preg_replace('/[^a-z0-9_\-]+/', '_', $fieldKey) ?: '';
+        if ($fieldKey === '') {
+            return '';
+        }
+        $section = strtolower(trim($section));
+        $section = preg_replace('/[^a-z0-9_\-]+/', '_', $section) ?: 'unknown';
+        return $section . ':' . $fieldKey;
     }
 
     private function metricKeyFromCtripProfileDimension(string $dimension): string
