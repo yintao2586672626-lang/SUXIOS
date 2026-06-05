@@ -1,0 +1,17 @@
+{
+  "status": "canva_design_created_brand_kit_pending",
+  "reviewed_at": "2026-06-05",
+  "reviewer": "Codex release handoff",
+  "canva_design_id": "DAHLt0238Uk",
+  "canva_title": "报告 - 宿析OS上线",
+  "canva_edit_url": "https://www.canva.com/d/ZXGGJO3hrRuHG7N",
+  "canva_view_url": "https://www.canva.com/d/FbvV1XquuoeeNMF",
+  "page_count": 7,
+  "brand_kits_available": false,
+  "brand_kit_source": "Canva list_brand_kits returned an empty items array for the connected account.",
+  "does_not_close_release_design_gate": true,
+  "remaining_design_gate_inputs": [
+    "real canva.com Brand Kit URL",
+    "final docs/design_handoff_manifest.json with empty open_issues"
+  ]
+}
