@@ -595,6 +595,14 @@ function verifyCatalog() {
     'comment_rows',
     'good_review_count',
     'bad_review_count',
+    'five_min_reply_rate',
+    'manual_reply_rate',
+    'robot_resolution_rate',
+    'im_rank',
+    'session_count',
+    'manual_session_count',
+    'robot_session_count',
+    'im_order_conversion_rate',
   ]) {
     assertContract(fieldIds.has(fieldId), `latest task field must exist in catalog: ${fieldId}`);
   }
@@ -629,6 +637,14 @@ function verifyCatalog() {
     'stay_days',
     'travel_time',
     'user_source_scope',
+    'five_min_reply_rate',
+    'manual_reply_rate',
+    'robot_resolution_rate',
+    'im_rank',
+    'session_count',
+    'manual_session_count',
+    'robot_session_count',
+    'im_order_conversion_rate',
   ]) {
     assertContract(onlineDataSource.includes(`'${fieldKey}'`), `OnlineData default Profile fields must include ${fieldKey}`);
   }

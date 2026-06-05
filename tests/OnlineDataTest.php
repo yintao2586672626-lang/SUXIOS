@@ -2761,6 +2761,14 @@ final class OnlineDataTest extends TestCase
             'comment_score_summary',
             'reply_rate',
             'reply_rank',
+            'five_min_reply_rate',
+            'manual_reply_rate',
+            'robot_resolution_rate',
+            'im_rank',
+            'session_count',
+            'manual_session_count',
+            'robot_session_count',
+            'im_order_conversion_rate',
             'hotel_collect',
             'hotel_collect_rank',
             'ad_cost',
@@ -2907,6 +2915,29 @@ final class OnlineDataTest extends TestCase
         self::assertSame('data.elongId', $byKey['elong_comment_id']['json_path']);
         self::assertSame('getCommentsScoreV2', $byKey['comment_response_rate']['source_interface']);
         self::assertSame('data.responseRate', $byKey['comment_response_rate']['json_path']);
+        self::assertSame('im_board', $byKey['five_min_reply_rate']['section']);
+        self::assertSame('getImIndex', $byKey['five_min_reply_rate']['source_interface']);
+        self::assertSame('data.replyRate5m / data.fiveMinReplyRate / data.replyRate', $byKey['five_min_reply_rate']['json_path']);
+        self::assertStringContainsString('raw_data.metrics.five_min_reply_rate', $byKey['five_min_reply_rate']['storage_field']);
+        self::assertSame('im_board', $byKey['manual_reply_rate']['section']);
+        self::assertSame('getImIndex', $byKey['manual_reply_rate']['source_interface']);
+        self::assertSame('data.manualReplyRate / data.humanReplyRate / data.manualreplyrate5m', $byKey['manual_reply_rate']['json_path']);
+        self::assertSame('im_board', $byKey['robot_resolution_rate']['section']);
+        self::assertSame('getImIndex', $byKey['robot_resolution_rate']['source_interface']);
+        self::assertSame('data.robotResolutionRate / data.robotResolveRate / data.aisolverate', $byKey['robot_resolution_rate']['json_path']);
+        self::assertSame('im_board', $byKey['im_rank']['section']);
+        self::assertSame('getImIndex', $byKey['im_rank']['source_interface']);
+        self::assertStringContainsString('raw_data.rank_metrics.im_rank', $byKey['im_rank']['storage_field']);
+        self::assertSame('im_board', $byKey['session_count']['section']);
+        self::assertSame('getImDateDistribute / getImSessionDistribute / getImOrderConversionDetail', $byKey['session_count']['source_interface']);
+        self::assertStringContainsString('data[].sessionCount', $byKey['session_count']['json_path']);
+        self::assertSame('im_board', $byKey['manual_session_count']['section']);
+        self::assertSame('getImSessionDistribute / getImOrderConversionDetail', $byKey['manual_session_count']['source_interface']);
+        self::assertSame('im_board', $byKey['robot_session_count']['section']);
+        self::assertSame('getImSessionDistribute', $byKey['robot_session_count']['source_interface']);
+        self::assertSame('im_board', $byKey['im_order_conversion_rate']['section']);
+        self::assertSame('getImOrderConversionRateByDay / getImOrderConversionDetail', $byKey['im_order_conversion_rate']['source_interface']);
+        self::assertStringContainsString('raw_data.metrics.im_order_conversion_rate', $byKey['im_order_conversion_rate']['storage_field']);
         self::assertSame('im_board', $this->invokeNonPublic($controller, 'classifyCtripProfileCaptureSectionByPageUrl', [
             'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im',
             '',
