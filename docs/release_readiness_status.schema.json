@@ -70,7 +70,7 @@
             "uniqueItems": true
           },
           "status": {
-            "const": "open"
+            "enum": ["open", "closed"]
           },
           "title": {
             "type": "string",

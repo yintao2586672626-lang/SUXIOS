@@ -4,7 +4,7 @@ Updated: 2026-06-05
 
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
-Purpose: keep each open release blocker tied to one isolated acceptance command before running the global release gate.
+Purpose: keep each release issue tied to one isolated acceptance command before running the global release gate. Closed issues remain in the matrix for final-head reruns.
 
 ## Command Matrix
 
@@ -16,7 +16,7 @@ Purpose: keep each open release blocker tied to one isolated acceptance command 
 | `llm-connectivity-attestation-missing` | `@openai-developers` | `npm run review:release-llm` | `LLM_CONNECTIVITY_ATTESTATION_FILE` or `docs/llm_connectivity_attestation.json`. | Fails until production LLM smoke-test attestation exists. | Attestation proves the real `LlmClient` path and enabled `ai_model_configs` were tested, contains no secrets, and confirms `redaction_checked=true`. |
 | `design-handoff-missing` | `@figma` / `@canva` | `npm run review:release-design` | `docs/design_handoff_manifest.json`. | Fails until real design source handoff exists. | Manifest includes accessible Figma, Canva, Brand Kit, design token path, required flow coverage, review date, owner, and empty `open_issues`. |
 | `ota-credential-rotation-attestation-missing` | `@codex-security` | `npm run review:release-ota-credentials` | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json`. | Fails until credential-free rotation attestation exists. | OTA Cookie, Token, signature, and Authorization material rotation or invalidation is attested without exposing values. |
-| `codex-security-scan-missing` | `@codex-security` | `npm run review:release-security-scan` | `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest`. | Fails until formal scan artifacts exist. | Scan directory contains manifest, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, and Markdown/HTML reports. |
+| `codex-security-scan-missing` | `@codex-security` | `npm run review:release-security-scan` | `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest`. | Passes with `docs/security/codex-security/latest`; rerun on the final PR #2 head. | Scan directory contains manifest, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, and Markdown/HTML reports. |
 
 ## Global Gates
 
@@ -24,7 +24,7 @@ Run these only after the isolated command for each closed blocker passes.
 
 | Gate | Command | Expected current status | Purpose |
 |---|---|---|---|
-| Release readiness | `npm run review:release-readiness` | Fails while any blocker above remains open. | Single release gate for production env, LLM, design handoff, OTA credentials, Codex Security scan, and local Git state. |
+| Release readiness | `npm run review:release-readiness` | Fails while any blocker above remains open. | Single release gate for production env, LLM, design handoff, OTA credentials, persistent Codex Security scan artifacts, and local Git state. |
 | Status contract | `npm run verify:release-status` | Passes. | Confirms release docs, examples, scripts, and blocker contracts stay consistent. |
 | Functional readiness | `npm run review:functional-readiness` | Passes. | Confirms local structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
 | Issue register | `npm run review:release-issues` | Passes. | Confirms the current release issue register still lists all open blockers and acceptance commands. |
@@ -35,5 +35,5 @@ Run these only after the isolated command for each closed blocker passes.
 - Do not mark a blocker closed from narrative evidence alone; its isolated command must pass first.
 - Do not store real keys, Cookie values, Token values, signatures, Authorization headers, or unredacted sensitive fields in evidence files.
 - Do not treat template files as passing production evidence.
-- Do not replace the formal Codex Security scan with dependency audits or existing lightweight security scripts.
+- Do not replace the formal Codex Security scan with dependency audits or existing lightweight security scripts; keep the completed scan artifacts passing on the final head.
 - Rerun `npm run review:release-readiness` after each blocker is closed.

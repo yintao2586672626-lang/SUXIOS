@@ -34,9 +34,9 @@
 
 ## CI 证据
 
-PR：`https://github.com/yintao2586672626-lang/SUXIOS/pull/1`
+PR：`https://github.com/yintao2586672626-lang/SUXIOS/pull/2`
 
-当前 head：`7f91aca5b19f406dc6b16decb590eb641089a403`
+当前 head：以 PR #2 final head 为准；每次推送后需重新确认 GitHub Actions。
 
 GitHub Actions：2 个 `PHP Composer / verify` checks 均通过。CI 覆盖 Composer audit、npm audit、PHPUnit、P0 guards、OTA 批量校验、开业批量动作、功能验收、问题登记、非安全评审和 release status contract。
 
@@ -48,7 +48,7 @@ GitHub Actions：2 个 `PHP Composer / verify` checks 均通过。CI 覆盖 Comp
 | 生产 LLM 连通性 | 缺真实连通性证明，后续执行 `npm run review:release-llm`。 |
 | Figma / Canva 真实交付 | 缺真实设计源和 Brand Kit，后续执行 `npm run review:release-design`。 |
 | OTA 凭据与备份 | `database/backups` 仍有凭据形态字段，后续执行 `npm run review:release-ota-credentials`。 |
-| Codex Security 正式扫描 | 缺正式全仓扫描 artifacts，后续执行 `npm run review:release-security-scan`。 |
+| Codex Security 正式扫描 | 已生成 `docs/security/codex-security/latest` artifacts，`npm run review:release-security-scan` 已通过；最终 PR head 仍需复验。 |
 | GitHub / 本地交接 | PR 仍是 draft，`.git/index.lock` 存在，本地 worktree dirty，后续执行 `npm run review:release-external-state`。 |
 
 ## 验收口径

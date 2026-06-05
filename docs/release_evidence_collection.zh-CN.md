@@ -15,7 +15,7 @@
 | Figma / Canva 真实设计交付缺失 | `@figma` / `@canva` | `docs/design_handoff_manifest.json`，结构参考 `docs/design_handoff_manifest.example.json`。 | 无访问权限链接、截图替代源文件、未评审 open issue、伪造 Brand Kit。 | `npm run review:release-design` |
 | 本地备份存在 OTA 凭据形态字段 | `@codex-security` | 清理后的 `database/backups` 状态；必要时附加仓库外加密归档记录。 | Cookie、Token、usertoken、usersign、签名、Authorization 明文。 | `npm run review:release-ota-credentials` |
 | OTA 凭据轮换证明缺失 | `@codex-security` | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 或 `docs/ota_credential_rotation_attestation.json`，结构参考 `docs/ota_credential_rotation_attestation.example.json`。 | 真实凭据值、可复用登录态、未脱敏平台返回。 | `npm run review:release-ota-credentials` |
-| 正式 Codex Security 扫描缺失 | `@codex-security` | `CODEX_SECURITY_SCAN_DIR` 或 `docs/security/codex-security/latest`，含 `scan_manifest.json`，结构参考 `docs/codex_security_scan_manifest.example.json`。 | 只放依赖审计结果、缺失 HTML 报告、缺失验证摘要、缺失攻击路径分析。 | `npm run review:release-security-scan` |
+| 正式 Codex Security 扫描产物 | `@codex-security` | `CODEX_SECURITY_SCAN_DIR` 或 `docs/security/codex-security/latest`，含 `scan_manifest.json`，结构参考 `docs/codex_security_scan_manifest.example.json`；当前仓库已提供 `docs/security/codex-security/latest`。 | 只放依赖审计结果、缺失 HTML 报告、缺失验证摘要、缺失攻击路径分析。 | `npm run review:release-security-scan` |
 | GitHub / 本地交接状态未关闭 | `@github` | `RELEASE_EXTERNAL_STATE_FILE` 或 `docs/release_external_state_evidence.local.json`，结构参考 `docs/release_external_state_evidence.example.json`。 | draft PR、未解释的 dirty worktree、仍存在 `.git/index.lock`、未确认 PR checks。 | `npm run review:release-external-state` |
 
 ## 采集步骤

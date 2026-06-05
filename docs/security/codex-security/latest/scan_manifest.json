@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "scan_mode": "repository-wide",
+  "target": "HOTEL",
+  "reviewed_at": "2026-06-05",
+  "reviewer": "Codex",
+  "commit": "deb56423e5d6c3a58b904b2de9d6e9cdb47fbeb2",
+  "subagents_authorized": true,
+  "execution_mode": "parent-agent local scan; no delegated subagent changes were made",
+  "phases": {
+    "threat_model": "completed",
+    "finding_discovery": "completed",
+    "validation": "completed",
+    "attack_path_analysis": "completed",
+    "final_report": "completed"
+  },
+  "artifacts": {
+    "report_md": "report.md",
+    "report_html": "report.html",
+    "threat_model": "artifacts/01_context/threat_model.md",
+    "finding_discovery_report": "artifacts/02_discovery/finding_discovery_report.md",
+    "repository_coverage_ledger": "artifacts/03_coverage/repository_coverage_ledger.md",
+    "reviewed_surfaces": "artifacts/03_coverage/reviewed_surfaces.md",
+    "validation_summary": "artifacts/05_findings/validation_summary.md",
+    "attack_path_analysis_report": "artifacts/05_findings/attack_path_analysis_report.md"
+  },
+  "commands": [
+    "C:\\xampp\\php\\php.exe scripts\\verify_high_risk_security.php",
+    "npm.cmd audit --audit-level=moderate",
+    "C:\\xampp\\php\\php.exe C:\\xampp\\php\\composer.phar audit --no-interaction",
+    "npm.cmd run review:release-ota-credentials",
+    "npm.cmd run review:release-security-scan"
+  ],
+  "summary": {
+    "reportable_findings": 0,
+    "severity_mix": {},
+    "remaining_release_blockers": [
+      "production-env-missing",
+      "llm-connectivity-attestation-missing",
+      "design-handoff-missing",
+      "ota-credential-rotation-attestation-missing"
+    ]
+  },
+  "final_report_validated": true,
+  "report_html_rendered": true,
+  "notes": "This scan closes the formal Codex Security scan artifact blocker only. It does not close production env, production LLM, Figma/Canva handoff, or OTA credential rotation attestation blockers."
+}

@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HOTEL Codex Security Scan</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #fff;
+      --bg-elev: #fafafa;
+      --bg-muted: #f5f5f7;
+      --fg: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #2563eb;
+      --code: #f3f4f6;
+      --shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b0f14;
+        --bg-elev: #0f141b;
+        --bg-muted: #121923;
+        --fg: #e5e7eb;
+        --muted: #9ca3af;
+        --border: #243040;
+        --accent: #60a5fa;
+        --code: #111827;
+        --shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    body.sidebar-collapsed .layout { grid-template-columns: 44px minmax(0, 1fr); }
+
+    .sidebar {
+      min-height: 100vh;
+      border-right: 1px solid var(--border);
+      background: var(--bg-muted);
+    }
+
+    .toc-inner {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 10px 8px;
+    }
+
+    .nav-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin: 0 0 8px;
+      text-transform: uppercase;
+    }
+
+    .nav-toggle {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--fg);
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 5px;
+    }
+
+    .nav-toggle:hover { box-shadow: var(--shadow); }
+    .nav-meta { color: var(--muted); font-size: 12px; margin: 0 0 12px; padding: 0 4px; }
+
+    body.sidebar-collapsed .toc-inner {
+      display: flex;
+      align-items: center;
+      padding: 8px 6px;
+    }
+
+    body.sidebar-collapsed .nav-title span,
+    body.sidebar-collapsed .nav-meta,
+    body.sidebar-collapsed .toc { display: none; }
+
+    main { max-width: 1040px; padding: 32px 44px 80px; }
+    h1, h2, h3 { line-height: 1.2; margin-top: 1.7em; }
+    h1:first-child { margin-top: 0; }
+    h2 { border-top: 1px solid var(--border); padding-top: 1em; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { background: var(--code); border-radius: 4px; padding: 0.1em 0.3em; }
+    pre { background: var(--code); border: 1px solid var(--border); border-radius: 8px; overflow: auto; padding: 16px; }
+    pre code { background: transparent; padding: 0; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; }
+    th, td { border: 1px solid var(--border); padding: 8px 10px; vertical-align: top; }
+    th { text-align: left; background: var(--code); }
+
+    main h3[id^="0-"] + table,
+    main h3[id^="1-"] + table,
+    main h3[id^="2-"] + table,
+    main h3[id^="3-"] + table,
+    main h3[id^="4-"] + table,
+    main h3[id^="5-"] + table,
+    main h3[id^="6-"] + table,
+    main h3[id^="7-"] + table,
+    main h3[id^="8-"] + table,
+    main h3[id^="9-"] + table {
+      margin: 10px 0 24px;
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      background: var(--bg-elev);
+      box-shadow: var(--shadow);
+    }
+
+    main h3[id^="0-"] + table th,
+    main h3[id^="1-"] + table th,
+    main h3[id^="2-"] + table th,
+    main h3[id^="3-"] + table th,
+    main h3[id^="4-"] + table th,
+    main h3[id^="5-"] + table th,
+    main h3[id^="6-"] + table th,
+    main h3[id^="7-"] + table th,
+    main h3[id^="8-"] + table th,
+    main h3[id^="9-"] + table th { display: none; }
+
+    main h3[id^="0-"] + table td:first-child,
+    main h3[id^="1-"] + table td:first-child,
+    main h3[id^="2-"] + table td:first-child,
+    main h3[id^="3-"] + table td:first-child,
+    main h3[id^="4-"] + table td:first-child,
+    main h3[id^="5-"] + table td:first-child,
+    main h3[id^="6-"] + table td:first-child,
+    main h3[id^="7-"] + table td:first-child,
+    main h3[id^="8-"] + table td:first-child,
+    main h3[id^="9-"] + table td:first-child {
+      width: 170px;
+      color: var(--muted);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    main h3[id^="0-"] + table td,
+    main h3[id^="1-"] + table td,
+    main h3[id^="2-"] + table td,
+    main h3[id^="3-"] + table td,
+    main h3[id^="4-"] + table td,
+    main h3[id^="5-"] + table td,
+    main h3[id^="6-"] + table td,
+    main h3[id^="7-"] + table td,
+    main h3[id^="8-"] + table td,
+    main h3[id^="9-"] + table td { border-left: 0; border-right: 0; }
+
+    .toc { list-style: none; padding: 0; margin: 0; }
+    .toc a {
+      display: block;
+      border-radius: 6px;
+      color: var(--fg);
+      font-size: 13px;
+      line-height: 1.3;
+      padding: 4px 6px;
+      position: relative;
+      transition: background 160ms ease, color 160ms ease, padding-left 160ms ease;
+    }
+
+    .toc a:hover { background: var(--bg-elev); text-decoration: none; }
+    .toc-item { list-style: none; margin: 1px 0; }
+    .toc-item.depth-1 > a { font-weight: 700; }
+    .toc-item.depth-2 { padding-left: 14px; }
+    .toc-item.depth-3 { padding-left: 28px; }
+
+    .toc-item.active > a {
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      font-weight: 700;
+      padding-left: 10px;
+    }
+
+    .toc-item.active > a::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 4px;
+      bottom: 4px;
+      width: 3px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    @media (max-width: 900px) {
+      .layout { display: block; }
+      .sidebar { min-height: 0; border-right: 0; border-bottom: 1px solid var(--border); }
+      .toc-inner { position: static; height: auto; max-height: 45vh; }
+      main { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" aria-label="Table of contents">
+      <div class="toc-inner">
+        <div class="nav-title">
+          <span>Outline</span>
+          <button id="navToggle" class="nav-toggle" aria-pressed="false" aria-label="Collapse sidebar" title="Collapse sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path id="navToggleIcon" d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="nav-meta">HOTEL Codex Security Scan</div>
+        <ul class="toc">
+          <li class="toc-item depth-1"><a href="#security-review-hotel">Security Review: HOTEL</a></li>
+<li class="toc-item depth-2"><a href="#scope">Scope</a></li>
+<li class="toc-item depth-3"><a href="#scan-summary">Scan Summary</a></li>
+<li class="toc-item depth-2"><a href="#threat-model">Threat Model</a></li>
+<li class="toc-item depth-3"><a href="#product-scope">Product Scope</a></li>
+<li class="toc-item depth-3"><a href="#assets">Assets</a></li>
+<li class="toc-item depth-3"><a href="#trust-boundaries">Trust Boundaries</a></li>
+<li class="toc-item depth-3"><a href="#attacker-controlled-inputs">Attacker-Controlled Inputs</a></li>
+<li class="toc-item depth-3"><a href="#required-invariants">Required Invariants</a></li>
+<li class="toc-item depth-2"><a href="#findings">Findings</a></li>
+<li class="toc-item depth-3"><a href="#no-findings">No findings</a></li>
+<li class="toc-item depth-3"><a href="#confidence-scale">Confidence Scale</a></li>
+<li class="toc-item depth-2"><a href="#reviewed-surfaces">Reviewed Surfaces</a></li>
+<li class="toc-item depth-2"><a href="#open-questions-and-follow-up">Open Questions And Follow Up</a></li>
+        </ul>
+      </div>
+    </aside>
+    <main>
+      <h1 id="security-review-hotel">Security Review: HOTEL</h1>
+
+<h2 id="scope">Scope</h2>
+
+<ul><li>Scan mode: repository-wide release security scan.</li><li>Repository root: <code>D:\妗岄潰\SUXIOS\瀹挎瀽OS鍒濆鐗圽HOTEL</code>.</li><li>Commit reviewed: <code>deb56423e5d6c3a58b904b2de9d6e9cdb47fbeb2</code>.</li><li>Date: 2026-06-05.</li><li>In-scope code: <code>app/</code>, <code>route/</code>, <code>config/</code>, <code>scripts/</code>, <code>public/index.html</code>, release verification scripts, and release evidence contracts.</li><li>Explicit exclusions: <code>node_modules/</code>, <code>vendor/</code>, <code>storage/</code>, <code>runtime/</code>, <code>output/</code>, raw capture reports, browser profiles, and backup SQL content beyond release package/tracking checks.</li><li>Runtime status used as evidence: local guards, PHPUnit, route coverage, SQL schema contract, dependency audits, and release security checks.</li><li>Threat model source: generated during this scan and saved at <code>artifacts/01_context/threat_model.md</code>.</li></ul>
+
+<h3 id="scan-summary">Scan Summary</h3>
+
+<table>
+<thead><tr>
+<th>Field</th>
+<th>Value</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Reportable findings</td>
+<td>0</td>
+</tr>
+<tr>
+<td>Severity mix</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Confidence mix</td>
+<td>high confidence for reviewed no-finding surfaces; production evidence gaps remain external blockers</td>
+</tr>
+<tr>
+<td>Coverage</td>
+<td>Route/auth, public exceptions, OTA outbound fetch, API-source SSRF, process execution, SQL/raw query helpers, file/archive import, secret/package controls, dependencies</td>
+</tr>
+<tr>
+<td>Validation mode</td>
+<td>Static trace plus existing project verifiers and dependency audit commands</td>
+</tr>
+<tr>
+<td>Final HTML</td>
+<td><code>docs/security/codex-security/latest/report.html</code></td>
+</tr>
+</tbody></table>
+
+<h2 id="threat-model">Threat Model</h2>
+
+<h3 id="product-scope">Product Scope</h3>
+
+<p>SUXIOS HOTEL is a ThinkPHP 8 and Vue CDN single-page application for hotel operations. The core business chain is OTA channel data from Ctrip and Meituan -&gt; revenue analysis -&gt; AI decisions -&gt; operations management -&gt; investment decisions.</p>
+
+<p>The primary repository root is <code>HOTEL/</code>. The reviewed runtime surfaces are backend controllers under <code>app/controller</code>, route definitions under <code>route/app.php</code>, middleware under <code>app/middleware</code>, service-layer helpers under <code>app/service</code>, local automation scripts under <code>scripts</code>, production hygiene configuration, and release evidence checks.</p>
+
+<h3 id="assets">Assets</h3>
+
+<ul><li>User accounts, session tokens, roles, hotel bindings, and operation logs.</li><li>OTA credentials and browser profile material, including Cookie, token, signature, Authorization, usertoken, and usersign values.</li><li>Hotel-scoped OTA rows, revenue metrics, strategy records, operating actions, and investment decision records.</li><li>AI model configuration and encrypted provider secrets in <code>ai_model_configs</code>.</li><li>Release artifacts, production environment settings, and GitHub PR state.</li></ul>
+
+<h3 id="trust-boundaries">Trust Boundaries</h3>
+
+<ul><li>Browser or external client -&gt; ThinkPHP API routes.</li><li>Authenticated user -&gt; hotel-scoped business data and privileged operations.</li><li>Bookmarklet and cron callers -&gt; unauthenticated routes that must enforce independent token controls.</li><li>External OTA domains -&gt; manually supplied or configured HTTP endpoints.</li><li>Local browser automation and Python scripts -&gt; process execution with controlled arguments.</li><li>Production LLM provider -&gt; outbound model calls through <code>LlmClient</code>.</li><li>Git/release pipeline -&gt; CI, release evidence, and PR state.</li></ul>
+
+<h3 id="attacker-controlled-inputs">Attacker-Controlled Inputs</h3>
+
+<ul><li>HTTP request parameters, JSON bodies, headers, uploaded/imported files, and base64 image payloads.</li><li>Public route parameters on login, registration, health, cookie receiver, cron trigger, and competitor collector APIs.</li><li>OTA request URLs, headers, cookies, payloads, and platform responses.</li><li>AI prompts, report fields, document text, and imported data values.</li><li>Configured API source URLs and optional headers, where user roles permit configuration changes.</li></ul>
+
+<h3 id="required-invariants">Required Invariants</h3>
+
+<ul><li>Protected business routes must require <code>app\middleware\Auth</code>.</li><li>Public exceptions must have explicit independent controls such as login policy, env tokens, CORS checks, or health-only behavior.</li><li>OTA-only metrics must remain scoped as OTA channel evidence, not whole-hotel operating truth.</li><li>Cross-hotel access must be constrained by system hotel IDs and permitted hotel IDs.</li><li>External HTTP fetches must be restricted by HTTPS and host allowlists or private-host rejection.</li><li>Process execution must use fixed binaries, argument arrays, escaping, and timeouts.</li><li>Release checks must not use templates, placeholders, or fallback success to hide missing evidence.</li><li>Secrets, cookies, tokens, signatures, and Authorization values must not be committed or emitted into release reports.</li></ul>
+
+<h2 id="findings">Findings</h2>
+
+<h3 id="no-findings">No findings</h3>
+
+<p>No reportable security finding survived discovery, validation, and attack-path analysis.</p>
+
+<p>The scan reviewed high-impact surfaces for authentication, authorization, SSRF, command execution, SQL injection, file/archive handling, secret exposure, and dependency advisories. Existing controls and project verifiers provided counterevidence for each reviewed candidate family.</p>
+
+<h3 id="confidence-scale">Confidence Scale</h3>
+
+<table>
+<thead><tr>
+<th>Label</th>
+<th>Meaning</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>high</td>
+<td>Direct source, configuration, or command evidence supports the conclusion, with no material unresolved reachability or exploitability blocker for the reviewed surface.</td>
+</tr>
+<tr>
+<td>medium</td>
+<td>Source evidence supports the conclusion, but runtime deployment configuration still needs production proof.</td>
+</tr>
+<tr>
+<td>low</td>
+<td>Weak or incomplete evidence; not used for final no-finding closure.</td>
+</tr>
+</tbody></table>
+
+<h2 id="reviewed-surfaces">Reviewed Surfaces</h2>
+
+<table>
+<thead><tr>
+<th>Surface</th>
+<th>Risk Area</th>
+<th>Outcome</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Route registry and middleware</td>
+<td>Authentication and authorization</td>
+<td>No issue found</td>
+<td>Main business routes are protected by <code>Auth</code>; public exceptions have separate controls.</td>
+</tr>
+<tr>
+<td>Auth middleware</td>
+<td>Token handling, audit logging, rate limit</td>
+<td>No issue found</td>
+<td>Sensitive audit params are redacted and disabled users are rejected.</td>
+</tr>
+<tr>
+<td>Competitor public API</td>
+<td>Public collector abuse</td>
+<td>No issue found</td>
+<td>Env tokens plus <code>hash_equals</code> and rate limits are present.</td>
+</tr>
+<tr>
+<td>Cookie receiver and bookmarklet flow</td>
+<td>OTA credential injection</td>
+<td>No issue found</td>
+<td>Cached Authorization token and CORS origin checks are present.</td>
+</tr>
+<tr>
+<td>Cron trigger</td>
+<td>Scheduled action abuse</td>
+<td>No issue found</td>
+<td>Requires <code>CRON_TOKEN</code>; missing token fails closed.</td>
+</tr>
+<tr>
+<td>OTA custom fetch and manual request flow</td>
+<td>SSRF</td>
+<td>No issue found</td>
+<td>Requires HTTPS and Ctrip/Meituan host suffix allowlist.</td>
+</tr>
+<tr>
+<td>API data-source adapter</td>
+<td>Configured outbound HTTP</td>
+<td>No issue found</td>
+<td>Rejects private/reserved hosts, disables redirects, and supports explicit allowed hosts.</td>
+</tr>
+<tr>
+<td>Process execution paths</td>
+<td>Command injection</td>
+<td>No issue found</td>
+<td>Uses argument arrays, escaping, controlled files, and PID casting.</td>
+</tr>
+<tr>
+<td>SQL helpers and metadata queries</td>
+<td>SQL injection</td>
+<td>No issue found</td>
+<td>No attacker-controlled raw SQL sink survived discovery.</td>
+</tr>
+<tr>
+<td>File import and archive parsing</td>
+<td>Path traversal or unsafe file handling</td>
+<td>No issue found</td>
+<td>Reviewed paths are runtime/temp/read-only parsing flows.</td>
+</tr>
+<tr>
+<td>Dependency manifests</td>
+<td>Known CVE/advisory exposure</td>
+<td>No issue found</td>
+<td>Composer and npm audit checks passed on this head.</td>
+</tr>
+<tr>
+<td>Release package and backup handling</td>
+<td>Secret exposure</td>
+<td>Needs follow-up</td>
+<td>Backup text scan is clean, but real OTA credential rotation attestation is still missing.</td>
+</tr>
+<tr>
+<td>Production deployment evidence</td>
+<td>Release readiness</td>
+<td>Needs follow-up</td>
+<td>Production env, LLM connectivity, and design handoff evidence remain missing.</td>
+</tr>
+</tbody></table>
+
+<h2 id="open-questions-and-follow-up">Open Questions And Follow Up</h2>
+
+<ul><li>Provide the real production env outside the repository and rerun <code>npm.cmd run review:release-env</code>.</li><li>Run a production <code>LlmClient</code> smoke test with enabled <code>ai_model_configs</code>, provide a redacted attestation, and rerun <code>npm.cmd run review:release-llm</code>.</li><li>Provide real Figma, Canva, Brand Kit, design-token, and covered-flow handoff evidence, then rerun <code>npm.cmd run review:release-design</code>.</li><li>Rotate or invalidate OTA credential material and provide a redacted attestation, then rerun <code>npm.cmd run review:release-ota-credentials</code>.</li><li>Rerun <code>npm.cmd run review:release-readiness</code> and <code>$env:RELEASE_PR_NUMBER=&#x27;2&#x27;; npm.cmd run review:release-external-state</code> after every release evidence update.</li></ul>
+    </main>
+  </div>
+  <script>
+    const toggle = document.getElementById('navToggle');
+    const icon = document.getElementById('navToggleIcon');
+    const collapsedKey = 'codex-security-report:sidebar-collapsed';
+
+    function setCollapsed(collapsed) {
+      document.body.classList.toggle('sidebar-collapsed', collapsed);
+      if (toggle) {
+        toggle.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+        toggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+        toggle.setAttribute('title', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+      }
+      if (icon) icon.setAttribute('d', collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6');
+      try { localStorage.setItem(collapsedKey, collapsed ? '1' : '0'); } catch {}
+    }
+
+    try { setCollapsed(localStorage.getItem(collapsedKey) === '1'); } catch {}
+    if (toggle) toggle.addEventListener('click', () => setCollapsed(!document.body.classList.contains('sidebar-collapsed')));
+
+    const tocLinks = Array.from(document.querySelectorAll('.toc a'));
+    const sections = tocLinks.map((link) => {
+      const id = decodeURIComponent(link.getAttribute('href').slice(1));
+      return [link, document.getElementById(id)];
+    }).filter((pair) => pair[1]);
+
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (!visible) return;
+      tocLinks.forEach((link) => link.parentElement.classList.remove('active'));
+      const active = tocLinks.find((link) => link.getAttribute('href') === '#' + visible.target.id);
+      if (active) active.parentElement.classList.add('active');
+    }, { rootMargin: '-10% 0px -75% 0px', threshold: [0, 1] });
+
+    sections.forEach(([, section]) => observer.observe(section));
+  </script>
+</body>
+</html>

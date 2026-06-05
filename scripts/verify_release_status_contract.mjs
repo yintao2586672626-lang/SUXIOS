@@ -93,7 +93,6 @@ const requiredOpenFailurePatterns = [
   /LLM|connectivity|LLM_CONNECTIVITY_ATTESTATION_FILE/i,
   /figma|canva|design-token|design_handoff_manifest|design_handoff_manifest\.json/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
-  /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
 ];
 
 const requiredExternalStateFailurePatterns = [
@@ -134,6 +133,10 @@ const requiredBlockerIds = [
   'ota-credential-rotation-attestation-missing',
   'codex-security-scan-missing',
   'local-git-state-open',
+];
+
+const closedBlockerIds = [
+  'codex-security-scan-missing',
 ];
 
 const requiredBlockerScopes = {
@@ -600,8 +603,9 @@ if (status) {
       fail(`blockers is missing ${id}`);
       continue;
     }
-    if (blocker.status !== 'open') {
-      fail(`blocker ${id} must remain open until proven closed`);
+    const expectedStatus = closedBlockerIds.includes(id) ? 'closed' : 'open';
+    if (blocker.status !== expectedStatus) {
+      fail(`blocker ${id} must be ${expectedStatus}`);
     }
     for (const field of ['title', 'evidence', 'close_condition']) {
       if (typeof blocker[field] !== 'string' || blocker[field].trim() === '') {
@@ -833,8 +837,8 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.passed !== 7) {
-    fail('docs/release_readiness_result.example.json summary.passed must match the current 7 release-readiness passes');
+  if (readinessResultExample.summary?.passed !== 8) {
+    fail('docs/release_readiness_result.example.json summary.passed must match the current 8 release-readiness passes');
     resultComplete = false;
   }
   const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
@@ -945,8 +949,11 @@ try {
   if (!report.includes('npm run review:functional-readiness')) {
     fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
   }
-  if (!report.includes('5 release-evidence failures')) {
-    fail('release_readiness_remaining_issues.md must state the current 5 release-evidence failures');
+  if (!report.includes('4 release-evidence failures')) {
+    fail('release_readiness_remaining_issues.md must state the current 4 release-evidence failures');
+  }
+  if (report.includes('5 release-evidence failures')) {
+    fail('release_readiness_remaining_issues.md must not use the stale 5 release-evidence failure count');
   }
   if (report.includes('6 direct release-evidence failures')) {
     fail('release_readiness_remaining_issues.md must not use the stale 6 direct release-evidence failure count');
