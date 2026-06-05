@@ -1,0 +1,25 @@
+{
+  "status": "figma_source_created_canva_and_brand_kit_pending",
+  "reviewed_at": "2026-06-05",
+  "reviewer": "Codex release handoff",
+  "figma_file_key": "ngtbNGUVP77kO1hh9SOLQA",
+  "figma_url": "https://www.figma.com/design/ngtbNGUVP77kO1hh9SOLQA",
+  "figma_page_id": "0:1",
+  "figma_page_name": "Release Handoff",
+  "design_tokens_path": "docs/design-tokens.release.json",
+  "covered_flows": [
+    "login",
+    "home-dashboard",
+    "ota-data",
+    "revenue-analysis",
+    "ai-decision",
+    "operations-management",
+    "investment-decision"
+  ],
+  "does_not_close_release_design_gate": true,
+  "remaining_design_gate_inputs": [
+    "real canva.com design URL",
+    "real canva.com Brand Kit URL",
+    "final docs/design_handoff_manifest.json with empty open_issues"
+  ]
+}
