@@ -88,7 +88,7 @@
       ],
       "status": "open",
       "title": "PR handoff state is not closed",
-      "evidence": "PR #2 is open, mergeable, green on head 6192b1bed2ac7efe0e023b7f7793372b88fcaa13, local worktree is clean, .git/index.lock is absent, and database/backups has no tracked files; PR #2 remains draft",
+      "evidence": "PR #2 is open, mergeable, and green on the latest verified head, local worktree is clean, .git/index.lock is absent, and database/backups has no tracked files; PR #2 remains draft",
       "close_condition": "mark PR #2 ready for review only after release-readiness passes and pass review:release-external-state on the final head"
     }
   ],

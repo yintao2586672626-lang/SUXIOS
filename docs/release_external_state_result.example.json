@@ -12,9 +12,9 @@
     "database/backups has no git-tracked files.",
     ".git/index.lock is absent.",
     "local worktree is clean.",
-    "PR head sha is recorded: 6192b1bed2ac7efe0e023b7f7793372b88fcaa13.",
+    "PR head sha is recorded by the live external-state check.",
     "PR #2 is open.",
-    "PR #2 is mergeable at 6192b1bed2ac7efe0e023b7f7793372b88fcaa13.",
+    "PR #2 is mergeable at the recorded head.",
     "PR #2 status checks are all green (2 checks)."
   ],
   "warnings": [
