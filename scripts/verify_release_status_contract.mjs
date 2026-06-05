@@ -89,8 +89,6 @@ const requiredWorkflowCommands = [
 ];
 
 const requiredOpenFailurePatterns = [
-  /production env/i,
-  /LLM|connectivity|LLM_CONNECTIVITY_ATTESTATION_FILE/i,
   /figma|canva|design-token|design_handoff_manifest|design_handoff_manifest\.json/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
 ];
@@ -136,6 +134,8 @@ const requiredBlockerIds = [
 ];
 
 const closedBlockerIds = [
+  'production-env-missing',
+  'llm-connectivity-attestation-missing',
   'codex-security-scan-missing',
 ];
 
@@ -837,8 +837,8 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.passed !== 8) {
-    fail('docs/release_readiness_result.example.json summary.passed must match the current 8 release-readiness passes');
+  if (readinessResultExample.summary?.passed !== 13) {
+    fail('docs/release_readiness_result.example.json summary.passed must match the current 13 release-readiness passes');
     resultComplete = false;
   }
   const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
@@ -949,8 +949,11 @@ try {
   if (!report.includes('npm run review:functional-readiness')) {
     fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
   }
-  if (!report.includes('4 release-evidence failures')) {
-    fail('release_readiness_remaining_issues.md must state the current 4 release-evidence failures');
+  if (!report.includes('2 release-evidence failures')) {
+    fail('release_readiness_remaining_issues.md must state the current 2 release-evidence failures');
+  }
+  if (report.includes('4 release-evidence failures')) {
+    fail('release_readiness_remaining_issues.md must not use the stale 4 release-evidence failure count');
   }
   if (report.includes('5 release-evidence failures')) {
     fail('release_readiness_remaining_issues.md must not use the stale 5 release-evidence failure count');

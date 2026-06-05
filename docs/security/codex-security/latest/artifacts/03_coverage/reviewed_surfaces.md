@@ -14,4 +14,4 @@
 | File import and archive parsing | Path traversal or unsafe file handling | No issue found | Reviewed paths are runtime/temp/read-only parsing flows. |
 | Dependency manifests | Known CVE/advisory exposure | No issue found | Composer and npm audit checks passed on this head. |
 | Release package and backup handling | Secret exposure | Needs follow-up | Backup text scan is clean, but real OTA credential rotation attestation is still missing. |
-| Production deployment evidence | Release readiness | Needs follow-up | Production env, LLM connectivity, and design handoff evidence remain missing. |
+| Production deployment evidence | Release readiness | Needs follow-up | Production env and LLM connectivity now pass through external evidence; design handoff evidence remains missing. |

@@ -17,7 +17,7 @@
 |---|---|
 | Reportable findings | 0 |
 | Severity mix | none |
-| Confidence mix | high confidence for reviewed no-finding surfaces; production evidence gaps remain external blockers |
+| Confidence mix | high confidence for reviewed no-finding surfaces; design and OTA credential evidence gaps remain external blockers |
 | Coverage | Route/auth, public exceptions, OTA outbound fetch, API-source SSRF, process execution, SQL/raw query helpers, file/archive import, secret/package controls, dependencies |
 | Validation mode | Static trace plus existing project verifiers and dependency audit commands |
 | Final HTML | `docs/security/codex-security/latest/report.html` |
@@ -80,7 +80,7 @@ The scan reviewed high-impact surfaces for authentication, authorization, SSRF, 
 | Label | Meaning |
 |---|---|
 | high | Direct source, configuration, or command evidence supports the conclusion, with no material unresolved reachability or exploitability blocker for the reviewed surface. |
-| medium | Source evidence supports the conclusion, but runtime deployment configuration still needs production proof. |
+| medium | Source evidence supports the conclusion, but final-head release evidence still needs proof. |
 | low | Weak or incomplete evidence; not used for final no-finding closure. |
 
 ## Reviewed Surfaces
@@ -99,12 +99,12 @@ The scan reviewed high-impact surfaces for authentication, authorization, SSRF, 
 | File import and archive parsing | Path traversal or unsafe file handling | No issue found | Reviewed paths are runtime/temp/read-only parsing flows. |
 | Dependency manifests | Known CVE/advisory exposure | No issue found | Composer and npm audit checks passed on this head. |
 | Release package and backup handling | Secret exposure | Needs follow-up | Backup text scan is clean, but real OTA credential rotation attestation is still missing. |
-| Production deployment evidence | Release readiness | Needs follow-up | Production env, LLM connectivity, and design handoff evidence remain missing. |
+| Production deployment evidence | Release readiness | Needs follow-up | Production env and LLM connectivity now pass through external evidence; design handoff evidence remains missing. |
 
 ## Open Questions And Follow Up
 
-- Provide the real production env outside the repository and rerun `npm.cmd run review:release-env`.
-- Run a production `LlmClient` smoke test with enabled `ai_model_configs`, provide a redacted attestation, and rerun `npm.cmd run review:release-llm`.
+- Keep the external production env evidence available and rerun `npm.cmd run review:release-env` on the final head.
+- Keep the external production `LlmClient` attestation available and rerun `npm.cmd run review:release-llm` on the final head.
 - Provide real Figma, Canva, Brand Kit, design-token, and covered-flow handoff evidence, then rerun `npm.cmd run review:release-design`.
 - Rotate or invalidate OTA credential material and provide a redacted attestation, then rerun `npm.cmd run review:release-ota-credentials`.
 - Rerun `npm.cmd run review:release-readiness` and `$env:RELEASE_PR_NUMBER='2'; npm.cmd run review:release-external-state` after every release evidence update.

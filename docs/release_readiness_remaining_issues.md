@@ -6,7 +6,7 @@ Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 ## Current Conclusion
 
-The existing contract and review checks can pass while the project remains not release-ready. `npm run review:release-readiness` currently reports 4 release-evidence failures: production env, production LLM attestation, design handoff, and OTA credential rotation attestation. The formal Codex Security scan artifact blocker is closed by `docs/security/codex-security/latest` and must keep passing on the final head. The `@github` local-state blocker remains separate and must be checked through `git status --short --branch` plus `npm run review:release-external-state`.
+The existing contract and review checks can pass while the project remains not release-ready. With `RELEASE_ENV_FILE` and `LLM_CONNECTIVITY_ATTESTATION_FILE` pointing to the external evidence under `../release-evidence-temp`, `npm run review:release-readiness` currently reports 2 release-evidence failures: design handoff and OTA credential rotation attestation. The production env, production LLM attestation, and formal Codex Security scan artifact blockers are closed for the current evidence head and must keep passing on the final head. The `@github` local-state blocker remains separate and must be checked through `git status --short --branch` plus `npm run review:release-external-state`.
 
 Machine-readable status: `docs/release_readiness_status.json`.
 
@@ -28,11 +28,9 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 
 | # | Scope | Blocker | Current evidence | Close condition |
 |---:|---|---|---|---|
-| 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env outside the repository with `APP_DEBUG=false`, `APP_TRACE=false`, non-local `DB_HOST`, least-privilege `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values; `npm run review:release-env` must pass first. |
-| 2 | `@openai-developers` | Production LLM connectivity attestation is missing | `docs/llm_connectivity_attestation.json` is missing and `LLM_CONNECTIVITY_ATTESTATION_FILE` is not set. | Run a production `LlmClient` connectivity smoke test using real `ai_model_configs`, provide a secret-free attestation JSON, and pass `npm run review:release-llm`. |
-| 3 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, empty `open_issues`, and pass `npm run review:release-design`. |
-| 4 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. Current backup text scan reports no credential-shaped matches, but that does not prove real platform credential rotation or invalidation. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, readiness rerun, and pass `npm run review:release-ota-credentials`. |
-| 5 | `@github` | GitHub / local handoff state is not closed | Local handoff must be verified against PR #2 and the current worktree state; stale external-state evidence is not enough. | Mark PR #2 ready for review, align local worktree with the PR, confirm `.git/index.lock` is absent, confirm final-head checks are green, and pass `review:release-external-state`. |
+| 1 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, empty `open_issues`, and pass `npm run review:release-design`. |
+| 2 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. Current backup text scan reports no credential-shaped matches, but that does not prove real platform credential rotation or invalidation. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, readiness rerun, and pass `npm run review:release-ota-credentials`. |
+| 3 | `@github` | GitHub / local handoff state is not closed | Local handoff must be verified against PR #2 and the current worktree state; stale external-state evidence is not enough. | Mark PR #2 ready for review only after release-readiness passes, align local worktree with the PR, confirm `.git/index.lock` is absent, confirm final-head checks are green, and pass `review:release-external-state`. |
 
 ## Resolved Or Partially Controlled Items
 
@@ -45,6 +43,8 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 | AI request entrypoint | Controlled | Unused `OpenAIClient` was removed; production AI path is `LlmClient` with encrypted database model configuration. |
 | Release package sensitive paths | Controlled | `.gitignore` and `.gitattributes` exclude env files, backups, capture reports, and screenshot assets from normal tracking and archive exports. |
 | Backup credential-shaped text scan | Controlled | Current `npm run review:release-ota-credentials` reports no credential-shaped matches across `database/backups` text files; OTA credential rotation attestation remains separate and open. |
+| Production env evidence | Closed for current evidence head | External `RELEASE_ENV_FILE` at `../release-evidence-temp/production.env` passes `npm run review:release-env`; file contents are not committed. |
+| Production LLM connectivity | Closed for current evidence head | External `LLM_CONNECTIVITY_ATTESTATION_FILE` at `../release-evidence-temp/llm-attestation.json` passes `npm run review:release-llm`. |
 | Formal Codex Security scan | Closed for current release-evidence head | `docs/security/codex-security/latest` contains `scan_manifest.json`, `report.md`, `report.html`, threat model, finding discovery report, repository coverage ledger, reviewed surfaces, validation summary, and attack-path analysis report; `npm run review:release-security-scan` passes. |
 | UI code-side handoff checklist | Added | `docs/ui-handoff/README.md` covers login, OTA data, revenue analysis, AI decision, operations management, and investment decision code-side review points. |
 | Local functional acceptance gate | Added | `npm run review:functional-readiness` checks structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
@@ -53,15 +53,19 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 
 ## Open Problem Details
 
-### 1. Production Configuration Is Not Verified
+### 1. Production Configuration Is Verified Through External Evidence
 
 Scope: `@openai-developers`
 
-The repository only contains `.example.production.env`. It is a template and intentionally contains placeholder values. It cannot prove a production release configuration.
+The repository still must not contain production env values. The current release evidence uses a warehouse-external env file:
 
-Required close evidence:
+`../release-evidence-temp/production.env`
 
-- A controlled production env file exists outside the repository and is referenced through `RELEASE_ENV_FILE`, or `.env.production` exists in a controlled release workspace.
+`npm run review:release-env` passes when `RELEASE_ENV_FILE` points to that path. The env file contents are intentionally not committed or printed.
+
+Required retained evidence:
+
+- A controlled production env file exists outside the repository and is referenced through `RELEASE_ENV_FILE`.
 - `APP_DEBUG=false`.
 - `APP_TRACE=false`.
 - `DB_HOST` does not point to localhost or loopback.
@@ -72,13 +76,17 @@ Required close evidence:
 - `npm run review:release-env` passes against the same `RELEASE_ENV_FILE`.
 - `npm run review:release-readiness` no longer reports the production env failure.
 
-### 2. Production LLM Connectivity Is Not Proven
+### 2. Production LLM Connectivity Is Verified Through External Evidence
 
 Scope: `@openai-developers`
 
-The code path has been narrowed to `LlmClient` plus encrypted `ai_model_configs`, but no production connectivity attestation exists.
+The code path has been narrowed to `LlmClient` plus encrypted `ai_model_configs`. The current release evidence uses a redacted external attestation:
 
-Required close evidence:
+`../release-evidence-temp/llm-attestation.json`
+
+`npm run review:release-llm` passes when `LLM_CONNECTIVITY_ATTESTATION_FILE` points to that path.
+
+Required retained evidence:
 
 - A real production smoke test uses enabled `ai_model_configs`.
 - The attestation follows `docs/llm_connectivity_attestation.example.json`.
@@ -151,7 +159,7 @@ Required close evidence:
 - `npm run verify:release-status` passes.
 - `npm run review:release-external-state` passes.
 - `npm run review:release-readiness` passes with real evidence files, not placeholder templates.
-- Production env and LLM attestation are verified.
+- Production env and LLM attestation are verified through external evidence and still pass on the final head.
 - Formal Codex Security scan artifacts exist and still pass `npm run review:release-security-scan` on the final head.
 - OTA credential rotation and backup cleanup are attested without exposing credentials.
 - Figma / Canva / Brand Kit / design-token handoff is present and reviewed.

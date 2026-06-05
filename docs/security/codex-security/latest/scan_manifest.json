@@ -35,13 +35,11 @@
     "reportable_findings": 0,
     "severity_mix": {},
     "remaining_release_blockers": [
-      "production-env-missing",
-      "llm-connectivity-attestation-missing",
       "design-handoff-missing",
       "ota-credential-rotation-attestation-missing"
     ]
   },
   "final_report_validated": true,
   "report_html_rendered": true,
-  "notes": "This scan closes the formal Codex Security scan artifact blocker only. It does not close production env, production LLM, Figma/Canva handoff, or OTA credential rotation attestation blockers."
+  "notes": "This scan closes the formal Codex Security scan artifact blocker only. Production env and production LLM are closed by separate external evidence. Figma/Canva handoff and OTA credential rotation attestation remain blockers."
 }

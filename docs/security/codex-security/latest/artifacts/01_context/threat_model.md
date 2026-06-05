@@ -54,4 +54,4 @@ The primary repository root is `HOTEL/`. The reviewed runtime surfaces are backe
 - SQL injection from raw query helpers or string-built metadata queries.
 - Credential exposure in backups, reports, logs, capture artifacts, or release evidence.
 - Unsafe file import or archive parsing that reads or writes outside intended temporary directories.
-- Production release with debug mode, unverified LLM connectivity, missing security scan, or unrotated OTA credentials.
+- Production release with debug mode, missing final-head LLM evidence, missing security scan, or unrotated OTA credentials.

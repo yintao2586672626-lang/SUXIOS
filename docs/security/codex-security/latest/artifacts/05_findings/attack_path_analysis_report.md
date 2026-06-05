@@ -25,8 +25,6 @@ No reportable security finding survived validation, so no final attack path is e
 
 Severity mix is `none` because no exploitable source-to-sink path survived. The remaining release blockers are operational evidence gaps, not code findings from this scan:
 
-- production env evidence missing
-- production LLM connectivity attestation missing
 - real Figma/Canva/design-token handoff missing
 - OTA credential rotation attestation missing
 

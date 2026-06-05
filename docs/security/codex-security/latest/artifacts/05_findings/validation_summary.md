@@ -31,4 +31,4 @@ Commit reviewed: `deb56423e5d6c3a58b904b2de9d6e9cdb47fbeb2`.
 
 ## Result
 
-No candidate finding entered per-finding validation because no candidate survived discovery. The scan remains useful as release coverage evidence, while production env, LLM, design handoff, and OTA credential rotation evidence remain separate blockers.
+No candidate finding entered per-finding validation because no candidate survived discovery. The scan remains useful as release coverage evidence, while design handoff and OTA credential rotation evidence remain separate blockers.

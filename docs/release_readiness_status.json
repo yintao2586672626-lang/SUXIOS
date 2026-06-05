@@ -19,8 +19,6 @@
     "command": "npm run review:release-readiness",
     "status": "failing_as_expected",
     "open_failures": [
-      "production env file not provided through .env.production or RELEASE_ENV_FILE",
-      "production LLM connectivity attestation not provided through LLM_CONNECTIVITY_ATTESTATION_FILE or docs/llm_connectivity_attestation.json",
       "docs/design_handoff_manifest.json not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
       "OTA credential rotation attestation not provided through OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE or docs/ota_credential_rotation_attestation.json"
     ],
@@ -37,20 +35,20 @@
       "scope": [
         "@openai-developers"
       ],
-      "status": "open",
-      "title": "Production env is missing",
-      "evidence": "review:release-readiness reports .env.production missing and RELEASE_ENV_FILE is not set",
-      "close_condition": "provide controlled production env outside the repository with APP_DEBUG=false, APP_TRACE=false, non-local DB_HOST, least-privilege DB_USER, and non-placeholder database and AI_CONFIG_SECRET values; npm run review:release-env must pass first"
+      "status": "closed",
+      "title": "Production env evidence is present outside the repository",
+      "evidence": "RELEASE_ENV_FILE=../release-evidence-temp/production.env passes npm run review:release-env without exposing env contents",
+      "close_condition": "keep the controlled production env file outside the repository and rerun npm run review:release-env plus npm run review:release-readiness on the final release head"
     },
     {
       "id": "llm-connectivity-attestation-missing",
       "scope": [
         "@openai-developers"
       ],
-      "status": "open",
-      "title": "Production LLM connectivity attestation is missing",
-      "evidence": "docs/llm_connectivity_attestation.json is missing and LLM_CONNECTIVITY_ATTESTATION_FILE is not set",
-      "close_condition": "run a production LlmClient connectivity smoke test using real ai_model_configs, provide a secret-free attestation JSON with redaction_checked=true, and pass npm run review:release-llm"
+      "status": "closed",
+      "title": "Production LLM connectivity attestation is present",
+      "evidence": "LLM_CONNECTIVITY_ATTESTATION_FILE=../release-evidence-temp/llm-attestation.json passes npm run review:release-llm; release-readiness with env and LLM evidence is saved outside the repo as release-readiness-env-llm-result.json",
+      "close_condition": "keep the redacted attestation available outside the repository and rerun npm run review:release-llm plus npm run review:release-readiness on the final release head"
     },
     {
       "id": "design-handoff-missing",
@@ -91,7 +89,7 @@
       "status": "open",
       "title": "Local Git and PR handoff state is not closed",
       "evidence": "PR #2 is open, mergeable, and green on the latest verified head, but it remains draft and final-head evidence must be refreshed after each pushed release-evidence commit",
-      "close_condition": "mark PR #2 ready for review, align local worktree with the PR, confirm .git/index.lock is absent, confirm PR checks are green on the final head, and pass review:release-external-state"
+      "close_condition": "mark PR #2 ready for review only after release-readiness passes, align local worktree with the PR, confirm .git/index.lock is absent, confirm PR checks are green on the final head, and pass review:release-external-state"
     }
   ],
   "external_state_check": {
@@ -100,7 +98,7 @@
     "evidence_file_template": "docs/release_external_state_evidence.example.json",
     "result_file_template": "docs/release_external_state_result.example.json",
     "resolved": [
-      "GitHub PR checks were green on the latest inspected PR #2 head before this security-scan evidence update",
+      "GitHub PR checks were green on the latest inspected PR #2 head before this evidence update",
       "PR #2 is mergeable on the latest collected head",
       "PR #2 is open",
       "database/backups is not tracked by git",
@@ -121,7 +119,7 @@
       "status": "partial",
       "resolved": [
         "PR #2 is open and mergeable on the latest inspected head",
-        "current GitHub Actions verify checks passed on the latest inspected head before this release-evidence update",
+        "current GitHub Actions verify checks passed on the latest inspected head before this evidence update",
         "CI runs PHPUnit, guards, functional-readiness review, non-security review, release-status contracts, composer audit and npm audit",
         "npm run collect:release-external-state can capture PR head, PR checks, merge state, and database/backups tracking evidence"
       ],
@@ -132,16 +130,15 @@
     },
     {
       "plugin": "@openai-developers",
-      "status": "partial",
+      "status": "closed",
       "resolved": [
         "legacy env-based OpenAIClient was removed",
         "production AI path is LlmClient with encrypted ai_model_configs",
-        ".example.production.env and deployment_env_checklist.md document required production configuration"
+        ".example.production.env and deployment_env_checklist.md document required production configuration",
+        "external RELEASE_ENV_FILE passes npm run review:release-env",
+        "external LLM_CONNECTIVITY_ATTESTATION_FILE passes npm run review:release-llm"
       ],
-      "open": [
-        "real production env has not been provided through .env.production or RELEASE_ENV_FILE",
-        "production ai_model_configs have not been verified with a real connectivity test"
-      ]
+      "open": []
     },
     {
       "plugin": "@codex-security",
@@ -186,8 +183,8 @@
     }
   ],
   "do_not_claim_ready_until": [
-    "production env is provided and passes review:release-env plus review:release-readiness",
-    "production LLM connectivity attestation is provided and passes review:release-llm plus review:release-readiness",
+    "production env evidence remains available outside the repository and passes review:release-env plus review:release-readiness on the final head",
+    "production LLM connectivity attestation remains available outside the repository and passes review:release-llm plus review:release-readiness on the final head",
     "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
     "OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
     "formal Codex Security scan artifacts remain available on the final head and review:release-security-scan still passes",

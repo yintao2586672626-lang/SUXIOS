@@ -104,8 +104,8 @@ if (register) {
 if (chineseReport) {
   for (const id of requiredBlockerIds) {
     const keyword = {
-      'production-env-missing': '生产环境配置缺失',
-      'llm-connectivity-attestation-missing': '生产 LLM 连通性未证明',
+      'production-env-missing': '生产环境配置已通过外部证据',
+      'llm-connectivity-attestation-missing': '生产 LLM 连通性已通过外部证据',
       'design-handoff-missing': 'Figma / Canva 真实设计交付缺失',
       'ota-credential-rotation-attestation-missing': 'OTA 凭据轮换证明缺失',
       'codex-security-scan-missing': '正式 Codex Security 扫描产物',
@@ -128,7 +128,7 @@ if (chineseReport) {
 
   for (const phrase of [
     '仍不能上线使用',
-    '4 failures',
+    '2 failures',
     '.git/index.lock',
     '不允许用口头说明替代验收命令',
     '不允许把模板文件当作生产证据',

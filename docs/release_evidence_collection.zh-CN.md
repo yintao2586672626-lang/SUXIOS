@@ -10,8 +10,8 @@
 
 | 阻断项 | 处理范围 | 证据位置 | 禁止内容 | 独立验收命令 |
 |---|---|---|---|---|
-| 生产环境配置缺失 | `@openai-developers` | 仓库外生产 env 文件，通过 `RELEASE_ENV_FILE` 指定；不得提交到 Git。 | 数据库密码、API Key 明文、示例占位值、repo 内 env 文件。 | `npm run review:release-env` |
-| 生产 LLM 连通性未证明 | `@openai-developers` | `LLM_CONNECTIVITY_ATTESTATION_FILE` 或 `docs/llm_connectivity_attestation.json`，结构参考 `docs/llm_connectivity_attestation.example.json`。 | API Key、Bearer Token、Cookie、Authorization、未脱敏 provider secret。 | `npm run review:release-llm` |
+| 生产环境配置外部证据 | `@openai-developers` | 仓库外生产 env 文件，通过 `RELEASE_ENV_FILE` 指定；当前通过路径为 `D:\桌面\SUXIOS\宿析OS初始版\release-evidence-temp\production.env`，不得提交到 Git。 | 数据库密码、API Key 明文、示例占位值、repo 内 env 文件。 | `npm run review:release-env` |
+| 生产 LLM 连通性外部证据 | `@openai-developers` | `LLM_CONNECTIVITY_ATTESTATION_FILE` 或 `docs/llm_connectivity_attestation.json`；当前通过路径为 `D:\桌面\SUXIOS\宿析OS初始版\release-evidence-temp\llm-attestation.json`，结构参考 `docs/llm_connectivity_attestation.example.json`。 | API Key、Bearer Token、Cookie、Authorization、未脱敏 provider secret。 | `npm run review:release-llm` |
 | Figma / Canva 真实设计交付缺失 | `@figma` / `@canva` | `docs/design_handoff_manifest.json`，结构参考 `docs/design_handoff_manifest.example.json`。 | 无访问权限链接、截图替代源文件、未评审 open issue、伪造 Brand Kit。 | `npm run review:release-design` |
 | 本地备份存在 OTA 凭据形态字段 | `@codex-security` | 清理后的 `database/backups` 状态；必要时附加仓库外加密归档记录。 | Cookie、Token、usertoken、usersign、签名、Authorization 明文。 | `npm run review:release-ota-credentials` |
 | OTA 凭据轮换证明缺失 | `@codex-security` | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 或 `docs/ota_credential_rotation_attestation.json`，结构参考 `docs/ota_credential_rotation_attestation.example.json`。 | 真实凭据值、可复用登录态、未脱敏平台返回。 | `npm run review:release-ota-credentials` |

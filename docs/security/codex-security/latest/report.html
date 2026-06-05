@@ -266,7 +266,7 @@
 </tr>
 <tr>
 <td>Confidence mix</td>
-<td>high confidence for reviewed no-finding surfaces; production evidence gaps remain external blockers</td>
+<td>high confidence for reviewed no-finding surfaces; design and OTA credential evidence gaps remain external blockers</td>
 </tr>
 <tr>
 <td>Coverage</td>
@@ -328,7 +328,7 @@
 </tr>
 <tr>
 <td>medium</td>
-<td>Source evidence supports the conclusion, but runtime deployment configuration still needs production proof.</td>
+<td>Source evidence supports the conclusion, but final-head release evidence still needs proof.</td>
 </tr>
 <tr>
 <td>low</td>
@@ -422,13 +422,13 @@
 <td>Production deployment evidence</td>
 <td>Release readiness</td>
 <td>Needs follow-up</td>
-<td>Production env, LLM connectivity, and design handoff evidence remain missing.</td>
+<td>Production env and LLM connectivity now pass through external evidence; design handoff evidence remains missing.</td>
 </tr>
 </tbody></table>
 
 <h2 id="open-questions-and-follow-up">Open Questions And Follow Up</h2>
 
-<ul><li>Provide the real production env outside the repository and rerun <code>npm.cmd run review:release-env</code>.</li><li>Run a production <code>LlmClient</code> smoke test with enabled <code>ai_model_configs</code>, provide a redacted attestation, and rerun <code>npm.cmd run review:release-llm</code>.</li><li>Provide real Figma, Canva, Brand Kit, design-token, and covered-flow handoff evidence, then rerun <code>npm.cmd run review:release-design</code>.</li><li>Rotate or invalidate OTA credential material and provide a redacted attestation, then rerun <code>npm.cmd run review:release-ota-credentials</code>.</li><li>Rerun <code>npm.cmd run review:release-readiness</code> and <code>$env:RELEASE_PR_NUMBER=&#x27;2&#x27;; npm.cmd run review:release-external-state</code> after every release evidence update.</li></ul>
+<ul><li>Keep the external production env evidence available and rerun <code>npm.cmd run review:release-env</code> on the final head.</li><li>Keep the external production <code>LlmClient</code> attestation available and rerun <code>npm.cmd run review:release-llm</code> on the final head.</li><li>Provide real Figma, Canva, Brand Kit, design-token, and covered-flow handoff evidence, then rerun <code>npm.cmd run review:release-design</code>.</li><li>Rotate or invalidate OTA credential material and provide a redacted attestation, then rerun <code>npm.cmd run review:release-ota-credentials</code>.</li><li>Rerun <code>npm.cmd run review:release-readiness</code> and <code>$env:RELEASE_PR_NUMBER=&#x27;2&#x27;; npm.cmd run review:release-external-state</code> after every release evidence update.</li></ul>
     </main>
   </div>
   <script>
