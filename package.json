@@ -29,6 +29,7 @@
     "review:release-env": "node scripts/verify_release_env.mjs",
     "review:release-llm": "node scripts/verify_release_llm.mjs",
     "review:release-design": "node scripts/verify_release_design.mjs",
+    "release:create-design-manifest": "node scripts/create_release_design_manifest.mjs",
     "review:release-ota-credentials": "node scripts/verify_release_ota_credentials.mjs",
     "review:release-security-scan": "node scripts/verify_release_security_scan.mjs",
     "review:release-evidence": "node scripts/verify_release_evidence_bundle.mjs",
