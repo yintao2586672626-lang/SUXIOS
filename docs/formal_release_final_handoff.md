@@ -25,11 +25,12 @@ Required fields:
 - `figma_url`: real accessible `https://www.figma.com/...` source link.
 - `canva_url`: real accessible `https://www.canva.com/...` source link.
 - `brand_kit_url`: real accessible `https://www.canva.com/...` Brand Kit link.
-- `design_tokens_path`: HTTPS token source or repo-relative existing token file.
+- `design_tokens_path`: use `docs/design-tokens.release.json` unless the design owner provides a newer reviewed HTTPS token source.
 - `covered_flows`: `login`, `home-dashboard`, `ota-data`, `revenue-analysis`, `ai-decision`, `operations-management`, `investment-decision`.
 - `open_issues`: empty array before release.
 
 Do not use screenshots, exported images, placeholder URLs, or inaccessible links.
+The repo-side token artifact is already available at `docs/design-tokens.release.json`; it does not close the blocker without real Figma, Canva, and Brand Kit source links.
 
 ### OTA Credential Rotation
 

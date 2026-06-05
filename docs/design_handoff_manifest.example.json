@@ -4,7 +4,7 @@
   "figma_url": "https://www.figma.com/file/TODO",
   "canva_url": "https://www.canva.com/design/TODO",
   "brand_kit_url": "https://www.canva.com/brand/TODO",
-  "design_tokens_path": "TODO: design-tokens.json or exported token file",
+  "design_tokens_path": "docs/design-tokens.release.json",
   "covered_flows": [
     "login",
     "home-dashboard",

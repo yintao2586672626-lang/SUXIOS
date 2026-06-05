@@ -22,6 +22,7 @@ const requiredDocs = [
   'docs/release_readiness_status.json',
   'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
+  'docs/design-tokens.release.json',
   'docs/design_handoff_manifest.example.json',
   'docs/ota_credential_rotation_checklist.md',
   'docs/ota_credential_rotation_attestation.example.json',
@@ -910,6 +911,11 @@ const designManifestExample = readJson('docs/design_handoff_manifest.example.jso
   }
   if (!Array.isArray(designManifestExample.open_issues) || designManifestExample.open_issues.length !== 0) {
     fail('docs/design_handoff_manifest.example.json open_issues must be an empty array');
+    manifestComplete = false;
+  }
+  const designTokensPath = String(designManifestExample.design_tokens_path || '').trim();
+  if (!designTokensPath || path.isAbsolute(designTokensPath) || !fs.existsSync(path.join(root, designTokensPath))) {
+    fail('docs/design_handoff_manifest.example.json design_tokens_path must point to an existing repo-relative file');
     manifestComplete = false;
   }
   if (manifestComplete) {

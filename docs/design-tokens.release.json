@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "name": "SUXIOS release design tokens",
+  "scope": "code-side token artifact for formal design handoff",
+  "source_files": [
+    "public/style.css",
+    "public/index.html"
+  ],
+  "release_note": "This file records the current repository UI token baseline. It supports design handoff traceability but does not replace real Figma, Canva, or Brand Kit source evidence.",
+  "color": {
+    "brand": {
+      "primary": "#3B82F6",
+      "primaryStrong": "#2563EB",
+      "primarySoft": "#DBEAFE",
+      "navigationStart": "#1E3A5F",
+      "navigationEnd": "#0F172A",
+      "lifecycleStart": "#0B376D",
+      "lifecycleMid": "#1262A8",
+      "lifecycleEnd": "#0EA5B7"
+    },
+    "semantic": {
+      "success": "#10B981",
+      "successStrong": "#059669",
+      "warning": "#D97706",
+      "danger": "#EF4444",
+      "dangerStrong": "#DC2626",
+      "info": "#0E7490",
+      "investment": "#4F46E5"
+    },
+    "surface": {
+      "page": "#F9FAFB",
+      "panel": "#FFFFFF",
+      "muted": "#F8FAFC",
+      "mutedStrong": "#F1F5F9",
+      "border": "#E2E8F0"
+    },
+    "text": {
+      "strong": "#0F172A",
+      "body": "#374151",
+      "muted": "#64748B",
+      "caption": "#6B7280",
+      "disabled": "#9CA3AF"
+    },
+    "chart": {
+      "revenue": "#2563EB",
+      "adr": "#D97706",
+      "revpar": "#4F46E5",
+      "roomNights": "#0E7490"
+    }
+  },
+  "gradient": {
+    "primaryButton": "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
+    "sidebar": "linear-gradient(180deg, #1E3A5F 0%, #0F172A 100%)",
+    "loginHero": "linear-gradient(135deg, #667EEA 0%, #764BA2 50%, #F093FB 100%)",
+    "lifecycleHero": "linear-gradient(135deg, #0B376D 0%, #1262A8 58%, #0EA5B7 100%)",
+    "lifecycleStage": "linear-gradient(90deg, #2F80ED 0%, #11B5D9 100%)"
+  },
+  "radius": {
+    "control": "10px",
+    "action": "8px",
+    "card": "16px",
+    "modal": "20px",
+    "pill": "999px"
+  },
+  "shadow": {
+    "card": "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)",
+    "cardHover": "0 20px 25px -5px rgba(0,0,0,0.08), 0 10px 10px -5px rgba(0,0,0,0.04)",
+    "primaryButton": "0 4px 14px rgba(59,130,246,0.35)",
+    "modal": "0 25px 50px -12px rgba(0,0,0,0.25)"
+  },
+  "typography": {
+    "fontFamily": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+    "body": {
+      "fontSize": "16px",
+      "fontWeight": 400,
+      "lineHeight": 1.6
+    },
+    "caption": {
+      "fontSize": "14px",
+      "fontWeight": 400,
+      "lineHeight": 1.5
+    },
+    "micro": {
+      "fontSize": "13px",
+      "fontWeight": 400,
+      "lineHeight": 1.4
+    }
+  },
+  "covered_flows": [
+    "login",
+    "home-dashboard",
+    "ota-data",
+    "revenue-analysis",
+    "ai-decision",
+    "operations-management",
+    "investment-decision"
+  ]
+}
