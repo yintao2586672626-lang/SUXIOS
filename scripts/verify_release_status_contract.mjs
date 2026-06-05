@@ -94,8 +94,7 @@ const requiredOpenFailurePatterns = [
 ];
 
 const requiredExternalStateFailurePatterns = [
-  /worktree/i,
-  /evidence|\.git\/index\.lock/i,
+  /draft/i,
 ];
 
 const requiredLocalExternalStateScriptFragments = [
@@ -878,9 +877,8 @@ if (externalStateResultExample) {
     requiredExternalStateFailurePatterns,
     'docs/release_external_state_result.example.json failures',
   );
-  const externalFailureText = Array.isArray(externalStateResultExample.failures) ? externalStateResultExample.failures.join('\n') : '';
-  if (!externalFailureText.includes('npm run collect:release-external-state')) {
-    fail('docs/release_external_state_result.example.json must mention npm run collect:release-external-state fallback');
+  if (externalStateResultExample.summary?.passed !== 7) {
+    fail('docs/release_external_state_result.example.json summary.passed must match the current 7 external-state passes');
     resultComplete = false;
   }
   if (resultComplete) {

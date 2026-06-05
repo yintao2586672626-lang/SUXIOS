@@ -1,22 +1,26 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-05-30T00:00:00.000Z",
+  "generated_at": "2026-06-05T00:00:00.000Z",
   "command": "npm run review:release-external-state",
   "status": "failed",
   "summary": {
-    "passed": 0,
-    "warnings": 0,
-    "failures": 7
+    "passed": 7,
+    "warnings": 1,
+    "failures": 1
   },
-  "passes": [],
-  "warnings": [],
+  "passes": [
+    "database/backups has no git-tracked files.",
+    ".git/index.lock is absent.",
+    "local worktree is clean.",
+    "PR head sha is recorded: 6192b1bed2ac7efe0e023b7f7793372b88fcaa13.",
+    "PR #2 is open.",
+    "PR #2 is mergeable at 6192b1bed2ac7efe0e023b7f7793372b88fcaa13.",
+    "PR #2 status checks are all green (2 checks)."
+  ],
+  "warnings": [
+    "Release external state was checked against https://github.com/yintao2586672626-lang/SUXIOS/pull/2; rerun this command after every PR update."
+  ],
   "failures": [
-    "git ls-files database/backups failed: external command execution is not permitted for git ls-files database/backups",
-    ".git/index.lock exists; local git index is not ready for release operations.",
-    "local worktree is not clean and must be reviewed before release.",
-    "PR #2 is still draft; mark it ready for review before release handoff.",
-    "git status --short --branch failed: external command execution is not permitted for git status --short --branch",
-    "gh pr view 2 failed: external command execution is not permitted for gh pr view 2 --json number,url,state,isDraft,headRefOid,mergeable,statusCheckRollup",
-    "This runtime blocked Node child_process access to external commands. Run `npm run collect:release-external-state`, then rerun with RELEASE_EXTERNAL_STATE_FILE=docs/release_external_state_evidence.local.json."
+    "PR #2 is still draft; mark it ready for review before release handoff."
   ]
 }

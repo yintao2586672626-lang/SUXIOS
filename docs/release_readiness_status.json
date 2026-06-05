@@ -87,9 +87,9 @@
         "@github"
       ],
       "status": "open",
-      "title": "Local Git and PR handoff state is not closed",
-      "evidence": "PR #2 is open, mergeable, and green on the latest verified head, but it remains draft and final-head evidence must be refreshed after each pushed release-evidence commit",
-      "close_condition": "mark PR #2 ready for review only after release-readiness passes, align local worktree with the PR, confirm .git/index.lock is absent, confirm PR checks are green on the final head, and pass review:release-external-state"
+      "title": "PR handoff state is not closed",
+      "evidence": "PR #2 is open, mergeable, green on head 6192b1bed2ac7efe0e023b7f7793372b88fcaa13, local worktree is clean, .git/index.lock is absent, and database/backups has no tracked files; PR #2 remains draft",
+      "close_condition": "mark PR #2 ready for review only after release-readiness passes and pass review:release-external-state on the final head"
     }
   ],
   "external_state_check": {
@@ -98,15 +98,16 @@
     "evidence_file_template": "docs/release_external_state_evidence.example.json",
     "result_file_template": "docs/release_external_state_result.example.json",
     "resolved": [
-      "GitHub PR checks were green on the latest inspected PR #2 head before this evidence update",
+      "GitHub PR checks are green on the latest inspected PR #2 head",
       "PR #2 is mergeable on the latest collected head",
       "PR #2 is open",
       "database/backups is not tracked by git",
+      ".git/index.lock is absent",
+      "local worktree is clean",
       "local external-state evidence can be collected with npm run collect:release-external-state when Node child_process is blocked"
     ],
     "open_failures": [
-      "PR #2 is still draft",
-      "local worktree and final PR #2 head checks must be refreshed after this release-evidence commit"
+      "PR #2 is still draft"
     ],
     "warnings": [
       "rerun after every PR update because GitHub state changes outside the repository",
@@ -119,13 +120,15 @@
       "status": "partial",
       "resolved": [
         "PR #2 is open and mergeable on the latest inspected head",
-        "current GitHub Actions verify checks passed on the latest inspected head before this evidence update",
+        "current GitHub Actions verify checks passed on the latest inspected head",
+        ".git/index.lock is absent",
+        "local worktree is clean",
+        "database/backups has no git-tracked files",
         "CI runs PHPUnit, guards, functional-readiness review, non-security review, release-status contracts, composer audit and npm audit",
         "npm run collect:release-external-state can capture PR head, PR checks, merge state, and database/backups tracking evidence"
       ],
       "open": [
-        "PR #2 remains draft and is not ready for release handoff",
-        "GitHub Actions must be confirmed green again after each pushed release-evidence commit"
+        "PR #2 remains draft and is not ready for release handoff"
       ]
     },
     {

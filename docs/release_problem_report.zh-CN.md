@@ -12,7 +12,7 @@
 
 | 范围 | 已受控证据 | 仍不能上线的原因 |
 |---|---|---|
-| `@github` | PR 检查通过；CI 覆盖 Composer audit、npm audit、PHPUnit、P0 guards、functional readiness、release issue register、non-security review、release-status；本地采集文件已能记录 PR head、draft state、merge state、checks 和 `database/backups` 跟踪状态。 | PR 仍是 draft，本地工作树仍未关闭，`.git/index.lock` 仍存在，`review:release-external-state` 未通过。 |
+| `@github` | PR #2 open、mergeable、CI green；本地 worktree clean，`.git/index.lock` absent，`database/backups` 无 Git 跟踪文件。 | PR #2 仍是 draft；在设计交付和 OTA 凭据轮换证明关闭前不能 ready。 |
 | `@openai-developers` | AI 入口已收敛到 `LlmClient`，模型配置走加密数据库配置；仓库外 `RELEASE_ENV_FILE` 与 `LLM_CONNECTIVITY_ATTESTATION_FILE` 已通过单项门禁。 | 需在最终 PR head 上保留并复验外部证据。 |
 | `@codex-security` | 依赖审计和轻量安全检查通过；`database/backups` 未被 Git 跟踪，当前 `review:release-ota-credentials` 未发现 backup 文本凭据形态命中；`docs/security/codex-security/latest` 已包含正式 Codex Security 扫描产物，且 `npm run review:release-security-scan` 通过。 | OTA 凭据轮换证明缺失；正式安全扫描需在最终 PR head 上保持通过。 |
 | `@figma` | 代码侧 UI handoff 和功能门禁覆盖登录、OTA 数据、收益分析、AI 决策、运营管理、投资决策。 | 缺真实 Figma 源文件、设计 token、评审日期和零未解决问题的交付清单。 |
@@ -32,7 +32,7 @@
 |---:|---|---|---|---|---|
 | 1 | Figma / Canva 真实设计交付缺失 | `@figma` / `@canva` | 不能证明品牌、设计源、设计 token、关键流程已评审 | `docs/design_handoff_manifest.json` 不存在 | `npm run review:release-design` |
 | 2 | OTA 凭据轮换证明缺失 | `@codex-security` | 无法证明 Cookie、Token、签名、Authorization 等已轮换或失效 | `docs/ota_credential_rotation_attestation.json` 不存在，`OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 未设置；backup 文本扫描干净不等于平台凭据已轮换 | `npm run review:release-ota-credentials` |
-| 3 | GitHub / 本地交接状态未关闭 | `@github` | 无法完成可靠发布交接 | PR #2 仍为 draft，且需要在最终 head 上重新通过 `review:release-external-state`；过期外部状态证据不能作为发布证明 | `npm run review:release-external-state` |
+| 3 | GitHub / 本地交接状态未关闭 | `@github` | 无法完成可靠发布交接 | PR #2 仍为 draft；当前本地 worktree、index lock、mergeable、checks、backup tracking 均已通过外部状态检查 | `npm run review:release-external-state` |
 
 ## 关闭顺序
 
