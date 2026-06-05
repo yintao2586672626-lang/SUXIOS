@@ -12904,6 +12904,7 @@ JAVASCRIPT;
         $flowCompeteUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportFlowCompete';
         $serverQuantityUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportServerQuantity';
         $userBehaviorPage = 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?microJump=true';
+        $userBehaviorImPage = 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im';
         $userBehaviorApi = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/';
 
         return [
@@ -14230,7 +14231,7 @@ JAVASCRIPT;
                 'notes' => '排名只进入 rank_metrics/data_value 展示，不写入回复率。',
             ],
             'five_min_reply_rate' => [
-                'page_url' => $userBehaviorPage,
+                'page_url' => $userBehaviorImPage,
                 'request_url' => 'https://ebooking.ctrip.com/userbehavior/getImIndex',
                 'json_path' => 'data.replyRate5m / data.fiveMinReplyRate / data.replyRate',
                 'ownership_rule' => '携程 OTA 用户行为 IM 看板；只代表平台 IM 会话口径。',
@@ -14242,7 +14243,7 @@ JAVASCRIPT;
                 'notes' => 'IM 看板字段，不与点评回复率 comment_response_rate 混用。',
             ],
             'manual_reply_rate' => [
-                'page_url' => $userBehaviorPage,
+                'page_url' => $userBehaviorImPage,
                 'request_url' => 'https://ebooking.ctrip.com/userbehavior/getImIndex',
                 'json_path' => 'data.manualReplyRate / data.humanReplyRate / data.manualreplyrate5m',
                 'ownership_rule' => '携程 OTA 用户行为 IM 看板；只代表平台 IM 会话口径。',
@@ -14254,7 +14255,7 @@ JAVASCRIPT;
                 'notes' => '顶部指标卡字段，单位 %。',
             ],
             'robot_resolution_rate' => [
-                'page_url' => $userBehaviorPage,
+                'page_url' => $userBehaviorImPage,
                 'request_url' => 'https://ebooking.ctrip.com/userbehavior/getImIndex',
                 'json_path' => 'data.robotResolutionRate / data.robotResolveRate / data.aisolverate',
                 'ownership_rule' => '携程 OTA 用户行为 IM 看板；只代表平台 IM 会话口径。',
@@ -14266,7 +14267,7 @@ JAVASCRIPT;
                 'notes' => '顶部指标卡字段，单位 %。',
             ],
             'im_rank' => [
-                'page_url' => $userBehaviorPage,
+                'page_url' => $userBehaviorImPage,
                 'request_url' => 'https://ebooking.ctrip.com/userbehavior/getImIndex',
                 'json_path' => 'data.rank / data.replyrate5mRank / data.manualreplyrate5mRank / data.aisolverateRank',
                 'ownership_rule' => $rankRule,
@@ -14278,7 +14279,7 @@ JAVASCRIPT;
                 'notes' => '排名只进入 raw_data.rank_metrics，不写入回复率。',
             ],
             'session_count' => [
-                'page_url' => $userBehaviorPage,
+                'page_url' => $userBehaviorImPage,
                 'request_url' => 'https://ebooking.ctrip.com/userbehavior/getImDateDistribute / getImSessionDistribute / getImOrderConversionDetail',
                 'json_path' => 'data[].sessionCount / data[].totalSession / data.validsnum',
                 'ownership_rule' => '携程 OTA 用户行为 IM 看板；只代表平台 IM 会话口径。',
@@ -14290,7 +14291,7 @@ JAVASCRIPT;
                 'notes' => '用于趋势图、时间分布和会话明细弹窗。',
             ],
             'manual_session_count' => [
-                'page_url' => $userBehaviorPage,
+                'page_url' => $userBehaviorImPage,
                 'request_url' => 'https://ebooking.ctrip.com/userbehavior/getImSessionDistribute / getImOrderConversionDetail',
                 'json_path' => 'data[].manualSessionCount / data.manualreplyin5mnum / data.replynum',
                 'ownership_rule' => '携程 OTA 用户行为 IM 看板；只代表平台 IM 会话口径。',
@@ -14302,7 +14303,7 @@ JAVASCRIPT;
                 'notes' => '会话明细字段，缺失时保持缺采状态。',
             ],
             'robot_session_count' => [
-                'page_url' => $userBehaviorPage,
+                'page_url' => $userBehaviorImPage,
                 'request_url' => 'https://ebooking.ctrip.com/userbehavior/getImSessionDistribute',
                 'json_path' => 'data[].robotSessionCount / data[].aisolveratenum',
                 'ownership_rule' => '携程 OTA 用户行为 IM 看板；只代表平台 IM 会话口径。',
@@ -14314,7 +14315,7 @@ JAVASCRIPT;
                 'notes' => '会话明细字段，缺失时保持缺采状态。',
             ],
             'im_order_conversion_rate' => [
-                'page_url' => $userBehaviorPage,
+                'page_url' => $userBehaviorImPage,
                 'request_url' => 'https://ebooking.ctrip.com/userbehavior/getImOrderConversionRateByDay / getImOrderConversionDetail',
                 'json_path' => 'data[].orderConversionRate / data.htlreplyCr',
                 'ownership_rule' => '携程 OTA 用户行为 IM 看板；只代表平台 IM 会话转化口径。',
@@ -14800,6 +14801,14 @@ JAVASCRIPT;
             ['rating_competitor_total', '点评竞争圈酒店数', 'quality_psi', 'quality', 'getCommentsScoreV2', 'competitorHotelTotal', 'integer', '家', 'confirmed', '点评排名分母，不作为经营规模指标'],
             ['reply_rate', '5分钟回复率', 'business_overview', 'quality', 'getDayReportServerQuantity / getImIndex', 'replyrate5m, replyRate, fiveMinuteReplyRate, fiveMinReplyRate', 'percent', '%', 'confirmed', '固定取 data.replyrate5m'],
             ['reply_rank', '5分钟回复率竞争圈排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'imScoreHtlrank', 'rank', '名', 'confirmed', '固定取 data.imScoreHtlrank'],
+            ['five_min_reply_rate', '5分钟回复率', 'im_board', 'quality', 'getImIndex', 'replyRate5m, fiveMinReplyRate, replyRate', 'percent', '%', 'confirmed', 'IM 看板顶部指标卡；不等同于点评回复率或经营日报旧字段'],
+            ['manual_reply_rate', '5分钟人工回复率', 'im_board', 'quality', 'getImIndex', 'manualReplyRate, humanReplyRate, manualreplyrate5m, manualreplyRate2m', 'percent', '%', 'confirmed', 'IM 看板顶部指标卡'],
+            ['robot_resolution_rate', '机器人解决率', 'im_board', 'quality', 'getImIndex', 'robotResolutionRate, robotResolveRate, aisolverate', 'percent', '%', 'confirmed', 'IM 看板顶部指标卡'],
+            ['im_rank', 'IM竞争圈排名', 'im_board', 'ranking', 'getImIndex', 'rank, rank2, replyrate5mRank, manualreplyrate5mRank, aisolverateRank', 'rank', '名', 'confirmed', 'IM 看板顶部指标卡排名，只写 raw_data.rank_metrics'],
+            ['session_count', '会话量', 'im_board', 'traffic', 'getImDateDistribute / getImSessionDistribute / getImOrderConversionDetail', 'sessionCount, totalSession, totalSessions, totalsessions, conversationCount, validsnum', 'integer', '个', 'confirmed', 'IM 趋势图、时间分布和会话详情弹窗'],
+            ['manual_session_count', '人工会话量', 'im_board', 'traffic', 'getImSessionDistribute / getImOrderConversionDetail', 'manualSessionCount, humanSessionCount, manualreplyin5mnum, replynum', 'integer', '个', 'confirmed', 'IM 会话详情/回复用户数字段'],
+            ['robot_session_count', '机器人会话量', 'im_board', 'traffic', 'getImSessionDistribute', 'robotSessionCount, aisolveratenum', 'integer', '个', 'confirmed', 'IM 会话详情字段'],
+            ['im_order_conversion_rate', 'IM客人转化率', 'im_board', 'traffic', 'getImOrderConversionRateByDay / getImOrderConversionDetail', 'orderConversionRate, conversionRate, htlreplyCr', 'percent', '%', 'confirmed', 'IM 转化率字段'],
             ['diagnosis_score', '数据诊断分', 'business_overview', 'quality', 'getHotelAdvice', 'score', 'number', '分', 'confirmed', '直接取分值'],
             ['diagnosis_level', '评级', 'business_overview', 'quality', 'getHotelAdvice', 'scorelevel, level', 'text', '', 'confirmed', '直接取文本'],
             ['advice_text', '经营建议', 'business_overview', 'quality', 'getHotelAdvice', 'tasktext, taskname, taskbutton', 'text', '', 'confirmed', '保留建议文本和动作入口'],
