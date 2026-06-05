@@ -33,6 +33,7 @@
     "review:release-security-scan": "node scripts/verify_release_security_scan.mjs",
     "review:release-evidence": "node scripts/verify_release_evidence_bundle.mjs",
     "review:release-final-handoff": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1",
+    "release:continue-handoff": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/continue_release_handoff.ps1",
     "release:mark-pr-ready": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mark_release_pr_ready.ps1",
     "review:release-readiness": "node scripts/verify_release_readiness.mjs",
     "review:release-external-state": "node scripts/verify_release_external_state.mjs",
