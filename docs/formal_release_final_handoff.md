@@ -50,6 +50,14 @@ Do not store real credentials, Cookie values, Token values, signatures, Authoriz
 
 Run from the `HOTEL` repository root.
 
+Preferred runner:
+
+```powershell
+npm.cmd run review:release-final-handoff
+```
+
+Equivalent manual commands:
+
 ```powershell
 npm.cmd run review:release-design
 npm.cmd run review:release-ota-credentials
@@ -67,8 +75,7 @@ git ls-files database/backups
 Only after the commands above pass, mark PR #2 ready for review, wait for CI to remain green, then run:
 
 ```powershell
-$env:RELEASE_PR_NUMBER='2'
-npm.cmd run review:release-external-state
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -AfterPrReady
 ```
 
 ## Merge Rule
