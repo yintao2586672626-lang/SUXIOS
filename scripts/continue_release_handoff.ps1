@@ -39,7 +39,18 @@ Write-Host "Repo root: $RepoRoot"
 Write-Host "Evidence dir: $EvidenceDir"
 
 if (Test-Path -LiteralPath $lockPath) {
-    Write-Host "Removing stale git index lock: $lockPath"
+    $activeGitProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessName -in @('git', 'gh')
+    } | Select-Object Id, ProcessName, StartTime
+
+    if ($activeGitProcesses) {
+        $processSummary = ($activeGitProcesses | ForEach-Object {
+            "$($_.ProcessName):$($_.Id)"
+        }) -join ', '
+        throw ".git\index.lock exists while git-related processes are active ($processSummary). Stop or wait for those processes before continuing."
+    }
+
+    Write-Host "Removing stale git index lock after confirming no active git/gh process: $lockPath"
     Remove-Item -LiteralPath $lockPath -Force
 }
 
