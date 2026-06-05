@@ -31,6 +31,7 @@
     "review:release-design": "node scripts/verify_release_design.mjs",
     "review:release-ota-credentials": "node scripts/verify_release_ota_credentials.mjs",
     "review:release-security-scan": "node scripts/verify_release_security_scan.mjs",
+    "review:release-evidence": "node scripts/verify_release_evidence_bundle.mjs",
     "review:release-readiness": "node scripts/verify_release_readiness.mjs",
     "review:release-external-state": "node scripts/verify_release_external_state.mjs",
     "verify:ctrip-capture-catalog": "node scripts/verify_ctrip_capture_catalog.mjs",

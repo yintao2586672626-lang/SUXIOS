@@ -24,6 +24,7 @@ Run these only after the isolated command for each closed blocker passes.
 
 | Gate | Command | Expected current status | Purpose |
 |---|---|---|---|
+| Evidence bundle preflight | `npm run review:release-evidence` | Fails while design handoff or OTA credential rotation evidence is missing. | One read-only preflight for the controlled evidence directory plus repo-fixed release evidence paths. |
 | Release readiness | `npm run review:release-readiness` | Fails while any blocker above remains open. | Single release gate for production env, LLM, design handoff, OTA credentials, persistent Codex Security scan artifacts, and local Git state. |
 | Status contract | `npm run verify:release-status` | Passes. | Confirms release docs, examples, scripts, and blocker contracts stay consistent. |
 | Functional readiness | `npm run review:functional-readiness` | Passes. | Confirms local structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
