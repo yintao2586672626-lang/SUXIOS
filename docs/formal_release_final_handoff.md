@@ -73,7 +73,13 @@ git status --short --branch
 git ls-files database/backups
 ```
 
-Only after the commands above pass, mark PR #2 ready for review, wait for CI to remain green, then run:
+Only after the commands above pass, mark PR #2 ready for review through the guarded runner:
+
+```powershell
+npm.cmd run release:mark-pr-ready
+```
+
+After GitHub Actions remain green, run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/review_release_final_handoff.ps1 -AfterPrReady
