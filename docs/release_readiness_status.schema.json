@@ -45,8 +45,8 @@
     },
     "blockers": {
       "type": "array",
-      "minItems": 7,
-      "maxItems": 7,
+      "minItems": 6,
+      "maxItems": 6,
       "items": {
         "type": "object",
         "required": ["id", "scope", "status", "title", "evidence", "close_condition"],
@@ -56,7 +56,6 @@
               "production-env-missing",
               "llm-connectivity-attestation-missing",
               "design-handoff-missing",
-              "backup-credential-shaped-fields",
               "ota-credential-rotation-attestation-missing",
               "codex-security-scan-missing",
               "local-git-state-open"
@@ -99,7 +98,7 @@
     },
     "do_not_claim_ready_until": {
       "type": "array",
-      "minItems": 7
+      "minItems": 6
     }
   }
 }

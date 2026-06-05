@@ -1,10 +1,10 @@
 # 上线问题报告
 
-更新日期：2026-05-30
+更新日期：2026-06-05
 
 范围：`@github`、`@openai-developers`、`@codex-security`、`@figma`、`@canva`
 
-结论：当前项目功能结构已具备本地验收基础，但仍不能上线使用。`npm run review:release-readiness` 当前结果为 `5 passed, 3 warnings, 7 failures`，7 个失败项均为上线阻断。
+结论：当前项目功能结构已具备本地验收基础，但仍不能上线使用。`npm run review:release-readiness` 当前结果为 `7 passed, 3 warnings, 5 failures`，5 个失败项均为上线阻断。
 
 证据采集清单：`docs/release_evidence_collection.zh-CN.md`。
 
@@ -14,7 +14,7 @@
 |---|---|---|
 | `@github` | PR 检查通过；CI 覆盖 Composer audit、npm audit、PHPUnit、P0 guards、functional readiness、release issue register、non-security review、release-status；本地采集文件已能记录 PR head、draft state、merge state、checks 和 `database/backups` 跟踪状态。 | PR 仍是 draft，本地工作树仍未关闭，`.git/index.lock` 仍存在，`review:release-external-state` 未通过。 |
 | `@openai-developers` | AI 入口已收敛到 `LlmClient`，模型配置走加密数据库配置，功能结构门禁覆盖 AI 决策链路。 | 缺真实生产环境配置，缺生产 LLM 连通性证明。 |
-| `@codex-security` | 依赖审计和轻量安全检查通过；`database/backups` 未被 Git 跟踪。 | 本地备份仍有 OTA 凭据形态字段，正式 Codex Security 全仓扫描缺失。 |
+| `@codex-security` | 依赖审计和轻量安全检查通过；`database/backups` 未被 Git 跟踪，当前 `review:release-ota-credentials` 未发现 backup 文本凭据形态命中。 | OTA 凭据轮换证明缺失，正式 Codex Security 全仓扫描缺失。 |
 | `@figma` | 代码侧 UI handoff 和功能门禁覆盖登录、OTA 数据、收益分析、AI 决策、运营管理、投资决策。 | 缺真实 Figma 源文件、设计 token、评审日期和零未解决问题的交付清单。 |
 | `@canva` | 设计交付模板已要求 Canva 和 Brand Kit 元数据。 | 缺真实 Canva 设计链接和 Brand Kit 交付来源。 |
 
@@ -25,10 +25,9 @@
 | 1 | 生产环境配置缺失 | `@openai-developers` | 无法证明正式环境安全可运行 | `.env.production` 不存在，`RELEASE_ENV_FILE` 未设置 | `npm run review:release-env` |
 | 2 | 生产 LLM 连通性未证明 | `@openai-developers` | AI 决策链路不能证明在生产模型配置下可用 | `docs/llm_connectivity_attestation.json` 不存在，`LLM_CONNECTIVITY_ATTESTATION_FILE` 未设置 | `npm run review:release-llm` |
 | 3 | Figma / Canva 真实设计交付缺失 | `@figma` / `@canva` | 不能证明品牌、设计源、设计 token、关键流程已评审 | `docs/design_handoff_manifest.json` 不存在 | `npm run review:release-design` |
-| 4 | 本地备份存在 OTA 凭据形态字段 | `@codex-security` | 若字段为真实值，应视为本地备份环境暴露 | `database/backups` 两个 SQL 文件共 4498 个匹配 | `npm run review:release-ota-credentials` |
-| 5 | OTA 凭据轮换证明缺失 | `@codex-security` | 无法证明 Cookie、Token、签名、Authorization 等已轮换或失效 | `docs/ota_credential_rotation_attestation.json` 不存在，`OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 未设置 | `npm run review:release-ota-credentials` |
-| 6 | 正式 Codex Security 扫描缺失 | `@codex-security` | 不能用依赖审计或轻量脚本替代发布级安全审查 | `CODEX_SECURITY_SCAN_DIR` 和 `docs/security/codex-security/latest` 均不存在 | `npm run review:release-security-scan` |
-| 7 | GitHub / 本地交接状态未关闭 | `@github` | 无法完成可靠发布交接 | 本地证据证明 PR 可合并且 checks 通过，但 PR 仍是 draft，本地工作树仍有变更，`.git/index.lock` 存在 | `npm run review:release-external-state` |
+| 4 | OTA 凭据轮换证明缺失 | `@codex-security` | 无法证明 Cookie、Token、签名、Authorization 等已轮换或失效 | `docs/ota_credential_rotation_attestation.json` 不存在，`OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` 未设置；backup 文本扫描干净不等于平台凭据已轮换 | `npm run review:release-ota-credentials` |
+| 5 | 正式 Codex Security 扫描缺失 | `@codex-security` | 不能用依赖审计或轻量脚本替代发布级安全审查 | `CODEX_SECURITY_SCAN_DIR` 和 `docs/security/codex-security/latest` 均不存在 | `npm run review:release-security-scan` |
+| 6 | GitHub / 本地交接状态未关闭 | `@github` | 无法完成可靠发布交接 | 需要用当前 PR 和本地工作树重新通过 `review:release-external-state`，过期外部状态证据不能作为发布证明 | `npm run review:release-external-state` |
 
 ## 关闭顺序
 

@@ -13212,7 +13212,7 @@
                                                         <label class="block text-xs text-gray-500 mb-1">浏览器 Profile ID</label>
                                                         <input v-model="ctripBrowserCaptureForm.profileId" type="text"
                                                             class="w-full px-3 py-2 border rounded-lg bg-white text-sm"
-                                                            placeholder="默认使用 OTA酒店ID 或系统酒店ID">
+                                                            placeholder="默认使用数据源绑定的 Profile ID 或 OTA酒店ID">
                                                     </div>
                                                     <div>
                                                         <label class="block text-xs text-gray-500 mb-1">携程酒店ID（hotelId）</label>
@@ -21285,13 +21285,40 @@
                 }
             };
 
-            const buildPlatformProfileLoginPayload = (platform) => {
+            const firstNonEmptyText = (...values) => {
+                const value = values.find(item => item !== undefined && item !== null && String(item).trim() !== '');
+                return value === undefined ? '' : String(value).trim();
+            };
+
+            const ctripProfileStatusItem = () => platformProfileStatusRows.value.find(row => row.platform === 'ctrip') || null;
+
+            const resolveCtripBrowserProfileId = ({ item = null, activeConfig = null, includeCookieForm = false } = {}) => {
+                const statusItem = item || ctripProfileStatusItem();
+                const binding = statusItem?.binding || {};
+                return firstNonEmptyText(
+                    binding.profile_id,
+                    statusItem?.profile_key,
+                    includeCookieForm ? ctripCookieApiForm.value.profileId : '',
+                    ctripBrowserCaptureForm.value.profileId,
+                    activeConfig?.profile_id,
+                    activeConfig?.profileId,
+                    activeConfig?.browser_profile_id,
+                    activeConfig?.browserProfileId,
+                    activeConfig?.profile,
+                    activeConfig?.ota_hotel_id,
+                    activeConfig?.ctrip_hotel_id,
+                    activeConfig?.ctripHotelId
+                );
+            };
+
+            const buildPlatformProfileLoginPayload = (platform, item = null) => {
                 const hotelId = getAutoFetchHotelId();
                 if (!hotelId) return null;
                 if (platform === 'ctrip') {
                     const form = ctripBrowserCaptureForm.value;
-                    const hotelIdValue = String(form.hotelId || ctripOverviewForm.value.hotelId || '').trim();
-                    const profileId = String(form.profileId || hotelIdValue || hotelId || '').trim();
+                    const binding = item?.binding || {};
+                    const hotelIdValue = firstNonEmptyText(form.hotelId, binding.ctrip_hotel_id, binding.hotel_id, ctripOverviewForm.value.hotelId);
+                    const profileId = resolveCtripBrowserProfileId({ item });
                     const sectionSource = Array.isArray(form.sections) ? form.sections : String(form.sections || 'default').split(/[,\s]+/);
                     const sections = sectionSource.map(item => String(item || '').trim()).filter(Boolean);
                     return {
@@ -21365,9 +21392,13 @@
                 if (item) {
                     fillPlatformProfileForms(item);
                 }
-                const payload = buildPlatformProfileLoginPayload(platform);
+                const payload = buildPlatformProfileLoginPayload(platform, item);
                 if (!payload) {
                     showToast('请先选择酒店', 'error');
+                    return;
+                }
+                if (platform === 'ctrip' && !payload.profile_id) {
+                    showToast('请填写携程 Profile ID，或先绑定携程 Profile 数据源', 'error');
                     return;
                 }
                 if (platform === 'meituan' && !payload.store_id) {
@@ -30651,7 +30682,11 @@
                     || ctripOverviewForm.value.hotelId
                     || ''
                 ).trim();
-                const profileId = String(form.profileId || hotelId || systemHotelId || '').trim();
+                const profileId = resolveCtripBrowserProfileId({ activeConfig });
+                if (!profileId) {
+                    if (!silent) showToast('请填写携程 Profile ID，或先绑定携程 Profile 数据源', 'error');
+                    return { code: 400, message: '请填写携程 Profile ID，或先绑定携程 Profile 数据源' };
+                }
                 const optionSections = options.sections || options.captureSections || '';
                 const sectionSource = Array.isArray(optionSections)
                     ? optionSections
@@ -30924,22 +30959,10 @@
                 showToast('已填入携程核心诊断接口');
             };
 
-            const resolveCtripCookieApiProfileId = (systemHotelId = '', activeConfig = null) => String(
-                ctripCookieApiForm.value.profileId
-                || ctripBrowserCaptureForm.value.profileId
-                || activeConfig?.profile_id
-                || activeConfig?.profileId
-                || activeConfig?.browser_profile_id
-                || activeConfig?.browserProfileId
-                || activeConfig?.profile
-                || activeConfig?.ota_hotel_id
-                || activeConfig?.ctrip_hotel_id
-                || activeConfig?.ctripHotelId
-                || activeConfig?.nodeId
-                || activeConfig?.hotel_id
-                || systemHotelId
-                || ''
-            ).trim();
+            const resolveCtripCookieApiProfileId = (systemHotelId = '', activeConfig = null) => resolveCtripBrowserProfileId({
+                activeConfig,
+                includeCookieForm: true,
+            });
 
             const isCtripPlaceholderHotelId = (value) => {
                 const text = String(value || '').trim();
@@ -31044,6 +31067,10 @@
 
                 const cookies = String(ctripCookieApiForm.value.cookies || activeConfig?.cookies || activeConfig?.cookie || '').trim();
                 const cookieApiProfileId = resolveCtripCookieApiProfileId(systemHotelId, activeConfig);
+                if (!cookieApiProfileId) {
+                    showToast('请填写携程 Profile ID，或先绑定携程 Profile 数据源', 'error');
+                    return;
+                }
                 ctripCookieApiForm.value.profileId = cookieApiProfileId;
                 ctripCookieApiRunning.value = true;
                 fetchingData.value = true;
@@ -31661,7 +31688,7 @@
                 ctripFlowOverviewForm.value.cookies = config.cookies || '';
                 ctripCookieApiForm.value.cookies = config.cookies || '';
                 ctripAdsBrowserCaptureForm.value.cookies = config.cookies || '';
-                const ctripProfileId = String(config.ota_hotel_id || config.ctrip_hotel_id || config.hotel_id || config.system_hotel_id || '');
+                const ctripProfileId = String(config.profile_id || config.profileId || config.browser_profile_id || config.browserProfileId || config.ota_hotel_id || config.ctrip_hotel_id || config.ctripHotelId || '');
                 const ctripHotelId = String(config.ota_hotel_id || config.ctrip_hotel_id || config.ctripHotelId || '');
                 ctripFlowOverviewForm.value.hotelId = ctripHotelId;
                 ctripBrowserCaptureForm.value.profileId = ctripProfileId;
@@ -31672,7 +31699,7 @@
                     ctripBrowserCaptureForm.value.sections = configuredCtripSections;
                 }
                 ctripBrowserCaptureForm.value.approvedMappingsPath = String(config.approved_mappings_path || config.approved_mapping_path || config.p3_mappings_path || '');
-                ctripCommentBrowserCaptureForm.value.profileId = String(config.ota_hotel_id || config.ctrip_hotel_id || config.hotel_id || config.system_hotel_id || '');
+                ctripCommentBrowserCaptureForm.value.profileId = ctripProfileId;
                 applyCtripCommentManualConfig({
                     cookies: config.cookies || '',
                     system_hotel_id: config.system_hotel_id || config.hotel_id || '',

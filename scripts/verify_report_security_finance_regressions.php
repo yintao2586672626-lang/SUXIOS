@@ -97,6 +97,8 @@ $competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorAp
 $onlineSource = file_get_contents(__DIR__ . '/../app/controller/OnlineData.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $hotelSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
+$authMiddlewareSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
+$compassViewSource = file_get_contents(__DIR__ . '/../app/view/admin/compass/index.html');
 
 $logoutSource = extract_method_source_regression($authSource, 'logout');
 $receiveCookiesSource = extract_method_source_regression($onlineSource, 'receiveCookies');
@@ -116,6 +118,10 @@ assert_regression(!str_contains($competitorSource, 'DEV_FALLBACK_TOKEN'), 'compe
 assert_regression(!str_contains($competitorSource, 'isLocalOrDevEnvironment'), 'competitor API token validation must not depend on debug/local fallback');
 assert_regression(str_contains($competitorReportSource, 'CompetitorHotel::where'), 'competitor report must validate the target competitor hotel');
 assert_regression(str_contains($competitorReportSource, "where('store_id', \$storeId)"), 'competitor report must bind store_id to the configured competitor hotel');
+
+assert_regression(!str_contains($authMiddlewareSource, "param('token'") && !str_contains($authMiddlewareSource, 'param("token"'), 'Auth middleware must not accept protected-route tokens from URL query parameters');
+assert_regression(!str_contains($compassViewSource, 'save-layout?token='), 'compass layout save must not put token in URL query');
+assert_regression(!str_contains($compassViewSource, "URLSearchParams(location.search).get('token')"), 'compass layout save must not read token from location.search');
 
 assert_regression(!str_contains($receiveCookiesSource, "param('token'"), 'receiveCookies must not read auth token from URL parameters');
 assert_regression(str_contains($receiveCookiesSource, "header('Access-Control-Allow-Headers: Content-Type, Authorization')"), 'receiveCookies CORS must allow Authorization header');

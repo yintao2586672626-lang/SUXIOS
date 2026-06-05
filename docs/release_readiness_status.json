@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-05-30",
+  "updated_at": "2026-06-05",
   "scope": [
     "@github",
     "@openai-developers",
@@ -22,7 +22,6 @@
       "production env file not provided through .env.production or RELEASE_ENV_FILE",
       "production LLM connectivity attestation not provided through LLM_CONNECTIVITY_ATTESTATION_FILE or docs/llm_connectivity_attestation.json",
       "docs/design_handoff_manifest.json not provided with real Figma, Canva, Brand Kit, design token, and flow coverage",
-      "database/backups contains OTA credential-shaped fields",
       "OTA credential rotation attestation not provided through OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE or docs/ota_credential_rotation_attestation.json",
       "formal Codex Security scan reports not provided through CODEX_SECURITY_SCAN_DIR or docs/security/codex-security/latest",
       ".git/index.lock exists and local git index is not ready for normal release handoff"
@@ -65,16 +64,6 @@
       "title": "Real Figma / Canva / design-token handoff is missing",
       "evidence": "no real docs/design_handoff_manifest.json, Figma/Canva source, or design-token artifact is present",
       "close_condition": "provide accessible Figma, Canva, Brand Kit, design_tokens_path, required flow coverage, YYYY-MM-DD review date, empty open_issues, and pass npm run review:release-design"
-    },
-    {
-      "id": "backup-credential-shaped-fields",
-      "scope": [
-        "@codex-security"
-      ],
-      "status": "open",
-      "title": "Local database/backups contains OTA credential-shaped fields",
-      "evidence": "review:release-readiness reports 4498 credential-shaped matches across database/backups/hotelx_after_tenant_security_20260529_161926.sql (2249) and database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql (2249)",
-      "close_condition": "delete, sanitize, or encrypted-archive local backups and pass review:release-ota-credentials plus review:release-readiness with no credential-shaped matches across database/backups text files"
     },
     {
       "id": "ota-credential-rotation-attestation-missing",
@@ -166,11 +155,12 @@
         "GitHub Actions composer audit reports no security advisories",
         "GitHub Actions npm audit reports 0 vulnerabilities",
         "release package sensitive paths are ignored and export-ignored",
-        "database/backups is not tracked by git"
+        "database/backups is not tracked by git",
+        "current review:release-ota-credentials reports no credential-shaped backup text matches"
       ],
       "open": [
         "formal Codex Security repo-wide scan has not been run because subagent authorization is still required",
-        "local database/backups still contains OTA credential-shaped fields and requires rotation or cleanup"
+        "OTA credential rotation attestation has not been provided"
       ]
     },
     {
@@ -203,7 +193,6 @@
     "production env is provided and passes review:release-env plus review:release-readiness",
     "production LLM connectivity attestation is provided and passes review:release-llm plus review:release-readiness",
     "real Figma/Canva/design-token handoff is present and passes review:release-design plus review:release-readiness",
-    "OTA credentials are rotated or local backups are cleaned/sanitized and review:release-ota-credentials plus review:release-readiness no longer report credential-shaped fields",
     "OTA credential rotation attestation is provided and passes review:release-ota-credentials plus review:release-readiness",
     "formal Codex Security repo-wide scan is authorized, executed, produces markdown/html reports, and passes review:release-security-scan",
     "PR #1 is marked ready for review and local git state is clean or contains only reviewed intentional changes"

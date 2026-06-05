@@ -1,6 +1,6 @@
 # Release Verification Command Matrix
 
-Updated: 2026-05-30
+Updated: 2026-06-05
 
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
@@ -15,7 +15,6 @@ Purpose: keep each open release blocker tied to one isolated acceptance command 
 | `production-env-missing` | `@openai-developers` | `npm run review:release-env` | `RELEASE_ENV_FILE` points to controlled production env outside the repo, or a controlled `.env.production` exists in a release workspace. | Fails until real production env evidence exists. | `APP_DEBUG=false`, `APP_TRACE=false`, non-local `DB_HOST`, non-root `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values are verified. |
 | `llm-connectivity-attestation-missing` | `@openai-developers` | `npm run review:release-llm` | `LLM_CONNECTIVITY_ATTESTATION_FILE` or `docs/llm_connectivity_attestation.json`. | Fails until production LLM smoke-test attestation exists. | Attestation proves the real `LlmClient` path and enabled `ai_model_configs` were tested, contains no secrets, and confirms `redaction_checked=true`. |
 | `design-handoff-missing` | `@figma` / `@canva` | `npm run review:release-design` | `docs/design_handoff_manifest.json`. | Fails until real design source handoff exists. | Manifest includes accessible Figma, Canva, Brand Kit, design token path, required flow coverage, review date, owner, and empty `open_issues`. |
-| `backup-credential-shaped-fields` | `@codex-security` | `npm run review:release-ota-credentials` | Sanitized, deleted, or encrypted-archived `database/backups` text files plus git tracking evidence. | Fails while credential-shaped backup matches remain. | No credential-shaped matches are found across text-readable backups and `git ls-files database/backups` remains empty. |
 | `ota-credential-rotation-attestation-missing` | `@codex-security` | `npm run review:release-ota-credentials` | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json`. | Fails until credential-free rotation attestation exists. | OTA Cookie, Token, signature, and Authorization material rotation or invalidation is attested without exposing values. |
 | `codex-security-scan-missing` | `@codex-security` | `npm run review:release-security-scan` | `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest`. | Fails until formal scan artifacts exist. | Scan directory contains manifest, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, and Markdown/HTML reports. |
 

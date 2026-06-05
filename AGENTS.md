@@ -443,6 +443,7 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 7. 需要账号授权、密钥、敏感数据访问、生产环境写入，或安装器出现高风险告警时，必须先说明风险并等待用户确认。
 8. 默认允许项目 Skill 隐式调用；只有明确不希望自动触发时，才在 `agents/openai.yaml` 设置 `policy.allow_implicit_invocation: false`。
 9. 当任务涉及 Scrapling、网页抓取、HTML 解析、selector 证据、解析器 fixture 或 OTA 页面字段提取时，自动参考 `.agents/skills/scrapling/SKILL.md`；仅处理授权来源，不静默安装 Python 依赖，不绕过登录、验证码、短信、人机验证或平台权限控制。
+10. 当任务涉及 ECC、Everything Claude Code、Claude Code 工作流或 Codex 插件适配时，自动参考 `.agents/skills/ecc-codex-adapter/SKILL.md`；ECC 完整源码保留在 `.agents/vendor/everything-claude-code/`，默认只作参考和本地 marketplace 可选插件，不直接执行 Claude Code installer、hook 或全量 Skill 复制。
 
 ### Taste/UI Skill 自适应调用策略
 

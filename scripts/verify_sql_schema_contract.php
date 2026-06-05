@@ -768,13 +768,23 @@ try {
     }
 
     if (!$runDatabase) {
-        echo "OK: SQL schema contract passed\n";
+        $contractPassed = empty($sourceMissingTables) && empty($sourceMissingColumns);
+        if ($options['json']) {
+            echo json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL;
+            exit($contractPassed ? 0 : 1);
+        }
+
+        echo ($contractPassed ? "OK: SQL schema contract passed\n" : "SQL schema contract failed\n");
         echo "Full SQL tables: " . count($resources['schema']) . "\n";
         echo "Code-required tables: " . count($requiredTables) . "\n";
         echo "Tracked baseline tables: " . count($baselineResources['schema']) . " ({$baselineSqlFile})\n";
         echo "Baseline gaps covered by migrations: " . count($baselineMissingTables) . " tables, " . count($baselineMissingColumns) . " columns\n";
         echo "Optional table refs skipped: " . implode(', ', $optionalTables) . "\n";
-        exit(empty($sourceMissingTables) && empty($sourceMissingColumns) ? 0 : 1);
+        if (!$contractPassed) {
+            echo "Missing source SQL tables: " . ($sourceMissingTables ? implode(', ', $sourceMissingTables) : 'none') . "\n";
+            echo "Missing source SQL columns: " . ($sourceMissingColumns ? implode(', ', $sourceMissingColumns) : 'none') . "\n";
+        }
+        exit($contractPassed ? 0 : 1);
     }
 
     if ($options['json']) {

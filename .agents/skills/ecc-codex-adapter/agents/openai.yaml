@@ -1,0 +1,6 @@
+name: ecc-codex-adapter
+display_name: "ECC Codex Adapter"
+short_description: "Adapt downloaded ECC assets for controlled SUXIOS Codex use."
+default_prompt: "Use $ecc-codex-adapter when working with ECC, Everything Claude Code, Claude Code workflow assets, or Codex plugin adaptation in SUXIOS."
+policy:
+  allow_implicit_invocation: true

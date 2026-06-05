@@ -345,11 +345,14 @@
     });
 
     document.getElementById('save-layout').addEventListener('click', async () => {
-        const token = new URLSearchParams(location.search).get('token') || localStorage.getItem('token') || '';
-        const url = token ? `/compass/save-layout?token=${encodeURIComponent(token)}` : '/compass/save-layout';
-        const res = await fetch(url, {
+        const token = localStorage.getItem('token') || '';
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers.Authorization = token;
+        }
+        const res = await fetch('/compass/save-layout', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': token },
+            headers,
             body: JSON.stringify({ order: layout.order, hidden: layout.hidden || [] })
         });
         const data = await res.json().catch(() => ({}));

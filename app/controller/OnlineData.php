@@ -18267,6 +18267,21 @@ JAVASCRIPT;
         return is_array($config) ? $config : [];
     }
 
+    private function resolveExistingCtripBrowserProfileKey(int $hotelId): string
+    {
+        foreach ($this->listEnabledCtripBrowserProfileDataSources($hotelId) as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $candidate = $this->ctripProfileStoreIdFromConfig($this->decodeBrowserProfileSourceConfig($source), $hotelId);
+            if ($candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
     private function resolvePlatformProfileLoginProfileKey(string $platform, array $requestData, int $hotelId): string
     {
         if ($platform === 'ctrip') {
@@ -18279,7 +18294,15 @@ JAVASCRIPT;
                 ?? $requestData['ctripHotelId']
                 ?? ''
             ));
-            return $profileKey !== '' ? $profileKey : 'system_' . $hotelId;
+            $existingProfileKey = $this->resolveExistingCtripBrowserProfileKey($hotelId);
+            if ($profileKey !== '' && $profileKey === (string)$hotelId && $existingProfileKey !== '' && $existingProfileKey !== $profileKey) {
+                return $existingProfileKey;
+            }
+            if ($profileKey !== '') {
+                return $profileKey;
+            }
+
+            return $existingProfileKey !== '' ? $existingProfileKey : 'system_' . $hotelId;
         }
 
         return trim((string)(

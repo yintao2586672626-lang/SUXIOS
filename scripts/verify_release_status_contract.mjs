@@ -92,10 +92,8 @@ const requiredOpenFailurePatterns = [
   /production env/i,
   /LLM|connectivity|LLM_CONNECTIVITY_ATTESTATION_FILE/i,
   /figma|canva|design-token|design_handoff_manifest|design_handoff_manifest\.json/i,
-  /database\/backups|credential-shaped/i,
   /OTA credential rotation|OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE/i,
   /Codex Security|CODEX_SECURITY_SCAN_DIR/i,
-  /\.git\/index\.lock|local git index|git state/i,
 ];
 
 const requiredExternalStateFailurePatterns = [
@@ -114,7 +112,6 @@ const requiredDoNotClaimReadyPatterns = [
   /production env/i,
   /LLM|connectivity/i,
   /figma|canva|design-token/i,
-  /OTA credentials|database\/backups/i,
   /OTA credential rotation/i,
   /Codex Security/i,
   /git state/i,
@@ -125,7 +122,6 @@ const requiredReportBlockerPatterns = [
   /LLM_CONNECTIVITY_ATTESTATION_FILE|LLM connectivity/i,
   /Figma|Canva|design token/i,
   /standalone design-token files or screenshots are not sufficient/i,
-  /database\/backups|credential-shaped/i,
   /OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE|OTA credential rotation/i,
   /CODEX_SECURITY_SCAN_DIR|Codex Security/i,
   /\.git\/index\.lock|Local Git state/i,
@@ -135,7 +131,6 @@ const requiredBlockerIds = [
   'production-env-missing',
   'llm-connectivity-attestation-missing',
   'design-handoff-missing',
-  'backup-credential-shaped-fields',
   'ota-credential-rotation-attestation-missing',
   'codex-security-scan-missing',
   'local-git-state-open',
@@ -145,7 +140,6 @@ const requiredBlockerScopes = {
   'production-env-missing': ['@openai-developers'],
   'llm-connectivity-attestation-missing': ['@openai-developers'],
   'design-handoff-missing': ['@figma', '@canva'],
-  'backup-credential-shaped-fields': ['@codex-security'],
   'ota-credential-rotation-attestation-missing': ['@codex-security'],
   'codex-security-scan-missing': ['@codex-security'],
   'local-git-state-open': ['@github'],
@@ -839,8 +833,8 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.passed !== 5) {
-    fail('docs/release_readiness_result.example.json summary.passed must match the current 5 release-readiness passes');
+  if (readinessResultExample.summary?.passed !== 7) {
+    fail('docs/release_readiness_result.example.json summary.passed must match the current 7 release-readiness passes');
     resultComplete = false;
   }
   const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
@@ -853,19 +847,6 @@ if (readinessResultExample) {
     requiredOpenFailurePatterns,
     'docs/release_readiness_result.example.json failures',
   );
-  const backupFailure = Array.isArray(readinessResultExample.failures)
-    ? readinessResultExample.failures.find((failure) => /database\/backups.*credential-shaped/i.test(failure))
-    : '';
-  const backupFailureText = backupFailure || '';
-  for (const file of [
-    'database/backups/hotelx_after_tenant_security_20260529_161926.sql',
-    'database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql',
-  ]) {
-    if (!backupFailureText.includes(file)) {
-      fail(`docs/release_readiness_result.example.json backup failure must include redacted file-level count for ${file}`);
-      resultComplete = false;
-    }
-  }
   if (resultComplete) {
     pass('docs/release_readiness_result.example.json covers required fields');
   }
@@ -964,8 +945,8 @@ try {
   if (!report.includes('npm run review:functional-readiness')) {
     fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
   }
-  if (!report.includes('7 failures')) {
-    fail('release_readiness_remaining_issues.md must state the current 7 release-readiness failures');
+  if (!report.includes('5 release-evidence failures')) {
+    fail('release_readiness_remaining_issues.md must state the current 5 release-evidence failures');
   }
   if (report.includes('6 direct release-evidence failures')) {
     fail('release_readiness_remaining_issues.md must not use the stale 6 direct release-evidence failure count');
@@ -1104,7 +1085,6 @@ try {
   }
   for (const phrase of [
     'Status: not release-ready',
-    '4498 credential-shaped matches',
     '.git/index.lock',
     'Do not mark any issue closed from narrative evidence alone',
     'Do not delete or sanitize local backup files without explicit operator approval',

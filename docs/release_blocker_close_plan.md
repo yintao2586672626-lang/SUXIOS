@@ -1,6 +1,6 @@
 # Release Blocker Close Plan
 
-Updated: 2026-05-30
+Updated: 2026-06-05
 
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
@@ -15,10 +15,9 @@ Command matrix: `docs/release_verification_command_matrix.md`
 | 1 | `local-git-state-open` | `@github` | Align local worktree with the PR branch, confirm `.git/index.lock` is absent, and recheck PR checks. | `npm run review:release-external-state` passes, or `RELEASE_EXTERNAL_STATE_FILE` proves the same checks passed. |
 | 2 | `production-env-missing` | `@openai-developers` | Prepare controlled production env outside the repository. | `RELEASE_ENV_FILE` points to a real non-template production config, `APP_DEBUG=false`, `APP_TRACE=false`, `DB_HOST` is not localhost or loopback, `DB_USER` is not `root`, `npm run review:release-env` passes, and `npm run review:release-readiness` no longer reports missing production env. |
 | 3 | `llm-connectivity-attestation-missing` | `@openai-developers` | Test production `ai_model_configs` through the real `LlmClient` path. | `LLM_CONNECTIVITY_ATTESTATION_FILE` or `docs/llm_connectivity_attestation.json` passes `npm run review:release-llm`, contains no secret values, and confirms `redaction_checked=true`. |
-| 4 | `backup-credential-shaped-fields` | `@codex-security` | Delete, sanitize, or encrypted-archive credential-shaped data under `database/backups`. | `npm run review:release-ota-credentials` and `npm run review:release-readiness` no longer report credential-shaped matches across backup text files. |
-| 5 | `ota-credential-rotation-attestation-missing` | `@codex-security` | Rotate or invalidate OTA Cookie, Token, signature, and Authorization material, then record cleanup results. | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json` passes `npm run review:release-ota-credentials`, contains no real credential values, and confirms `redaction_checked=true`. |
-| 6 | `codex-security-scan-missing` | `@codex-security` | Authorize subagents and complete the formal repo-wide Codex Security scan. | `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest` passes `npm run review:release-security-scan` and contains `scan_manifest.json`, `report.md`, `report.html`, validation summary, attack-path analysis report, and coverage artifacts. |
-| 7 | `design-handoff-missing` | `@figma` / `@canva` | Provide real Figma, Canva, Brand Kit, design token, covered-flow handoff references, review date, and zero open design issues in `docs/design_handoff_manifest.json`. | `docs/design_handoff_manifest.json` passes `npm run review:release-design` and `npm run review:release-readiness`; standalone token files, screenshots, or manifests with non-empty `open_issues` do not close the blocker. |
+| 4 | `ota-credential-rotation-attestation-missing` | `@codex-security` | Rotate or invalidate OTA Cookie, Token, signature, and Authorization material, then record cleanup results. | `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` or `docs/ota_credential_rotation_attestation.json` passes `npm run review:release-ota-credentials`, contains no real credential values, and confirms `redaction_checked=true`. |
+| 5 | `codex-security-scan-missing` | `@codex-security` | Authorize subagents and complete the formal repo-wide Codex Security scan. | `CODEX_SECURITY_SCAN_DIR` or `docs/security/codex-security/latest` passes `npm run review:release-security-scan` and contains `scan_manifest.json`, `report.md`, `report.html`, validation summary, attack-path analysis report, and coverage artifacts. |
+| 6 | `design-handoff-missing` | `@figma` / `@canva` | Provide real Figma, Canva, Brand Kit, design token, covered-flow handoff references, review date, and zero open design issues in `docs/design_handoff_manifest.json`. | `docs/design_handoff_manifest.json` passes `npm run review:release-design` and `npm run review:release-readiness`; standalone token files, screenshots, or manifests with non-empty `open_issues` do not close the blocker. |
 
 ## Close Rules
 

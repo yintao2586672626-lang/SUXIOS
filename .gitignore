@@ -59,6 +59,7 @@ hotelx_dump.sql
 .codebuddy/
 .workbuddy/
 .snapshots/
+.agents/vendor/
 query/
 
 # Local debug / one-off tooling

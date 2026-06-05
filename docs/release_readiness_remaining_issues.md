@@ -1,12 +1,12 @@
 # Pre-Release Remaining Issues
 
-Updated: 2026-05-30
+Updated: 2026-06-05
 
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 ## Current Conclusion
 
-The GitHub CI blocker is resolved on the current PR head, and the existing contract and review checks pass. The project is still not release-ready. `npm run review:release-readiness` currently reports 7 failures: 6 release-evidence failures plus 1 local Git index/state failure. The `@github` local-state blocker remains open through `git status --short --branch` plus `npm run review:release-external-state`.
+The existing contract and review checks can pass while the project remains not release-ready. `npm run review:release-readiness` currently reports 5 release-evidence failures: production env, production LLM attestation, design handoff, OTA credential rotation attestation, and formal Codex Security scan. The `@github` local-state blocker remains separate and must be checked through `git status --short --branch` plus `npm run review:release-external-state`.
 
 Machine-readable status: `docs/release_readiness_status.json`.
 
@@ -31,10 +31,9 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 | 1 | `@openai-developers` | Production env is missing | `review:release-readiness` reports `.env.production` is missing and `RELEASE_ENV_FILE` is not set. | Provide controlled production env outside the repository with `APP_DEBUG=false`, `APP_TRACE=false`, non-local `DB_HOST`, least-privilege `DB_USER`, and non-placeholder database and `AI_CONFIG_SECRET` values; `npm run review:release-env` must pass first. |
 | 2 | `@openai-developers` | Production LLM connectivity attestation is missing | `docs/llm_connectivity_attestation.json` is missing and `LLM_CONNECTIVITY_ATTESTATION_FILE` is not set. | Run a production `LlmClient` connectivity smoke test using real `ai_model_configs`, provide a secret-free attestation JSON, and pass `npm run review:release-llm`. |
 | 3 | `@figma` / `@canva` | Real Figma / Canva / design-token handoff is missing | No real `docs/design_handoff_manifest.json` is present with Figma source, Canva source, Brand Kit, design token, flow coverage, review date, and zero open design issues. | Provide accessible Figma, Canva, Brand Kit, `design_tokens_path`, required flow coverage, `last_reviewed_at` in `YYYY-MM-DD`, empty `open_issues`, and pass `npm run review:release-design`. |
-| 4 | `@codex-security` | Local backups contain OTA credential-shaped fields | `review:release-readiness` reports 4498 credential-shaped matches across 2 files: `database/backups/hotelx_after_tenant_security_20260529_161926.sql` (2249) and `database/backups/hotelx_before_extended_tenant_security_20260529_162847.sql` (2249). | Delete, sanitize, or encrypted-archive local backups and pass `npm run review:release-ota-credentials` with no credential-shaped matches across backup text files. |
-| 5 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, readiness rerun, and pass `npm run review:release-ota-credentials`. |
-| 6 | `@codex-security` | Formal repo-wide Codex Security scan is missing | `CODEX_SECURITY_SCAN_DIR` and `docs/security/codex-security/latest` scan artifacts are not present. | Authorize subagents, provide `scan_manifest.json`, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, final Markdown/HTML reports, and pass `npm run review:release-security-scan`. |
-| 7 | `@github` | GitHub / local handoff state is not closed | Local external evidence proves PR #1 is open, mergeable, has green checks, and `database/backups` is not tracked, but PR #1 is still draft, `.git/index.lock` exists, and `git status --short --branch` shows a dirty local worktree. | Mark PR #1 ready for review, align local worktree with the PR, confirm `.git/index.lock` is absent, and pass `review:release-external-state`. |
+| 4 | `@codex-security` | OTA credential rotation attestation is missing | `docs/ota_credential_rotation_attestation.json` is missing and `OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE` is not set. Current backup text scan reports no credential-shaped matches, but that does not prove real platform credential rotation or invalidation. | Provide a credential-free attestation covering platform rotation, backup cleanup, git tracking check, readiness rerun, and pass `npm run review:release-ota-credentials`. |
+| 5 | `@codex-security` | Formal repo-wide Codex Security scan is missing | `CODEX_SECURITY_SCAN_DIR` and `docs/security/codex-security/latest` scan artifacts are not present. | Authorize subagents, provide `scan_manifest.json`, threat model, finding discovery, validation summary, attack-path analysis, coverage ledger, reviewed surfaces, final Markdown/HTML reports, and pass `npm run review:release-security-scan`. |
+| 6 | `@github` | GitHub / local handoff state is not closed | Local handoff must be verified against the current PR and worktree state; stale external-state evidence is not enough. | Mark the active PR ready for review, align local worktree with the PR, confirm `.git/index.lock` is absent, and pass `review:release-external-state`. |
 
 ## Resolved Or Partially Controlled Items
 
@@ -46,6 +45,7 @@ Optional GitHub/local-state result evidence: set `RELEASE_EXTERNAL_STATE_RESULT_
 | Excel parsing command execution risk | Fixed | `DailyReport.php` removed `shell_exec` and uses array-form `proc_open`. |
 | AI request entrypoint | Controlled | Unused `OpenAIClient` was removed; production AI path is `LlmClient` with encrypted database model configuration. |
 | Release package sensitive paths | Controlled | `.gitignore` and `.gitattributes` exclude env files, backups, capture reports, and screenshot assets from normal tracking and archive exports. |
+| Backup credential-shaped text scan | Controlled | Current `npm run review:release-ota-credentials` reports no credential-shaped matches across `database/backups` text files; OTA credential rotation attestation remains separate and open. |
 | UI code-side handoff checklist | Added | `docs/ui-handoff/README.md` covers login, OTA data, revenue analysis, AI decision, operations management, and investment decision code-side review points. |
 | Local functional acceptance gate | Added | `npm run review:functional-readiness` checks structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
 | Release issue register | Added | `docs/release_issue_register.md` lists every open blocker, scope, evidence, acceptance command, and close condition. |
@@ -102,16 +102,15 @@ Required close evidence:
 - `npm run review:release-security-scan` passes against the same scan directory.
 - `npm run review:release-readiness` no longer reports the Codex Security scan failure.
 
-### 4. Local OTA Backup Credential Risk Remains
+### 4. OTA Credential Rotation Attestation Is Missing
 
 Scope: `@codex-security`
 
-`database/backups` is ignored and not tracked by Git, but local backup files still contain credential-shaped OTA fields. The release readiness scan checks text-readable backup files for Cookie, Authorization, Bearer, usertoken, usersign, access token, refresh token, session token, and API key shapes without printing values. If those values are real, they must be treated as exposed in the local backup environment.
+The current backup text scan is controlled, but there is still no credential-free attestation proving real OTA Cookie, Token, signature, or Authorization material was rotated or invalidated. A clean backup scan does not close platform credential risk by itself.
 
 Required close evidence:
 
 - Real OTA Cookie, Token, signature, and Authorization material is rotated or invalidated where applicable.
-- Local backup files are deleted, sanitized, or moved into controlled encrypted storage.
 - `git ls-files database/backups` remains empty.
 - `npm run review:release-ota-credentials` no longer reports credential-shaped matches across `database/backups` text files.
 - `npm run review:release-readiness` no longer reports credential-shaped matches across `database/backups` text files.

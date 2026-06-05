@@ -366,12 +366,42 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
     'const buildPlatformProfileLoginPayload',
     'const pollPlatformProfileLoginStatus'
   );
+  const profileLoginTrigger = sliceBetween(
+    html,
+    'const triggerPlatformProfileLogin',
+    'const platformProfileStatusLabel'
+  );
+  const cookieApiProfileResolver = sliceBetween(
+    html,
+    'const resolveCtripCookieApiProfileId',
+    'const isCtripPlaceholderHotelId'
+  );
+  const profileLoginKeyResolver = sliceBetween(
+    backend,
+    'private function resolvePlatformProfileLoginProfileKey',
+    'private function preparePlatformProfileLoginRequest'
+  );
 
   for (const block of [overviewFetch, flowFetch, profileCapture, cookieApiResolver, profileLoginPayload]) {
     assert.doesNotMatch(block, /activeConfig\?\.node_id|activeConfig\?\.nodeId|ctripForm\.value\.nodeId/);
   }
   assert.match(configApplier, /const ctripHotelId = String\(config\.ota_hotel_id \|\| config\.ctrip_hotel_id \|\| config\.ctripHotelId \|\| ''\)/);
   assert.doesNotMatch(configApplier, /const ctripHotelId = String\([\s\S]*node_id|const ctripHotelId = String\([\s\S]*nodeId/);
+  assert.match(profileLoginPayload, /const profileId = resolveCtripBrowserProfileId\(\{ item \}\)/);
+  assert.match(profileLoginTrigger, /buildPlatformProfileLoginPayload\(platform, item\)/);
+  assert.match(profileLoginTrigger, /platform === 'ctrip' && !payload\.profile_id/);
+  assert.doesNotMatch(profileLoginPayload, /form\.profileId \|\| hotelIdValue \|\| hotelId/);
+  assert.match(profileCapture, /const profileId = resolveCtripBrowserProfileId\(\{ activeConfig \}\)/);
+  assert.doesNotMatch(profileCapture, /form\.profileId \|\| hotelId \|\| systemHotelId/);
+  assert.match(cookieApiProfileResolver, /resolveCtripBrowserProfileId\(\{\s*activeConfig,\s*includeCookieForm: true,\s*\}\)/);
+  assert.doesNotMatch(cookieApiProfileResolver, /nodeId|systemHotelId\s*\|\|/);
+  const ctripProfileIdLine = configApplier.match(/const ctripProfileId = String\([^\n]+\)/)?.[0] || '';
+  assert.match(ctripProfileIdLine, /config\.profile_id \|\| config\.profileId \|\| config\.browser_profile_id \|\| config\.browserProfileId \|\| config\.ota_hotel_id \|\| config\.ctrip_hotel_id \|\| config\.ctripHotelId \|\| ''/);
+  assert.doesNotMatch(ctripProfileIdLine, /config\.hotel_id|config\.system_hotel_id/);
+  assert.match(backend, /private function resolveExistingCtripBrowserProfileKey\(int \$hotelId\): string/);
+  assert.match(profileLoginKeyResolver, /\$existingProfileKey = \$this->resolveExistingCtripBrowserProfileKey\(\$hotelId\)/);
+  assert.match(profileLoginKeyResolver, /\$profileKey !== '' && \$profileKey === \(string\)\$hotelId && \$existingProfileKey !== '' && \$existingProfileKey !== \$profileKey/);
+  assert.match(profileLoginKeyResolver, /return \$existingProfileKey/);
 });
 
 test('Ctrip collection quality rows overfetch before identity filtering', () => {

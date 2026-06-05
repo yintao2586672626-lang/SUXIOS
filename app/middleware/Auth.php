@@ -30,11 +30,6 @@ class Auth
         }
         
         if (empty($token)) {
-            // 兼容通过URL参数传递token的场景（如后台页面打开）
-            $token = (string)$request->param('token', '');
-        }
-        
-        if (empty($token)) {
             return json([
                 'code' => 401,
                 'message' => '未提供认证令牌',
