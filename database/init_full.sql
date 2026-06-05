@@ -18,6 +18,7 @@ SOURCE ./database/migrations/20260519_add_online_daily_data_validation_fields.sq
 SOURCE ./database/migrations/20260511_create_ai_model_configs.sql;
 SOURCE ./database/migrations/20260527_create_ai_governance_tables.sql;
 SOURCE ./database/migrations/20260528_create_platform_data_sync_tables.sql;
+SOURCE ./database/migrations/20260606_add_online_daily_data_period_fields.sql;
 SOURCE ./database/migrations/20260511_create_missing_business_tables.sql;
 SOURCE ./database/migrations/20260517_add_international_ota_report_fields.sql;
 SOURCE ./database/migrations/20260516_create_opening_management_tables.sql;

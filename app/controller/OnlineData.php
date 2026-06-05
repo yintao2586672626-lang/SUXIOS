@@ -15,7 +15,7 @@ use think\facade\Db;
 class OnlineData extends Base
 {
     private const CTRIP_PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
-    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 22;
+    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 23;
     private const CTRIP_PROFILE_MODULES_CONFIG_KEY = 'ctrip_profile_capture_modules';
     private const CTRIP_PROFILE_MODULES_CONFIG_VERSION = 3;
     private const CTRIP_BUSINESS_REPORT_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
@@ -230,6 +230,12 @@ class OnlineData extends Base
         'elong_comment_id',
         'review_score',
         'comment_score_summary',
+        'comment_store_name',
+        'comment_date',
+        'comment_channel',
+        'comment_score',
+        'comment_count',
+        'bad_review_count',
         'comment_response_rate',
         'rating_competitor_total',
         'reply_rate',
@@ -3890,7 +3896,7 @@ class OnlineData extends Base
             '收益销售' => ['order_count', 'room_nights', 'room_nights_last_week', 'quantity_rank', 'order_amount', 'order_amount_last_week', 'amount_rank', 'avg_price', 'avg_price_last_week', 'avg_price_rank', 'close_rate', 'close_rate_last_week', 'close_rate_rank', 'occupancy_rate', 'tensity'],
             '流量转化' => ['visitor_count', 'list_exposure', 'detail_visitor', 'order_page_visitor', 'order_submit_user', 'flow_rate', 'conversion_rate'],
             '竞争圈' => ['rank', 'competitor_average', 'common_view_rate', 'loss_order_count', 'loss_room_nights', 'loss_order_amount'],
-            '服务质量/IM' => ['psi_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score', 'reply_rate', 'reply_rank', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank', 'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'ctrip_rating', 'qunar_rating', 'elong_rating', 'ctrip_rating_rank', 'qunar_rating_rank', 'ctrip_comment_id', 'qunar_comment_id', 'elong_comment_id', 'comment_score_summary', 'comment_response_rate', 'rating_competitor_total'],
+            '服务质量/IM' => ['psi_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score', 'reply_rate', 'reply_rank', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank', 'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'ctrip_rating', 'qunar_rating', 'elong_rating', 'ctrip_rating_rank', 'qunar_rating_rank', 'ctrip_comment_id', 'qunar_comment_id', 'elong_comment_id', 'comment_score_summary', 'comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count', 'comment_response_rate', 'rating_competitor_total'],
             '广告推广' => ['ad_impressions', 'ad_clicks', 'ad_cost', 'ad_order_amount', 'ad_orders', 'ad_room_nights', 'ctr', 'cvr', 'roas'],
             '商旅BPI' => ['bpi_score', 'basis_score', 'plus_score', 'minus_score', 'agreement_accept_rate', 'business_room_nights', 'business_amount'],
             '辅助事实' => ['hot_spot_name', 'start_date', 'end_date', 'user_sex', 'avg_user_age', 'user_age', 'user_source', 'user_source_scope', 'source_region', 'source_city', 'user_type', 'travel_time', 'booking_hour', 'hotel_star_preference', 'price_band', 'consumption_power', 'avg_booking_days', 'booking_days', 'avg_stay_days', 'stay_days', 'price_sensitivity', 'booking_method', 'order_hotel_count', 'order_preference', 'preference_frequency', 'strategy', 'benefit_name', 'notice_title'],
@@ -3958,6 +3964,12 @@ class OnlineData extends Base
             'qunar_comment_id' => '去哪儿点评主体ID',
             'elong_comment_id' => '艺龙点评主体ID',
             'comment_score_summary' => '酒店点评分',
+            'comment_store_name' => '点评门店',
+            'comment_date' => '点评日期',
+            'comment_channel' => '点评渠道',
+            'comment_score' => '点评分',
+            'comment_count' => '点评数',
+            'bad_review_count' => '差评数',
             'comment_response_rate' => '点评回复率',
             'rating_competitor_total' => '点评竞争圈酒店数',
             'ad_impressions' => '广告曝光',
@@ -6895,6 +6907,8 @@ class OnlineData extends Base
             'poi_name' => (string)$this->firstMeituanValue($payload, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'store_name', 'storeName'], ''),
             'captured_at' => (string)$this->firstMeituanValue($payload, ['captured_at', 'capturedAt', 'scraped_at', 'scrapedAt'], date('Y-m-d H:i:s')),
             'default_data_date' => (string)$this->firstMeituanValue($payload, ['default_data_date', 'defaultDataDate', 'data_date', 'dataDate'], date('Y-m-d')),
+            'data_period' => (string)$this->firstMeituanValue($payload, ['data_period', 'dataPeriod'], ''),
+            'snapshot_time' => (string)$this->firstMeituanValue($payload, ['snapshot_time', 'snapshotTime'], ''),
         ];
     }
 
@@ -7204,7 +7218,10 @@ class OnlineData extends Base
             'source' => 'meituan',
             'qunar_comment_score' => 0,
             'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
-        ], $fields);
+        ], array_filter([
+            'data_period' => $context['data_period'] ?? '',
+            'snapshot_time' => $context['snapshot_time'] ?? '',
+        ], static fn($value): bool => $value !== null && $value !== ''), $fields);
     }
 
     /**
@@ -7360,6 +7377,7 @@ class OnlineData extends Base
             if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
                 continue;
             }
+            $row = $this->applyOnlineDailyDataPeriodFields($row, $columns, $row);
 
             if (isset($columns['update_time'])) {
                 $row['update_time'] = $now;
@@ -7370,6 +7388,7 @@ class OnlineData extends Base
                 ->where('data_type', (string)$row['data_type'])
                 ->where('data_date', (string)$row['data_date'])
                 ->where('dimension', (string)($row['dimension'] ?? ''));
+            $this->applyOnlineDailyDataPeriodQuery($query, $row, $columns);
 
             if (!empty($row['hotel_id'])) {
                 $query->where('hotel_id', (string)$row['hotel_id']);
@@ -8071,11 +8090,20 @@ class OnlineData extends Base
                 \think\facade\Log::info("美团数据解析 - 保存数据: hotelName=$hotelName, dataValue=$dataValue, amount=$amount, quantity=$quantity, dataDate=$itemDate, dimName=$dimName");
 
                 // 检查是否已存在（按酒店名称、日期、来源、维度去重）
+                $columns = $this->getOnlineDailyDataColumns();
+                $periodFilter = $this->applyOnlineDailyDataPeriodFields([
+                    'data_date' => $itemDate,
+                    'source' => 'meituan',
+                    'data_type' => 'business',
+                    'dimension' => $dimName,
+                ], $columns, $item);
+
                 $query = Db::name('online_daily_data')
                     ->where('hotel_name', $hotelName)
                     ->where('data_date', $itemDate)
                     ->where('source', 'meituan')
                     ->where('dimension', $dimName);
+                $this->applyOnlineDailyDataPeriodQuery($query, $periodFilter, $columns);
 
                 if ($systemHotelId !== null) {
                     $query->where('system_hotel_id', $systemHotelId);
@@ -8178,12 +8206,19 @@ class OnlineData extends Base
             if (is_string($itemDate) && preg_match('/^\d{4}-\d{2}-\d{2}/', $itemDate, $matches)) {
                 $itemDate = $matches[0];
             }
+            $periodFilter = $this->applyOnlineDailyDataPeriodFields([
+                'data_date' => $itemDate,
+                'data_type' => 'business',
+                'source' => 'ctrip',
+                'dimension' => '',
+            ], $columns, $item);
 
             // 检查是否已存在（按来源、系统酒店、平台酒店、日期去重）
             $query = Db::name('online_daily_data')
                 ->where('source', 'ctrip')
                 ->where('hotel_id', (string)$hotelId)
                 ->where('data_date', $itemDate);
+            $this->applyOnlineDailyDataPeriodQuery($query, $periodFilter, $columns);
 
             if ($systemHotelId !== null) {
                 $query->where('system_hotel_id', $systemHotelId);
@@ -12317,6 +12352,10 @@ JAVASCRIPT;
             'room_nights' => ['quantity'],
             'order_count' => ['book_order_num'],
             'comment_score_summary' => ['comment_score', 'qunar_comment_score'],
+            'comment_store_name' => ['hotel_name'],
+            'comment_date' => ['data_date'],
+            'comment_score' => ['comment_score'],
+            'comment_count' => ['data_value'],
             'close_rate' => ['conversion_rate'],
             'page_views' => ['list_exposure'],
             'list_exposure' => ['list_exposure'],
@@ -12906,6 +12945,9 @@ JAVASCRIPT;
         $userBehaviorPage = 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?microJump=true';
         $userBehaviorImPage = 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im';
         $userBehaviorApi = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/';
+        $commentPage = 'https://ebooking.ctrip.com/comment/commentList?microJump=true';
+        $commentSummaryUrl = 'https://ebooking.ctrip.com/comment/api/getCommentNumV2';
+        $commentListUrl = 'https://ebooking.ctrip.com/comment/api/getCommentList';
 
         return [
             'last_visitor_total' => [
@@ -14206,6 +14248,78 @@ JAVASCRIPT;
                 'value_meaning' => '酒店点评分兼容字段，标准口径同 ctrip_rating',
                 'notes' => '兼容旧 field_key；新增配置优先看 ctrip_rating。',
             ],
+            'comment_store_name' => [
+                'page_url' => $commentPage,
+                'request_url' => $commentSummaryUrl . ' / ' . $commentListUrl,
+                'json_path' => 'data.hotelName / data.masterHotelName / data.storeName',
+                'ownership_rule' => '点评页门店口径；来自系统绑定或接口返回，不从点评正文推断。',
+                'storage_field' => 'online_daily_data.hotel_name + raw_data.metric_hotel_name',
+                'source_interface' => 'getCommentNumV2 / getCommentList',
+                'source_keys' => 'hotelName, masterHotelName, storeName, hotel_name',
+                'target_value' => 'comment_store_name',
+                'value_meaning' => '点评数据所属门店。',
+                'notes' => '点评聚合字段；不保存点评内容、客人信息、房型或回复文本。',
+            ],
+            'comment_date' => [
+                'page_url' => $commentPage,
+                'request_url' => $commentSummaryUrl . ' / ' . $commentListUrl,
+                'json_path' => 'data.date / data.dataDate / data.statDate / data.commentTime',
+                'ownership_rule' => '点评统计日期口径；优先接口统计日期，缺失时保留缺失状态，不用采集时间伪造业务日期。',
+                'storage_field' => 'online_daily_data.data_date',
+                'source_interface' => 'getCommentNumV2 / getCommentList',
+                'source_keys' => 'date, dataDate, statDate, commentTime, createTime, submitTime',
+                'target_value' => 'comment_date',
+                'value_meaning' => '点评统计或评论发生日期。',
+                'notes' => '用于点评指标按日归集；不保存点评正文。',
+            ],
+            'comment_channel' => [
+                'page_url' => $commentPage,
+                'request_url' => $commentSummaryUrl . ' / ' . $commentListUrl,
+                'json_path' => 'data.channel / data.channelName / data.platform / data.source',
+                'ownership_rule' => '点评渠道维度；只保留渠道名，不保留用户身份或点评内容。',
+                'storage_field' => 'online_daily_data.raw_data.dimension_values.comment_channel',
+                'source_interface' => 'getCommentNumV2 / getCommentList',
+                'source_keys' => 'channel, channelName, platform, source, commentChannel, bizType',
+                'target_value' => 'comment_channel',
+                'value_meaning' => '携程、去哪儿、同程旅行、智行等点评渠道。',
+                'notes' => '渠道为点评指标维度，不作为全酒店客源渠道。',
+            ],
+            'comment_score' => [
+                'page_url' => $commentPage,
+                'request_url' => $commentSummaryUrl . ' / ' . $commentListUrl,
+                'json_path' => 'data.score / data.commentScore / data.rating',
+                'ownership_rule' => '点评分聚合口径；只保留评分数值，不保留点评明文。',
+                'storage_field' => 'online_daily_data.comment_score + raw_data.metrics.comment_score',
+                'source_interface' => 'getCommentNumV2 / getCommentList',
+                'source_keys' => 'score, commentScore, rating, ratingall, HotelRating, ctripRatingall, totalScore, overallScore',
+                'target_value' => 'comment_score',
+                'value_meaning' => '点评分，单位分。',
+                'notes' => '优先聚合接口评分；列表接口只用于评分聚合。',
+            ],
+            'comment_count' => [
+                'page_url' => $commentPage,
+                'request_url' => $commentSummaryUrl . ' / ' . $commentListUrl,
+                'json_path' => 'data.commentCount / data.totalCount / data.allCount',
+                'ownership_rule' => '点评数聚合口径；只保存计数，不保存点评内容。',
+                'storage_field' => 'online_daily_data.data_value + raw_data.metrics.comment_count',
+                'source_interface' => 'getCommentNumV2 / getCommentList',
+                'source_keys' => 'commentCount, commentsCount, reviewCount, totalCommentCount, totalCount, allCount',
+                'target_value' => 'comment_count',
+                'value_meaning' => '点评数，单位条。',
+                'notes' => '优先 getCommentNumV2 聚合计数；getCommentList 仅作行数复核。',
+            ],
+            'bad_review_count' => [
+                'page_url' => $commentPage,
+                'request_url' => $commentSummaryUrl . ' / ' . $commentListUrl,
+                'json_path' => 'data.badReviewCount / data.negativeCount / data.score',
+                'ownership_rule' => '差评数聚合口径；优先聚合接口差评数，只有列表评分时按 0 < score < 4.0 聚合，不保存正文。',
+                'storage_field' => 'online_daily_data.raw_data.metrics.bad_review_count',
+                'source_interface' => 'getCommentNumV2 / getCommentList',
+                'source_keys' => 'badReviewCount, negativeCommentCount, negativeCount, badCount, lowScoreCount, score, commentScore, rating',
+                'target_value' => 'bad_review_count',
+                'value_meaning' => '差评数，单位条。',
+                'notes' => '不保存点评内容、客人姓名、回复、房型、订单号或点评 ID。',
+            ],
             'reply_rate' => [
                 'page_url' => $businessPage,
                 'request_url' => $serverQuantityUrl,
@@ -14820,9 +14934,12 @@ JAVASCRIPT;
             ['flow_conversion_rate', '流量转化率旧映射', 'traffic_report', 'traffic', 'queryFlowTransforNewV1 / queryScanFlowDetailsV2', 'flowRate, conversionsRatesDataList', 'percent', '%', 'confirmed', '取 queryFlowTransforNewV1 本店行 flowRate；旧字段编码保留兼容，优先使用 flow_rate'],
             ['traffic_rank', '实时流量排名', 'traffic_report', 'traffic', 'fetchCurrentHotelSeqInfoV1', 'rank, seqRank, trafficRank, appDetailUvRank, qunarRank, competitorRank, qunarCompetitorRank', 'rank', '名', 'confirmed', '流量数据页取实时流量/访客排名；仅保存排名值和来源接口，不推导全酒店排名'],
             ['ad_cost', '广告花费', 'ads_pyramid', 'advertising', 'queryCampaignReportList / queryCampaignSummaryReport', 'todayCost, cashCost, bonusCost, cost, charge, yesterdayCharge', 'amount', '元', 'confirmed', '优先取 records[].todayCost；多推广记录按 records 求和，cashCost/bonusCost 作为成本拆分参考', true, '携程 OTA 金字塔广告口径；来源页 toolcenter/cpc/pyramid 数据概览'],
-            ['comment_rows', '点评数据条数', 'comment_review', 'review', 'getCommentList', 'comments, commentList, reviews, totalCount', 'integer', '条', 'confirmed', '统计 getCommentList 返回的点评行数，不保存点评明文', true, '携程 OTA 渠道口径；只用于聚合计数'],
-            ['good_review_count', '好评数', 'comment_review', 'review', 'getCommentList', 'score, commentScore, rating', 'integer', '条', 'confirmed', 'score >= 4.0 计数，不保存点评明文', true, '携程 OTA 渠道口径；只保存聚合结果'],
-            ['bad_review_count', '差评数', 'comment_review', 'review', 'getCommentList', 'score, commentScore, rating', 'integer', '条', 'confirmed', '0 < score < 4.0 计数，不保存点评明文', true, '携程 OTA 渠道口径；只保存聚合结果'],
+            ['comment_store_name', '点评门店', 'comment_review', 'review', 'Profile绑定 / getCommentNumV2 / getCommentList', 'hotelName, masterHotelName, storeName, hotel_name', 'text', '', 'confirmed', '门店来自系统绑定或接口返回；不从点评正文推断', true, '携程 OTA 点评页聚合口径；不保存点评内容'],
+            ['comment_date', '点评日期', 'comment_review', 'review', 'getCommentNumV2 / getCommentList', 'date, dataDate, statDate, commentTime, createTime, submitTime', 'date', '日', 'confirmed', '优先接口统计日期；无业务日期时保留缺失状态', true, '携程 OTA 点评页聚合口径；不保存点评内容'],
+            ['comment_channel', '点评渠道', 'comment_review', 'review', 'getCommentNumV2 / getCommentList', 'channel, channelName, platform, source, commentChannel, bizType', 'text', '', 'confirmed', '只保留渠道维度，不保留用户身份或点评内容', true, '携程 OTA 点评页聚合口径；不作为全酒店客源渠道'],
+            ['comment_score', '点评分', 'comment_review', 'review', 'getCommentNumV2 / getCommentList', 'score, commentScore, rating, ratingall, HotelRating, ctripRatingall, totalScore, overallScore', 'number', '分', 'confirmed', '优先聚合接口评分；列表接口只用于评分聚合', true, '携程 OTA 点评页聚合口径；不保存点评内容'],
+            ['comment_count', '点评数', 'comment_review', 'review', 'getCommentNumV2 / getCommentList', 'commentCount, commentsCount, reviewCount, totalCommentCount, totalCount, allCount', 'integer', '条', 'confirmed', '优先聚合接口计数；列表接口只用于行数复核', true, '携程 OTA 点评页聚合口径；只保存聚合结果'],
+            ['bad_review_count', '差评数', 'comment_review', 'review', 'getCommentNumV2 / getCommentList', 'badReviewCount, negativeCommentCount, negativeCount, badCount, lowScoreCount, score, commentScore, rating', 'integer', '条', 'confirmed', '优先聚合接口差评数；只有列表评分时按 0 < score < 4.0 聚合，不保存正文', true, '携程 OTA 点评页聚合口径；只保存聚合结果'],
         ];
 
         $fields = [];
@@ -15924,12 +16041,117 @@ JAVASCRIPT;
         if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
             $data['tenant_id'] = $this->tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
         }
+        $data = $this->applyOnlineDailyDataPeriodFields($data, $columns);
         foreach ($this->buildOnlineDailyDataValidationFields($data) as $field => $value) {
             if (isset($columns[$field])) {
                 $data[$field] = $value;
             }
         }
         return $data;
+    }
+
+    private function applyOnlineDailyDataPeriodFields(array $data, ?array $columns = null, array $sourceRow = []): array
+    {
+        $columns = $columns ?? $this->getOnlineDailyDataColumns();
+        if (!isset($columns['data_period']) && !isset($columns['snapshot_time']) && !isset($columns['snapshot_bucket']) && !isset($columns['is_final'])) {
+            return $data;
+        }
+
+        $merged = array_merge($sourceRow, $data);
+        $period = $this->normalizeOnlineDailyDataPeriod($merged['data_period'] ?? $merged['dataPeriod'] ?? '');
+        if ($period === '') {
+            $period = $this->looksLikeRealtimeOnlineDailyRow($merged) ? 'realtime_snapshot' : 'historical_daily';
+        }
+
+        $snapshotTime = null;
+        $snapshotBucket = '';
+        if ($period === 'realtime_snapshot') {
+            $snapshotTime = $this->normalizeOnlineDailyDateTime(
+                $merged['snapshot_time']
+                ?? $merged['snapshotTime']
+                ?? $merged['captured_at']
+                ?? $merged['capturedAt']
+                ?? null
+            ) ?? date('Y-m-d H:i:s');
+            $snapshotBucket = date('YmdH', strtotime($snapshotTime) ?: time());
+        }
+
+        if (isset($columns['data_period'])) {
+            $data['data_period'] = $period;
+        }
+        if (isset($columns['snapshot_time'])) {
+            $data['snapshot_time'] = $snapshotTime;
+        }
+        if (isset($columns['snapshot_bucket'])) {
+            $data['snapshot_bucket'] = $snapshotBucket;
+        }
+        if (isset($columns['is_final'])) {
+            $data['is_final'] = $period === 'historical_daily' ? 1 : 0;
+        }
+
+        return $data;
+    }
+
+    private function applyOnlineDailyDataPeriodQuery($query, array $data, array $columns): void
+    {
+        if (!isset($columns['data_period'])) {
+            return;
+        }
+
+        $period = $this->normalizeOnlineDailyDataPeriod($data['data_period'] ?? '');
+        if ($period === '') {
+            $period = 'historical_daily';
+        }
+        $query->where('data_period', $period);
+
+        if ($period === 'realtime_snapshot' && isset($columns['snapshot_bucket'])) {
+            $query->where('snapshot_bucket', (string)($data['snapshot_bucket'] ?? ''));
+        }
+    }
+
+    private function normalizeOnlineDailyDataPeriod($value): string
+    {
+        $value = strtolower(str_replace(['-', ' '], '_', trim((string)$value)));
+        return match ($value) {
+            'realtime', 'real_time', 'realtime_snapshot', 'today_realtime', 'live', 'snapshot' => 'realtime_snapshot',
+            'historical', 'history', 'historical_daily', 'daily', 'fixed', 'final' => 'historical_daily',
+            default => '',
+        };
+    }
+
+    private function normalizeOnlineDailyDateTime($value): ?string
+    {
+        $value = trim((string)($value ?? ''));
+        if ($value === '') {
+            return null;
+        }
+        $timestamp = strtotime($value);
+        return $timestamp === false ? null : date('Y-m-d H:i:s', $timestamp);
+    }
+
+    private function looksLikeRealtimeOnlineDailyRow(array $row): bool
+    {
+        $dataDate = $this->normalizeOnlineDataDate($row['data_date'] ?? $row['dataDate'] ?? '');
+        if ($dataDate !== date('Y-m-d')) {
+            return false;
+        }
+
+        $signals = [
+            $row['endpoint_id'] ?? '',
+            $row['_endpoint_id'] ?? '',
+            $row['source_url'] ?? '',
+            $row['_source_url'] ?? '',
+            $row['dimension'] ?? '',
+            $row['data_type'] ?? '',
+        ];
+        $text = strtolower(implode('|', array_map(static fn($value): string => (string)$value, $signals)));
+        foreach (['realtime', 'real_time', 'today', 'current', 'rank', 'inventory', 'price'] as $needle) {
+            if (str_contains($text, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function tenantIdForSystemHotel($systemHotelId): ?int
@@ -18090,9 +18312,12 @@ JAVASCRIPT;
             return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
         }
 
-        // 获取昨天的数据
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
         $requestData = $this->requestData();
+        $dataPeriod = $this->normalizeOnlineDailyDataPeriod($requestData['data_period'] ?? $requestData['dataPeriod'] ?? 'realtime_snapshot');
+        if ($dataPeriod === '') {
+            $dataPeriod = 'realtime_snapshot';
+        }
+        $targetDataDate = $dataPeriod === 'realtime_snapshot' ? date('Y-m-d') : date('Y-m-d', strtotime('-1 day'));
         $interactiveBrowser = filter_var(
             $this->request->post('interactive_browser', $this->request->post('interactiveBrowser', false)),
             FILTER_VALIDATE_BOOLEAN
@@ -18104,6 +18329,9 @@ JAVASCRIPT;
         $fetchOptions = [
             'interactive_browser' => $interactiveBrowser,
             'browser_headless' => !$interactiveBrowser,
+            'data_period' => $dataPeriod,
+            'snapshot_time' => date('Y-m-d H:i:s'),
+            'ctrip_section_concurrency' => $this->ctripSectionConcurrencyFromRequest($requestData, 3),
         ];
         if ($autoFetchModeRaw !== null && trim((string)$autoFetchModeRaw) !== '') {
             $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
@@ -18111,28 +18339,39 @@ JAVASCRIPT;
         $fetchOptions = array_merge($fetchOptions, $this->platformAutoFetchModeOptionsFromRequest($requestData));
 
         try {
-            $result = $this->executeAutoFetch((int)$systemHotelId, $yesterday, $fetchOptions);
-            $this->updateFetchStatus((int)$systemHotelId, (bool)$result['success'], (string)$result['message'], $yesterday, [
+            $result = $this->executeAutoFetch((int)$systemHotelId, $targetDataDate, $fetchOptions);
+            $this->updateFetchStatus((int)$systemHotelId, (bool)$result['success'], (string)$result['message'], $targetDataDate, [
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
                 'platform_results' => $result['platform_results'] ?? [],
+                'data_period' => $dataPeriod,
+                'timing' => $result['timing'] ?? [],
+                'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $fetchOptions['ctrip_section_concurrency'] ?? 3,
             ]);
 
             if ($result['success']) {
                 OperationLog::record('online_data', 'auto_fetch', "平台数据自动获取: {$result['saved_count']}条 (门店ID: {$systemHotelId})", $this->currentUser->id);
                 return $this->success([
+                    'data_date' => $targetDataDate,
+                    'data_period' => $dataPeriod,
                     'saved_count' => (int)($result['saved_count'] ?? 0),
                     'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
                     'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
                     'platform_results' => $result['platform_results'] ?? [],
+                    'timing' => $result['timing'] ?? [],
+                    'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $fetchOptions['ctrip_section_concurrency'] ?? 3,
                 ], '自动获取成功');
             }
 
             return $this->error('自动获取失败: ' . $result['message'], 400, [
+                'data_date' => $targetDataDate,
+                'data_period' => $dataPeriod,
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
                 'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
                 'platform_results' => $result['platform_results'] ?? [],
+                'timing' => $result['timing'] ?? [],
+                'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $fetchOptions['ctrip_section_concurrency'] ?? 3,
             ]);
 
         } catch (\Exception $e) {
@@ -18142,7 +18381,10 @@ JAVASCRIPT;
                 'trace' => $e->getTraceAsString()
             ]);
 
-            $this->updateFetchStatus($systemHotelId, false, '获取异常: ' . $e->getMessage(), $yesterday);
+            $this->updateFetchStatus((int)$systemHotelId, false, '获取异常: ' . $e->getMessage(), $targetDataDate, [
+                'data_period' => $dataPeriod,
+                'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
+            ]);
 
             return $this->error('异常: ' . $e->getMessage());
         }
@@ -18167,6 +18409,10 @@ JAVASCRIPT;
             'success' => $success,
             'message' => $message,
         ];
+        $dataPeriod = $this->normalizeOnlineDailyDataPeriod($details['data_period'] ?? $details['dataPeriod'] ?? '');
+        if ($dataPeriod !== '') {
+            $runRecord['data_period'] = $dataPeriod;
+        }
         if (array_key_exists('saved_count', $details)) {
             $runRecord['saved_count'] = (int)$details['saved_count'];
         }
@@ -18177,6 +18423,13 @@ JAVASCRIPT;
         if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
             $runRecord['platform_results'] = $details['platform_results'];
         }
+        if (!empty($details['timing']) && is_array($details['timing'])) {
+            $runRecord['timing'] = $this->normalizeAutoFetchTiming($details['timing']);
+        }
+        if (array_key_exists('ctrip_section_concurrency', $details)) {
+            $runRecord['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
+            $status['ctrip_section_concurrency'] = $runRecord['ctrip_section_concurrency'];
+        }
 
         $status['last_run_time'] = $runAt;
         $status['last_data_date'] = $dataDate;
@@ -18184,6 +18437,9 @@ JAVASCRIPT;
             'success' => $success,
             'message' => $message
         ];
+        if ($dataPeriod !== '') {
+            $status['last_result']['data_period'] = $dataPeriod;
+        }
         if (array_key_exists('saved_count', $details)) {
             $status['last_result']['saved_count'] = (int)$details['saved_count'];
         }
@@ -18194,6 +18450,12 @@ JAVASCRIPT;
         }
         if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
             $status['last_result']['platform_results'] = $details['platform_results'];
+        }
+        if (!empty($details['timing']) && is_array($details['timing'])) {
+            $status['last_result']['timing'] = $this->normalizeAutoFetchTiming($details['timing']);
+        }
+        if (array_key_exists('ctrip_section_concurrency', $details)) {
+            $status['last_result']['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
         }
 
         $recentRuns = $status['recent_runs'] ?? [];
@@ -18239,6 +18501,141 @@ JAVASCRIPT;
         return $minute >= 0 && $minute <= 59 ? $minute : null;
     }
 
+    private function normalizeAutoFetchScheduleStatus(array $status): array
+    {
+        $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '10:00')) ?? '10:00';
+        $realtimeMinute = $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? 5);
+        if ($realtimeMinute === null) {
+            $realtimeMinute = 5;
+        }
+
+        $historicalEnabled = array_key_exists('historical_enabled', $status)
+            ? $this->isTruthyRequestValue($status['historical_enabled'])
+            : true;
+        $realtimeEnabled = array_key_exists('realtime_enabled', $status)
+            ? $this->isTruthyRequestValue($status['realtime_enabled'])
+            : true;
+
+        $status['historical_enabled'] = $historicalEnabled;
+        $status['realtime_enabled'] = $realtimeEnabled;
+        $status['historical_schedule_time'] = $historicalTime;
+        $status['realtime_schedule_minute'] = $realtimeMinute;
+        $status['schedule_time'] = $historicalTime;
+        $status['schedule_minute'] = $realtimeMinute;
+        $status['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($status['ctrip_section_concurrency'] ?? $status['ctripSectionConcurrency'] ?? 3);
+
+        $enabled = !empty($status['enabled']);
+        $historicalNext = $enabled && $historicalEnabled ? $this->nextHistoricalAutoFetchRunTime($historicalTime) : '-';
+        $realtimeNext = $enabled && $realtimeEnabled ? $this->nextRealtimeAutoFetchRunTime($realtimeMinute) : '-';
+        $status['historical'] = [
+            'enabled' => $historicalEnabled,
+            'schedule_time' => $historicalTime,
+            'data_period' => 'historical_daily',
+            'next_run_time' => $historicalNext,
+        ];
+        $status['realtime'] = [
+            'enabled' => $realtimeEnabled,
+            'schedule_minute' => $realtimeMinute,
+            'data_period' => 'realtime_snapshot',
+            'next_run_time' => $realtimeNext,
+        ];
+
+        if (!$enabled) {
+            $status['next_run_time'] = '未开启';
+            return $status;
+        }
+
+        $candidates = array_values(array_filter([$historicalNext, $realtimeNext], static fn(string $value): bool => $value !== '-'));
+        sort($candidates);
+        $status['next_run_time'] = $candidates[0] ?? '-';
+        return $status;
+    }
+
+    private function nextHistoricalAutoFetchRunTime(string $scheduleTime): string
+    {
+        $timestamp = strtotime(date('Y-m-d') . ' ' . $scheduleTime . ':00');
+        if ($timestamp === false || $timestamp <= time()) {
+            $timestamp = strtotime('+1 day', $timestamp ?: time());
+        }
+        return date('Y-m-d H:i', $timestamp);
+    }
+
+    private function nextRealtimeAutoFetchRunTime(int $scheduleMinute): string
+    {
+        $timestamp = strtotime(date('Y-m-d H') . sprintf(':%02d:00', $scheduleMinute));
+        if ($timestamp === false || $timestamp <= time()) {
+            $timestamp = strtotime('+1 hour', $timestamp ?: time());
+        }
+        return date('Y-m-d H:i', $timestamp);
+    }
+
+    private function normalizeAutoFetchTiming(array $timing): array
+    {
+        $keys = [
+            'capture_elapsed_ms',
+            'raw_store_elapsed_ms',
+            'normalize_elapsed_ms',
+            'daily_rows_save_elapsed_ms',
+            'finish_task_elapsed_ms',
+            'total_elapsed_ms',
+        ];
+        $normalized = [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $timing)) {
+                $normalized[$key] = max(0, (int)$timing[$key]);
+            }
+        }
+        return $normalized;
+    }
+
+    private function mergeAutoFetchPlatformTiming(array $platformResults): array
+    {
+        $merged = [];
+        foreach ($platformResults as $result) {
+            if (!is_array($result) || empty($result['timing']) || !is_array($result['timing'])) {
+                continue;
+            }
+            $merged = $this->sumAutoFetchTiming($merged, $result['timing']);
+        }
+        return $merged;
+    }
+
+    private function sumAutoFetchTiming(array $base, array $timing): array
+    {
+        foreach ($this->normalizeAutoFetchTiming($timing) as $key => $value) {
+            $base[$key] = ($base[$key] ?? 0) + (int)$value;
+        }
+        return $base;
+    }
+
+    private function applyAutoFetchPeriodOptionsToPayload(array $payload, array $options): array
+    {
+        $period = $this->normalizeOnlineDailyDataPeriod($options['data_period'] ?? $options['dataPeriod'] ?? '');
+        if ($period !== '' && empty($payload['data_period'])) {
+            $payload['data_period'] = $period;
+        }
+        $snapshotTime = $this->normalizeOnlineDailyDateTime($options['snapshot_time'] ?? $options['snapshotTime'] ?? null);
+        if ($snapshotTime !== null && empty($payload['snapshot_time'])) {
+            $payload['snapshot_time'] = $snapshotTime;
+        }
+        return $payload;
+    }
+
+    private function applyAutoFetchPeriodOptionsToRows(array $rows, array $options): array
+    {
+        $payload = $this->applyAutoFetchPeriodOptionsToPayload([], $options);
+        if (empty($payload)) {
+            return $rows;
+        }
+        foreach ($rows as &$row) {
+            if (is_array($row)) {
+                $row = array_merge($payload, $row);
+            }
+        }
+        unset($row);
+        return $rows;
+    }
+
     private function normalizeAutoFetchDailyReportTimeFromRequest(array $requestData, string $fallback = '09:00'): ?string
     {
         $time = trim((string)($requestData['daily_report_time'] ?? $requestData['dailyReportTime'] ?? $requestData['report_time'] ?? $requestData['reportTime'] ?? ''));
@@ -18272,6 +18669,28 @@ JAVASCRIPT;
         }
 
         return $fallback;
+    }
+
+    private function normalizeCtripSectionConcurrency($value): int
+    {
+        if ($value === null || $value === '') {
+            return 3;
+        }
+        if (!is_numeric($value)) {
+            return 3;
+        }
+        return max(1, min(4, (int)$value));
+    }
+
+    private function ctripSectionConcurrencyFromRequest(array $requestData, int $fallback = 3): int
+    {
+        foreach (['ctrip_section_concurrency', 'ctripSectionConcurrency', 'section_concurrency', 'sectionConcurrency'] as $key) {
+            if (array_key_exists($key, $requestData)) {
+                return $this->normalizeCtripSectionConcurrency($requestData[$key]);
+            }
+        }
+
+        return $this->normalizeCtripSectionConcurrency($fallback);
     }
 
     private function resolveAutoFetchHotelId($hotelId): ?int
@@ -19403,6 +19822,7 @@ JAVASCRIPT;
                     'schedule_minute' => 5,
                     'daily_report_time' => '09:00',
                     'browser_headless' => true,
+                    'ctrip_section_concurrency' => 3,
                     'auto_fetch_mode' => 'hybrid_auto',
                     'ctrip_auto_fetch_mode' => 'profile_browser',
                     'meituan_auto_fetch_mode' => 'hybrid_auto',
@@ -19425,6 +19845,7 @@ JAVASCRIPT;
             'schedule_minute' => 5,
             'daily_report_time' => '09:00',
             'browser_headless' => true,
+            'ctrip_section_concurrency' => 3,
             'auto_fetch_mode' => 'hybrid_auto',
             'ctrip_auto_fetch_mode' => 'profile_browser',
             'meituan_auto_fetch_mode' => 'hybrid_auto',
@@ -19450,6 +19871,7 @@ JAVASCRIPT;
         }
         $status['daily_report_time'] = $this->normalizeFetchScheduleTime((string)($status['daily_report_time'] ?? $status['schedule_time'] ?? '09:00')) ?? '09:00';
         $status['browser_headless'] = array_key_exists('browser_headless', $status) ? $this->isTruthyRequestValue($status['browser_headless']) : true;
+        $status['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($status['ctrip_section_concurrency'] ?? $status['ctripSectionConcurrency'] ?? 3);
         $status['auto_fetch_mode'] = $hotelId
             ? $this->resolveAutoFetchRunMode((int)$hotelId, ['auto_fetch_mode' => $status['auto_fetch_mode'] ?? ''])
             : $this->normalizeAutoFetchMode($status['auto_fetch_mode'] ?? 'hybrid_auto');
@@ -19469,6 +19891,7 @@ JAVASCRIPT;
             $status['next_run_time'] = '未开启';
         }
 
+        $status = $this->normalizeAutoFetchScheduleStatus($status);
         $status['recent_runs'] = array_values(is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : []);
         $status['failed_records'] = array_values(is_array($status['failed_records'] ?? null) ? $status['failed_records'] : []);
         $status['missed_dates'] = $hotelId ? $this->buildCtripAutoFetchMissedDates((int)$hotelId) : [];
@@ -19963,6 +20386,10 @@ JAVASCRIPT;
         } elseif (!isset($status['browser_headless'])) {
             $status['browser_headless'] = true;
         }
+        $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
+            $requestData,
+            (int)($status['ctrip_section_concurrency'] ?? 3)
+        );
         cache($statusKey, $status, 86400 * 30);
 
         OperationLog::record('online_data', 'toggle_auto_fetch', '切换自动获取状态: ' . ($enabled ? '开启' : '关闭') . " (门店ID: {$hotelId})", $this->currentUser->id);
@@ -19975,6 +20402,7 @@ JAVASCRIPT;
             'schedule_minute' => (int)$status['schedule_minute'],
             'daily_report_time' => (string)$status['daily_report_time'],
             'browser_headless' => (bool)$status['browser_headless'],
+            'ctrip_section_concurrency' => (int)$status['ctrip_section_concurrency'],
             'auto_fetch_mode_label' => $this->autoFetchModeLabel($status['auto_fetch_mode']),
         ], $enabled ? '已开启自动获取' : '已关闭自动获取');
     }
@@ -19989,8 +20417,8 @@ JAVASCRIPT;
 
         $hotelId = $this->resolveAutoFetchHotelId($this->request->post('hotel_id', null));
         $requestData = $this->requestData();
-        $scheduleTime = $this->normalizeFetchScheduleTime((string)$this->request->post('schedule_time', '10:00'));
-        $scheduleMinuteRaw = $requestData['schedule_minute'] ?? $requestData['scheduleMinute'] ?? null;
+        $scheduleTime = $this->normalizeFetchScheduleTime((string)($requestData['historical_schedule_time'] ?? $requestData['historicalScheduleTime'] ?? $this->request->post('schedule_time', '10:00')));
+        $scheduleMinuteRaw = $requestData['realtime_schedule_minute'] ?? $requestData['realtimeScheduleMinute'] ?? $requestData['schedule_minute'] ?? $requestData['scheduleMinute'] ?? null;
         $scheduleMinute = $this->normalizeAutoFetchScheduleMinute($scheduleMinuteRaw);
         $dailyReportTime = $this->normalizeAutoFetchDailyReportTimeFromRequest($requestData, $scheduleTime);
 
@@ -20017,8 +20445,16 @@ JAVASCRIPT;
 
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
         $status = cache($statusKey) ?: [];
-        $status['schedule_time'] = $scheduleTime;
-        $status['schedule_minute'] = $scheduleMinute ?? $this->normalizeAutoFetchScheduleMinute($status['schedule_minute'] ?? null) ?? 5;
+        $status['historical_schedule_time'] = $scheduleTime;
+        $status['realtime_schedule_minute'] = $scheduleMinute ?? $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? null) ?? 5;
+        $status['historical_enabled'] = array_key_exists('historical_enabled', $requestData) || array_key_exists('historicalEnabled', $requestData)
+            ? $this->isTruthyRequestValue($requestData['historical_enabled'] ?? $requestData['historicalEnabled'] ?? false)
+            : ($status['historical_enabled'] ?? true);
+        $status['realtime_enabled'] = array_key_exists('realtime_enabled', $requestData) || array_key_exists('realtimeEnabled', $requestData)
+            ? $this->isTruthyRequestValue($requestData['realtime_enabled'] ?? $requestData['realtimeEnabled'] ?? false)
+            : ($status['realtime_enabled'] ?? true);
+        $status['schedule_time'] = $status['historical_schedule_time'];
+        $status['schedule_minute'] = $status['realtime_schedule_minute'];
         $status['daily_report_time'] = $dailyReportTime;
         if (array_key_exists('browser_headless', $requestData) || array_key_exists('headless', $requestData)) {
             $status['browser_headless'] = $this->autoFetchBrowserHeadlessFromRequest($requestData, true);
@@ -20030,9 +20466,14 @@ JAVASCRIPT;
         $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
         $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? 'profile_browser');
         $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
+            $requestData,
+            (int)($status['ctrip_section_concurrency'] ?? 3)
+        );
         if (!isset($status['enabled'])) {
             $status['enabled'] = false;
         }
+        $status = $this->normalizeAutoFetchScheduleStatus($status);
         cache($statusKey, $status, 86400 * 30);
 
         OperationLog::record('online_data', 'set_schedule', "设置自动获取时间: {$scheduleTime} (门店ID: {$hotelId})", $this->currentUser->id);
@@ -20040,8 +20481,15 @@ JAVASCRIPT;
         return $this->success([
             'schedule_time' => $scheduleTime,
             'schedule_minute' => (int)$status['schedule_minute'],
+            'historical_enabled' => (bool)$status['historical_enabled'],
+            'historical_schedule_time' => (string)$status['historical_schedule_time'],
+            'realtime_enabled' => (bool)$status['realtime_enabled'],
+            'realtime_schedule_minute' => (int)$status['realtime_schedule_minute'],
+            'historical' => $status['historical'],
+            'realtime' => $status['realtime'],
             'daily_report_time' => $dailyReportTime,
             'browser_headless' => (bool)$status['browser_headless'],
+            'ctrip_section_concurrency' => (int)$status['ctrip_section_concurrency'],
             'auto_fetch_mode' => $status['auto_fetch_mode'],
             'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'],
             'meituan_auto_fetch_mode' => $status['meituan_auto_fetch_mode'],
@@ -20074,11 +20522,18 @@ JAVASCRIPT;
         }
 
         $requestData = $this->requestData();
+        $dataPeriod = $this->normalizeOnlineDailyDataPeriod($requestData['data_period'] ?? $requestData['dataPeriod'] ?? 'historical_daily');
+        if ($dataPeriod === '') {
+            $dataPeriod = 'historical_daily';
+        }
         $autoFetchModeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', null));
         $browserHeadless = $this->autoFetchBrowserHeadlessFromRequest($requestData, true);
         $fetchOptions = [
             'interactive_browser' => !$browserHeadless,
             'browser_headless' => $browserHeadless,
+            'data_period' => $dataPeriod,
+            'snapshot_time' => date('Y-m-d H:i:s'),
+            'ctrip_section_concurrency' => $this->ctripSectionConcurrencyFromRequest($requestData, 3),
         ];
         if ($autoFetchModeRaw !== null && trim((string)$autoFetchModeRaw) !== '') {
             $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
@@ -20089,16 +20544,22 @@ JAVASCRIPT;
             'saved_count' => (int)($result['saved_count'] ?? 0),
             'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
             'platform_results' => $result['platform_results'] ?? [],
+            'data_period' => $dataPeriod,
+            'timing' => $result['timing'] ?? [],
+            'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $fetchOptions['ctrip_section_concurrency'] ?? 3,
         ]);
 
         if ($result['success']) {
             OperationLog::record('online_data', 'retry_auto_fetch', "补抓平台数据: {$dataDate}，{$result['message']} (门店ID: {$hotelId})", $this->currentUser->id);
             return $this->success([
                 'data_date' => $dataDate,
+                'data_period' => $dataPeriod,
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? 'hybrid_auto',
                 'auto_fetch_mode_label' => $result['auto_fetch_mode_label'] ?? '接口直连自动',
                 'platform_results' => $result['platform_results'] ?? [],
+                'timing' => $result['timing'] ?? [],
+                'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $fetchOptions['ctrip_section_concurrency'] ?? 3,
             ], '补抓成功');
         }
 
@@ -20420,14 +20881,21 @@ JAVASCRIPT;
                     $flowRate = round($this->normalizeTrafficPercent($this->readTrafficNumber($item, ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], $listExposure > 0 ? $detailExposure / $listExposure * 100 : 0.0)), 2);
                     $orderFillingNum = (int)$this->readTrafficNumber($item, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks'], 0.0);
                     $orderSubmitNum = (int)$this->readTrafficNumber($item, ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'], 0.0);
+                    $columns = $this->getOnlineDailyDataColumns();
+                    $periodFilter = $this->applyOnlineDailyDataPeriodFields([
+                        'data_date' => $itemDate,
+                        'source' => $source,
+                        'data_type' => 'traffic',
+                        'dimension' => $platform . ':' . $compareType,
+                    ], $columns, $item);
 
                     $query = Db::name('online_daily_data')
                         ->where('data_date', $itemDate)
                         ->where('source', $source)
                         ->where('data_type', 'traffic')
                         ->where('hotel_id', (string)$hotelId);
+                    $this->applyOnlineDailyDataPeriodQuery($query, $periodFilter, $columns);
 
-                    $columns = $this->getOnlineDailyDataColumns();
                     if (isset($columns['platform'])) {
                         $query->where('platform', $platform);
                     }
@@ -20514,11 +20982,19 @@ JAVASCRIPT;
                 $trafficValue = $this->extractTrafficValue($item);
                 $itemDate = $item['dataDate'] ?? $item['date'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $dataDate;
                 $dimension = $item['metric'] ?? $item['metricName'] ?? $item['dimension'] ?? $item['_metric'] ?? 'traffic';
+                $columns = $this->getOnlineDailyDataColumns();
+                $periodFilter = $this->applyOnlineDailyDataPeriodFields([
+                    'data_date' => $itemDate,
+                    'source' => $source,
+                    'data_type' => 'traffic',
+                    'dimension' => $dimension ?: 'traffic',
+                ], $columns, $item);
 
                 $query = Db::name('online_daily_data')
                     ->where('data_date', $itemDate)
                     ->where('source', $source)
                     ->where('data_type', 'traffic');
+                $this->applyOnlineDailyDataPeriodQuery($query, $periodFilter, $columns);
 
                 if (!empty($hotelId)) {
                     $query->where('hotel_id', (string)$hotelId);
@@ -20679,51 +21155,78 @@ JAVASCRIPT;
                 continue;
             }
 
-            // 检查运行时间；新配置按每小时指定分钟执行，旧配置保留每日 HH:MM 执行。
-            $scheduleMinute = $this->normalizeAutoFetchScheduleMinute($status['schedule_minute'] ?? null);
-            if ($scheduleMinute !== null) {
-                if ($currentMinute !== $scheduleMinute) {
-                    continue;
-                }
-                $executedKey = "online_data_executed_{$hotelId}_{$today}_{$currentHour}";
-                $executedMessage = '本小时已执行';
-            } else {
-                $scheduleTime = $this->normalizeFetchScheduleTime((string)($status['schedule_time'] ?? '10:00')) ?? '10:00';
-                if ($currentTime !== $scheduleTime) {
-                    continue;
-                }
-                $executedKey = "online_data_executed_{$hotelId}_{$today}";
-                $executedMessage = '今天已执行';
-            }
-            if (cache($executedKey)) {
-                $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'status' => 'skipped', 'message' => $executedMessage];
-                continue;
-            }
-
-            // 执行获取
+            $status = $this->normalizeAutoFetchScheduleStatus($status);
             $browserHeadless = array_key_exists('browser_headless', $status) ? $this->isTruthyRequestValue($status['browser_headless']) : true;
-            $result = $this->executeAutoFetch($hotelId, $yesterday, [
+            $baseOptions = [
                 'interactive_browser' => !$browserHeadless,
                 'browser_headless' => $browserHeadless,
                 'auto_fetch_mode' => $status['auto_fetch_mode'] ?? null,
                 'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'] ?? 'profile_browser',
                 'meituan_auto_fetch_mode' => $status['meituan_auto_fetch_mode'] ?? ($status['auto_fetch_mode'] ?? 'hybrid_auto'),
-            ]);
-            $results[] = [
-                'hotel_id' => $hotelId,
-                'hotel_name' => $hotel['name'],
-                'status' => $result['success'] ? 'success' : 'failed',
-                'message' => $result['message']
+                'ctrip_section_concurrency' => $status['ctrip_section_concurrency'] ?? 3,
             ];
 
-            $this->updateFetchStatus($hotelId, (bool)$result['success'], (string)$result['message'], $yesterday, [
-                'saved_count' => (int)($result['saved_count'] ?? 0),
-                'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
-                'platform_results' => $result['platform_results'] ?? [],
-            ]);
+            $dueRuns = [];
+            if (!empty($status['historical_enabled']) && $currentTime === (string)$status['historical_schedule_time']) {
+                $dueRuns[] = [
+                    'period' => 'historical_daily',
+                    'data_date' => $yesterday,
+                    'executed_key' => "online_data_historical_executed_{$hotelId}_{$yesterday}",
+                    'executed_message' => '历史固定数据今天已执行',
+                ];
+            }
+            if (!empty($status['realtime_enabled']) && $currentMinute === (int)$status['realtime_schedule_minute']) {
+                $dueRuns[] = [
+                    'period' => 'realtime_snapshot',
+                    'data_date' => $today,
+                    'executed_key' => "online_data_realtime_executed_{$hotelId}_{$today}_{$currentHour}",
+                    'executed_message' => '实时快照本小时已执行',
+                ];
+            }
+            if (empty($dueRuns)) {
+                continue;
+            }
 
-            // 标记今天已执行
-            cache($executedKey, true, 86400);
+            $lockKey = "online_data_profile_lock_{$hotelId}";
+            $ranLockedTask = false;
+            foreach ($dueRuns as $run) {
+                if (cache($run['executed_key'])) {
+                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'status' => 'skipped', 'message' => $run['executed_message']];
+                    continue;
+                }
+                if ($ranLockedTask || cache($lockKey)) {
+                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'status' => 'skipped_locked', 'message' => '同一 Profile 已有采集任务运行，本次跳过'];
+                    continue;
+                }
+
+                cache($lockKey, true, 7200);
+                $ranLockedTask = true;
+                try {
+                    $result = $this->executeAutoFetch($hotelId, $run['data_date'], array_merge($baseOptions, [
+                        'data_period' => $run['period'],
+                        'snapshot_time' => date('Y-m-d H:i:s'),
+                    ]));
+                    $results[] = [
+                        'hotel_id' => $hotelId,
+                        'hotel_name' => $hotel['name'],
+                        'data_period' => $run['period'],
+                        'status' => $result['success'] ? 'success' : 'failed',
+                        'message' => $result['message']
+                    ];
+
+                    $this->updateFetchStatus($hotelId, (bool)$result['success'], (string)$result['message'], $run['data_date'], [
+                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                        'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
+                        'platform_results' => $result['platform_results'] ?? [],
+                        'data_period' => $run['period'],
+                        'timing' => $result['timing'] ?? [],
+                        'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $baseOptions['ctrip_section_concurrency'] ?? 3,
+                    ]);
+                    cache($run['executed_key'], true, 86400);
+                } finally {
+                    \think\facade\Cache::delete($lockKey);
+                }
+            }
         }
 
         return json([
@@ -20740,6 +21243,8 @@ JAVASCRIPT;
      */
     private function executeAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
+        $options['data_period'] = $this->normalizeOnlineDailyDataPeriod($options['data_period'] ?? $options['dataPeriod'] ?? '') ?: 'historical_daily';
+        $options['snapshot_time'] = $this->normalizeOnlineDailyDateTime($options['snapshot_time'] ?? $options['snapshotTime'] ?? null) ?? date('Y-m-d H:i:s');
         $options['auto_fetch_mode'] = $this->resolveAutoFetchRunMode($hotelId, $options);
         $options['ctrip_auto_fetch_mode'] = $options['ctrip_auto_fetch_mode']
             ?? $options['ctripAutoFetchMode']
@@ -20747,6 +21252,9 @@ JAVASCRIPT;
         $options['meituan_auto_fetch_mode'] = $options['meituan_auto_fetch_mode']
             ?? $options['meituanAutoFetchMode']
             ?? $options['auto_fetch_mode'];
+        $options['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency(
+            $options['ctrip_section_concurrency'] ?? $options['ctripSectionConcurrency'] ?? $options['section_concurrency'] ?? $options['sectionConcurrency'] ?? 3
+        );
         $platformResults = [];
         $totalSaved = 0;
         $attempted = 0;
@@ -20814,9 +21322,12 @@ JAVASCRIPT;
                 'success' => false,
                 'message' => '未配置任何平台抓取凭证',
                 'saved_count' => 0,
+                'data_period' => $options['data_period'],
                 'auto_fetch_mode' => $options['auto_fetch_mode'],
                 'auto_fetch_mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
                 'platform_results' => $platformResults,
+                'timing' => $this->mergeAutoFetchPlatformTiming($platformResults),
+                'ctrip_section_concurrency' => $options['ctrip_section_concurrency'],
             ];
         }
 
@@ -20824,9 +21335,12 @@ JAVASCRIPT;
             'success' => $successCount > 0,
             'message' => implode('；', $messages),
             'saved_count' => $totalSaved,
+            'data_period' => $options['data_period'],
             'auto_fetch_mode' => $options['auto_fetch_mode'],
             'auto_fetch_mode_label' => $this->autoFetchModeLabel((string)$options['auto_fetch_mode']),
             'platform_results' => $platformResults,
+            'timing' => $this->mergeAutoFetchPlatformTiming($platformResults),
+            'ctrip_section_concurrency' => $options['ctrip_section_concurrency'],
         ];
     }
 
@@ -21291,7 +21805,7 @@ JAVASCRIPT;
         return $tasks;
     }
 
-    private function syncCtripBrowserProfileDataSourcesForAutoFetch(int $hotelId, string $dataDate, bool $interactiveBrowser, ?array $sources = null): array
+    private function syncCtripBrowserProfileDataSourcesForAutoFetch(int $hotelId, string $dataDate, bool $interactiveBrowser, ?array $sources = null, array $periodOptions = []): array
     {
         $sources = $sources ?? $this->listEnabledCtripBrowserProfileDataSources($hotelId);
         $sources = $this->selectCurrentBrowserProfileDataSources($sources);
@@ -21307,13 +21821,18 @@ JAVASCRIPT;
         $service = new PlatformDataSyncService();
         $savedCount = 0;
         $messages = [];
+        $timing = [];
         foreach ($sources as $source) {
             $result = $service->syncDataSource($this->currentUser, (int)$source['id'], [
                 'trigger_type' => 'auto_fetch',
                 'data_date' => $dataDate,
                 'interactive_browser' => $interactiveBrowser,
+                'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
+                'snapshot_time' => $periodOptions['snapshot_time'] ?? date('Y-m-d H:i:s'),
+                'ctrip_section_concurrency' => $periodOptions['ctrip_section_concurrency'] ?? 3,
             ]);
             $savedCount += (int)($result['saved_count'] ?? 0);
+            $timing = $this->sumAutoFetchTiming($timing, is_array($result['timing'] ?? null) ? $result['timing'] : []);
             $messages[] = '数据源' . (int)$source['id'] . ': ' . (string)($result['message'] ?? $result['status'] ?? '-');
             $this->markCtripProfileStatusFromDataSourceSync($hotelId, $source, $result);
         }
@@ -21322,6 +21841,8 @@ JAVASCRIPT;
             'attempted' => true,
             'success' => $savedCount > 0,
             'saved_count' => $savedCount,
+            'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
+            'timing' => $timing,
             'message' => $savedCount > 0
                 ? "携程 Profile 数据源同步成功 {$savedCount} 条"
                 : '携程 Profile 数据源同步失败：' . implode('；', array_slice($messages, 0, 3)),
@@ -21397,6 +21918,7 @@ JAVASCRIPT;
         $savedCount = 0;
         $errors = [];
         $modules = [];
+        $browserResult = [];
 
         if ($runCookieConfig) {
             if ($cookies !== '') {
@@ -21464,10 +21986,11 @@ JAVASCRIPT;
                     $hotelId,
                     $dataDate,
                     !empty($options['interactive_browser']),
-                    $browserProfileSources
+                    $browserProfileSources,
+                    $options
                 );
                 if (empty($browserResult['attempted'])) {
-                    $browserResult = $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']));
+                    $browserResult = $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']), $options);
                 }
             } else {
                 $browserResult = [
@@ -21499,13 +22022,13 @@ JAVASCRIPT;
             \think\facade\Log::info("携程自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
             $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
 
-            return ['platform' => 'ctrip', 'success' => true, 'message' => "成功获取 {$savedCount} 条数据", 'saved_count' => $savedCount, 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules];
+            return ['platform' => 'ctrip', 'success' => true, 'message' => "成功获取 {$savedCount} 条数据", 'saved_count' => $savedCount, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
         }
 
         $message = empty($errors)
             ? '未获取到有效数据'
             : '未获取到有效数据：' . implode('；', array_slice($errors, 0, 3));
-        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules];
+        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
     }
 
     private function executeAutoFetchTask(array $task, int $hotelId, string $dataDate): array
@@ -21835,7 +22358,7 @@ JAVASCRIPT;
         return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
     }
 
-    private function executeCtripBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false): array
+    private function executeCtripBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false, array $periodOptions = []): array
     {
         $profileId = $this->ctripProfileStoreIdFromConfig($config, $hotelId);
         if ($profileId === '') {
@@ -21876,6 +22399,7 @@ JAVASCRIPT;
             '--output=' . $outputPath,
             '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
             '--sections=' . implode(',', $sectionsList),
+            '--section-concurrency=' . $this->normalizeCtripSectionConcurrency($periodOptions['ctrip_section_concurrency'] ?? 3),
         ];
         $args[] = $interactiveBrowser ? '--headless=false' : '--headless=true';
         $args = $this->appendCtripCaptureGateArgs($args, $config);
@@ -21950,6 +22474,7 @@ JAVASCRIPT;
         if (empty($payload['system_hotel_id'])) {
             $payload['system_hotel_id'] = $hotelId;
         }
+        $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
         $captureGateDecision = $this->buildCtripCaptureGateDecision($payload);
         $captureGateWarning = null;
         if (!$captureGateDecision['accepted']) {
@@ -21987,7 +22512,7 @@ JAVASCRIPT;
             }
         }
         $requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? $profileId);
-        $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, $dataDate, $requestHotelId);
+        $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, $dataDate, $requestHotelId, null, $periodOptions);
         $savedCount = (int)$saveResult['saved_count'];
         $capturedCounts = $this->buildCtripCaptureCounts($payload);
         $capturedCounts['reviews'] = 0;
@@ -22043,11 +22568,12 @@ JAVASCRIPT;
         ]);
     }
 
-    private function saveCtripBrowserProfilePayload(array $payload, int $hotelId, string $dataDate, string $requestHotelId, ?int $dataSourceId = null): array
+    private function saveCtripBrowserProfilePayload(array $payload, int $hotelId, string $dataDate, string $requestHotelId, ?int $dataSourceId = null, array $periodOptions = []): array
     {
+        $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
         $modules = [];
 
-        $businessRows = $this->extractCtripCapturedSection($payload, 'business');
+        $businessRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripCapturedSection($payload, 'business'), $periodOptions);
         $businessSaved = 0;
         if (!empty($businessRows)) {
             $businessSaved = $this->parseAndSaveData(['data' => $businessRows], $dataDate, $dataDate, $hotelId);
@@ -22059,7 +22585,7 @@ JAVASCRIPT;
         }
         $modules[] = ['module' => 'browser_business', 'saved_count' => $businessSaved, 'success' => $businessSaved > 0];
 
-        $trafficRows = $this->extractCtripCapturedSection($payload, 'traffic');
+        $trafficRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripCapturedSection($payload, 'traffic'), $periodOptions);
         $trafficSaved = 0;
         if (!empty($trafficRows)) {
             $trafficSaved = $this->parseAndSaveTrafficData(['data' => ['list' => $trafficRows]], $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip');
@@ -22074,7 +22600,7 @@ JAVASCRIPT;
         $reviewSaved = 0;
         $modules[] = ['module' => 'browser_reviews', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
 
-        $standardRows = $this->extractCtripStandardRows($payload, $hotelId, $dataDate, $requestHotelId, $dataSourceId);
+        $standardRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripStandardRows($payload, $hotelId, $dataDate, $requestHotelId, $dataSourceId), $periodOptions);
         $standardSaved = 0;
         if (!empty($standardRows)) {
             $standardSaved = $this->saveCtripStandardRows($standardRows);
@@ -22655,12 +23181,14 @@ JAVASCRIPT;
             if (isset($columns['update_time'])) {
                 $row['update_time'] = $now;
             }
+            $row = $this->applyOnlineDailyDataPeriodFields($row, $columns, $row);
 
             $query = Db::name('online_daily_data')
                 ->where('source', (string)($row['source'] ?? 'ctrip'))
                 ->where('data_type', (string)$row['data_type'])
                 ->where('data_date', (string)$row['data_date'])
                 ->where('dimension', (string)($row['dimension'] ?? ''));
+            $this->applyOnlineDailyDataPeriodQuery($query, $row, $columns);
 
             if (!empty($row['hotel_id'])) {
                 $query->where('hotel_id', (string)$row['hotel_id']);
@@ -22744,6 +23272,7 @@ JAVASCRIPT;
         $savedCount = 0;
         $errors = [];
         $modules = [];
+        $browserResult = [];
 
         if ($runCookieConfig && !empty($apiStatus['api_configured'])) {
             $url = trim((string)($config['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail';
@@ -22813,7 +23342,7 @@ JAVASCRIPT;
         if ($runProfileBrowser) {
             $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
             $browserResult = $runProfileByCost
-                ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']))
+                ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']), $options)
                 : [
                     'success' => false,
                     'skipped' => true,
@@ -22845,9 +23374,11 @@ JAVASCRIPT;
                 'success' => true,
                 'message' => "成功获取 {$savedCount} 条数据",
                 'saved_count' => $savedCount,
+                'data_period' => $options['data_period'] ?? 'historical_daily',
                 'auto_fetch_mode' => $mode,
                 'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => $modules,
+                'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : [],
             ];
         }
 
@@ -22859,9 +23390,11 @@ JAVASCRIPT;
             'success' => false,
             'message' => $message,
             'saved_count' => 0,
+            'data_period' => $options['data_period'] ?? 'historical_daily',
             'auto_fetch_mode' => $mode,
             'mode_label' => $this->autoFetchModeLabel($mode),
             'modules' => $modules,
+            'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : [],
         ];
     }
 
@@ -23036,7 +23569,7 @@ JAVASCRIPT;
         return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
     }
 
-    private function executeMeituanBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false): array
+    private function executeMeituanBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false, array $periodOptions = []): array
     {
         $storeId = $this->meituanProfileStoreIdFromConfig($config);
         if ($storeId === '') {
@@ -23112,6 +23645,7 @@ JAVASCRIPT;
         }
         $payload['system_hotel_id'] = $hotelId;
         $payload['default_data_date'] = $dataDate;
+        $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
         $rows = $this->buildMeituanCapturedDailyRows($payload, $hotelId);
         $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
 

@@ -122,3 +122,41 @@ test('sanitizes order payloads before capture output is written', () => {
   assert.equal(sanitized.data.orderList[0].mobile_masked, '*******4321');
   assert.equal(sanitized.data.orderList[0].amount, 588);
 });
+
+test('sanitizes review payloads down to aggregate-safe fields', () => {
+  const sanitized = sanitizeOtaPayloadForStorage({
+    data: {
+      hotelName: '西安空港城天诚商务宾馆',
+      statDate: '2026-06-06',
+      commentList: [
+        {
+          commentId: 'COMMENT-SECRET-001',
+          commentContent: '房间很吵',
+          replyContent: '抱歉，我们会改进',
+          userName: '张三',
+          roomType: '商务大床房',
+          orderId: 'ORDER-SECRET-001',
+          channelName: '携程',
+          commentScore: 3.2,
+          commentTime: '2026-06-06',
+          badReviewCount: 6,
+        },
+      ],
+      totalCount: 577,
+    },
+  }, 'reviews');
+
+  const encoded = JSON.stringify(sanitized);
+  assert.equal(encoded.includes('房间很吵'), false);
+  assert.equal(encoded.includes('抱歉'), false);
+  assert.equal(encoded.includes('张三'), false);
+  assert.equal(encoded.includes('商务大床房'), false);
+  assert.equal(encoded.includes('COMMENT-SECRET-001'), false);
+  assert.equal(encoded.includes('ORDER-SECRET-001'), false);
+  assert.equal(sanitized.data.hotelName, '西安空港城天诚商务宾馆');
+  assert.equal(sanitized.data.statDate, '2026-06-06');
+  assert.equal(sanitized.data.commentList[0].channelName, '携程');
+  assert.equal(sanitized.data.commentList[0].commentScore, 3.2);
+  assert.equal(sanitized.data.commentList[0].badReviewCount, 6);
+  assert.equal(sanitized.data.totalCount, 577);
+});

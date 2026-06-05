@@ -21,77 +21,119 @@ class AutoFetchOnlineData extends Command
 
     protected function execute(Input $input, Output $output)
     {
-        $output->writeln('[' . date('Y-m-d H:i:s') . '] 开始检查自动获取任务...');
+        return $this->executeSegmentedSchedules($output);
+    }
+
+    private function executeSegmentedSchedules(Output $output): int
+    {
+        $output->writeln('[' . date('Y-m-d H:i:s') . '] Start online data auto-fetch schedule check.');
 
         $currentTime = date('H:i');
         $currentMinute = (int)date('i');
         $currentHour = date('H');
         $today = date('Y-m-d');
         $yesterday = date('Y-m-d', strtotime('-1 day'));
-
-        // 获取所有酒店
         $hotels = Db::name('hotels')->where('status', 1)->select()->toArray();
 
         foreach ($hotels as $hotel) {
-            $hotelId = $hotel['id'];
-            $statusKey = "online_data_auto_fetch_status_{$hotelId}";
-            $status = Cache::get($statusKey, []);
-
-            // 检查是否开启
+            $hotelId = (int)$hotel['id'];
+            $hotelName = (string)($hotel['name'] ?? $hotelId);
+            $status = Cache::get("online_data_auto_fetch_status_{$hotelId}", []);
+            $status = is_array($status) ? $status : [];
             if (empty($status['enabled'])) {
                 continue;
             }
 
-            // 检查运行时间；新配置按每小时指定分钟执行，旧配置保留每日 HH:MM 执行。
-            $scheduleMinute = $this->normalizeAutoFetchScheduleMinute($status['schedule_minute'] ?? null);
-            if ($scheduleMinute !== null) {
-                if ($currentMinute !== $scheduleMinute) {
-                    continue;
-                }
-                $executedKey = "online_data_executed_{$hotelId}_{$today}_{$currentHour}";
-                $executedMessage = "酒店 {$hotel['name']} 本小时已执行，跳过";
-            } else {
-                $scheduleTime = $this->normalizeFetchScheduleTime((string)($status['schedule_time'] ?? '10:00')) ?? '10:00';
-                if ($currentTime !== $scheduleTime) {
-                    continue;
-                }
-                $executedKey = "online_data_executed_{$hotelId}_{$today}";
-                $executedMessage = "酒店 {$hotel['name']} 今天已执行，跳过";
+            $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '10:00')) ?? '10:00';
+            $realtimeMinute = $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? 5);
+            $realtimeMinute = $realtimeMinute === null ? 5 : $realtimeMinute;
+            $historicalEnabled = array_key_exists('historical_enabled', $status) ? $this->truthy($status['historical_enabled']) : true;
+            $realtimeEnabled = array_key_exists('realtime_enabled', $status) ? $this->truthy($status['realtime_enabled']) : true;
+
+            $dueRuns = [];
+            if ($historicalEnabled && $currentTime === $historicalTime) {
+                $dueRuns[] = [
+                    'period' => 'historical_daily',
+                    'data_date' => $yesterday,
+                    'executed_key' => "online_data_historical_executed_{$hotelId}_{$yesterday}",
+                    'label' => 'historical',
+                ];
             }
-            if (Cache::get($executedKey)) {
-                $output->writeln($executedMessage);
+            if ($realtimeEnabled && $currentMinute === $realtimeMinute) {
+                $dueRuns[] = [
+                    'period' => 'realtime_snapshot',
+                    'data_date' => $today,
+                    'executed_key' => "online_data_realtime_executed_{$hotelId}_{$today}_{$currentHour}",
+                    'label' => 'realtime',
+                ];
+            }
+            if (empty($dueRuns)) {
                 continue;
             }
 
-            $output->writeln("开始为酒店 {$hotel['name']} 获取数据...");
-
-            // 执行获取
             $browserHeadless = array_key_exists('browser_headless', $status) ? $this->truthy($status['browser_headless']) : true;
-            $result = $this->fetchDataForHotel($hotelId, $yesterday, $browserHeadless);
+            $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($status['ctrip_section_concurrency'] ?? $status['ctripSectionConcurrency'] ?? 3);
+            $lockKey = "online_data_profile_lock_{$hotelId}";
+            $ranLockedTask = false;
+            foreach ($dueRuns as $run) {
+                if (Cache::get($run['executed_key'])) {
+                    $output->writeln("Hotel {$hotelName} {$run['label']} already executed, skipped.");
+                    continue;
+                }
+                if ($ranLockedTask || Cache::get($lockKey)) {
+                    $message = 'skipped_locked: same Profile is already running another capture task';
+                    $output->writeln("Hotel {$hotelName} {$run['label']} {$message}.");
+                    $this->updateStatus($hotelId, false, $message, $run['data_date'], [
+                        'status' => 'skipped_locked',
+                        'data_period' => $run['period'],
+                    ]);
+                    continue;
+                }
 
-            if ($result['success']) {
-                $output->writeln("酒店 {$hotel['name']} 获取成功: {$result['message']}");
-                $this->updateStatus($hotelId, true, $result['message'], $yesterday);
-            } else {
-                $output->writeln("酒店 {$hotel['name']} 获取失败: {$result['message']}");
-                $this->updateStatus($hotelId, false, $result['message'], $yesterday);
+                $snapshotTime = date('Y-m-d H:i:s');
+                $output->writeln("Hotel {$hotelName} start {$run['label']} capture for {$run['data_date']}.");
+                Cache::set($lockKey, [
+                    'data_period' => $run['period'],
+                    'data_date' => $run['data_date'],
+                    'started_at' => $snapshotTime,
+                ], 7200);
+                $ranLockedTask = true;
+                try {
+                    $result = $this->fetchDataForHotel($hotelId, $run['data_date'], $browserHeadless, $run['period'], $snapshotTime, $ctripSectionConcurrency);
+                    $this->updateStatus($hotelId, !empty($result['success']), (string)($result['message'] ?? ''), $run['data_date'], [
+                        'status' => !empty($result['success']) ? 'success' : 'failed',
+                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                        'data_period' => $run['period'],
+                        'timing' => is_array($result['timing'] ?? null) ? $result['timing'] : [],
+                        'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $ctripSectionConcurrency,
+                    ]);
+                    $output->writeln("Hotel {$hotelName} {$run['label']} " . (!empty($result['success']) ? 'success' : 'failed') . ': ' . (string)($result['message'] ?? '-'));
+                    Cache::set($run['executed_key'], true, 86400);
+                } finally {
+                    Cache::delete($lockKey);
+                }
             }
-
-            // 标记今天已执行
-            Cache::set($executedKey, true, 86400);
         }
 
-        $output->writeln('[' . date('Y-m-d H:i:s') . '] 自动获取任务检查完成');
+        $output->writeln('[' . date('Y-m-d H:i:s') . '] Online data auto-fetch schedule check finished.');
         return 0;
     }
 
-    private function fetchDataForHotel(int $hotelId, string $dataDate, bool $browserHeadless = true): array
+    private function fetchDataForHotel(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3): array
     {
-        $profileResult = $this->syncBrowserProfileSources($hotelId, $dataDate, $browserHeadless);
+        $startedAt = microtime(true);
+        $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
+        $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
+        $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($ctripSectionConcurrency);
+        $profileResult = $this->syncBrowserProfileSources($hotelId, $dataDate, $browserHeadless, $dataPeriod, $snapshotTime, $ctripSectionConcurrency);
         if ($profileResult['attempted']) {
             return [
                 'success' => (bool)$profileResult['success'],
                 'message' => (string)$profileResult['message'],
+                'saved_count' => (int)($profileResult['saved_count'] ?? 0),
+                'data_period' => $dataPeriod,
+                'timing' => $this->ensureTotalTiming(is_array($profileResult['timing'] ?? null) ? $profileResult['timing'] : [], $startedAt),
+                'ctrip_section_concurrency' => $ctripSectionConcurrency,
             ];
         }
 
@@ -99,7 +141,7 @@ class AutoFetchOnlineData extends Command
         $cookies = (string)($fetchConfig['cookies'] ?? '');
 
         if (empty($cookies)) {
-            return ['success' => false, 'message' => '未配置Cookies'];
+            return ['success' => false, 'message' => '未配置Cookies', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
         }
 
         try {
@@ -110,28 +152,31 @@ class AutoFetchOnlineData extends Command
             );
 
             if (!$result['success']) {
-                return ['success' => false, 'message' => '请求失败: ' . $result['error']];
+                return ['success' => false, 'message' => '请求失败: ' . $result['error'], 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
             }
 
-            $savedCount = $this->parseAndSaveData($result['data'], $dataDate, $dataDate, $hotelId);
+            $savedCount = $this->parseAndSaveData($result['data'], $dataDate, $dataDate, $hotelId, $dataPeriod, $snapshotTime);
 
             if ($savedCount === 0) {
-                return ['success' => false, 'message' => '未获取到有效数据'];
+                return ['success' => false, 'message' => '未获取到有效数据', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
             }
 
             Log::info("自动获取线上数据成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
             $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
 
-            return ['success' => true, 'message' => "成功获取 {$savedCount} 条数据"];
+            return ['success' => true, 'message' => "成功获取 {$savedCount} 条数据", 'saved_count' => $savedCount, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
 
         } catch (\Exception $e) {
             Log::error("自动获取线上数据异常", ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
-            return ['success' => false, 'message' => '异常: ' . $e->getMessage()];
+            return ['success' => false, 'message' => '异常: ' . $e->getMessage(), 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
         }
     }
 
-    private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true): array
+    private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3): array
     {
+        $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
+        $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
+        $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($ctripSectionConcurrency);
         try {
             $sources = Db::name('platform_data_sources')
                 ->where('enabled', 1)
@@ -143,11 +188,11 @@ class AutoFetchOnlineData extends Command
                 ->toArray();
         } catch (\Throwable $e) {
             Log::warning('读取浏览器 Profile 数据源失败，回退旧自动获取', ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
-            return ['attempted' => false, 'success' => false, 'message' => ''];
+            return ['attempted' => false, 'success' => false, 'message' => '', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => []];
         }
 
         if (empty($sources)) {
-            return ['attempted' => false, 'success' => false, 'message' => ''];
+            return ['attempted' => false, 'success' => false, 'message' => '', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => []];
         }
 
         $systemUser = new class {
@@ -163,14 +208,18 @@ class AutoFetchOnlineData extends Command
         $savedCount = 0;
         $savedByPlatform = [];
         $failedCount = 0;
+        $timing = [];
         foreach ($sources as $source) {
             $platform = strtolower((string)($source['platform'] ?? 'source'));
             try {
                 $result = $service->syncDataSource($systemUser, (int)$source['id'], [
                     'trigger_type' => 'cron',
                     'data_date' => $dataDate,
+                    'data_period' => $dataPeriod,
+                    'snapshot_time' => $snapshotTime,
                     'interactive_browser' => !$browserHeadless,
                     'browser_headless' => $browserHeadless,
+                    'ctrip_section_concurrency' => $ctripSectionConcurrency,
                 ]);
             } catch (\Throwable $e) {
                 $failedCount++;
@@ -180,6 +229,9 @@ class AutoFetchOnlineData extends Command
 
             $sourceSavedCount = (int)($result['saved_count'] ?? 0);
             $savedCount += $sourceSavedCount;
+            if (is_array($result['timing'] ?? null)) {
+                $timing = $this->sumTiming($timing, $result['timing']);
+            }
             $savedByPlatform[$platform] = ($savedByPlatform[$platform] ?? 0) + $sourceSavedCount;
             if (!in_array((string)($result['status'] ?? ''), ['success', 'partial_success'], true) || $sourceSavedCount <= 0) {
                 $failedCount++;
@@ -196,6 +248,9 @@ class AutoFetchOnlineData extends Command
                 'attempted' => true,
                 'success' => true,
                 'message' => "{$messagePrefix} {$savedCount} 条",
+                'saved_count' => $savedCount,
+                'data_period' => $dataPeriod,
+                'timing' => $timing,
             ];
         }
 
@@ -203,6 +258,9 @@ class AutoFetchOnlineData extends Command
             'attempted' => true,
             'success' => false,
             'message' => '浏览器 Profile 数据源同步失败：' . implode('；', array_slice($messages, 0, 3)),
+            'saved_count' => 0,
+            'data_period' => $dataPeriod,
+            'timing' => $timing,
         ];
     }
 
@@ -264,6 +322,14 @@ class AutoFetchOnlineData extends Command
         return $minute >= 0 && $minute <= 59 ? $minute : null;
     }
 
+    private function normalizeCtripSectionConcurrency($value): int
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return 3;
+        }
+        return max(1, min(4, (int)$value));
+    }
+
     private function truthy($value): bool
     {
         if (is_bool($value)) {
@@ -276,6 +342,119 @@ class AutoFetchOnlineData extends Command
             return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
         }
         return !empty($value);
+    }
+
+    private function normalizeOnlineDailyDataPeriod($value): string
+    {
+        $period = strtolower(trim((string)$value));
+        return in_array($period, ['historical_daily', 'realtime_snapshot'], true) ? $period : '';
+    }
+
+    private function normalizeDateTime($value): ?string
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s');
+        }
+        $value = trim((string)$value);
+        if ($value === '') {
+            return null;
+        }
+        $timestamp = strtotime($value);
+        return $timestamp === false ? null : date('Y-m-d H:i:s', $timestamp);
+    }
+
+    private function onlineDailyDataColumns(): array
+    {
+        static $columns = null;
+        if (is_array($columns)) {
+            return $columns;
+        }
+
+        $columns = [];
+        try {
+            foreach (Db::query('SHOW COLUMNS FROM `online_daily_data`') as $row) {
+                $field = (string)($row['Field'] ?? $row['field'] ?? '');
+                if ($field !== '') {
+                    $columns[$field] = true;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('读取 online_daily_data 字段失败', ['error' => $e->getMessage()]);
+        }
+
+        return $columns;
+    }
+
+    private function applyOnlineDailyDataPeriodFields(array $data, array $columns, array $periodOptions = []): array
+    {
+        $period = $this->normalizeOnlineDailyDataPeriod($periodOptions['data_period'] ?? $data['data_period'] ?? '') ?: 'historical_daily';
+        $snapshotTime = $this->normalizeDateTime($periodOptions['snapshot_time'] ?? $data['snapshot_time'] ?? null);
+        if ($period === 'realtime_snapshot' && $snapshotTime === null) {
+            $snapshotTime = date('Y-m-d H:i:s');
+        }
+
+        if (isset($columns['data_period'])) {
+            $data['data_period'] = $period;
+        }
+        if (isset($columns['snapshot_time'])) {
+            $data['snapshot_time'] = $period === 'realtime_snapshot' ? $snapshotTime : null;
+        }
+        if (isset($columns['snapshot_bucket'])) {
+            $data['snapshot_bucket'] = $period === 'realtime_snapshot' && $snapshotTime !== null
+                ? date('YmdH', strtotime($snapshotTime))
+                : '';
+        }
+        if (isset($columns['is_final'])) {
+            $data['is_final'] = $period === 'historical_daily' ? 1 : 0;
+        }
+
+        return $data;
+    }
+
+    private function applyOnlineDailyDataPeriodQuery($query, array $data, array $columns): void
+    {
+        $period = $this->normalizeOnlineDailyDataPeriod($data['data_period'] ?? '') ?: 'historical_daily';
+        if (isset($columns['data_period'])) {
+            $query->where('data_period', $period);
+        }
+        if ($period === 'realtime_snapshot' && isset($columns['snapshot_bucket'])) {
+            $query->where('snapshot_bucket', (string)($data['snapshot_bucket'] ?? ''));
+        }
+    }
+
+    private function sumTiming(array $base, array $timing): array
+    {
+        foreach ($this->normalizeTiming($timing) as $key => $value) {
+            $base[$key] = (int)($base[$key] ?? 0) + $value;
+        }
+        return $base;
+    }
+
+    private function normalizeTiming(array $timing): array
+    {
+        $normalized = [];
+        foreach ([
+            'capture_elapsed_ms',
+            'raw_store_elapsed_ms',
+            'normalize_elapsed_ms',
+            'daily_rows_save_elapsed_ms',
+            'finish_task_elapsed_ms',
+            'total_elapsed_ms',
+        ] as $key) {
+            if (array_key_exists($key, $timing) && is_numeric($timing[$key])) {
+                $normalized[$key] = max(0, (int)$timing[$key]);
+            }
+        }
+        return $normalized;
+    }
+
+    private function ensureTotalTiming(array $timing, float $startedAt): array
+    {
+        $timing = $this->normalizeTiming($timing);
+        if (empty($timing['total_elapsed_ms'])) {
+            $timing['total_elapsed_ms'] = max(0, (int)round((microtime(true) - $startedAt) * 1000));
+        }
+        return $timing;
     }
 
     private function ctripLatestFetchStatusKey(?int $hotelId): string
@@ -339,7 +518,7 @@ class AutoFetchOnlineData extends Command
         return $scheme === 'https' && ($host === 'ctrip.com' || str_ends_with($host, '.ctrip.com'));
     }
 
-    private function parseAndSaveData($responseData, $startDate, $endDate, int $hotelId): int
+    private function parseAndSaveData($responseData, $startDate, $endDate, int $hotelId, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null): int
     {
         $dataList = $responseData['data']['hotelList'] ?? $responseData['data'] ?? $responseData['hotelList'] ?? [];
 
@@ -353,6 +532,9 @@ class AutoFetchOnlineData extends Command
 
         if (empty($dataList)) return 0;
 
+        $columns = $this->onlineDailyDataColumns();
+        $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
+        $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
         $savedCount = 0;
         foreach ($dataList as $item) {
             if (!is_array($item)) continue;
@@ -361,12 +543,6 @@ class AutoFetchOnlineData extends Command
             if (empty($hotelIdFromData)) continue;
 
             $dataDate = $item['dataDate'] ?? $item['date'] ?? $startDate;
-
-            $exists = Db::name('online_daily_data')
-                ->where('hotel_id', (string)$hotelIdFromData)
-                ->where('data_date', $dataDate)
-                ->where('system_hotel_id', $hotelId)
-                ->find();
 
             $data = [
                 'hotel_id' => (string)$hotelIdFromData,
@@ -380,6 +556,17 @@ class AutoFetchOnlineData extends Command
                 'qunar_comment_score' => floatval($item['qunarCommentScore'] ?? 0),
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
+            $data = $this->applyOnlineDailyDataPeriodFields($data, $columns, [
+                'data_period' => $dataPeriod,
+                'snapshot_time' => $snapshotTime,
+            ]);
+
+            $query = Db::name('online_daily_data')
+                ->where('hotel_id', (string)$hotelIdFromData)
+                ->where('data_date', $dataDate)
+                ->where('system_hotel_id', $hotelId);
+            $this->applyOnlineDailyDataPeriodQuery($query, $data, $columns);
+            $exists = $query->find();
 
             if ($exists) {
                 Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
@@ -392,7 +579,7 @@ class AutoFetchOnlineData extends Command
         return $savedCount;
     }
 
-    private function updateStatus(int $hotelId, bool $success, string $message, ?string $dataDate = null): void
+    private function updateStatus(int $hotelId, bool $success, string $message, ?string $dataDate = null, array $details = []): void
     {
         $statusKey = "online_data_auto_fetch_status_{$hotelId}";
         $status = Cache::get($statusKey, []);
@@ -408,10 +595,41 @@ class AutoFetchOnlineData extends Command
             'success' => $success,
             'message' => $message,
         ];
+        $statusCode = (string)($details['status'] ?? ($success ? 'success' : 'failed'));
+        $dataPeriod = $this->normalizeOnlineDailyDataPeriod($details['data_period'] ?? $details['dataPeriod'] ?? '');
+        $timing = is_array($details['timing'] ?? null) ? $this->normalizeTiming($details['timing']) : [];
+        if ($statusCode !== '') {
+            $runRecord['status'] = $statusCode;
+        }
+        if ($dataPeriod !== '') {
+            $runRecord['data_period'] = $dataPeriod;
+        }
+        if (array_key_exists('saved_count', $details)) {
+            $runRecord['saved_count'] = (int)$details['saved_count'];
+        }
+        if (!empty($timing)) {
+            $runRecord['timing'] = $timing;
+        }
+        if (array_key_exists('ctrip_section_concurrency', $details)) {
+            $runRecord['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
+            $status['ctrip_section_concurrency'] = $runRecord['ctrip_section_concurrency'];
+        }
 
         $status['last_run_time'] = $runAt;
         $status['last_data_date'] = $dataDate;
-        $status['last_result'] = ['success' => $success, 'message' => $message];
+        $status['last_result'] = ['success' => $success, 'message' => $message, 'status' => $statusCode];
+        if ($dataPeriod !== '') {
+            $status['last_result']['data_period'] = $dataPeriod;
+        }
+        if (array_key_exists('saved_count', $details)) {
+            $status['last_result']['saved_count'] = (int)$details['saved_count'];
+        }
+        if (!empty($timing)) {
+            $status['last_result']['timing'] = $timing;
+        }
+        if (array_key_exists('ctrip_section_concurrency', $details)) {
+            $status['last_result']['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
+        }
 
         $recentRuns = $status['recent_runs'] ?? [];
         $recentRuns = is_array($recentRuns) ? $recentRuns : [];
@@ -423,7 +641,7 @@ class AutoFetchOnlineData extends Command
         $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate) {
             return (string)($item['data_date'] ?? '') !== $dataDate;
         }));
-        if (!$success) {
+        if (!$success && $statusCode !== 'skipped_locked') {
             array_unshift($failedRecords, [
                 'data_date' => $dataDate,
                 'last_failed_at' => $runAt,

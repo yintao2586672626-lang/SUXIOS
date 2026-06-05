@@ -471,10 +471,14 @@ const supportNoticeFields = [
 ];
 
 const commentAggregateFields = [
+  field('comment_store_name', '点评门店', ['hotelName', 'masterHotelName', 'storeName', 'hotel_name'], '点评数据所属门店；不从点评正文推断'),
+  field('comment_date', '点评日期', ['date', 'dataDate', 'statDate', 'commentTime', 'createTime', 'submitTime'], '点评统计或评论发生日期；不保存点评明文'),
+  field('comment_channel', '点评渠道', ['channel', 'channelName', 'platform', 'source', 'commentChannel', 'bizType'], '只保留点评渠道维度，不保存用户身份或点评内容'),
+  field('comment_score', '点评分', ['score', 'commentScore', 'rating', 'ratingall', 'HotelRating', 'ctripRatingall', 'totalScore', 'overallScore'], '只采集评分聚合值，不保存点评明文', { unit: '分' }),
   field('comment_count', '点评数量', ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount'], '只采集点评/评论数量，不保存点评明文'),
   field('comment_rows', '点评数据条数', ['comments', 'commentList', 'reviews', 'totalCount'], '统计 getCommentList 返回点评行数，不保存点评明文'),
-  field('good_review_count', '好评数', ['score', 'commentScore', 'rating'], 'score >= 4.0 计数，不保存点评明文'),
-  field('bad_review_count', '差评数', ['score', 'commentScore', 'rating'], '0 < score < 4.0 计数，不保存点评明文'),
+  field('good_review_count', '好评数', ['goodReviewCount', 'positiveCommentCount', 'positiveCount', 'goodCount', 'highScoreCount'], '优先聚合接口好评数；列表评分仅通过显式聚合计算，不保存点评明文'),
+  field('bad_review_count', '差评数', ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount'], '优先聚合接口差评数；列表评分仅通过显式聚合计算，不保存点评明文'),
 ];
 
 const FACT_ONLY_FIELD_IDS = new Set([
@@ -490,6 +494,7 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'benefit_name',
   'benefit_status',
   'benefit_text',
+  'comment_channel',
   'ctrip_comment_id',
   'elong_comment_id',
   'hot_spot_name',
@@ -762,10 +767,10 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('traffic_hotel_min_price', 'traffic_report', ['queryHotelMinPriceV1'], [field('min_price', '实时起价', ['minPrice']), field('min_price_rank', '起价排名', ['minPriceRank'])]),
   endpoint('traffic_picture_quality', 'traffic_report', ['getPictureQualityScore'], [...qualityFields]),
   endpoint('traffic_comment_score_summary', 'traffic_report', ['getCommentsScoreV2'], [...qualityFields], { notes: '只采集评分汇总，不采集点评明文。' }),
-  endpoint('comment_review_aggregate', 'comment_review', ['getCommentList'], [...commentAggregateFields], {
+  endpoint('comment_review_aggregate', 'comment_review', ['getCommentNumV2', 'getCommentList'], [...commentAggregateFields], {
     dataType: 'quality',
     status: 'aggregate_only',
-    notes: '只采集点评条数和好评/差评聚合计数，不保存点评明文。',
+    notes: '优先 getCommentNumV2 聚合；getCommentList 仅用于列表评分聚合，不保存点评明文。',
   }),
 
   endpoint('competitor_management', 'competitor_overview', ['getManagementData'], [...revenueFields]),
@@ -1458,6 +1463,12 @@ function filterCtripCatalogFieldsBySourceContext(fields, sourceKey, path = []) {
     result = result.filter((item) => !String(item.id || '').startsWith('psi_basic_item_'));
   }
 
+  const inListRow = ['commentlist', 'comments', 'reviews', 'list', 'rows']
+    .some((segment) => parentSegments.includes(segment));
+  if (inListRow && ['score', 'commentscore', 'rating', 'rate'].includes(key)) {
+    result = result.filter((item) => !['comment_score', 'good_review_count', 'bad_review_count'].includes(String(item.id || '')));
+  }
+
   const inLossOrderVo = parentSegments.includes('lossordervo');
   if (!inLossOrderVo || !['ordernum', 'ordquantity', 'ordamount'].includes(key)) {
     return result;
@@ -1483,6 +1494,9 @@ const COMPETITOR_INDEX_FIELD_IDS = new Map([
 
 function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo) {
   const endpointId = endpointInfo?.id || '';
+  if (endpointId === 'comment_review_aggregate') {
+    return extractCommentReviewAggregateFacts(node, path, fields, context, endpointInfo);
+  }
   if (endpointId === 'psi_overview') {
     return extractPsiBasicScoreItemFacts(node, path, fields, context, endpointInfo);
   }
@@ -1531,6 +1545,75 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
     sourceKey: 'rankComp',
   });
   return facts;
+}
+
+function extractCommentReviewAggregateFacts(node, path, fields, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    return [];
+  }
+
+  const entries = [
+    ['commentList', node.commentList],
+    ['comments', node.comments],
+    ['reviews', node.reviews],
+    ['rows', node.rows],
+    ['list', node.list],
+  ].filter(([, value]) => Array.isArray(value));
+
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const facts = [];
+  for (const [sourceKey, rows] of entries) {
+    const sourcePath = [...path, sourceKey];
+    pushDerivedCommentFact(facts, fields, context, endpointInfo, 'comment_rows', 'commentList.length', sourcePath, rows.length);
+
+    const scores = rows
+      .map((row) => commentReviewScore(row))
+      .filter((score) => score !== null && score > 0);
+    if (scores.length > 0) {
+      const averageScore = Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 10) / 10;
+      pushDerivedCommentFact(facts, fields, context, endpointInfo, 'comment_score', 'score_average', sourcePath, averageScore);
+      pushDerivedCommentFact(facts, fields, context, endpointInfo, 'good_review_count', 'score_gte_4_count', sourcePath, scores.filter((score) => score >= 4).length);
+      pushDerivedCommentFact(facts, fields, context, endpointInfo, 'bad_review_count', 'score_lt_4_count', sourcePath, scores.filter((score) => score > 0 && score < 4).length);
+    }
+  }
+
+  return facts;
+}
+
+function pushDerivedCommentFact(target, fields, context, endpointInfo, metricFieldId, sourceKey, sourcePath, value) {
+  const fieldInfo = fields.find((item) => item.id === metricFieldId);
+  if (!fieldInfo || !isScalar(value)) {
+    return;
+  }
+  target.push(buildEndpointSpecificFact({
+    context,
+    endpointInfo,
+    fieldInfo,
+    sourceKey,
+    sourcePath,
+    sourceParentPath: sourcePath,
+    value,
+    derived_from: 'comment_review_aggregate',
+  }));
+}
+
+function commentReviewScore(row) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  for (const key of ['score', 'commentScore', 'rating', 'rate', 'totalScore', 'overallScore', 'star']) {
+    if (!Object.prototype.hasOwnProperty.call(row, key)) {
+      continue;
+    }
+    const number = Number(String(row[key]).replace(/,/g, '').trim());
+    if (Number.isFinite(number)) {
+      return number;
+    }
+  }
+  return null;
 }
 
 function extractUserProfileDistributionFacts(node, path, fields, context, endpointInfo) {
@@ -2620,7 +2703,8 @@ function standardDataTypeForFacts(facts) {
   if (ids.some((id) => [
     'psi_score', 'service_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score',
     'reply_rate', 'reply_rank', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_rating',
-    'comment_count', 'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
+    'comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count',
+    'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
     'ctrip_rating', 'qunar_rating', 'elong_rating',
     'ctrip_rating_rank', 'qunar_rating_rank', 'comment_response_rate', 'rating_competitor_total',
     'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
@@ -2679,7 +2763,8 @@ function standardDataTypeForField(fieldId) {
   if ([
     'psi_score', 'service_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score',
     'reply_rate', 'reply_rank', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_rating',
-    'comment_count', 'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
+    'comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count',
+    'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
     'ctrip_rating', 'qunar_rating', 'elong_rating',
     'ctrip_rating_rank', 'qunar_rating_rank', 'comment_response_rate', 'rating_competitor_total',
     'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
@@ -2711,16 +2796,20 @@ function applyFactToStandardRow(row, fact) {
     return;
   }
   rawMetrics[id] = number === null ? fact.value : number;
-  if (id === 'hotel_name') {
+  if (id === 'hotel_name' || id === 'comment_store_name') {
     row.hotel_name = String(fact.value || row.hotel_name || '').trim();
     row.raw_data.metric_hotel_name = row.hotel_name;
     return;
   }
-  if (id === 'date' || id === 'start_date') {
+  if (id === 'date' || id === 'start_date' || id === 'comment_date') {
     const date = normalizeFactDate(fact.value);
     if (date) {
       row.data_date = date;
     }
+    return;
+  }
+  if (id === 'comment_channel') {
+    appendDimensionValue(row, 'comment_channel', fact.value);
     return;
   }
   if (FACT_ONLY_FIELD_IDS.has(id)) {
@@ -2819,6 +2908,7 @@ function applyFactToStandardRow(row, fact) {
       }
       break;
     case 'comment_score_summary':
+    case 'comment_score':
       if (row.comment_score === 0) {
         row.comment_score = number;
       }
@@ -2840,6 +2930,11 @@ function applyFactToStandardRow(row, fact) {
       break;
     case 'comment_count':
       row.data_value = Math.round(number);
+      break;
+    case 'bad_review_count':
+      if (row.data_value === 0) {
+        row.data_value = Math.round(number);
+      }
       break;
     case 'ctrip_comment_count':
     case 'qunar_comment_count':

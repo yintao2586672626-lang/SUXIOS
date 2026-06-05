@@ -78,9 +78,10 @@ final class PlatformDataSyncService
             if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($source, $payload)) {
                 continue;
             }
+            $periodMeta = $this->resolveDataPeriodMetadata($row, $payload, $source, $date);
             $traceId = trim((string)($row['source_trace_id'] ?? ''));
-            if ($traceId === '') {
-                $traceId = $this->buildTraceId($source, $row, $date, $syncTaskId);
+            if ($traceId === '' || ($periodMeta['data_period'] === 'realtime_snapshot' && $periodMeta['snapshot_bucket'] !== '')) {
+                $traceId = $this->buildTraceId($source, $row, $date, $syncTaskId, $periodMeta['snapshot_bucket']);
             }
             $sanitizedRow = $dataType === 'review'
                 ? $this->sanitizeReviewPayloadForStorage($row)
@@ -92,6 +93,9 @@ final class PlatformDataSyncService
                 'sync_task_id' => $syncTaskId,
                 'source_trace_id' => $traceId,
                 'ingested_at' => date('Y-m-d H:i:s'),
+                'data_period' => $periodMeta['data_period'],
+                'snapshot_time' => $periodMeta['snapshot_time'],
+                'snapshot_bucket' => $periodMeta['snapshot_bucket'],
             ];
 
             $normalized[] = [
@@ -123,6 +127,10 @@ final class PlatformDataSyncService
                 'sync_task_id' => $syncTaskId,
                 'ingestion_method' => (string)($source['ingestion_method'] ?? 'manual'),
                 'source_trace_id' => $traceId,
+                'data_period' => $periodMeta['data_period'],
+                'snapshot_time' => $periodMeta['snapshot_time'],
+                'snapshot_bucket' => $periodMeta['snapshot_bucket'],
+                'is_final' => $periodMeta['is_final'],
             ];
         }
 
@@ -220,6 +228,8 @@ final class PlatformDataSyncService
 
     public function syncDataSource($user, int $id, array $options = []): array
     {
+        $syncStartedAt = microtime(true);
+        $timing = $this->emptySyncTiming();
         $source = $this->loadSource($id);
         $this->assertCanUseHotel($user, (int)($source['system_hotel_id'] ?? 0), 'can_fetch_online_data');
 
@@ -230,21 +240,31 @@ final class PlatformDataSyncService
         $taskId = $this->createTask($source, $user, (string)($options['trigger_type'] ?? 'manual'));
         try {
             $adapter = $this->resolveAdapter($source);
+            $phaseStartedAt = microtime(true);
             $result = $adapter->fetch($source, $options);
+            $timing['capture_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
+            $this->refreshDatabaseConnectionAfterExternalFetch();
+            $payload = $this->applySyncOptionPeriodMetadata($result['payload'] ?? [], $options);
             if (($result['status'] ?? '') !== 'success') {
-                return $this->finishTask($taskId, $source, (string)$result['status'], (string)$result['message'], 0, 0, $result['payload'] ?? []);
+                return $this->finishTask($taskId, $source, (string)$result['status'], (string)$result['message'], 0, 0, $payload, $timing, $syncStartedAt);
             }
 
-            $payload = $result['payload'] ?? [];
+            $phaseStartedAt = microtime(true);
             $this->storeRawRecord($source, $taskId, $payload, $result['http_status'] ?? null);
+            $timing['raw_store_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
+            $phaseStartedAt = microtime(true);
             $rows = $this->normalizeRowsFromPayload(is_array($payload) ? $payload : [], $source, $taskId);
+            $timing['normalize_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
+            $phaseStartedAt = microtime(true);
             $saved = $this->saveNormalizedRows($rows);
+            $timing['daily_rows_save_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
 
             $status = $saved > 0 ? 'success' : 'partial_success';
             $message = $saved > 0 ? 'Platform data synchronized.' : 'No business rows were found in payload.';
-            return $this->finishTask($taskId, $source, $status, $message, count($rows), $saved, $payload);
+            return $this->finishTask($taskId, $source, $status, $message, count($rows), $saved, $payload, $timing, $syncStartedAt);
         } catch (\Throwable $e) {
-            return $this->finishTask($taskId, $source, 'failed', $e->getMessage(), 0, 0, []);
+            $this->refreshDatabaseConnectionAfterExternalFetch();
+            return $this->finishTask($taskId, $source, 'failed', $e->getMessage(), 0, 0, [], $timing, $syncStartedAt);
         }
     }
 
@@ -330,7 +350,7 @@ final class PlatformDataSyncService
                 $secret[$key === 'cookie' ? 'cookies' : $key] = (string)$payload[$key];
             }
         }
-        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
+        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
                 $config[$key] = $payload[$key];
             }
@@ -385,6 +405,49 @@ final class PlatformDataSyncService
         throw new RuntimeException('No adapter is available for this data source.', 422);
     }
 
+    private function refreshDatabaseConnectionAfterExternalFetch(): void
+    {
+        try {
+            Db::connect()->close();
+            Db::connect(null, true);
+        } catch (\Throwable) {
+            // Let the next write expose any real database failure.
+        }
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function emptySyncTiming(): array
+    {
+        return [
+            'capture_elapsed_ms' => 0,
+            'raw_store_elapsed_ms' => 0,
+            'normalize_elapsed_ms' => 0,
+            'daily_rows_save_elapsed_ms' => 0,
+            'finish_task_elapsed_ms' => 0,
+            'total_elapsed_ms' => 0,
+        ];
+    }
+
+    private function elapsedMilliseconds(float $startedAt): int
+    {
+        return max(0, (int)round((microtime(true) - $startedAt) * 1000));
+    }
+
+    /**
+     * @param array<string, mixed> $timing
+     * @return array<string, int>
+     */
+    private function normalizeSyncTiming(array $timing): array
+    {
+        $normalized = $this->emptySyncTiming();
+        foreach ($normalized as $key => $_) {
+            $normalized[$key] = max(0, (int)($timing[$key] ?? 0));
+        }
+        return $normalized;
+    }
+
     private function createTask(array $source, $user, string $triggerType): int
     {
         $now = date('Y-m-d H:i:s');
@@ -410,9 +473,11 @@ final class PlatformDataSyncService
         return (int)Db::name('platform_data_sync_tasks')->insertGetId($data);
     }
 
-    private function finishTask(int $taskId, array $source, string $status, string $message, int $normalizedCount, int $savedCount, array $payload): array
+    private function finishTask(int $taskId, array $source, string $status, string $message, int $normalizedCount, int $savedCount, array $payload, array $timing = [], ?float $syncStartedAt = null): array
     {
+        $finishStartedAt = microtime(true);
         $now = date('Y-m-d H:i:s');
+        $timing = $this->normalizeSyncTiming($timing);
         $stats = [
             'normalized_count' => $normalizedCount,
             'saved_count' => $savedCount,
@@ -420,6 +485,11 @@ final class PlatformDataSyncService
         ];
         if (!empty($payload['error_summary'])) {
             $stats['error_summary'] = mb_substr((string)$payload['error_summary'], 0, 500);
+        }
+        foreach (['data_period', 'snapshot_time', 'snapshot_bucket'] as $periodKey) {
+            if (!empty($payload[$periodKey])) {
+                $stats[$periodKey] = (string)$payload[$periodKey];
+            }
         }
         $nextRetryAt = in_array($status, ['failed', 'partial_success'], true) ? date('Y-m-d H:i:s', time() + 900) : null;
 
@@ -438,6 +508,15 @@ final class PlatformDataSyncService
             'status' => $status === 'success' ? 'success' : $status,
             'update_time' => $now,
         ]);
+        $timing['finish_task_elapsed_ms'] = $this->elapsedMilliseconds($finishStartedAt);
+        if ($syncStartedAt !== null) {
+            $timing['total_elapsed_ms'] = $this->elapsedMilliseconds($syncStartedAt);
+        }
+        $stats = array_merge($stats, $timing, ['timing' => $timing]);
+        Db::name('platform_data_sync_tasks')->where('id', $taskId)->update([
+            'stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE),
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
         $this->logSync($taskId, $source, $status === 'success' ? 'info' : 'warning', 'sync_finished', $message, $stats);
 
         return [
@@ -448,6 +527,7 @@ final class PlatformDataSyncService
             'normalized_count' => $normalizedCount,
             'saved_count' => $savedCount,
             'next_retry_at' => $nextRetryAt,
+            'timing' => $timing,
         ];
     }
 
@@ -492,7 +572,9 @@ final class PlatformDataSyncService
                 continue;
             }
             $existing = null;
-            if (($row['source_trace_id'] ?? '') !== '' && isset($columns['source_trace_id'])) {
+            $rowDataPeriod = (string)($row['data_period'] ?? 'historical_daily');
+            $rowSnapshotBucket = (string)($row['snapshot_bucket'] ?? '');
+            if (($row['source_trace_id'] ?? '') !== '' && isset($columns['source_trace_id']) && !($rowDataPeriod === 'realtime_snapshot' && $rowSnapshotBucket !== '')) {
                 $existing = Db::name('online_daily_data')->where('source_trace_id', (string)$row['source_trace_id'])->find();
             }
             if (!$existing) {
@@ -500,6 +582,12 @@ final class PlatformDataSyncService
                     ->where('data_date', $row['data_date'])
                     ->where('source', $row['source'])
                     ->where('data_type', $row['data_type']);
+                if (isset($columns['data_period'])) {
+                    $query->where('data_period', $rowDataPeriod);
+                }
+                if ($rowDataPeriod === 'realtime_snapshot' && isset($columns['snapshot_bucket'])) {
+                    $query->where('snapshot_bucket', $rowSnapshotBucket);
+                }
                 if (!empty($row['system_hotel_id']) && isset($columns['system_hotel_id'])) {
                     $query->where('system_hotel_id', (int)$row['system_hotel_id']);
                 }
@@ -1266,7 +1354,7 @@ final class PlatformDataSyncService
         return '';
     }
 
-    private function buildTraceId(array $source, array $row, string $date, ?int $syncTaskId): string
+    private function buildTraceId(array $source, array $row, string $date, ?int $syncTaskId, string $snapshotBucket = ''): string
     {
         $parts = [
             $source['id'] ?? '',
@@ -1275,9 +1363,123 @@ final class PlatformDataSyncService
             $date,
             $row['hotel_id'] ?? $row['hotelId'] ?? $row['poi_id'] ?? $row['poiId'] ?? '',
             $row['dimension'] ?? $row['_dimName'] ?? '',
+            $snapshotBucket,
             $syncTaskId ?? '',
         ];
         return substr(hash('sha256', implode('|', array_map('strval', $parts))), 0, 64);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $source
+     * @return array{data_period: string, snapshot_time: ?string, snapshot_bucket: string, is_final: int}
+     */
+    private function resolveDataPeriodMetadata(array $row, array $payload, array $source, string $date): array
+    {
+        $period = $this->normalizeDataPeriod(
+            $row['data_period']
+            ?? $row['dataPeriod']
+            ?? $payload['data_period']
+            ?? $payload['dataPeriod']
+            ?? $source['data_period']
+            ?? ''
+        );
+
+        if ($period === '') {
+            $period = $this->looksLikeRealtimeRow($row, $payload, $source, $date) ? 'realtime_snapshot' : 'historical_daily';
+        }
+
+        $snapshotTime = null;
+        $snapshotBucket = '';
+        if ($period === 'realtime_snapshot') {
+            $snapshotTime = $this->normalizeDateTime(
+                $row['snapshot_time']
+                ?? $row['snapshotTime']
+                ?? $row['captured_at']
+                ?? $row['capturedAt']
+                ?? $payload['snapshot_time']
+                ?? $payload['snapshotTime']
+                ?? $payload['captured_at']
+                ?? $payload['capturedAt']
+                ?? null
+            ) ?? date('Y-m-d H:i:s');
+            $snapshotBucket = date('YmdH', strtotime($snapshotTime) ?: time());
+        }
+
+        return [
+            'data_period' => $period,
+            'snapshot_time' => $snapshotTime,
+            'snapshot_bucket' => $snapshotBucket,
+            'is_final' => $period === 'historical_daily' ? 1 : 0,
+        ];
+    }
+
+    private function normalizeDataPeriod($value): string
+    {
+        $value = strtolower(str_replace(['-', ' '], '_', trim((string)$value)));
+        return match ($value) {
+            'realtime', 'real_time', 'realtime_snapshot', 'today_realtime', 'live', 'snapshot' => 'realtime_snapshot',
+            'historical', 'history', 'historical_daily', 'daily', 'fixed', 'final' => 'historical_daily',
+            default => '',
+        };
+    }
+
+    private function normalizeDateTime($value): ?string
+    {
+        $value = trim((string)($value ?? ''));
+        if ($value === '') {
+            return null;
+        }
+        $time = strtotime($value);
+        return $time === false ? null : date('Y-m-d H:i:s', $time);
+    }
+
+    private function applySyncOptionPeriodMetadata($payload, array $options): array
+    {
+        $payload = is_array($payload) ? $payload : [];
+        $period = $this->normalizeDataPeriod($options['data_period'] ?? $options['dataPeriod'] ?? '');
+        if ($period !== '' && empty($payload['data_period'])) {
+            $payload['data_period'] = $period;
+        }
+
+        $snapshotTime = $this->normalizeDateTime($options['snapshot_time'] ?? $options['snapshotTime'] ?? null);
+        if ($snapshotTime !== null && empty($payload['snapshot_time'])) {
+            $payload['snapshot_time'] = $snapshotTime;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $source
+     */
+    private function looksLikeRealtimeRow(array $row, array $payload, array $source, string $date): bool
+    {
+        if ($date !== date('Y-m-d')) {
+            return false;
+        }
+
+        $signals = [
+            $row['endpoint_id'] ?? '',
+            $row['_endpoint_id'] ?? '',
+            $row['source_url'] ?? '',
+            $row['_source_url'] ?? '',
+            $row['dimension'] ?? '',
+            $payload['endpoint_id'] ?? '',
+            $payload['source_url'] ?? '',
+            $source['data_type'] ?? '',
+        ];
+        $text = strtolower(implode('|', array_map(static fn($value): string => (string)$value, $signals)));
+        foreach (['realtime', 'real_time', 'today', 'current', 'rank', 'inventory', 'price'] as $needle) {
+            if (str_contains($text, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function maskSecret(string $value): string

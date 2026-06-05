@@ -318,7 +318,11 @@ export function sanitizeOtaPayloadForStorage(value, section = '') {
   if (!value || typeof value !== 'object') {
     return value;
   }
-  const orderContext = normalizeCaptureSectionName(section) === 'orders';
+  const normalizedSection = normalizeCaptureSectionName(section);
+  if (normalizedSection === 'reviews') {
+    return sanitizeReviewPayloadNode(value);
+  }
+  const orderContext = normalizedSection === 'orders';
   return sanitizePayloadNode(value, orderContext);
 }
 
@@ -352,6 +356,47 @@ function sanitizePayloadNode(value, orderContext) {
   return result;
 }
 
+function sanitizeReviewPayloadNode(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeReviewPayloadNode(item))
+      .filter((item) => hasSanitizedReviewValue(item));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (isSensitiveKey(key) || isReviewBlockedKey(key)) {
+      continue;
+    }
+
+    if (item && typeof item === 'object') {
+      const sanitized = sanitizeReviewPayloadNode(item);
+      if (hasSanitizedReviewValue(sanitized)) {
+        result[key] = sanitized;
+      }
+      continue;
+    }
+
+    if (isReviewAllowedScalarKey(key)) {
+      result[key] = item;
+    }
+  }
+  return result;
+}
+
+function hasSanitizedReviewValue(value) {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value).length > 0;
+  }
+  return value !== null && value !== undefined && value !== '';
+}
+
 function appendRedactedOrderField(target, key, value) {
   if (isOrderIdKey(key)) {
     const text = String(value ?? '').trim();
@@ -382,7 +427,13 @@ function appendRedactedOrderField(target, key, value) {
 
 function normalizeCaptureSectionName(section) {
   const value = String(section || '').trim().toLowerCase();
-  return value === 'order' ? 'orders' : value;
+  if (value === 'order') {
+    return 'orders';
+  }
+  if (['review', 'comment', 'comments'].includes(value)) {
+    return 'reviews';
+  }
+  return value;
 }
 
 function isSensitiveKey(key) {
@@ -411,6 +462,109 @@ function isGuestNameKey(key) {
 
 function isSensitiveOrderTextKey(key) {
   return /(certificate|credential|id[_-]?card|card[_-]?no|passport|remark|memo|note|address)/i.test(String(key || ''));
+}
+
+function isReviewBlockedKey(key) {
+  const normalized = String(key || '').replace(/[^a-zA-Z0-9]+/g, '').toLowerCase();
+  return [
+    'content',
+    'comment',
+    'commentcontent',
+    'commenttext',
+    'reviewcontent',
+    'reviewtext',
+    'contenttext',
+    'text',
+    'reply',
+    'replycontent',
+    'merchantreply',
+    'bizreply',
+    'hotelreply',
+    'replytext',
+    'username',
+    'nickname',
+    'customername',
+    'guestname',
+    'travellername',
+    'passengername',
+    'roomtype',
+    'roomname',
+    'productname',
+    'rateplanname',
+    'orderid',
+    'orderno',
+    'ordernumber',
+    'commentid',
+    'reviewid',
+    'id',
+    'userid',
+    'memberid',
+    'uid',
+    'avatar',
+    'photo',
+    'tags',
+    'taglist',
+    'labellist',
+    'labels',
+    'tagnames',
+  ].includes(normalized);
+}
+
+function isReviewAllowedScalarKey(key) {
+  const normalized = String(key || '').replace(/[^a-zA-Z0-9]+/g, '').toLowerCase();
+  return [
+    'rcode',
+    'code',
+    'status',
+    'success',
+    'hotelid',
+    'masterhotelid',
+    'hotelname',
+    'masterhotelname',
+    'storename',
+    'date',
+    'datadate',
+    'statdate',
+    'commenttime',
+    'reviewtime',
+    'createtime',
+    'submittime',
+    'channel',
+    'channelname',
+    'platform',
+    'source',
+    'commentchannel',
+    'biztype',
+    'score',
+    'commentscore',
+    'rating',
+    'rate',
+    'totalscore',
+    'overallscore',
+    'star',
+    'ratingall',
+    'hotelrating',
+    'ctripratingall',
+    'commentcount',
+    'commentscount',
+    'reviewcount',
+    'totalcommentcount',
+    'totalcount',
+    'allcount',
+    'badreviewcount',
+    'negativecommentcount',
+    'negativecount',
+    'badcount',
+    'lowscorecount',
+    'goodreviewcount',
+    'positivecommentcount',
+    'positivecount',
+    'goodcount',
+    'highscorecount',
+    'pageindex',
+    'pageno',
+    'pagesize',
+  ].includes(normalized);
 }
 
 function redactedFieldName(key, suffix) {

@@ -108,6 +108,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $hotelId = $this->firstString($options, $config, ['hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'node_id', 'nodeId']);
         $hotelName = $this->firstString($options, $config, ['hotel_name', 'hotelName', 'name']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
+        $sectionConcurrency = $this->resolveCtripSectionConcurrency($options, $config);
 
         $cookieFile = $this->createCookieFile((string)($secret['cookies'] ?? $secret['cookie'] ?? ''));
         try {
@@ -143,8 +144,42 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 $interactive,
                 $timeoutSeconds,
                 $fieldConfigPayload,
-                $cookieFile
+                $cookieFile,
+                [
+                    'section_concurrency' => $sectionConcurrency,
+                    'parallel_fallback' => true,
+                ]
             );
+            if ($this->shouldFallbackToSequentialAfterParallel($result, $sectionList, $sectionConcurrency, $options)) {
+                $fallback = $this->runSequentialCaptureSections(
+                    $source,
+                    $scriptPath,
+                    $profileId,
+                    $systemHotelId,
+                    $dataDate,
+                    $sectionList,
+                    $outputDir,
+                    $hotelId,
+                    $hotelName,
+                    $interactive,
+                    $timeoutSeconds,
+                    $fieldConfigPayload,
+                    $cookieFile
+                );
+                if (is_array($fallback['payload'] ?? null)) {
+                    $fallback['payload']['parallel_capture_fallback'] = [
+                        'reason' => (string)($result['message'] ?? 'parallel capture failed'),
+                        'section_concurrency' => $sectionConcurrency,
+                        'original_status' => (string)($result['status'] ?? ''),
+                    ];
+                }
+                if (($fallback['status'] ?? '') === 'success') {
+                    $fallback['message'] = 'Ctrip browser Profile parallel capture failed; sequential fallback completed. ' . (string)($fallback['message'] ?? '');
+                }
+                return $fallback;
+            }
+
+            return $result;
         } finally {
             if ($cookieFile !== '' && is_file($cookieFile)) {
                 @unlink($cookieFile);
@@ -288,7 +323,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         bool $interactive,
         int $timeoutSeconds,
         array $fieldConfigPayload,
-        string $cookieFile
+        string $cookieFile,
+        array $captureOptions = []
     ): array {
         $args = [
             $this->nodeBinary,
@@ -301,6 +337,13 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             '--sections=' . $sections,
             $interactive ? '--headless=false' : '--headless=true',
         ];
+        $sectionConcurrency = (int)($captureOptions['section_concurrency'] ?? 0);
+        if ($sectionConcurrency > 0) {
+            $args[] = '--section-concurrency=' . max(1, min(4, $sectionConcurrency));
+        }
+        if (array_key_exists('parallel_fallback', $captureOptions) && !$this->truthy($captureOptions['parallel_fallback'])) {
+            $args[] = '--disable-parallel-fallback=true';
+        }
         if ($hotelId !== '') {
             $args[] = '--hotel-id=' . $hotelId;
         }
@@ -565,7 +608,35 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 return $this->truthy($options[$key]);
             }
         }
-        return true;
+        return false;
+    }
+
+    private function resolveCtripSectionConcurrency(array $options, array $config): int
+    {
+        foreach (['ctrip_section_concurrency', 'ctripSectionConcurrency', 'section_concurrency', 'sectionConcurrency'] as $key) {
+            $value = $options[$key] ?? $config[$key] ?? null;
+            if ($value !== null && trim((string)$value) !== '') {
+                return max(1, min(4, (int)$value));
+            }
+        }
+
+        return 3;
+    }
+
+    /**
+     * @param array<int, string> $sectionList
+     */
+    private function shouldFallbackToSequentialAfterParallel(array $result, array $sectionList, int $sectionConcurrency, array $options): bool
+    {
+        if (count($sectionList) <= 1 || $sectionConcurrency <= 1) {
+            return false;
+        }
+        foreach (['disable_parallel_fallback', 'disableParallelFallback', 'disable_adapter_parallel_fallback', 'disableAdapterParallelFallback'] as $key) {
+            if (array_key_exists($key, $options) && $this->truthy($options[$key])) {
+                return false;
+            }
+        }
+        return !in_array((string)($result['status'] ?? ''), ['success', 'partial_success'], true);
     }
 
     /**

@@ -58,6 +58,20 @@ const profileFieldConfig = fieldConfigPath
   ? normalizeProfileFieldConfig(JSON.parse((await readFile(resolve(fieldConfigPath), 'utf8')).replace(/^\uFEFF/, '')))
   : normalizeProfileFieldConfig(null);
 const requestedSections = constrainRequestedSectionsByProfileFieldConfig(rawRequestedSections, profileFieldConfig);
+const sectionConcurrency = normalizeSectionConcurrency(
+  args.sectionConcurrency
+    || args.section_concurrency
+    || args.ctripSectionConcurrency
+    || args.ctrip_section_concurrency,
+  3,
+);
+const parallelSectionsEnabled = !loginOnly
+  && requestedSections.length > 1
+  && sectionConcurrency > 1
+  && !booleanArg(args.disableParallelSections)
+  && !booleanArg(args.sequentialSections)
+  && !booleanArg(args.sequential_sections);
+const parallelFallbackEnabled = !booleanArg(args.disableParallelFallback);
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -109,18 +123,24 @@ const payload = {
   screenshots: [],
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
   auth_status: { status: 'pending', message: 'Login status has not been checked.' },
+  capture_execution: {
+    mode: parallelSectionsEnabled ? 'parallel_pages' : 'single_page_sequential',
+    section_concurrency: parallelSectionsEnabled ? sectionConcurrency : 1,
+    parallel_fallback_enabled: parallelFallbackEnabled,
+    parallel_failed_sections: [],
+    fallback_sections: [],
+  },
 };
 for (const section of requestedSections) {
   payload.by_section[section] = [];
 }
-let activeCaptureSection = '';
-let activeTrafficPlatform = '';
+const defaultCaptureState = createCaptureState('');
 
 const browser = await launchOtaPersistentContext(storageDir, args);
 await grantCtripBrowserPermissions(browser);
 payload.cookie_injection = await injectBrowserCookies(browser, args, 'ctrip');
 const page = await browser.newPage();
-registerResponseCapture(page, payload);
+registerResponseCapture(page, payload, defaultCaptureState);
 
 try {
   const loginStatus = await ensureLoggedIn(page);
@@ -140,18 +160,26 @@ try {
     await holdInteractiveLoginWindow(page, 'Ctrip');
     await finalizeLoginOnlyPayload();
   } else {
-    for (const section of requestedSections) {
-      const pageTargets = PAGE_URLS[section] || [];
-      if (pageTargets.length === 0) {
-        payload.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, error: 'no page URL configured' });
-        continue;
-      }
-      for (const targetPage of pageTargets) {
-        await captureSection(page, section, targetPage.url, targetPage.confidence);
+    if (parallelSectionsEnabled) {
+      await page.close().catch(() => null);
+      await captureSectionsWithConcurrency(browser, requestedSections, sectionConcurrency);
+    } else {
+      for (const section of requestedSections) {
+        const pageTargets = PAGE_URLS[section] || [];
+        if (pageTargets.length === 0) {
+          payload.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, error: 'no page URL configured' });
+          continue;
+        }
+        defaultCaptureState.activeCaptureSection = section;
+        defaultCaptureState.activeTrafficPlatform = section === 'traffic_report' ? 'Ctrip' : '';
+        for (const targetPage of pageTargets) {
+          await captureSection(page, section, targetPage.url, targetPage.confidence, payload, defaultCaptureState);
+        }
       }
     }
   }
   if (!loginOnly) {
+    await waitForPendingResponses(payload);
     await finalizePayload();
   }
 
@@ -261,6 +289,163 @@ async function finalizeLoginOnlyPayload() {
   await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
 }
 
+function createCaptureState(section) {
+  return {
+    activeCaptureSection: section || '',
+    activeTrafficPlatform: section === 'traffic_report' ? 'Ctrip' : '',
+  };
+}
+
+function createSectionCaptureTarget(section) {
+  return {
+    section,
+    pages: [],
+    responses: [],
+    xhr_urls: [],
+    unmatched_xhr_urls: [],
+    endpoint_candidates: [],
+    p3_evidence_drafts: [],
+    rows: [],
+    standard_rows: [],
+    catalog_facts: [],
+    business: [],
+    traffic: [],
+    reviews: [],
+    screenshots: [],
+    by_section: { [section]: [] },
+  };
+}
+
+async function captureSectionsWithConcurrency(context, sections, concurrency) {
+  const results = [];
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, sections.length));
+
+  async function worker(workerIndex) {
+    while (cursor < sections.length) {
+      const section = sections[cursor++];
+      const result = await captureSectionWithNewPage(context, section, workerIndex);
+      results.push(result);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, (_, index) => worker(index + 1)));
+  const failedSections = results
+    .filter(result => !result.ok || !result.has_usable_data)
+    .map(result => result.section)
+    .filter(Boolean);
+  payload.capture_execution.parallel_results = results.sort((a, b) => sections.indexOf(a.section) - sections.indexOf(b.section));
+  payload.capture_execution.parallel_failed_sections = [...failedSections];
+
+  if (parallelFallbackEnabled && failedSections.length > 0) {
+    payload.capture_execution.fallback_sections = [...failedSections];
+    await retrySectionsSequentially(context, failedSections);
+  }
+}
+
+async function captureSectionWithNewPage(context, section, workerIndex = 1) {
+  const target = createSectionCaptureTarget(section);
+  const state = createCaptureState(section);
+  const sectionPage = await context.newPage();
+  registerResponseCapture(sectionPage, target, state);
+  let ok = true;
+  let error = '';
+  try {
+    const pageTargets = PAGE_URLS[section] || [];
+    if (pageTargets.length === 0) {
+      target.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, error: 'no page URL configured' });
+      ok = false;
+    }
+    for (const targetPage of pageTargets) {
+      await captureSection(sectionPage, section, targetPage.url, targetPage.confidence, target, state);
+    }
+  } catch (err) {
+    ok = false;
+    error = err?.message || String(err);
+    target.pages.push({ name: section, label: sectionLabel(section), url: sectionPage.url(), ok: false, error });
+  } finally {
+    await sectionPage.waitForTimeout(500).catch(() => null);
+    await waitForPendingResponses(target);
+    await sectionPage.close().catch(() => null);
+  }
+
+  mergeSectionCaptureTarget(target);
+  return {
+    section,
+    ok,
+    worker: workerIndex,
+    has_usable_data: sectionHasUsableData(target, section),
+    page_count: target.pages.length,
+    response_count: target.responses.length,
+    standard_row_count: target.standard_rows.length,
+    catalog_fact_count: target.catalog_facts.length,
+    row_count: target.rows.length,
+    ...(error ? { error } : {}),
+  };
+}
+
+async function retrySectionsSequentially(context, sections) {
+  const retryPage = await context.newPage();
+  const retryState = createCaptureState('');
+  registerResponseCapture(retryPage, payload, retryState);
+  try {
+    for (const section of sections) {
+      const pageTargets = PAGE_URLS[section] || [];
+      if (pageTargets.length === 0) {
+        payload.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, retry: true, error: 'no page URL configured' });
+        continue;
+      }
+      for (const targetPage of pageTargets) {
+        await captureSection(retryPage, section, targetPage.url, targetPage.confidence, payload, retryState, { retry: true });
+      }
+    }
+  } finally {
+    await waitForPendingResponses(payload);
+    await retryPage.close().catch(() => null);
+  }
+}
+
+function mergeSectionCaptureTarget(target) {
+  for (const key of ['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'screenshots']) {
+    const rows = Array.isArray(target[key]) ? target[key] : [];
+    payload[key].push(...rows);
+  }
+  for (const [section, rows] of Object.entries(target.by_section || {})) {
+    payload.by_section[section] ||= [];
+    payload.by_section[section].push(...(Array.isArray(rows) ? rows : []));
+  }
+}
+
+function sectionHasUsableData(target, section) {
+  const bySectionRows = Array.isArray(target.by_section?.[section]) ? target.by_section[section] : [];
+  if (bySectionRows.length > 0 || target.standard_rows.length > 0 || target.catalog_facts.length > 0) {
+    return true;
+  }
+  return target.responses.some(response => (
+    (response.section === section || response.endpoint_id)
+    && ((response.standard_row_count || 0) > 0 || (response.catalog_fact_count || 0) > 0 || (response.row_count || 0) > 0)
+  ));
+}
+
+function beginPendingResponse(target) {
+  target._pending_response_count = Number(target._pending_response_count || 0) + 1;
+  let finished = false;
+  return () => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    target._pending_response_count = Math.max(0, Number(target._pending_response_count || 0) - 1);
+  };
+}
+
+async function waitForPendingResponses(target, timeoutMs = 5000) {
+  const started = Date.now();
+  while (Number(target._pending_response_count || 0) > 0 && Date.now() - started < timeoutMs) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+
 async function looksLoggedIn(page) {
   const url = page.url();
   if (/login|passport|account|oauth|sso/i.test(url)) {
@@ -273,9 +458,9 @@ async function looksLoggedIn(page) {
   return true;
 }
 
-async function captureSection(page, section, url, confidence = '') {
-  activeCaptureSection = section;
-  activeTrafficPlatform = section === 'traffic_report' ? 'Ctrip' : '';
+async function captureSection(page, section, url, confidence = '', target = payload, state = defaultCaptureState, options = {}) {
+  state.activeCaptureSection = section;
+  state.activeTrafficPlatform = section === 'traffic_report' ? 'Ctrip' : '';
   let ok = true;
   let errorMessage = '';
   try {
@@ -289,7 +474,7 @@ async function captureSection(page, section, url, confidence = '') {
   await page.waitForTimeout(2500);
   await dismissBlockingOverlays(page);
   await clickLikelyRefreshButtons(page);
-  const interactions = await runSectionInteractionPlan(page, section);
+  const interactions = await runSectionInteractionPlan(page, section, state);
   await page.evaluate(() => window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))).catch(() => null);
   await page.waitForTimeout(1200);
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => null);
@@ -298,14 +483,14 @@ async function captureSection(page, section, url, confidence = '') {
   const screenshot = join(assetDir, `${safeName(profileId)}_${section}_${timestamp()}.png`);
   await page.screenshot({ path: screenshot, fullPage: true }).catch(() => null);
   if (existsSync(screenshot)) {
-    payload.screenshots.push({ name: section, path: screenshot });
+    target.screenshots.push({ name: section, path: screenshot, ...(options.retry ? { retry: true } : {}) });
   }
-  payload.pages.push({ name: section, label: sectionLabel(section), url: page.url(), configured_url: url, confidence, ok, interactions, ...(errorMessage ? { error: errorMessage } : {}) });
-  activeCaptureSection = '';
-  activeTrafficPlatform = '';
+  target.pages.push({ name: section, label: sectionLabel(section), url: page.url(), configured_url: url, confidence, ok, interactions, ...(options.retry ? { retry: true } : {}), ...(errorMessage ? { error: errorMessage } : {}) });
+  state.activeCaptureSection = '';
+  state.activeTrafficPlatform = '';
 }
 
-async function runSectionInteractionPlan(page, section) {
+async function runSectionInteractionPlan(page, section, state = defaultCaptureState) {
   const plan = getCtripSectionInteractionPlan(section);
   const results = [];
   for (const step of plan) {
@@ -313,9 +498,9 @@ async function runSectionInteractionPlan(page, section) {
       continue;
     }
     const stepPlatform = section === 'traffic_report' ? platformFromTrafficInteractionText(step.text) : '';
-    const previousTrafficPlatform = activeTrafficPlatform;
+    const previousTrafficPlatform = state.activeTrafficPlatform;
     if (stepPlatform) {
-      activeTrafficPlatform = stepPlatform;
+      state.activeTrafficPlatform = stepPlatform;
     }
     const result = await clickTextIfVisible(page, step.text);
     results.push({
@@ -327,7 +512,7 @@ async function runSectionInteractionPlan(page, section) {
       ...(result.error ? { error: result.error } : {}),
     });
     if (!result.clicked && stepPlatform) {
-      activeTrafficPlatform = previousTrafficPlatform;
+      state.activeTrafficPlatform = previousTrafficPlatform;
     }
     if (result.clicked) {
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
@@ -348,7 +533,7 @@ function platformFromTrafficInteractionText(text) {
   return '';
 }
 
-function inferCtripResponsePlatform(section, endpoint, url, requestPayload) {
+function inferCtripResponsePlatform(section, endpoint, url, requestPayload, state = defaultCaptureState) {
   const sectionKey = String(section || endpoint?.section || '').trim();
   if (sectionKey !== 'traffic_report') {
     return 'Ctrip';
@@ -360,7 +545,7 @@ function inferCtripResponsePlatform(section, endpoint, url, requestPayload) {
   if (text.includes('ctrip') || text.includes('\u643a\u7a0b')) {
     return 'Ctrip';
   }
-  return activeTrafficPlatform || 'Ctrip';
+  return state.activeTrafficPlatform || 'Ctrip';
 }
 
 async function clickTextIfVisible(page, text) {
@@ -461,12 +646,14 @@ async function dismissBlockingOverlays(page) {
   }).catch(() => null);
 }
 
-function registerResponseCapture(page, target) {
+function registerResponseCapture(page, target, state = defaultCaptureState) {
   page.on('response', async response => {
-    const requestType = response.request().resourceType();
-    if (requestType !== 'xhr' && requestType !== 'fetch') {
-      return;
-    }
+    const finishPendingResponse = beginPendingResponse(target);
+    try {
+      const requestType = response.request().resourceType();
+      if (requestType !== 'xhr' && requestType !== 'fetch') {
+        return;
+      }
 
     const url = response.url();
     const urlLower = String(url || '').toLowerCase();
@@ -482,7 +669,8 @@ function registerResponseCapture(page, target) {
 
     const request = response.request();
     const requestPayload = request?.postData?.() || '';
-    const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeCaptureSection });
+    const activeSection = state.activeCaptureSection || '';
+    const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeSection });
     const urlSection = endpoint?.section || '';
     const approvedMappingMatches = approvedMappingsForUrl(url);
     const unmatchedXhr = {
@@ -517,10 +705,10 @@ function registerResponseCapture(page, target) {
         response: body,
         page_url: page.url(),
         captured_at: capturedAt,
-        section: activeCaptureSection || p3Candidate.candidate_section,
+        section: activeSection || p3Candidate.candidate_section,
         page_context: {
-          page: sectionLabel(activeCaptureSection || p3Candidate.candidate_section),
-          module: activeCaptureSection || p3Candidate.candidate_section,
+          page: sectionLabel(activeSection || p3Candidate.candidate_section),
+          module: activeSection || p3Candidate.candidate_section,
           url: page.url(),
         },
       }], {
@@ -529,7 +717,7 @@ function registerResponseCapture(page, target) {
         defaultDataDate,
         capturedAt,
         pageUrl: page.url(),
-        activeSection: activeCaptureSection || p3Candidate.candidate_section,
+        activeSection: activeSection || p3Candidate.candidate_section,
         params: {
           hotel_id: hotelId || profileId,
           data_date: defaultDataDate,
@@ -544,8 +732,9 @@ function registerResponseCapture(page, target) {
     }
 
     const dataType = endpoint?.dataType || approvedMappingMatches[0]?.data_type || sectionDataType(section);
-    const platform = inferCtripResponsePlatform(section, endpoint, url, requestPayload);
-    const safeBody = sanitizeOtaPayloadForStorage(body, dataType);
+    const platform = inferCtripResponsePlatform(section, endpoint, url, requestPayload, state);
+    const sanitizerSection = endpoint?.section === 'comment_review' ? 'reviews' : dataType;
+    const safeBody = sanitizeOtaPayloadForStorage(body, sanitizerSection);
     const rows = normalizeRows(safeBody, dataType, url).map(row => ({
       ...row,
       section,
@@ -612,11 +801,14 @@ function registerResponseCapture(page, target) {
     } else if (dataType === 'review') {
       target.reviews.push(...rows);
     }
+    } finally {
+      finishPendingResponse();
+    }
   });
 }
 
-function classifyByUrl(url) {
-  return findCtripEndpointByUrl(url, { preferredSection: activeCaptureSection })?.section || '';
+function classifyByUrl(url, state = defaultCaptureState) {
+  return findCtripEndpointByUrl(url, { preferredSection: state.activeCaptureSection || '' })?.section || '';
 }
 
 function isLegacyCtripBusinessMetricUrl(url) {
@@ -1077,6 +1269,12 @@ function booleanArg(value) {
   }
   const text = String(value ?? '').trim().toLowerCase();
   return ['1', 'true', 'yes', 'y', 'on'].includes(text);
+}
+
+function normalizeSectionConcurrency(value, fallback = 3) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  const next = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.max(1, Math.min(4, next));
 }
 
 function readPath(value, path) {

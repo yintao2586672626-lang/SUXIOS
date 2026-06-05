@@ -66,6 +66,70 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], 34));
     }
 
+    public function testRealtimePayloadNormalizesWithSnapshotMetadata(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'data_period' => 'realtime_snapshot',
+            'snapshot_time' => '2026-06-06 13:15:00',
+            'rows' => [
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'hotel_name' => 'Demo Hotel',
+                    'data_date' => '2026-06-06',
+                    'data_type' => 'traffic',
+                    'list_exposure' => 100,
+                    'detail_exposure' => 20,
+                ],
+            ],
+        ], [
+            'id' => 12,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'system_hotel_id' => 7,
+            'ingestion_method' => 'browser_profile',
+        ], 35);
+
+        self::assertCount(1, $rows);
+        self::assertSame('realtime_snapshot', $rows[0]['data_period']);
+        self::assertSame('2026-06-06 13:15:00', $rows[0]['snapshot_time']);
+        self::assertSame('2026060613', $rows[0]['snapshot_bucket']);
+        self::assertSame(0, $rows[0]['is_final']);
+        self::assertStringContainsString('"data_period":"realtime_snapshot"', $rows[0]['raw_data']);
+        self::assertStringContainsString('"snapshot_bucket":"2026060613"', $rows[0]['raw_data']);
+    }
+
+    public function testHistoricalPayloadNormalizesAsFinalDailyData(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [
+                [
+                    'hotel_id' => 'ctrip-1001',
+                    'hotel_name' => 'Demo Hotel',
+                    'data_date' => '2026-06-05',
+                    'amount' => 1288,
+                    'room_nights' => 6,
+                ],
+            ],
+        ], [
+            'id' => 12,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'ingestion_method' => 'browser_profile',
+        ], 36);
+
+        self::assertCount(1, $rows);
+        self::assertSame('historical_daily', $rows[0]['data_period']);
+        self::assertNull($rows[0]['snapshot_time']);
+        self::assertSame('', $rows[0]['snapshot_bucket']);
+        self::assertSame(1, $rows[0]['is_final']);
+        self::assertStringContainsString('"data_period":"historical_daily"', $rows[0]['raw_data']);
+    }
+
     public function testReviewAndCommentPayloadsAreSkippedUnlessExplicitlyEnabled(): void
     {
         $service = new PlatformDataSyncService();
@@ -682,6 +746,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             $source['config']['capture_sections'] = 'core';
             $result = $adapter->fetch($source, [
                 'interactive_browser' => false,
+                'sequential_sections' => true,
                 'profile_field_config' => [
                     'fields' => [
                         [
@@ -728,6 +793,78 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testCtripBrowserProfileAdapterRunsEnabledSectionsInParallelByDefault(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $capturedArgs = [];
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs): array {
+                $capturedArgs[] = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                        break;
+                    }
+                }
+                if ($outputPath !== '') {
+                    file_put_contents($outputPath, json_encode([
+                        'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                        'capture_gate' => ['status' => 'pass'],
+                        'capture_execution' => [
+                            'mode' => 'parallel_pages',
+                            'section_concurrency' => 3,
+                            'fallback_sections' => [],
+                        ],
+                        'standard_rows' => [
+                            [
+                                'hotel_id' => '24588',
+                                'hotel_name' => 'Ctrip Demo Hotel',
+                                'data_date' => '2026-05-31',
+                                'data_type' => 'business',
+                                'amount' => '1888',
+                                'source_trace_id' => 'parallel-row',
+                            ],
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                }
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $source = $this->ctripBrowserProfileSource();
+            $source['config']['capture_sections'] = 'core';
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'profile_field_config' => [
+                    'fields' => [
+                        [
+                            'id' => 'weekly_self_list_exposure',
+                            'field_key' => 'weekly_self_list_exposure',
+                            'section' => 'business_weekly_overview',
+                            'enabled' => true,
+                        ],
+                        [
+                            'id' => 'detail_visitor',
+                            'field_key' => 'detail_visitor',
+                            'section' => 'traffic_report',
+                            'enabled' => true,
+                        ],
+                    ],
+                ],
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertCount(1, $capturedArgs);
+            $sectionArg = current(array_filter($capturedArgs[0], static fn($arg): bool => str_starts_with((string)$arg, '--sections=')));
+            self::assertSame('business_weekly_overview,traffic_report', substr((string)$sectionArg, strlen('--sections=')));
+            self::assertContains('--section-concurrency=3', $capturedArgs[0]);
+            self::assertSame('parallel_pages', $result['payload']['capture_execution']['mode']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripBrowserProfileAdapterKeepsSuccessfulSectionRowsWhenLaterSectionFails(): void
     {
         $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
@@ -768,6 +905,7 @@ final class PlatformDataSyncServiceTest extends TestCase
 
             $result = $adapter->fetch($this->ctripBrowserProfileSource(), [
                 'interactive_browser' => false,
+                'sequential_sections' => true,
                 'profile_field_config' => [
                     'fields' => [
                         [

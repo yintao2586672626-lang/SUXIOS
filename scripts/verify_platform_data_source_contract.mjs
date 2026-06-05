@@ -154,6 +154,17 @@ for (const [needle, label] of [
   ['campaignList', 'platform sync extracts campaign envelopes'],
   ['CtripBrowserProfileDataSourceAdapter', 'platform sync registers Ctrip browser Profile adapter'],
   ['MeituanBrowserProfileDataSourceAdapter', 'platform sync registers Meituan browser Profile adapter'],
+  ['function refreshDatabaseConnectionAfterExternalFetch', 'platform sync refreshes DB connection after long external capture'],
+  ['$this->refreshDatabaseConnectionAfterExternalFetch();', 'platform sync calls DB refresh before post-capture writes'],
+  ['function resolveDataPeriodMetadata', 'platform sync classifies historical and realtime rows'],
+  ["'data_period' => $periodMeta['data_period']", 'platform sync writes data period metadata to normalized rows'],
+  ["'snapshot_bucket' => $periodMeta['snapshot_bucket']", 'platform sync writes realtime snapshot bucket'],
+  ['capture_elapsed_ms', 'platform sync records capture elapsed time'],
+  ['raw_store_elapsed_ms', 'platform sync records raw-store elapsed time'],
+  ['normalize_elapsed_ms', 'platform sync records normalization elapsed time'],
+  ['daily_rows_save_elapsed_ms', 'platform sync records daily-row save elapsed time'],
+  ['finish_task_elapsed_ms', 'platform sync records task-result write elapsed time'],
+  ['total_elapsed_ms', 'platform sync records total elapsed time'],
   ["'profile_id'", 'platform sync accepts Ctrip browser Profile config fields'],
   ["'store_id'", 'platform sync accepts Meituan browser Profile config fields'],
   ["'source_trace_id' => $traceId", 'platform sync preserves browser Profile trace ids'],
@@ -162,11 +173,25 @@ for (const [needle, label] of [
 }
 
 for (const [needle, label] of [
+  ['online_data_historical_executed_', 'cron command dedupes historical runs by business date'],
+  ['online_data_realtime_executed_', 'cron command dedupes realtime runs by hour'],
+  ['online_data_profile_lock_', 'cron command serializes tasks per Profile'],
+  ['skipped_locked', 'cron command reports Profile lock skips explicitly'],
+  ["'data_period' => $dataPeriod", 'cron command passes data period into Profile sync'],
+  ["'snapshot_time' => $snapshotTime", 'cron command passes snapshot time into Profile sync'],
+  ['ctrip_section_concurrency', 'cron command passes Ctrip section concurrency into Profile sync'],
+]) {
+  check('app/command/AutoFetchOnlineData.php', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
   ["'browser_profile'", 'Ctrip browser Profile adapter supports browser_profile ingestion method'],
   ["'ctrip_profile_'", 'Ctrip browser Profile adapter checks local Profile directory'],
   ['ctrip_browser_capture.mjs', 'Ctrip browser Profile adapter reuses existing browser capture script'],
   ['auth_status', 'Ctrip browser Profile adapter exposes login state failures'],
   ['capture_gate', 'Ctrip browser Profile adapter exposes capture gate failures'],
+  ['--section-concurrency=', 'Ctrip browser Profile adapter passes internal section concurrency'],
+  ['parallel_capture_fallback', 'Ctrip browser Profile adapter keeps sequential fallback diagnostics'],
   ["'acquisition_method' => 'browser_profile'", 'Ctrip browser Profile adapter labels acquisition method'],
 ]) {
   check('app/service/platform/CtripBrowserProfileDataSourceAdapter.php', label, (source) => source.includes(needle), needle);
@@ -199,6 +224,13 @@ for (const [needle, label] of [
   ['解绑', 'frontend exposes visible Profile unbind action on the status card'],
   ['ctrip_auto_fetch_mode', 'frontend sends Ctrip-specific auto-fetch mode'],
   ['meituan_auto_fetch_mode', 'frontend keeps Meituan auto-fetch mode separate'],
+  ['historical_schedule_time', 'frontend sends historical fixed-data schedule time'],
+  ['realtime_schedule_minute', 'frontend sends realtime hourly schedule minute'],
+  ['autoFetchCtripSectionConcurrency', 'frontend exposes Ctrip internal section concurrency'],
+  ['ctrip_section_concurrency', 'frontend sends Ctrip section concurrency'],
+  ["data_period: 'realtime_snapshot'", 'frontend manual trigger requests realtime snapshot data'],
+  ["data_period: 'historical_daily'", 'frontend backfill requests historical fixed data'],
+  ['autoFetchTimingRows', 'frontend renders auto-fetch timing breakdown'],
   ["page_size: 'all'", 'frontend analysis panel requests all filtered online_daily_data rows'],
 ]) {
   check('public/index.html', label, (source) => source.includes(needle), needle);
@@ -270,6 +302,16 @@ check(
   'normalizeCtripCaptureSections without getCommentList'
 );
 
+for (const [needle, label] of [
+  ['captureSectionsWithConcurrency', 'Ctrip browser capture can run sections with bounded page concurrency'],
+  ['sectionHasUsableData', 'Ctrip browser capture detects empty parallel section results'],
+  ['parallel_failed_sections', 'Ctrip browser capture records parallel section gaps'],
+  ['fallback_sections', 'Ctrip browser capture records sequential fallback sections'],
+  ['normalizeSectionConcurrency', 'Ctrip browser capture clamps section concurrency'],
+]) {
+  check('scripts/ctrip_browser_capture.mjs', label, (source) => source.includes(needle), needle);
+}
+
 check(
   'scripts/meituan_browser_capture.mjs',
   'Meituan browser capture has login status and capture gate before writing output',
@@ -296,11 +338,29 @@ for (const [needle, label] of [
   check('database/migrations/20260528_create_platform_data_sync_tables.sql', label, (source) => source.includes(needle), needle);
 }
 
+for (const [needle, label] of [
+  ['ADD COLUMN IF NOT EXISTS `data_period`', 'period migration adds data_period'],
+  ['ADD COLUMN IF NOT EXISTS `snapshot_time`', 'period migration adds snapshot_time'],
+  ['ADD COLUMN IF NOT EXISTS `snapshot_bucket`', 'period migration adds snapshot_bucket'],
+  ['ADD COLUMN IF NOT EXISTS `is_final`', 'period migration adds is_final'],
+  ['idx_online_daily_period_hotel', 'period migration adds period-aware hotel index'],
+  ["SET `data_period` = 'historical_daily'", 'period migration keeps old rows as historical final data'],
+]) {
+  check('database/migrations/20260606_add_online_daily_data_period_fields.sql', label, (source) => source.includes(needle), needle);
+}
+
 check(
   'database/init_full.sql',
   'full init imports platform data-source migration',
   (source) => source.includes('20260528_create_platform_data_sync_tables.sql'),
   'SOURCE migrations/20260528_create_platform_data_sync_tables.sql'
+);
+
+check(
+  'database/init_full.sql',
+  'full init imports online daily period migration',
+  (source) => source.includes('20260606_add_online_daily_data_period_fields.sql'),
+  'SOURCE migrations/20260606_add_online_daily_data_period_fields.sql'
 );
 
 const failures = checks.filter((item) => !item.ok);

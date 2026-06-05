@@ -202,6 +202,10 @@ test('covers additional observed Ctrip screenshot endpoints outside review conte
     'comment_review',
   );
   assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/comment/api/getCommentNumV2')?.section,
+    'comment_review',
+  );
+  assert.equal(
     findCtripEndpointByUrl('https://ebooking.ctrip.com/datacenter/api/getMasterHotelLabel')?.id,
     'competitor_hotel_label',
   );
@@ -241,6 +245,52 @@ test('covers additional observed Ctrip screenshot endpoints outside review conte
     findCtripEndpointByUrl('https://ebooking.ctrip.com/api/collect2?metaSender=1.3.81')?.id,
     undefined,
   );
+});
+
+test('maps Ctrip comment aggregate response without review text fields', () => {
+  const url = 'https://ebooking.ctrip.com/comment/api/getCommentNumV2';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'comment_review_aggregate');
+
+  const payload = {
+    rcode: 0,
+    data: {
+      hotelName: '西安空港城天诚商务宾馆',
+      statDate: '2026-06-06',
+      channelName: '携程',
+      commentScore: 4.8,
+      totalCount: 577,
+      badReviewCount: 6,
+    },
+  };
+  const facts = extractCtripCatalogFacts(payload, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-05',
+    capturedAt: '2026-06-06T00:00:00.000Z',
+    url,
+  });
+
+  const factKeys = new Set(facts.map((fact) => fact.metric_key));
+  for (const key of ['comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count']) {
+    assert.equal(factKeys.has(key), true, key);
+  }
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'fallback hotel',
+    profileId: '6866634',
+    dataDate: '2026-06-05',
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].hotel_name, '西安空港城天诚商务宾馆');
+  assert.equal(rows[0].data_date, '2026-06-06');
+  assert.equal(rows[0].raw_data.dimension_values.comment_channel, '携程');
+  assert.equal(rows[0].comment_score, 4.8);
+  assert.equal(rows[0].data_value, 577);
+  assert.equal(rows[0].raw_data.metrics.bad_review_count, 6);
 });
 
 test('maps Ctrip user behavior IM board observed endpoints', () => {
