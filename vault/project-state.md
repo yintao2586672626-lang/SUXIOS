@@ -1,15 +1,18 @@
 # SUXIOS Project State Vault
 
-Updated: 2026-06-03 Asia/Shanghai
+Updated: 2026-06-06 Asia/Shanghai
 
 ## Current Verified State
 
 - Main repo root: `HOTEL/`.
 - Current branch observed this run: `codex/save-project-20260531`.
-- Worktree observed on 2026-06-05 Asia/Shanghai is dirty: `.agents/plugins/marketplace.json`, `.gitignore`, `AGENTS.md`, `app/controller/OnlineData.php`, `app/middleware/Auth.php`, `app/view/admin/compass/index.html`, `database/init_full.sql`, `package.json`, `public/index.html`, `scripts/lib/visible_page_evidence.mjs`, `scripts/verify_report_security_finance_regressions.php`, `scripts/verify_sql_schema_contract.php`, `tests/automation/ctrip_store_data_overview.test.mjs`, `tests/automation/visible_page_evidence.test.mjs`, `tests/fixtures/visible-page-evidence/ctrip-visible-evidence.html`, and `vault/project-state.md` have tracked changes; `.agents/skills/ecc-codex-adapter/`, and `scripts/verify_ecc_codex_adapter.mjs` are untracked.
+- Workspace closing on 2026-06-06 Asia/Shanghai is grouped into OTA capture, data health, OTA revenue smoke verification, and reusable context assets.
 - Main product chain: OTA data from Ctrip/Meituan -> revenue analysis -> AI decisions -> operations management -> investment decisions.
 - Current priority skill focus: Ctrip response -> field -> table closure.
 - ECC source is downloaded locally at `.agents/vendor/everything-claude-code/` from commit `bc8e12bb80c904a5a9864797ef1fd1212aa82f3d`; Codex must use it through `.agents/skills/ecc-codex-adapter/SKILL.md` unless the user explicitly asks for a direct plugin install.
+- Data Analytics reusable context is now registered for SUXIOS OTA revenue analytics and decision loop. Project-local semantic layer: `.agents/skills/suxi-ota-revenue-semantic-layer/`; report: `docs/data_analytics_suxios_improvement_report.md`; retro asset: `docs/project_retro_20260606.md`.
+- Data Analytics setup readback on 2026-06-06 recognized 1 semantic layer and completed core local/manual source setup using `HOTEL/docs`, `HOTEL/app`, and `HOTEL/tests`; live MySQL/warehouse, team communication, BI, and external company docs remain explicit future gaps.
+- Verification on 2026-06-06 passed: `npm.cmd run verify:context-assets`; `npm.cmd run verify:ota-revenue-metrics-smoke`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests/OtaStandardModuleTest.php tests/OperationExecutionLoopTest.php tests/RevenuePricingRecommendationServiceTest.php tests/TransferDecisionServiceTest.php tests/LlmClientTest.php tests/AiModelCallLogTest.php` with 52 tests and 468 assertions.
 
 ## Gate State
 

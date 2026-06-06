@@ -22072,7 +22072,11 @@
                     activeConfig?.profile,
                     activeConfig?.ota_hotel_id,
                     activeConfig?.ctrip_hotel_id,
-                    activeConfig?.ctripHotelId
+                    activeConfig?.ctripHotelId,
+                    activeConfig?.platform_hotel_id,
+                    activeConfig?.platformHotelId,
+                    activeConfig?.node_id,
+                    activeConfig?.nodeId
                 );
             };
 
@@ -29491,7 +29495,8 @@
                                 ctripConfig?.ota_hotel_id,
                                 ctripConfig?.ctrip_hotel_id,
                                 ctripConfig?.hotel_id,
-                                ctripConfig?.node_id
+                                ctripConfig?.node_id,
+                                ctripConfig?.nodeId
                             ),
                             node_id: firstDataConfigValue(ctripCookieApiConfig.node_id, ctripCookieApiConfig.nodeId),
                             hotel_name: firstDataConfigValue(ctripCookieApiConfig.hotel_name, ctripCookieApiConfig.hotelName, ctripConfig?.name),
@@ -31982,10 +31987,10 @@
                 showToast('已填入携程核心诊断接口');
             };
 
-            const resolveCtripCookieApiProfileId = (systemHotelId = '', activeConfig = null) => resolveCtripBrowserProfileId({
+            const resolveCtripCookieApiProfileId = (systemHotelId = '', activeConfig = null) => String(resolveCtripBrowserProfileId({
                 activeConfig,
                 includeCookieForm: true,
-            });
+            }) || '').trim();
 
             const isCtripPlaceholderHotelId = (value) => {
                 const text = String(value || '').trim();
@@ -31999,6 +32004,8 @@
                     activeConfig?.ctripHotelId,
                     activeConfig?.platform_hotel_id,
                     activeConfig?.platformHotelId,
+                    activeConfig?.node_id,
+                    activeConfig?.nodeId,
                 ];
                 if (allowForm) {
                     candidates.push(ctripBrowserCaptureForm.value.hotelId, ctripFlowOverviewForm.value.hotelId);

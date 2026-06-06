@@ -1,0 +1,396 @@
+{
+  "heuristics": [
+    {
+      "id": "N1",
+      "name": "Visibility of system status",
+      "checkpoints": [
+        {
+          "check": "Loading states are visible for operations >1 second",
+          "pass": true,
+          "severity": 0,
+          "notes": "登录、数据驾驶舱、AI策略、开业、扩张、转让等流程均有 loading 变量和按钮 disabled 表达。"
+        },
+        {
+          "check": "Progress indicators shown for multi-step processes",
+          "pass": true,
+          "severity": 0,
+          "notes": "首页闭环阶段、开业准备进度、运营执行阶段和执行证据链有阶段表达。"
+        },
+        {
+          "check": "Success/error feedback appears after user actions",
+          "pass": true,
+          "severity": 0,
+          "notes": "showToast 与页面内错误块覆盖大量提交、采集和保存动作。"
+        },
+        {
+          "check": "Current location is clear in navigation",
+          "pass": true,
+          "severity": 0,
+          "notes": "currentPage 驱动 active 菜单、pageTitle 和 data-current-page。"
+        }
+      ]
+    },
+    {
+      "id": "N2",
+      "name": "Match between system and real world",
+      "checkpoints": [
+        {
+          "check": "Labels use user language, not internal jargon",
+          "pass": false,
+          "severity": 1,
+          "notes": "策源/策析/策见/策案/策行、智略/智算/智策可形成品牌感，但新店长需要业务副标题辅助。"
+        },
+        {
+          "check": "Icons follow established conventions",
+          "pass": true,
+          "severity": 0,
+          "notes": "Font Awesome 覆盖导航、表单、状态与动作图标。"
+        },
+        {
+          "check": "Information appears in natural and logical order",
+          "pass": true,
+          "severity": 0,
+          "notes": "主导航已按 OTA数据、收益分析、AI决策、运营执行、投资判断组织。"
+        },
+        {
+          "check": "Metaphors match real-world expectations",
+          "pass": true,
+          "severity": 0,
+          "notes": "驾驶舱、工作台、检查清单、策略模拟、效果追踪与酒店运营场景一致。"
+        }
+      ]
+    },
+    {
+      "id": "N3",
+      "name": "User control and freedom",
+      "checkpoints": [
+        {
+          "check": "Undo is available for destructive actions",
+          "pass": false,
+          "severity": 2,
+          "notes": "归档、删除、批量删除等有确认，但缺少统一撤销 toast 或恢复入口。"
+        },
+        {
+          "check": "Cancel/back options are clearly visible",
+          "pass": true,
+          "severity": 0,
+          "notes": "弹窗、入口验证、表单和历史复用路径存在取消/返回或导航退出能力。"
+        },
+        {
+          "check": "Users can exit flows without losing progress",
+          "pass": false,
+          "severity": 1,
+          "notes": "部分长表单依赖本地状态或 localStorage；跨页面离开前缺少未保存确认。"
+        },
+        {
+          "check": "Confirmation dialogs for irreversible actions",
+          "pass": true,
+          "severity": 0,
+          "notes": "多处删除、归档、清空历史前有 confirm。"
+        }
+      ]
+    },
+    {
+      "id": "N4",
+      "name": "Consistency and standards",
+      "checkpoints": [
+        {
+          "check": "UI elements behave the same way throughout",
+          "pass": false,
+          "severity": 2,
+          "notes": "同类页面按钮、历史记录、空状态、表格和分页样式分散在大量内联 Tailwind 与后置 CSS 覆盖中。"
+        },
+        {
+          "check": "Terminology is consistent across all pages",
+          "pass": false,
+          "severity": 2,
+          "notes": "项目AI管理、运营收益闭环、全生命周期辅助、酒店AI工具箱等概念并存，二期模块边界需要统一解释。"
+        },
+        {
+          "check": "Visual patterns (spacing, colors) are consistent",
+          "pass": false,
+          "severity": 2,
+          "notes": "style.css 早期渐变/动画层与后续 --sx token 统一层并存，登录页也存在多轮覆盖。"
+        },
+        {
+          "check": "Platform conventions are followed",
+          "pass": true,
+          "severity": 0,
+          "notes": "管理台基本遵循左侧导航、顶部标题、内容区表单/表格/卡片的 SaaS 常规结构。"
+        }
+      ]
+    },
+    {
+      "id": "N5",
+      "name": "Error prevention",
+      "checkpoints": [
+        {
+          "check": "Form validation occurs before submission",
+          "pass": true,
+          "severity": 0,
+          "notes": "登录、酒店、用户、AI模拟、开业、扩张、转让等流程均有前端必填或范围校验。"
+        },
+        {
+          "check": "Constraints prevent invalid inputs",
+          "pass": true,
+          "severity": 0,
+          "notes": "大量 number/select/readonly/disabled 和 min/max 字段约束可见。"
+        },
+        {
+          "check": "Destructive actions require confirmation",
+          "pass": true,
+          "severity": 0,
+          "notes": "删除、归档、清空历史均有确认提示。"
+        },
+        {
+          "check": "Default values reduce user effort and errors",
+          "pass": true,
+          "severity": 0,
+          "notes": "系统配置默认值、城市/客群/装修选项、模拟参数与日期默认值降低录入成本。"
+        }
+      ]
+    },
+    {
+      "id": "N6",
+      "name": "Recognition rather than recall",
+      "checkpoints": [
+        {
+          "check": "Options are visible rather than requiring memorization",
+          "pass": true,
+          "severity": 0,
+          "notes": "菜单、Tab、筛选 chip、字段标签和历史记录入口普遍可见。"
+        },
+        {
+          "check": "Help and instructions are easily accessible",
+          "pass": false,
+          "severity": 2,
+          "notes": "许多复杂采集/诊断流程有提示文案，但没有统一帮助入口、任务向导或可搜索帮助。"
+        },
+        {
+          "check": "Recently used items are easily accessible",
+          "pass": true,
+          "severity": 0,
+          "notes": "首页快捷入口可保存排序，战略/模拟/扩张/转让/开业均有历史记录或复用旧输入。"
+        },
+        {
+          "check": "Search and filter options are visible",
+          "pass": true,
+          "severity": 0,
+          "notes": "门店、用户、知识中枢、日志、开业任务、OTA列表等均有筛选或搜索入口。"
+        }
+      ]
+    },
+    {
+      "id": "N7",
+      "name": "Flexibility and efficiency of use",
+      "checkpoints": [
+        {
+          "check": "Keyboard shortcuts available for frequent actions",
+          "pass": false,
+          "severity": 1,
+          "notes": "未看到面向高频运营动作的快捷键体系；仅部分输入支持 Enter。"
+        },
+        {
+          "check": "Customizable interface elements",
+          "pass": true,
+          "severity": 0,
+          "notes": "侧栏折叠、首页快捷入口布局编辑、语言切换和系统配置支持定制。"
+        },
+        {
+          "check": "Shortcuts or recent items for repeat tasks",
+          "pass": true,
+          "severity": 0,
+          "notes": "首页快捷入口和历史记录复用支持重复任务。"
+        },
+        {
+          "check": "Batch operations for power users",
+          "pass": true,
+          "severity": 0,
+          "notes": "开业检查项批量更新、Cookies 批量删除、知识单元批量删除等已存在。"
+        }
+      ]
+    },
+    {
+      "id": "N8",
+      "name": "Aesthetic and minimalist design",
+      "checkpoints": [
+        {
+          "check": "Each screen focuses on one primary action",
+          "pass": false,
+          "severity": 2,
+          "notes": "部分页面在同一视口聚合输入、结果、历史、AI解释和二级动作，主动作优先级不稳定。"
+        },
+        {
+          "check": "Visual hierarchy guides attention to important elements",
+          "pass": true,
+          "severity": 0,
+          "notes": "页面标题、hero、卡片、表格和状态 badge 形成基本层级。"
+        },
+        {
+          "check": "Whitespace used effectively",
+          "pass": false,
+          "severity": 1,
+          "notes": "经营/采集/知识页面密度高，移动端和小屏下局部信息节奏偏紧。"
+        },
+        {
+          "check": "No unnecessary decorative elements that distract",
+          "pass": false,
+          "severity": 1,
+          "notes": "登录页和若干 hero 仍保留径向光效、渐变装饰；管理台场景应更克制。"
+        }
+      ]
+    },
+    {
+      "id": "N9",
+      "name": "Help users recognize, diagnose, and recover from errors",
+      "checkpoints": [
+        {
+          "check": "Error messages are in plain language (no codes)",
+          "pass": true,
+          "severity": 0,
+          "notes": "多数错误消息为中文业务语言。"
+        },
+        {
+          "check": "Error messages indicate what went wrong specifically",
+          "pass": true,
+          "severity": 0,
+          "notes": "登录、采集、AI分析、保存、删除等场景通常暴露具体失败原因。"
+        },
+        {
+          "check": "Error messages suggest how to fix the issue",
+          "pass": true,
+          "severity": 0,
+          "notes": "采集、Cookie/Profile、字段缺口、数据质量等场景有补抓、重新登录或修复提示。"
+        },
+        {
+          "check": "Errors are visually prominent and close to the source",
+          "pass": false,
+          "severity": 1,
+          "notes": "登录错误靠近表单；但许多页面级错误依赖 toast 或区域顶部提示，字段级错误锚定不一致。"
+        }
+      ]
+    },
+    {
+      "id": "N10",
+      "name": "Help and documentation",
+      "checkpoints": [
+        {
+          "check": "Help is easily accessible from any screen",
+          "pass": false,
+          "severity": 2,
+          "notes": "未看到全局帮助/操作手册/问题入口。"
+        },
+        {
+          "check": "Contextual help is provided where needed",
+          "pass": true,
+          "severity": 0,
+          "notes": "复杂模块普遍有说明、数据缺口、证据来源或提示块。"
+        },
+        {
+          "check": "Onboarding guides new users through key features",
+          "pass": false,
+          "severity": 2,
+          "notes": "登录后直接进入复杂驾驶舱，对新用户缺少按角色的首轮任务引导。"
+        },
+        {
+          "check": "Documentation is searchable and task-focused",
+          "pass": false,
+          "severity": 1,
+          "notes": "项目文档丰富，但应用内未暴露可搜索的任务帮助。"
+        }
+      ]
+    }
+  ],
+  "accessibility": [
+    {
+      "id": "A1",
+      "name": "Color contrast",
+      "checkpoints": [
+        {
+          "check": "Text meets 4.5:1 contrast ratio (WCAG AA)",
+          "pass": true,
+          "severity": 0,
+          "notes": "--sx-title/#102033、--sx-text/#334155 与白底/浅底具备较高对比。"
+        },
+        {
+          "check": "Large text meets 3:1 contrast ratio",
+          "pass": true,
+          "severity": 0,
+          "notes": "登录、hero、卡片标题和导航主要文本对比度充足。"
+        },
+        {
+          "check": "Color is not the only way to convey information",
+          "pass": true,
+          "severity": 0,
+          "notes": "状态 badge 通常同时包含文本、颜色和图标。"
+        },
+        {
+          "check": "Focus indicators have sufficient contrast",
+          "pass": true,
+          "severity": 0,
+          "notes": "输入、select、checkbox、toggle 等存在 focus ring 或 focus-visible 样式。"
+        }
+      ]
+    },
+    {
+      "id": "A2",
+      "name": "Keyboard navigation",
+      "checkpoints": [
+        {
+          "check": "All interactive elements reachable via Tab key",
+          "pass": false,
+          "severity": 3,
+          "notes": "主导航大量使用无 href 的 a @click，默认不可 Tab 聚焦；这是键盘可用性阻塞项。"
+        },
+        {
+          "check": "Focus order follows logical reading order",
+          "pass": false,
+          "severity": 2,
+          "notes": "侧栏多级展开、sticky header、动态页面控件混合，缺少显式键盘遍历验证。"
+        },
+        {
+          "check": "Focus ring is visible on all interactive elements",
+          "pass": false,
+          "severity": 1,
+          "notes": "表单 focus 样式较完整，但自定义 a/按钮/图标按钮的 focus-visible 覆盖不均。"
+        },
+        {
+          "check": "No keyboard traps (user can always navigate away)",
+          "pass": true,
+          "severity": 0,
+          "notes": "未发现明确键盘陷阱；但仍需 Playwright 键盘遍历验证。"
+        }
+      ]
+    },
+    {
+      "id": "A3",
+      "name": "Screen reader support",
+      "checkpoints": [
+        {
+          "check": "All images have meaningful alt text",
+          "pass": true,
+          "severity": 0,
+          "notes": "登录 logo 具备 alt；大部分图标为装饰性 Font Awesome。"
+        },
+        {
+          "check": "Form inputs have associated labels",
+          "pass": true,
+          "severity": 0,
+          "notes": "核心表单大量使用可见 label；动态补 data-testid 也能提取 label。"
+        },
+        {
+          "check": "ARIA attributes used correctly for dynamic content",
+          "pass": false,
+          "severity": 2,
+          "notes": "局部弹窗有 role/aria-modal，但 toast、动态状态、展开菜单缺少统一 aria-live/aria-expanded。"
+        },
+        {
+          "check": "Headings follow logical hierarchy (h1 > h2 > h3)",
+          "pass": false,
+          "severity": 2,
+          "notes": "单文件 SPA 内多页面模板共存，多个 h1/h2/h3 同时在 DOM 中随 v-if 切换；需按当前页面验证并统一页面标题层级。"
+        }
+      ]
+    }
+  ]
+}
