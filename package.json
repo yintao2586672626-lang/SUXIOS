@@ -10,6 +10,7 @@
     "verify:p0-guards": "node scripts/verify_worktree_guard.mjs && node scripts/verify_public_entry_guard.mjs && node scripts/verify_production_entry_hygiene.mjs && node scripts/verify_frontend_display_boundary.mjs",
     "verify:public-entry": "node scripts/verify_public_entry_guard.mjs",
     "verify:context-assets": "node hooks/verify-context-assets.mjs",
+    "verify:ota-revenue-metrics-smoke": "C:\\xampp\\php\\php.exe scripts\\verify_ota_revenue_metrics_smoke.php",
     "verify:taste-coverage": "node scripts/verify_taste_page_coverage.mjs",
     "verify:taste-visual": "node scripts/verify_taste_visual_smoke.mjs",
     "hook:pre-commit": "powershell -NoProfile -ExecutionPolicy Bypass -File hooks/pre-commit.ps1",
