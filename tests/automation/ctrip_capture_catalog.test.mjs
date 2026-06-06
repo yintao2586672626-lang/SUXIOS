@@ -27,16 +27,7 @@ test('normalizes Ctrip capture presets for core and wide collection', () => {
 
   assert.deepEqual(normalizeCtripCaptureSections('default'), [
     'business_overview',
-    'business_weekly_overview',
     'traffic_report',
-    'comment_review',
-    'competitor_overview',
-    'loss_analysis',
-    'competitor_rank',
-    'quality_psi',
-    'ads_pyramid',
-    'market_calendar',
-    'user_profile',
   ]);
 
   const wide = normalizeCtripCaptureSections('wide');

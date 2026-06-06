@@ -418,6 +418,49 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('*******1111', $payload['data']['orderList'][0]['phone_masked'] ?? null);
     }
 
+    public function testLargeRawPayloadStorageKeepsBoundedTraceableSummary(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildRawRecordPayload');
+        $method->setAccessible(true);
+
+        $payload = [
+            'profile_id' => '6866634',
+            'hotel_id' => '6866634',
+            'hotel_name' => '西安天诚',
+            'source' => 'ctrip_browser_profile',
+            'captured_at' => '2026-06-06 15:15:34',
+            'output' => 'runtime/platform_data_sources/ctrip_browser_source_6866634_20260606151116.json',
+            'rows' => array_fill(0, 1200, [
+                'data_date' => '2026-06-06',
+                'data_type' => 'traffic',
+                'dimension' => 'search',
+                'blob' => str_repeat('x', 800),
+            ]),
+            'responses' => array_fill(0, 200, ['url' => 'https://ebooking.ctrip.com/restapi/example']),
+            'sync_summary' => [
+                'row_count' => 1200,
+                'standard_row_count' => 1200,
+            ],
+        ];
+
+        $result = $method->invoke($service, $payload);
+
+        self::assertIsArray($result);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)$result['payload_hash']);
+        self::assertLessThan(262144, strlen((string)$result['raw_payload']));
+
+        $decoded = json_decode((string)$result['raw_payload'], true);
+        self::assertIsArray($decoded);
+        self::assertTrue($decoded['_raw_payload_truncated'] ?? false);
+        self::assertSame('raw_payload_exceeds_db_packet_safe_limit', $decoded['reason'] ?? null);
+        self::assertSame(1200, $decoded['payload_counts']['rows'] ?? null);
+        self::assertSame(200, $decoded['payload_counts']['responses'] ?? null);
+        self::assertSame($payload['output'], $decoded['trace']['output'] ?? null);
+        self::assertSame($result['payload_hash'], $decoded['payload_hash'] ?? null);
+        self::assertSame(1200, $decoded['meta']['sync_summary']['row_count'] ?? null);
+    }
+
     public function testCsvImportFileParsesRowsWithHeaders(): void
     {
         $service = new PlatformDataSyncService();
@@ -556,6 +599,53 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('waiting_config', $result['status']);
             self::assertSame('Ctrip login expired.', $result['message']);
             self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterDoesNotInjectStoredCookiesWhenProfileExists(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $capturedArgs = [];
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs): array {
+                $capturedArgs = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                        break;
+                    }
+                }
+                if ($outputPath !== '') {
+                    file_put_contents($outputPath, json_encode([
+                        'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                        'capture_gate' => ['status' => 'pass'],
+                        'standard_rows' => [
+                            [
+                                'hotel_id' => '24588',
+                                'hotel_name' => 'Ctrip Demo Hotel',
+                                'data_date' => '2026-05-31',
+                                'data_type' => 'business',
+                                'amount' => '1888',
+                                'source_trace_id' => 'profile-cookie-skip-row',
+                            ],
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                }
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+            $source = $this->ctripBrowserProfileSource();
+            $source['secret'] = ['cookies' => 'old_session=expired'];
+            $result = $adapter->fetch($source, ['interactive_browser' => false]);
+
+            self::assertSame('success', $result['status']);
+            self::assertSame([], array_values(array_filter(
+                $capturedArgs,
+                static fn($arg): bool => str_starts_with((string)$arg, '--cookies-file=')
+            )));
         } finally {
             $this->removeDirectory($root);
         }

@@ -904,16 +904,7 @@ const SECTION_ALIAS_MAP = Object.fromEntries(
 
 export const DEFAULT_CTRIP_CAPTURE_SECTIONS = [
   'business_overview',
-  'business_weekly_overview',
   'traffic_report',
-  'comment_review',
-  'competitor_overview',
-  'loss_analysis',
-  'competitor_rank',
-  'quality_psi',
-  'ads_pyramid',
-  'market_calendar',
-  'user_profile',
 ];
 export const CTRIP_CAPTURE_SECTION_PRESETS = {
   default: [...DEFAULT_CTRIP_CAPTURE_SECTIONS],

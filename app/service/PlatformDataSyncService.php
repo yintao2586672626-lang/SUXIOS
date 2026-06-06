@@ -13,6 +13,8 @@ use think\facade\Db;
 
 final class PlatformDataSyncService
 {
+    private const RAW_RECORD_PAYLOAD_LIMIT_BYTES = 262144;
+
     /** @var array<int, DataSourceAdapter> */
     private array $adapters;
 
@@ -534,7 +536,7 @@ final class PlatformDataSyncService
     private function storeRawRecord(array $source, int $taskId, array $payload, ?int $httpStatus): void
     {
         $payload = $this->sanitizePayloadForStorage($payload, (string)($source['data_type'] ?? ''));
-        $raw = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $rawRecord = $this->buildRawRecordPayload($payload);
         $data = [
             'data_source_id' => (int)$source['id'],
             'sync_task_id' => $taskId,
@@ -542,8 +544,8 @@ final class PlatformDataSyncService
             'platform' => (string)$source['platform'],
             'data_type' => (string)$source['data_type'],
             'ingestion_method' => (string)$source['ingestion_method'],
-            'payload_hash' => hash('sha256', (string)$raw),
-            'raw_payload' => (string)$raw,
+            'payload_hash' => $rawRecord['payload_hash'],
+            'raw_payload' => $rawRecord['raw_payload'],
             'http_status' => $httpStatus,
             'received_at' => date('Y-m-d H:i:s'),
             'create_time' => date('Y-m-d H:i:s'),
@@ -553,6 +555,121 @@ final class PlatformDataSyncService
         }
 
         Db::name('platform_data_raw_records')->insert($data);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{payload_hash: string, raw_payload: string}
+     */
+    private function buildRawRecordPayload(array $payload): array
+    {
+        $raw = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($raw === false) {
+            $raw = json_encode([
+                '_raw_payload_encoding_failed' => true,
+                'json_error' => json_last_error_msg(),
+                'payload_keys' => array_slice(array_map('strval', array_keys($payload)), 0, 80),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
+        }
+
+        $payloadHash = hash('sha256', $raw);
+        if (strlen($raw) <= self::RAW_RECORD_PAYLOAD_LIMIT_BYTES) {
+            return ['payload_hash' => $payloadHash, 'raw_payload' => $raw];
+        }
+
+        $summary = $this->summarizeLargeRawPayload($payload, strlen($raw), $payloadHash);
+        $boundedRaw = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($boundedRaw === false || strlen($boundedRaw) > self::RAW_RECORD_PAYLOAD_LIMIT_BYTES) {
+            $boundedRaw = json_encode([
+                '_raw_payload_truncated' => true,
+                'reason' => 'raw_payload_exceeds_db_packet_safe_limit',
+                'original_payload_bytes' => strlen($raw),
+                'stored_payload_limit_bytes' => self::RAW_RECORD_PAYLOAD_LIMIT_BYTES,
+                'payload_hash' => $payloadHash,
+                'payload_keys' => array_slice(array_map('strval', array_keys($payload)), 0, 80),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
+        }
+
+        return ['payload_hash' => $payloadHash, 'raw_payload' => $boundedRaw];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function summarizeLargeRawPayload(array $payload, int $originalBytes, string $payloadHash): array
+    {
+        $trace = [];
+        foreach (['profile_id', 'hotel_id', 'hotel_name', 'system_hotel_id', 'source', 'mode', 'captured_at', 'default_data_date', 'data_period', 'snapshot_time', 'snapshot_bucket', 'output'] as $key) {
+            if (isset($payload[$key]) && is_scalar($payload[$key]) && trim((string)$payload[$key]) !== '') {
+                $trace[$key] = mb_substr((string)$payload[$key], 0, 500);
+            }
+        }
+        if (isset($payload['outputs']) && is_array($payload['outputs'])) {
+            $trace['outputs'] = array_slice(array_values(array_filter(array_map(
+                static fn($item): string => is_scalar($item) ? (string)$item : '',
+                $payload['outputs']
+            ), static fn(string $item): bool => $item !== '')), 0, 20);
+        }
+
+        $meta = [];
+        foreach (['data_source_capture', 'sync_summary', 'auth_status', 'capture_gate', 'capture_gate_warning', 'capture_execution', 'cookie_injection'] as $key) {
+            if (array_key_exists($key, $payload)) {
+                $meta[$key] = $this->compactRawPayloadMetaValue($payload[$key]);
+            }
+        }
+
+        return [
+            '_raw_payload_truncated' => true,
+            'reason' => 'raw_payload_exceeds_db_packet_safe_limit',
+            'original_payload_bytes' => $originalBytes,
+            'stored_payload_limit_bytes' => self::RAW_RECORD_PAYLOAD_LIMIT_BYTES,
+            'payload_hash' => $payloadHash,
+            'payload_keys' => array_slice(array_map('strval', array_keys($payload)), 0, 80),
+            'payload_counts' => $this->rawPayloadCollectionCounts($payload),
+            'trace' => $trace,
+            'meta' => $meta,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, int>
+     */
+    private function rawPayloadCollectionCounts(array $payload): array
+    {
+        $counts = [];
+        foreach ($payload as $key => $value) {
+            if (is_array($value)) {
+                $counts[(string)$key] = count($value);
+            }
+        }
+        return $counts;
+    }
+
+    private function compactRawPayloadMetaValue(mixed $value, int $depth = 0): mixed
+    {
+        if (is_scalar($value) || $value === null) {
+            return is_string($value) && mb_strlen($value) > 500 ? mb_substr($value, 0, 500) : $value;
+        }
+        if (!is_array($value)) {
+            return null;
+        }
+        if ($depth >= 3) {
+            return ['_array_count' => count($value)];
+        }
+
+        $compact = [];
+        $index = 0;
+        foreach ($value as $key => $item) {
+            if ($index >= 30) {
+                $compact['_truncated_item_count'] = count($value) - $index;
+                break;
+            }
+            $compact[$key] = $this->compactRawPayloadMetaValue($item, $depth + 1);
+            $index++;
+        }
+        return $compact;
     }
 
     /**

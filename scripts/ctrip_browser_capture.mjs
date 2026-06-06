@@ -72,6 +72,7 @@ const parallelSectionsEnabled = !loginOnly
   && !booleanArg(args.sequentialSections)
   && !booleanArg(args.sequential_sections);
 const parallelFallbackEnabled = !booleanArg(args.disableParallelFallback);
+const includeResponseDataInOutput = booleanArg(args.includeResponseData || args.include_response_data || args.rawResponses || args.raw_responses);
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -254,7 +255,8 @@ async function finalizePayload() {
   payload.capture_gate = evaluateCtripCaptureAuditGate(audit, captureGateOptions());
   payload.capture_gap_report = audit.capture_gap_report;
   payload.capture_audit = compactCaptureAudit(audit);
-  await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
+  const outputPayload = includeResponseDataInOutput ? payload : compactCaptureOutputPayload(payload);
+  await writeFile(outputPath, JSON.stringify(outputPayload, null, 2), 'utf8');
 }
 
 async function finalizeLoginOnlyPayload() {
@@ -1556,6 +1558,58 @@ function summarize(data) {
     capture_gate: data.capture_gate?.status || 'unknown',
     capture_gap_status: data.capture_gap_report?.status || 'unknown',
     by_section: bySection,
+  };
+}
+
+function compactCaptureOutputPayload(data) {
+  return {
+    ...data,
+    responses: (Array.isArray(data.responses) ? data.responses : []).map(compactCapturedResponse),
+    response_data_storage: {
+      mode: 'summary',
+      reason: 'daily_profile_capture_keeps_business_rows_and_response_metadata_without_repeating_full_response_bodies',
+      full_response_data_flag: '--include-response-data=true',
+    },
+  };
+}
+
+function compactCapturedResponse(response) {
+  if (!response || typeof response !== 'object') {
+    return response;
+  }
+  const { data, ...summary } = response;
+  if (data !== undefined) {
+    summary.data_summary = summarizeCapturedResponseData(data);
+  }
+  return summary;
+}
+
+function summarizeCapturedResponseData(value) {
+  if (Array.isArray(value)) {
+    return {
+      type: 'array',
+      count: value.length,
+      first_item_keys: value[0] && typeof value[0] === 'object' && !Array.isArray(value[0])
+        ? Object.keys(value[0]).slice(0, 40)
+        : [],
+    };
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value);
+    const collectionCounts = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (Array.isArray(item)) {
+        collectionCounts[key] = item.length;
+      }
+    }
+    return {
+      type: 'object',
+      keys: keys.slice(0, 60),
+      collection_counts: collectionCounts,
+    };
+  }
+  return {
+    type: value === null ? 'null' : typeof value,
   };
 }
 

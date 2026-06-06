@@ -1200,9 +1200,9 @@ final class OnlineDataTest extends TestCase
             'section_count' => 18,
             'endpoint_count' => 69,
             'field_count' => 110,
-            'default_sections' => ['business_overview', 'business_weekly_overview', 'traffic_report', 'comment_review', 'competitor_overview', 'loss_analysis', 'competitor_rank', 'quality_psi', 'ads_pyramid', 'market_calendar', 'user_profile'],
+            'default_sections' => ['business_overview', 'traffic_report'],
             'presets' => [
-                'default' => ['sections' => ['business_overview', 'business_weekly_overview', 'traffic_report', 'comment_review', 'competitor_overview', 'loss_analysis', 'competitor_rank', 'quality_psi', 'ads_pyramid', 'market_calendar', 'user_profile']],
+                'default' => ['sections' => ['business_overview', 'traffic_report']],
                 'wide' => ['sections' => ['homepage', 'biztravel_bpi']],
             ],
             'interaction_plan_section_count' => 16,
@@ -1258,7 +1258,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(18, $health['section_count']);
         self::assertSame(69, $health['endpoint_count']);
         self::assertSame(110, $health['field_count']);
-        self::assertSame(['business_overview', 'business_weekly_overview', 'traffic_report', 'comment_review', 'competitor_overview', 'loss_analysis', 'competitor_rank', 'quality_psi', 'ads_pyramid', 'market_calendar', 'user_profile'], $health['default_sections']);
+        self::assertSame(['business_overview', 'traffic_report'], $health['default_sections']);
         self::assertSame(['homepage', 'biztravel_bpi'], $health['wide_sections']);
         self::assertSame(16, $health['interaction_plan_section_count']);
         self::assertSame(64, $health['interaction_plan_step_count']);

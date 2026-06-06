@@ -6825,7 +6825,7 @@ class OnlineData extends Base
             static fn(string $item): bool => $item !== ''
         )));
         if (empty($tokens) || (count($tokens) === 1 && isset($presetTokens[$tokens[0]]))) {
-            return $allowedSections;
+            return $this->filterAllowedCtripProfilePresetSections($tokens[0] ?? 'default', $allowedSections);
         }
 
         $aliases = [
@@ -6858,6 +6858,25 @@ class OnlineData extends Base
         }
 
         return $selected;
+    }
+
+    /**
+     * @param array<int, string> $allowedSections
+     * @return array<int, string>
+     */
+    private function filterAllowedCtripProfilePresetSections(string $preset, array $allowedSections): array
+    {
+        $presetSections = match ($preset) {
+            'all', 'wide' => $allowedSections,
+            'core' => ['homepage', 'business_overview', 'business_weekly_overview', 'sales_report', 'traffic_report'],
+            default => ['business_overview', 'traffic_report'],
+        };
+        $allowedMap = array_fill_keys($allowedSections, true);
+        $selected = array_values(array_filter(
+            $presetSections,
+            static fn(string $section): bool => isset($allowedMap[$section])
+        ));
+        return $selected !== [] ? $selected : $allowedSections;
     }
 
     private function trimMeituanCaptureLog(string $value): string

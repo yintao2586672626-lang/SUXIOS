@@ -46,7 +46,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
         $interactive = $this->truthy($options['interactive_browser'] ?? $options['interactiveBrowser'] ?? false);
         $profileDir = $this->projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $this->safeName($profileId);
-        if (!is_dir($profileDir) && !$interactive) {
+        $profilePrepared = is_dir($profileDir);
+        if (!$profilePrepared && !$interactive) {
             return [
                 'status' => 'waiting_config',
                 'message' => 'Ctrip browser Profile is not prepared: storage/ctrip_profile_' . $this->safeName($profileId),
@@ -110,7 +111,9 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
         $sectionConcurrency = $this->resolveCtripSectionConcurrency($options, $config);
 
-        $cookieFile = $this->createCookieFile((string)($secret['cookies'] ?? $secret['cookie'] ?? ''));
+        $cookieFile = $this->shouldInjectStoredCookies($options, $profilePrepared)
+            ? $this->createCookieFile((string)($secret['cookies'] ?? $secret['cookie'] ?? ''))
+            : '';
         try {
             if ($this->shouldCaptureSectionsSequentially($options, $sectionList)) {
                 return $this->runSequentialCaptureSections(
@@ -818,6 +821,19 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         return file_put_contents($path, $cookies) === false ? '' : $path;
     }
 
+    private function shouldInjectStoredCookies(array $options, bool $profilePrepared): bool
+    {
+        if (!$profilePrepared) {
+            return true;
+        }
+        return $this->truthy(
+            $options['seed_profile_cookies']
+            ?? $options['seedProfileCookies']
+            ?? $options['force_cookie_injection']
+            ?? false
+        );
+    }
+
     private function acquireLock(string $platform, string $profileId)
     {
         $dir = $this->projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
@@ -895,7 +911,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ))));
             $presetTokens = ['default' => true, 'core' => true, 'wide' => true, 'all' => true];
             if ($tokens === [] || (count($tokens) === 1 && isset($presetTokens[$tokens[0]]))) {
-                return implode(',', $allowedSections);
+                $preset = $tokens[0] ?? 'default';
+                return implode(',', $this->filterAllowedPresetSections($preset, $allowedSections));
             }
 
             $aliases = [
@@ -931,6 +948,25 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         return $this->sanitizeSections($this->firstString($options, $config, ['capture_sections', 'captureSections', 'sections', 'profile_sections'], 'business_overview'));
+    }
+
+    /**
+     * @param array<int, string> $allowedSections
+     * @return array<int, string>
+     */
+    private function filterAllowedPresetSections(string $preset, array $allowedSections): array
+    {
+        $presetSections = match ($preset) {
+            'all', 'wide' => $allowedSections,
+            'core' => ['homepage', 'business_overview', 'business_weekly_overview', 'sales_report', 'traffic_report'],
+            default => ['business_overview', 'traffic_report'],
+        };
+        $allowedMap = array_fill_keys($allowedSections, true);
+        $selected = array_values(array_filter(
+            $presetSections,
+            static fn(string $section): bool => isset($allowedMap[$section])
+        ));
+        return $selected !== [] ? $selected : $allowedSections;
     }
 
     private function buildProfileFieldConfigPayload(array $options = []): array

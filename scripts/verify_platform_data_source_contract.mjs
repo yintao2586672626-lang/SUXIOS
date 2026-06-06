@@ -308,6 +308,8 @@ for (const [needle, label] of [
   ['parallel_failed_sections', 'Ctrip browser capture records parallel section gaps'],
   ['fallback_sections', 'Ctrip browser capture records sequential fallback sections'],
   ['normalizeSectionConcurrency', 'Ctrip browser capture clamps section concurrency'],
+  ['compactCaptureOutputPayload', 'Ctrip browser capture compacts response bodies in daily output'],
+  ['includeResponseDataInOutput', 'Ctrip browser capture requires an explicit flag for full response bodies'],
 ]) {
   check('scripts/ctrip_browser_capture.mjs', label, (source) => source.includes(needle), needle);
 }
