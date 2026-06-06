@@ -11,6 +11,9 @@ use think\exception\ValidateException;
 
 class OperationLogController extends Base
 {
+    private const MAX_PAGE_SIZE = 100;
+    private const HIGH_RISK_SUMMARY_LIMIT = 20;
+
     private const DATA_ACQUISITION_ACTIONS = [
         'view_data',
         'auto_fetch',
@@ -52,7 +55,7 @@ class OperationLogController extends Base
     public function index(Request $request)
     {
         $page = (int)$request->param('page', 1);
-        $pageSize = (int)$request->param('page_size', 20);
+        $pageSize = min(self::MAX_PAGE_SIZE, max(1, (int)$request->param('page_size', 20)));
         $module = $request->param('module', '');
         $action = $request->param('action', '');
         $userId = $request->param('user_id', '');
@@ -99,13 +102,13 @@ class OperationLogController extends Base
 
         // 获取模块列表(去重)
         $modules = OperationLog::field('module')->group('module')->order('module', 'asc')->column('module');
-        
+
         // 获取操作列表(去重)
         $actions = OperationLog::field('action')->group('action')->order('action', 'asc')->column('action');
 
         // 获取用户列表
         $users = User::field('id, username, realname')->select()->toArray();
-        
+
         // 获取酒店列表
         $hotels = Hotel::field('id, name')->select()->toArray();
 
@@ -117,6 +120,46 @@ class OperationLogController extends Base
             'users' => $users,
             'hotels' => $hotels,
             'summary' => $summary,
+        ]);
+    }
+
+    public function highRiskSummary(Request $request)
+    {
+        $days = min(30, max(1, (int)$request->param('days', 7)));
+        $limit = min(self::HIGH_RISK_SUMMARY_LIMIT, max(1, (int)$request->param('limit', self::HIGH_RISK_SUMMARY_LIMIT)));
+        $endDate = date('Y-m-d');
+        $startDate = date('Y-m-d', strtotime('-' . ($days - 1) . ' days'));
+
+        $rows = OperationLog::with(['user', 'hotel'])
+            ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->order('create_time', 'desc')
+            ->limit(100)
+            ->select()
+            ->toArray();
+
+        $list = [];
+        foreach ($rows as $row) {
+            $risk = $this->resolveHighRiskAction($row);
+            if ($risk === null) {
+                continue;
+            }
+            $row['audit_type'] = $this->resolveAuditType($row);
+            $row['risk_priority'] = $risk['priority'];
+            $row['risk_title'] = $risk['title'];
+            $list[] = $row;
+            if (count($list) >= $limit) {
+                break;
+            }
+        }
+
+        return $this->success([
+            'list' => $list,
+            'period' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'days' => $days,
+            ],
+            'limit' => $limit,
         ]);
     }
 
@@ -275,6 +318,35 @@ class OperationLogController extends Base
                     ->whereOr('action', 'like', '%feasibility%');
             });
         }
+    }
+
+    private function resolveHighRiskAction(array $log): ?array
+    {
+        $action = strtolower((string)($log['action'] ?? ''));
+        $module = strtolower((string)($log['module'] ?? ''));
+        $errorInfo = trim((string)($log['error_info'] ?? ''));
+        $isDelete = str_contains($action, 'delete') || str_contains($action, 'clear') || str_contains($action, 'archive');
+        $isExecution = str_contains($action, 'auto_fetch')
+            || str_contains($action, 'sync')
+            || str_contains($action, 'execute')
+            || str_contains($action, 'approve')
+            || str_contains($action, 'apply');
+        $isConfig = str_contains($action, 'config')
+            || str_contains($action, 'save_cookies')
+            || str_contains($action, 'save_data_source');
+        $isAgent = $module === 'agent' || str_contains($action, 'analysis') || str_contains($action, 'analyze');
+
+        if ($errorInfo !== '') {
+            return ['priority' => 'high', 'title' => '后台动作出现异常'];
+        }
+        if ($isDelete) {
+            return ['priority' => 'high', 'title' => '后台删除/清理动作'];
+        }
+        if ($isExecution || $isConfig || $isAgent) {
+            return ['priority' => 'medium', 'title' => $isConfig ? '配置变更动作' : ($isAgent ? 'AI/分析动作' : '自动执行动作')];
+        }
+
+        return null;
     }
 
     private function resolveAuditType(array $log): string

@@ -1963,6 +1963,25 @@
                                 <div class="font-semibold text-gray-800">{{ aiRound(transferSourceSnapshot.current?.occupancy_rate, 1) }}%</div>
                             </div>
                         </div>
+                        <div class="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-3">
+                                <div>
+                                    <h4 class="font-semibold text-gray-900">投资决策信息层</h4>
+                                    <div class="text-xs text-gray-500 mt-1">拆分事实、假设、测算和风险，避免把 OTA 渠道快照直接当作全酒店投资结论</div>
+                                </div>
+                                <span class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 whitespace-nowrap">决策前复核</span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                <div v-for="row in transferDecisionLayerRows" :key="row.key" class="rounded-lg border border-gray-200 bg-white p-3 min-w-0">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="text-sm font-semibold text-gray-900">{{ row.label }}</div>
+                                        <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.status }}</span>
+                                    </div>
+                                    <div class="mt-2 text-xs text-gray-600 leading-relaxed break-words">{{ row.detail }}</div>
+                                    <div class="mt-2 text-xs text-gray-400 leading-relaxed break-words">{{ row.evidence }}</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- 智算·资产定价 -->
@@ -3274,6 +3293,15 @@
                                     赚钱状态：{{ operationExecutionMoneyStatusText }}
                                 </div>
                             </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+                                <div v-for="row in operationExecutionTraceRows" :key="row.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3 min-w-0">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="text-sm font-semibold text-gray-900">{{ row.label }}</div>
+                                        <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.value }}</span>
+                                    </div>
+                                    <div class="mt-2 text-xs text-gray-500 leading-relaxed break-words">{{ row.detail }}</div>
+                                </div>
+                            </div>
                             <div class="overflow-x-auto">
                                 <table class="min-w-full text-sm">
                                     <thead class="bg-gray-50 text-gray-500">
@@ -4386,6 +4414,54 @@
                                     <button v-for="entry in hiddenHomeQuickEntries" :key="entry.key" @click="toggleHomeQuickEntry(entry.key)" class="px-2.5 py-1 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-blue-50 hover:text-blue-700">
                                         <i class="fas fa-plus mr-1"></i>{{ entry.title }}
                                     </button>
+                                </div>
+                                <div class="mt-5 border-t border-gray-200 pt-5" data-testid="home-closed-loop-workbench">
+                                    <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-3 mb-3">
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-900">经营闭环工作台</div>
+                                            <div class="text-xs text-gray-500 mt-0.5">串联数据可信度、收益分析、AI决策、运营执行和投资判断；缺口直接展示，不做兜底推断</div>
+                                        </div>
+                                        <div class="text-xs text-gray-500 bg-white border border-gray-200 rounded-lg px-3 py-2">
+                                            当前链路：{{ compassDataReadiness.summaryText }} · {{ homeMarketForecastStatus }}
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+                                        <div v-for="stage in homeClosedLoopStages" :key="stage.key" class="rounded-lg border border-gray-200 bg-white p-4 min-h-[184px] flex flex-col">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <span class="w-9 h-9 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center flex-shrink-0">
+                                                    <i :class="[stage.icon, 'text-sm']"></i>
+                                                </span>
+                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', stage.statusClass]">{{ stage.statusText }}</span>
+                                            </div>
+                                            <div class="mt-3 text-[11px] font-semibold text-gray-400">{{ stage.index }}</div>
+                                            <div class="mt-1 font-semibold text-gray-900 leading-5">{{ stage.title }}</div>
+                                            <p class="mt-2 text-xs text-gray-500 leading-relaxed">{{ stage.desc }}</p>
+                                            <div class="mt-auto pt-3">
+                                                <div class="text-[11px] text-gray-400 leading-relaxed min-h-[32px]">{{ stage.evidence }}</div>
+                                                <button type="button" @click="openHomeQuickEntry(stage.entry)" class="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-800">
+                                                    {{ stage.actionLabel }}<i class="fas fa-arrow-right text-[10px]"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+                                        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 mb-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-gray-900">AI决策追溯</div>
+                                                <div class="text-xs text-gray-500 mt-0.5">把输入证据、生成动作和人工确认分开，避免把模型输出当作已执行结果</div>
+                                            </div>
+                                            <span class="text-xs text-gray-400">复用现有 AI 与执行记录能力</span>
+                                        </div>
+                                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-2">
+                                            <button type="button" v-for="row in homeAiTraceRows" :key="row.label" @click="openHomeQuickEntry(row.entry)" class="rounded-lg border border-gray-100 bg-slate-50 px-3 py-3 text-left hover:bg-white hover:border-blue-200 transition">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-xs font-semibold text-gray-500">{{ row.label }}</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-[11px]', row.className]">{{ row.value }}</span>
+                                                </div>
+                                                <div class="mt-2 text-xs text-gray-500 leading-relaxed">{{ row.detail }}</div>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -11214,6 +11290,149 @@
                         </div>
                     </div>
 
+                    <!-- AI治理页面 -->
+                    <div v-if="currentPage === 'ai-governance'" class="space-y-6">
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold text-gray-900">AI决策追溯</h2>
+                                    <p class="text-sm text-gray-500 mt-1">查看模型调用、Prompt版本、评估集和人工确认状态；模型输出不等同于已执行经营动作</p>
+                                </div>
+                                <button @click="loadAiGovernance" :disabled="aiGovernanceLoading" class="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-60">
+                                    <i :class="aiGovernanceLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ aiGovernanceLoading ? '刷新中' : '刷新治理数据' }}
+                                </button>
+                            </div>
+                            <div v-if="aiGovernanceError" class="mt-4 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">{{ aiGovernanceError }}</div>
+                        </div>
+
+                        <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+                            <div v-for="card in aiGovernanceSummaryCards" :key="card.key" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                                <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                <div class="mt-2 text-xl font-bold text-gray-900">{{ card.value }}</div>
+                                <div class="mt-1 text-xs text-gray-400 leading-relaxed">{{ card.sub }}</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                            <div class="p-4 border-b border-gray-100">
+                                <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+                                    <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 w-fit">
+                                        <button type="button" v-for="tab in aiGovernanceTabs" :key="tab.key" @click="aiGovernanceTab = tab.key" :class="aiGovernanceTab === tab.key ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap">
+                                            {{ tab.label }}
+                                        </button>
+                                    </div>
+                                    <div v-if="aiGovernanceTab === 'logs'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 w-full xl:w-auto">
+                                        <input v-model="aiGovernanceFilter.module" placeholder="模块" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                        <input v-model="aiGovernanceFilter.scenario" placeholder="场景" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                        <select v-model="aiGovernanceFilter.status" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                            <option value="">全部状态</option>
+                                            <option value="success">成功</option>
+                                            <option value="failed">失败</option>
+                                            <option value="blocked">阻断</option>
+                                        </select>
+                                        <button @click="loadAiGovernance" :disabled="aiGovernanceLoading" class="px-3 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-60">查询</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="aiGovernanceTab === 'logs'" class="overflow-x-auto">
+                                <table class="min-w-full text-sm">
+                                    <thead class="bg-gray-50 text-gray-500">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left">时间</th>
+                                            <th class="px-4 py-3 text-left">模块 / 场景</th>
+                                            <th class="px-4 py-3 text-left">模型</th>
+                                            <th class="px-4 py-3 text-left">Prompt</th>
+                                            <th class="px-4 py-3 text-left">状态</th>
+                                            <th class="px-4 py-3 text-left">置信度</th>
+                                            <th class="px-4 py-3 text-left">人工确认</th>
+                                            <th class="px-4 py-3 text-left">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                                        <tr v-for="log in aiGovernanceLogs" :key="log.id" class="hover:bg-gray-50">
+                                            <td class="px-4 py-3 whitespace-nowrap">{{ log.created_at || '-' }}</td>
+                                            <td class="px-4 py-3">
+                                                <div class="font-medium text-gray-900">{{ log.module || '-' }}</div>
+                                                <div class="text-xs text-gray-500">{{ log.scenario || '-' }}</div>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <div class="text-gray-900">{{ log.model_key || '-' }}</div>
+                                                <div class="text-xs text-gray-500">{{ log.provider || '-' }}</div>
+                                            </td>
+                                            <td class="px-4 py-3 font-mono text-xs text-gray-600 max-w-xs truncate" :title="log.prompt_version">{{ log.prompt_version || '-' }}</td>
+                                            <td class="px-4 py-3"><span :class="['rounded-md border px-2 py-1 text-xs whitespace-nowrap', aiGovernanceStatusClass(log.status)]">{{ aiGovernanceStatusText(log.status) }}</span></td>
+                                            <td class="px-4 py-3">
+                                                <span :class="log.low_confidence ? 'text-amber-700 font-semibold' : 'text-gray-700'">{{ aiGovernanceConfidenceText(log) }}</span>
+                                            </td>
+                                            <td class="px-4 py-3"><span :class="['rounded-md border px-2 py-1 text-xs whitespace-nowrap', aiGovernanceConfirmClass(log.human_confirmation_status)]">{{ aiGovernanceConfirmText(log.human_confirmation_status) }}</span></td>
+                                            <td class="px-4 py-3">
+                                                <div class="flex flex-wrap gap-2">
+                                                    <button @click="openAiGovernanceLogDetail(log)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50">详情</button>
+                                                    <button v-if="log.human_confirmation_status === 'pending'" @click="confirmAiGovernanceLog(log, 'confirmed')" class="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs hover:bg-green-700">确认</button>
+                                                    <button v-if="log.human_confirmation_status === 'pending'" @click="confirmAiGovernanceLog(log, 'rejected')" class="px-2.5 py-1 rounded-lg border border-red-200 text-red-600 text-xs hover:bg-red-50">驳回</button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <div v-if="!aiGovernanceLogs.length && !aiGovernanceLoading" class="p-8 text-center text-gray-400">暂无 AI 调用日志</div>
+                            </div>
+
+                            <div v-if="aiGovernanceTab === 'prompts'" class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div v-for="item in aiGovernancePromptVersions" :key="item.id || `${item.prompt_key}-${item.version}`" class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <div class="font-semibold text-gray-900 truncate">{{ item.prompt_key || '-' }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ item.scenario || '-' }} · {{ item.version || '-' }}</div>
+                                        </div>
+                                        <span :class="['rounded-md border px-2 py-0.5 text-xs whitespace-nowrap', item.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200']">{{ item.status || '-' }}</span>
+                                    </div>
+                                    <div class="mt-2 text-xs text-gray-500 break-all">hash: {{ item.content_hash || '-' }}</div>
+                                    <div class="mt-2 text-xs text-gray-600 leading-relaxed">{{ item.description || '暂无说明' }}</div>
+                                </div>
+                                <div v-if="!aiGovernancePromptVersions.length && !aiGovernanceLoading" class="lg:col-span-2 p-8 text-center text-gray-400">暂无 Prompt 版本</div>
+                            </div>
+
+                            <div v-if="aiGovernanceTab === 'evals'" class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div v-for="item in aiGovernanceEvaluationCases" :key="item.id || item.case_key" class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <div class="font-semibold text-gray-900 truncate">{{ item.case_key || '-' }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ item.scenario || '-' }} · {{ item.prompt_version || '-' }}</div>
+                                        </div>
+                                        <span :class="['rounded-md border px-2 py-0.5 text-xs whitespace-nowrap', item.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200']">{{ item.status || '-' }}</span>
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                                        <div class="rounded border border-gray-200 bg-white p-2 truncate">input: {{ aiGovernanceJsonBrief(item.input_json) }}</div>
+                                        <div class="rounded border border-gray-200 bg-white p-2 truncate">expected: {{ aiGovernanceJsonBrief(item.expected_json) }}</div>
+                                    </div>
+                                </div>
+                                <div v-if="!aiGovernanceEvaluationCases.length && !aiGovernanceLoading" class="lg:col-span-2 p-8 text-center text-gray-400">暂无评估集用例</div>
+                            </div>
+                        </div>
+
+                        <div v-if="aiGovernanceSelectedLog" class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="font-bold text-gray-900">调用详情 #{{ aiGovernanceSelectedLog.id }}</h3>
+                                    <p class="text-xs text-gray-500 mt-1">{{ aiGovernanceSelectedLog.request_id || '-' }}</p>
+                                </div>
+                                <button @click="aiGovernanceSelectedLog = null" class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50">收起</button>
+                            </div>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                    <div class="text-xs font-semibold text-gray-500 mb-2">Prompt 预览</div>
+                                    <pre class="whitespace-pre-wrap break-words text-xs text-gray-700 max-h-72 overflow-y-auto">{{ aiGovernanceSelectedLog.prompt_preview || '-' }}</pre>
+                                </div>
+                                <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                    <div class="text-xs font-semibold text-gray-500 mb-2">响应 / 错误</div>
+                                    <pre class="whitespace-pre-wrap break-words text-xs text-gray-700 max-h-72 overflow-y-auto">{{ aiGovernanceSelectedLog.response_preview || aiGovernanceSelectedLog.error_message || '-' }}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 数据配置页面 (仅超级管理员) -->
                     <div v-if="currentPage === 'data-config'">
                         <div class="bg-white rounded-lg shadow">
@@ -11719,6 +11938,29 @@
                                             </div>
                                         </div>
 
+                                        <div data-testid="data-health-drilldown" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
+                                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+                                                <div class="max-w-3xl">
+                                                    <h4 class="text-base font-semibold text-gray-900">数据健康钻取</h4>
+                                                    <div class="text-xs text-gray-500 mt-1 leading-5">按授权、请求、字段、回放四类定位数据不可用原因；每一类都保留证据和下一步入口</div>
+                                                </div>
+                                                <span class="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 whitespace-nowrap">
+                                                    不使用推算值补齐
+                                                </span>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                                <button type="button" v-for="row in dataHealthDrilldownRows" :key="row.key" @click="openDataHealthDrilldown(row)" class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-left hover:bg-white hover:border-blue-200 transition min-w-0">
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <div class="font-semibold text-gray-900 text-sm">{{ row.label }}</div>
+                                                        <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', collectionHealthStatusClass(row.status)]">{{ collectionHealthStatusText(row.status) }}</span>
+                                                    </div>
+                                                    <div class="mt-2 text-xs text-gray-500 leading-relaxed break-words">{{ row.evidence }}</div>
+                                                    <div class="mt-2 text-xs text-gray-600 leading-relaxed break-words">{{ row.impact }}</div>
+                                                    <div class="mt-3 text-xs font-medium text-blue-700">{{ row.action }}</div>
+                                                </button>
+                                            </div>
+                                        </div>
+
                                         <div v-if="collectionHealthCtripLatest.available" class="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                                             <div class="p-4 sm:p-5 border-b border-gray-200 bg-gray-50">
                                                 <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -12006,6 +12248,26 @@
                                         </div>
                                     </div>
 
+                                    <div class="rounded-lg border border-gray-200 bg-white p-4">
+                                        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-3">
+                                            <div>
+                                                <h5 class="font-semibold text-gray-900">收益指标口径</h5>
+                                                <div class="text-xs text-gray-500 mt-1">统一解释 OTA 分析页展示指标的计算边界；缺少来源字段时显示缺口，不倒推结果</div>
+                                            </div>
+                                            <span class="rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs text-amber-700 whitespace-nowrap">OTA渠道口径</span>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                            <div v-for="row in onlineAnalysisMetricDefinitionRows" :key="row.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3 min-w-0">
+                                                <div class="flex items-start justify-between gap-2">
+                                                    <div class="text-sm font-semibold text-gray-900">{{ row.label }}</div>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.status }}</span>
+                                                </div>
+                                                <div class="mt-2 text-xs text-gray-600 leading-relaxed break-words">{{ row.formula }}</div>
+                                                <div class="mt-2 text-xs text-gray-400 leading-relaxed break-words">{{ row.source }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div v-if="onlineDataSummary?.ota_channel_supplement" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                         <div class="border rounded-lg bg-white p-4">
                                             <div class="flex items-center justify-between mb-3">
@@ -12071,7 +12333,7 @@
                                         <div class="px-4 py-3 border-b flex items-center justify-between gap-3">
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
-                                                <div class="text-xs text-gray-500">来自平台自动获取写入的 online_daily_data，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条。</div>
+                                                <div class="text-xs text-gray-500">来自平台自动获取写入的 online_daily_data，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前展示 {{ onlineAnalysisRows.length }} 条。</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
                                                 <i :class="onlineAnalysisRowsLoading ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>刷新
@@ -12115,7 +12377,7 @@
                                             </table>
                                         </div>
                                         <div v-if="onlineAnalysisPagination.total > 0" class="px-4 py-3 border-t text-sm text-gray-500">
-                                            共 {{ onlineAnalysisPagination.total }} 条入库明细
+                                            共 {{ onlineAnalysisPagination.total }} 条入库明细，当前展示 {{ onlineAnalysisRows.length }} 条
                                         </div>
                                     </div>
                                 </div>
@@ -18417,18 +18679,19 @@
                 .map((log) => {
                     const action = String(log?.action || '').toLowerCase();
                     const module = String(log?.module || '').toLowerCase();
+                    const backendPriority = String(log?.risk_priority || '').trim();
                     const hasError = !!String(log?.error_info || '').trim();
                     const isDelete = action.includes('delete') || action.includes('clear') || action.includes('archive');
                     const isExecution = action.includes('auto_fetch') || action.includes('sync') || action.includes('execute') || action.includes('approve') || action.includes('apply');
                     const isConfig = action.includes('config') || action.includes('save_cookies') || action.includes('save_data_source');
                     const isAgent = module === 'agent' || action.includes('analysis') || action.includes('analyze');
-                    const priority = hasError || isDelete ? 'high' : (isExecution || isConfig || isAgent ? 'medium' : 'low');
+                    const priority = backendPriority || (hasError || isDelete ? 'high' : (isExecution || isConfig || isAgent ? 'medium' : 'low'));
                     return {
                         id: log?.id,
                         priority,
                         module: log?.module || '-',
                         action: log?.action || '-',
-                        title: log?.description || `${log?.module || '-'} / ${log?.action || '-'}`,
+                        title: log?.risk_title || log?.description || `${log?.module || '-'} / ${log?.action || '-'}`,
                         user: log?.user?.realname || log?.user?.username || log?.user_name || '-',
                         hotel: log?.hotel?.name || log?.hotel_name || '-',
                         time: log?.create_time || '-',
@@ -19194,6 +19457,57 @@
                     },
                 ];
             });
+            const dataHealthDrilldownRows = computed(() => {
+                const auth = collectionHealthAuthorization.value || {};
+                const latest = collectionHealthLatestLog.value || {};
+                const quality = collectionHealthQuality.value || {};
+                const catalog = collectionHealthCtripCatalog.value || {};
+                return [
+                    {
+                        key: 'authorization',
+                        label: '授权与Cookie',
+                        status: auth.overall_status || (dataHealthCookieAlertRows.value.length ? 'warning' : 'unknown'),
+                        evidence: auth.total ? `可用 ${auth.ok || 0}/${auth.total}，提醒 ${dataHealthCookieAlertRows.value.length} 项` : '暂无授权统计',
+                        impact: '授权失败会直接导致 OTA 数据不可采集，不能用历史数据冒充实时结果。',
+                        action: dataHealthCookieAlertRows.value.length ? '进入配置并更新 Cookie' : '查看平台配置',
+                        tab: 'platform-auto',
+                    },
+                    {
+                        key: 'request',
+                        label: '请求与采集',
+                        status: latest.status || catalog.capture_gate_status || 'unknown',
+                        evidence: latest.run_time || catalog.message || '暂无最近采集记录',
+                        impact: '请求失败或采集门禁未通过时，只展示失败原因和下一步，不生成经营判断。',
+                        action: dataHealthQualityTaskRows.value.length ? '处理质量任务' : '查看采集状态',
+                        tab: 'data-health',
+                    },
+                    {
+                        key: 'field',
+                        label: '字段与入库',
+                        status: quality.status || (collectionHealthFieldRows.value.length ? 'warning' : 'no_data'),
+                        evidence: `缺失 ${quality.missing_count || 0} / 异常 ${quality.abnormal_count || 0} / 定义 ${collectionHealthFieldRows.value.length}`,
+                        impact: '字段缺失会影响收益、流量、广告、服务质量指标，不能用均值或空值补齐。',
+                        action: '查看字段配置',
+                        tab: 'profile-fields',
+                    },
+                    {
+                        key: 'replay',
+                        label: '回放与待办',
+                        status: collectionHealthPendingActions.value.length ? 'warning' : (collectionHealthHistoryReplay.value.length ? 'ok' : 'unknown'),
+                        evidence: `回放 ${collectionHealthHistoryReplay.value.length} 条，待办 ${collectionHealthPendingActions.value.length} 项`,
+                        impact: '历史回放用于追溯采集结果，不替代当前授权和字段质量检查。',
+                        action: collectionHealthPendingActions.value.length ? '查看待处理动作' : '查看数据记录',
+                        tab: 'data',
+                    },
+                ];
+            });
+            const openDataHealthDrilldown = (row) => {
+                if (!row?.tab) return;
+                onlineDataTab.value = row.tab;
+                if (row.tab === 'platform-auto') loadAutoFetchPanel();
+                if (row.tab === 'profile-fields') loadCtripProfileFields();
+                if (row.tab === 'data') refreshOnlineData();
+            };
             const dashboardStateText = (state) => ({
                 ok: '已采集',
                 zero: '0',
@@ -20404,7 +20718,8 @@
             const onlineAnalysisRows = ref([]);
             const onlineAnalysisRowsLoading = ref(false);
             const onlineAnalysisError = ref('');
-            const onlineAnalysisPagination = ref({ total: 0, page: 1, page_size: 'all' });
+            const onlineAnalysisPageSize = 200;
+            const onlineAnalysisPagination = ref({ total: 0, page: 1, page_size: onlineAnalysisPageSize });
             const onlineAnalysisSourceRecord = ref(null);
             const onlineAnalysisLoading = computed(() => onlineAnalysisRowsLoading.value);
             const onlineAnalysisSourceText = (source) => {
@@ -20470,6 +20785,40 @@
                     },
                 ];
             });
+            const onlineAnalysisMetricDefinitionRows = computed(() => [
+                {
+                    key: 'ota_revenue',
+                    label: 'OTA销售额',
+                    formula: '来自 online_daily_data.amount 汇总，仅表示已入库 OTA 渠道销售额。',
+                    source: '来源：携程/美团已授权采集结果；不等同于全酒店总营收。',
+                    status: onlineAnalysisPagination.value.total ? '有样本' : '待样本',
+                    className: onlineAnalysisPagination.value.total ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                },
+                {
+                    key: 'room_nights',
+                    label: 'OTA间夜',
+                    formula: '来自 quantity / room_nights 类字段汇总；缺字段时保留缺失状态。',
+                    source: '来源：经营、订单、销售报告中已映射字段。',
+                    status: '需字段命中',
+                    className: 'bg-amber-50 text-amber-700 border-amber-100',
+                },
+                {
+                    key: 'adr',
+                    label: 'ADR',
+                    formula: '优先展示采集字段；无稳定字段时不使用销售额/间夜倒推替代。',
+                    source: '来源：房价、平均卖价、实时起价等 OTA 字段。',
+                    status: '口径复核',
+                    className: 'bg-blue-50 text-blue-700 border-blue-100',
+                },
+                {
+                    key: 'conversion',
+                    label: '流量转化',
+                    formula: '曝光、访客、下单、成交分层展示；不同漏斗层不混算。',
+                    source: '来源：流量报告、竞争圈、广告模块的独立数据域。',
+                    status: '分层展示',
+                    className: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+                },
+            ]);
             let analysisChart = null;
             let analysisChartRenderQueued = false;
             const scheduleAnalysisChartRender = (retryCount = 0) => {
@@ -21381,7 +21730,7 @@
                 try {
                     const params = new URLSearchParams({
                         page: '1',
-                        page_size: 'all',
+                        page_size: String(onlineAnalysisPageSize),
                     });
                     if (onlineDataFilter.value.start_date) {
                         params.append('start_date', onlineDataFilter.value.start_date);
@@ -21401,7 +21750,7 @@
                     const res = await request(`/online-data/daily-data-list?${params}`);
                     if (res.code === 200) {
                         onlineAnalysisRows.value = res.data?.list || [];
-                        onlineAnalysisPagination.value = res.data?.pagination || { total: onlineAnalysisRows.value.length, page: 1, page_size: 'all' };
+                        onlineAnalysisPagination.value = res.data?.pagination || { total: onlineAnalysisRows.value.length, page: 1, page_size: onlineAnalysisPageSize };
                         onlineAnalysisError.value = '';
                     } else {
                         onlineAnalysisRows.value = [];
@@ -21986,15 +22335,11 @@
                 }
                 dataHealthOperationLogLoading.value = true;
                 try {
-                    const today = new Date();
-                    const sevenDaysAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
                     const params = new URLSearchParams({
-                        page: '1',
-                        page_size: '20',
-                        start_date: formatDate(sevenDaysAgo),
-                        end_date: formatDate(today),
+                        days: '7',
+                        limit: '20',
                     });
-                    const res = await request(`/operation-logs?${params.toString()}`);
+                    const res = await request(`/operation-logs/high-risk-summary?${params.toString()}`);
                     if (res.code === 200) {
                         dataHealthOperationLogs.value = Array.isArray(res.data?.list) ? res.data.list : [];
                     } else {
@@ -22261,6 +22606,9 @@
                 if (['ai-model-config', 'agent-center', 'asset-pricing', 'knowledge-center'].includes(newPage)) {
                     loadAiModelConfigs();
                 }
+                if (newPage === 'ai-governance') {
+                    loadAiGovernance();
+                }
                 if (newPage === 'knowledge-center') {
                     loadKnowledgeCenter();
                     if (!hotels.value.length) {
@@ -22471,6 +22819,7 @@
                     children: [
                         { name: '系统配置', path: 'system-config', icon: 'fas fa-sliders-h' },
                         { name: 'AI模型配置', path: 'ai-model-config', icon: 'fas fa-robot', i18nKey: 'aiModelConfig.pageTitle' },
+                        { name: 'AI决策追溯', path: 'ai-governance', icon: 'fas fa-shield-alt' },
                         { name: '数据配置', path: 'data-config', icon: 'fas fa-database' }
                     ]
                 },
@@ -22992,6 +23341,39 @@
                     });
                 }
                 return Array.from(options.values());
+            });
+            const aiGovernanceLoading = ref(false);
+            const aiGovernanceError = ref('');
+            const aiGovernanceTab = ref('logs');
+            const aiGovernanceSummary = ref({});
+            const aiGovernanceLogs = ref([]);
+            const aiGovernancePromptVersions = ref([]);
+            const aiGovernanceEvaluationCases = ref([]);
+            const aiGovernanceSelectedLog = ref(null);
+            const aiGovernanceFilter = ref({
+                module: '',
+                scenario: '',
+                status: '',
+                human_confirmation_status: '',
+                low_confidence: '',
+            });
+            const aiGovernanceTabs = [
+                { key: 'logs', label: '调用日志' },
+                { key: 'prompts', label: 'Prompt版本' },
+                { key: 'evals', label: '评估集' },
+            ];
+            const aiGovernanceSummaryCards = computed(() => {
+                const summary = aiGovernanceSummary.value || {};
+                return [
+                    { key: 'calls', label: '调用总数', value: summary.model_calls_total ?? 0, sub: `今日 ${summary.model_calls_today ?? 0}` },
+                    { key: 'low_confidence', label: '低置信', value: summary.low_confidence_total ?? 0, sub: '需人工复核' },
+                    { key: 'pending', label: '待确认', value: summary.pending_human_confirmation_total ?? 0, sub: '人工确认队列' },
+                    { key: 'failed', label: '失败/阻断', value: summary.failed_or_blocked_total ?? 0, sub: '不可静默忽略' },
+                    { key: 'prompts', label: 'Prompt版本', value: summary.prompt_versions_total ?? 0, sub: `启用 ${summary.active_prompt_versions_total ?? 0}` },
+                    { key: 'evals', label: '评估用例', value: summary.evaluation_cases_total ?? 0, sub: `启用 ${summary.active_evaluation_cases_total ?? 0}` },
+                    { key: 'status', label: '治理状态', value: (summary.pending_human_confirmation_total || summary.failed_or_blocked_total) ? '需复核' : '正常', sub: '仅超管可见' },
+                    { key: 'boundary', label: '输出边界', value: '待确认', sub: 'AI建议≠已执行' },
+                ];
             });
             const aiModelConfigForm = ref({
                 id: null,
@@ -25067,6 +25449,44 @@
             const operationCanExecuteWithEvidence = (item) => ['pending_execute', 'executing'].includes(item?.execution?.status || '') && Number(item?.execution?.task_id || 0) > 0;
             const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
             const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item) || operationCanExecuteWithEvidence(item) || operationCanReviewExecution(item);
+            const operationExecutionTraceRows = computed(() => {
+                const summary = operationExecutionFlow.value?.summary || {};
+                const total = Number(summary.total || 0);
+                const approved = Number(summary.approved || 0);
+                const executed = Number(summary.executed || 0);
+                const evidenceReady = Number(summary.evidence_ready || 0);
+                const roiReady = Number(summary.roi_ready || 0);
+                return [
+                    {
+                        key: 'source',
+                        label: '建议来源',
+                        value: total ? `${total}条` : '待生成',
+                        className: total ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        detail: '来源可以是 AI策略、运营预警或人工创建，进入执行池前不视为已执行动作。',
+                    },
+                    {
+                        key: 'approval',
+                        label: '人工审批',
+                        value: total ? `${approved}/${total}` : '待审批',
+                        className: approved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
+                        detail: '涉及价格、房态、活动的动作必须先确认，驳回原因应保留在记录中。',
+                    },
+                    {
+                        key: 'evidence',
+                        label: '执行证据',
+                        value: executed ? `${evidenceReady}/${executed}` : '待执行',
+                        className: evidenceReady ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        detail: '执行后需记录平台、截图路径或操作说明；没有证据时不计算最终收益结论。',
+                    },
+                    {
+                        key: 'roi',
+                        label: 'ROI复盘',
+                        value: roiReady ? `${roiReady}个样本` : '待计算',
+                        className: roiReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        detail: 'ROI 只基于执行前后数据和成本样本计算，缺数据时显示待计算。',
+                    },
+                ];
+            });
             const operationErrorMessage = (error, fallback) => {
                 const message = error?.message || '';
                 return /[\u4e00-\u9fa5]/.test(message) ? message : fallback;
@@ -26862,6 +27282,140 @@
                     showToast(`${aiModelConfigText('aiModelConfig.testFailed')}: ${e.message || aiModelConfigText('aiModelConfig.networkErrorFallback')}`, 'error');
                 } finally {
                     testingAiModelId.value = null;
+                }
+            };
+
+            const aiGovernanceStatusText = (status) => ({
+                success: '成功',
+                failed: '失败',
+                blocked: '阻断',
+                pending: '等待',
+            }[status] || status || '未知');
+            const aiGovernanceStatusClass = (status) => ({
+                success: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                failed: 'bg-red-50 text-red-700 border-red-100',
+                blocked: 'bg-red-50 text-red-700 border-red-100',
+                pending: 'bg-amber-50 text-amber-700 border-amber-100',
+            }[status] || 'bg-gray-50 text-gray-600 border-gray-100');
+            const aiGovernanceConfirmText = (status) => ({
+                pending: '待确认',
+                confirmed: '已确认',
+                rejected: '已驳回',
+                not_required: '无需确认',
+            }[status] || status || '未知');
+            const aiGovernanceConfirmClass = (status) => ({
+                pending: 'bg-amber-50 text-amber-700 border-amber-100',
+                confirmed: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                rejected: 'bg-red-50 text-red-700 border-red-100',
+                not_required: 'bg-gray-50 text-gray-500 border-gray-200',
+            }[status] || 'bg-gray-50 text-gray-600 border-gray-100');
+            const aiGovernanceConfidenceText = (log) => {
+                const value = log?.confidence_score;
+                if (value === null || value === undefined || value === '') return log?.low_confidence ? '低置信' : '-';
+                const numeric = Number(value);
+                return Number.isFinite(numeric) ? numeric.toFixed(2) : String(value);
+            };
+            const aiGovernanceJsonBrief = (value) => {
+                if (value === null || value === undefined || value === '') return '-';
+                try {
+                    return JSON.stringify(value).slice(0, 120);
+                } catch (error) {
+                    return String(value).slice(0, 120);
+                }
+            };
+            const buildAiGovernanceLogParams = () => {
+                const params = new URLSearchParams({ page: '1', page_size: '30' });
+                Object.entries(aiGovernanceFilter.value).forEach(([key, value]) => {
+                    const text = String(value || '').trim();
+                    if (text !== '') params.append(key, text);
+                });
+                return params;
+            };
+            const loadAiGovernanceSummary = async () => {
+                const res = await request('/ai-governance/summary');
+                if (res.code === 200) {
+                    aiGovernanceSummary.value = res.data || {};
+                } else {
+                    throw new Error(res.message || 'AI治理摘要加载失败');
+                }
+            };
+            const loadAiGovernanceLogs = async () => {
+                const res = await request(`/ai-governance/logs?${buildAiGovernanceLogParams().toString()}`);
+                if (res.code === 200) {
+                    aiGovernanceLogs.value = Array.isArray(res.data?.list) ? res.data.list : [];
+                } else {
+                    throw new Error(res.message || 'AI调用日志加载失败');
+                }
+            };
+            const loadAiGovernancePromptVersions = async () => {
+                const res = await request('/ai-governance/prompt-versions?page=1&page_size=30');
+                if (res.code === 200) {
+                    aiGovernancePromptVersions.value = Array.isArray(res.data?.list) ? res.data.list : [];
+                } else {
+                    throw new Error(res.message || 'Prompt版本加载失败');
+                }
+            };
+            const loadAiGovernanceEvaluationCases = async () => {
+                const res = await request('/ai-governance/evaluation-cases?page=1&page_size=30');
+                if (res.code === 200) {
+                    aiGovernanceEvaluationCases.value = Array.isArray(res.data?.list) ? res.data.list : [];
+                } else {
+                    throw new Error(res.message || '评估集加载失败');
+                }
+            };
+            const loadAiGovernance = async () => {
+                if (!user.value?.is_super_admin) {
+                    aiGovernanceError.value = '仅超级管理员可访问AI治理';
+                    return;
+                }
+                aiGovernanceLoading.value = true;
+                aiGovernanceError.value = '';
+                try {
+                    await Promise.all([
+                        loadAiGovernanceSummary(),
+                        loadAiGovernanceLogs(),
+                        loadAiGovernancePromptVersions(),
+                        loadAiGovernanceEvaluationCases(),
+                    ]);
+                } catch (error) {
+                    aiGovernanceError.value = error.message || 'AI治理数据加载失败';
+                } finally {
+                    aiGovernanceLoading.value = false;
+                }
+            };
+            const openAiGovernanceLogDetail = async (log) => {
+                if (!log?.id) return;
+                aiGovernanceError.value = '';
+                try {
+                    const res = await request(`/ai-governance/logs/${log.id}`);
+                    if (res.code === 200) {
+                        aiGovernanceSelectedLog.value = res.data || log;
+                    } else {
+                        aiGovernanceError.value = res.message || 'AI调用详情加载失败';
+                    }
+                } catch (error) {
+                    aiGovernanceError.value = error.message || 'AI调用详情加载失败';
+                }
+            };
+            const confirmAiGovernanceLog = async (log, status) => {
+                if (!log?.id) return;
+                const note = (prompt(status === 'confirmed' ? '请输入确认说明' : '请输入驳回原因') || '').trim();
+                try {
+                    const res = await request(`/ai-governance/logs/${log.id}/confirm`, {
+                        method: 'POST',
+                        body: JSON.stringify({ status, note }),
+                    });
+                    if (res.code === 200) {
+                        showToast(status === 'confirmed' ? 'AI调用已确认' : 'AI调用已驳回');
+                        await Promise.all([loadAiGovernanceSummary(), loadAiGovernanceLogs()]);
+                        if (aiGovernanceSelectedLog.value?.id === log.id) {
+                            aiGovernanceSelectedLog.value = res.data || null;
+                        }
+                    } else {
+                        showToast(res.message || '人工确认失败', 'error');
+                    }
+                } catch (error) {
+                    showToast(error.message || '人工确认失败', 'error');
                 }
             };
 
@@ -33396,6 +33950,42 @@
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
 
+            const sanitizeAiReportHtml = (value) => {
+                const raw = typeof value === 'string'
+                    ? value
+                    : (value == null ? '' : JSON.stringify(value, null, 2));
+                if (!raw) return '';
+                const template = document.createElement('template');
+                template.innerHTML = raw;
+                const allowedTags = new Set(['SECTION', 'P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'UL', 'OL', 'LI', 'H3', 'H4', 'PRE', 'CODE', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
+                const allowedAttrs = new Set(['colspan', 'rowspan']);
+                const walk = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
+                const nodes = [];
+                while (walk.nextNode()) nodes.push(walk.currentNode);
+                nodes.forEach((node) => {
+                    if (node.nodeType === Node.COMMENT_NODE) {
+                        node.remove();
+                        return;
+                    }
+                    if (!allowedTags.has(node.tagName)) {
+                        node.replaceWith(document.createTextNode(node.textContent || ''));
+                        return;
+                    }
+                    Array.from(node.attributes).forEach((attr) => {
+                        if (!allowedAttrs.has(attr.name.toLowerCase())) {
+                            node.removeAttribute(attr.name);
+                        }
+                    });
+                });
+                return template.innerHTML;
+            };
+
+            const aiReportHtmlToText = (value) => {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = sanitizeAiReportHtml(value);
+                return tempDiv.innerText || tempDiv.textContent || '';
+            };
+
             const aiAnalysisStatusText = (status) => {
                 const map = {
                     pending: '等待中',
@@ -34117,7 +34707,7 @@
                     });
 
                     if (res.code === 200 && res.data) {
-                        meituanAiAnalysisResult.value = res.data.report || res.data.analysis || res.data;
+                        meituanAiAnalysisResult.value = sanitizeAiReportHtml(res.data.report || res.data.analysis || res.data);
 
                         // 添加到历史记录
                         meituanAiAnalysisHistory.value.unshift({
@@ -34160,17 +34750,12 @@
                     return;
                 }
 
-                // 将HTML转换为纯文本
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = meituanAiAnalysisResult.value;
-                const textContent = tempDiv.innerText || tempDiv.textContent;
-
-                copyToClipboard(textContent);
+                copyToClipboard(aiReportHtmlToText(meituanAiAnalysisResult.value));
             };
 
             // 查看美团AI分析历史记录
             const viewMeituanAiAnalysisRecord = (record) => {
-                meituanAiAnalysisResult.value = record.report;
+                meituanAiAnalysisResult.value = sanitizeAiReportHtml(record.report);
             };
 
             const copyToClipboard = (text) => {
@@ -35797,6 +36382,46 @@
             const transferRecordsLoading = ref(false);
             const transferHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
             const transferAiModelOptions = availableAiModelOptions;
+            const transferDecisionLayerRows = computed(() => {
+                const snapshot = transferSourceSnapshot.value;
+                const pricingReady = !!transferPricingResult.value;
+                const timingReady = !!transferTimingResult.value;
+                const dashboardReady = !!transferDashboardResult.value;
+                return [
+                    {
+                        key: 'facts',
+                        label: '事实数据',
+                        status: snapshot ? '有快照' : '待取数',
+                        className: snapshot ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        detail: snapshot ? `近30天营收、ADR、入住率来自 ${transferSourceDate.value || '所选日期'} 经营快照。` : '请先绑定酒店并从真实数据带入。',
+                        evidence: snapshot ? `data_status: ${snapshot.data_status || 'unknown'}` : '暂无经营快照',
+                    },
+                    {
+                        key: 'assumptions',
+                        label: '人工假设',
+                        status: transferPricingForm.value.hotel_name || transferTimingForm.value.current_revenue ? '已填写' : '待填写',
+                        className: (transferPricingForm.value.hotel_name || transferTimingForm.value.current_revenue) ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-amber-50 text-amber-700 border-amber-100',
+                        detail: '转让价、租金、装修投入、剩余租期等仍属于人工输入假设，需要单独复核。',
+                        evidence: '表单输入不自动等同于已验证事实。',
+                    },
+                    {
+                        key: 'calculation',
+                        label: '测算结果',
+                        status: pricingReady || timingReady ? '已生成' : '待测算',
+                        className: (pricingReady || timingReady) ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        detail: pricingReady && timingReady ? '资产定价和时机推演均已形成结果。' : '需分别完成资产定价和时机推演。',
+                        evidence: `定价 ${pricingReady ? '有' : '无'} / 时机 ${timingReady ? '有' : '无'}`,
+                    },
+                    {
+                        key: 'risk',
+                        label: '风险与决策',
+                        status: dashboardReady ? '可汇总' : '待汇总',
+                        className: dashboardReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        detail: dashboardReady ? '决策板已汇总估值、时机、风险点和下一步建议。' : '最终建议需在决策板汇总，不直接由单一测算替代。',
+                        evidence: dashboardReady ? (transferDashboardResult.value?.final_judgement || '已生成决策看板') : '暂无最终判断',
+                    },
+                ];
+            });
 
             const transferPricingFields = [
                 { key: 'hotel_name', label: '酒店名称', type: 'text', full: true },
@@ -37735,6 +38360,111 @@
                 window.print();
             };
 
+            const homeClosedLoopStages = computed(() => {
+                const readiness = compassDataReadiness.value || {};
+                const readyPercent = Number(readiness.percent || 0);
+                const coreReady = readyPercent >= 100;
+                const trendReady = !!homeTrendHasSamples.value;
+                const forecastStatus = String(homeMarketForecastStatus.value || '');
+                const aiReady = trendReady && !forecastStatus.startsWith('待');
+                const executionSummary = operationExecutionFlow.value?.summary || {};
+                const executionCount = Number(executionSummary.total || 0) || operationExecutionItems.value.length;
+                const snapshot = transferSourceSnapshot.value;
+                const snapshotDate = snapshot?.snapshot_date || snapshot?.date || transferSourceDate.value || '--';
+                const snapshotStatus = snapshot?.data_status || '';
+                return [
+                    {
+                        key: 'ota-trust',
+                        index: '01 / OTA DATA',
+                        title: 'OTA数据可信度',
+                        statusText: coreReady ? '核心就绪' : (readyPercent > 0 ? readiness.summaryText : '待同步'),
+                        statusClass: coreReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (readyPercent > 0 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-500 border-gray-200'),
+                        desc: readiness.missingText || '等待授权 OTA 数据形成可验证输入。',
+                        evidence: `最近同步 ${compassLastSyncedAt.value || '--'}`,
+                        actionLabel: coreReady ? '查看数据健康' : '补齐数据',
+                        entry: { page: 'online-data', tab: coreReady ? 'data-health' : 'platform-auto' },
+                        icon: 'fas fa-shield-alt',
+                    },
+                    {
+                        key: 'revenue-analysis',
+                        index: '02 / REVENUE',
+                        title: '收益分析',
+                        statusText: trendReady ? '可分析' : '样本不足',
+                        statusClass: trendReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
+                        desc: homeMarketForecastAction.value || '先形成 OTA 与经营日报样本，再判断收入、入住和价格走势。',
+                        evidence: `样本 ${homeObservation.value?.sampleDaysText || '--'}`,
+                        actionLabel: trendReady ? '查看收益趋势' : '同步样本',
+                        entry: trendReady ? { page: 'revenue-research-center' } : { page: 'online-data', tab: 'platform-auto' },
+                        icon: 'fas fa-chart-line',
+                    },
+                    {
+                        key: 'ai-decision',
+                        index: '03 / AI',
+                        title: 'AI决策',
+                        statusText: aiReady ? '可生成动作' : '待数据支撑',
+                        statusClass: aiReady ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        desc: aiReady ? '进入预警建议或策略模拟后生成动作，仍需人工确认后下发。' : '核心样本不足时只显示缺口，不把模型输出当作事实。',
+                        evidence: `经营信号 ${forecastStatus || '待形成'}`,
+                        actionLabel: aiReady ? '进入策略模拟' : '查看缺口',
+                        entry: aiReady ? { page: 'ops-plan' } : { page: 'online-data', tab: 'data-health' },
+                        icon: 'fas fa-brain',
+                    },
+                    {
+                        key: 'operation-execution',
+                        index: '04 / EXECUTION',
+                        title: '运营执行',
+                        statusText: executionCount ? operationExecutionMoneyStatusText.value : '待生成执行单',
+                        statusClass: executionCount ? operationExecutionMoneyStatusClass.value : 'bg-gray-50 text-gray-500 border-gray-200',
+                        desc: executionCount ? `当前瓶颈：${operationExecutionBottleneckText.value}` : '策略动作需进入审批、执行、证据和 ROI 复盘链路。',
+                        evidence: executionCount ? `执行单 ${executionCount} 条` : '暂无执行闭环记录',
+                        actionLabel: '查看动作复盘',
+                        entry: { page: 'ops-track' },
+                        icon: 'fas fa-tasks',
+                    },
+                    {
+                        key: 'investment-decision',
+                        index: '05 / INVEST',
+                        title: '投资决策',
+                        statusText: snapshot ? (snapshotStatus || '有经营快照') : '待取经营快照',
+                        statusClass: snapshot ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        desc: '投资模块读取经营快照后再估值、判断时机和进入决策板，不用 OTA 渠道数据替代全酒店口径。',
+                        evidence: snapshot ? `快照日期 ${snapshotDate}` : '先从投资模块获取经营快照',
+                        actionLabel: snapshot ? '进入决策板' : '获取投资数据',
+                        entry: snapshot ? { page: 'decision-board' } : { page: 'asset-pricing' },
+                        icon: 'fas fa-balance-scale',
+                    },
+                ];
+            });
+
+            const homeAiTraceRows = computed(() => {
+                const readiness = compassDataReadiness.value || {};
+                const executionSummary = operationExecutionFlow.value?.summary || {};
+                const executionCount = Number(executionSummary.total || 0) || operationExecutionItems.value.length;
+                return [
+                    {
+                        label: '输入证据',
+                        value: readiness.summaryText || '待同步',
+                        className: (Number(readiness.percent || 0) >= 100) ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
+                        detail: readiness.missingText || '先校验 OTA、收益趋势和辅助信号来源。',
+                        entry: { page: 'online-data', tab: 'data-health' },
+                    },
+                    {
+                        label: '生成动作',
+                        value: homeMarketForecastStatus.value || '待形成样本',
+                        className: homeTrendHasSamples.value ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        detail: '模型建议只作为待确认动作，缺样本时不生成确定结论。',
+                        entry: { page: 'ops-plan' },
+                    },
+                    {
+                        label: '人工确认',
+                        value: executionCount ? `${executionCount}条执行单` : '待确认',
+                        className: executionCount ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                        detail: executionCount ? operationExecutionBottleneckText.value : '动作需经过审批、执行证据和 ROI 复盘后才能闭环。',
+                        entry: { page: 'ops-track' },
+                    },
+                ];
+            });
+
             return {
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
@@ -37746,7 +38476,7 @@
                 transferPricingForm, transferPricingFields, transferAiModelOptions, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, transferPricingAiEvaluation, transferPricingAiEvaluationVisible, transferPricingAiEvaluationSourceLabel, handleTransferPricing,
                 transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingDataCheck, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
-                transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferHotelOptions,
+                transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceLoading, transferRecords, transferRecordsLoading, transferHotelOptions, transferDecisionLayerRows,
                 transferRecordTypeLabel, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, archiveTransferRecord,
                 operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationEffectValidation,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
@@ -37762,7 +38492,7 @@
                 operationExecutionItems, operationExecutionStages, operationExecutionSummaryCards, operationExecutionSourceText, operationExecutionActionText,
                 operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, operationExecutionRoiText,
                 operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
-                operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReviewExecution, operationExecutionActionAvailable,
+                operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReviewExecution, operationExecutionActionAvailable, operationExecutionTraceRows,
                 approveOperationExecutionIntent, recordOperationExecutionEvidence, reviewOperationExecutionTask,
                 openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingOverview, openingTasks, openingLoading,
                 openingProjectForm, openingPositioningImpact, openingTaskFilter, openingTaskPage, openingTaskPagination, pagedOpeningTasks, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
@@ -37772,8 +38502,8 @@
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState, selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
-                compassHotelOptions, compassLoading, compassLastSyncedAt, compassDataReadiness, refreshCompassDashboard,
-                dailyOpsPrimaryActions, dailyOpsStatusCards, dailyOpsMetricRows, dailyOpsReviewSteps, dailyOpsMonitorConclusion,
+                compassHotelOptions, compassLoading, compassLastSyncedAt, compassDataReadiness, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard,
+                dailyOpsPrimaryActions, dailyOpsStatusCards, dailyOpsMetricRows, dailyOpsFieldCount, dailyOpsReviewSteps, dailyOpsMonitorConclusion,
                 autoFetchFieldScopeGroups, autoFetchScopeStatusClass,
                 weatherDemandHint, weatherDecisionTags, weatherDecisionInsights, weatherLocationName, selectedWeatherCity, weatherCityPickerOpen, weatherCityChoices, selectWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, weatherToday, weatherForecastDays, weatherImpactTone, weatherLoading, weatherError, weatherDataSourceLabel,
                 homeQuickEntries, hiddenHomeQuickEntries, homeQuickLayoutEditing, homeQuickLayoutSaving, homeQuickLayoutSaveHint, homeQuickDragKey, homeQuickDragOverKey, startHomeQuickDrag, enterHomeQuickDrag, dropHomeQuickDrag, endHomeQuickDrag, toggleHomeQuickEntry, resetHomeQuickLayout, saveHomeQuickLayout, openHomeQuickEntry,
@@ -37809,6 +38539,8 @@
                 aiModelConfigs, availableAiModelOptions, aiModelConfigLoading, showAiModelConfigModal, aiModelConfigForm, testingAiModelId,
                 showAiModelAdvanced, aiQuickSetupForm, aiQuickSetupSaving, aiQuickSetupProviderModels,
                 aiModelConfigText, loadAiModelConfigs, openAiModelConfigModal, saveAiModelConfig, toggleAiModelConfigEnabled, testAiModelConfig, saveAiProviderQuickSetup,
+                aiGovernanceLoading, aiGovernanceError, aiGovernanceTab, aiGovernanceTabs, aiGovernanceSummaryCards, aiGovernanceLogs, aiGovernancePromptVersions, aiGovernanceEvaluationCases, aiGovernanceSelectedLog, aiGovernanceFilter,
+                aiGovernanceStatusText, aiGovernanceStatusClass, aiGovernanceConfirmText, aiGovernanceConfirmClass, aiGovernanceConfidenceText, aiGovernanceJsonBrief, loadAiGovernance, loadAiGovernanceLogs, openAiGovernanceLogDetail, confirmAiGovernanceLog,
                 // 数据配置
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, dataConfigMeta, testingConfig, savingConfig, dataConfigForm,
                 showDataConfigSpidertoken, showDataConfigCookie, showDataConfigPayload,
@@ -37838,6 +38570,7 @@
                 collectionHealthAuthorization, collectionHealthAuthorizationRows, collectionHealthCtripAuthorizationRows, collectionHealthCookieLightClass, collectionHealthCookieLightText,
                 collectionHealthFailureReasons, collectionHealthLogs, collectionHealthLatestLog, collectionHealthQuality, collectionHealthHistoryReplay,
                 collectionHealthPendingActions, collectionHealthCtripCatalog, collectionHealthCtripCatalogStatus, collectionHealthCtripCatalogMessage,
+                dataHealthDrilldownRows, openDataHealthDrilldown,
                 dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthTodayWorkOrders,
                 dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthPriorityClass, dataHealthPriorityText,
                 collectionHealthCtripCatalogGateText, collectionHealthCtripCatalogCards, collectionHealthCtripCatalogDiagnosticScope,
@@ -37888,7 +38621,7 @@
                 // 数据分析
                 analysisDimension, analysisData, loadAnalysisData,
                 onlineAnalysisRows, onlineAnalysisRowsLoading, onlineAnalysisLoading, onlineAnalysisError, onlineAnalysisPagination,
-                onlineAnalysisSourceRecord, onlineAnalysisSummaryCards, onlineAnalysisSourceText, onlineAnalysisDataTypeText, loadOnlineAnalysisRows, refreshOnlineAnalysis, openOnlineAnalysisTab,
+                onlineAnalysisSourceRecord, onlineAnalysisSummaryCards, onlineAnalysisMetricDefinitionRows, onlineAnalysisSourceText, onlineAnalysisDataTypeText, loadOnlineAnalysisRows, refreshOnlineAnalysis, openOnlineAnalysisTab,
                 // 操作日志
                 operationLogs, logModules, logActions, logUsers, logHotels, logFilter, logPagination, logSummary, selectedLog, showLogDetailModal,
                 reloadOperationLogs, loadOperationLogs, viewLogDetail, logTypeLabel, logTypeClass, logActionClass,

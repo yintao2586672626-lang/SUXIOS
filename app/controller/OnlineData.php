@@ -16352,9 +16352,10 @@ JAVASCRIPT;
             $createEnd = $this->request->get('create_end', ''); // 获取结束时间
             $page = max(1, intval($this->request->get('page', 1)));
             $pageSizeInput = $this->request->get('page_size', 30);
-            $fetchAll = in_array(strtolower(trim((string)$pageSizeInput)), ['all', '全部'], true)
+            $fetchAllRequested = in_array(strtolower(trim((string)$pageSizeInput)), ['all', '全部'], true)
                 || in_array(strtolower(trim((string)$this->request->get('all', ''))), ['1', 'true', 'yes'], true);
-            $pageSize = $fetchAll ? 0 : max(1, intval($pageSizeInput)); // 默认30条
+            $fetchAll = false;
+            $pageSize = min(200, max(1, $fetchAllRequested ? 200 : intval($pageSizeInput))); // 默认30条，禁止全量拉取
 
             // 简化查询，先不添加复杂的权限过滤
             $query = Db::name('online_daily_data');
@@ -16411,9 +16412,7 @@ JAVASCRIPT;
             $total = (int)(clone $query)->count();
             $listQuery = (clone $query)->order('data_date', 'desc')
                 ->order('id', 'desc');
-            if (!$fetchAll) {
-                $listQuery->page($page, $pageSize);
-            }
+            $listQuery->page($page, $pageSize);
             $list = $listQuery->select()->toArray();
 
             // 解析 raw_data 添加排名等额外字段
@@ -16446,8 +16445,10 @@ JAVASCRIPT;
                 'pagination' => [
                     'total' => $total,
                     'page' => $page,
-                    'page_size' => $fetchAll ? $total : $pageSize,
+                    'page_size' => $pageSize,
                     'all' => $fetchAll,
+                    'all_requested' => $fetchAllRequested,
+                    'limited' => $fetchAllRequested || $total > $pageSize,
                 ],
                 'data_quality_summary' => $this->buildOnlineDataQualitySummary($list),
             ]);
@@ -25189,9 +25190,15 @@ JAVASCRIPT;
     {
         $root = dirname(__DIR__, 2);
         $catalog = $this->readOptionalLocalJsonFile($root . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'ctrip_capture_catalog.json');
-        $audit = $this->readOptionalLocalJsonFile($root . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'ctrip_capture_audit_latest.json');
+        $auditPath = $root . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'ctrip_capture_audit_latest.json';
+        $audit = $this->readOptionalLocalJsonFile($auditPath);
+        if ($audit !== []) {
+            $audit['_source_path'] = 'reports/ctrip_capture_audit_latest.json';
+            $audit['_source_mtime'] = is_file($auditPath) ? (int)(filemtime($auditPath) ?: 0) : 0;
+        }
+        $diagnosisSnapshot = $this->readLatestCtripDiagnosisSnapshotForCatalogHealth($root);
 
-        return $this->buildCtripCaptureCatalogHealth($catalog, $audit);
+        return $this->buildCtripCaptureCatalogHealth($catalog, $audit, $diagnosisSnapshot);
     }
 
     private function readCtripLatestCaptureDashboard(): array
@@ -25887,7 +25894,132 @@ JAVASCRIPT;
         return is_array($data) ? $data : [];
     }
 
-    private function buildCtripCaptureCatalogHealth(array $catalog, array $audit): array
+    private function readLatestCtripDiagnosisSnapshotForCatalogHealth(string $root): array
+    {
+        $candidates = [];
+        foreach ([
+            $root . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'ctrip_diagnosis_snapshot.json',
+            $root . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . 'ctrip_diagnosis_snapshot.json',
+            dirname($root) . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'ctrip_diagnosis_snapshot.json',
+        ] as $path) {
+            $snapshot = $this->readOptionalLocalJsonFile($path);
+            if (!$this->isEffectiveCtripDiagnosisSnapshot($snapshot)) {
+                continue;
+            }
+            $snapshot['_source_path'] = $this->relativeCtripEvidencePath($path, $root);
+            $snapshot['_source_mtime'] = is_file($path) ? (int)(filemtime($path) ?: 0) : 0;
+            $candidates[] = $snapshot;
+        }
+
+        $runtimeSnapshot = $this->buildLatestCtripDiagnosisSnapshot();
+        if ($this->isEffectiveCtripDiagnosisSnapshot($runtimeSnapshot)) {
+            $snapshotPath = (string)($runtimeSnapshot['snapshot_path'] ?? '');
+            $runtimeSnapshot['_source_path'] = $snapshotPath !== ''
+                ? $this->relativeCtripEvidencePath($snapshotPath, $root)
+                : 'runtime/ctrip_capture';
+            $runtimeSnapshot['_source_mtime'] = $snapshotPath !== '' && is_file($snapshotPath)
+                ? (int)(filemtime($snapshotPath) ?: 0)
+                : 0;
+            $candidates[] = $runtimeSnapshot;
+        }
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        usort(
+            $candidates,
+            fn(array $a, array $b): int => $this->ctripDiagnosisSnapshotTimestamp($b) <=> $this->ctripDiagnosisSnapshotTimestamp($a)
+        );
+
+        return $candidates[0];
+    }
+
+    private function relativeCtripEvidencePath(string $path, string $root): string
+    {
+        $normalizedPath = str_replace('\\', '/', $path);
+        $normalizedRoot = rtrim(str_replace('\\', '/', $root), '/');
+        $normalizedParent = rtrim(str_replace('\\', '/', dirname($root)), '/');
+        if (str_starts_with(strtolower($normalizedPath), strtolower($normalizedRoot . '/'))) {
+            return substr($normalizedPath, strlen($normalizedRoot) + 1);
+        }
+        if (str_starts_with(strtolower($normalizedPath), strtolower($normalizedParent . '/'))) {
+            return '../' . substr($normalizedPath, strlen($normalizedParent) + 1);
+        }
+
+        return $path;
+    }
+
+    private function ctripDiagnosisSnapshotTimestamp(array $snapshot): int
+    {
+        foreach (['generated_at', 'captured_at', 'snapshot_time', 'updated_at'] as $key) {
+            $value = trim((string)($snapshot[$key] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $timestamp = strtotime($value);
+            if ($timestamp !== false) {
+                return $timestamp;
+            }
+        }
+
+        return (int)($snapshot['_source_mtime'] ?? 0);
+    }
+
+    private function ctripDiagnosisSnapshotStatus(array $snapshot): string
+    {
+        $summary = is_array($snapshot['diagnosis_summary'] ?? null) ? $snapshot['diagnosis_summary'] : [];
+        $status = strtolower(trim((string)($snapshot['status'] ?? $summary['status'] ?? '')));
+        return $status !== '' ? $status : 'unknown';
+    }
+
+    private function isEffectiveCtripDiagnosisSnapshot(array $snapshot): bool
+    {
+        if ($snapshot === []) {
+            return false;
+        }
+
+        $status = $this->ctripDiagnosisSnapshotStatus($snapshot);
+        $summary = is_array($snapshot['diagnosis_summary'] ?? null) ? $snapshot['diagnosis_summary'] : [];
+        $counts = is_array($snapshot['counts'] ?? null) ? $snapshot['counts'] : [];
+        $availableGroups = $this->normalizeStringList($snapshot['available_groups'] ?? $summary['available_groups'] ?? []);
+        $standardRows = (int)($counts['standard_rows'] ?? 0);
+        $hasEvidence = $availableGroups !== []
+            || (int)($counts['responses'] ?? 0) > 0
+            || (int)($counts['catalog_facts'] ?? 0) > 0;
+
+        return $standardRows > 0
+            && $hasEvidence
+            && (
+                in_array($status, ['ready', 'success', 'effective', 'ok'], true)
+                || $availableGroups !== []
+            );
+    }
+
+    private function compactCtripDiagnosisSnapshotForHealth(array $snapshot): array
+    {
+        $summary = is_array($snapshot['diagnosis_summary'] ?? null) ? $snapshot['diagnosis_summary'] : [];
+        $counts = is_array($snapshot['counts'] ?? null) ? $snapshot['counts'] : [];
+
+        return [
+            'available' => true,
+            'source' => (string)($snapshot['source'] ?? 'diagnosis_snapshot'),
+            'status' => $this->ctripDiagnosisSnapshotStatus($snapshot),
+            'generated_at' => (string)($snapshot['generated_at'] ?? ''),
+            'source_path' => (string)($snapshot['_source_path'] ?? $snapshot['snapshot_path'] ?? ''),
+            'snapshot_path' => (string)($snapshot['snapshot_path'] ?? $snapshot['_source_path'] ?? ''),
+            'counts' => [
+                'responses' => (int)($counts['responses'] ?? 0),
+                'catalog_facts' => (int)($counts['catalog_facts'] ?? 0),
+                'standard_rows' => (int)($counts['standard_rows'] ?? 0),
+            ],
+            'available_groups' => $this->normalizeStringList($snapshot['available_groups'] ?? $summary['available_groups'] ?? []),
+            'missing_groups' => $this->normalizeStringList($snapshot['missing_groups'] ?? $summary['missing_groups'] ?? []),
+            'inputs' => array_slice(is_array($snapshot['inputs'] ?? null) ? $snapshot['inputs'] : [], 0, 8),
+        ];
+    }
+
+    private function buildCtripCaptureCatalogHealth(array $catalog, array $audit, array $diagnosisSnapshot = []): array
     {
         $available = $catalog !== [];
         $gate = is_array($audit['capture_gate'] ?? null) ? $audit['capture_gate'] : [];
@@ -25926,14 +26058,42 @@ JAVASCRIPT;
         $p3CandidateSections = is_array($gapReport['p3_candidate_sections'] ?? null) ? $gapReport['p3_candidate_sections'] : [];
         $p3EvidenceSections = is_array($gapReport['p3_evidence_sections'] ?? null) ? $gapReport['p3_evidence_sections'] : [];
         $gapNextActions = $this->normalizeCtripCaptureGapActions($gapReport['next_actions'] ?? []);
+        $gapBlockers = $this->normalizeStringList($gapReport['blockers'] ?? []);
+        $auditEvidence = [
+            'source_path' => (string)($audit['_source_path'] ?? 'reports/ctrip_capture_audit_latest.json'),
+            'auth_status' => $authStatus !== '' ? $authStatus : 'unknown',
+            'capture_gate_status' => $captureGateStatus,
+            'failed_check_ids' => $failedCheckIds,
+            'capture_gap_status' => $gapStatus,
+            'capture_gap_blockers' => $gapBlockers,
+            'summary' => [
+                'response_count' => $responseCount,
+                'standard_row_count' => $standardRowCount,
+            ],
+        ];
+        $snapshotReady = $this->isEffectiveCtripDiagnosisSnapshot($diagnosisSnapshot);
+        $snapshotEvidence = $snapshotReady ? $this->compactCtripDiagnosisSnapshotForHealth($diagnosisSnapshot) : [];
+        if ($snapshotReady) {
+            $snapshotCounts = is_array($snapshotEvidence['counts'] ?? null) ? $snapshotEvidence['counts'] : [];
+            $responseCount = max($responseCount, (int)($snapshotCounts['responses'] ?? 0));
+            $standardRowCount = max($standardRowCount, (int)($snapshotCounts['standard_rows'] ?? 0));
+            $captureGateStatus = 'pass';
+            $failedCheckIds = [];
+            $authStatus = 'snapshot_ready';
+            $gapStatus = 'snapshot_ready';
+            $gapBlockers = [];
+            $gapNextActions = [];
+        }
         $isLiveReady = $available
-            && in_array($captureGateStatus, ['pass', 'ok', 'success'], true)
+            && ($snapshotReady || in_array($captureGateStatus, ['pass', 'ok', 'success'], true))
             && !in_array($authStatus, ['login_required', 'unknown', ''], true)
             && $responseCount > 0
             && $standardRowCount > 0;
 
         $message = '携程采集目录未生成，请先生成目录后再进入抓取健康判断。';
-        if ($available && $isLiveReady) {
+        if ($available && $snapshotReady) {
+            $message = 'Ctrip diagnosis snapshot is ready; stale capture audit is retained as audit_evidence.';
+        } elseif ($available && $isLiveReady) {
             $message = '携程采集目录和真实采集审计均已通过，可进入标准行入库。';
         } elseif ($available && $captureGateStatus === 'fail') {
             $message = '携程真实采集未通过：' . ($failedCheckIds !== [] ? implode('、', $failedCheckIds) : 'capture_gate');
@@ -25960,13 +26120,17 @@ JAVASCRIPT;
             'coverage_rate' => is_numeric($coverageRate) ? (float)$coverageRate : null,
             'is_live_capture_ready' => $isLiveReady,
             'capture_gap_status' => $gapStatus,
-            'capture_gap_blockers' => $this->normalizeStringList($gapReport['blockers'] ?? []),
+            'capture_gap_blockers' => $gapBlockers,
             'capture_gap_missing_formal_endpoint_count' => $missingFormalEndpointCount,
             'capture_gap_missing_field_section_count' => count($missingFieldsBySection),
             'capture_gap_missing_field_count' => $missingFieldCount,
             'capture_gap_p3_candidate_section_count' => count($p3CandidateSections),
             'capture_gap_p3_evidence_section_count' => count($p3EvidenceSections),
             'capture_gap_next_actions' => $gapNextActions,
+            'diagnosis_snapshot_ready' => $snapshotReady,
+            'diagnosis_snapshot' => $snapshotEvidence,
+            'audit_evidence' => $auditEvidence,
+            'capture_gate_status_source' => $snapshotReady ? 'diagnosis_snapshot' : 'capture_audit',
             'message' => $message,
         ];
     }
@@ -27370,70 +27534,210 @@ HTML;
 
     private function parseAndSaveCtripComments(array $comments, array $payload, string $requestHotelId, string $fallbackDate = '', ?int $systemHotelId = null): int
     {
-        return 0;
-
         if (empty($comments)) {
             return 0;
         }
 
-        $savedCount = 0;
         $platformHotelId = $requestHotelId
             ?: (string)($payload['hotelId'] ?? $payload['hotel_id'] ?? $payload['masterHotelId'] ?? $payload['master_hotel_id'] ?? '');
         $fallbackDate = $this->normalizeOnlineDataDate($fallbackDate) ?: date('Y-m-d');
+
+        $aggregate = $this->buildCtripCommentAggregate($comments, $payload, $platformHotelId, $fallbackDate);
+        if (($aggregate['hotel_id'] ?? '') === '' && $systemHotelId === null) {
+            return 0;
+        }
+
+        $rawData = [
+            'source' => 'ctrip_comment_aggregate',
+            'metric_scope' => 'ota_channel',
+            'dimension_values' => array_filter([
+                'comment_store_name' => $aggregate['hotel_name'],
+                'comment_date' => $aggregate['data_date'],
+                'comment_channel' => $aggregate['comment_channel'],
+            ], static fn($value): bool => $value !== null && $value !== ''),
+            'metrics' => array_filter([
+                'comment_score' => $aggregate['comment_score'],
+                'comment_count' => $aggregate['comment_count'],
+                'bad_review_count' => $aggregate['bad_review_count'],
+            ], static fn($value): bool => $value !== null && $value !== ''),
+        ];
+
+        $data = $this->filterOnlineDailyDataFields($this->applyOnlineDailyDataValidationFields([
+            'hotel_id' => $aggregate['hotel_id'],
+            'hotel_name' => $aggregate['hotel_name'],
+            'system_hotel_id' => $systemHotelId,
+            'data_date' => $aggregate['data_date'],
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'comment_score' => $aggregate['comment_score'] ?? 0,
+            'qunar_comment_score' => 0,
+            'data_value' => $aggregate['comment_count'] > 0 ? $aggregate['comment_count'] : ($aggregate['comment_score'] ?? 0),
+            'source' => 'ctrip',
+            'data_type' => 'quality',
+            'dimension' => '点评聚合',
+            'platform' => 'Ctrip',
+            'compare_type' => 'self',
+            'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
+        ]));
+
+        $query = Db::name('online_daily_data')
+            ->where('source', 'ctrip')
+            ->where('data_type', 'quality')
+            ->where('dimension', '点评聚合')
+            ->where('hotel_id', $aggregate['hotel_id'])
+            ->where('data_date', $aggregate['data_date']);
+        if ($systemHotelId !== null) {
+            $query->where('system_hotel_id', $systemHotelId);
+        } else {
+            $query->whereNull('system_hotel_id');
+        }
+        $exists = $query->find();
+
+        if ($exists) {
+            Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+        } else {
+            Db::name('online_daily_data')->insert($data);
+        }
+
+        return 1;
+    }
+
+    /**
+     * @param array<int, mixed> $comments
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function buildCtripCommentAggregate(array $comments, array $payload, string $platformHotelId, string $fallbackDate): array
+    {
+        $payloadHotelId = (string)($this->firstCtripPayloadValue($payload, ['hotelId', 'hotel_id', 'masterHotelId', 'master_hotel_id']) ?? '');
+        $hotelId = trim($platformHotelId !== '' ? $platformHotelId : $payloadHotelId);
+        $hotelName = trim((string)($this->firstCtripPayloadValue($payload, ['hotelName', 'hotel_name', 'masterHotelName', 'storeName']) ?? ''));
+        $date = $this->normalizeOnlineDataDate($this->firstCtripPayloadValue($payload, ['date', 'dataDate', 'statDate']) ?? '') ?: $fallbackDate;
+        $channel = trim((string)($this->firstCtripPayloadValue($payload, ['channel', 'channelName', 'platform', 'source', 'commentChannel', 'bizType']) ?? ''));
+        $commentCount = $this->firstCtripNumber($payload, ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount', 'allCount']);
+        $badReviewCount = $this->firstCtripNumber($payload, ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount']);
+        $payloadScoreValue = $this->firstCtripNumber($payload, ['score', 'commentScore', 'rating', 'rate', 'totalScore', 'overallScore', 'star', 'ratingall', 'HotelRating', 'ctripRatingall']);
+        $payloadScore = $payloadScoreValue !== null ? $this->normalizeCtripCommentScoreValue($payloadScoreValue) : null;
+        $scores = [];
+        $badByScore = 0;
+        $rowCount = 0;
 
         foreach ($comments as $comment) {
             if (!is_array($comment)) {
                 continue;
             }
+            $rowCount++;
+            if ($hotelId === '') {
+                $hotelId = trim((string)($comment['hotelId'] ?? $comment['hotel_id'] ?? $comment['masterHotelId'] ?? ''));
+            }
+            if ($hotelName === '') {
+                $hotelName = trim((string)($comment['hotelName'] ?? $comment['hotel_name'] ?? $comment['masterHotelName'] ?? $comment['storeName'] ?? ''));
+            }
+            if ($date === '') {
+                $date = $this->extractCtripCommentDate($comment, $fallbackDate);
+            }
+            if ($channel === '') {
+                $channel = trim((string)($comment['channel'] ?? $comment['channelName'] ?? $comment['platform'] ?? $comment['source'] ?? $comment['commentChannel'] ?? $comment['bizType'] ?? ''));
+            }
 
-            $commentId = $this->extractCtripCommentId($comment);
-            $commentHotelId = (string)($comment['hotelId'] ?? $comment['hotel_id'] ?? $comment['masterHotelId'] ?? $platformHotelId);
-            $dataDate = $this->extractCtripCommentDate($comment, $fallbackDate);
             $score = $this->extractCtripCommentScore($comment);
-
-            $query = Db::name('online_daily_data')
-                ->where('source', 'ctrip')
-                ->where('data_type', 'review');
-            if ($commentId !== '') {
-                $query->where('raw_data', 'like', '%"' . $commentId . '"%');
-            } else {
-                $query->where('hotel_id', $commentHotelId)->where('data_date', $dataDate);
+            if ($score > 0) {
+                $scores[] = $score;
+                if ($score < 4) {
+                    $badByScore++;
+                }
             }
-            if ($systemHotelId !== null) {
-                $query->where('system_hotel_id', $systemHotelId);
-            } else {
-                $query->whereNull('system_hotel_id');
-            }
-            $exists = $query->find();
 
-            $data = $this->filterOnlineDailyDataFields($this->applyOnlineDailyDataValidationFields([
-                'hotel_id' => $commentHotelId,
-                'hotel_name' => (string)($comment['hotelName'] ?? $comment['hotel_name'] ?? ''),
-                'system_hotel_id' => $systemHotelId,
-                'data_date' => $dataDate,
-                'amount' => 0,
-                'quantity' => 0,
-                'book_order_num' => 0,
-                'comment_score' => $score,
-                'qunar_comment_score' => 0,
-                'data_value' => $score,
-                'source' => 'ctrip',
-                'data_type' => 'review',
-                'dimension' => '点评',
-                'platform' => 'Ctrip',
-                'compare_type' => 'self',
-                'raw_data' => json_encode($comment, JSON_UNESCAPED_UNICODE),
-            ]));
-
-            if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
-            } else {
-                Db::name('online_daily_data')->insert($data);
+            $rowBadCount = $this->firstCtripNumber($comment, ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount']);
+            if ($rowBadCount !== null) {
+                $badReviewCount = $badReviewCount === null ? $rowBadCount : max($badReviewCount, $rowBadCount);
             }
-            $savedCount++;
         }
 
-        return $savedCount;
+        $score = $payloadScore;
+        if ($score === null && !empty($scores)) {
+            $score = round(array_sum($scores) / count($scores), 1);
+        }
+        if ($commentCount === null) {
+            $commentCount = $rowCount;
+        }
+        if ($badReviewCount === null) {
+            $badReviewCount = $badByScore;
+        }
+
+        return [
+            'hotel_id' => $hotelId,
+            'hotel_name' => $hotelName,
+            'data_date' => $date ?: $fallbackDate,
+            'comment_channel' => $channel,
+            'comment_score' => $score,
+            'comment_count' => (int)$commentCount,
+            'bad_review_count' => (int)$badReviewCount,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<int, string> $keys
+     */
+    private function firstCtripPayloadValue(array $payload, array $keys)
+    {
+        $sources = [$payload];
+        foreach (['data', 'result'] as $container) {
+            if (isset($payload[$container]) && is_array($payload[$container])) {
+                array_unshift($sources, $payload[$container]);
+            }
+        }
+
+        foreach ($sources as $source) {
+            foreach ($keys as $key) {
+                if (isset($source[$key]) && $source[$key] !== '') {
+                    return $source[$key];
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<int, string> $keys
+     */
+    private function firstCtripNumber(array $source, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $source) || $source[$key] === '') {
+                continue;
+            }
+            $value = $source[$key];
+            if (is_string($value)) {
+                $value = str_replace([',', '%'], '', trim($value));
+            }
+            if (is_numeric($value)) {
+                return (float)$value;
+            }
+        }
+        foreach (['data', 'result'] as $container) {
+            if (isset($source[$container]) && is_array($source[$container])) {
+                $value = $this->firstCtripNumber($source[$container], $keys);
+                if ($value !== null) {
+                    return $value;
+                }
+            }
+        }
+        return null;
+    }
+
+    private function normalizeCtripCommentScoreValue(float $value): float
+    {
+        if ($value > 5 && $value <= 50) {
+            return round($value / 10, 1);
+        }
+        if ($value > 50 && $value <= 100) {
+            return round($value / 20, 1);
+        }
+        return round($value, 1);
     }
 
     private function extractCtripCommentId(array $comment): string

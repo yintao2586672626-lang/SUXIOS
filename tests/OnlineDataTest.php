@@ -1282,6 +1282,68 @@ final class OnlineDataTest extends TestCase
         self::assertStringContainsString('未通过', $health['message']);
     }
 
+    public function testCtripCaptureCatalogHealthUsesEffectiveDiagnosisSnapshotOverStaleAuthAudit(): void
+    {
+        $controller = $this->controller();
+
+        $health = $this->invokeNonPublic($controller, 'buildCtripCaptureCatalogHealth', [[
+            'platform' => 'ctrip',
+            'section_count' => 18,
+            'endpoint_count' => 69,
+            'field_count' => 110,
+        ], [
+            'auth_status' => ['status' => 'login_required'],
+            'summary' => ['response_count' => 0, 'standard_row_count' => 0],
+            'capture_gate' => [
+                'status' => 'fail',
+                'failed_check_ids' => ['auth_session', 'response_count', 'standard_rows'],
+            ],
+            'capture_gap_report' => [
+                'status' => 'blocked_auth',
+                'blockers' => ['auth_session', 'response_count', 'standard_rows'],
+                'next_actions' => [
+                    ['action' => 'login_and_rerun_capture', 'reason' => 'login_required'],
+                    ['action' => 'verify_standard_row_mapping', 'reason' => 'standard_row_count_zero'],
+                ],
+            ],
+        ], [
+            'available' => true,
+            'source' => 'diagnosis_snapshot',
+            'status' => 'ready',
+            'generated_at' => '2026-06-06T01:30:00+08:00',
+            'snapshot_path' => 'runtime/ctrip_capture/ctrip_63.diagnosis.snapshot.json',
+            'counts' => [
+                'responses' => 12,
+                'standard_rows' => 8,
+                'catalog_facts' => 20,
+            ],
+            'available_groups' => ['收益经营', '流量漏斗'],
+            'missing_groups' => ['广告投放'],
+            'diagnosis_summary' => [
+                'status' => 'ready',
+                'available_groups' => ['收益经营', '流量漏斗'],
+                'missing_groups' => ['广告投放'],
+            ],
+        ]]);
+
+        self::assertTrue($health['available']);
+        self::assertTrue($health['is_live_capture_ready']);
+        self::assertSame('snapshot_ready', $health['auth_status']);
+        self::assertSame('snapshot_ready', $health['capture_gap_status']);
+        self::assertSame('pass', $health['capture_gate_status']);
+        self::assertSame(12, $health['response_count']);
+        self::assertSame(8, $health['standard_row_count']);
+        self::assertSame('login_required', $health['audit_evidence']['auth_status']);
+        self::assertSame('blocked_auth', $health['audit_evidence']['capture_gap_status']);
+        self::assertSame('fail', $health['audit_evidence']['capture_gate_status']);
+        self::assertSame(['auth_session', 'response_count', 'standard_rows'], $health['audit_evidence']['capture_gap_blockers']);
+        self::assertSame([], $health['capture_gap_blockers']);
+        self::assertSame([], $health['capture_gap_next_actions']);
+        self::assertSame('diagnosis_snapshot', $health['diagnosis_snapshot']['source']);
+        self::assertSame('ready', $health['diagnosis_snapshot']['status']);
+        self::assertStringContainsString('diagnosis snapshot', $health['message']);
+    }
+
     public function testCtripCaptureCatalogHealthExposesMissingCatalogExplicitly(): void
     {
         $controller = $this->controller();
@@ -1308,11 +1370,65 @@ final class OnlineDataTest extends TestCase
         self::assertGreaterThanOrEqual(16, $health['section_count']);
         self::assertGreaterThanOrEqual(69, $health['endpoint_count']);
         self::assertGreaterThanOrEqual(110, $health['field_count']);
-        self::assertSame('fail', $health['capture_gate_status']);
-        self::assertSame('login_required', $health['auth_status']);
-        self::assertSame('blocked_auth', $health['capture_gap_status']);
-        self::assertSame('login_and_rerun_capture', $health['capture_gap_next_actions'][0]['action']);
-        self::assertFalse($health['is_live_capture_ready']);
+        self::assertArrayHasKey('audit_evidence', $health);
+        self::assertSame('login_required', $health['audit_evidence']['auth_status']);
+        self::assertSame('blocked_auth', $health['audit_evidence']['capture_gap_status']);
+        if (!empty($health['diagnosis_snapshot_ready'])) {
+            self::assertSame('pass', $health['capture_gate_status']);
+            self::assertSame('snapshot_ready', $health['auth_status']);
+            self::assertSame('diagnosis_snapshot', $health['capture_gate_status_source']);
+            self::assertTrue($health['is_live_capture_ready']);
+        } else {
+            self::assertSame('fail', $health['capture_gate_status']);
+            self::assertSame('login_required', $health['auth_status']);
+            self::assertSame('blocked_auth', $health['capture_gap_status']);
+            self::assertSame('login_and_rerun_capture', $health['capture_gap_next_actions'][0]['action']);
+            self::assertFalse($health['is_live_capture_ready']);
+        }
+    }
+
+    public function testCtripCaptureCatalogHealthReadsDiagnosisSnapshotReportOverAudit(): void
+    {
+        $controller = $this->controller();
+        $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'ctrip_diagnosis_snapshot.json';
+        $previous = is_file($path) ? file_get_contents($path) : null;
+        $snapshot = [
+            'status' => 'ready',
+            'generated_at' => '2030-01-01T00:00:00+08:00',
+            'counts' => [
+                'responses' => 3,
+                'catalog_facts' => 7,
+                'standard_rows' => 2,
+            ],
+            'available_groups' => ['revenue'],
+            'missing_groups' => [],
+            'inputs' => [
+                [
+                    'path' => 'runtime/ctrip_capture/example.json',
+                    'auth_status' => ['status' => 'logged_in'],
+                    'counts' => ['standard_rows' => 2],
+                ],
+            ],
+        ];
+
+        try {
+            file_put_contents($path, json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n");
+
+            $health = $this->invokeNonPublic($controller, 'readCtripCaptureCatalogHealth');
+
+            self::assertTrue($health['diagnosis_snapshot_ready']);
+            self::assertTrue($health['is_live_capture_ready']);
+            self::assertSame('snapshot_ready', $health['auth_status']);
+            self::assertSame('snapshot_ready', $health['capture_gap_status']);
+            self::assertSame('reports/ctrip_diagnosis_snapshot.json', $health['diagnosis_snapshot']['source_path']);
+            self::assertSame('login_required', $health['audit_evidence']['auth_status']);
+        } finally {
+            if ($previous === null) {
+                @unlink($path);
+            } else {
+                file_put_contents($path, $previous);
+            }
+        }
     }
 
     public function testCtripLatestBatchScopeUsesLatestFetchTimeWhenHotelIsSelected(): void
@@ -2786,7 +2902,6 @@ final class OnlineDataTest extends TestCase
             'advice_text',
             'comment_rows',
             'good_review_count',
-            'bad_review_count',
             'qunar_list_exposure',
             'qunar_flow_rate',
             'page_views',
@@ -2794,6 +2909,8 @@ final class OnlineDataTest extends TestCase
         ] as $skippedKey) {
             self::assertArrayNotHasKey($skippedKey, $byKey);
         }
+        self::assertSame('comment_review', $byKey['bad_review_count']['section']);
+        self::assertSame('getCommentNumV2 / getCommentList', $byKey['bad_review_count']['source_interface']);
 
         self::assertSame('confirmed', $byKey['ad_cost']['status']);
         self::assertTrue($byKey['ad_cost']['enabled']);

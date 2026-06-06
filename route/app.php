@@ -434,6 +434,7 @@ Route::get('api/online-data/cron-trigger', 'OnlineData/cronTrigger');
 Route::group('api/operation-logs', function () {
     Route::get('/', 'OperationLogController/index');
     Route::get('/stats', 'OperationLogController/stats');
+    Route::get('/high-risk-summary', 'OperationLogController/highRiskSummary');
     Route::get('/:id', 'OperationLogController/detail');
 })->middleware(\app\middleware\Auth::class);
 

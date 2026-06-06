@@ -6789,6 +6789,7 @@ aside.sidebar:not(.collapsed) {
 .suxi-app-shell main[data-current-page="ai-simulation"],
 .suxi-app-shell main[data-current-page="ai-feasibility"],
 .suxi-app-shell main[data-current-page="agent-center"],
+.suxi-app-shell main[data-current-page="ai-governance"],
 .suxi-app-shell main[data-current-page="ai-model-config"] {
     --sx-page-accent: #2563eb;
     --sx-page-accent-dark: #1d4ed8;
