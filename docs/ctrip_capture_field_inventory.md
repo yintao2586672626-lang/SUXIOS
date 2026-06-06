@@ -142,16 +142,12 @@
 | 上周同期离店间夜量 | 携程OTA渠道 | 上周同期 | 整数 | 间夜 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / synchronizationQuantity` | 转整数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 上周同期平均卖价 | 携程OTA渠道 | 上周同期 | 金额 | 元 | 经营报告-概要-日报 | `fetchMarketOverViewV2 / synchronizationAveragePrice` | 转金额 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 酒店点评分 | 携程OTA渠道 | 当前/昨日概况 | 小数 | 分 | 经营报告-概要-日报 | `getDayReportServerQuantity / ctripRatingall` | 转 0-5 分 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
-| 携程好评数 | 携程OTA渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / score` | score >= 4.0 计数，不保存点评明文 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 携程差评数 | 携程OTA渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / score` | 0 < score < 4.0 计数，不保存点评明文 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | 同程评分 | 携程关联渠道 | 当前点评列表 | 小数 | 分 | 点评页 | `getCommentList / channel=同程 + score` | 按渠道筛选后计算评分 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
-| 同程好评数 | 携程关联渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / channel=同程 + score` | channel=同程 且 score >= 4.0 计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
 | 同程差评数 | 携程关联渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / channel=同程 + score` | channel=同程 且 0 < score < 4.0 计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
 | 去哪儿评分 | 携程关联渠道 | 当前点评列表 | 小数 | 分 | 点评页 | `getCommentList / channel=去哪儿 + score` | 按渠道筛选后计算评分 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
-| 去哪儿好评数 | 携程关联渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / channel=去哪儿 + score` | channel=去哪儿 且 score >= 4.0 计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
 | 去哪儿差评数 | 携程关联渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / channel=去哪儿 + score` | channel=去哪儿 且 0 < score < 4.0 计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
 | 智行评分 | 携程关联渠道 | 当前点评列表 | 小数 | 分 | 点评页 | `getCommentList / channel=智行 + score` | 按渠道筛选后计算评分 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
-| 智行好评数 | 携程关联渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / channel=智行 + score` | channel=智行 且 score >= 4.0 计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
 | 智行差评数 | 携程关联渠道 | 当前点评列表 | 整数 | 条 | 点评页 | `getCommentList / channel=智行 + score` | channel=智行 且 0 < score < 4.0 计数 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 待确认 |
 | PSI服务质量分 | 携程OTA渠道 | 昨日概况 | 小数 | 分 | 经营报告-概要-日报 | `getDayReportServerQuantity / serviceScore` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
 | PSI服务质量分竞争圈排名 | 携程OTA渠道 | 昨日概况 | 整数 | 名 | 经营报告-概要-日报 | `getDayReportServerQuantity / serviceScoreRank` | 直接取值 | `api_not_hit / field_missing / parse_failed` | 需用真实响应补 | 已确认 |
@@ -199,7 +195,7 @@
 
 - 模块数：18
 - 接口规则数：77
-- 去重字段数：244
+- 去重字段数：246
 - 页面交互计划：16 个模块 / 80 个触发动作
 - 点评明文采集：默认禁用；Profile 仅保留评分汇总、回复率、点评条数和好评/差评聚合等非点评明文指标。
 
@@ -1628,18 +1624,20 @@
 
 - 模块：订单点评-点评聚合
 - 数据类型：quality
-- URL关键词：getCommentList
-- 备注：只采集点评条数和好评/差评聚合计数，不保存点评明文。
+- URL关键词：getCommentNumV2 / getCommentList
+- 备注：优先 getCommentNumV2 聚合；getCommentList 仅用于列表评分聚合，不保存点评明文。
 
 | 标准字段 | 中文名 | 来源字段 | 说明 |
 |---|---|---|---|
 | hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, hotelname, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| comment_store_name | 点评门店 | hotelName, masterHotelName, storeName, hotel_name | 点评数据所属门店；不从点评正文推断 |
+| comment_date | 点评日期 | date, dataDate, statDate, commentTime, createTime, submitTime | 点评统计或评论发生日期；不保存点评明文 |
+| comment_channel | 点评渠道 | channel, channelName, platform, source, commentChannel, bizType | 只保留点评渠道维度，不保存用户身份或点评内容 |
+| comment_score | 点评分 | score, commentScore, rating, ratingall, HotelRating, ctripRatingall, totalScore, overallScore | 只采集评分聚合值，不保存点评明文 |
 | comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
-| comment_rows | 点评数据条数 | comments, commentList, reviews, totalCount | 统计 getCommentList 返回点评行数，不保存点评明文 |
-| good_review_count | 好评数 | score, commentScore, rating | score >= 4.0 计数，不保存点评明文 |
-| bad_review_count | 差评数 | score, commentScore, rating | 0 < score < 4.0 计数，不保存点评明文 |
+| bad_review_count | 差评数 | badReviewCount, negativeCommentCount, negativeCount, badCount, lowScoreCount | 优先聚合接口差评数；列表评分仅通过显式聚合计算，不保存点评明文 |
 
 ### competitor_management
 

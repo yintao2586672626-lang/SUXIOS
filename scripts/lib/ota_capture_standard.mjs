@@ -358,9 +358,7 @@ function sanitizePayloadNode(value, orderContext) {
 
 function sanitizeReviewPayloadNode(value) {
   if (Array.isArray(value)) {
-    return value
-      .map((item) => sanitizeReviewPayloadNode(item))
-      .filter((item) => hasSanitizedReviewValue(item));
+    return reviewListAggregate(value);
   }
   if (!value || typeof value !== 'object') {
     return value;
@@ -369,6 +367,11 @@ function sanitizeReviewPayloadNode(value) {
   const result = {};
   for (const [key, item] of Object.entries(value)) {
     if (isSensitiveKey(key) || isReviewBlockedKey(key)) {
+      continue;
+    }
+
+    if (Array.isArray(item) && isReviewListKey(key)) {
+      mergeReviewAggregate(result, reviewListAggregate(item));
       continue;
     }
 
@@ -385,6 +388,153 @@ function sanitizeReviewPayloadNode(value) {
     }
   }
   return result;
+}
+
+function reviewListAggregate(rows) {
+  const aggregate = {};
+  const safeRows = rows.filter((row) => row && typeof row === 'object' && !Array.isArray(row));
+  if (safeRows.length === 0) {
+    return aggregate;
+  }
+
+  aggregate.commentCount = safeRows.length;
+
+  const scores = [];
+  let badByScore = 0;
+  let explicitBadCount = null;
+  const storeNames = new Set();
+  const dates = new Set();
+  const channels = new Set();
+
+  for (const row of safeRows) {
+    const score = reviewScore(firstReviewValue(row, ['score', 'commentScore', 'rating', 'rate', 'totalScore', 'overallScore', 'star']));
+    if (score !== null && score > 0) {
+      scores.push(score);
+      if (score < 4) {
+        badByScore += 1;
+      }
+    }
+
+    const badCount = reviewInteger(firstReviewValue(row, ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount']));
+    if (badCount !== null) {
+      explicitBadCount = explicitBadCount === null ? badCount : Math.max(explicitBadCount, badCount);
+    }
+
+    addReviewText(storeNames, firstReviewValue(row, ['hotelName', 'masterHotelName', 'storeName', 'hotel_name']));
+    addReviewText(dates, normalizeReviewDate(firstReviewValue(row, ['date', 'dataDate', 'statDate', 'commentTime', 'reviewTime', 'createTime', 'submitTime'])));
+    addReviewText(channels, firstReviewValue(row, ['channel', 'channelName', 'platform', 'source', 'commentChannel', 'bizType']));
+  }
+
+  const storeName = singleSetValue(storeNames);
+  if (storeName) {
+    aggregate.hotelName = storeName;
+  }
+  const date = singleSetValue(dates);
+  if (date) {
+    aggregate.statDate = date;
+  }
+  const channel = singleSetValue(channels);
+  if (channel) {
+    aggregate.channelName = channel;
+  }
+  if (scores.length > 0) {
+    aggregate.commentScore = Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 10) / 10;
+  }
+  aggregate.badReviewCount = explicitBadCount !== null ? explicitBadCount : badByScore;
+
+  return aggregate;
+}
+
+function mergeReviewAggregate(target, aggregate) {
+  if (!aggregate || typeof aggregate !== 'object') {
+    return;
+  }
+  for (const [key, value] of Object.entries(aggregate)) {
+    if (value === null || value === undefined || value === '') {
+      continue;
+    }
+    if (key === 'commentCount' && hasReviewCount(target)) {
+      continue;
+    }
+    if (key === 'badReviewCount' && hasReviewBadCount(target)) {
+      continue;
+    }
+    if (key === 'commentScore' && hasReviewScore(target)) {
+      continue;
+    }
+    target[key] = value;
+  }
+}
+
+function hasReviewCount(value) {
+  return ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount', 'allCount']
+    .some((key) => value[key] !== undefined && value[key] !== null && value[key] !== '');
+}
+
+function hasReviewBadCount(value) {
+  return ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount']
+    .some((key) => value[key] !== undefined && value[key] !== null && value[key] !== '');
+}
+
+function hasReviewScore(value) {
+  return ['score', 'commentScore', 'rating', 'rate', 'totalScore', 'overallScore', 'star', 'ratingall', 'hotelRating', 'ctripRatingall']
+    .some((key) => value[key] !== undefined && value[key] !== null && value[key] !== '');
+}
+
+function firstReviewValue(row, keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+      return row[key];
+    }
+  }
+  return null;
+}
+
+function addReviewText(target, value) {
+  const text = String(value ?? '').trim();
+  if (text) {
+    target.add(text);
+  }
+}
+
+function singleSetValue(values) {
+  return values.size === 1 ? [...values][0] : '';
+}
+
+function reviewScore(value) {
+  if (typeof value === 'string') {
+    value = value.replace(/[,％%]/g, '').trim();
+  }
+  if (value === null || value === undefined || value === '' || Number.isNaN(Number(value))) {
+    return null;
+  }
+  const number = Number(value);
+  if (number > 5 && number <= 50) {
+    return Math.round((number / 10) * 10) / 10;
+  }
+  if (number > 50 && number <= 100) {
+    return Math.round((number / 20) * 10) / 10;
+  }
+  return Math.round(number * 10) / 10;
+}
+
+function reviewInteger(value) {
+  if (typeof value === 'string') {
+    value = value.replace(/,/g, '').trim();
+  }
+  if (value === null || value === undefined || value === '' || Number.isNaN(Number(value))) {
+    return null;
+  }
+  return Math.max(0, Math.round(Number(value)));
+}
+
+function normalizeReviewDate(value) {
+  const text = String(value ?? '').trim();
+  const match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (!match) {
+    return '';
+  }
+  return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
 }
 
 function hasSanitizedReviewValue(value) {
@@ -462,6 +612,11 @@ function isGuestNameKey(key) {
 
 function isSensitiveOrderTextKey(key) {
   return /(certificate|credential|id[_-]?card|card[_-]?no|passport|remark|memo|note|address)/i.test(String(key || ''));
+}
+
+function isReviewListKey(key) {
+  const normalized = String(key || '').replace(/[^a-zA-Z0-9]+/g, '').toLowerCase();
+  return ['commentlist', 'comments', 'reviews', 'rows', 'list'].includes(normalized);
 }
 
 function isReviewBlockedKey(key) {
@@ -556,14 +711,6 @@ function isReviewAllowedScalarKey(key) {
     'negativecount',
     'badcount',
     'lowscorecount',
-    'goodreviewcount',
-    'positivecommentcount',
-    'positivecount',
-    'goodcount',
-    'highscorecount',
-    'pageindex',
-    'pageno',
-    'pagesize',
   ].includes(normalized);
 }
 

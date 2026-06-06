@@ -451,20 +451,33 @@ class OtaStandardEtlService
     private function commentFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
     {
         $score = $this->nullableNumber($row, $raw, ['comment_score', 'commentScore', 'score', 'data_value', 'dataValue']);
-        $sentiment = trim((string)($raw['sentiment'] ?? ''));
-        if ($sentiment === '') {
-            $sentiment = $score !== null && $score > 0 && $score < 4 ? 'negative' : 'neutral';
-        }
+        $commentCount = $this->nullableNumber($row, $raw, ['comment_count', 'commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount', 'data_value', 'dataValue']);
+        $badReviewCount = $this->nullableNumber($row, $raw, ['bad_review_count', 'badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount']);
+        $channel = trim((string)($raw['comment_channel'] ?? $raw['channel'] ?? $raw['channelName'] ?? $raw['platform'] ?? $source));
+        $storeName = trim((string)($raw['comment_store_name'] ?? $raw['hotelName'] ?? $raw['hotel_name'] ?? ''));
 
         return [
             'date_key' => $date,
             'hotel_key' => $hotelKey,
             'platform_key' => $source,
-            'review_id' => (string)($raw['review_id'] ?? $raw['reviewId'] ?? $raw['commentId'] ?? ''),
             'score' => $score,
-            'sentiment' => $sentiment,
-            'content' => mb_substr((string)($raw['content'] ?? $raw['comment_text'] ?? $raw['review_text'] ?? ''), 0, 500),
-            'raw_data' => $raw,
+            'comment_count' => $commentCount,
+            'bad_review_count' => $badReviewCount,
+            'comment_channel' => $channel,
+            'comment_store_name' => $storeName,
+            'raw_data' => [
+                'metric_scope' => 'ota_channel',
+                'dimension_values' => array_filter([
+                    'comment_store_name' => $storeName,
+                    'comment_date' => $date,
+                    'comment_channel' => $channel,
+                ], static fn($value): bool => $value !== ''),
+                'metrics' => array_filter([
+                    'comment_score' => $score,
+                    'comment_count' => $commentCount,
+                    'bad_review_count' => $badReviewCount,
+                ], static fn($value): bool => $value !== null && $value !== ''),
+            ],
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'review', $date),
         ];
     }

@@ -598,8 +598,6 @@ function verifyCatalog() {
     'comment_channel',
     'comment_score',
     'comment_count',
-    'comment_rows',
-    'good_review_count',
     'bad_review_count',
     'five_min_reply_rate',
     'manual_reply_rate',

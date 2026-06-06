@@ -277,6 +277,8 @@ test('maps Ctrip comment aggregate response without review text fields', () => {
   for (const key of ['comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count']) {
     assert.equal(factKeys.has(key), true, key);
   }
+  assert.equal(factKeys.has('comment_rows'), false);
+  assert.equal(factKeys.has('good_review_count'), false);
 
   const rows = buildCtripStandardRowsFromFacts(facts, {
     systemHotelId: 58,
@@ -291,6 +293,70 @@ test('maps Ctrip comment aggregate response without review text fields', () => {
   assert.equal(rows[0].comment_score, 4.8);
   assert.equal(rows[0].data_value, 577);
   assert.equal(rows[0].raw_data.metrics.bad_review_count, 6);
+});
+
+test('maps Ctrip comment list response to aggregate fields only', () => {
+  const url = 'https://ebooking.ctrip.com/comment/api/getCommentList';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'comment_review_aggregate');
+
+  const facts = extractCtripCatalogFacts({
+    data: {
+      hotelName: '西安空港城天诚商务宾馆',
+      statDate: '2026-06-06',
+      channelName: '携程',
+      commentList: [
+        {
+          commentId: 'COMMENT-SECRET-001',
+          commentContent: '房间很吵',
+          replyContent: '抱歉，我们会改进',
+          userName: '张三',
+          roomType: '商务大床房',
+          orderId: 'ORDER-SECRET-001',
+          commentScore: 3.2,
+          commentTime: '2026-06-06',
+        },
+        {
+          commentId: 'COMMENT-SECRET-002',
+          commentContent: '位置方便',
+          channelName: '携程',
+          commentScore: 4.8,
+          commentTime: '2026-06-06',
+        },
+      ],
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-05',
+    capturedAt: '2026-06-06T00:00:00.000Z',
+    url,
+  });
+
+  const factKeys = new Set(facts.map((fact) => fact.metric_key));
+  assert.equal(factKeys.has('comment_count'), true);
+  assert.equal(factKeys.has('comment_score'), true);
+  assert.equal(factKeys.has('bad_review_count'), true);
+  assert.equal(factKeys.has('comment_rows'), false);
+  assert.equal(factKeys.has('good_review_count'), false);
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'fallback hotel',
+    profileId: '6866634',
+    dataDate: '2026-06-05',
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_value, 2);
+  assert.equal(rows[0].raw_data.metrics.bad_review_count, 1);
+
+  const encodedRaw = JSON.stringify(rows[0].raw_data);
+  assert.equal(encodedRaw.includes('房间很吵'), false);
+  assert.equal(encodedRaw.includes('位置方便'), false);
+  assert.equal(encodedRaw.includes('COMMENT-SECRET-001'), false);
+  assert.equal(encodedRaw.includes('ORDER-SECRET-001'), false);
 });
 
 test('maps Ctrip user behavior IM board observed endpoints', () => {

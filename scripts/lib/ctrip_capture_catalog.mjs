@@ -476,8 +476,6 @@ const commentAggregateFields = [
   field('comment_channel', '点评渠道', ['channel', 'channelName', 'platform', 'source', 'commentChannel', 'bizType'], '只保留点评渠道维度，不保存用户身份或点评内容'),
   field('comment_score', '点评分', ['score', 'commentScore', 'rating', 'ratingall', 'HotelRating', 'ctripRatingall', 'totalScore', 'overallScore'], '只采集评分聚合值，不保存点评明文', { unit: '分' }),
   field('comment_count', '点评数量', ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount'], '只采集点评/评论数量，不保存点评明文'),
-  field('comment_rows', '点评数据条数', ['comments', 'commentList', 'reviews', 'totalCount'], '统计 getCommentList 返回点评行数，不保存点评明文'),
-  field('good_review_count', '好评数', ['goodReviewCount', 'positiveCommentCount', 'positiveCount', 'goodCount', 'highScoreCount'], '优先聚合接口好评数；列表评分仅通过显式聚合计算，不保存点评明文'),
   field('bad_review_count', '差评数', ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount'], '优先聚合接口差评数；列表评分仅通过显式聚合计算，不保存点评明文'),
 ];
 
@@ -635,16 +633,12 @@ export const CTRIP_CORE_METRIC_LEARNING_ROWS = [
   metricLearningRow('上周同期离店间夜量', '携程OTA渠道', '上周同期', '整数', '间夜', '经营报告-概要-日报', 'fetchMarketOverViewV2 / synchronizationQuantity', '转整数', '已确认'),
   metricLearningRow('上周同期平均卖价', '携程OTA渠道', '上周同期', '金额', '元', '经营报告-概要-日报', 'fetchMarketOverViewV2 / synchronizationAveragePrice', '转金额', '已确认'),
   metricLearningRow('酒店点评分', '携程OTA渠道', '当前/昨日概况', '小数', '分', '经营报告-概要-日报', 'getDayReportServerQuantity / ctripRatingall', '转 0-5 分', '已确认'),
-  metricLearningRow('携程好评数', '携程OTA渠道', '当前点评列表', '整数', '条', '点评页', 'getCommentList / score', 'score >= 4.0 计数，不保存点评明文', '已确认'),
   metricLearningRow('携程差评数', '携程OTA渠道', '当前点评列表', '整数', '条', '点评页', 'getCommentList / score', '0 < score < 4.0 计数，不保存点评明文', '已确认'),
   metricLearningRow('同程评分', '携程关联渠道', '当前点评列表', '小数', '分', '点评页', 'getCommentList / channel=同程 + score', '按渠道筛选后计算评分', '待确认'),
-  metricLearningRow('同程好评数', '携程关联渠道', '当前点评列表', '整数', '条', '点评页', 'getCommentList / channel=同程 + score', 'channel=同程 且 score >= 4.0 计数', '待确认'),
   metricLearningRow('同程差评数', '携程关联渠道', '当前点评列表', '整数', '条', '点评页', 'getCommentList / channel=同程 + score', 'channel=同程 且 0 < score < 4.0 计数', '待确认'),
   metricLearningRow('去哪儿评分', '携程关联渠道', '当前点评列表', '小数', '分', '点评页', 'getCommentList / channel=去哪儿 + score', '按渠道筛选后计算评分', '待确认'),
-  metricLearningRow('去哪儿好评数', '携程关联渠道', '当前点评列表', '整数', '条', '点评页', 'getCommentList / channel=去哪儿 + score', 'channel=去哪儿 且 score >= 4.0 计数', '待确认'),
   metricLearningRow('去哪儿差评数', '携程关联渠道', '当前点评列表', '整数', '条', '点评页', 'getCommentList / channel=去哪儿 + score', 'channel=去哪儿 且 0 < score < 4.0 计数', '待确认'),
   metricLearningRow('智行评分', '携程关联渠道', '当前点评列表', '小数', '分', '点评页', 'getCommentList / channel=智行 + score', '按渠道筛选后计算评分', '待确认'),
-  metricLearningRow('智行好评数', '携程关联渠道', '当前点评列表', '整数', '条', '点评页', 'getCommentList / channel=智行 + score', 'channel=智行 且 score >= 4.0 计数', '待确认'),
   metricLearningRow('智行差评数', '携程关联渠道', '当前点评列表', '整数', '条', '点评页', 'getCommentList / channel=智行 + score', 'channel=智行 且 0 < score < 4.0 计数', '待确认'),
   metricLearningRow('PSI服务质量分', '携程OTA渠道', '昨日概况', '小数', '分', '经营报告-概要-日报', 'getDayReportServerQuantity / serviceScore', '直接取值', '已确认'),
   metricLearningRow('PSI服务质量分竞争圈排名', '携程OTA渠道', '昨日概况', '整数', '名', '经营报告-概要-日报', 'getDayReportServerQuantity / serviceScoreRank', '直接取值', '已确认'),
@@ -1402,6 +1396,9 @@ export function extractCtripCatalogFacts(value, context = {}) {
     facts.push(...extractMetricPairFacts(node, path, fields, nodeContext));
     const metricPairLike = isMetricPairObject(node);
     for (const [key, child] of Object.entries(node)) {
+      if (endpointInfo?.id === 'comment_review_aggregate' && isCommentReviewListKey(key)) {
+        continue;
+      }
       const matchedFields = filterCtripCatalogFieldsBySourceContext(
         fieldsBySourceKey.get(String(key).toLowerCase()) || [],
         key,
@@ -1441,6 +1438,10 @@ export function extractCtripCatalogFacts(value, context = {}) {
   return facts;
 }
 
+function isCommentReviewListKey(key) {
+  return ['commentlist', 'comments', 'reviews', 'list', 'rows'].includes(String(key || '').toLowerCase());
+}
+
 function filterCtripCatalogFieldsBySourceContext(fields, sourceKey, path = []) {
   if (!Array.isArray(fields) || fields.length === 0) {
     return [];
@@ -1466,7 +1467,7 @@ function filterCtripCatalogFieldsBySourceContext(fields, sourceKey, path = []) {
   const inListRow = ['commentlist', 'comments', 'reviews', 'list', 'rows']
     .some((segment) => parentSegments.includes(segment));
   if (inListRow && ['score', 'commentscore', 'rating', 'rate'].includes(key)) {
-    result = result.filter((item) => !['comment_score', 'good_review_count', 'bad_review_count'].includes(String(item.id || '')));
+    result = result.filter((item) => !['comment_score', 'bad_review_count'].includes(String(item.id || '')));
   }
 
   const inLossOrderVo = parentSegments.includes('lossordervo');
@@ -1567,23 +1568,22 @@ function extractCommentReviewAggregateFacts(node, path, fields, context, endpoin
   const facts = [];
   for (const [sourceKey, rows] of entries) {
     const sourcePath = [...path, sourceKey];
-    pushDerivedCommentFact(facts, fields, context, endpointInfo, 'comment_rows', 'commentList.length', sourcePath, rows.length);
+    pushDerivedCommentFact(facts, fields, context, endpointInfo, 'comment_count', 'commentList.length', sourcePath, rows.length, path);
 
     const scores = rows
       .map((row) => commentReviewScore(row))
       .filter((score) => score !== null && score > 0);
     if (scores.length > 0) {
       const averageScore = Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 10) / 10;
-      pushDerivedCommentFact(facts, fields, context, endpointInfo, 'comment_score', 'score_average', sourcePath, averageScore);
-      pushDerivedCommentFact(facts, fields, context, endpointInfo, 'good_review_count', 'score_gte_4_count', sourcePath, scores.filter((score) => score >= 4).length);
-      pushDerivedCommentFact(facts, fields, context, endpointInfo, 'bad_review_count', 'score_lt_4_count', sourcePath, scores.filter((score) => score > 0 && score < 4).length);
+      pushDerivedCommentFact(facts, fields, context, endpointInfo, 'comment_score', 'score_average', sourcePath, averageScore, path);
+      pushDerivedCommentFact(facts, fields, context, endpointInfo, 'bad_review_count', 'score_lt_4_count', sourcePath, scores.filter((score) => score > 0 && score < 4).length, path);
     }
   }
 
   return facts;
 }
 
-function pushDerivedCommentFact(target, fields, context, endpointInfo, metricFieldId, sourceKey, sourcePath, value) {
+function pushDerivedCommentFact(target, fields, context, endpointInfo, metricFieldId, sourceKey, sourcePath, value, sourceParentPath = sourcePath) {
   const fieldInfo = fields.find((item) => item.id === metricFieldId);
   if (!fieldInfo || !isScalar(value)) {
     return;
@@ -1594,7 +1594,7 @@ function pushDerivedCommentFact(target, fields, context, endpointInfo, metricFie
     fieldInfo,
     sourceKey,
     sourcePath,
-    sourceParentPath: sourcePath,
+    sourceParentPath,
     value,
     derived_from: 'comment_review_aggregate',
   }));

@@ -2,7 +2,7 @@
   "platform": "ctrip",
   "section_count": 18,
   "endpoint_count": 77,
-  "field_count": 244,
+  "field_count": 246,
   "default_sections": [
     "business_overview",
     "business_weekly_overview",
@@ -21633,6 +21633,7 @@
       "label": "订单点评-点评聚合",
       "dataType": "quality",
       "keywords": [
+        "getCommentNumV2",
         "getCommentList"
       ],
       "fields": [
@@ -21709,6 +21710,102 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_store_name",
+          "label": "点评门店",
+          "sourceKeys": [
+            "hotelName",
+            "masterHotelName",
+            "storeName",
+            "hotel_name"
+          ],
+          "description": "点评数据所属门店；不从点评正文推断",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_date",
+          "label": "点评日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "statDate",
+            "commentTime",
+            "createTime",
+            "submitTime"
+          ],
+          "description": "点评统计或评论发生日期；不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_channel",
+          "label": "点评渠道",
+          "sourceKeys": [
+            "channel",
+            "channelName",
+            "platform",
+            "source",
+            "commentChannel",
+            "bizType"
+          ],
+          "description": "只保留点评渠道维度，不保存用户身份或点评内容",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_score",
+          "label": "点评分",
+          "sourceKeys": [
+            "score",
+            "commentScore",
+            "rating",
+            "ratingall",
+            "HotelRating",
+            "ctripRatingall",
+            "totalScore",
+            "overallScore"
+          ],
+          "description": "只采集评分聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "分",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "comment_count",
           "label": "点评数量",
           "sourceKeys": [
@@ -21732,57 +21829,16 @@
           "confidenceStatus": ""
         },
         {
-          "id": "comment_rows",
-          "label": "点评数据条数",
-          "sourceKeys": [
-            "comments",
-            "commentList",
-            "reviews",
-            "totalCount"
-          ],
-          "description": "统计 getCommentList 返回点评行数，不保存点评明文",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "good_review_count",
-          "label": "好评数",
-          "sourceKeys": [
-            "score",
-            "commentScore",
-            "rating"
-          ],
-          "description": "score >= 4.0 计数，不保存点评明文",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
           "id": "bad_review_count",
           "label": "差评数",
           "sourceKeys": [
-            "score",
-            "commentScore",
-            "rating"
+            "badReviewCount",
+            "negativeCommentCount",
+            "negativeCount",
+            "badCount",
+            "lowScoreCount"
           ],
-          "description": "0 < score < 4.0 计数，不保存点评明文",
+          "description": "优先聚合接口差评数；列表评分仅通过显式聚合计算，不保存点评明文",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -21797,7 +21853,7 @@
         }
       ],
       "status": "aggregate_only",
-      "notes": "只采集点评条数和好评/差评聚合计数，不保存点评明文。"
+      "notes": "优先 getCommentNumV2 聚合；getCommentList 仅用于列表评分聚合，不保存点评明文。"
     },
     {
       "id": "competitor_management",

@@ -155,8 +155,9 @@ test('sanitizes review payloads down to aggregate-safe fields', () => {
   assert.equal(encoded.includes('ORDER-SECRET-001'), false);
   assert.equal(sanitized.data.hotelName, '西安空港城天诚商务宾馆');
   assert.equal(sanitized.data.statDate, '2026-06-06');
-  assert.equal(sanitized.data.commentList[0].channelName, '携程');
-  assert.equal(sanitized.data.commentList[0].commentScore, 3.2);
-  assert.equal(sanitized.data.commentList[0].badReviewCount, 6);
+  assert.equal(Object.hasOwn(sanitized.data, 'commentList'), false);
+  assert.equal(sanitized.data.channelName, '携程');
+  assert.equal(sanitized.data.commentScore, 3.2);
+  assert.equal(sanitized.data.badReviewCount, 6);
   assert.equal(sanitized.data.totalCount, 577);
 });
