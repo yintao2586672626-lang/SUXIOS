@@ -6,7 +6,18 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const html = readFileSync(join(root, 'public/index.html'), 'utf8');
 
 const stripHtmlComments = (content) => content.replace(/<!--[\s\S]*?-->/g, '');
-const pageMatch = html.match(/<div v-if="currentPage === 'ai-model-config'">[\s\S]*?<div v-if="currentPage === 'data-config'">/);
+const extractPageBlock = (pageName) => {
+  const marker = `<div v-if="currentPage === '${pageName}'">`;
+  const start = html.indexOf(marker);
+  if (start === -1) {
+    return null;
+  }
+  const contentStart = start + marker.length;
+  const nextPageMatch = html.slice(contentStart).match(/\n\s*<div v-if="currentPage === '[^']+'"/);
+  const end = nextPageMatch ? contentStart + nextPageMatch.index : html.length;
+  return html.slice(start, end);
+};
+const pageBlockSource = extractPageBlock('ai-model-config');
 const modalMatch = html.match(/<div v-if="showAiModelConfigModal"[\s\S]*?<!-- 系统配置模态框 -->/);
 const scriptMatch = html.match(/const loadAiModelConfigs = async \(\) => \{[\s\S]*?const handleLogin = async \(\) => \{/);
 const failures = [];
@@ -41,10 +52,10 @@ if (!initialLocaleMatch) {
   }
 }
 
-if (!pageMatch) {
+if (!pageBlockSource) {
   failures.push('AI model config page block not found');
 } else {
-  const pageBlock = stripHtmlComments(pageMatch[0]);
+  const pageBlock = stripHtmlComments(pageBlockSource);
   const forbiddenLiterals = [
     'AI模型配置',
     '管理 DeepSeek、OpenAI 等 OpenAI 兼容模型',
