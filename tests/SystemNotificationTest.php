@@ -8,13 +8,57 @@ use app\model\SystemNotificationUserState;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use think\App;
+use think\facade\Config;
+use think\facade\Db;
 
 final class SystemNotificationTest extends TestCase
 {
+    /** @var array<string, mixed> */
+    private static array $originalDatabaseConfig = [];
+
+    private static string $sqlitePath = '';
+
     public static function setUpBeforeClass(): void
     {
         $app = new App();
         $app->initialize();
+
+        self::$originalDatabaseConfig = Config::get('database');
+        self::$sqlitePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'suxios_system_notification_test_' . getmypid() . '.sqlite';
+        if (is_file(self::$sqlitePath)) {
+            @unlink(self::$sqlitePath);
+        }
+
+        $config = self::$originalDatabaseConfig;
+        $config['default'] = 'sqlite';
+        $config['connections']['sqlite'] = [
+            'type' => 'sqlite',
+            'database' => self::$sqlitePath,
+            'prefix' => '',
+            'fields_strict' => false,
+        ];
+        Config::set($config, 'database');
+        Db::connect()->close();
+        Db::connect(null, true);
+
+        self::createSqliteTables();
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        try {
+            Db::connect('sqlite')->close();
+        } catch (\Throwable $e) {
+            // Test cleanup only; the assertions have already completed.
+        }
+        if (!empty(self::$originalDatabaseConfig)) {
+            Config::set(self::$originalDatabaseConfig, 'database');
+            Db::connect()->close();
+            Db::connect(null, true);
+        }
+        if (self::$sqlitePath !== '' && is_file(self::$sqlitePath)) {
+            @unlink(self::$sqlitePath);
+        }
     }
 
     protected function tearDown(): void
@@ -139,5 +183,46 @@ final class SystemNotificationTest extends TestCase
         $methodReflection->setAccessible(true);
 
         return $methodReflection->invokeArgs(null, $arguments);
+    }
+
+    private static function createSqliteTables(): void
+    {
+        Db::execute("
+            CREATE TABLE IF NOT EXISTS system_notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hotel_id INTEGER DEFAULT NULL,
+                user_id INTEGER DEFAULT NULL,
+                platform TEXT NOT NULL DEFAULT 'ota',
+                category TEXT NOT NULL DEFAULT 'general',
+                severity TEXT NOT NULL DEFAULT 'info',
+                title TEXT NOT NULL,
+                message TEXT DEFAULT NULL,
+                action_type TEXT DEFAULT NULL,
+                action_payload TEXT DEFAULT NULL,
+                source_module TEXT NOT NULL DEFAULT 'system',
+                source_key TEXT NOT NULL UNIQUE,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                is_cleared INTEGER NOT NULL DEFAULT 0,
+                read_time TEXT DEFAULT NULL,
+                clear_time TEXT DEFAULT NULL,
+                create_time TEXT DEFAULT NULL,
+                update_time TEXT DEFAULT NULL
+            )
+        ");
+
+        Db::execute("
+            CREATE TABLE IF NOT EXISTS system_notification_user_states (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notification_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                is_cleared INTEGER NOT NULL DEFAULT 0,
+                read_time TEXT DEFAULT NULL,
+                clear_time TEXT DEFAULT NULL,
+                create_time TEXT DEFAULT NULL,
+                update_time TEXT DEFAULT NULL,
+                UNIQUE(notification_id, user_id)
+            )
+        ");
     }
 }
