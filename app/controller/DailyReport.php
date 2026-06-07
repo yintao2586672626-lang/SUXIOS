@@ -1525,14 +1525,25 @@ class DailyReport extends Base
         $userId = (int)($this->currentUser->id ?? 0);
         $username = trim((string)($this->currentUser->realname ?? $this->currentUser->username ?? 'unknown'));
         $exportedAt = date('Y-m-d H:i:s');
+        $tenantId = (int)($this->currentUser->tenant_id ?? 0);
+        if ($tenantId <= 0) {
+            $tenantId = $hotelId ?? (int)($this->currentUser->hotel_id ?? 0);
+        }
+        $requestId = trim((string)($this->request->request_id ?? $this->request->header('X-Request-ID', '')));
+        if ($requestId === '') {
+            $requestId = 'missing_request_id';
+        }
 
         return [
+            'tenant_id' => $tenantId > 0 ? $tenantId : null,
             'user_id' => $userId,
             'username' => $username,
             'hotel_id' => $hotelId,
             'report_count' => $reportCount,
             'exported_at' => $exportedAt,
-            'text' => sprintf('SUXIOS Export Watermark | user=%s#%d | hotel=%s | count=%d | time=%s', $username, $userId, $hotelId ?? 'mixed', $reportCount, $exportedAt),
+            'generated_at' => $exportedAt,
+            'request_id' => $requestId,
+            'text' => sprintf('SUXIOS Export Watermark | tenant=%s | user=%s#%d | hotel=%s | request=%s | count=%d | generated=%s', $tenantId > 0 ? (string)$tenantId : 'unknown', $username, $userId, $hotelId ?? 'mixed', $requestId, $reportCount, $exportedAt),
         ];
     }
 
@@ -1611,6 +1622,9 @@ class DailyReport extends Base
             [
                 'audit_type' => 'operation',
                 'filename' => $filename,
+                'tenant_id' => $exportData['watermark']['tenant_id'] ?? null,
+                'request_id' => $exportData['watermark']['request_id'] ?? null,
+                'generated_at' => $exportData['watermark']['generated_at'] ?? null,
                 'report_count' => $exportData['watermark']['report_count'] ?? null,
                 'watermark' => $exportData['watermark']['text'] ?? '',
             ]

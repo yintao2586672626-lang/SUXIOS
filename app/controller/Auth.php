@@ -244,7 +244,23 @@ class Auth extends Base
             'can_view_online_data' => $user->hasPermission('can_view_online_data'),
             'can_fetch_online_data' => $user->hasPermission('can_fetch_online_data'),
             'can_delete_online_data' => $user->hasPermission('can_delete_online_data'),
+            'can_use_ai_decision' => $this->roleAllows($user, 'can_use_ai_decision'),
+            'can_use_investment' => $this->roleAllows($user, 'can_use_investment'),
+            'can_export_data' => $this->roleAllows($user, 'can_export_data'),
+            'can_view_field_assets' => $this->roleAllows($user, 'can_view_field_assets'),
+            'can_view_diagnostics' => $this->roleAllows($user, 'can_view_diagnostics'),
+            'can_manage_ai_governance' => $this->roleAllows($user, 'can_manage_ai_governance'),
         ];
+    }
+
+    private function roleAllows(User $user, string $permission): bool
+    {
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+
+        $role = $user->role;
+        return $role instanceof Role && $role->hasPermission($permission);
     }
 
     private function isEnabledConfigValue($value): bool

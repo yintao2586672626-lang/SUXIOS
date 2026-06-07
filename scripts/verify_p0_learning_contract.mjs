@@ -13,6 +13,11 @@ const openHotelModalEnd = publicSource.indexOf('const saveHotel = async () =>', 
 const openHotelModalSource = openHotelModalStart >= 0 && openHotelModalEnd > openHotelModalStart
   ? publicSource.slice(openHotelModalStart, openHotelModalEnd)
   : '';
+const meituanVisibleRankInsightStart = publicSource.indexOf('const meituanVisibleRankInsightCards = computed');
+const meituanVisibleRankInsightEnd = publicSource.indexOf('const meituanRankHealthRows = computed', meituanVisibleRankInsightStart);
+const meituanVisibleRankInsightSource = meituanVisibleRankInsightStart >= 0 && meituanVisibleRankInsightEnd > meituanVisibleRankInsightStart
+  ? publicSource.slice(meituanVisibleRankInsightStart, meituanVisibleRankInsightEnd)
+  : '';
 
 const checks = [
   {
@@ -44,6 +49,11 @@ const checks = [
       && controllerSource.includes("'readiness' => $this->buildMeituanCompetitorSummaryReadiness([], $context, false)"),
   },
   {
+    name: 'competitor summary uses latest data_date before fetch time',
+    pass: /if\s*\(isset\(\$columns\['data_date'\]\)\)\s*\{\s*\$query->order\('data_date',\s*'desc'\);\s*\}\s*\$this->orderOnlineDataByFetchTime\(\$query,\s*\$columns,\s*'desc'\);/.test(controllerSource)
+      && controllerSource.includes('Meituan ranking modules are written as adjacent batches for one'),
+  },
+  {
     name: 'Meituan VIP and platform tags are recorded as field assets',
     pass: controllerSource.includes("'platformTags' => $platformTagInfo['tags']")
       && controllerSource.includes("'hasVipTag' => $hasVipTag")
@@ -70,6 +80,26 @@ const checks = [
       && publicSource.includes('hotelCompetitorReadiness(hotelFormAccountHotel())')
       && publicSource.includes('const competitorSummaryReadiness = (summary, hotel = null)')
       && publicSource.includes('const competitorSummaryReadinessClass = (readiness)'),
+  },
+  {
+    name: 'Meituan ranking page refreshes competitor summary for selected hotel',
+    pass: publicSource.includes('const meituanRankingHotelId = currentPage.value === \'meituan-ebooking\' && onlineDataTab.value === \'meituan-ranking\'')
+      && publicSource.includes('const summaryHotelId = meituanRankingHotelId || String(filterReportHotel.value || \'\')')
+      && publicSource.includes('await loadCompetitorSummary();'),
+  },
+  {
+    name: 'Meituan selected-hotel binding prompt uses saved config identifiers',
+    pass: publicSource.includes('selectedMeituanHotelConfig.partner_id || selectedMeituanHotelConfig.partnerId')
+      && publicSource.includes('selectedMeituanHotelConfig.poi_id || selectedMeituanHotelConfig.poiId || selectedMeituanHotelConfig.store_id || selectedMeituanHotelConfig.storeId')
+      && publicSource.includes('firstNonEmptyText(config.partner_id, config.partnerId)')
+      && publicSource.includes('firstNonEmptyText(config.poi_id, config.poiId, config.store_id, config.storeId)')
+      && publicSource.includes("const res = await request('/online-data/get-meituan-config-list')")
+      && publicSource.includes('configSource = findMeituanConfigByHotelId(meituanForm.value.hotelId)'),
+  },
+  {
+    name: 'Meituan ranking insights are not overwritten by client table sort',
+    pass: meituanVisibleRankInsightSource.includes("card?.key !== 'tag-metric-link'")
+      && !meituanVisibleRankInsightSource.includes('meituanDynamicSelfRankRow'),
   },
   {
     name: 'frontend surfaces VIP platform tag evidence without inference',

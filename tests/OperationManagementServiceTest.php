@@ -192,6 +192,69 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame('ok', $summary['data_status']);
     }
 
+    public function testMeituanRankBatchChangesDetectTopSelfRankAndVipSignals(): void
+    {
+        $service = new OperationManagementService();
+        $targetPoiId = 'self-poi';
+
+        $currentHotels = $this->invokeNonPublic($service, 'buildMeituanRankHotels', [[
+            [
+                'data_date' => '2026-06-06',
+                'update_time' => '2026-06-06 09:00:00',
+                'raw_data' => json_encode(['poiId' => 'top-new', 'poiName' => 'New Top Hotel', 'rank' => 1, 'platformTags' => ['VIP'], 'hasVipTag' => true], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'data_date' => '2026-06-06',
+                'update_time' => '2026-06-06 09:00:00',
+                'raw_data' => json_encode(['poiId' => $targetPoiId, 'poiName' => 'Self Hotel', 'rank' => 4, 'platformTags' => ['regular']], JSON_UNESCAPED_UNICODE),
+            ],
+        ], $targetPoiId]);
+        $previousHotels = $this->invokeNonPublic($service, 'buildMeituanRankHotels', [[
+            [
+                'data_date' => '2026-06-05',
+                'update_time' => '2026-06-05 09:00:00',
+                'raw_data' => json_encode(['poiId' => 'top-old', 'poiName' => 'Old Top Hotel', 'rank' => 1, 'platformTags' => ['regular']], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'data_date' => '2026-06-05',
+                'update_time' => '2026-06-05 09:00:00',
+                'raw_data' => json_encode(['poiId' => $targetPoiId, 'poiName' => 'Self Hotel', 'rank' => 2, 'platformTags' => ['regular']], JSON_UNESCAPED_UNICODE),
+            ],
+        ], $targetPoiId]);
+
+        $current = $this->invokeNonPublic($service, 'summarizeMeituanRankBatchSnapshot', [$currentHotels, '2026-06-06', '2026-06-06 09:00:00', 2]);
+        $previous = $this->invokeNonPublic($service, 'summarizeMeituanRankBatchSnapshot', [$previousHotels, '2026-06-05', '2026-06-05 09:00:00', 2]);
+        $changes = $this->invokeNonPublic($service, 'summarizeMeituanRankBatchChanges', [$current, $previous]);
+
+        self::assertSame('changed', $changes['status']);
+        $types = array_column($changes['alerts'], 'type');
+        self::assertContains('top1_changed', $types);
+        self::assertContains('self_rank_changed', $types);
+        self::assertContains('vip_count_changed', $types);
+    }
+
+    public function testMeituanRankBatchChangesKeepMissingEvidenceExplicit(): void
+    {
+        $service = new OperationManagementService();
+        $targetPoiId = 'self-poi';
+
+        $currentHotels = $this->invokeNonPublic($service, 'buildMeituanRankHotels', [[
+            ['data_date' => '2026-06-06', 'raw_data' => json_encode(['poiId' => $targetPoiId, 'poiName' => 'Self Hotel'], JSON_UNESCAPED_UNICODE)],
+        ], $targetPoiId]);
+        $previousHotels = $this->invokeNonPublic($service, 'buildMeituanRankHotels', [[
+            ['data_date' => '2026-06-05', 'raw_data' => json_encode(['poiId' => $targetPoiId, 'poiName' => 'Self Hotel'], JSON_UNESCAPED_UNICODE)],
+        ], $targetPoiId]);
+
+        $current = $this->invokeNonPublic($service, 'summarizeMeituanRankBatchSnapshot', [$currentHotels, '2026-06-06', '', 1]);
+        $previous = $this->invokeNonPublic($service, 'summarizeMeituanRankBatchSnapshot', [$previousHotels, '2026-06-05', '', 1]);
+        $changes = $this->invokeNonPublic($service, 'summarizeMeituanRankBatchChanges', [$current, $previous]);
+
+        self::assertSame('missing', $changes['status']);
+        self::assertSame([], $changes['alerts']);
+        self::assertStringContainsString('no VIP inference', $changes['missing_reason']);
+        self::assertStringContainsString('rank fields are not comparable', $changes['missing_reason']);
+    }
+
     private function metricValue(array $summary, string $key): mixed
     {
         foreach ($summary['metrics'] as $metric) {

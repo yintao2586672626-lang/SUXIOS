@@ -1872,63 +1872,7 @@ class OperationManagementService
         }
 
         $targetPoiId = $this->resolveMeituanTargetPoiId($hotelIds);
-        $hotels = [];
-        foreach ($batchRows as $row) {
-            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
-            $poiId = $this->firstStringValue($raw, ['poiId', 'poi_id', 'hotelId', 'hotel_id'], (string)($row['hotel_id'] ?? ''));
-            $hotelName = $this->firstStringValue($raw, ['poiName', 'poi_name', 'hotelName', 'hotel_name', 'shopName', 'name'], (string)($row['hotel_name'] ?? ''));
-            if ($poiId === '' && $hotelName === '') {
-                continue;
-            }
-
-            $key = $poiId !== '' ? $poiId : $hotelName;
-            if (!isset($hotels[$key])) {
-                $hotels[$key] = [
-                    'poi_id' => $poiId,
-                    'hotel_name' => $hotelName,
-                    'is_self' => $targetPoiId !== '' && $poiId !== '' && $poiId === $targetPoiId,
-                    'rank_values' => [],
-                    'rank_history' => [],
-                    'platform_tags' => [],
-                    'platform_tag_status' => 'not_returned',
-                    'has_vip_tag' => false,
-                    'metrics' => [],
-                ];
-            }
-
-            $rank = (int)($this->firstNumericValue($raw, ['rank', 'ranking', 'rankNo', 'rankIndex']) ?? 0);
-            $rankType = $this->firstStringValue($raw, ['rankType', 'rank_type'], '');
-            $dateRange = $this->firstStringValue($raw, ['dateRange', 'date_range'], '');
-            $metricField = $this->classifyMeituanRankMetric(
-                (string)($row['dimension'] ?? $raw['dimension'] ?? $raw['_dimName'] ?? ''),
-                (string)($raw['aiMetricName'] ?? $raw['ai_metric_name'] ?? $raw['_aiMetricName'] ?? ''),
-                $rankType
-            );
-            $metricValue = $this->firstNumericValue($raw, ['dataValue', 'data_value', 'value', 'metricValue'], $row['data_value'] ?? null);
-
-            if ($rank > 0) {
-                $hotels[$key]['rank_values'][] = $rank;
-                $hotels[$key]['rank_history'][] = [
-                    'rank' => $rank,
-                    'rank_type' => $rankType,
-                    'date_range' => $dateRange,
-                    'metric' => $metricField,
-                    'value' => $metricValue,
-                ];
-            }
-            if ($metricField !== '' && $metricValue !== null) {
-                $hotels[$key]['metrics'][$metricField] = (float)$metricValue;
-            }
-
-            $tagInfo = $this->meituanPlatformTagInfo($raw);
-            $hotels[$key]['platform_tags'] = $this->mergeStringValues($hotels[$key]['platform_tags'], $tagInfo['tags']);
-            if ($tagInfo['status'] !== 'not_returned') {
-                $hotels[$key]['platform_tag_status'] = $tagInfo['status'];
-            }
-            if (!empty($tagInfo['has_vip'])) {
-                $hotels[$key]['has_vip_tag'] = true;
-            }
-        }
+        $hotels = $this->buildMeituanRankHotels($batchRows, $targetPoiId);
 
         if (empty($hotels)) {
             $base['record_count'] = count($batchRows);
@@ -2014,6 +1958,23 @@ class OperationManagementService
         $base['returned_empty_count'] = $tagSummary['returned_empty_count'];
         $base['not_returned_count'] = $tagSummary['not_returned_count'];
         $base['target_poi_bound'] = $targetPoiId !== '';
+        $previousBatchRows = $this->previousMeituanRankBatchRows($rows, $latestDataDate, $latestFetchedAt);
+        $currentChangeSnapshot = $this->summarizeMeituanRankBatchSnapshot($hotels, $latestDataDate, $latestFetchedAt, count($batchRows));
+        $previousChangeSnapshot = !empty($previousBatchRows)
+            ? $this->summarizeMeituanRankBatchSnapshot(
+                $this->buildMeituanRankHotels($previousBatchRows, $targetPoiId),
+                (string)($previousBatchRows[0]['data_date'] ?? ''),
+                $this->maxOnlineRowFetchedAt($previousBatchRows),
+                count($previousBatchRows)
+            )
+            : [];
+        $changeMonitor = $this->summarizeMeituanRankBatchChanges($currentChangeSnapshot, $previousChangeSnapshot);
+
+        $base['previous_data_date'] = (string)($previousChangeSnapshot['data_date'] ?? '');
+        $base['previous_fetched_at'] = (string)($previousChangeSnapshot['fetched_at'] ?? '');
+        $base['change_monitor_status'] = $changeMonitor['status'];
+        $base['change_missing_reason'] = $changeMonitor['missing_reason'];
+        $base['change_alerts'] = $changeMonitor['alerts'];
         $base['source_ref'] = 'online_daily_data.raw_data.platformTags/platformTagStatus/rank';
 
         return $base;
@@ -2027,6 +1988,8 @@ class OperationManagementService
             'privacy_scope' => 'Platform hotel tags and ranking aggregates only; excludes guest privacy, order phone, room status and room-source mapping.',
             'latest_data_date' => '',
             'latest_fetched_at' => '',
+            'previous_data_date' => '',
+            'previous_fetched_at' => '',
             'record_count' => 0,
             'sample_count' => 0,
             'hotel_count' => 0,
@@ -2047,6 +2010,266 @@ class OperationManagementService
             'returned_empty_count' => 0,
             'not_returned_count' => 0,
             'target_poi_bound' => false,
+            'change_monitor_status' => 'missing',
+            'change_missing_reason' => 'No comparable previous Meituan ranking batch found.',
+            'change_alerts' => [],
+        ];
+    }
+
+    private function buildMeituanRankHotels(array $batchRows, string $targetPoiId): array
+    {
+        $hotels = [];
+        foreach ($batchRows as $row) {
+            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
+            $poiId = $this->firstStringValue($raw, ['poiId', 'poi_id', 'hotelId', 'hotel_id'], (string)($row['hotel_id'] ?? ''));
+            $hotelName = $this->firstStringValue($raw, ['poiName', 'poi_name', 'hotelName', 'hotel_name', 'shopName', 'name'], (string)($row['hotel_name'] ?? ''));
+            if ($poiId === '' && $hotelName === '') {
+                continue;
+            }
+
+            $key = $poiId !== '' ? $poiId : $hotelName;
+            if (!isset($hotels[$key])) {
+                $hotels[$key] = [
+                    'poi_id' => $poiId,
+                    'hotel_name' => $hotelName,
+                    'is_self' => $targetPoiId !== '' && $poiId !== '' && $poiId === $targetPoiId,
+                    'rank_values' => [],
+                    'rank_history' => [],
+                    'platform_tags' => [],
+                    'platform_tag_status' => 'not_returned',
+                    'has_vip_tag' => false,
+                    'metrics' => [],
+                ];
+            }
+
+            $rank = (int)($this->firstNumericValue($raw, ['rank', 'ranking', 'rankNo', 'rankIndex']) ?? 0);
+            $rankType = $this->firstStringValue($raw, ['rankType', 'rank_type'], '');
+            $dateRange = $this->firstStringValue($raw, ['dateRange', 'date_range'], '');
+            $metricField = $this->classifyMeituanRankMetric(
+                (string)($row['dimension'] ?? $raw['dimension'] ?? $raw['_dimName'] ?? ''),
+                (string)($raw['aiMetricName'] ?? $raw['ai_metric_name'] ?? $raw['_aiMetricName'] ?? ''),
+                $rankType
+            );
+            $metricValue = $this->firstNumericValue($raw, ['dataValue', 'data_value', 'value', 'metricValue'], $row['data_value'] ?? null);
+
+            if ($rank > 0) {
+                $hotels[$key]['rank_values'][] = $rank;
+                $hotels[$key]['rank_history'][] = [
+                    'rank' => $rank,
+                    'rank_type' => $rankType,
+                    'date_range' => $dateRange,
+                    'metric' => $metricField,
+                    'value' => $metricValue,
+                ];
+            }
+            if ($metricField !== '' && $metricValue !== null) {
+                $hotels[$key]['metrics'][$metricField] = (float)$metricValue;
+            }
+
+            $tagInfo = $this->meituanPlatformTagInfo($raw);
+            $hotels[$key]['platform_tags'] = $this->mergeStringValues($hotels[$key]['platform_tags'], $tagInfo['tags']);
+            if ($tagInfo['status'] !== 'not_returned') {
+                $hotels[$key]['platform_tag_status'] = $tagInfo['status'];
+            }
+            if (!empty($tagInfo['has_vip'])) {
+                $hotels[$key]['has_vip_tag'] = true;
+            }
+        }
+
+        uasort($hotels, static function (array $a, array $b): int {
+            $rankA = !empty($a['rank_values']) ? min($a['rank_values']) : PHP_INT_MAX;
+            $rankB = !empty($b['rank_values']) ? min($b['rank_values']) : PHP_INT_MAX;
+            if ($rankA !== $rankB) {
+                return $rankA <=> $rankB;
+            }
+            return strcmp((string)$a['hotel_name'], (string)$b['hotel_name']);
+        });
+
+        return $hotels;
+    }
+
+    private function previousMeituanRankBatchRows(array $rows, string $latestDataDate, string $latestFetchedAt): array
+    {
+        $batches = [];
+        foreach ($rows as $row) {
+            $dataDate = (string)($row['data_date'] ?? '');
+            if ($dataDate === '' || ($latestDataDate !== '' && strcmp($dataDate, $latestDataDate) > 0)) {
+                continue;
+            }
+
+            $fetchedAt = $this->onlineRowFetchedAt($row);
+            if ($dataDate === $latestDataDate) {
+                if ($latestFetchedAt === '' || $fetchedAt === '' || strcmp($fetchedAt, $latestFetchedAt) >= 0) {
+                    continue;
+                }
+            }
+
+            $key = $dataDate . '|' . $fetchedAt;
+            if (!isset($batches[$key])) {
+                $batches[$key] = [
+                    'data_date' => $dataDate,
+                    'fetched_at' => $fetchedAt,
+                    'rows' => [],
+                ];
+            }
+            $batches[$key]['rows'][] = $row;
+        }
+
+        if (empty($batches)) {
+            return [];
+        }
+
+        usort($batches, static function (array $a, array $b): int {
+            $dateCompare = strcmp((string)$b['data_date'], (string)$a['data_date']);
+            if ($dateCompare !== 0) {
+                return $dateCompare;
+            }
+            return strcmp((string)$b['fetched_at'], (string)$a['fetched_at']);
+        });
+
+        return $batches[0]['rows'] ?? [];
+    }
+
+    private function summarizeMeituanRankBatchSnapshot(array $hotels, string $dataDate, string $fetchedAt, int $recordCount): array
+    {
+        $rankedHotels = array_values(array_filter($hotels, static fn(array $hotel): bool => !empty($hotel['rank_values'])));
+        $selfHotel = null;
+        foreach ($hotels as $hotel) {
+            if (!empty($hotel['is_self'])) {
+                $selfHotel = $hotel;
+                break;
+            }
+        }
+
+        $topHotel = $rankedHotels[0] ?? null;
+        $selfRank = is_array($selfHotel) && !empty($selfHotel['rank_values']) ? min($selfHotel['rank_values']) : null;
+        $topRank = is_array($topHotel) && !empty($topHotel['rank_values']) ? min($topHotel['rank_values']) : null;
+        $tagSummary = $this->summarizeMeituanPlatformTags($hotels);
+
+        return [
+            'data_date' => $dataDate,
+            'fetched_at' => $fetchedAt,
+            'record_count' => $recordCount,
+            'hotel_count' => count($hotels),
+            'has_rank_evidence' => !empty($rankedHotels),
+            'has_top1_evidence' => is_array($topHotel) && $topRank !== null,
+            'has_self_rank_evidence' => $selfRank !== null,
+            'top_hotel_name' => is_array($topHotel) ? (string)($topHotel['hotel_name'] ?? '') : '',
+            'top_poi_id' => is_array($topHotel) ? (string)($topHotel['poi_id'] ?? '') : '',
+            'top_rank' => $topRank,
+            'self_rank' => $selfRank,
+            'platform_tag_status' => $tagSummary['status'],
+            'has_platform_tag_evidence' => $tagSummary['status'] !== 'not_returned',
+            'vip_count' => $tagSummary['vip_count'],
+            'tag_returned_count' => $tagSummary['returned_count'],
+            'returned_empty_count' => $tagSummary['returned_empty_count'],
+        ];
+    }
+
+    private function summarizeMeituanRankBatchChanges(array $current, array $previous): array
+    {
+        if (empty($previous)) {
+            return [
+                'status' => 'missing',
+                'missing_reason' => 'No comparable previous Meituan ranking batch found.',
+                'alerts' => [],
+            ];
+        }
+
+        $alerts = [];
+        $missingReasons = [];
+        $hasComparableEvidence = false;
+
+        $currentTopKey = (string)(($current['top_poi_id'] ?? '') ?: ($current['top_hotel_name'] ?? ''));
+        $previousTopKey = (string)(($previous['top_poi_id'] ?? '') ?: ($previous['top_hotel_name'] ?? ''));
+        if (($current['has_top1_evidence'] ?? false) && ($previous['has_top1_evidence'] ?? false) && $currentTopKey !== '' && $previousTopKey !== '') {
+            $hasComparableEvidence = true;
+            if ($currentTopKey !== $previousTopKey) {
+                $alerts[] = [
+                    'type' => 'top1_changed',
+                    'level' => 'medium',
+                    'title' => 'Meituan TOP1 changed',
+                    'message' => 'Meituan competitor TOP1 changed from ' . (string)($previous['top_hotel_name'] ?? '') . ' to ' . (string)($current['top_hotel_name'] ?? '') . '.',
+                    'current' => ['top_hotel_name' => $current['top_hotel_name'] ?? '', 'top_rank' => $current['top_rank'] ?? null],
+                    'previous' => ['top_hotel_name' => $previous['top_hotel_name'] ?? '', 'top_rank' => $previous['top_rank'] ?? null],
+                ];
+            }
+        } else {
+            $missingReasons[] = 'TOP1 rank fields are not comparable.';
+        }
+
+        if (($current['has_self_rank_evidence'] ?? false) && ($previous['has_self_rank_evidence'] ?? false)) {
+            $hasComparableEvidence = true;
+            $currentRank = (int)($current['self_rank'] ?? 0);
+            $previousRank = (int)($previous['self_rank'] ?? 0);
+            if ($currentRank > 0 && $previousRank > 0 && $currentRank !== $previousRank) {
+                $direction = $currentRank < $previousRank ? 'up' : 'down';
+                $delta = abs($currentRank - $previousRank);
+                $alerts[] = [
+                    'type' => 'self_rank_changed',
+                    'level' => $direction === 'down' ? 'medium' : 'low',
+                    'title' => 'Meituan self rank changed',
+                    'message' => 'Meituan self rank changed from ' . $previousRank . ' to ' . $currentRank . ' (' . $direction . ' ' . $delta . ').',
+                    'direction' => $direction,
+                    'delta' => $delta,
+                    'current' => ['self_rank' => $currentRank],
+                    'previous' => ['self_rank' => $previousRank],
+                ];
+            }
+        } else {
+            $missingReasons[] = 'Self rank fields are not comparable.';
+        }
+
+        $currentTagStatus = (string)($current['platform_tag_status'] ?? '');
+        $previousTagStatus = (string)($previous['platform_tag_status'] ?? '');
+        if ($currentTagStatus !== '' && $previousTagStatus !== '') {
+            if ($currentTagStatus !== 'not_returned' || $previousTagStatus !== 'not_returned') {
+                $hasComparableEvidence = true;
+            }
+            if ($currentTagStatus !== $previousTagStatus) {
+                $hasComparableEvidence = true;
+                $alerts[] = [
+                    'type' => 'platform_tag_status_changed',
+                    'level' => 'low',
+                    'title' => 'Meituan platform tag status changed',
+                    'message' => 'Meituan platform tag return status changed from ' . $previousTagStatus . ' to ' . $currentTagStatus . '; missing tags do not imply non-VIP.',
+                    'current' => ['platform_tag_status' => $currentTagStatus],
+                    'previous' => ['platform_tag_status' => $previousTagStatus],
+                ];
+            }
+        }
+
+        if (($current['has_platform_tag_evidence'] ?? false) && ($previous['has_platform_tag_evidence'] ?? false)) {
+            $hasComparableEvidence = true;
+            $currentVipCount = (int)($current['vip_count'] ?? 0);
+            $previousVipCount = (int)($previous['vip_count'] ?? 0);
+            if ($currentVipCount !== $previousVipCount) {
+                $alerts[] = [
+                    'type' => 'vip_count_changed',
+                    'level' => 'low',
+                    'title' => 'Meituan VIP tag count changed',
+                    'message' => 'Meituan VIP-tagged competitor count changed from ' . $previousVipCount . ' to ' . $currentVipCount . '.',
+                    'delta' => $currentVipCount - $previousVipCount,
+                    'current' => ['vip_count' => $currentVipCount],
+                    'previous' => ['vip_count' => $previousVipCount],
+                ];
+            }
+        } else {
+            $missingReasons[] = 'VIP/platform tag fields are not comparable; no VIP inference is made.';
+        }
+
+        if (!$hasComparableEvidence) {
+            return [
+                'status' => 'missing',
+                'missing_reason' => implode(' ', array_values(array_unique($missingReasons))),
+                'alerts' => [],
+            ];
+        }
+
+        return [
+            'status' => !empty($alerts) ? 'changed' : 'ok',
+            'missing_reason' => implode(' ', array_values(array_unique($missingReasons))),
+            'alerts' => $alerts,
         ];
     }
 
@@ -2559,6 +2782,12 @@ class OperationManagementService
         if (($full['competitors']['price_gap'] ?? 0) > 10) {
             $alerts[] = $this->alert($id++, $hotelId ?: ($hotelIds[0] ?? 0), 'price_high', 'medium', '价格偏高', '本店价格高于竞对均价', $date);
         }
+        $meituanSummary = $full['competitors']['meituan_rank_summary'] ?? [];
+        if (is_array($meituanSummary)) {
+            $meituanChangeAlerts = $this->meituanCompetitorChangeRuleAlerts($meituanSummary, $hotelId ?: ($hotelIds[0] ?? 0), $date, $id);
+            $alerts = array_merge($alerts, $meituanChangeAlerts);
+            $id += count($meituanChangeAlerts);
+        }
         $psiScore = (float)($full['service_quality']['avg_psi_score'] ?? 0);
         $serviceScore = (float)($full['service_quality']['avg_service_score'] ?? 0);
         if (($full['service_quality']['data_status'] ?? '') === self::DATA_OK && (($psiScore > 0 && $psiScore < 80) || ($serviceScore > 0 && $serviceScore < 80))) {
@@ -2566,6 +2795,53 @@ class OperationManagementService
         }
         if (($full['holiday']['days_left'] ?? 999) < 15 && ($full['holiday']['data_status'] ?? '') === self::DATA_OK) {
             $alerts[] = $this->alert($id++, $hotelId ?: ($hotelIds[0] ?? 0), 'holiday_near', 'low', '节假日临近', '距离下个节假日不足15天', $date);
+        }
+
+        return $alerts;
+    }
+
+    private function meituanCompetitorChangeRuleAlerts(array $summary, int $hotelId, string $date, int $startId): array
+    {
+        $signals = is_array($summary['change_alerts'] ?? null) ? $summary['change_alerts'] : [];
+        if (empty($signals) || $hotelId <= 0) {
+            return [];
+        }
+
+        $alerts = [];
+        $id = $startId;
+        foreach ($signals as $signal) {
+            if (!is_array($signal)) {
+                continue;
+            }
+
+            $signalType = strtolower(trim((string)($signal['type'] ?? '')));
+            $signalType = trim((string)preg_replace('/[^a-z0-9_]+/i', '_', $signalType), '_');
+            if ($signalType === '') {
+                continue;
+            }
+
+            $ruleAlert = $this->alert(
+                $id++,
+                $hotelId,
+                'meituan_competitor_' . $signalType,
+                (string)($signal['level'] ?? 'medium'),
+                (string)($signal['title'] ?? 'Meituan competitor ranking change'),
+                (string)($signal['message'] ?? 'Meituan competitor ranking changed.'),
+                $date,
+                'Review Meituan TOP1, self rank, VIP/platform tags and batch evidence; keep missing fields explicit and do not infer VIP.'
+            );
+            $ruleAlert['raw_data'] = [
+                'change_signal_type' => $signalType,
+                'change_monitor_status' => (string)($summary['change_monitor_status'] ?? ''),
+                'change_missing_reason' => (string)($summary['change_missing_reason'] ?? ''),
+                'latest_data_date' => (string)($summary['latest_data_date'] ?? ''),
+                'latest_fetched_at' => (string)($summary['latest_fetched_at'] ?? ''),
+                'previous_data_date' => (string)($summary['previous_data_date'] ?? ''),
+                'previous_fetched_at' => (string)($summary['previous_fetched_at'] ?? ''),
+                'privacy_scope' => (string)($summary['privacy_scope'] ?? ''),
+                'source_ref' => (string)($summary['source_ref'] ?? ''),
+            ];
+            $alerts[] = $ruleAlert;
         }
 
         return $alerts;

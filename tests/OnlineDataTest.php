@@ -31,6 +31,20 @@ final class OnlineDataTest extends TestCase
         self::assertContains('list_exposure', array_column($ctripTraffic['fields'], 'field'));
         self::assertContains('detail_exposure', array_column($ctripTraffic['fields'], 'field'));
 
+        $fieldAssetSummary = $this->invokeNonPublic($controller, 'summarizeOtaCollectionFieldDefinitions', [$definitions]);
+        self::assertGreaterThan(0, $fieldAssetSummary['stable_field_count']);
+        self::assertSame(2, $fieldAssetSummary['not_returned_field_count']);
+        self::assertSame(4, $fieldAssetSummary['forbidden_field_count']);
+        self::assertSame(
+            $fieldAssetSummary['field_count'] - $fieldAssetSummary['forbidden_field_count'],
+            $fieldAssetSummary['collectable_field_count']
+        );
+        self::assertContains('raw_data.platformTagStatus', array_column($fieldAssetSummary['not_returned_fields'], 'field'));
+        self::assertContains('guest_phone', array_column($fieldAssetSummary['forbidden_fields'], 'field'));
+        self::assertContains('order_phone', array_column($fieldAssetSummary['forbidden_fields'], 'field'));
+        self::assertContains('room_status', array_column($fieldAssetSummary['forbidden_fields'], 'field'));
+        self::assertContains('room_source_mapping', array_column($fieldAssetSummary['forbidden_fields'], 'field'));
+
         $snapshot = $this->invokeNonPublic($controller, 'buildCollectionQualitySnapshot', [[
             [
                 'hotel_id' => '1001',
@@ -900,6 +914,56 @@ final class OnlineDataTest extends TestCase
         self::assertGreaterThan(0, $rowsByPoi['SELF']['gapToPrev']);
         self::assertNotEmpty($payload['rank_insights']);
         self::assertNotEmpty($payload['rank_health_rows']);
+    }
+
+    public function testStoredMeituanSummaryInfersRankTypesAndKeepsFullDateSliceReliable(): void
+    {
+        $controller = $this->controller();
+        $rows = [];
+        foreach ([
+            ['dimension' => '入住间夜榜', 'top_value' => 15, 'self_value' => 10, 'column' => 'quantity'],
+            ['dimension' => '销售额榜', 'top_value' => 3000, 'self_value' => 2000, 'column' => 'amount'],
+            ['dimension' => '曝光榜', 'top_value' => 1000, 'self_value' => 700, 'column' => 'data_value'],
+            ['dimension' => '支付转化榜', 'top_value' => 0.12, 'self_value' => 0.08, 'column' => 'data_value'],
+        ] as $item) {
+            foreach ([
+                ['poi' => 'TOP', 'name' => 'Top Hotel', 'value' => $item['top_value'], 'rank' => 1],
+                ['poi' => 'SELF', 'name' => 'Self Hotel', 'value' => $item['self_value'], 'rank' => 2],
+            ] as $hotel) {
+                $row = [
+                    'system_hotel_id' => 100,
+                    'hotel_id' => $hotel['poi'],
+                    'hotel_name' => $hotel['name'],
+                    'data_date' => '2026-06-06',
+                    'data_value' => 0,
+                    'quantity' => 0,
+                    'amount' => 0,
+                    'dimension' => $item['dimension'],
+                    'raw_data' => json_encode([
+                        'poiName' => $hotel['name'],
+                        'dataValue' => $hotel['value'],
+                        'rank' => $hotel['rank'],
+                        'dimension' => $item['dimension'],
+                        'platformTagStatus' => 'returned_empty',
+                    ], JSON_UNESCAPED_UNICODE),
+                ];
+                $row[$item['column']] = $hotel['value'];
+                $rows[] = $row;
+            }
+        }
+
+        $payload = $this->invokeNonPublic($controller, 'buildMeituanCompetitorSummaryFromStoredRows', [$rows, [
+            'system_hotel_id' => 100,
+            'target_poi_id' => 'SELF',
+        ]]);
+
+        self::assertSame('ok', $payload['readiness']['status']);
+        self::assertSame(2, $payload['display_hotel_count']);
+        self::assertSame('Top Hotel', $payload['top_summary_rows'][0]['hotelName']);
+        self::assertSame(['P_RZ', 'P_XS', 'P_LL', 'P_ZH'], array_column($payload['rank_health_rows'], 'key'));
+        self::assertSame(['ok', 'ok', 'ok', 'ok'], array_column($payload['rank_health_rows'], 'status'));
+        self::assertSame('returned_empty', $payload['display_summary']['platform_tag_summary']['status']);
+        self::assertSame(0, $payload['display_summary']['platform_tag_summary']['vip_count']);
     }
 
     public function testCtripTrafficDateRangeCoversPresetsCustomAndInvalidInput(): void
@@ -2802,6 +2866,65 @@ final class OnlineDataTest extends TestCase
         ], 'cookie_config']);
         self::assertSame('needs_config', $meituanMissingResult['status_code']);
         self::assertSame('补齐美团 Partner ID / POI ID / Cookies', $meituanMissingResult['next_action']);
+    }
+
+    public function testPlatformProfileBindingChecksExposeDirectP0Actions(): void
+    {
+        $controller = $this->controller();
+
+        $checks = $this->invokeNonPublic($controller, 'buildPlatformProfileBindingChecks', [
+            'meituan',
+            7,
+            ['hotel_id' => 7],
+            ['system_hotel_id' => 7, 'last_sync_status' => 'failed', 'last_error' => 'login expired'],
+            'capture_failed',
+            false,
+            '',
+        ]);
+        $byKey = [];
+        foreach ($checks as $check) {
+            $byKey[$check['key']] = $check;
+        }
+
+        self::assertSame('configure_meituan_poi', $byKey['platform_identity']['action_key']);
+        self::assertSame('补齐美团 POI/Store', $byKey['platform_identity']['action_label']);
+        self::assertSame('platform-sources', $byKey['platform_identity']['action_target']);
+        self::assertSame('open_sync_logs', $byKey['trial_capture']['action_key']);
+        self::assertSame('查看日志并重试采集', $byKey['trial_capture']['action_label']);
+        self::assertSame('sync-logs', $byKey['trial_capture']['action_target']);
+
+        $primary = $this->invokeNonPublic($controller, 'firstPlatformProfileBindingAction', [$checks]);
+        self::assertSame('profile_login', $primary['check_key']);
+        self::assertSame('open_sync_logs', $primary['action_key']);
+        self::assertSame('查看最近同步日志后重新检测登录状态', $primary['next_action']);
+    }
+
+    public function testPlatformProfileBindingChecksPromoteLoginActionWhenProfileNotLoggedIn(): void
+    {
+        $controller = $this->controller();
+
+        $checks = $this->invokeNonPublic($controller, 'buildPlatformProfileBindingChecks', [
+            'meituan',
+            7,
+            ['hotel_id' => 7, 'poi_id' => 'poi-7', 'partner_id' => 'partner-7'],
+            null,
+            'waiting_login',
+            false,
+            'poi-7',
+        ]);
+        $byKey = [];
+        foreach ($checks as $check) {
+            $byKey[$check['key']] = $check;
+        }
+        $primary = $this->invokeNonPublic($controller, 'firstPlatformProfileBindingAction', [$checks]);
+
+        self::assertSame('ok', $byKey['platform_identity']['status']);
+        self::assertSame('warning', $byKey['profile_login']['status']);
+        self::assertSame('profile_login', $primary['check_key']);
+        self::assertSame('login_platform_profile', $primary['action_key']);
+        self::assertSame('登录美团', $primary['action_label']);
+        self::assertSame('profile-login', $primary['action_target']);
+        self::assertSame('点击“登录美团”完成平台验证', $primary['next_action']);
     }
 
     public function testMeituanAutoFetchConfigStatusReportsMissingFields(): void

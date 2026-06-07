@@ -59,6 +59,7 @@ class SystemConfig extends Model
     const KEY_SESSION_TIMEOUT = 'session_timeout';
     const KEY_PASSWORD_MIN_LENGTH = 'password_min_length';
     const KEY_PASSWORD_REQUIRE_SPECIAL = 'password_require_special';
+    const KEY_PROTECTED_CAPABILITY_POLICY = 'protected_capability_policy';
     
     // 通知设置
     const KEY_NOTIFY_EMAIL_ENABLED = 'notify_email_enabled';
@@ -154,6 +155,12 @@ class SystemConfig extends Model
             self::KEY_SESSION_TIMEOUT => '14400',
             self::KEY_PASSWORD_MIN_LENGTH => '6',
             self::KEY_PASSWORD_REQUIRE_SPECIAL => '0',
+            self::KEY_PROTECTED_CAPABILITY_POLICY => json_encode([
+                'version' => 'p0',
+                'default_module_entitlement' => 'deny',
+                'default_enabled_modules' => [],
+                'tenant_modules' => [],
+            ], JSON_UNESCAPED_UNICODE),
             
             // 通知设置
             self::KEY_NOTIFY_EMAIL_ENABLED => '0',
@@ -234,6 +241,7 @@ class SystemConfig extends Model
                     self::KEY_SESSION_TIMEOUT,
                     self::KEY_PASSWORD_MIN_LENGTH,
                     self::KEY_PASSWORD_REQUIRE_SPECIAL,
+                    self::KEY_PROTECTED_CAPABILITY_POLICY,
                 ],
             ],
             'notification' => [
@@ -297,6 +305,7 @@ class SystemConfig extends Model
             self::KEY_SESSION_TIMEOUT => '会话超时时间(分钟)',
             self::KEY_PASSWORD_MIN_LENGTH => '密码最小长度',
             self::KEY_PASSWORD_REQUIRE_SPECIAL => '密码要求特殊字符',
+            self::KEY_PROTECTED_CAPABILITY_POLICY => '高价值能力后端保护策略 JSON',
             
             // 通知设置
             self::KEY_NOTIFY_EMAIL_ENABLED => '启用邮件通知',

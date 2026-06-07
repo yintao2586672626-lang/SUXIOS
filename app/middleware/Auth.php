@@ -4,92 +4,132 @@ declare(strict_types=1);
 namespace app\middleware;
 
 use app\model\OperationLog;
+use app\model\SystemNotification;
 use app\model\User;
 use app\service\OperationAuditClassifier;
+use app\service\ProtectedCapabilityService;
 use Closure;
 use think\Request;
 use think\Response;
 
 class Auth
 {
-    /**
-     * 处理请求
-     */
+    private ?ProtectedCapabilityService $protectedCapabilityService = null;
+
     public function handle(Request $request, Closure $next): Response
     {
-        // 获取 Token
-        $authHeader = $request->header('Authorization', '');
-        
-        // 处理 Bearer Token 格式
+        $requestId = $this->resolveRequestId($request);
+        $authHeader = (string)$request->header('Authorization', '');
+
         $token = '';
         if (preg_match('/Bearer\s+(.+)$/i', $authHeader, $matches)) {
-            $token = $matches[1];
-        } elseif (!empty($authHeader)) {
-            // 兼容直接传递 token 的情况
-            $token = $authHeader;
-        }
-        
-        if (empty($token)) {
-            return json([
-                'code' => 401,
-                'message' => '未提供认证令牌',
-                'data' => null,
-            ], 401);
+            $token = trim($matches[1]);
+        } elseif ($authHeader !== '') {
+            $token = trim($authHeader);
         }
 
-        // 从缓存中获取Token数据
+        if ($token === '') {
+            return $this->withRequestId($this->authErrorResponse(401, 'missing_token', $requestId), $requestId);
+        }
+
         $tokenData = cache('token_' . $token);
-        
         if (!$tokenData) {
-            return json([
-                'code' => 401,
-                'message' => '登录已过期，请重新登录',
-                'data' => null,
-            ], 401);
+            return $this->withRequestId($this->authErrorResponse(401, 'token_expired', $requestId), $requestId);
         }
 
-        // 兼容旧版Token格式
         $userId = is_array($tokenData) ? ($tokenData['user_id'] ?? null) : $tokenData;
-        
         if (!$userId) {
-            return json([
-                'code' => 401,
-                'message' => '认证信息无效',
-                'data' => null,
-            ], 401);
+            return $this->withRequestId($this->authErrorResponse(401, 'invalid_token', $requestId), $requestId);
         }
 
-        // 获取用户信息
         $user = User::find($userId);
-        
         if (!$user) {
-            return json([
-                'code' => 401,
-                'message' => '用户不存在',
-                'data' => null,
-            ], 401);
+            return $this->withRequestId($this->authErrorResponse(401, 'user_not_found', $requestId), $requestId);
         }
 
         if ($user->status != User::STATUS_ENABLED) {
-            return json([
-                'code' => 403,
-                'message' => '账号已被禁用',
-                'data' => null,
-            ], 403);
+            return $this->withRequestId($this->authErrorResponse(403, 'user_disabled', $requestId), $requestId);
         }
 
-        $rateLimitResponse = $this->enforceRateLimit($request, $user);
-        if ($rateLimitResponse !== null) {
-            return $rateLimitResponse;
-        }
-
-        // 将用户信息注入请求
         $request->user = $user;
+        $request->request_id = $requestId;
+
+        $protectedCapabilityService = $this->protectedCapabilityService();
+        $capability = $protectedCapabilityService->classifyPath($request->method(), $request->url());
+
+        $rateLimitResponse = $this->enforceRateLimit($request, $user, $capability, $requestId);
+        if ($rateLimitResponse !== null) {
+            return $this->withRequestId($rateLimitResponse, $requestId);
+        }
+
+        if ($capability !== null) {
+            $authorization = $protectedCapabilityService->authorizeContext($user, $capability, $request->param());
+            if (empty($authorization['allowed'])) {
+                $this->recordProtectedAccessDenied($request, $user, $capability, $authorization, $requestId);
+                return $this->withRequestId($this->protectedAccessDeniedResponse($capability, $authorization, $requestId), $requestId);
+            }
+        }
 
         $response = $next($request);
+        if ($capability !== null) {
+            $response = $this->redactProtectedResponse($request, $response, $protectedCapabilityService, $capability, $user, $requestId);
+        }
         $this->recordDataAudit($request, $response, $user);
 
-        return $response;
+        return $this->withRequestId($response, $requestId);
+    }
+
+    private function protectedCapabilityService(): ProtectedCapabilityService
+    {
+        if ($this->protectedCapabilityService === null) {
+            $this->protectedCapabilityService = new ProtectedCapabilityService();
+        }
+
+        return $this->protectedCapabilityService;
+    }
+
+    private function authErrorResponse(int $status, string $reason, string $requestId): Response
+    {
+        $messages = [
+            'missing_token' => '未提供认证令牌',
+            'token_expired' => '登录已过期，请重新登录',
+            'invalid_token' => '认证信息无效',
+            'user_not_found' => '用户不存在',
+            'user_disabled' => '账号已被禁用',
+        ];
+
+        return json([
+            'code' => $status,
+            'message' => $messages[$reason] ?? ($status === 403 ? 'Forbidden' : 'Unauthorized'),
+            'data' => [
+                'reason' => $reason,
+                'reference_id' => $requestId,
+            ],
+            'request_id' => $requestId,
+        ], $status);
+    }
+
+    /**
+     * @param array<string, mixed> $capability
+     * @param array<string, mixed> $authorization
+     */
+    private function protectedAccessDeniedResponse(array $capability, array $authorization, string $requestId): Response
+    {
+        return json([
+            'code' => 403,
+            'message' => 'Forbidden: protected capability is not authorized',
+            'data' => [
+                'redacted' => true,
+                'redacted_reason' => (string)($authorization['reason'] ?? 'protected_capability_denied'),
+                'reference_id' => $requestId,
+                'protected_capability' => (string)($capability['key'] ?? ''),
+                'required_permission' => (string)($authorization['required_permission'] ?? $capability['permission'] ?? ''),
+                'required_module' => (string)($authorization['required_module'] ?? $capability['module'] ?? ''),
+                'tenant_id' => (int)($authorization['tenant_id'] ?? 0),
+                'hotel_id' => (int)($authorization['hotel_id'] ?? 0),
+            ],
+            'request_id' => $requestId,
+        ], 403);
     }
 
     private function recordDataAudit(Request $request, Response $response, User $user): void
@@ -116,11 +156,12 @@ class Auth
                     'method' => strtoupper($request->method()),
                     'path' => $audit['path'],
                     'params' => $params,
+                    'request_id' => (string)($request->request_id ?? ''),
                     'response_status' => $statusCode,
                 ]
             );
         } catch (\Throwable $e) {
-            // 审计日志不能影响主业务请求。
+            // Audit logging must not break the protected business request.
         }
     }
 
@@ -160,48 +201,44 @@ class Auth
         return $safe;
     }
 
-    private function enforceRateLimit(Request $request, User $user): ?Response
+    /**
+     * @param array<string, mixed>|null $capability
+     */
+    private function enforceRateLimit(Request $request, User $user, ?array $capability = null, string $requestId = ''): ?Response
     {
-        $policy = $this->resolveRateLimitPolicy($request->method(), $request->url());
+        $policy = $this->resolveRateLimitPolicy($request->method(), $request->url(), $capability);
         $window = max(1, (int)$policy['window']);
         $limit = max(1, (int)$policy['limit']);
         $bucket = (int)floor(time() / $window);
-        $key = sprintf(
-            'rate_limit_%d_%s_%s_%d',
+        $params = $this->sanitizeAuditParams($request->param());
+        $tenantId = $this->resolveTenantIdForRateLimit($params, $user);
+        $path = (string)$policy['path'];
+        $key = $this->buildRateLimitCacheKey(
+            $tenantId,
             (int)$user->id,
-            $policy['scope'],
-            sha1(strtoupper($request->method()) . ':' . $policy['path']),
+            (string)$request->ip(),
+            (string)$policy['scope'],
+            strtoupper($request->method()),
+            $path,
             $bucket
         );
         $count = (int)cache($key);
 
         if ($count >= $limit) {
             $retryAfter = max(1, (($bucket + 1) * $window) - time());
-            OperationLog::record(
-                'security',
-                'rate_limited',
-                '请求触发限流: ' . $policy['path'],
-                (int)$user->id,
-                $this->resolveAuditHotelId($this->sanitizeAuditParams($request->param()), $user),
-                'HTTP 429',
-                [
-                    'audit_type' => 'operation',
-                    'method' => strtoupper($request->method()),
-                    'path' => $policy['path'],
-                    'scope' => $policy['scope'],
-                    'limit' => $limit,
-                    'window' => $window,
-                ]
-            );
+            $this->recordRateLimitExceeded($request, $user, $policy, $tenantId, $requestId, $retryAfter);
 
             return json([
                 'code' => 429,
-                'message' => '请求过于频繁，请稍后再试',
+                'message' => 'Too many requests',
                 'data' => [
                     'retry_after' => $retryAfter,
                     'limit' => $limit,
                     'window' => $window,
+                    'tenant_id' => $tenantId,
+                    'reference_id' => $requestId,
                 ],
+                'request_id' => $requestId,
             ], 429, ['Retry-After' => (string)$retryAfter]);
         }
 
@@ -210,10 +247,25 @@ class Auth
         return null;
     }
 
-    private function resolveRateLimitPolicy(string $method, string $uri): array
+    /**
+     * @param array<string, mixed>|null $capability
+     * @return array<string, mixed>
+     */
+    private function resolveRateLimitPolicy(string $method, string $uri, ?array $capability = null): array
     {
         $path = $this->normalizeRateLimitPath($uri);
         $method = strtoupper($method);
+
+        if (is_array($capability) && isset($capability['rate_limit']) && is_array($capability['rate_limit'])) {
+            $rateLimit = $capability['rate_limit'];
+            return [
+                'scope' => (string)($rateLimit['scope'] ?? ('protected_' . ($capability['key'] ?? 'capability'))),
+                'path' => $path,
+                'limit' => (int)($rateLimit['limit'] ?? 30),
+                'window' => (int)($rateLimit['window'] ?? 3600),
+                'capability' => (string)($capability['key'] ?? ''),
+            ];
+        }
 
         if ($path === 'api/daily-reports/export' || str_contains($path, '/export')) {
             return ['scope' => 'export', 'path' => $path, 'limit' => 10, 'window' => 3600];
@@ -240,5 +292,217 @@ class Auth
         }
 
         return trim(strtolower($path), '/');
+    }
+
+    private function buildRateLimitCacheKey(
+        int $tenantId,
+        int $userId,
+        string $ip,
+        string $scope,
+        string $method,
+        string $path,
+        int $bucket
+    ): string {
+        return sprintf(
+            'rate_limit_tenant_%d_user_%d_ip_%s_scope_%s_endpoint_%s_window_%d',
+            $tenantId,
+            $userId,
+            substr(sha1($ip), 0, 16),
+            preg_replace('/[^a-z0-9_\-]/i', '_', $scope),
+            sha1(strtoupper($method) . ':' . strtolower($path)),
+            $bucket
+        );
+    }
+
+    private function resolveTenantIdForRateLimit(array $params, User $user): int
+    {
+        foreach (['tenant_id', 'system_hotel_id', 'hotel_id'] as $key) {
+            if (isset($params[$key]) && is_numeric($params[$key]) && (int)$params[$key] > 0) {
+                return (int)$params[$key];
+            }
+        }
+
+        foreach (['tenant_id', 'hotel_id'] as $key) {
+            if (isset($user->{$key}) && is_numeric($user->{$key}) && (int)$user->{$key} > 0) {
+                return (int)$user->{$key};
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param array<string, mixed> $policy
+     */
+    private function recordRateLimitExceeded(Request $request, User $user, array $policy, int $tenantId, string $requestId, int $retryAfter): void
+    {
+        $hotelId = $this->resolveAuditHotelId($this->sanitizeAuditParams($request->param()), $user);
+        try {
+            OperationLog::record(
+                'security',
+                'rate_limited',
+                'Protected request rate limited: ' . $policy['path'],
+                (int)$user->id,
+                $hotelId,
+                'HTTP 429',
+                [
+                    'audit_type' => 'security',
+                    'method' => strtoupper($request->method()),
+                    'path' => $policy['path'],
+                    'scope' => $policy['scope'],
+                    'capability' => $policy['capability'] ?? '',
+                    'limit' => $policy['limit'],
+                    'window' => $policy['window'],
+                    'tenant_id' => $tenantId,
+                    'request_id' => $requestId,
+                    'retry_after' => $retryAfter,
+                ]
+            );
+        } catch (\Throwable $e) {
+            // Security audit failure must not mask the actual 429 boundary.
+        }
+
+        $this->recordSecurityNotification('rate_limited', $user, $hotelId, $requestId, [
+            'path' => (string)$policy['path'],
+            'scope' => (string)$policy['scope'],
+            'tenant_id' => $tenantId,
+            'retry_after' => $retryAfter,
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $capability
+     * @param array<string, mixed> $authorization
+     */
+    private function recordProtectedAccessDenied(Request $request, User $user, array $capability, array $authorization, string $requestId): void
+    {
+        $hotelId = (int)($authorization['hotel_id'] ?? 0) ?: $this->resolveAuditHotelId($this->sanitizeAuditParams($request->param()), $user);
+        try {
+            OperationLog::record(
+                'security',
+                'protected_access_denied',
+                'Protected capability denied: ' . ($capability['key'] ?? ''),
+                (int)$user->id,
+                $hotelId ?: null,
+                'HTTP 403',
+                [
+                    'audit_type' => 'security',
+                    'method' => strtoupper($request->method()),
+                    'path' => $capability['path'] ?? $this->normalizeRateLimitPath($request->url()),
+                    'capability' => $capability['key'] ?? '',
+                    'reason' => $authorization['reason'] ?? '',
+                    'tenant_id' => (int)($authorization['tenant_id'] ?? 0),
+                    'hotel_id' => $hotelId ?: null,
+                    'required_permission' => $authorization['required_permission'] ?? $capability['permission'] ?? '',
+                    'required_module' => $authorization['required_module'] ?? $capability['module'] ?? '',
+                    'request_id' => $requestId,
+                ]
+            );
+        } catch (\Throwable $e) {
+            // Security audit failure must not mask the actual 403 boundary.
+        }
+
+        $this->recordSecurityNotification('protected_access_denied', $user, $hotelId ?: null, $requestId, [
+            'path' => (string)($capability['path'] ?? ''),
+            'capability' => (string)($capability['key'] ?? ''),
+            'reason' => (string)($authorization['reason'] ?? ''),
+            'tenant_id' => (int)($authorization['tenant_id'] ?? 0),
+            'hotel_id' => $hotelId ?: null,
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function recordSecurityNotification(string $category, User $user, ?int $hotelId, string $requestId, array $payload): void
+    {
+        try {
+            SystemNotification::recordEvent([
+                'hotel_id' => $hotelId,
+                'user_id' => (int)$user->id,
+                'platform' => 'system',
+                'category' => 'security',
+                'severity' => 'warning',
+                'title' => 'SUXIOS security guard',
+                'message' => $category . ' reference=' . $requestId,
+                'action_type' => 'security_review',
+                'action_payload' => $payload,
+                'source_module' => 'security',
+                'source_key' => 'security:' . $category . ':' . $requestId,
+            ]);
+        } catch (\Throwable $e) {
+            // Notification delivery is best-effort; OperationLog remains the source of record.
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $capability
+     */
+    private function redactProtectedResponse(
+        Request $request,
+        Response $response,
+        ProtectedCapabilityService $service,
+        array $capability,
+        User $user,
+        string $requestId
+    ): Response {
+        $payload = $this->jsonResponsePayload($response);
+        if ($payload === null) {
+            return $response;
+        }
+
+        if ($service->shouldRedactForUser($user, $capability)) {
+            $payload = $service->redactPayload($payload, $capability, $requestId);
+        } else {
+            $payload['request_id'] = $requestId;
+        }
+        $payload['protected_trace'] = [
+            'tenant_id' => $service->resolveTenantId($request->param(), $user) ?: null,
+            'user_id' => (int)$user->id,
+            'hotel_id' => $service->resolveHotelId($request->param(), $user) ?: null,
+            'request_id' => $requestId,
+            'generated_at' => date('Y-m-d H:i:s'),
+        ];
+
+        $response->data($payload);
+        $response->content(json_encode($payload, JSON_UNESCAPED_UNICODE));
+
+        return $response;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function jsonResponsePayload(Response $response): ?array
+    {
+        if (method_exists($response, 'getData')) {
+            $data = $response->getData();
+            if (is_array($data)) {
+                return $data;
+            }
+        }
+
+        $content = trim($response->getContent());
+        if ($content === '' || !in_array($content[0], ['{', '['], true)) {
+            return null;
+        }
+
+        $decoded = json_decode($content, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private function resolveRequestId(Request $request): string
+    {
+        $candidate = trim((string)($request->header('X-Request-ID', '') ?: $request->header('X-Correlation-ID', '')));
+        if ($candidate !== '' && preg_match('/^[A-Za-z0-9_.:\-]{8,96}$/', $candidate)) {
+            return substr($candidate, 0, 96);
+        }
+
+        return 'suxios_' . date('YmdHis') . '_' . bin2hex(random_bytes(8));
+    }
+
+    private function withRequestId(Response $response, string $requestId): Response
+    {
+        return $response->header(['X-Request-ID' => $requestId]);
     }
 }

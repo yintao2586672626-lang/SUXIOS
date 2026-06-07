@@ -51,23 +51,23 @@ class SystemConfigController extends Base
         $this->checkSuperAdmin();
 
         $data = $this->requestData();
-        
+
         // 支持自定义配置项（如数据配置）
         if (isset($data['config_key']) && isset($data['config_value'])) {
             $key = $data['config_key'];
             $value = $data['config_value'];
             $description = $data['description'] ?? '自定义配置';
-            
+
             SystemConfig::setValue($key, $value, $description);
-            
+
             OperationLog::record('system_config', 'update', '更新配置: ' . $description, $this->currentUser->id);
-            
+
             return $this->success(null, '配置更新成功');
         }
-        
+
         // 获取所有配置项描述
         $descriptions = SystemConfig::getConfigDescriptions();
-        
+
         // 遍历并保存所有提交的配置
         foreach ($data as $key => $value) {
             if (isset($descriptions[$key])) {
@@ -150,14 +150,27 @@ class SystemConfigController extends Base
         $this->checkSuperAdmin();
 
         $configs = SystemConfig::getAllConfigs();
+        $generatedAt = date('Y-m-d H:i:s');
+        $requestId = trim((string)($this->request->request_id ?? $this->request->header('X-Request-ID', '')));
+        if ($requestId === '') {
+            $requestId = 'missing_request_id';
+        }
+        $tenantId = (int)($this->currentUser->tenant_id ?? $this->currentUser->hotel_id ?? 0);
         $exportData = [
-            'export_time' => date('Y-m-d H:i:s'),
+            'export_time' => $generatedAt,
             'version' => 'v2.0.0',
+            'trace' => [
+                'tenant_id' => $tenantId > 0 ? $tenantId : null,
+                'user_id' => (int)($this->currentUser->id ?? 0),
+                'hotel_id' => !empty($this->currentUser->hotel_id) ? (int)$this->currentUser->hotel_id : null,
+                'request_id' => $requestId,
+                'generated_at' => $generatedAt,
+            ],
             'configs' => $configs,
         ];
 
         $filename = 'system_config_' . date('YmdHis') . '.json';
-        
+
         return json($exportData)->header([
             'Content-Type' => 'application/json',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
@@ -185,7 +198,7 @@ class SystemConfigController extends Base
 
         $descriptions = SystemConfig::getConfigDescriptions();
         $imported = 0;
-        
+
         foreach ($data['configs'] as $key => $value) {
             if (isset($descriptions[$key])) {
                 SystemConfig::setValue($key, $value, $descriptions[$key]);
@@ -212,7 +225,7 @@ class SystemConfigController extends Base
         $groups = SystemConfig::getConfigGroups();
 
         $resetCount = 0;
-        
+
         if ($group === 'all') {
             // 重置所有配置
             foreach ($defaults as $key => $value) {

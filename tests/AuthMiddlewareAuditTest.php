@@ -60,4 +60,45 @@ final class AuthMiddlewareAuditTest extends TestCase
         self::assertSame(60, $write['limit']);
         self::assertSame(60, $write['window']);
     }
+
+    public function testProtectedRateLimitPolicyUsesCapabilityQuota(): void
+    {
+        $middleware = new Auth();
+        $protected = $this->invokeNonPublic($middleware, 'resolveRateLimitPolicy', [
+            'POST',
+            '/api/agent/ota-diagnosis',
+            [
+                'key' => 'ai_decision',
+                'rate_limit' => [
+                    'scope' => 'protected_ai_decision',
+                    'limit' => 30,
+                    'window' => 3600,
+                ],
+            ],
+        ]);
+
+        self::assertSame('protected_ai_decision', $protected['scope']);
+        self::assertSame('api/agent/ota-diagnosis', $protected['path']);
+        self::assertSame(30, $protected['limit']);
+        self::assertSame(3600, $protected['window']);
+        self::assertSame('ai_decision', $protected['capability']);
+    }
+
+    public function testRateLimitCacheKeyIncludesTenantUserIpEndpointAndWindow(): void
+    {
+        $key = $this->invokeNonPublic(new Auth(), 'buildRateLimitCacheKey', [
+            7,
+            42,
+            '127.0.0.1',
+            'protected_ai_decision',
+            'POST',
+            'api/agent/ota-diagnosis',
+            12345,
+        ]);
+
+        self::assertStringContainsString('tenant_7_user_42_ip_', $key);
+        self::assertStringContainsString('scope_protected_ai_decision', $key);
+        self::assertStringContainsString('endpoint_', $key);
+        self::assertStringEndsWith('_window_12345', $key);
+    }
 }
