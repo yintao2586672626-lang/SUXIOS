@@ -14,6 +14,114 @@ use think\facade\Db;
 final class PlatformDataSyncService
 {
     private const RAW_RECORD_PAYLOAD_LIMIT_BYTES = 262144;
+    private const COLLECTION_RESOURCE_FRESH_HOURS = 24;
+    private const COLLECTION_RESOURCE_DEFINITIONS = [
+        [
+            'resource' => 'businessData',
+            'data_type' => 'business',
+            'priority' => 'P0',
+            'platforms' => ['meituan', 'ctrip'],
+            'scope' => 'ota_channel',
+            'default_enabled' => true,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'aggregate_business_metrics_only',
+            'aliases' => ['business', 'business_data', 'businessdata', 'tradeData', 'trade_data', 'overview', 'summary'],
+            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
+            'fields' => [
+                ['field' => 'amount', 'storage_table' => 'online_daily_data', 'storage_field' => 'amount', 'missing_state' => 'field_missing'],
+                ['field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'field_missing'],
+                ['field' => 'book_order_num', 'storage_table' => 'online_daily_data', 'storage_field' => 'book_order_num', 'missing_state' => 'field_missing'],
+                ['field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
+            'resource' => 'peerRank',
+            'data_type' => 'peer_rank',
+            'priority' => 'P0',
+            'platforms' => ['meituan', 'ctrip'],
+            'scope' => 'ota_channel_competition',
+            'default_enabled' => true,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'competitor_aggregate_only',
+            'aliases' => ['peer_rank', 'peerrank', 'competitor_rank', 'competitorRank', 'competition', 'ranking', 'rankings'],
+            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
+            'fields' => [
+                ['field' => 'rank', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value/raw_data', 'missing_state' => 'field_missing'],
+                ['field' => 'hotel_name', 'storage_table' => 'online_daily_data', 'storage_field' => 'hotel_name', 'missing_state' => 'field_missing'],
+                ['field' => 'vip_status', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
+                ['field' => 'rank_type', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data/compare_type', 'missing_state' => 'field_missing'],
+            ],
+        ],
+        [
+            'resource' => 'flowData',
+            'data_type' => 'traffic',
+            'priority' => 'P0',
+            'platforms' => ['meituan', 'ctrip'],
+            'scope' => 'ota_channel_traffic',
+            'default_enabled' => true,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'aggregate_traffic_metrics_only',
+            'aliases' => ['flow', 'flow_data', 'flowdata', 'traffic', 'traffic_data', 'trafficdata'],
+            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
+            'fields' => [
+                ['field' => 'list_exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'list_exposure', 'missing_state' => 'field_missing'],
+                ['field' => 'detail_exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'detail_exposure', 'missing_state' => 'field_missing'],
+                ['field' => 'flow_rate', 'storage_table' => 'online_daily_data', 'storage_field' => 'flow_rate', 'missing_state' => 'field_missing'],
+                ['field' => 'order_submit_num', 'storage_table' => 'online_daily_data', 'storage_field' => 'order_submit_num', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
+            'resource' => 'searchKeywords',
+            'data_type' => 'search_keyword',
+            'priority' => 'P1',
+            'platforms' => ['meituan', 'ctrip'],
+            'scope' => 'ota_channel_search',
+            'default_enabled' => true,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'keyword_aggregate_only',
+            'aliases' => ['search_keyword', 'search_keywords', 'searchkeyword', 'searchkeywords', 'searchKeyWords', 'keyword', 'keywords'],
+            'periods' => ['yesterday', 'last_7_days', 'last_30_days'],
+            'fields' => [
+                ['field' => 'keyword', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension/raw_data', 'missing_state' => 'field_missing'],
+                ['field' => 'exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'list_exposure/raw_data', 'missing_state' => 'optional_missing'],
+                ['field' => 'clicks', 'storage_table' => 'online_daily_data', 'storage_field' => 'detail_exposure/raw_data', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
+            'resource' => 'reviewData',
+            'data_type' => 'review',
+            'priority' => 'P2',
+            'platforms' => ['meituan', 'ctrip'],
+            'scope' => 'ota_channel_review_summary',
+            'default_enabled' => false,
+            'requires_explicit_authorization' => true,
+            'privacy_boundary' => 'score_and_tags_only_no_review_text',
+            'aliases' => ['review', 'reviews', 'comment', 'comments', 'review_data', 'reviewdata'],
+            'periods' => ['yesterday', 'last_7_days', 'last_30_days'],
+            'fields' => [
+                ['field' => 'comment_score', 'storage_table' => 'online_daily_data', 'storage_field' => 'comment_score', 'missing_state' => 'field_missing'],
+                ['field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'optional_missing'],
+                ['field' => 'tags', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
+            'resource' => 'roomTypes',
+            'data_type' => 'room_type',
+            'priority' => 'P1',
+            'platforms' => ['meituan', 'ctrip'],
+            'scope' => 'ota_channel_product_catalog',
+            'default_enabled' => false,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'room_type_catalog_only_no_room_status_or_mapping',
+            'aliases' => ['room_type', 'room_types', 'roomtype', 'roomtypes', 'product', 'products'],
+            'periods' => ['realtime', 'yesterday'],
+            'fields' => [
+                ['field' => 'room_type_name', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension/raw_data', 'missing_state' => 'field_missing'],
+                ['field' => 'price', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value/raw_data', 'missing_state' => 'optional_missing'],
+                ['field' => 'product_status', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+    ];
 
     /** @var array<int, DataSourceAdapter> */
     private array $adapters;
@@ -31,6 +139,82 @@ final class PlatformDataSyncService
             new CtripBrowserProfileDataSourceAdapter(),
             new MeituanBrowserProfileDataSourceAdapter(),
             new ApiDataSourceAdapter(),
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function collectionResourceDefinitions(): array
+    {
+        return array_values(self::COLLECTION_RESOURCE_DEFINITIONS);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function collectionResourceCatalog($user, array $filters = []): array
+    {
+        $definitions = $this->collectionResourceDefinitions();
+        $platformFilter = strtolower(trim((string)($filters['platform'] ?? '')));
+        $resourceFilter = trim((string)($filters['resource'] ?? ''));
+        $dataTypeFilter = trim((string)($filters['data_type'] ?? $filters['dataType'] ?? ''));
+        $normalizedDataTypeFilter = $dataTypeFilter !== '' ? $this->normalizeDataType($dataTypeFilter) : '';
+
+        $accessIssues = [];
+        $sources = $this->catalogDataSources($user, $filters, $accessIssues);
+        $tasks = $this->catalogSyncTasks($user, $filters, $accessIssues);
+        $latestRows = $this->catalogLatestStoredRows($user, $filters, $accessIssues);
+
+        $resources = [];
+        foreach ($definitions as $definition) {
+            if ($resourceFilter !== '' && strcasecmp((string)$definition['resource'], $resourceFilter) !== 0) {
+                continue;
+            }
+            if ($normalizedDataTypeFilter !== '' && $this->normalizeDataType((string)$definition['data_type']) !== $normalizedDataTypeFilter) {
+                continue;
+            }
+
+            $platforms = [];
+            foreach ($definition['platforms'] as $platform) {
+                $platform = strtolower((string)$platform);
+                if ($platformFilter !== '' && $platform !== $platformFilter) {
+                    continue;
+                }
+                $platforms[] = $this->buildResourcePlatformStatus($definition, $platform, $sources, $tasks, $latestRows);
+            }
+
+            if ($platforms === []) {
+                continue;
+            }
+
+            $resources[] = array_merge($definition, [
+                'platform_statuses' => $platforms,
+                'evidence_contract' => [
+                    'resource' => $definition['resource'],
+                    'data_type' => $definition['data_type'],
+                    'scope' => $definition['scope'],
+                    'fields' => $definition['fields'],
+                    'must_record' => ['source', 'platform', 'data_type', 'data_period', 'update_time', 'missing_reason'],
+                ],
+            ]);
+        }
+
+        return [
+            'generated_at' => date('Y-m-d H:i:s'),
+            'freshness_threshold_hours' => self::COLLECTION_RESOURCE_FRESH_HOURS,
+            'resources' => $resources,
+            'task_endpoints' => [
+                'data_sources' => '/api/online-data/data-sources',
+                'sync_tasks' => '/api/online-data/sync-tasks',
+                'sync_logs' => '/api/online-data/sync-logs',
+            ],
+            'policy' => [
+                'captcha_or_platform_limit' => 'manual_intervention_required',
+                'review_data' => 'disabled_by_default',
+                'privacy_scope' => 'ota_channel_aggregate_only',
+            ],
+            'access_issues' => $accessIssues,
         ];
     }
 
@@ -324,6 +508,15 @@ final class PlatformDataSyncService
         if (!empty($filters['data_source_id'])) {
             $query->where('data_source_id', (int)$filters['data_source_id']);
         }
+        if (!empty($filters['system_hotel_id'])) {
+            $query->where('system_hotel_id', (int)$filters['system_hotel_id']);
+        }
+        if (!empty($filters['platform'])) {
+            $query->where('platform', strtolower((string)$filters['platform']));
+        }
+        if (!empty($filters['data_type'])) {
+            $query->where('data_type', $this->normalizeDataType((string)$filters['data_type']));
+        }
         if (!empty($filters['status'])) {
             $query->where('status', (string)$filters['status']);
         }
@@ -341,6 +534,392 @@ final class PlatformDataSyncService
             $query->where('data_source_id', (int)$filters['data_source_id']);
         }
         return $query->limit(max(1, min(200, (int)($filters['limit'] ?? 50))))->select()->toArray();
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @param array<int, array<string, string>> $accessIssues
+     * @return array<int, array<string, mixed>>
+     */
+    private function catalogDataSources($user, array $filters, array &$accessIssues): array
+    {
+        $scopeFilters = [];
+        if (!empty($filters['system_hotel_id'])) {
+            $scopeFilters['system_hotel_id'] = (int)$filters['system_hotel_id'];
+        }
+
+        try {
+            return $this->listDataSources($user, $scopeFilters);
+        } catch (\Throwable $e) {
+            $accessIssues[] = [
+                'area' => 'platform_data_sources',
+                'reason' => $e->getMessage(),
+            ];
+            return [];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @param array<int, array<string, string>> $accessIssues
+     * @return array<int, array<string, mixed>>
+     */
+    private function catalogSyncTasks($user, array $filters, array &$accessIssues): array
+    {
+        $scopeFilters = ['limit' => 200];
+        if (!empty($filters['system_hotel_id'])) {
+            $scopeFilters['system_hotel_id'] = (int)$filters['system_hotel_id'];
+        }
+
+        try {
+            return $this->listSyncTasks($user, $scopeFilters);
+        } catch (\Throwable $e) {
+            $accessIssues[] = [
+                'area' => 'platform_data_sync_tasks',
+                'reason' => $e->getMessage(),
+            ];
+            return [];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @param array<int, array<string, string>> $accessIssues
+     * @return array<string, array<string, mixed>>
+     */
+    private function catalogLatestStoredRows($user, array $filters, array &$accessIssues): array
+    {
+        try {
+            $columns = $this->tableColumns('online_daily_data');
+            if (!isset($columns['source'], $columns['data_type'])) {
+                $accessIssues[] = [
+                    'area' => 'online_daily_data',
+                    'reason' => 'source/data_type columns are missing.',
+                ];
+                return [];
+            }
+
+            $fields = ['source', 'data_type'];
+            if (isset($columns['system_hotel_id'])) {
+                $fields[] = 'system_hotel_id';
+            }
+            if (isset($columns['update_time'])) {
+                $fields[] = 'MAX(update_time) AS last_stored_at';
+            }
+            if (isset($columns['data_date'])) {
+                $fields[] = 'MAX(data_date) AS latest_data_date';
+            }
+            $fields[] = 'COUNT(*) AS stored_row_count';
+
+            $query = Db::name('online_daily_data')->field(implode(',', $fields));
+            if (!empty($filters['system_hotel_id']) && isset($columns['system_hotel_id'])) {
+                $query->where('system_hotel_id', (int)$filters['system_hotel_id']);
+            }
+            $this->applyOnlineDailyScope($query, $user, $columns);
+
+            $groupFields = ['source', 'data_type'];
+            if (isset($columns['system_hotel_id'])) {
+                $groupFields[] = 'system_hotel_id';
+            }
+            $rows = $query->group(implode(',', $groupFields))->select()->toArray();
+        } catch (\Throwable $e) {
+            $accessIssues[] = [
+                'area' => 'online_daily_data',
+                'reason' => $e->getMessage(),
+            ];
+            return [];
+        }
+
+        $indexed = [];
+        foreach ($rows as $row) {
+            $platform = strtolower((string)($row['source'] ?? ''));
+            $dataType = $this->normalizeDataType((string)($row['data_type'] ?? ''));
+            if ($platform === '' || $dataType === '') {
+                continue;
+            }
+
+            $key = $platform . ':' . $dataType;
+            $storedCount = (int)($row['stored_row_count'] ?? 0);
+            if (!isset($indexed[$key])) {
+                $indexed[$key] = [
+                    'source' => $platform,
+                    'data_type' => $dataType,
+                    'stored_row_count' => 0,
+                    'last_stored_at' => (string)($row['last_stored_at'] ?? ''),
+                    'latest_data_date' => (string)($row['latest_data_date'] ?? ''),
+                    'system_hotel_ids' => [],
+                ];
+            }
+            $indexed[$key]['stored_row_count'] += $storedCount;
+            if (!empty($row['system_hotel_id'])) {
+                $indexed[$key]['system_hotel_ids'][] = (int)$row['system_hotel_id'];
+            }
+            foreach (['last_stored_at', 'latest_data_date'] as $timeKey) {
+                $value = (string)($row[$timeKey] ?? '');
+                if ($value !== '' && strcmp($value, (string)$indexed[$key][$timeKey]) > 0) {
+                    $indexed[$key][$timeKey] = $value;
+                }
+            }
+        }
+
+        foreach ($indexed as &$row) {
+            $row['system_hotel_ids'] = array_values(array_unique(array_map('intval', $row['system_hotel_ids'])));
+        }
+        unset($row);
+
+        return $indexed;
+    }
+
+    /**
+     * @param array<string, mixed> $definition
+     * @param array<int, array<string, mixed>> $sources
+     * @param array<int, array<string, mixed>> $tasks
+     * @param array<string, array<string, mixed>> $latestRows
+     * @return array<string, mixed>
+     */
+    private function buildResourcePlatformStatus(array $definition, string $platform, array $sources, array $tasks, array $latestRows): array
+    {
+        $dataType = $this->normalizeDataType((string)$definition['data_type']);
+        $matchingSources = array_values(array_filter($sources, function (array $source) use ($platform, $dataType): bool {
+            return strtolower((string)($source['platform'] ?? '')) === $platform
+                && $this->normalizeDataType((string)($source['data_type'] ?? '')) === $dataType
+                && (int)($source['enabled'] ?? 1) === 1;
+        }));
+        $matchingTasks = array_values(array_filter($tasks, function (array $task) use ($platform, $dataType): bool {
+            return strtolower((string)($task['platform'] ?? '')) === $platform
+                && $this->normalizeDataType((string)($task['data_type'] ?? '')) === $dataType;
+        }));
+
+        $latestTask = $this->latestCatalogTask($matchingTasks);
+        $latestStored = $latestRows[$platform . ':' . $dataType] ?? null;
+        $stats = $latestTask ? $this->decodeConfig($latestTask['stats_json'] ?? []) : [];
+        $savedCount = (int)($stats['saved_count'] ?? 0);
+        $normalizedCount = (int)($stats['normalized_count'] ?? 0);
+        $latestSource = $this->latestCatalogSource($matchingSources);
+
+        $lastSyncTime = (string)($latestTask['finished_at'] ?? $latestTask['started_at'] ?? $latestSource['last_sync_time'] ?? '');
+        $lastStoredAt = is_array($latestStored) ? (string)($latestStored['last_stored_at'] ?? '') : '';
+        $freshness = $this->catalogFreshness($lastStoredAt);
+        $sourceStatus = (string)($latestSource['status'] ?? '');
+        $taskStatus = (string)($latestTask['status'] ?? '');
+        $message = (string)($latestTask['message'] ?? $latestSource['last_error'] ?? '');
+
+        $bindingStatus = $matchingSources === [] ? 'unbound' : 'bound';
+        $loginStatus = $this->catalogLoginStatus($sourceStatus, $taskStatus, $message, $matchingSources);
+        $collectionStatus = $this->catalogCollectionStatus($bindingStatus, $loginStatus, $taskStatus, $freshness, $latestStored !== null);
+        $etlStatus = $this->catalogEtlStatus($latestTask, $latestStored, $normalizedCount, $savedCount);
+
+        return [
+            'platform' => $platform,
+            'resource' => (string)$definition['resource'],
+            'data_type' => $dataType,
+            'binding_status' => $bindingStatus,
+            'login_status' => $loginStatus,
+            'collection_status' => $collectionStatus,
+            'etl_status' => $etlStatus,
+            'freshness' => $freshness,
+            'missing_reason' => $this->catalogMissingReason($bindingStatus, $loginStatus, $taskStatus, $etlStatus, $freshness, $message),
+            'source_count' => count($matchingSources),
+            'ready_source_count' => count(array_filter($matchingSources, static function (array $source): bool {
+                return in_array((string)($source['status'] ?? ''), ['ready', 'success'], true);
+            })),
+            'primary_source_id' => isset($latestSource['id']) ? (int)$latestSource['id'] : null,
+            'last_sync_time' => $lastSyncTime,
+            'last_stored_at' => $lastStoredAt,
+            'latest_data_date' => is_array($latestStored) ? (string)($latestStored['latest_data_date'] ?? '') : '',
+            'stored_row_count' => is_array($latestStored) ? (int)($latestStored['stored_row_count'] ?? 0) : 0,
+            'latest_task' => $latestTask ? [
+                'id' => (int)($latestTask['id'] ?? 0),
+                'status' => $taskStatus,
+                'started_at' => (string)($latestTask['started_at'] ?? ''),
+                'finished_at' => (string)($latestTask['finished_at'] ?? ''),
+                'message' => $message,
+                'normalized_count' => $normalizedCount,
+                'saved_count' => $savedCount,
+            ] : null,
+        ];
+    }
+
+    /**
+     * @param array<string, bool> $columns
+     */
+    private function applyOnlineDailyScope($query, $user, array $columns): void
+    {
+        if (!$user || (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin())) {
+            return;
+        }
+        if (!isset($columns['system_hotel_id'])) {
+            $query->whereRaw('1=0');
+            return;
+        }
+        $hotelIds = method_exists($user, 'getPermittedHotelIds') ? array_values(array_map('intval', $user->getPermittedHotelIds())) : [];
+        if (empty($hotelIds)) {
+            $query->whereRaw('1=0');
+            return;
+        }
+        $query->whereIn('system_hotel_id', $hotelIds);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $tasks
+     * @return array<string, mixed>|null
+     */
+    private function latestCatalogTask(array $tasks): ?array
+    {
+        $latest = null;
+        $latestTime = '';
+        foreach ($tasks as $task) {
+            $time = (string)($task['finished_at'] ?? $task['started_at'] ?? $task['update_time'] ?? $task['create_time'] ?? '');
+            if ($latest === null || strcmp($time, $latestTime) > 0) {
+                $latest = $task;
+                $latestTime = $time;
+            }
+        }
+        return $latest;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sources
+     * @return array<string, mixed>|null
+     */
+    private function latestCatalogSource(array $sources): ?array
+    {
+        $latest = null;
+        $latestTime = '';
+        foreach ($sources as $source) {
+            $time = (string)($source['last_sync_time'] ?? $source['update_time'] ?? $source['create_time'] ?? '');
+            if ($latest === null || strcmp($time, $latestTime) > 0) {
+                $latest = $source;
+                $latestTime = $time;
+            }
+        }
+        return $latest;
+    }
+
+    private function catalogFreshness(string $lastStoredAt): string
+    {
+        if ($lastStoredAt === '') {
+            return 'missing';
+        }
+        $timestamp = strtotime($lastStoredAt);
+        if ($timestamp === false) {
+            return 'unknown';
+        }
+        return (time() - $timestamp) <= self::COLLECTION_RESOURCE_FRESH_HOURS * 3600 ? 'fresh' : 'stale';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sources
+     */
+    private function catalogLoginStatus(string $sourceStatus, string $taskStatus, string $message, array $sources): string
+    {
+        $text = strtolower($sourceStatus . ' ' . $taskStatus . ' ' . $message);
+        if ($sources === []) {
+            return 'unbound';
+        }
+        if (str_contains($text, 'waiting_config')
+            || str_contains($text, 'login_required')
+            || str_contains($text, 'login expired')
+            || str_contains($text, 'login session is not ready')
+            || str_contains($text, 'profile is not prepared')
+        ) {
+            return 'login_required';
+        }
+        if (str_contains($text, 'captcha') || str_contains($text, 'verification') || str_contains($text, 'limit')) {
+            return 'manual_intervention_required';
+        }
+        if ($taskStatus === 'running') {
+            return 'collecting';
+        }
+        if (in_array($sourceStatus, ['ready', 'success'], true)) {
+            return 'authorized';
+        }
+        if ($sourceStatus === 'failed') {
+            return 'unknown';
+        }
+        return 'configured';
+    }
+
+    private function catalogCollectionStatus(string $bindingStatus, string $loginStatus, string $taskStatus, string $freshness, bool $hasStoredRows): string
+    {
+        if ($bindingStatus === 'unbound') {
+            return 'unbound';
+        }
+        if (in_array($loginStatus, ['login_required', 'manual_intervention_required'], true)) {
+            return $loginStatus;
+        }
+        if ($taskStatus === 'running') {
+            return 'collecting';
+        }
+        if ($taskStatus === 'failed') {
+            return 'failed';
+        }
+        if ($taskStatus === 'partial_success') {
+            return 'partial_success';
+        }
+        if ($hasStoredRows && $freshness === 'fresh') {
+            return 'ready';
+        }
+        if ($hasStoredRows && $freshness === 'stale') {
+            return 'stale';
+        }
+        return 'ready_to_sync';
+    }
+
+    /**
+     * @param array<string, mixed>|null $latestTask
+     * @param array<string, mixed>|null $latestStored
+     */
+    private function catalogEtlStatus(?array $latestTask, ?array $latestStored, int $normalizedCount, int $savedCount): string
+    {
+        if ($latestTask === null && $latestStored === null) {
+            return 'not_started';
+        }
+        if ($latestTask !== null && (string)($latestTask['status'] ?? '') === 'running') {
+            return 'pending';
+        }
+        if ($latestTask !== null && (string)($latestTask['status'] ?? '') === 'failed') {
+            return 'capture_failed';
+        }
+        if ($savedCount > 0 && $latestStored !== null) {
+            return 'stored_displayable';
+        }
+        if ($normalizedCount > 0 && $savedCount === 0) {
+            return 'normalized_not_stored';
+        }
+        if ($latestTask !== null && (string)($latestTask['status'] ?? '') === 'success' && $savedCount === 0) {
+            return 'capture_success_not_stored';
+        }
+        if ($latestStored !== null) {
+            return 'stored_from_previous_task';
+        }
+        return 'not_stored';
+    }
+
+    private function catalogMissingReason(string $bindingStatus, string $loginStatus, string $taskStatus, string $etlStatus, string $freshness, string $message): string
+    {
+        if ($bindingStatus === 'unbound') {
+            return 'data_source_not_bound';
+        }
+        if ($loginStatus === 'login_required') {
+            return 'profile_login_required';
+        }
+        if ($loginStatus === 'manual_intervention_required') {
+            return 'manual_intervention_required';
+        }
+        if ($taskStatus === 'failed') {
+            return $message !== '' ? $message : 'latest_task_failed';
+        }
+        if (in_array($etlStatus, ['capture_success_not_stored', 'normalized_not_stored', 'not_stored'], true)) {
+            return $message !== '' ? $message : $etlStatus;
+        }
+        if ($freshness === 'stale') {
+            return 'data_older_than_' . self::COLLECTION_RESOURCE_FRESH_HOURS . 'h';
+        }
+        if ($freshness === 'missing') {
+            return 'no_displayable_rows';
+        }
+        return '';
     }
 
     private function normalizeSourcePayload(array $payload): array
@@ -767,8 +1346,21 @@ final class PlatformDataSyncService
 
     private function normalizeDataType(string $value): string
     {
-        $value = strtolower(trim($value));
+        $value = trim($value);
+        $value = (string)preg_replace('/([a-z0-9])([A-Z])/', '$1_$2', $value);
+        $value = strtolower((string)preg_replace('/[\s\-.]+/', '_', $value));
+        $value = (string)preg_replace('/_+/', '_', $value);
+        $value = trim($value, '_');
+        if (in_array($value, ['business', 'business_data', 'businessdata', 'trade_data', 'tradedata', 'overview', 'summary', 'core'], true)) {
+            return 'business';
+        }
+        if (in_array($value, ['peer_rank', 'peerrank', 'competitor_rank', 'competitorrank', 'competition', 'rank', 'ranking', 'rankings', 'peer'], true)) {
+            return 'peer_rank';
+        }
         if (in_array($value, ['review', 'reviews', 'comment', 'comments'], true)) {
+            return 'review';
+        }
+        if (in_array($value, ['review_data', 'reviewdata'], true)) {
             return 'review';
         }
         if (in_array($value, ['order', 'orders', 'order_list', 'order-list'], true)) {
@@ -777,14 +1369,17 @@ final class PlatformDataSyncService
         if (in_array($value, ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns'], true)) {
             return 'advertising';
         }
-        if (in_array($value, ['search_keyword', 'search-keyword', 'search_keywords', 'search-keywords', 'keyword', 'keywords', 'search_word', 'search_words', 'hot_word', 'hot_words'], true)) {
+        if (in_array($value, ['search_keyword', 'search_keywords', 'searchkeyword', 'searchkeywords', 'search_key_word', 'search_key_words', 'keyword', 'keywords', 'search_word', 'search_words', 'hot_word', 'hot_words'], true)) {
             return 'search_keyword';
         }
         if (in_array($value, ['quality', 'service', 'service_quality', 'psi'], true)) {
             return 'quality';
         }
-        if (in_array($value, ['flow', 'traffic'], true)) {
+        if (in_array($value, ['flow', 'flow_data', 'flowdata', 'traffic', 'traffic_data', 'trafficdata'], true)) {
             return 'traffic';
+        }
+        if (in_array($value, ['room_type', 'room_types', 'roomtype', 'roomtypes', 'product', 'products'], true)) {
+            return 'room_type';
         }
         return $value !== '' ? $value : 'business';
     }

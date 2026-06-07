@@ -513,6 +513,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame(5, $rows[0]['quantity']);
         self::assertSame(3, $rows[0]['bookOrderNum']);
         self::assertSame(3, $rows[0]['totalOrderNum']);
+        self::assertSame('携程竞争圈返回', $rows[0]['sourceStatusText']);
+        self::assertSame('携程竞争圈返回', $rows[0]['metricSourceStatus']['amount']);
     }
 
     public function testBackendBuildsCtripBusinessDisplayRowsFromStoredRawData(): void
@@ -545,6 +547,19 @@ final class OnlineDataTest extends TestCase
         self::assertSame(438, $summary['metrics']['totalQunarDetailVisitors']);
     }
 
+    public function testBackendMarksReturnedZeroCtripMetricAsReturnedSource(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplayHotels', [[
+            ['hotelId' => 'Z', 'hotelName' => 'Zero Hotel', 'amount' => 0, 'quantity' => 0],
+        ]]);
+
+        self::assertSame('携程竞争圈返回', $rows[0]['metricSourceStatus']['amount']);
+        self::assertSame('携程竞争圈返回', $rows[0]['metricSourceStatus']['quantity']);
+        self::assertSame('系统未返回', $rows[0]['metricSourceStatus']['totalDetailNum']);
+    }
+
     public function testBackendBuildsCtripBusinessDisplayDerivedMetricsForFrontend(): void
     {
         $controller = $this->controller();
@@ -566,6 +581,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ok', $rows[0]['displayMetricStatus']['adr']);
         self::assertSame('ok', $rows[0]['displayMetricStatus']['ari']);
         self::assertSame('ok', $rows[0]['displayMetricStatus']['bookingRate']);
+        self::assertSame('携程竞争圈返回', $rows[0]['metricSourceStatus']['bookingRate']);
+        self::assertSame('系统未返回', $rows[0]['metricSourceStatus']['qunarDetailVisitors']);
     }
 
     public function testBackendBuildsCtripBusinessDisplaySummaryForFrontend(): void
@@ -588,6 +605,9 @@ final class OnlineDataTest extends TestCase
         self::assertSame(150, $summary['metrics']['totalDetailNum']);
         self::assertSame(75, $summary['metrics']['totalQunarDetailVisitors']);
         self::assertSame(6, $summary['metrics']['totalOrderNum']);
+        self::assertSame(2, $summary['metrics']['sourceStatusReadyCount']);
+        self::assertSame(2, $summary['metrics']['sourceStatusTotalCount']);
+        self::assertStringContainsString('携程竞争圈/榜单已返回字段', $summary['source_notice']);
         self::assertSame('totalAmount', $summary['cards'][1]['key']);
         self::assertSame('¥1,800', $summary['cards'][1]['value']);
         self::assertSame('adr', $summary['cards'][3]['key']);
@@ -627,6 +647,48 @@ final class OnlineDataTest extends TestCase
         self::assertSame(600.0, $rows[0]['roomRevenue']);
         self::assertSame(1200.0, $rows[0]['exposure']);
         self::assertSame(2, $rows[0]['rank']);
+    }
+
+    public function testBackendCarriesMeituanPlatformTagsFromReturnedFieldsOnly(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => '入住间夜榜',
+                        'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                        'roundRanks' => [[
+                            'poiId' => 8,
+                            'poiName' => 'M',
+                            'dataValue' => 9,
+                            'rank' => 2,
+                            'tags' => [
+                                ['name' => 'VIP'],
+                                ['tagName' => '优选'],
+                            ],
+                            'tagList' => [
+                                ['name' => '1'],
+                                ['name' => 'true'],
+                            ],
+                            'crownLevel' => 2,
+                        ]],
+                    ],
+                ],
+            ],
+        ], [
+            'date_range' => '1',
+            'rank_type' => 'P_RZ',
+            'target_poi_id' => '8',
+        ]]);
+
+        self::assertSame(['VIP', '优选', '冠级2'], $rows[0]['platformTags']);
+        self::assertTrue($rows[0]['hasVipTag']);
+        self::assertSame('VIP / 优选 / 冠级2', $rows[0]['platformTagText']);
+        self::assertSame('美团榜单返回', $rows[0]['platformTagSourceText']);
+        self::assertTrue($rows[0]['isSelf']);
+        self::assertSame('昨日第2', $rows[0]['rankSummaryText']);
     }
 
     /**
@@ -693,10 +755,151 @@ final class OnlineDataTest extends TestCase
         self::assertSame(45.0, $summary['metrics']['avgViewConversionRate']);
         self::assertSame(9.0, $summary['metrics']['avgPayConversionRate']);
         self::assertSame(4.1, $summary['metrics']['avgAbsoluteConversionRate']);
-        self::assertSame('hotelCount', $summary['cards'][0]['key']);
-        self::assertSame('2', $summary['cards'][0]['value']);
-        self::assertSame('marketInventory', $summary['cards'][1]['key']);
-        self::assertSame('20', $summary['cards'][1]['value']);
+        $cardsByKey = [];
+        foreach ($summary['cards'] as $card) {
+            $cardsByKey[$card['key']] = $card;
+        }
+        self::assertSame('2', $cardsByKey['hotelCount']['value']);
+        self::assertSame('20', $cardsByKey['marketInventory']['value']);
+    }
+
+    public function testBackendBuildsMeituanRankInsightsAndGapsForFrontend(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'mergeMeituanBusinessDisplayHotels', [[
+            [
+                'poiId' => 'SELF',
+                'hotelName' => 'Self Hotel',
+                'roomNights' => 8,
+                'roomRevenue' => 800,
+                'salesRoomNights' => 7,
+                'sales' => 770,
+                'exposure' => 680,
+                'views' => 150,
+                'viewConversion' => 0.12,
+                'payConversion' => 0.02,
+                'rank' => 11,
+                'platformTags' => ['VIP'],
+                'isSelf' => true,
+                'rankHistory' => [
+                    ['dateRange' => '1', 'dateRangeLabel' => '昨日', 'rankType' => 'P_RZ', 'rankTypeLabel' => '入住榜', 'rank' => 11],
+                    ['dateRange' => '7', 'dateRangeLabel' => '近7天', 'rankType' => 'P_RZ', 'rankTypeLabel' => '入住榜', 'rank' => 8],
+                    ['dateRange' => '30', 'dateRangeLabel' => '近30天', 'rankType' => 'P_RZ', 'rankTypeLabel' => '入住榜', 'rank' => 7],
+                    ['dateRange' => '30', 'dateRangeLabel' => '近30天', 'rankType' => 'P_XS', 'rankTypeLabel' => '销售榜', 'rank' => 14],
+                ],
+            ],
+            [
+                'poiId' => 'TOP',
+                'hotelName' => 'Top Hotel',
+                'roomNights' => 12,
+                'roomRevenue' => 1500,
+                'salesRoomNights' => 11,
+                'sales' => 1600,
+                'exposure' => 700,
+                'views' => 160,
+                'viewConversion' => 0.14,
+                'payConversion' => 0.10,
+                'rank' => 1,
+                'rankHistory' => [
+                    ['dateRange' => '1', 'dateRangeLabel' => '昨日', 'rankType' => 'P_RZ', 'rankTypeLabel' => '入住榜', 'rank' => 1],
+                ],
+            ],
+        ], ['target_poi_id' => 'SELF']]);
+        $self = array_values(array_filter($rows, static fn($row): bool => ($row['poiId'] ?? '') === 'SELF'))[0];
+        $summary = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplaySummary', [$rows, []]);
+
+        self::assertSame('掉出前10', $self['rankTrendText']);
+        self::assertSame('距前一名 4', $self['gapToPrevText']);
+        self::assertSame('近30天最好第 7 / 最差第 14', $self['rank30RangeText']);
+        self::assertStringContainsString('距TOP1 4', $self['rankGapSummaryText']);
+        self::assertSame(1, $summary['metrics']['vipTaggedCount']);
+        self::assertSame('查转化 +2', $summary['metrics']['funnelDiagnosisValue']);
+        self::assertSame(3, $summary['metrics']['funnelDiagnosisIssueCount']);
+        self::assertSame('第 11 名（本次返回2家）', $summary['metrics']['selfPositionText']);
+        $insightsByKey = [];
+        foreach ($summary['rank_insights'] as $card) {
+            $insightsByKey[$card['key']] = $card;
+        }
+        self::assertSame('rank_health', str_replace('-', '_', $summary['rank_insights'][0]['key']));
+        self::assertSame('距前一名 4', $insightsByKey['rank-gap']['value']);
+        self::assertSame('查转化 +2', $insightsByKey['funnel-diagnosis']['value']);
+        self::assertStringContainsString('转化低', $insightsByKey['funnel-diagnosis']['note']);
+        self::assertSame('非VIP超过本店', $insightsByKey['tag-metric-link']['value']);
+        self::assertSame('P_RZ', $summary['rank_health_rows'][0]['key']);
+        self::assertSame('已返回', $summary['rank_health_rows'][0]['statusText']);
+        self::assertSame('Top Hotel', $summary['top_summary_rows'][0]['hotelName']);
+    }
+
+    public function testBackendBuildsCompetitorSummaryFromStoredMeituanRows(): void
+    {
+        $controller = $this->controller();
+
+        $payload = $this->invokeNonPublic($controller, 'buildMeituanCompetitorSummaryFromStoredRows', [[
+            [
+                'system_hotel_id' => 100,
+                'hotel_id' => 'TOP',
+                'hotel_name' => 'Top Hotel',
+                'data_date' => '2026-06-06',
+                'data_value' => 15,
+                'quantity' => 15,
+                'amount' => 0,
+                'dimension' => 'room nights',
+                'raw_data' => json_encode([
+                    'poiName' => 'Top Hotel',
+                    'dataValue' => 15,
+                    'rankType' => 'P_RZ',
+                    'rank' => 1,
+                    'dateRange' => '1',
+                    'dimension' => 'room nights',
+                    'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                    'platformTags' => [],
+                    'platformTagStatus' => 'returned_empty',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'system_hotel_id' => 100,
+                'hotel_id' => 'SELF',
+                'hotel_name' => 'Self Hotel',
+                'data_date' => '2026-06-06',
+                'data_value' => 10,
+                'quantity' => 10,
+                'amount' => 0,
+                'dimension' => 'room nights',
+                'raw_data' => json_encode([
+                    'poiName' => 'Self Hotel',
+                    'dataValue' => 10,
+                    'rankType' => 'P_RZ',
+                    'rank' => 2,
+                    'dateRange' => '1',
+                    'dimension' => 'room nights',
+                    'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                    'platformTags' => ['VIP'],
+                    'platformTagStatus' => 'returned',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ], [
+            'system_hotel_id' => 100,
+            'target_poi_id' => 'SELF',
+        ]]);
+
+        self::assertSame('success', $payload['status']);
+        self::assertSame('success', $payload['data_status']);
+        self::assertSame(2, $payload['display_hotel_count']);
+        self::assertSame('2026-06-06', $payload['latest_data_date']);
+        self::assertSame('Top Hotel', $payload['top_summary_rows'][0]['hotelName']);
+
+        $rowsByPoi = [];
+        foreach ($payload['display_hotels'] as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertTrue($rowsByPoi['SELF']['isSelf']);
+        self::assertTrue($rowsByPoi['SELF']['hasVipTag']);
+        self::assertSame(['VIP'], $rowsByPoi['SELF']['platformTags']);
+        self::assertGreaterThan(0, $rowsByPoi['SELF']['gapToPrev']);
+        self::assertNotEmpty($payload['rank_insights']);
+        self::assertNotEmpty($payload['rank_health_rows']);
     }
 
     public function testCtripTrafficDateRangeCoversPresetsCustomAndInvalidInput(): void
@@ -1470,6 +1673,67 @@ final class OnlineDataTest extends TestCase
      * 覆盖 normalizeOnlineDataDate/extractCtripCommentScore：
      * 验证日期输入兼容、非法值兜底、点评分数字段别名。
      */
+    public function testMeituanCompetitorLatestBatchScopeUsesLatestFetchTimeWhenHotelIsSelected(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+
+        $this->invokeNonPublic($controller, 'applyMeituanCompetitorLatestBatchScope', [
+            $query,
+            ['system_hotel_id' => 7, 'update_time' => '2026-06-06 18:20:00'],
+            '7',
+            ['system_hotel_id' => true, 'update_time' => true],
+        ]);
+
+        self::assertSame([
+            ['where', 'update_time', '2026-06-06 18:20:00'],
+        ], $query->calls);
+    }
+
+    public function testMeituanCompetitorLatestBatchScopeKeepsLatestSystemHotelAndFetchTimeWhenHotelIsEmpty(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+
+        $this->invokeNonPublic($controller, 'applyMeituanCompetitorLatestBatchScope', [
+            $query,
+            ['system_hotel_id' => 7, 'update_time' => '2026-06-06 18:20:00'],
+            '',
+            ['system_hotel_id' => true, 'update_time' => true],
+        ]);
+
+        self::assertSame([
+            ['where', 'system_hotel_id', 7],
+            ['where', 'update_time', '2026-06-06 18:20:00'],
+        ], $query->calls);
+    }
+
+    public function testOtaConfigListForUserKeepsOnlyVisibleHotelMappings(): void
+    {
+        $controller = $this->controller();
+        $user = new class {
+            public int $id = 12;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [7];
+            }
+        };
+
+        $filtered = $this->invokeNonPublic($controller, 'filterOtaConfigListForUser', [[
+            ['system_hotel_id' => 7, 'poi_id' => 'VISIBLE'],
+            ['system_hotel_id' => 8, 'poi_id' => 'HIDDEN'],
+            ['user_id' => 12, 'poi_id' => 'OWNED'],
+        ], $user]);
+
+        self::assertSame(['VISIBLE', 'OWNED'], array_column($filtered, 'poi_id'));
+    }
+
     public function testOnlineDataQualityFlagsMissingAndAbnormalMetrics(): void
     {
         $controller = $this->controller();
@@ -2509,6 +2773,15 @@ final class OnlineDataTest extends TestCase
         ], 'profile_browser']);
         self::assertSame('needs_profile', $profileResult['status_code']);
         self::assertSame('建立或重新登录浏览器 Profile', $profileResult['next_action']);
+
+        $profileLoginTimeoutResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
+            'module' => 'browser_profile',
+            'saved_count' => 0,
+            'success' => false,
+            'message' => 'Ctrip login timeout after 30 seconds',
+        ], 'profile_browser']);
+        self::assertSame('needs_profile', $profileLoginTimeoutResult['status_code']);
+        self::assertStringContainsString('Profile', $profileLoginTimeoutResult['next_action']);
 
         $costSkippedResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
             'module' => 'browser_profile',
@@ -4804,6 +5077,12 @@ final class OnlineDataQuerySpy
     public function whereNull(string $field): self
     {
         $this->calls[] = ['whereNull', $field];
+        return $this;
+    }
+
+    public function whereIn(string $field, array $values): self
+    {
+        $this->calls[] = ['whereIn', $field, $values];
         return $this;
     }
 }

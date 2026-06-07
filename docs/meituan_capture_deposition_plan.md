@@ -38,6 +38,7 @@
 | 流量 | `traffic` | `list_exposure`、`detail_exposure`、`flow_rate`、关键词/排名写入 `raw_data` |
 | 广告 | `advertising` | 曝光、点击、转化沿用流量字段，计划、关键词、ROI 写入 `raw_data` |
 | 订单 | `order` | `amount`、`quantity`、`book_order_num`、`data_value`，订单详情写入 `raw_data` |
+| 竞对平台标签 | `peer_rank` / `competition` | 基础展示已补：记录美团竞对榜单返回的 `VIP` 等平台标签；仅展示已授权响应或页面 DOM 明确返回的标签，未返回时标记“未返回”，不通过订单、客人、房态或房源映射推断 |
 
 ## 沉淀任务
 
@@ -47,6 +48,7 @@
 | P1 | 固化 Agent 技能 | `suxi-ota-ops/references/meituan-browser-capture.md` |
 | P2 | 固化知识中枢 | `database/migrations/20260519_seed_meituan_browser_capture_knowledge.sql` |
 | P3 | 固化初始化链路 | `database/init_full.sql` 引入美团知识 seed |
+| P3 | 补充竞对 VIP 标签展示 | 基础展示已完成：美团竞对榜单解析、入库 `raw_data` 和前端表格/首页摘要已展示平台返回的 VIP 标签；缺字段时保留缺失状态 |
 | P4 | 验证可用性 | PHP lint、Node check、现有 `OnlineDataTest`、前端入口检查 |
 
 ## 验证清单

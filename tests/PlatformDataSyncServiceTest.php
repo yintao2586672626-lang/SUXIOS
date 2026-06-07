@@ -66,6 +66,75 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], 34));
     }
 
+    public function testCollectionResourceDefinitionsExposeUnifiedContract(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $resources = array_column($service->collectionResourceDefinitions(), null, 'resource');
+
+        foreach (['businessData', 'peerRank', 'flowData', 'searchKeywords', 'reviewData', 'roomTypes'] as $resource) {
+            self::assertArrayHasKey($resource, $resources);
+            self::assertNotEmpty($resources[$resource]['fields']);
+            self::assertNotEmpty($resources[$resource]['aliases']);
+        }
+
+        self::assertSame('business', $resources['businessData']['data_type']);
+        self::assertSame('peer_rank', $resources['peerRank']['data_type']);
+        self::assertSame('traffic', $resources['flowData']['data_type']);
+        self::assertSame('search_keyword', $resources['searchKeywords']['data_type']);
+        self::assertSame('review', $resources['reviewData']['data_type']);
+        self::assertSame('room_type', $resources['roomTypes']['data_type']);
+        self::assertFalse($resources['reviewData']['default_enabled']);
+        self::assertTrue($resources['reviewData']['requires_explicit_authorization']);
+        self::assertSame('room_type_catalog_only_no_room_status_or_mapping', $resources['roomTypes']['privacy_boundary']);
+    }
+
+    public function testUnifiedResourceAliasesNormalizeIntoCanonicalDataTypes(): void
+    {
+        $service = new PlatformDataSyncService();
+        $cases = [
+            'businessData' => 'business',
+            'peerRank' => 'peer_rank',
+            'flowData' => 'traffic',
+            'searchKeywords' => 'search_keyword',
+            'roomTypes' => 'room_type',
+            'reviewData' => 'review',
+        ];
+
+        foreach ($cases as $alias => $expected) {
+            $source = [
+                'id' => 90,
+                'name' => 'Meituan unified resource source',
+                'platform' => 'meituan',
+                'data_type' => $alias,
+                'system_hotel_id' => 7,
+                'ingestion_method' => 'manual',
+            ];
+            if ($expected === 'review') {
+                $source['config'] = ['allow_review' => true];
+            }
+
+            $rows = $service->normalizeRowsFromPayload([
+                'rows' => [
+                    [
+                        'hotel_id' => 'mt-001',
+                        'hotel_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-06-06',
+                        'amount' => '100',
+                        'room_nights' => '2',
+                        'orders' => '1',
+                        'rank' => '3',
+                        'keyword' => 'nearby hotel',
+                        'score' => '4.5',
+                    ],
+                ],
+            ], $source, 91);
+
+            self::assertCount(1, $rows, $alias);
+            self::assertSame($expected, $rows[0]['data_type'], $alias);
+        }
+    }
+
     public function testRealtimePayloadNormalizesWithSnapshotMetadata(): void
     {
         $service = new PlatformDataSyncService();
@@ -651,6 +720,70 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testCtripBrowserProfileAdapterFallsBackToSequentialWhenParallelCaptureFails(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $capturedSections = [];
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedSections): array {
+                $outputPath = '';
+                $sections = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                    }
+                    if (str_starts_with((string)$arg, '--sections=')) {
+                        $sections = substr((string)$arg, strlen('--sections='));
+                    }
+                }
+                $capturedSections[] = $sections;
+                if ($outputPath === '') {
+                    return ['success' => false, 'message' => 'missing output path', 'stdout' => '', 'stderr' => ''];
+                }
+
+                $payload = [
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'standard_rows' => [],
+                    'business' => [],
+                    'traffic' => [],
+                ];
+                if (!str_contains($sections, ',')) {
+                    $payload['standard_rows'][] = [
+                        'hotel_id' => '24588',
+                        'hotel_name' => 'Ctrip Demo Hotel',
+                        'data_date' => '2026-05-31',
+                        'data_type' => $sections === 'traffic_report' ? 'traffic' : 'business',
+                        'amount' => $sections === 'traffic_report' ? 0 : 100,
+                        'source_trace_id' => 'fallback-' . $sections,
+                    ];
+                }
+                file_put_contents($outputPath, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $source = $this->ctripBrowserProfileSource();
+            $source['config']['capture_sections'] = 'business_overview,traffic_report';
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'ctrip_section_concurrency' => 2,
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertCount(2, $result['payload']['rows']);
+            self::assertSame([
+                'business_overview,traffic_report',
+                'business_overview',
+                'traffic_report',
+            ], $capturedSections);
+            self::assertSame('failed', $result['payload']['parallel_capture_fallback']['original_status']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripBrowserProfileAdapterRejectsConcurrentCaptureForSameProfile(): void
     {
         $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
@@ -1226,6 +1359,72 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame(5, $orderRow['quantity']);
             self::assertSame(3, $orderRow['book_order_num']);
             self::assertSame('mt-order-row', $orderRow['source_trace_id']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterMapsUnifiedResourcePayloads(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'businessData' => [
+                    [
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-06-06',
+                        'amount' => '1288.00',
+                        'room_nights' => '6',
+                        'orders' => '4',
+                    ],
+                ],
+                'peerRank' => [
+                    [
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-06-06',
+                        'rank' => '2',
+                        'rank_type' => 'P_RZ',
+                        'vip_status' => true,
+                    ],
+                ],
+                'searchKeywords' => [
+                    [
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-06-06',
+                        'keyword' => 'nearby hotel',
+                        'exposure_count' => '300',
+                    ],
+                ],
+                'roomTypes' => [
+                    [
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-06-06',
+                        'room_type_name' => 'Business King',
+                        'price' => '268',
+                    ],
+                ],
+            ]));
+            $source = $this->meituanBrowserProfileSource();
+            $result = $adapter->fetch($source, ['interactive_browser' => false, 'capture_sections' => 'businessData,peerRank,searchKeywords,roomTypes']);
+
+            self::assertSame('success', $result['status']);
+            self::assertCount(4, $result['payload']['rows']);
+            self::assertSame(1, $result['payload']['sync_summary']['peer_rank_count']);
+            self::assertSame(1, $result['payload']['sync_summary']['search_keyword_count']);
+            self::assertSame(1, $result['payload']['sync_summary']['room_type_count']);
+
+            $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload($result['payload'], $source, 90);
+            $types = array_values(array_unique(array_column($rows, 'data_type')));
+            sort($types);
+
+            self::assertSame(['business', 'peer_rank', 'room_type', 'search_keyword'], $types);
         } finally {
             $this->removeDirectory($root);
         }

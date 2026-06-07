@@ -84,6 +84,14 @@ Route::group('api/daily-reports', function () {
     Route::post('/', 'DailyReport/create');
 })->middleware(\app\middleware\Auth::class);
 
+Route::group('api/ai-daily-reports', function () {
+    Route::get('/latest', 'AiDailyReport/latest');
+    Route::post('/generate', 'AiDailyReport/generate');
+    Route::post('/:id/actions/:actionIndex/execution-intent', 'AiDailyReport/createExecutionIntent');
+    Route::get('/:id', 'AiDailyReport/read');
+    Route::get('/', 'AiDailyReport/index');
+})->middleware(\app\middleware\Auth::class);
+
 Route::group('api/monthly-tasks', function () {
     Route::get('/config', 'MonthlyTask/config');
     Route::get('/:id', 'MonthlyTask/read');
@@ -117,6 +125,7 @@ Route::group('api/online-data', function () {
     Route::post('/fetch-ctrip', 'OnlineData/fetchCtrip');
     Route::post('/fetch-meituan', 'OnlineData/fetchMeituan');
     Route::post('/meituan/display-model', 'OnlineData/meituanDisplayModel');
+    Route::get('/competitor-summary', 'OnlineData/competitorSummary');
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');
@@ -180,6 +189,7 @@ Route::group('api/online-data', function () {
     Route::any('/auto-capture-ctrip-cookie', 'OnlineData/autoCaptureCtripCookie');
     Route::post('/save-ctrip-config-by-bookmark', 'OnlineData/saveCtripConfigByBookmark');
     // 线上数据管理
+    Route::get('/collection-resources', 'OnlineData/collectionResourceCatalog');
     Route::get('/data-sources', 'OnlineData/dataSourceList');
     Route::post('/data-sources/:id/sync', 'OnlineData/syncDataSource');
     Route::post('/data-sources', 'OnlineData/saveDataSource');
@@ -436,6 +446,14 @@ Route::group('api/operation-logs', function () {
     Route::get('/stats', 'OperationLogController/stats');
     Route::get('/high-risk-summary', 'OperationLogController/highRiskSummary');
     Route::get('/:id', 'OperationLogController/detail');
+})->middleware(\app\middleware\Auth::class);
+
+// ==================== 系统通知路由 ====================
+Route::group('api/notifications', function () {
+    Route::get('/', 'SystemNotificationController/index');
+    Route::post('/read', 'SystemNotificationController/markRead');
+    Route::post('/read-all', 'SystemNotificationController/markAllRead');
+    Route::post('/clear', 'SystemNotificationController/clear');
 })->middleware(\app\middleware\Auth::class);
 
 // 健康检查

@@ -305,8 +305,10 @@ function normalizeCapturedList(value, section) {
       ['data', 'commentList'], ['data', 'comments'], ['data', 'list'], ['commentList'], ['comments'], ['list'], ['data'],
     ],
     traffic: [
-      ['data', 'businessData'], ['data', 'weightTraffic'], ['data', 'weight_traffic'], ['data', 'traffic'], ['data', 'peerTrends'], ['data', 'list'], ['data', 'rows'],
-      ['businessData'], ['weightTraffic'], ['weight_traffic'], ['traffic'], ['peerTrends'], ['list'], ['rows'], ['data'],
+      ['data', 'businessData'], ['data', 'peerRank'], ['data', 'peer_rank'], ['data', 'rankings'], ['data', 'weightTraffic'], ['data', 'weight_traffic'], ['data', 'traffic'], ['data', 'peerTrends'],
+      ['data', 'searchKeywords'], ['data', 'search_keywords'], ['data', 'keywords'], ['data', 'roomTypes'], ['data', 'room_types'], ['data', 'products'], ['data', 'list'], ['data', 'rows'],
+      ['businessData'], ['peerRank'], ['peer_rank'], ['rankings'], ['weightTraffic'], ['weight_traffic'], ['traffic'], ['peerTrends'], ['searchKeywords'], ['search_keywords'], ['keywords'],
+      ['roomTypes'], ['room_types'], ['products'], ['list'], ['rows'], ['data'],
     ],
     ads: [
       ['data', 'cureShops'], ['data', 'list'], ['data', 'rows'], ['cureShops'], ['list'], ['rows'], ['data'],

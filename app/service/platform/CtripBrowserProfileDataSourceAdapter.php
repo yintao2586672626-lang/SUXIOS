@@ -134,7 +134,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             }
 
             $outputPath = $this->captureOutputPath($outputDir, $profileId);
-            return $this->runCaptureProcess(
+            $result = $this->runCaptureProcess(
                 $source,
                 $scriptPath,
                 $profileId,
@@ -910,9 +910,11 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 preg_split('/[,\s]+/', strtolower($optionSections)) ?: []
             ))));
             $presetTokens = ['default' => true, 'core' => true, 'wide' => true, 'all' => true];
-            if ($tokens === [] || (count($tokens) === 1 && isset($presetTokens[$tokens[0]]))) {
-                $preset = $tokens[0] ?? 'default';
-                return implode(',', $this->filterAllowedPresetSections($preset, $allowedSections));
+            if ($tokens === []) {
+                return implode(',', $allowedSections);
+            }
+            if (count($tokens) === 1 && isset($presetTokens[$tokens[0]])) {
+                return implode(',', $this->filterAllowedPresetSections($tokens[0], $allowedSections));
             }
 
             $aliases = [
@@ -973,6 +975,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
     {
         $payload = $this->profileFieldConfigFromOptions($options);
         $configured = $payload !== null;
+        $fromOptions = $payload !== null;
         if ($payload === null) {
             $payload = $this->readSystemConfigPayload(self::PROFILE_FIELDS_CONFIG_KEY);
             $configured = $payload !== null;
@@ -981,7 +984,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             return ['configured' => false, 'allowed_sections' => [], 'allowed_field_keys' => [], 'fields' => []];
         }
 
-        $moduleMap = $this->activeProfileModuleMap();
+        $moduleMap = $fromOptions ? [] : $this->activeProfileModuleMap();
         $rawFields = is_array($payload['fields'] ?? null) ? $payload['fields'] : [];
         if ($rawFields === [] && !$this->hasListPayload($payload)) {
             $rawFields = $payload;

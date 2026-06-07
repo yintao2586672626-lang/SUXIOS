@@ -521,6 +521,9 @@ class MacroSignalService
                 continue;
             }
             $raw = $this->decodeJson($row['raw_data'] ?? null);
+            if (!$this->isOwnOperatingOnlineRow($row, $raw)) {
+                continue;
+            }
             $amount = $this->toPositiveFloat($row['amount'] ?? null) ?? 0.0;
             $quantity = $this->toPositiveFloat($row['quantity'] ?? null) ?? 0.0;
             $orders = $this->toPositiveFloat($row['book_order_num'] ?? null)
@@ -586,6 +589,11 @@ class MacroSignalService
             'rows' => array_values($rows),
             'competitor_avg' => $this->avgField($competitorRows, 'price'),
         ];
+    }
+
+    private function isOwnOperatingOnlineRow(array $row, array $raw): bool
+    {
+        return OtaOperatingScope::isOwnOperatingRow($row, $raw);
     }
 
     private function dailyReportRevenue(array $row, array $data): float
@@ -1054,7 +1062,7 @@ class MacroSignalService
 
         return $this->safeRows(fn () => $this->withHotelIds(
             Db::name('online_daily_data')
-                ->field('system_hotel_id,data_date,amount,quantity,book_order_num,raw_data,source,dimension,data_type,data_value')
+                ->field('system_hotel_id,data_date,hotel_name,amount,quantity,book_order_num,raw_data,source,dimension,data_type,data_value,compare_type')
                 ->where('data_date', '>=', $start),
             'system_hotel_id',
             $hotelIds
@@ -1106,7 +1114,7 @@ class MacroSignalService
     {
         return $this->safeRows(fn () => $this->withHotelIds(
             Db::name('online_daily_data')
-                ->field('system_hotel_id,data_date,amount,quantity,book_order_num,raw_data,source,dimension,data_type,data_value')
+                ->field('system_hotel_id,data_date,hotel_name,amount,quantity,book_order_num,raw_data,source,dimension,data_type,data_value,compare_type')
                 ->whereBetween('data_date', [$startDate, $endDate]),
             'system_hotel_id',
             $hotelIds
@@ -1170,6 +1178,9 @@ class MacroSignalService
 
         foreach ($rows as $row) {
             $raw = $this->decodeJson($row['raw_data'] ?? null);
+            if (!$this->isOwnOperatingOnlineRow($row, $raw)) {
+                continue;
+            }
             $dimension = (string)($row['dimension'] ?? '');
             $rawDataValue = $this->toFloat($row['data_value'] ?? null);
             $dataValue = $rawDataValue ?? 0.0;
@@ -1242,6 +1253,10 @@ class MacroSignalService
         $amount = 0.0;
         $quantity = 0.0;
         foreach ($online as $row) {
+            $raw = $this->decodeJson($row['raw_data'] ?? null);
+            if (!$this->isOwnOperatingOnlineRow($row, $raw)) {
+                continue;
+            }
             $amount += $this->toFloat($row['amount'] ?? null) ?? 0.0;
             $quantity += $this->toFloat($row['quantity'] ?? null) ?? 0.0;
         }
@@ -1285,6 +1300,9 @@ class MacroSignalService
                 continue;
             }
             $raw = $this->decodeJson($row['raw_data'] ?? null);
+            if (!$this->isOwnOperatingOnlineRow($row, $raw)) {
+                continue;
+            }
             $total += $this->toFloat($row['book_order_num'] ?? null)
                 ?? $this->firstNumber($raw, ['bookOrderNum', 'orderCount', 'orders', 'order_submit_num'])
                 ?? 0.0;
@@ -1302,6 +1320,9 @@ class MacroSignalService
                 continue;
             }
             $raw = $this->decodeJson($row['raw_data'] ?? null);
+            if (!$this->isOwnOperatingOnlineRow($row, $raw)) {
+                continue;
+            }
             $total += $this->firstNumber($raw, ['cancel_order_num', 'cancelOrderNum', 'cancelOrders', 'cancel_count']) ?? 0.0;
         }
 

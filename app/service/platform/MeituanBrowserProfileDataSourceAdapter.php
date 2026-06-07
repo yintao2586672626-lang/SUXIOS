@@ -198,6 +198,10 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $payload['rows'] = $rows;
         $payload['sync_summary'] = [
             'row_count' => count($rows),
+            'business_count' => $this->countPayloadSections($payload, ['businessData', 'business_data', 'business', 'overview']),
+            'peer_rank_count' => $this->countPayloadSections($payload, ['peerRank', 'peer_rank', 'rankings', 'competitorRank']),
+            'search_keyword_count' => $this->countPayloadSections($payload, ['searchKeywords', 'search_keywords', 'keywords']),
+            'room_type_count' => $this->countPayloadSections($payload, ['roomTypes', 'room_types', 'products']),
             'traffic_count' => count(is_array($payload['traffic'] ?? null) ? $payload['traffic'] : []),
             'order_count' => count(is_array($payload['orders'] ?? null) ? $payload['orders'] : []),
             'ads_count' => count(is_array($payload['ads'] ?? null) ? $payload['ads'] : []),
@@ -216,13 +220,23 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $fallbackHotelId): array
     {
         $rows = [];
-        $sections = [
-            'traffic' => 'traffic',
-            'orders' => 'order',
-            'ads' => 'advertising',
+        $forcedDataType = $this->forcedResourceDataType($source, $payload);
+        $sectionGroups = [
+            ['data_type' => 'business', 'keys' => ['businessData', 'business_data', 'business', 'overview']],
+            ['data_type' => 'peer_rank', 'keys' => ['peerRank', 'peer_rank', 'competitorRank', 'rankings', 'ranking']],
+            ['data_type' => 'traffic', 'keys' => ['flowData', 'flow_data', 'traffic', 'flow']],
+            ['data_type' => 'search_keyword', 'keys' => ['searchKeywords', 'search_keywords', 'searchKeyWords', 'keywords']],
+            ['data_type' => 'room_type', 'keys' => ['roomTypes', 'room_types', 'products', 'roomType']],
+            ['data_type' => 'order', 'keys' => ['orders']],
+            ['data_type' => 'advertising', 'keys' => ['ads']],
         ];
-        foreach ($sections as $section => $dataType) {
-            $sectionRows = is_array($payload[$section] ?? null) ? $payload[$section] : [];
+
+        foreach ($sectionGroups as $sectionGroup) {
+            $dataType = (string)$sectionGroup['data_type'];
+            $sectionRows = $this->payloadRowsForKeys($payload, $sectionGroup['keys']);
+            if ($forcedDataType !== '' && in_array($dataType, ['business', 'peer_rank', 'traffic', 'search_keyword', 'room_type'], true)) {
+                $dataType = $forcedDataType;
+            }
             foreach ($sectionRows as $row) {
                 if (!is_array($row)) {
                     continue;
@@ -240,6 +254,78 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         return $rows;
+    }
+
+    /**
+     * @param array<int, string> $keys
+     * @return array<int, mixed>
+     */
+    private function payloadRowsForKeys(array $payload, array $keys): array
+    {
+        $rows = [];
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $payload) || !is_array($payload[$key])) {
+                continue;
+            }
+            $sectionRows = $payload[$key];
+            if ($sectionRows !== [] && array_keys($sectionRows) !== range(0, count($sectionRows) - 1)) {
+                $sectionRows = [$sectionRows];
+            }
+            $rows = array_merge($rows, $sectionRows);
+        }
+        return $rows;
+    }
+
+    /**
+     * @param array<int, string> $keys
+     */
+    private function countPayloadSections(array $payload, array $keys): int
+    {
+        return count($this->payloadRowsForKeys($payload, $keys));
+    }
+
+    private function forcedResourceDataType(array $source, array $payload): string
+    {
+        $sourceType = $this->normalizeResourceDataType((string)($source['data_type'] ?? ''));
+        if (in_array($sourceType, ['peer_rank', 'search_keyword', 'room_type'], true)) {
+            return $sourceType;
+        }
+
+        $capture = is_array($payload['data_source_capture'] ?? null) ? $payload['data_source_capture'] : [];
+        $sectionText = strtolower((string)($capture['capture_sections'] ?? ''));
+        $sectionType = $this->normalizeResourceDataType($sectionText);
+        if (in_array($sectionType, ['business', 'peer_rank', 'traffic', 'search_keyword', 'room_type'], true)) {
+            return $sectionType;
+        }
+
+        return '';
+    }
+
+    private function normalizeResourceDataType(string $value): string
+    {
+        $value = trim($value);
+        $value = (string)preg_replace('/([a-z0-9])([A-Z])/', '$1_$2', $value);
+        $value = strtolower((string)preg_replace('/[\s\-.]+/', '_', $value));
+        $value = (string)preg_replace('/_+/', '_', $value);
+        $value = trim($value, '_');
+
+        if (in_array($value, ['business_data', 'businessdata', 'trade_data', 'tradedata', 'overview', 'summary'], true)) {
+            return 'business';
+        }
+        if (in_array($value, ['peer_rank', 'peerrank', 'competitor_rank', 'competitorrank', 'competition', 'rank', 'ranking', 'rankings'], true)) {
+            return 'peer_rank';
+        }
+        if (in_array($value, ['flow_data', 'flowdata', 'flow', 'traffic', 'traffic_data', 'trafficdata'], true)) {
+            return 'traffic';
+        }
+        if (in_array($value, ['search_keyword', 'search_keywords', 'searchkeyword', 'searchkeywords', 'search_key_word', 'search_key_words', 'keyword', 'keywords'], true)) {
+            return 'search_keyword';
+        }
+        if (in_array($value, ['room_type', 'room_types', 'roomtype', 'roomtypes', 'product', 'products'], true)) {
+            return 'room_type';
+        }
+
+        return $value;
     }
 
     private function compactFailurePayload(array $payload, array $runResult): array

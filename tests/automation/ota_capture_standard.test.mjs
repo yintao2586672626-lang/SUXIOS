@@ -12,6 +12,10 @@ import {
 
 test('normalizes OTA capture sections per platform', () => {
   assert.deepEqual(normalizeCaptureSections('meituan', 'flow,order'), ['traffic', 'orders']);
+  assert.deepEqual(
+    normalizeCaptureSections('meituan', 'businessData,peerRank,flowData,searchKeywords,roomTypes'),
+    ['traffic'],
+  );
   assert.deepEqual(normalizeCaptureSections('ctrip', 'business,traffic'), ['business', 'traffic']);
   assert.deepEqual(normalizeCaptureSections('meituan', ''), ['traffic', 'orders']);
   assert.throws(() => normalizeCaptureSections('meituan', 'comment'), /Comment\/review capture is disabled/);
@@ -76,6 +80,14 @@ test('classifies OTA JSON responses by platform and section', () => {
   });
   assert.equal(ctripAds.capture, true);
   assert.equal(ctripAds.section, 'ads');
+
+  const meituanPeerRank = classifyOtaResponse('meituan', 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail', {
+    status: 200,
+    resourceType: 'xhr',
+    contentType: 'application/json',
+  });
+  assert.equal(meituanPeerRank.capture, true);
+  assert.equal(meituanPeerRank.section, 'traffic');
 
   const asset = classifyOtaResponse('meituan', 'https://p0.meituan.net/assets/logo.png', {
     status: 200,

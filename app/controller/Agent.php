@@ -27,6 +27,7 @@ use app\model\AiModelConfig;
 use app\service\FeasibilityReportService;
 use app\service\LlmClient;
 use app\service\OperationManagementService;
+use app\service\OtaOperatingScope;
 use app\service\RevenuePricingRecommendationService;
 use think\Response;
 use think\facade\Db;
@@ -382,7 +383,8 @@ class Agent extends Base
             $effectiveStartDate = (string) ($dataSet['effective_start_date'] ?? $startDate);
             $effectiveEndDate = (string) ($dataSet['effective_end_date'] ?? $endDate);
             $usedLatestAvailableData = !empty($dataSet['used_latest_available_data']);
-            $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $hotelName, $platform, $effectiveStartDate, $effectiveEndDate, $analysisType);
+            $effectiveHotelName = $hotelName !== '' ? $hotelName : trim((string)($dataSet['hotel']['name'] ?? ''));
+            $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $effectiveHotelName, $platform, $effectiveStartDate, $effectiveEndDate, $analysisType);
             $result['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $analysisType, $hotelId > 0 ? [$hotelId] : []);
             $result['evidence_sources'] = $this->buildOtaDiagnosisEvidenceSources($dataSet, $result['metrics'] ?? []);
             if ($usedLatestAvailableData) {
@@ -2670,6 +2672,7 @@ class Agent extends Base
 
     private function buildOtaDiagnosisSummary(array $rows, int $hotelId, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
+        $ownHotelNames = array_values(array_filter([$hotelName], static fn ($value): bool => trim((string)$value) !== ''));
         $summary = [
             'scope' => [
                 'hotel_id' => $hotelId,
@@ -2728,6 +2731,28 @@ class Agent extends Base
                 continue;
             }
 
+            $amount = (float) ($row['amount'] ?? 0);
+            $quantity = (int) ($row['quantity'] ?? 0);
+            $bookOrderNum = (int) ($row['book_order_num'] ?? 0);
+            $dataValue = (float) ($row['data_value'] ?? 0);
+            $dataType = $this->normalizeOtaDiagnosisDataType((string)($row['data_type'] ?? ''));
+
+            $raw = [];
+            if (!empty($row['raw_data'])) {
+                $decoded = json_decode((string) $row['raw_data'], true);
+                if (is_array($decoded)) {
+                    $raw = $decoded;
+                } else {
+                    $invalidRawCount++;
+                }
+            }
+
+            $isOwnOperatingRow = OtaOperatingScope::isOwnOperatingRow($row, $raw, $ownHotelNames);
+            if (!$isOwnOperatingRow && !in_array($dataType, ['advertising', 'quality', 'review'], true)) {
+                $summary['excluded_non_operating_rows'] = (int)($summary['excluded_non_operating_rows'] ?? 0) + 1;
+                continue;
+            }
+
             if (!isset($summary['daily'][$date])) {
                 $summary['daily'][$date] = [
                     'date' => $date,
@@ -2751,31 +2776,15 @@ class Agent extends Base
                 ];
             }
 
-            $hotelName = trim((string) ($row['hotel_name'] ?? ''));
-            if ($hotelName !== '') {
-                $summary['hotel_names'][$hotelName] = true;
+            $rowHotelName = trim((string) ($row['hotel_name'] ?? ''));
+            if ($rowHotelName !== '') {
+                $summary['hotel_names'][$rowHotelName] = true;
             }
 
             $dimension = trim((string) ($row['dimension'] ?? ''));
             $dimensionKey = $dimension !== '' ? $dimension : '未标注维度';
             if (!isset($summary['dimensions'][$dimensionKey])) {
                 $summary['dimensions'][$dimensionKey] = ['record_count' => 0, 'data_value' => 0.0];
-            }
-
-            $amount = (float) ($row['amount'] ?? 0);
-            $quantity = (int) ($row['quantity'] ?? 0);
-            $bookOrderNum = (int) ($row['book_order_num'] ?? 0);
-            $dataValue = (float) ($row['data_value'] ?? 0);
-            $dataType = $this->normalizeOtaDiagnosisDataType((string)($row['data_type'] ?? ''));
-
-            $raw = [];
-            if (!empty($row['raw_data'])) {
-                $decoded = json_decode((string) $row['raw_data'], true);
-                if (is_array($decoded)) {
-                    $raw = $decoded;
-                } else {
-                    $invalidRawCount++;
-                }
             }
 
             if (!in_array($dataType, ['advertising', 'quality', 'review'], true)) {

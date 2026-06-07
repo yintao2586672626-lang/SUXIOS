@@ -1,0 +1,320 @@
+<?php
+declare(strict_types=1);
+
+namespace app\controller;
+
+use app\model\SystemNotification;
+use app\model\SystemNotificationUserState;
+use think\Response;
+
+class SystemNotificationController extends Base
+{
+    private const MAX_PAGE_SIZE = 50;
+
+    public function index(): Response
+    {
+        if (!SystemNotification::tableReady()) {
+            return $this->success([
+                'list' => [],
+                'total' => 0,
+                'unread_count' => 0,
+                'poll_interval_ms' => 120000,
+                'data_status' => 'missing_table',
+                'data_gaps' => [[
+                    'code' => 'system_notifications_table_missing',
+                    'message' => 'system_notifications table does not exist, run database migration first',
+                ]],
+            ]);
+        }
+        if (!SystemNotificationUserState::tableReady()) {
+            return $this->success([
+                'list' => [],
+                'total' => 0,
+                'unread_count' => 0,
+                'poll_interval_ms' => 120000,
+                'data_status' => 'missing_table',
+                'data_gaps' => [[
+                    'code' => 'system_notification_user_states_table_missing',
+                    'message' => 'system_notification_user_states table does not exist, run database migration first',
+                ]],
+            ]);
+        }
+
+        $page = max(1, (int)$this->request->get('page', 1));
+        $pageSize = min(self::MAX_PAGE_SIZE, max(1, (int)$this->request->get('page_size', 20)));
+        $category = trim((string)$this->request->get('category', ''));
+        $hotelId = (int)$this->request->get('hotel_id', 0);
+
+        $query = SystemNotification::with(['hotel', 'actor'])->where('is_cleared', 0);
+        $this->applyVisibleScope($query);
+        if ($category !== '') {
+            $query->where('category', $category);
+        }
+        if ($hotelId > 0 && $this->currentUser && $this->currentUser->isSuperAdmin()) {
+            $query->where('hotel_id', $hotelId);
+        }
+
+        $rows = $query
+            ->order('update_time', 'desc')
+            ->order('create_time', 'desc')
+            ->select()
+            ->toArray();
+        [$visibleRows, $states] = $this->filterRowsByCurrentUserState($rows);
+        $total = count($visibleRows);
+        $unreadCount = count(array_filter($visibleRows, function (array $row) use ($states): bool {
+            return !$this->isNotificationReadForCurrentUser($row, $states);
+        }));
+        $pageRows = array_slice($visibleRows, ($page - 1) * $pageSize, $pageSize);
+
+        return $this->success([
+            'list' => array_map(fn(array $row): array => $this->serializeNotification($row, $states), $pageRows),
+            'total' => $total,
+            'unread_count' => $unreadCount,
+            'poll_interval_ms' => 120000,
+        ]);
+    }
+
+    public function markRead(): Response
+    {
+        if (!SystemNotification::tableReady()) {
+            return $this->error('system_notifications table does not exist, run database migration first', 500, [
+                'data_status' => 'missing_table',
+                'data_gaps' => [[
+                    'code' => 'system_notifications_table_missing',
+                    'message' => 'system_notifications table does not exist, run database migration first',
+                ]],
+            ]);
+        }
+        if (!SystemNotificationUserState::tableReady()) {
+            return $this->error('system_notification_user_states table does not exist, run database migration first', 500, [
+                'data_status' => 'missing_table',
+                'data_gaps' => [[
+                    'code' => 'system_notification_user_states_table_missing',
+                    'message' => 'system_notification_user_states table does not exist, run database migration first',
+                ]],
+            ]);
+        }
+
+        $ids = $this->inputIds();
+        if (empty($ids)) {
+            return $this->success(['updated_count' => 0], '已读状态已更新');
+        }
+
+        $query = SystemNotification::whereIn('id', $ids);
+        $this->applyVisibleScope($query);
+        $visibleIds = array_map('intval', $query->column('id'));
+        if (empty($visibleIds)) {
+            return $this->success(['updated_count' => 0], '已读状态已更新');
+        }
+
+        $count = SystemNotificationUserState::markReadForUser($visibleIds, (int)$this->currentUser->id);
+
+        return $this->success(['updated_count' => (int)$count], '已读状态已更新');
+    }
+
+    public function markAllRead(): Response
+    {
+        if (!SystemNotification::tableReady()) {
+            return $this->error('system_notifications table does not exist, run database migration first', 500, [
+                'data_status' => 'missing_table',
+                'data_gaps' => [[
+                    'code' => 'system_notifications_table_missing',
+                    'message' => 'system_notifications table does not exist, run database migration first',
+                ]],
+            ]);
+        }
+        if (!SystemNotificationUserState::tableReady()) {
+            return $this->error('system_notification_user_states table does not exist, run database migration first', 500, [
+                'data_status' => 'missing_table',
+                'data_gaps' => [[
+                    'code' => 'system_notification_user_states_table_missing',
+                    'message' => 'system_notification_user_states table does not exist, run database migration first',
+                ]],
+            ]);
+        }
+
+        $query = SystemNotification::where('is_cleared', 0);
+        $this->applyVisibleScope($query);
+        $rows = $query->field('id')->select()->toArray();
+        [$visibleRows, $states] = $this->filterRowsByCurrentUserState($rows);
+        $visibleIds = array_map(
+            static fn(array $row): int => (int)$row['id'],
+            array_filter($visibleRows, fn(array $row): bool => !$this->isNotificationReadForCurrentUser($row, $states))
+        );
+        $count = SystemNotificationUserState::markReadForUser($visibleIds, (int)$this->currentUser->id);
+
+        return $this->success(['updated_count' => (int)$count], '全部已读');
+    }
+
+    public function clear(): Response
+    {
+        if (!SystemNotification::tableReady()) {
+            return $this->error('system_notifications table does not exist, run database migration first', 500, [
+                'data_status' => 'missing_table',
+                'data_gaps' => [[
+                    'code' => 'system_notifications_table_missing',
+                    'message' => 'system_notifications table does not exist, run database migration first',
+                ]],
+            ]);
+        }
+        if (!SystemNotificationUserState::tableReady()) {
+            return $this->error('system_notification_user_states table does not exist, run database migration first', 500, [
+                'data_status' => 'missing_table',
+                'data_gaps' => [[
+                    'code' => 'system_notification_user_states_table_missing',
+                    'message' => 'system_notification_user_states table does not exist, run database migration first',
+                ]],
+            ]);
+        }
+
+        $ids = $this->inputIds();
+        $query = SystemNotification::where('is_cleared', 0);
+        $this->applyVisibleScope($query);
+        if (!empty($ids)) {
+            $query->whereIn('id', $ids);
+        }
+
+        $rows = $query->field('id')->select()->toArray();
+        [$visibleRows] = $this->filterRowsByCurrentUserState($rows);
+        $visibleIds = array_map(static fn(array $row): int => (int)$row['id'], $visibleRows);
+        $count = SystemNotificationUserState::markClearedForUser($visibleIds, (int)$this->currentUser->id);
+
+        return $this->success(['updated_count' => (int)$count], '通知已清空');
+    }
+
+    private function applyVisibleScope($query): void
+    {
+        if (!$this->currentUser) {
+            $query->whereRaw('1 = 0');
+            return;
+        }
+
+        if ($this->currentUser->isSuperAdmin()) {
+            return;
+        }
+
+        $userId = (int)$this->currentUser->id;
+        $permittedHotelIds = array_values(array_filter(
+            array_map('intval', $this->currentUser->getPermittedHotelIds()),
+            static fn(int $id): bool => $id > 0
+        ));
+
+        $hotelClause = '';
+        if (!empty($permittedHotelIds)) {
+            $hotelClause = '`hotel_id` IN (' . implode(',', $permittedHotelIds) . ') OR ';
+        }
+
+        $query->whereRaw(
+            '(' . $hotelClause . '(`hotel_id` IS NULL AND (`user_id` = ' . $userId . ' OR `user_id` IS NULL)))'
+        );
+    }
+
+    private function inputIds(): array
+    {
+        $input = $this->requestData();
+        $raw = $input['ids'] ?? $input['id'] ?? [];
+        if (is_string($raw)) {
+            $raw = preg_split('/[,\s]+/', $raw) ?: [];
+        }
+        if (!is_array($raw)) {
+            $raw = [$raw];
+        }
+
+        return array_values(array_unique(array_filter(
+            array_map('intval', $raw),
+            static fn(int $id): bool => $id > 0
+        )));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>}
+     */
+    private function filterRowsByCurrentUserState(array $rows): array
+    {
+        $ids = array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $rows);
+        $states = SystemNotificationUserState::statesByNotificationId($ids, (int)($this->currentUser->id ?? 0));
+        $visibleRows = array_values(array_filter($rows, static function (array $row) use ($states): bool {
+            $state = $states[(int)($row['id'] ?? 0)] ?? [];
+            return (int)($state['is_cleared'] ?? 0) !== 1;
+        }));
+
+        return [$visibleRows, $states];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, array<string, mixed>> $states
+     */
+    private function isNotificationReadForCurrentUser(array $row, array $states): bool
+    {
+        $state = $states[(int)($row['id'] ?? 0)] ?? null;
+        if ($state === null) {
+            return false;
+        }
+
+        return (int)($state['is_read'] ?? 0) === 1;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, array<string, mixed>> $states
+     */
+    private function serializeNotification(array $row, array $states = []): array
+    {
+        $payload = [];
+        if (!empty($row['action_payload'])) {
+            $decoded = json_decode((string)$row['action_payload'], true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
+        $updatedAt = (string)($row['update_time'] ?? '');
+        $createdAt = (string)($row['create_time'] ?? '');
+
+        return [
+            'id' => (int)($row['id'] ?? 0),
+            'notification_id' => 'system-notification-' . (int)($row['id'] ?? 0),
+            'hotel_id' => $row['hotel_id'] ?? null,
+            'hotel_name' => $row['hotel']['name'] ?? '',
+            'platform' => $row['platform'] ?? 'ota',
+            'category' => $row['category'] ?? 'general',
+            'category_label' => $this->categoryLabel((string)($row['category'] ?? 'general')),
+            'severity' => $row['severity'] ?? 'info',
+            'title' => $row['title'] ?? '系统通知',
+            'detail' => $row['message'] ?? '',
+            'message' => $row['message'] ?? '',
+            'is_read' => $this->isNotificationReadForCurrentUser($row, $states),
+            'created_at' => $createdAt,
+            'updated_at' => $updatedAt,
+            'time_label' => $updatedAt !== '' ? $updatedAt : $createdAt,
+            'action_type' => $row['action_type'] ?? '',
+            'action_label' => $payload['action_label'] ?? $this->defaultActionLabel((string)($row['category'] ?? 'general')),
+            'target_page' => $payload['target_page'] ?? 'online-data',
+            'target_tab' => $payload['target_tab'] ?? 'data-health',
+            'action_payload' => $payload,
+            'source_module' => $row['source_module'] ?? '',
+        ];
+    }
+
+    private function categoryLabel(string $category): string
+    {
+        return [
+            'capture_success' => '采集完成',
+            'capture_failed' => '采集失败',
+            'cookie_alert' => 'Cookie 告警',
+            'data_quality' => '数据健康',
+            'risk_action' => '风险动作',
+        ][$category] ?? '系统通知';
+    }
+
+    private function defaultActionLabel(string $category): string
+    {
+        return [
+            'capture_success' => '查看数据',
+            'capture_failed' => '查看原因',
+            'cookie_alert' => '更新授权',
+        ][$category] ?? '查看处理';
+    }
+}

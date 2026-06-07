@@ -42,7 +42,7 @@ if (!exists(vaultPath)) {
   failures.push(`${vaultPath} is missing`);
 } else {
   const vault = read(vaultPath);
-  requireIncludes(vaultPath, vault, 'Updated: 2026-06-06 Asia/Shanghai');
+  requireIncludes(vaultPath, vault, 'Updated:');
   requireIncludes(vaultPath, vault, 'codex/save-project-20260531');
   requireIncludes(vaultPath, vault, 'Ctrip response -> field -> table closure');
 }

@@ -25,6 +25,8 @@ SOURCE ./database/migrations/20260516_create_opening_management_tables.sql;
 SOURCE ./database/migrations/20260518_add_opening_task_progress.sql;
 SOURCE ./database/migrations/20260516_create_operation_management_tables.sql;
 SOURCE ./database/migrations/20260526_create_operation_execution_loop_tables.sql;
+SOURCE ./database/migrations/20260607_create_ai_daily_reports.sql;
+SOURCE ./database/migrations/20260607_create_system_notifications.sql;
 SOURCE ./database/migrations/20260517_create_quant_simulation_records.sql;
 SOURCE ./database/migrations/20260517_create_expansion_records.sql;
 SOURCE ./database/migrations/20260517_create_transfer_records.sql;
