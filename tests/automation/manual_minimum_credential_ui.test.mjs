@@ -13,7 +13,7 @@ const sliceFrom = (needle, endNeedle) => {
 
 const functionSlice = (name) => sliceFrom(`const ${name} = async () => {`, `\n            const `);
 
-test('Ctrip manual ranking and traffic use Cookie as the daily credential', () => {
+test('Ctrip manual ranking and traffic use platform authorization as the daily credential', () => {
   const fetchCtripData = functionSlice('fetchCtripData');
   const fetchCtripTrafficData = functionSlice('fetchCtripTrafficData');
 
@@ -21,7 +21,7 @@ test('Ctrip manual ranking and traffic use Cookie as the daily credential', () =
   assert.match(fetchCtripData, /const ctripFetchBody = \{/);
   assert.match(fetchCtripData, /if \(nodeId\) \{\s*ctripFetchBody\.node_id = nodeId;/);
   assert.match(fetchCtripTrafficData, /const ctripTrafficFetchBody = \{/);
-  assert.match(html, /只需 Cookie/);
+  assert.match(html, /只需平台授权/);
 });
 
 test('Meituan ranking does not expose resource id inputs on the daily fetch panel', () => {
@@ -37,7 +37,7 @@ test('Meituan ranking does not expose resource id inputs on the daily fetch pane
 test('Meituan config saves cookie-only and no longer treats room counts as credentials', () => {
   const saveMeituanConfigItem = functionSlice('saveMeituanConfigItem');
 
-  assert.match(saveMeituanConfigItem, /请输入Cookies/);
+  assert.match(saveMeituanConfigItem, /请输入平台授权内容/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入Partner ID/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入POI ID/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入酒店房量/);
@@ -56,7 +56,7 @@ test('Ctrip ads only exposes the effect report workflow', () => {
   const adsConfigPanel = sliceFrom('<!-- 携程广告配置 -->', '<!-- 美团广告配置 -->');
 
   assert.match(adsPanel, /效果报表/);
-  assert.match(adsPanel, /效果报表接口 URL（可选）/);
+  assert.match(adsPanel, /高级排障接口地址（可选）/);
   assert.doesNotMatch(adsPanel, /推广活动列表/);
   assert.doesNotMatch(adsPanel, /推广活动报表/);
   assert.doesNotMatch(adsPanel, /广告接口 URL <span class="text-red-500">\*<\/span>/);

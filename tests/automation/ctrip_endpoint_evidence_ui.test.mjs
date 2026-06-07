@@ -36,7 +36,7 @@ test('data health UI surfaces Ctrip capture catalog and live capture gate separa
 });
 
 test('Ctrip Profile UI exposes login-only preparation before capture', () => {
-  assert.match(html, /只登录并保存 Profile/);
+  assert.match(html, /只登录并保存会话/);
   assert.match(html, /runCtripBrowserCapture\(\{ loginOnly:\s*true \}\)/);
   assert.match(html, /login_only:\s*Boolean\(options\.loginOnly\)/);
   assert.match(html, /Profile 登录已保存/);

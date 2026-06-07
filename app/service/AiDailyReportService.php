@@ -426,15 +426,38 @@ class AiDailyReportService
             return [];
         }
 
-        return [[
+        $items = [];
+        $meituan = is_array($competitors['meituan_rank_summary'] ?? null) ? $competitors['meituan_rank_summary'] : [];
+        if (!empty($meituan)) {
+            $items[] = [
+                'label' => 'Meituan competitor summary',
+                'top_hotel' => (string)($meituan['top_hotel_name'] ?? ''),
+                'self_position' => (string)($meituan['self_position_text'] ?? ''),
+                'gap_to_previous' => (string)($meituan['gap_to_previous_text'] ?? ''),
+                'top1_gap' => (string)($meituan['top1_gap_text'] ?? ''),
+                'vip_signal' => (string)($meituan['platform_tag_text'] ?? ''),
+                'rank_trend' => (string)($meituan['rank_trend_text'] ?? ''),
+                'rank_status' => (string)($meituan['rank_status'] ?? ''),
+                'platform_tag_status' => (string)($meituan['platform_tag_status'] ?? ''),
+                'latest_data_date' => (string)($meituan['latest_data_date'] ?? ''),
+                'sample_count' => (int)($meituan['sample_count'] ?? 0),
+                'data_status' => (string)($meituan['data_status'] ?? ''),
+                'source_ref' => 'operation.full_data.competitors.meituan_rank_summary',
+                'note' => (string)($meituan['rank_missing_reason'] ?? $meituan['privacy_scope'] ?? ''),
+            ];
+        }
+
+        $items[] = [
             'label' => 'Competitor price/rank signal',
             'avg_price' => $this->numericOrNull($competitors['avg_price'] ?? null),
             'price_gap' => $this->numericOrNull($competitors['price_gap'] ?? null),
-            'rank' => $competitors['rank'] ?? null,
+            'rank' => $competitors['rank_position'] ?? null,
             'data_status' => (string)($competitors['data_status'] ?? ''),
             'source_ref' => 'operation.full_data.competitors',
             'note' => 'Only authorized competitor aggregate data is used.',
-        ]];
+        ];
+
+        return $items;
     }
 
     private function collectDataGaps(array $operation, array $rootCause, array $executionFlow): array
@@ -547,6 +570,13 @@ class AiDailyReportService
             ];
         }
 
+        $competitors = is_array($operation['competitors'] ?? null) ? $operation['competitors'] : [];
+        $meituanSummary = is_array($competitors['meituan_rank_summary'] ?? null) ? $competitors['meituan_rank_summary'] : [];
+        $meituanAction = $this->buildMeituanCompetitorRecommendedAction($meituanSummary);
+        if ($meituanAction !== null) {
+            $actions[] = $meituanAction;
+        }
+
         if (!empty($dataGaps)) {
             $actions[] = [
                 'title' => 'Repair data gaps before business decision',
@@ -586,6 +616,51 @@ class AiDailyReportService
         }
 
         return $actions;
+    }
+
+    private function buildMeituanCompetitorRecommendedAction(array $summary): ?array
+    {
+        if (empty($summary)) {
+            return null;
+        }
+
+        $rankStatus = (string)($summary['rank_status'] ?? '');
+        $tagStatus = (string)($summary['platform_tag_status'] ?? '');
+        $trendStatus = (string)($summary['rank_trend_status'] ?? '');
+        $topGap = (string)($summary['top1_gap_text'] ?? '');
+        $hasTopGap = $topGap !== '' && $topGap !== '未返回' && $topGap !== '本店为TOP1';
+        $needsEvidenceRepair = !in_array($rankStatus, ['ok'], true) || $tagStatus === 'not_returned';
+        $needsBusinessReview = $trendStatus === 'down' || $hasTopGap || (int)($summary['vip_count'] ?? 0) > 0;
+        if (!$needsEvidenceRepair && !$needsBusinessReview) {
+            return null;
+        }
+
+        $reasonParts = array_filter([
+            'TOP1=' . (string)($summary['top_hotel_name'] ?? '未返回'),
+            'self=' . (string)($summary['self_position_text'] ?? '未返回'),
+            'gap=' . (string)($summary['gap_to_previous_text'] ?? '未返回'),
+            'VIP=' . (string)($summary['platform_tag_text'] ?? '未返回'),
+            'trend=' . (string)($summary['rank_trend_text'] ?? '未返回'),
+            (string)($summary['rank_missing_reason'] ?? ''),
+        ], static fn(string $value): bool => trim($value) !== '');
+
+        return [
+            'title' => $needsEvidenceRepair ? 'Repair Meituan competitor evidence' : 'Review Meituan competitor gap',
+            'action' => $needsEvidenceRepair
+                ? 'Check Meituan POI binding, latest ranking capture and platform tag return status before using the competitor summary for decisions.'
+                : 'Review TOP1, self position, gap, VIP/platform tags and rank trend, then decide whether price, conversion or content actions need a separate evidence-backed task.',
+            'reason' => implode(' / ', $reasonParts),
+            'source_refs' => ['operation.full_data.competitors.meituan_rank_summary'],
+            'platform' => 'meituan',
+            'object_type' => $needsEvidenceRepair ? 'data_quality' : 'campaign',
+            'action_type' => $needsEvidenceRepair ? 'data_repair' : 'manual_review',
+            'expected_metric' => $needsEvidenceRepair ? 'data_completeness' : 'orders',
+            'expected_delta' => 0.0,
+            'risk_level' => $needsEvidenceRepair ? 'high' : 'medium',
+            'target_value' => $needsEvidenceRepair ? [] : ['campaign_type' => 'competitor_review', 'target_metric' => 'orders'],
+            'can_create_execution_intent' => !$needsEvidenceRepair,
+            'blocked_reason' => $needsEvidenceRepair ? 'Competitor evidence repair must be completed before creating an OTA execution order.' : '',
+        ];
     }
 
     private function buildSummaryText(array $yesterdayResult, array $abnormalMetrics, array $dataGaps): string

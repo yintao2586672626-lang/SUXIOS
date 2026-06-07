@@ -8104,6 +8104,8 @@ class OnlineData extends Base
                 // 判断榜单类型：P_XS=销售榜(包含销售间夜榜+销售额榜), P_RZ=入住榜, P_ZH=转化榜, P_LL=流量榜
                 $rankType = $item['rankType'] ?? $item['rank_type'] ?? '';
                 $platformTagInfo = $this->extractMeituanPlatformTagInfo($item);
+                $hasVipTag = $this->hasMeituanVipPlatformTag($platformTagInfo['tags']);
+                $platformTagText = !empty($platformTagInfo['tags']) ? implode(' / ', $platformTagInfo['tags']) : '未返回';
 
                 // 精确匹配子榜单类型 - 扩展关键词匹配
                 // 结合dimName和aiMetricName进行判断，提高准确性
@@ -8199,6 +8201,8 @@ class OnlineData extends Base
                         'aiMetricName' => $aiMetricName,
                         'platformTags' => $platformTagInfo['tags'],
                         'platformTagStatus' => $platformTagInfo['status'],
+                        'platformTagText' => $platformTagText,
+                        'hasVipTag' => $hasVipTag,
                         'sourceLabel' => '美团榜单返回',
                     ], JSON_UNESCAPED_UNICODE),
                 ];
@@ -8916,6 +8920,16 @@ class OnlineData extends Base
         return strlen($value) > 72 ? substr($value, 0, 72) : $value;
     }
 
+    private function hasMeituanVipPlatformTag(array $tags): bool
+    {
+        foreach ($tags as $tag) {
+            if (preg_match('/\bvip\b/i', (string)$tag)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function mergeStringList(array $base, array $incoming): array
     {
         $seen = [];
@@ -9092,13 +9106,7 @@ class OnlineData extends Base
             $absoluteConversion = $viewConversion > 0 && $payConversion > 0 ? round($viewConversion * $payConversion, 4) : 0.0;
             $rankSummary = $this->summarizeMeituanRankHistory(is_array($row['rankHistory'] ?? null) ? $row['rankHistory'] : [], (int)($row['rank'] ?? 0));
             $platformTags = is_array($row['platformTags'] ?? null) ? $this->mergeStringList([], $row['platformTags']) : [];
-            $hasVipTag = false;
-            foreach ($platformTags as $tag) {
-                if (preg_match('/\bvip\b/i', $tag)) {
-                    $hasVipTag = true;
-                    break;
-                }
-            }
+            $hasVipTag = $this->hasMeituanVipPlatformTag($platformTags);
             $metricSourceStatus = is_array($row['metricSourceStatus'] ?? null) ? $row['metricSourceStatus'] : [];
 
             $row['avgRoomPrice'] = $avgRoomPrice;
@@ -9463,6 +9471,7 @@ class OnlineData extends Base
         $topSummaryRows = $this->buildMeituanTopSummaryRows($rows);
         $vipTaggedCount = count(array_filter($rows, static fn($row): bool => !empty($row['hasVipTag'])));
         $platformTagReturnedCount = count(array_filter($rows, static fn($row): bool => !empty($row['platformTags'])));
+        $platformTagSummary = $this->buildMeituanPlatformTagSummary($rows);
         $selfPositionText = $selfRow ? (string)($selfRow['circlePositionText'] ?? '已返回') : '本店未返回';
 
         return [
@@ -9525,7 +9534,64 @@ class OnlineData extends Base
             'rank_health_rows' => $rankHealthRows,
             'top_summary_rows' => $topSummaryRows,
             'funnel_diagnosis' => $funnelDiagnosis,
+            'platform_tag_summary' => $platformTagSummary,
             'source_notice' => '仅展示美团榜单已返回字段；不通过订单、客人、房态或房源映射推断。',
+        ];
+    }
+
+    private function buildMeituanPlatformTagSummary(array $rows): array
+    {
+        $tagCounts = [];
+        $returnedCount = 0;
+        $returnedEmptyCount = 0;
+        $notReturnedCount = 0;
+        $vipCount = 0;
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $tags = is_array($row['platformTags'] ?? null) ? $this->mergeStringList([], $row['platformTags']) : [];
+            if (!empty($tags)) {
+                $returnedCount++;
+                if ($this->hasMeituanVipPlatformTag($tags)) {
+                    $vipCount++;
+                }
+                foreach ($tags as $tag) {
+                    $tagCounts[$tag] = ($tagCounts[$tag] ?? 0) + 1;
+                }
+                continue;
+            }
+
+            if (($row['platformTagStatus'] ?? '') === 'returned_empty') {
+                $returnedEmptyCount++;
+            } else {
+                $notReturnedCount++;
+            }
+        }
+
+        arsort($tagCounts);
+        $tags = [];
+        foreach ($tagCounts as $tag => $count) {
+            $tags[] = ['tag' => (string)$tag, 'count' => (int)$count];
+        }
+
+        return [
+            'status' => $returnedCount > 0 ? 'returned' : ($returnedEmptyCount > 0 ? 'returned_empty' : 'not_returned'),
+            'returned_count' => $returnedCount,
+            'vip_count' => $vipCount,
+            'returned_empty_count' => $returnedEmptyCount,
+            'not_returned_count' => $notReturnedCount,
+            'tag_count' => count($tagCounts),
+            'tags' => array_slice($tags, 0, 20),
+            'source_fields' => ['platformTags', 'platformTagStatus', 'isVip', 'vipFlag', 'memberFlag', 'crownTag'],
+            'storage_fields' => [
+                'online_daily_data.raw_data.platformTags',
+                'online_daily_data.raw_data.platformTagStatus',
+                'online_daily_data.raw_data.platformTagText',
+                'online_daily_data.raw_data.hasVipTag',
+            ],
+            'privacy_scope' => '平台门店标签；不包含客人、订单手机号、房态或房源映射',
         ];
     }
 
@@ -10084,6 +10150,7 @@ class OnlineData extends Base
             'rank_insights' => [],
             'rank_health_rows' => [],
             'top_summary_rows' => [],
+            'platform_tag_summary' => $this->buildMeituanPlatformTagSummary([]),
             'funnel_diagnosis' => [
                 'key' => 'funnel-diagnosis',
                 'label' => '四榜卡点',
@@ -10237,6 +10304,7 @@ class OnlineData extends Base
 
         $displayHotels = $this->mergeMeituanBusinessDisplayHotels($displayRows, $context);
         $displaySummary = $this->buildMeituanBusinessDisplaySummary($displayHotels, $context);
+        $readiness = $this->buildMeituanCompetitorSummaryReadiness($displayHotels, $context, true);
         return [
             'status' => 'success',
             'data_status' => 'success',
@@ -10255,6 +10323,7 @@ class OnlineData extends Base
             'top_summary_rows' => $displaySummary['top_summary_rows'] ?? [],
             'funnel_diagnosis' => $displaySummary['funnel_diagnosis'] ?? [],
             'source_notice' => $displaySummary['source_notice'] ?? '仅展示美团榜单已返回字段；未返回字段保留缺失状态。',
+            'readiness' => $readiness,
         ];
     }
 
@@ -10279,6 +10348,55 @@ class OnlineData extends Base
             'top_summary_rows' => [],
             'funnel_diagnosis' => $this->emptyMeituanBusinessDisplaySummary()['funnel_diagnosis'] ?? [],
             'source_notice' => '未找到美团竞对榜单入库数据；不使用订单、客人、房态或房源映射推断。',
+            'readiness' => $this->buildMeituanCompetitorSummaryReadiness([], $context, false),
+        ];
+    }
+
+    private function buildMeituanCompetitorSummaryReadiness(array $displayHotels, array $context = [], bool $hasRows = true): array
+    {
+        $targetPoiId = trim((string)($context['target_poi_id'] ?? ''));
+        $systemHotelId = (int)($context['system_hotel_id'] ?? 0);
+        if (!$hasRows || empty($displayHotels)) {
+            return [
+                'status' => 'missing',
+                'label' => '待同步',
+                'detail' => '未找到美团竞对榜单入库数据',
+                'next_action' => '先同步美团竞对榜单',
+                'system_hotel_id' => $systemHotelId,
+                'target_poi_id' => $targetPoiId,
+            ];
+        }
+
+        if ($targetPoiId === '') {
+            return [
+                'status' => 'attention',
+                'label' => '缺POI标识',
+                'detail' => '榜单有数据，但当前系统酒店未绑定美团POI/Store标识，无法确认本店行',
+                'next_action' => '在酒店管理补充美团 POI ID / Store ID',
+                'system_hotel_id' => $systemHotelId,
+                'target_poi_id' => $targetPoiId,
+            ];
+        }
+
+        $selfRows = array_values(array_filter($displayHotels, static fn(array $row): bool => !empty($row['isSelf'])));
+        if (empty($selfRows)) {
+            return [
+                'status' => 'attention',
+                'label' => '缺本店行',
+                'detail' => '榜单已入库，但未命中当前门店POI，不能计算本店第几和前一名差距',
+                'next_action' => '核对美团 POI ID 与榜单返回门店是否一致',
+                'system_hotel_id' => $systemHotelId,
+                'target_poi_id' => $targetPoiId,
+            ];
+        }
+
+        return [
+            'status' => 'ok',
+            'label' => '可用于快捷判断',
+            'detail' => '已命中本店POI，可展示本店排名、TOP1、差距、VIP/平台标签和榜单升降',
+            'next_action' => '进入美团榜单复核明细',
+            'system_hotel_id' => $systemHotelId,
+            'target_poi_id' => $targetPoiId,
         ];
     }
 
@@ -20608,6 +20726,16 @@ JAVASCRIPT;
             $this->buildPlatformProfileStatusItem('ctrip', $hotelId, $ctripConfig, $ctripSource),
             $this->buildPlatformProfileStatusItem('meituan', $hotelId, $meituanConfig, $meituanSource),
         ];
+        $readyToCollect = count(array_filter($items, static fn(array $item): bool => !empty($item['p0_readiness']['is_ready'])));
+        $needsIdentityCheck = count(array_filter($items, static function (array $item): bool {
+            foreach (($item['binding_checks'] ?? []) as $check) {
+                if (($check['key'] ?? '') === 'platform_identity' && ($check['status'] ?? 'missing') !== 'ok') {
+                    return true;
+                }
+            }
+            return false;
+        }));
+        $identityBlocked = count(array_filter($items, static fn(array $item): bool => ($item['p0_readiness']['status'] ?? '') === 'blocked'));
 
         return [
             'system_hotel_id' => $hotelId,
@@ -20616,6 +20744,9 @@ JAVASCRIPT;
                 'configured' => count(array_filter($items, static fn(array $item): bool => $item['status_code'] !== 'unconfigured')),
                 'logged_in' => count(array_filter($items, static fn(array $item): bool => $item['status_code'] === 'logged_in')),
                 'needs_login' => count(array_filter($items, static fn(array $item): bool => in_array($item['status_code'], ['waiting_login', 'login_expired'], true))),
+                'ready_to_collect' => $readyToCollect,
+                'needs_identity_check' => $needsIdentityCheck,
+                'identity_blocked' => $identityBlocked,
             ],
         ];
     }
@@ -20640,6 +20771,8 @@ JAVASCRIPT;
         $exists = $profileDir !== '' && is_dir($profileDir);
         $cache = $profileKey !== '' ? $this->readPlatformProfileStatusCache($platform, $hotelId, $profileKey) : [];
         $statusCode = $this->resolvePlatformProfileStatusCode($profileKey, $exists, $source, $cache);
+        $bindingChecks = $this->buildPlatformProfileBindingChecks($platform, $hotelId, $config, $source, $statusCode, $exists, $profileKey);
+        $p0Readiness = $this->summarizePlatformProfileBindingChecks($bindingChecks);
 
         return [
             'platform' => $platform,
@@ -20659,6 +20792,9 @@ JAVASCRIPT;
                     'poi_id' => (string)($config['poi_id'] ?? $config['poiId'] ?? ''),
                     'partner_id_configured' => trim((string)($config['partner_id'] ?? $config['partnerId'] ?? '')) !== '',
                 ],
+            'binding_checks' => $bindingChecks,
+            'binding_check_status' => $p0Readiness['status'],
+            'p0_readiness' => $p0Readiness,
             'profile_key' => $profileKey,
             'profile_dir' => $relativeDir,
             'profile_exists' => $exists,
@@ -20668,6 +20804,170 @@ JAVASCRIPT;
             'status_code' => $statusCode,
             'auth_status' => $cache['auth_status'] ?? null,
             'next_action' => $this->platformProfileNextAction($statusCode, $platform),
+        ];
+    }
+
+    private function buildPlatformProfileBindingChecks(string $platform, int $hotelId, array $config, ?array $source, string $statusCode, bool $profileExists, string $profileKey): array
+    {
+        $isCtrip = $platform === 'ctrip';
+        $sourceHotelId = (int)($source['system_hotel_id'] ?? $source['hotel_id'] ?? 0);
+        $configHotelCandidate = trim((string)($config['system_hotel_id'] ?? ''));
+        if ($configHotelCandidate === '') {
+            $configHotelCandidate = trim((string)($config['hotel_id'] ?? ''));
+        }
+        $configHotelId = ctype_digit($configHotelCandidate) ? (int)$configHotelCandidate : 0;
+
+        $hotelBindingStatus = 'ok';
+        $hotelBindingDetail = '已绑定到宿析OS酒店 #' . $hotelId;
+        $hotelBindingAction = '可进入平台身份校验';
+        if ($hotelId <= 0) {
+            $hotelBindingStatus = 'missing';
+            $hotelBindingDetail = '当前未选择宿析OS酒店';
+            $hotelBindingAction = '先选择系统酒店';
+        } elseif ($sourceHotelId > 0 && $sourceHotelId !== $hotelId) {
+            $hotelBindingStatus = 'error';
+            $hotelBindingDetail = '数据源绑定酒店 #' . $sourceHotelId . '，当前酒店 #' . $hotelId;
+            $hotelBindingAction = '重新绑定平台数据源到当前酒店';
+        } elseif ($configHotelId > 0 && $configHotelId !== $hotelId) {
+            $hotelBindingStatus = 'error';
+            $hotelBindingDetail = '平台配置绑定酒店 #' . $configHotelId . '，当前酒店 #' . $hotelId;
+            $hotelBindingAction = '修正平台配置中的系统酒店ID';
+        }
+
+        $checks = [[
+            'key' => 'hotel_binding',
+            'label' => '系统酒店绑定',
+            'status' => $hotelBindingStatus,
+            'detail' => $hotelBindingDetail,
+            'next_action' => $hotelBindingAction,
+        ]];
+
+        if ($isCtrip) {
+            $explicitProfileId = trim((string)($config['profile_id'] ?? $config['profileId'] ?? ''));
+            $otaHotelId = trim((string)($config['ota_hotel_id'] ?? $config['ctrip_hotel_id'] ?? $config['ctripHotelId'] ?? ''));
+            $nodeId = trim((string)($config['node_id'] ?? $config['nodeId'] ?? ''));
+            if ($explicitProfileId !== '' || $otaHotelId !== '') {
+                $identityStatus = 'ok';
+                $identityDetail = 'Profile/OTA酒店标识已配置' . ($nodeId !== '' ? '，Node已配置' : '');
+                $identityAction = '可执行携程采集';
+            } elseif ($profileExists) {
+                $identityStatus = 'warning';
+                $identityDetail = '本地Profile存在，但缺少明确OTA酒店标识';
+                $identityAction = '补充携程 Profile ID 或 OTA酒店ID';
+            } else {
+                $identityStatus = 'missing';
+                $identityDetail = '缺少携程 Profile ID / OTA酒店ID';
+                $identityAction = '先完成携程账号/Profile绑定';
+            }
+        } else {
+            $storeId = trim((string)($config['store_id'] ?? $config['storeId'] ?? $config['poi_id'] ?? $config['poiId'] ?? ''));
+            $partnerConfigured = trim((string)($config['partner_id'] ?? $config['partnerId'] ?? '')) !== '';
+            if ($storeId === '' && $profileKey === '') {
+                $identityStatus = 'missing';
+                $identityDetail = '缺少美团 POI/Store 标识';
+                $identityAction = '先绑定美团门店 POI/Store';
+            } elseif ($partnerConfigured) {
+                $identityStatus = 'ok';
+                $identityDetail = 'POI/Store 与 Partner ID 已配置';
+                $identityAction = '可执行美团榜单/API采集';
+            } elseif ($profileExists) {
+                $identityStatus = 'warning';
+                $identityDetail = 'Profile可用，但API榜单缺少 Partner ID';
+                $identityAction = '补充 Partner ID 以稳定采集榜单';
+            } else {
+                $identityStatus = 'warning';
+                $identityDetail = '已有POI/Store，但 Partner ID 未配置';
+                $identityAction = '补充 Partner ID 或使用已登录Profile采集';
+            }
+        }
+        $checks[] = [
+            'key' => 'platform_identity',
+            'label' => $isCtrip ? '携程身份标识' : '美团POI/Partner',
+            'status' => $identityStatus,
+            'detail' => $identityDetail,
+            'next_action' => $identityAction,
+        ];
+
+        $loginStatus = match ($statusCode) {
+            'logged_in' => 'ok',
+            'capture_failed' => 'error',
+            'unconfigured' => 'missing',
+            default => 'warning',
+        };
+        $checks[] = [
+            'key' => 'profile_login',
+            'label' => '平台登录态',
+            'status' => $loginStatus,
+            'detail' => $this->platformProfileStatusText($statusCode),
+            'next_action' => $this->platformProfileNextAction($statusCode, $platform),
+        ];
+
+        $lastSyncStatus = (string)($source['last_sync_status'] ?? '');
+        $lastCaptureTime = (string)($source['last_sync_time'] ?? $source['update_time'] ?? '');
+        if (in_array($lastSyncStatus, ['failed'], true)) {
+            $trialStatus = 'error';
+            $trialDetail = '最近采集失败';
+            $trialAction = '查看同步日志后重试';
+        } elseif (in_array($lastSyncStatus, ['partial_success'], true)) {
+            $trialStatus = 'warning';
+            $trialDetail = '最近采集部分成功';
+            $trialAction = '核对缺失模块后补采';
+        } elseif ($lastCaptureTime !== '') {
+            $trialStatus = 'ok';
+            $trialDetail = '最近采集时间：' . $lastCaptureTime;
+            $trialAction = '可进入数据质量检查';
+        } elseif ($statusCode === 'unconfigured') {
+            $trialStatus = 'missing';
+            $trialDetail = '未配置，暂无采集证据';
+            $trialAction = '先完成平台绑定';
+        } else {
+            $trialStatus = 'warning';
+            $trialDetail = '暂无最近采集时间';
+            $trialAction = '完成一次试采集并检查入库';
+        }
+        $checks[] = [
+            'key' => 'trial_capture',
+            'label' => '试采集证据',
+            'status' => $trialStatus,
+            'detail' => $trialDetail,
+            'next_action' => $trialAction,
+        ];
+
+        return $checks;
+    }
+
+    private function summarizePlatformProfileBindingChecks(array $checks): array
+    {
+        $counts = ['ok' => 0, 'warning' => 0, 'missing' => 0, 'error' => 0];
+        foreach ($checks as $check) {
+            $status = (string)($check['status'] ?? 'missing');
+            if (!array_key_exists($status, $counts)) {
+                $status = 'missing';
+            }
+            $counts[$status]++;
+        }
+
+        $status = 'ok';
+        $label = 'P0就绪';
+        if ($counts['error'] > 0) {
+            $status = 'blocked';
+            $label = 'P0阻塞';
+        } elseif ($counts['missing'] > 0) {
+            $status = 'missing';
+            $label = 'P0待补';
+        } elseif ($counts['warning'] > 0) {
+            $status = 'attention';
+            $label = 'P0待确认';
+        }
+
+        return [
+            'status' => $status,
+            'label' => $label,
+            'is_ready' => $status === 'ok',
+            'ok_count' => $counts['ok'],
+            'warning_count' => $counts['warning'],
+            'missing_count' => $counts['missing'],
+            'error_count' => $counts['error'],
         ];
     }
 
@@ -24937,6 +25237,7 @@ JAVASCRIPT;
         $cookies = trim((string)($body['cookies'] ?? ''));
         $partnerId = trim((string)($body['partner_id'] ?? ''));
         $poiId = trim((string)($body['poi_id'] ?? ''));
+        $rankType = trim((string)($body['rank_type'] ?? 'P_RZ')) ?: 'P_RZ';
         $apiStatus = $this->meituanAutoFetchConfigStatus($body);
         if (empty($apiStatus['api_configured'])) {
             return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . $apiStatus['missing_text']];
@@ -24950,7 +25251,7 @@ JAVASCRIPT;
             'csecversion' => '4.2.0',
             'partnerId' => $partnerId,
             'poiId' => $poiId,
-            'rankType' => $body['rank_type'] ?? 'P_RZ',
+            'rankType' => $rankType,
             'startDate' => str_replace('-', '', (string)($body['start_date'] ?? '')),
             'endDate' => str_replace('-', '', (string)($body['end_date'] ?? '')),
             'dateRange' => 1,
@@ -25776,6 +26077,7 @@ JAVASCRIPT;
         $collectionLogs = $this->buildCollectionLogRows($hotelId, $startDate, $endDate, 30);
         $qualityRows = $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, 2000);
         $ctripIdentityFilter = $this->buildCtripHotelIdentityFilterReport($hotelId, $startDate, $endDate, 2000);
+        $fieldDefinitions = $this->buildOtaCollectionFieldDefinitions();
 
         return [
             'period' => [
@@ -25788,13 +26090,15 @@ JAVASCRIPT;
             'ctrip_capture_catalog' => $this->readCtripCaptureCatalogHealth(),
             'ctrip_latest_capture' => $this->readCtripLatestCaptureDashboard(),
             'ctrip_hotel_identity_filter' => $ctripIdentityFilter,
+            'collection_lifecycle_catalog' => $this->collectionLifecycleCatalog(),
             'authorization' => [
                 'summary' => $this->buildCollectionAuthorizationSummary($authorizationRows),
                 'list' => $authorizationRows,
                 'reauthorize_entry' => $this->cookieReauthorizeEntry(),
             ],
             'failure_reasons' => $this->buildCollectionFailureReasons($alerts, $collectionLogs, 20),
-            'field_definitions' => $this->buildOtaCollectionFieldDefinitions(),
+            'field_asset_summary' => $this->summarizeOtaCollectionFieldDefinitions($fieldDefinitions),
+            'field_definitions' => $fieldDefinitions,
             'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
             'history_replay' => $this->buildCollectionHistoryReplayRows($hotelId, $startDate, $endDate, 30),
             'data_quality' => $this->buildCollectionQualitySnapshot($qualityRows),
@@ -26754,6 +27058,42 @@ JAVASCRIPT;
     private function collectionReliabilityStatusCatalog(): array
     {
         return ['ok', 'warning', 'expired', 'unknown', 'waiting_config', 'failed', 'partial_success', 'success'];
+    }
+
+    private function collectionLifecycleCatalog(): array
+    {
+        return [
+            [
+                'stage' => 'platform_binding',
+                'label' => '平台账号/Profile绑定',
+                'evidence' => '/api/online-data/platform-profile-status.binding_checks',
+                'blocking_risk' => '酒店绑定或平台身份不清会导致混批',
+            ],
+            [
+                'stage' => 'authorization',
+                'label' => '授权有效性',
+                'evidence' => '/api/online-data/collection-reliability.authorization',
+                'blocking_risk' => '登录或Cookie失效会导致采集失败',
+            ],
+            [
+                'stage' => 'trial_capture',
+                'label' => '试采集与日志',
+                'evidence' => '/api/online-data/collection-reliability.collection_logs',
+                'blocking_risk' => '无试采证据时摘要结论不可信',
+            ],
+            [
+                'stage' => 'field_assets',
+                'label' => '字段资产与口径',
+                'evidence' => '/api/online-data/collection-reliability.field_definitions',
+                'blocking_risk' => '字段缺口会影响收益分析和AI诊断',
+            ],
+            [
+                'stage' => 'quality_gate',
+                'label' => '入库质量门禁',
+                'evidence' => '/api/online-data/collection-reliability.data_quality',
+                'blocking_risk' => '空值、缺失、校验失败不能进入决策口径',
+            ],
+        ];
     }
 
     private function readCtripCaptureCatalogHealth(): array
@@ -27987,6 +28327,8 @@ JAVASCRIPT;
                     ['field' => 'dimension', 'label' => '榜单维度', 'source_fields' => ['dimension', 'dimName', '_dimName'], 'calculation' => '平台维度名称直接入库', 'required' => true],
                     ['field' => 'amount', 'label' => '营业额', 'source_fields' => ['amount', 'saleAmount'], 'calculation' => '如接口返回则直接入库', 'required' => false],
                     ['field' => 'quantity', 'label' => '间夜量', 'source_fields' => ['quantity', 'roomNights'], 'calculation' => '如接口返回则直接入库', 'required' => false],
+                    ['field' => 'raw_data.platformTags', 'label' => 'VIP/平台标签', 'source_fields' => ['platformTags', 'tags', 'tagList', 'vipTag', 'isVip', 'vipFlag', 'memberFlag', 'crownTag'], 'calculation' => '平台返回门店标签原样归一化到 raw_data.platformTags；VIP 布尔值写入 raw_data.hasVipTag', 'required' => false],
+                    ['field' => 'raw_data.platformTagStatus', 'label' => '平台标签返回状态', 'source_fields' => ['platformTags', 'tags', 'tagList', 'vipTag', 'isVip'], 'calculation' => 'returned / returned_empty / not_returned，未返回时不推断VIP', 'required' => false],
                 ],
             ],
             [
@@ -28001,6 +28343,47 @@ JAVASCRIPT;
                     ['field' => 'order_submit_num', 'label' => '订单提交人数', 'source_fields' => ['self_order_submit_num', 'orderSubmitNum'], 'calculation' => '平台原始值直接入库', 'required' => false],
                 ],
             ],
+        ];
+    }
+
+    private function summarizeOtaCollectionFieldDefinitions(array $definitions): array
+    {
+        $sources = [];
+        $modules = [];
+        $storageTables = [];
+        $totalFields = 0;
+        $requiredFields = 0;
+
+        foreach ($definitions as $definition) {
+            $source = trim((string)($definition['source'] ?? ''));
+            $module = trim((string)($definition['module'] ?? ''));
+            $storageTable = trim((string)($definition['storage_table'] ?? ''));
+            if ($source !== '') {
+                $sources[] = $source;
+            }
+            if ($source !== '' || $module !== '') {
+                $modules[] = trim($source . ':' . $module, ':');
+            }
+            if ($storageTable !== '') {
+                $storageTables[] = $storageTable;
+            }
+            foreach (($definition['fields'] ?? []) as $field) {
+                $totalFields++;
+                if (!empty($field['required'])) {
+                    $requiredFields++;
+                }
+            }
+        }
+
+        return [
+            'source_count' => count(array_unique($sources)),
+            'module_count' => count(array_unique($modules)),
+            'field_count' => $totalFields,
+            'required_field_count' => $requiredFields,
+            'optional_field_count' => max(0, $totalFields - $requiredFields),
+            'sources' => array_values(array_unique($sources)),
+            'modules' => array_values(array_unique($modules)),
+            'storage_tables' => array_values(array_unique($storageTables)),
         ];
     }
 

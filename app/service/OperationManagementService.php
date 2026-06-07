@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\SystemConfig;
 use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
@@ -1771,6 +1772,7 @@ class OperationManagementService
             'score_gap' => 0,
             'rank_position' => null,
             'data_status' => self::DATA_PENDING,
+            'meituan_rank_summary' => $this->buildMeituanRankSummary($hotelIds, $date),
         ];
 
         if ($this->tableExists('competitor_analysis')) {
@@ -1833,6 +1835,456 @@ class OperationManagementService
         $base['data_status'] = self::DATA_OK;
 
         return $base;
+    }
+
+    private function buildMeituanRankSummary(array $hotelIds, string $date): array
+    {
+        $base = $this->emptyMeituanRankSummary();
+        if (empty($hotelIds)) {
+            $base['rank_missing_reason'] = 'hotel scope is empty';
+            return $base;
+        }
+
+        $start = date('Y-m-d', strtotime($date . ' -120 days'));
+        $rows = array_values(array_filter(
+            $this->onlineRows($hotelIds, $start, $date),
+            fn(array $row): bool => $this->isMeituanBusinessRankRow($row)
+        ));
+        if (empty($rows)) {
+            return $base;
+        }
+
+        $latestDataDate = '';
+        foreach ($rows as $row) {
+            $rowDate = (string)($row['data_date'] ?? '');
+            if ($rowDate !== '' && ($latestDataDate === '' || strcmp($rowDate, $latestDataDate) > 0)) {
+                $latestDataDate = $rowDate;
+            }
+        }
+
+        $latestDateRows = array_values(array_filter($rows, static fn(array $row): bool => (string)($row['data_date'] ?? '') === $latestDataDate));
+        $latestFetchedAt = $this->maxOnlineRowFetchedAt($latestDateRows);
+        $batchRows = $latestFetchedAt !== ''
+            ? array_values(array_filter($latestDateRows, fn(array $row): bool => $this->onlineRowFetchedAt($row) === $latestFetchedAt))
+            : $latestDateRows;
+        if (empty($batchRows)) {
+            $batchRows = $latestDateRows;
+        }
+
+        $targetPoiId = $this->resolveMeituanTargetPoiId($hotelIds);
+        $hotels = [];
+        foreach ($batchRows as $row) {
+            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
+            $poiId = $this->firstStringValue($raw, ['poiId', 'poi_id', 'hotelId', 'hotel_id'], (string)($row['hotel_id'] ?? ''));
+            $hotelName = $this->firstStringValue($raw, ['poiName', 'poi_name', 'hotelName', 'hotel_name', 'shopName', 'name'], (string)($row['hotel_name'] ?? ''));
+            if ($poiId === '' && $hotelName === '') {
+                continue;
+            }
+
+            $key = $poiId !== '' ? $poiId : $hotelName;
+            if (!isset($hotels[$key])) {
+                $hotels[$key] = [
+                    'poi_id' => $poiId,
+                    'hotel_name' => $hotelName,
+                    'is_self' => $targetPoiId !== '' && $poiId !== '' && $poiId === $targetPoiId,
+                    'rank_values' => [],
+                    'rank_history' => [],
+                    'platform_tags' => [],
+                    'platform_tag_status' => 'not_returned',
+                    'has_vip_tag' => false,
+                    'metrics' => [],
+                ];
+            }
+
+            $rank = (int)($this->firstNumericValue($raw, ['rank', 'ranking', 'rankNo', 'rankIndex']) ?? 0);
+            $rankType = $this->firstStringValue($raw, ['rankType', 'rank_type'], '');
+            $dateRange = $this->firstStringValue($raw, ['dateRange', 'date_range'], '');
+            $metricField = $this->classifyMeituanRankMetric(
+                (string)($row['dimension'] ?? $raw['dimension'] ?? $raw['_dimName'] ?? ''),
+                (string)($raw['aiMetricName'] ?? $raw['ai_metric_name'] ?? $raw['_aiMetricName'] ?? ''),
+                $rankType
+            );
+            $metricValue = $this->firstNumericValue($raw, ['dataValue', 'data_value', 'value', 'metricValue'], $row['data_value'] ?? null);
+
+            if ($rank > 0) {
+                $hotels[$key]['rank_values'][] = $rank;
+                $hotels[$key]['rank_history'][] = [
+                    'rank' => $rank,
+                    'rank_type' => $rankType,
+                    'date_range' => $dateRange,
+                    'metric' => $metricField,
+                    'value' => $metricValue,
+                ];
+            }
+            if ($metricField !== '' && $metricValue !== null) {
+                $hotels[$key]['metrics'][$metricField] = (float)$metricValue;
+            }
+
+            $tagInfo = $this->meituanPlatformTagInfo($raw);
+            $hotels[$key]['platform_tags'] = $this->mergeStringValues($hotels[$key]['platform_tags'], $tagInfo['tags']);
+            if ($tagInfo['status'] !== 'not_returned') {
+                $hotels[$key]['platform_tag_status'] = $tagInfo['status'];
+            }
+            if (!empty($tagInfo['has_vip'])) {
+                $hotels[$key]['has_vip_tag'] = true;
+            }
+        }
+
+        if (empty($hotels)) {
+            $base['record_count'] = count($batchRows);
+            $base['latest_data_date'] = $latestDataDate;
+            $base['latest_fetched_at'] = $latestFetchedAt;
+            $base['rank_missing_reason'] = 'Meituan rows exist, but no restorable hotel ranking row was found.';
+            return $base;
+        }
+
+        uasort($hotels, static function (array $a, array $b): int {
+            $rankA = !empty($a['rank_values']) ? min($a['rank_values']) : PHP_INT_MAX;
+            $rankB = !empty($b['rank_values']) ? min($b['rank_values']) : PHP_INT_MAX;
+            if ($rankA !== $rankB) {
+                return $rankA <=> $rankB;
+            }
+            return strcmp((string)$a['hotel_name'], (string)$b['hotel_name']);
+        });
+
+        $rankedHotels = array_values(array_filter($hotels, static fn(array $hotel): bool => !empty($hotel['rank_values'])));
+        $selfHotel = null;
+        foreach ($hotels as $hotel) {
+            if (!empty($hotel['is_self'])) {
+                $selfHotel = $hotel;
+                break;
+            }
+        }
+
+        $topHotel = $rankedHotels[0] ?? null;
+        $selfRank = is_array($selfHotel) && !empty($selfHotel['rank_values']) ? min($selfHotel['rank_values']) : null;
+        $topRank = is_array($topHotel) && !empty($topHotel['rank_values']) ? min($topHotel['rank_values']) : null;
+        $previousRank = null;
+        if ($selfRank !== null) {
+            foreach (array_reverse($rankedHotels) as $hotel) {
+                $candidateRank = min($hotel['rank_values']);
+                if ($candidateRank < $selfRank) {
+                    $previousRank = $candidateRank;
+                    break;
+                }
+            }
+        }
+
+        $tagSummary = $this->summarizeMeituanPlatformTags($hotels);
+        $rankStatus = !empty($rankedHotels) ? 'ok' : 'missing';
+        $rankMissingReason = '';
+        if ($rankStatus === 'missing') {
+            $rankMissingReason = 'Meituan ranking rows exist, but rank/ranking fields were not returned.';
+        } elseif ($targetPoiId === '') {
+            $rankStatus = 'self_unbound';
+            $rankMissingReason = 'Meituan POI/Store ID is not bound, so self position cannot be confirmed.';
+        } elseif (!is_array($selfHotel)) {
+            $rankStatus = 'self_missing';
+            $rankMissingReason = 'Target POI was not found in the latest Meituan ranking batch.';
+        } elseif ($selfRank === null) {
+            $rankStatus = 'self_rank_missing';
+            $rankMissingReason = 'Self row exists, but rank/ranking field was not returned.';
+        }
+
+        $trend = $this->summarizeMeituanRankTrend(is_array($selfHotel) ? $selfHotel['rank_history'] : []);
+        $base['data_status'] = self::DATA_OK;
+        $base['latest_data_date'] = $latestDataDate;
+        $base['latest_fetched_at'] = $latestFetchedAt;
+        $base['record_count'] = count($batchRows);
+        $base['sample_count'] = count($batchRows);
+        $base['hotel_count'] = count($hotels);
+        $base['rank_status'] = $rankStatus;
+        $base['rank_missing_reason'] = $rankMissingReason;
+        $base['self_position_text'] = $selfRank !== null ? ('第' . $selfRank) : '未返回';
+        $base['top_hotel_name'] = is_array($topHotel) ? (string)$topHotel['hotel_name'] : '未返回';
+        $base['top_rank'] = $topRank;
+        $base['gap_to_previous_text'] = $selfRank !== null && $previousRank !== null
+            ? ('排名差 ' . ($selfRank - $previousRank) . ' 名；平台未返回指标差额')
+            : '未返回';
+        $base['top1_gap_text'] = $selfRank !== null && $topRank !== null
+            ? ($selfRank === $topRank ? '本店为TOP1' : ('落后TOP1 ' . ($selfRank - $topRank) . ' 名；平台未返回指标差额'))
+            : '未返回';
+        $base['rank_gap_metric_status'] = 'missing';
+        $base['rank_trend_status'] = $trend['status'];
+        $base['rank_trend_text'] = $trend['text'];
+        $base['platform_tag_status'] = $tagSummary['status'];
+        $base['platform_tag_text'] = $tagSummary['text'];
+        $base['vip_count'] = $tagSummary['vip_count'];
+        $base['tag_returned_count'] = $tagSummary['returned_count'];
+        $base['returned_empty_count'] = $tagSummary['returned_empty_count'];
+        $base['not_returned_count'] = $tagSummary['not_returned_count'];
+        $base['target_poi_bound'] = $targetPoiId !== '';
+        $base['source_ref'] = 'online_daily_data.raw_data.platformTags/platformTagStatus/rank';
+
+        return $base;
+    }
+
+    private function emptyMeituanRankSummary(): array
+    {
+        return [
+            'data_status' => self::DATA_PENDING,
+            'source_ref' => 'online_daily_data.raw_data',
+            'privacy_scope' => 'Platform hotel tags and ranking aggregates only; excludes guest privacy, order phone, room status and room-source mapping.',
+            'latest_data_date' => '',
+            'latest_fetched_at' => '',
+            'record_count' => 0,
+            'sample_count' => 0,
+            'hotel_count' => 0,
+            'rank_status' => 'missing',
+            'rank_missing_reason' => 'No Meituan competitor ranking rows found for permitted hotels up to report date.',
+            'self_position_text' => '未返回',
+            'top_hotel_name' => '未返回',
+            'top_rank' => null,
+            'gap_to_previous_text' => '未返回',
+            'top1_gap_text' => '未返回',
+            'rank_gap_metric_status' => 'missing',
+            'rank_trend_status' => 'missing',
+            'rank_trend_text' => '平台未返回可比榜单历史',
+            'platform_tag_status' => 'not_returned',
+            'platform_tag_text' => '平台标签未返回，不推断VIP',
+            'vip_count' => 0,
+            'tag_returned_count' => 0,
+            'returned_empty_count' => 0,
+            'not_returned_count' => 0,
+            'target_poi_bound' => false,
+        ];
+    }
+
+    private function isMeituanBusinessRankRow(array $row): bool
+    {
+        $source = strtolower((string)($row['source'] ?? ''));
+        $platform = strtolower((string)($row['platform'] ?? ''));
+        $dataType = strtolower((string)($row['data_type'] ?? ''));
+        return ($source === 'meituan' || $platform === 'meituan') && ($dataType === '' || $dataType === 'business');
+    }
+
+    private function resolveMeituanTargetPoiId(array $hotelIds): string
+    {
+        $hotelIdSet = array_fill_keys(array_map('strval', array_map('intval', $hotelIds)), true);
+        try {
+            $raw = SystemConfig::getValue('meituan_config_list', '[]');
+            $list = is_string($raw) && trim($raw) !== '' ? json_decode($raw, true) : [];
+        } catch (Throwable $e) {
+            return '';
+        }
+        if (!is_array($list)) {
+            return '';
+        }
+
+        foreach ($list as $config) {
+            if (!is_array($config)) {
+                continue;
+            }
+            $configHotelId = (string)($config['system_hotel_id'] ?? $config['hotel_id'] ?? '');
+            if ($configHotelId === '' || !isset($hotelIdSet[(string)(int)$configHotelId])) {
+                continue;
+            }
+            foreach (['poi_id', 'poiId', 'store_id', 'storeId'] as $key) {
+                $value = trim((string)($config[$key] ?? ''));
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function meituanPlatformTagInfo(array $raw): array
+    {
+        $tags = [];
+        foreach (['platformTags', 'tags', 'tagList', 'badgeList', 'benefitTags', 'titleTags', 'identityTags'] as $key) {
+            $tags = $this->mergeStringValues($tags, $this->stringListValue($raw[$key] ?? []));
+        }
+        foreach (['platformTagText', 'vipTag', 'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag'] as $key) {
+            $tags = $this->mergeStringValues($tags, $this->stringListValue($raw[$key] ?? []));
+        }
+
+        $hasVip = !empty($raw['hasVipTag']) || !empty($raw['isVip']) || !empty($raw['vipFlag']) || !empty($raw['memberFlag']) || $this->hasMeituanVipTag($tags);
+        $status = (string)($raw['platformTagStatus'] ?? '');
+        if ($status === '') {
+            if (!empty($tags)) {
+                $status = 'returned';
+            } elseif (array_key_exists('platformTags', $raw) || array_key_exists('tags', $raw) || array_key_exists('tagList', $raw)) {
+                $status = 'returned_empty';
+            } else {
+                $status = 'not_returned';
+            }
+        }
+
+        return [
+            'tags' => $tags,
+            'status' => $status,
+            'has_vip' => $hasVip,
+        ];
+    }
+
+    private function summarizeMeituanPlatformTags(array $hotels): array
+    {
+        $returned = 0;
+        $returnedEmpty = 0;
+        $notReturned = 0;
+        $vip = 0;
+        foreach ($hotels as $hotel) {
+            $tags = is_array($hotel['platform_tags'] ?? null) ? $hotel['platform_tags'] : [];
+            if (!empty($tags)) {
+                $returned++;
+            } elseif (($hotel['platform_tag_status'] ?? '') === 'returned_empty') {
+                $returnedEmpty++;
+            } else {
+                $notReturned++;
+            }
+            if (!empty($hotel['has_vip_tag']) || $this->hasMeituanVipTag($tags)) {
+                $vip++;
+            }
+        }
+
+        $status = $returned > 0 ? 'returned' : ($returnedEmpty > 0 ? 'returned_empty' : 'not_returned');
+        $text = match ($status) {
+            'returned' => 'VIP ' . $vip . '家 / 平台标签返回 ' . $returned . '家',
+            'returned_empty' => '平台返回空标签 ' . $returnedEmpty . '家，不推断VIP',
+            default => '平台标签未返回，不推断VIP',
+        };
+
+        return [
+            'status' => $status,
+            'text' => $text,
+            'returned_count' => $returned,
+            'returned_empty_count' => $returnedEmpty,
+            'not_returned_count' => $notReturned,
+            'vip_count' => $vip,
+        ];
+    }
+
+    private function summarizeMeituanRankTrend(array $history): array
+    {
+        $ranks = array_values(array_filter($history, static fn(array $item): bool => (int)($item['rank'] ?? 0) > 0));
+        if (count($ranks) < 2) {
+            return ['status' => 'missing', 'text' => '平台未返回可比榜单历史'];
+        }
+
+        usort($ranks, static function (array $a, array $b): int {
+            $order = ['0' => 0, '1' => 1, '7' => 2, '30' => 3, '' => 9];
+            $rangeA = (string)($a['date_range'] ?? '');
+            $rangeB = (string)($b['date_range'] ?? '');
+            return ($order[$rangeA] ?? 8) <=> ($order[$rangeB] ?? 8);
+        });
+
+        $current = (int)($ranks[0]['rank'] ?? 0);
+        $previous = (int)($ranks[1]['rank'] ?? 0);
+        if ($current <= 0 || $previous <= 0) {
+            return ['status' => 'missing', 'text' => '平台未返回可比榜单历史'];
+        }
+        if ($current === $previous) {
+            return ['status' => 'flat', 'text' => '排名持平'];
+        }
+        if ($current < $previous) {
+            return ['status' => 'up', 'text' => '上升' . ($previous - $current) . '名'];
+        }
+        return ['status' => 'down', 'text' => '下降' . ($current - $previous) . '名'];
+    }
+
+    private function classifyMeituanRankMetric(string $dimension, string $metricName, string $rankType): string
+    {
+        $combined = mb_strtolower($dimension . '|' . $metricName . '|' . $rankType, 'UTF-8');
+        if ($rankType === 'P_XS' || str_contains($combined, '销售') || str_contains($combined, 'sales')) {
+            return str_contains($combined, '间夜') || str_contains($combined, 'roomnight') ? 'salesRoomNights' : 'sales';
+        }
+        if ($rankType === 'P_LL' || str_contains($combined, '流量') || str_contains($combined, '曝光') || str_contains($combined, '浏览')) {
+            return str_contains($combined, '浏览') || str_contains($combined, 'view') ? 'views' : 'exposure';
+        }
+        if ($rankType === 'P_ZH' || str_contains($combined, '转化') || str_contains($combined, 'conversion')) {
+            return str_contains($combined, '支付') || str_contains($combined, 'pay') ? 'payConversion' : 'viewConversion';
+        }
+        if ($rankType === 'P_RZ' || str_contains($combined, '入住')) {
+            return str_contains($combined, '房费') || str_contains($combined, '收入') || str_contains($combined, 'revenue') ? 'roomRevenue' : 'roomNights';
+        }
+        return '';
+    }
+
+    private function firstStringValue(array $data, array $keys, string $default = ''): string
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $data)) {
+                continue;
+            }
+            $value = trim((string)$data[$key]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim($default);
+    }
+
+    private function firstNumericValue(array $data, array $keys, mixed $default = null): ?float
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $data) && is_numeric($data[$key])) {
+                return (float)$data[$key];
+            }
+        }
+        return is_numeric($default) ? (float)$default : null;
+    }
+
+    private function stringListValue(mixed $value): array
+    {
+        if (is_array($value)) {
+            $result = [];
+            foreach ($value as $item) {
+                if (is_array($item)) {
+                    foreach (['name', 'text', 'label', 'title', 'tagName', 'tag'] as $key) {
+                        if (trim((string)($item[$key] ?? '')) !== '') {
+                            $result[] = trim((string)$item[$key]);
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                $text = trim((string)$item);
+                if ($text !== '' && $text !== '未返回') {
+                    $result[] = $text;
+                }
+            }
+            return array_values(array_unique($result));
+        }
+
+        $text = trim((string)$value);
+        if ($text === '' || $text === '未返回') {
+            return [];
+        }
+        return array_values(array_filter(array_map('trim', preg_split('/[\/,，;；|]+/u', $text) ?: [])));
+    }
+
+    private function mergeStringValues(array $left, array $right): array
+    {
+        return array_values(array_unique(array_filter(array_merge($left, $right), static fn(string $value): bool => trim($value) !== '')));
+    }
+
+    private function hasMeituanVipTag(array $tags): bool
+    {
+        foreach ($tags as $tag) {
+            if (preg_match('/vip|会员|皇冠|权益|甄选|优选/iu', (string)$tag) === 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function onlineRowFetchedAt(array $row): string
+    {
+        return (string)($row['update_time'] ?? $row['create_time'] ?? '');
+    }
+
+    private function maxOnlineRowFetchedAt(array $rows): string
+    {
+        $max = '';
+        foreach ($rows as $row) {
+            $time = $this->onlineRowFetchedAt($row);
+            if ($time !== '' && ($max === '' || strcmp($time, $max) > 0)) {
+                $max = $time;
+            }
+        }
+        return $max;
     }
 
     private function buildServiceQuality(array $hotelIds, string $date): array

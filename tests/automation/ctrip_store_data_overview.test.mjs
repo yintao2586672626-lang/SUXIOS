@@ -62,7 +62,7 @@ test('Ctrip eBooking first tab is a business-first store data overview with diag
   for (const label of ['收益经营', '流量漏斗', '竞争表现', '服务质量', '广告投放']) {
     assert.match(html, new RegExp(label), `missing fetch module card: ${label}`);
   }
-  for (const label of ['采集诊断与失败原因', '采集覆盖统计', '携程 Cookie状态', '失败原因']) {
+  for (const label of ['采集诊断与失败原因', '采集覆盖统计', '携程授权状态', '失败原因']) {
     assert.match(ctripDiagnosticsPanel, new RegExp(label), `diagnostics must retain: ${label}`);
   }
   assert.match(ctripPage, /loadDataHealthPanel/);
@@ -117,7 +117,7 @@ test('Ctrip store data overview exposes business sections and field-level misses
   assert.doesNotMatch(ctripBusinessBoard, /本轮未抓到/);
   assert.doesNotMatch(html, /本轮未命中/);
   assert.match(ctripBusinessBoard, /OTA渠道口径，不代表全酒店经营口径/);
-  assert.doesNotMatch(ctripBusinessBoard, /字段缺失 \/ 定义|采集覆盖统计|字段质量|接口响应|携程 Cookie状态|失败原因|历史回放|待采集项|待补字段/);
+  assert.doesNotMatch(ctripBusinessBoard, /字段缺失 \/ 定义|采集覆盖统计|字段质量|接口响应|携程授权状态|失败原因|历史回放|待采集项|待补字段/);
   assert.doesNotMatch(ctripBusinessBoard, /用户画像|IM看板|房型/);
   assert.match(html, /collectionHealthCtripPersistedRows/);
   assert.match(html, /collectionHealthCtripMetricFromRows/);
@@ -292,7 +292,7 @@ test('Ctrip Cookie API save is guarded against cross-store hotel identity confli
   assert.match(backend, /private function buildCtripHotelIdentityFilterReport\(\?int \$hotelId, string \$startDate, string \$endDate, int \$limit\): array/);
   assert.match(backend, /'ctrip_hotel_identity_filter'\s*=>\s*\$ctripIdentityFilter/);
   assert.match(backend, /\$idPreview = array_slice\(\$ambiguousHotelIds, 0, 5\)/);
-  assert.match(backend, /return array_slice\(\$filteredRows, 0, \$requestedLimit\);/);
+  assert.match(backend, /return array_slice\(OtaOperatingScope::filterOwnOperatingRows\(\$filteredRows, \$ownHotelNames\), 0, \$requestedLimit\);/);
 });
 
 test('Ctrip hotel identity safety ignores competitor rows and whitelists configured current-store ids', () => {
@@ -415,7 +415,7 @@ test('Ctrip collection quality rows overfetch before identity filtering', () => 
   assert.match(qualityRowsLoader, /\$fetchLimit = \$hotelId === null \? \$requestedLimit : min\(2000, max\(\$requestedLimit, \$requestedLimit \* 20\)\)/);
   assert.match(qualityRowsLoader, /->limit\(\$fetchLimit\)/);
   assert.match(qualityRowsLoader, /\$filteredRows = \$this->filterAmbiguousCtripHotelRows\(\$rows, \$hotelId\)/);
-  assert.match(qualityRowsLoader, /return array_slice\(\$filteredRows, 0, \$requestedLimit\)/);
+  assert.match(qualityRowsLoader, /return array_slice\(OtaOperatingScope::filterOwnOperatingRows\(\$filteredRows, \$ownHotelNames\), 0, \$requestedLimit\)/);
 });
 
 test('Ctrip overview matches compound catalog metric keys from persisted rows', () => {
@@ -464,8 +464,8 @@ test('Ctrip store overview ignores stale health responses after hotel switching'
   assert.match(html, /if \(requestSeq === collectionReliabilityRequestSeq\) \{\s*collectionReliabilityLoading\.value = false;/);
 });
 
-test('Ctrip store data overview exposes Ctrip Cookie status CRUD with traffic lights', () => {
-  assert.match(ctripDiagnosticsPanel, /携程 Cookie状态/);
+test('Ctrip store data overview exposes Ctrip platform authorization CRUD with traffic lights', () => {
+  assert.match(ctripDiagnosticsPanel, /携程授权状态/);
   assert.match(ctripDiagnosticsPanel, /collectionHealthCtripAuthorizationRows/);
   assert.match(ctripDiagnosticsPanel, /collectionHealthCookieLightClass/);
   assert.match(ctripDiagnosticsPanel, /openCtripCookieCreateFromHealth/);
@@ -476,13 +476,13 @@ test('Ctrip store data overview exposes Ctrip Cookie status CRUD with traffic li
   assert.match(html, /red:\s*'bg-red-500'/);
 });
 
-test('Ctrip Cookie status supports inline cookie view and edit', () => {
+test('Ctrip platform authorization status supports inline view and edit', () => {
   assert.match(ctripDiagnosticsPanel, /查看\/编辑/);
   assert.match(html, /showCtripCookieEditorModal/);
   assert.match(html, /ctripCookieEditorForm/);
   assert.match(html, /openCtripCookieEditorFromHealth/);
   assert.match(html, /saveCtripCookieFromHealth/);
-  assert.match(html, /查看 \/ 编辑携程 Cookie/);
+  assert.match(html, /查看 \/ 编辑携程平台授权/);
   assert.match(html, /v-model="ctripCookieEditorForm\.cookies"/);
 });
 
