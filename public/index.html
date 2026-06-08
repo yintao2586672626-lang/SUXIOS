@@ -4628,10 +4628,29 @@
                     <!-- 首页驾驶舱 -->
                     <div v-if="currentPage === 'compass'" class="compass-dashboard suxi-dashboard-scope">
                         <div class="compass-shell-card suxi-panel mb-6 overflow-hidden">
-                            <div class="suxi-cockpit-header px-4 py-3 sm:px-5 lg:px-6">
+                            <div class="suxi-cockpit-header px-4 py-4 sm:px-5 lg:px-6" data-testid="home-cockpit-header">
                                 <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                                     <div class="min-w-0">
+                                        <div class="text-[11px] font-semibold tracking-[0.14em] text-blue-100/80">OTA CHANNEL SCOPE</div>
                                         <div class="mt-1 text-xl sm:text-2xl font-semibold text-white leading-tight">线上获客与收益罗盘</div>
+                                        <div class="mt-3 grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
+                                                <span class="text-blue-200">数据</span>
+                                                <span class="ml-1 font-semibold text-white">{{ compassDataReadiness.summaryText }}</span>
+                                            </span>
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
+                                                <span class="text-blue-200">趋势</span>
+                                                <span class="ml-1 font-semibold text-white">{{ homeObservation?.sampleDaysText || '--' }}</span>
+                                            </span>
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
+                                                <span class="text-blue-200">竞对</span>
+                                                <span class="ml-1 font-semibold text-white">{{ homeCompetitorReadiness.label || '待同步' }}</span>
+                                            </span>
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
+                                                <span class="text-blue-200">动作</span>
+                                                <span class="ml-1 font-semibold text-white">{{ homeBoardActionRows[0]?.title || '复核数据' }}</span>
+                                            </span>
+                                        </div>
                                     </div>
                                     <div class="flex flex-col lg:flex-row lg:items-center gap-2 w-full xl:w-auto">
                                         <select v-model="filterReportHotel" class="input-field w-full lg:w-56 bg-white text-gray-900 border-gray-300">
@@ -4651,10 +4670,11 @@
                             </div>
                             <div class="px-4 py-4 lg:px-6 bg-slate-50 space-y-4">
                                 <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-operating-board">
-                                    <div class="border-b border-slate-100 bg-white px-3 py-3 sm:px-4">
+                                    <div class="border-b border-slate-100 bg-gradient-to-r from-white via-slate-50 to-white px-3 py-3 sm:px-4">
                                         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                             <div class="min-w-0">
-                                                <h3 class="text-lg font-bold text-gray-900 leading-tight">首页经营看板</h3>
+                                                <div class="text-[11px] font-semibold tracking-[0.12em] text-slate-400">OPERATING BOARD</div>
+                                                <h3 class="mt-1 text-lg font-bold text-gray-900 leading-tight">首页经营看板</h3>
                                             </div>
                                             <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                                                 <div class="grid grid-cols-4 rounded-xl border border-slate-200 bg-white/80 p-1 text-xs shadow-sm sm:inline-grid">
@@ -4675,24 +4695,24 @@
 
                                     <div class="space-y-3 p-3 sm:p-4">
                                         <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4" data-testid="home-decision-strip">
-                                            <button type="button" v-for="row in homeDecisionSummaryRows" :key="row.key" @click="openHomeQuickEntry(row.entry)" class="min-h-[78px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-sm">
+                                            <button type="button" v-for="row in homeDecisionSummaryRows" :key="row.key" @click="openHomeQuickEntry(row.entry)" class="min-h-[92px] rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
                                                 <div class="flex items-start justify-between gap-3">
                                                     <div class="min-w-0">
                                                         <div class="flex items-center gap-2">
-                                                            <span :class="['flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border', row.iconClass]">
+                                                            <span :class="['flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border', row.iconClass]">
                                                                 <i :class="[row.icon, 'text-xs']"></i>
                                                             </span>
                                                             <span class="truncate text-xs font-semibold text-slate-500">{{ row.label }}</span>
                                                         </div>
-                                                        <div class="mt-2 truncate text-sm font-bold text-slate-900" :title="row.value">{{ row.value }}</div>
-                                                        <div class="mt-1 truncate text-xs text-slate-400" :title="row.note">{{ row.note }}</div>
+                                                        <div class="mt-2 truncate text-base font-bold text-slate-900" :title="row.value">{{ row.value }}</div>
+                                                        <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="row.note">{{ row.note }}</div>
                                                     </div>
                                                     <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.badgeClass]">{{ row.badge }}</span>
                                                 </div>
                                             </button>
                                         </div>
 
-                                        <div class="grid grid-cols-2 gap-2 md:grid-cols-2 xl:grid-cols-4">
+                                        <div class="grid grid-cols-2 gap-2 md:grid-cols-2 xl:grid-cols-4" data-testid="home-operating-results">
                                             <button type="button" v-for="card in homeOperatingResultCards" :key="card.key" @click="openHomeQuickEntry(card.entry)" class="group relative min-h-[92px] overflow-hidden rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
                                                 <span :class="['absolute inset-x-0 top-0 h-1', card.accentClass]"></span>
                                                 <div class="flex items-start justify-between gap-3">
@@ -4735,21 +4755,27 @@
                                         </div>
 
                                         <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                                            <div class="xl:col-span-7 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                            <div class="xl:col-span-7 rounded-2xl border border-indigo-100 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="home-competitor-summary">
                                                 <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                                                <div>
-                                                    <div class="text-sm font-semibold text-slate-900">竞对摘要</div>
-                                                    <div class="mt-1 text-xs text-slate-500">{{ homeCompetitorSourceNotice }}</div>
-                                                </div>
-                                                    <button type="button" @click="openHomeQuickEntry({ page: 'meituan-ebooking', tab: 'meituan-ranking' })" class="inline-flex items-center gap-2 text-xs font-semibold text-blue-700 hover:text-blue-800">
+                                                    <div class="min-w-0">
+                                                        <div class="flex items-center gap-2">
+                                                            <span class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-700">
+                                                                <i class="fas fa-trophy text-xs"></i>
+                                                            </span>
+                                                            <div class="text-sm font-semibold text-slate-900">竞对摘要</div>
+                                                        </div>
+                                                        <div class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500" :title="homeCompetitorSourceNotice">{{ homeCompetitorSourceNotice }}</div>
+                                                    </div>
+                                                    <button type="button" @click="openHomeQuickEntry({ page: 'meituan-ebooking', tab: 'meituan-ranking' })" class="inline-flex w-fit items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:border-blue-200 hover:bg-blue-100">
                                                         <span :class="['rounded-full border px-2 py-0.5 text-[11px]', competitorSummaryReadinessClass(homeCompetitorReadiness)]">{{ homeCompetitorReadiness.label }}</span>
                                                         <span>查看美团榜单 <i class="fas fa-arrow-right ml-1 text-[10px]"></i></span>
                                                     </button>
                                                 </div>
-                                                <div class="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                                                    <button type="button" v-for="card in homeCompetitorSummaryCards" :key="card.key" @click="openHomeQuickEntry(card.entry)" :class="['min-h-[68px] rounded-xl border px-2.5 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-sm', card.className || 'border-slate-200 bg-white text-slate-700']">
+                                                <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" data-testid="home-competitor-card-grid">
+                                                    <button type="button" v-for="card in homeCompetitorSummaryCards" :key="card.key" @click="openHomeQuickEntry(card.entry)" :class="['min-h-[78px] rounded-xl border px-2.5 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-sm', card.className || 'border-slate-200 bg-white text-slate-700']">
                                                         <div class="text-xs opacity-75">{{ card.label }}</div>
                                                         <div class="mt-1 truncate text-base font-bold" :title="card.value">{{ card.value || '-' }}</div>
+                                                        <div class="mt-1 line-clamp-2 text-[11px] leading-4 opacity-70" :title="card.note">{{ card.note || '-' }}</div>
                                                     </button>
                                                 </div>
                                                 <div :class="['mt-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-xs', homeCompetitorPlatformTagClass]">
@@ -4758,19 +4784,25 @@
                                                 </div>
                                             </div>
 
-                                            <div class="xl:col-span-5 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                            <div class="xl:col-span-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="home-action-panel">
                                                 <div class="mb-3 flex items-start justify-between gap-3">
                                                     <div>
-                                                        <div class="text-sm font-semibold text-slate-900">今日动作建议</div>
+                                                        <div class="flex items-center gap-2">
+                                                            <span class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-amber-100 bg-amber-50 text-amber-700">
+                                                                <i class="fas fa-tasks text-xs"></i>
+                                                            </span>
+                                                            <div class="text-sm font-semibold text-slate-900">今日动作建议</div>
+                                                        </div>
                                                     </div>
                                                     <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-500">3项</span>
                                                 </div>
                                                 <div class="space-y-2">
-                                                    <button type="button" v-for="action in homeBoardActionRows" :key="action.key" @click="openHomeQuickEntry(action.entry)" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-blue-200 hover:shadow-sm">
+                                                    <button type="button" v-for="action in homeBoardActionRows" :key="action.key" @click="openHomeQuickEntry(action.entry)" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-blue-200 hover:bg-white hover:shadow-sm">
                                                         <div class="flex items-center justify-between gap-3">
                                                             <span class="text-sm font-semibold text-slate-900">{{ action.title }}</span>
                                                             <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', action.className]">{{ action.badge }}</span>
                                                         </div>
+                                                        <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="action.detail">{{ action.detail || '-' }}</div>
                                                     </button>
                                                 </div>
                                             </div>
@@ -12475,6 +12507,17 @@
                                         </div>
                                     </div>
                                     </div>
+                                    <div data-testid="data-health-diagnostic-boundary" :class="['rounded-xl border p-4 text-sm shadow-sm', dataHealthDiagnosticBoundary.className]">
+                                        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                                            <div>
+                                                <div class="font-semibold">{{ dataHealthDiagnosticBoundary.title }}</div>
+                                                <div class="mt-1 text-xs leading-5">{{ dataHealthDiagnosticBoundary.detail }}</div>
+                                            </div>
+                                            <div class="flex flex-wrap gap-2 text-xs">
+                                                <span v-for="item in dataHealthDiagnosticBoundary.badges" :key="item" class="rounded-md border border-current border-opacity-20 px-2.5 py-1 whitespace-nowrap">{{ item }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div v-if="hotelDashboardLoading || collectionReliabilityLoading" class="rounded-xl border border-gray-200 bg-white p-5">
                                         <div class="animate-pulse space-y-4">
                                             <div class="h-4 w-40 rounded bg-gray-200"></div>
@@ -12953,11 +12996,27 @@
                                                     <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500">{{ collectionHealthFailureReasons.length }} 条</span>
                                                 </div>
                                                 <div v-if="!collectionHealthFailureReasons.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无失败原因</div>
-                                                <div v-else class="space-y-2 max-h-64 overflow-y-auto">
-                                                    <div v-for="item in collectionHealthFailureReasons" :key="`${item.type}-${item.platform}-${item.occurred_at}-${item.record_id}`" class="border-b border-gray-100 pb-2 last:border-b-0">
-                                                        <div class="text-sm font-medium text-gray-800">{{ item.platform || '-' }} · {{ item.type || '-' }}</div>
-                                                        <div class="text-xs text-red-600 mt-1">{{ item.reason || '-' }}</div>
-                                                        <div class="text-xs text-gray-500 mt-1">{{ item.occurred_at || '-' }} · {{ item.next_action || '-' }}</div>
+                                                <div v-else class="space-y-4">
+                                                    <div class="space-y-2">
+                                                        <div class="text-xs font-medium text-gray-500">失败原因排行榜</div>
+                                                        <div v-for="row in collectionHealthFailureReasonRanking" :key="row.key" class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="flex items-start justify-between gap-3">
+                                                                <div class="min-w-0">
+                                                                    <div class="text-sm font-medium text-gray-900 truncate" :title="row.reason">{{ row.reason }}</div>
+                                                                    <div class="mt-1 text-xs text-gray-500 truncate" :title="row.platformsText">{{ row.platformsText }} · 最近 {{ row.latest_at || '-' }}</div>
+                                                                    <div class="mt-1 text-xs text-blue-700 line-clamp-2" :title="row.next_action">{{ row.next_action || '检查授权、字段结构和平台接口返回后重试采集' }}</div>
+                                                                </div>
+                                                                <span :class="['rounded-md border px-2 py-0.5 text-xs whitespace-nowrap', dataHealthPriorityClass(row.priority)]">{{ row.count }} 次</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="space-y-2 max-h-64 overflow-y-auto">
+                                                        <div class="text-xs font-medium text-gray-500">最近失败明细</div>
+                                                        <div v-for="item in collectionHealthFailureReasons" :key="`${item.type}-${item.platform}-${item.occurred_at}-${item.record_id}`" class="border-b border-gray-100 pb-2 last:border-b-0">
+                                                            <div class="text-sm font-medium text-gray-800">{{ item.platform || '-' }} · {{ item.type || '-' }}</div>
+                                                            <div class="text-xs text-red-600 mt-1">{{ item.reason || '-' }}</div>
+                                                            <div class="text-xs text-gray-500 mt-1">{{ item.occurred_at || '-' }} · {{ item.next_action || '-' }}</div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -20086,6 +20145,66 @@
             }[String(row?.light_status || (row?.is_usable ? 'green' : 'red')).toLowerCase()] || 'bg-red-500');
             const collectionHealthCookieLightText = (row) => row?.light_label || (row?.is_usable ? '可用' : '不可用');
             const collectionHealthFailureReasons = computed(() => Array.isArray(collectionReliability.value?.failure_reasons) ? collectionReliability.value.failure_reasons : []);
+            const dataHealthDiagnosticBoundary = computed(() => {
+                if (dataHealthFullDiagnosticsLoaded.value) {
+                    return {
+                        title: '完整诊断已加载',
+                        detail: '当前已包含账号级驾驶舱、单店画像、数据源诊断、授权、采集失败、字段缺口和后台高风险动作；仍仅代表 OTA 渠道数据质量，不代表全酒店经营口径。',
+                        badges: ['账号级驾驶舱', '单店画像', '数据源诊断', 'OTA渠道口径'],
+                        className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+                    };
+                }
+
+                return {
+                    title: '当前为轻量刷新',
+                    detail: '只展示平台授权、采集失败、字段缺口和高风险动作摘要；未拉取账号级驾驶舱、单店画像和数据源完整诊断，缺证据项保持未知状态。',
+                    badges: ['授权状态', '失败原因', '字段缺口', '高风险动作'],
+                    className: 'border-amber-200 bg-amber-50 text-amber-800',
+                };
+            });
+            const collectionHealthFailureReasonRanking = computed(() => {
+                const groups = new Map();
+                collectionHealthFailureReasons.value.forEach((item) => {
+                    const reason = String(item?.reason || '采集失败原因待确认').trim();
+                    const key = reason.toLowerCase();
+                    const platform = dataHealthPlatformText(item?.platform);
+                    const nextAction = String(item?.next_action || '').trim();
+                    const occurredAt = String(item?.occurred_at || '').trim();
+                    if (!groups.has(key)) {
+                        groups.set(key, {
+                            key,
+                            reason,
+                            count: 0,
+                            platforms: new Set(),
+                            latest_at: '',
+                            next_action: '',
+                            priority: 'medium',
+                        });
+                    }
+                    const row = groups.get(key);
+                    row.count += 1;
+                    if (platform) row.platforms.add(platform);
+                    if (nextAction && !row.next_action) row.next_action = nextAction;
+                    if (occurredAt && (!row.latest_at || occurredAt > row.latest_at)) row.latest_at = occurredAt;
+                    if (String(item?.type || '').toLowerCase() === 'authorization' || /cookie|login|auth|401|403|登录|授权|过期|失效/i.test(reason)) {
+                        row.priority = 'high';
+                    }
+                });
+
+                return Array.from(groups.values())
+                    .map(row => ({
+                        ...row,
+                        platformsText: Array.from(row.platforms).join(' / ') || 'OTA',
+                    }))
+                    .sort((left, right) => {
+                        const priorityWeight = { high: 0, medium: 1, low: 2 };
+                        const priorityDiff = (priorityWeight[left.priority] ?? 9) - (priorityWeight[right.priority] ?? 9);
+                        if (priorityDiff !== 0) return priorityDiff;
+                        if (right.count !== left.count) return right.count - left.count;
+                        return String(right.latest_at || '').localeCompare(String(left.latest_at || ''));
+                    })
+                    .slice(0, 5);
+            });
             const collectionHealthLogs = computed(() => Array.isArray(collectionReliability.value?.collection_logs) ? collectionReliability.value.collection_logs : []);
             const collectionHealthLatestLog = computed(() => collectionHealthLogs.value[0] || null);
             const collectionHealthQuality = computed(() => collectionReliability.value?.data_quality || {});
@@ -20691,7 +20810,13 @@
                 Array.isArray(collectionHealthCtripLatest.value?.modules) ? collectionHealthCtripLatest.value.modules : []
             ));
             const collectionHealthCtripPersistedRows = computed(() => (
-                collectionHealthHistoryReplay.value.filter(row => String(row?.source || '').toLowerCase() === 'ctrip')
+                collectionHealthHistoryReplay.value
+                    .filter(row => String(row?.source || '').toLowerCase() === 'ctrip')
+                    .sort((a, b) => (
+                        String(b?.data_date || '').localeCompare(String(a?.data_date || ''))
+                        || String(b?.updated_at || b?.update_time || '').localeCompare(String(a?.updated_at || a?.update_time || ''))
+                        || Number(b?.id || 0) - Number(a?.id || 0)
+                    ))
             ));
             const collectionHealthCtripPersistedRowCount = computed(() => collectionHealthCtripPersistedRows.value.length);
             const collectionHealthCtripPersistedLatestRow = computed(() => collectionHealthCtripPersistedRows.value[0] || null);
@@ -20805,9 +20930,16 @@
                 const formatted = Math.abs(numeric) >= 1000 ? numeric.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : String(Number(numeric.toFixed(2)));
                 return unit ? `${formatted}${unit}` : formatted;
             };
-            const collectionHealthCtripMetricPreviewValue = (preview, key) => {
+            const collectionHealthCtripMetricPreviewValue = (preview, key, options = {}) => {
                 if (!preview || !key) return undefined;
-                if (Object.prototype.hasOwnProperty.call(preview, key) && preview[key] !== null && preview[key] !== '') {
+                const normalizedKey = String(key || '').trim();
+                for (const mapKey of ['metrics', 'raw_metrics', 'rank_metrics']) {
+                    const map = preview?.[mapKey];
+                    if (map && typeof map === 'object' && Object.prototype.hasOwnProperty.call(map, normalizedKey) && map[normalizedKey] !== null && map[normalizedKey] !== '') {
+                        return map[normalizedKey];
+                    }
+                }
+                if (options.direct !== false && Object.prototype.hasOwnProperty.call(preview, key) && preview[key] !== null && preview[key] !== '') {
                     return preview[key];
                 }
                 return undefined;
@@ -21021,10 +21153,12 @@
                     const dimension = String(preview.dimension || row?.dimension || '').toLowerCase();
                     if (dimensionIncludes.length && !dimensionIncludes.some(item => dimension.includes(item))) continue;
                     for (const key of targetKeys) {
+                        const previewMetricKey = collectionHealthCtripPreviewMetricKey(preview);
                         const metricKeyMatched = collectionHealthCtripMetricKeyMatches(preview, key);
+                        const canUseDirectPreviewValue = metricKeyMatched && (previewMetricKey || dimensionIncludes.length);
                         let value = undefined;
-                        if (metricKeyMatched) {
-                            value = collectionHealthCtripMetricPreviewValue(preview, key);
+                        value = collectionHealthCtripMetricPreviewValue(preview, key, { direct: canUseDirectPreviewValue });
+                        if (canUseDirectPreviewValue) {
                             if (value === undefined) {
                                 value = collectionHealthCtripMetricPreviewValue(preview, 'data_value');
                             }
@@ -35710,6 +35844,9 @@
                         if (!loginOnly) {
                             await loadLatestCtripData({ silent: true });
                             await refreshOnlineHistory();
+                            if (onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value) {
+                                await loadDataHealthPanel();
+                            }
                         }
                         if (loginOnly || options.bindDataSource !== false) {
                             await loadPlatformProfileStatus({ silent: true });
@@ -36075,6 +36212,9 @@
                         }
                         await loadLatestCtripData({ silent: true });
                         await refreshOnlineHistory();
+                        if (onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value) {
+                            await loadDataHealthPanel();
+                        }
                     } else {
                         ctripBrowserCaptureResult.value = res.data || { error: res.message || '携程 Cookie API 采集失败' };
                         const identityMessage = res.data?.identity_check?.message || res.data?.message || '';
@@ -42578,6 +42718,7 @@
                 collectionHealthFailureReasons, collectionHealthLogs, collectionHealthLatestLog, collectionHealthQuality, collectionHealthHistoryReplay,
                 collectionHealthPendingActions, collectionHealthCtripCatalog, collectionHealthCtripCatalogStatus, collectionHealthCtripCatalogMessage,
                 collectionHealthLifecycleRows, collectionHealthLifecycleReadyCount, collectionHealthFieldAssetSummary, collectionHealthFieldAssetStatus, collectionHealthFieldAssetCards, collectionHealthFieldAssetListText,
+                dataHealthDiagnosticBoundary, collectionHealthFailureReasonRanking,
                 dataHealthDrilldownRows, openDataHealthDrilldown,
                 dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthTodayWorkOrders,
                 dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthPriorityClass, dataHealthPriorityText,

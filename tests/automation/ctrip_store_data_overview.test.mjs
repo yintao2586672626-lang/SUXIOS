@@ -120,8 +120,12 @@ test('Ctrip store data overview exposes business sections and field-level misses
   assert.doesNotMatch(ctripBusinessBoard, /字段缺失 \/ 定义|采集覆盖统计|字段质量|接口响应|携程授权状态|失败原因|历史回放|待采集项|待补字段/);
   assert.doesNotMatch(ctripBusinessBoard, /用户画像|IM看板|房型/);
   assert.match(html, /collectionHealthCtripPersistedRows/);
+  assert.match(html, /String\(b\?\.data_date \|\| ''\)\.localeCompare\(String\(a\?\.data_date \|\| ''\)\)/);
   assert.match(html, /collectionHealthCtripMetricFromRows/);
   assert.match(html, /metric_preview/);
+  assert.match(html, /for \(const mapKey of \['metrics', 'raw_metrics', 'rank_metrics'\]\)/);
+  assert.match(html, /const canUseDirectPreviewValue = metricKeyMatched && \(previewMetricKey \|\| dimensionIncludes\.length\)/);
+  assert.match(html, /collectionHealthCtripMetricPreviewValue\(preview, key, \{ direct: canUseDirectPreviewValue \}\)/);
 });
 
 test('Ctrip store data overview diagnoses missing metrics and keeps supplement capture in place', () => {
@@ -275,6 +279,19 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.doesNotMatch(coreActionRunner, /ctripBrowserCaptureForm\.value\.sections/);
   assert.doesNotMatch(coreActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
+
+  const cookieApiRunner = sliceBetween(
+    html,
+    'const runCtripCookieApiCapture = async () =>',
+    'const validateCtripEndpointEvidence = async () =>'
+  );
+  const profileRunner = sliceBetween(
+    html,
+    'const runCtripBrowserCapture = async (options = {}) =>',
+    'const normalizeCtripBrowserCaptureErrorResult = (error) =>'
+  );
+  assert.match(cookieApiRunner, /await loadDataHealthPanel\(\)/);
+  assert.match(profileRunner, /await loadDataHealthPanel\(\)/);
 });
 
 test('Ctrip Cookie API save is guarded against cross-store hotel identity conflicts', () => {

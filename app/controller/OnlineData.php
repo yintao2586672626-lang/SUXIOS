@@ -17,9 +17,10 @@ use think\facade\Db;
 class OnlineData extends Base
 {
     private const CTRIP_PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
-    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 23;
+    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 24;
     private const CTRIP_PROFILE_MODULES_CONFIG_KEY = 'ctrip_profile_capture_modules';
     private const CTRIP_PROFILE_MODULES_CONFIG_VERSION = 3;
+    private const MEITUAN_COMPETITOR_BATCH_WINDOW_SECONDS = 120;
     private const CTRIP_BUSINESS_REPORT_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
     private const CTRIP_FLOW_TRANSFORM_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true';
     private const CTRIP_FLOW_TRANSFORM_REQUEST_URL = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking';
@@ -239,6 +240,12 @@ class OnlineData extends Base
         'comment_count',
         'bad_review_count',
         'comment_response_rate',
+        'review_environment_score',
+        'review_facility_score',
+        'review_service_score',
+        'review_cleanliness_score',
+        'review_photo_count',
+        'review_photo_rate',
         'rating_competitor_total',
         'reply_rate',
         'reply_rank',
@@ -3937,7 +3944,7 @@ class OnlineData extends Base
             '收益销售' => ['order_count', 'room_nights', 'room_nights_last_week', 'quantity_rank', 'order_amount', 'order_amount_last_week', 'amount_rank', 'avg_price', 'avg_price_last_week', 'avg_price_rank', 'close_rate', 'close_rate_last_week', 'close_rate_rank', 'occupancy_rate', 'tensity'],
             '流量转化' => ['visitor_count', 'list_exposure', 'detail_visitor', 'order_page_visitor', 'order_submit_user', 'flow_rate', 'conversion_rate'],
             '竞争圈' => ['rank', 'competitor_average', 'common_view_rate', 'loss_order_count', 'loss_room_nights', 'loss_order_amount'],
-            '服务质量/IM' => ['psi_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score', 'reply_rate', 'reply_rank', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank', 'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'ctrip_rating', 'qunar_rating', 'elong_rating', 'ctrip_rating_rank', 'qunar_rating_rank', 'ctrip_comment_id', 'qunar_comment_id', 'elong_comment_id', 'comment_score_summary', 'comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count', 'comment_response_rate', 'rating_competitor_total'],
+            '服务质量/IM' => ['psi_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score', 'reply_rate', 'reply_rank', 'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank', 'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'ctrip_rating', 'qunar_rating', 'elong_rating', 'ctrip_rating_rank', 'qunar_rating_rank', 'ctrip_comment_id', 'qunar_comment_id', 'elong_comment_id', 'comment_score_summary', 'comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count', 'comment_response_rate', 'review_environment_score', 'review_facility_score', 'review_service_score', 'review_cleanliness_score', 'review_photo_count', 'review_photo_rate', 'rating_competitor_total'],
             '广告推广' => ['ad_impressions', 'ad_clicks', 'ad_cost', 'ad_order_amount', 'ad_orders', 'ad_room_nights', 'ctr', 'cvr', 'roas'],
             '商旅BPI' => ['bpi_score', 'basis_score', 'plus_score', 'minus_score', 'agreement_accept_rate', 'business_room_nights', 'business_amount'],
             '辅助事实' => ['hot_spot_name', 'start_date', 'end_date', 'user_sex', 'avg_user_age', 'user_age', 'user_source', 'user_source_scope', 'source_region', 'source_city', 'user_type', 'travel_time', 'booking_hour', 'hotel_star_preference', 'price_band', 'consumption_power', 'avg_booking_days', 'booking_days', 'avg_stay_days', 'stay_days', 'price_sensitivity', 'booking_method', 'order_hotel_count', 'order_preference', 'preference_frequency', 'strategy', 'benefit_name', 'notice_title'],
@@ -4012,6 +4019,12 @@ class OnlineData extends Base
             'comment_count' => '点评数',
             'bad_review_count' => '差评数',
             'comment_response_rate' => '点评回复率',
+            'review_environment_score' => '点评环境评分',
+            'review_facility_score' => '点评设施评分',
+            'review_service_score' => '点评服务评分',
+            'review_cleanliness_score' => '点评卫生评分',
+            'review_photo_count' => '带图点评数',
+            'review_photo_rate' => '带图点评率',
             'rating_competitor_total' => '点评竞争圈酒店数',
             'ad_impressions' => '广告曝光',
             'ad_clicks' => '广告点击',
@@ -10589,15 +10602,41 @@ class OnlineData extends Base
             }
         }
 
+        if (isset($columns['sync_task_id']) && (int)($latest['sync_task_id'] ?? 0) > 0) {
+            $query->where('sync_task_id', (int)$latest['sync_task_id']);
+            return;
+        }
+
+        if (isset($columns['source_trace_id']) && trim((string)($latest['source_trace_id'] ?? '')) !== '') {
+            $query->where('source_trace_id', trim((string)$latest['source_trace_id']));
+            return;
+        }
+
         // Meituan ranking modules are written as adjacent batches for one
-        // hotel/date. Read the whole date slice so a later module does not
-        // hide stay, sales, traffic, or conversion rows from the summary.
+        // hotel/date. Use a short fetch-time window so the four rank modules
+        // stay together without mixing older runs from the same data_date.
+        foreach (['update_time', 'create_time'] as $column) {
+            if (!isset($columns[$column]) || empty($latest[$column])) {
+                continue;
+            }
+            $latestTime = (string)$latest[$column];
+            $latestTimestamp = strtotime($latestTime);
+            if ($latestTimestamp === false) {
+                $query->where($column, $latestTime);
+                return;
+            }
+            $query->whereBetween($column, [
+                date('Y-m-d H:i:s', $latestTimestamp - self::MEITUAN_COMPETITOR_BATCH_WINDOW_SECONDS),
+                $latestTime,
+            ]);
+            return;
+        }
     }
 
     private function onlineDailySummaryFieldList(array $columns): string
     {
         $fields = [];
-        foreach (['id', 'system_hotel_id', 'hotel_id', 'hotel_name', 'data_date', 'data_value', 'amount', 'quantity', 'source', 'platform', 'data_type', 'dimension', 'raw_data', 'create_time', 'update_time'] as $field) {
+        foreach (['id', 'system_hotel_id', 'hotel_id', 'hotel_name', 'data_date', 'data_value', 'amount', 'quantity', 'source', 'platform', 'data_type', 'dimension', 'raw_data', 'create_time', 'update_time', 'sync_task_id', 'source_trace_id'] as $field) {
             if (isset($columns[$field])) {
                 $fields[] = $field;
             }
@@ -15794,6 +15833,78 @@ JAVASCRIPT;
                 'value_meaning' => '点评回复率，单位 %。',
                 'notes' => '该字段来自点评摘要接口，不写入 IM 回复率字段。',
             ],
+            'review_environment_score' => [
+                'page_url' => self::CTRIP_PSI_PAGE_URL,
+                'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2 / ' . $commentSummaryUrl,
+                'json_path' => 'candidate:data.environmentScore / data.envScore / data.surroundingScore',
+                'ownership_rule' => '携程 OTA 点评质量摘要；只采集环境子评分，不采集点评明文。',
+                'storage_field' => 'online_daily_data.raw_data.metrics.review_environment_score',
+                'source_interface' => 'getCommentsScoreV2 / getCommentNumV2',
+                'source_keys' => 'environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore',
+                'target_value' => 'review_environment_score',
+                'value_meaning' => '点评环境评分，单位分。',
+                'notes' => '候选 source key 需用真实 Response 复核；缺失时保持缺失状态。',
+            ],
+            'review_facility_score' => [
+                'page_url' => self::CTRIP_PSI_PAGE_URL,
+                'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2 / ' . $commentSummaryUrl,
+                'json_path' => 'candidate:data.facilityScore / data.facilitiesScore / data.equipmentScore',
+                'ownership_rule' => '携程 OTA 点评质量摘要；只采集设施子评分，不采集点评明文。',
+                'storage_field' => 'online_daily_data.raw_data.metrics.review_facility_score',
+                'source_interface' => 'getCommentsScoreV2 / getCommentNumV2',
+                'source_keys' => 'facilityScore, facilitiesScore, equipmentScore',
+                'target_value' => 'review_facility_score',
+                'value_meaning' => '点评设施评分，单位分。',
+                'notes' => '候选 source key 需用真实 Response 复核；缺失时保持缺失状态。',
+            ],
+            'review_service_score' => [
+                'page_url' => self::CTRIP_PSI_PAGE_URL,
+                'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2 / ' . $commentSummaryUrl,
+                'json_path' => 'candidate:data.reviewServiceScore / data.commentServiceScore / data.serviceRating',
+                'ownership_rule' => '携程 OTA 点评质量摘要；只采集点评服务子评分，不与 PSI 服务质量分混用。',
+                'storage_field' => 'online_daily_data.raw_data.metrics.review_service_score',
+                'source_interface' => 'getCommentsScoreV2 / getCommentNumV2',
+                'source_keys' => 'reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore',
+                'target_value' => 'review_service_score',
+                'value_meaning' => '点评服务评分，单位分。',
+                'notes' => '若真实 Response 仅返回 serviceScore，需要人工复核口径后再确认，避免和 PSI service_score 混用。',
+            ],
+            'review_cleanliness_score' => [
+                'page_url' => self::CTRIP_PSI_PAGE_URL,
+                'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2 / ' . $commentSummaryUrl,
+                'json_path' => 'candidate:data.cleanlinessScore / data.cleanScore / data.hygieneScore',
+                'ownership_rule' => '携程 OTA 点评质量摘要；只采集卫生子评分，不采集点评明文。',
+                'storage_field' => 'online_daily_data.raw_data.metrics.review_cleanliness_score',
+                'source_interface' => 'getCommentsScoreV2 / getCommentNumV2',
+                'source_keys' => 'cleanlinessScore, cleanScore, hygieneScore, sanitationScore',
+                'target_value' => 'review_cleanliness_score',
+                'value_meaning' => '点评卫生评分，单位分。',
+                'notes' => '候选 source key 需用真实 Response 复核；缺失时保持缺失状态。',
+            ],
+            'review_photo_count' => [
+                'page_url' => self::CTRIP_PSI_PAGE_URL,
+                'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2 / ' . $commentSummaryUrl,
+                'json_path' => 'data.hasPicCount',
+                'ownership_rule' => '携程 OTA 点评质量摘要；只保存带图点评聚合计数，不保存图片或点评明文。',
+                'storage_field' => 'online_daily_data.raw_data.metrics.review_photo_count',
+                'source_interface' => 'getCommentsScoreV2 / getCommentNumV2',
+                'source_keys' => 'hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount',
+                'target_value' => 'review_photo_count',
+                'value_meaning' => '带图点评数，单位条。',
+                'notes' => '作为带图点评率分子；缺失时不补 0。',
+            ],
+            'review_photo_rate' => [
+                'page_url' => self::CTRIP_PSI_PAGE_URL,
+                'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2 / ' . $commentSummaryUrl,
+                'json_path' => 'derived:data.hasPicCount / data.commentCount',
+                'ownership_rule' => '携程 OTA 点评质量摘要；带图点评率为聚合公式字段，不保存图片或点评明文。',
+                'storage_field' => 'online_daily_data.raw_data.metrics.review_photo_rate',
+                'source_interface' => 'getCommentsScoreV2 / getCommentNumV2',
+                'source_keys' => 'hasPicCount, commentCount',
+                'target_value' => 'review_photo_rate',
+                'value_meaning' => '带图点评率，单位 %。',
+                'notes' => '公式：hasPicCount / commentCount * 100；commentCount 缺失或为 0 时保持缺失状态。',
+            ],
             'rating_competitor_total' => [
                 'page_url' => $businessPage . ' / ' . $userBehaviorPage,
                 'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2',
@@ -16482,6 +16593,12 @@ JAVASCRIPT;
             ['elong_comment_id', '艺龙点评主体ID', 'quality_psi', 'quality', 'getCommentsScoreV2', 'elongId', 'text', '', 'confirmed', '接口返回 null 时保持缺失，不写空串'],
             ['comment_score_summary', '酒店点评分兼容字段', 'business_overview', 'quality', 'getDayReportServerQuantity / getCommentsScoreV2', 'ctripRatingall, qunarRatingall, HotelRating, ratingall', 'number', '分', 'confirmed', '只采集评分汇总，不采集点评明文'],
             ['comment_response_rate', '点评回复率', 'quality_psi', 'quality', 'getCommentsScoreV2', 'responseRate', 'percent', '%', 'confirmed', '点评回复率，不等同于 IM 5分钟回复率'],
+            ['review_environment_score', '点评环境评分', 'quality_psi', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore', 'number', '分', 'needs_parser', '候选字段；只保存评分汇总，不采集点评明文', true, '需用完整 Response 复核 source key'],
+            ['review_facility_score', '点评设施评分', 'quality_psi', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'facilityScore, facilitiesScore, equipmentScore', 'number', '分', 'needs_parser', '候选字段；只保存评分汇总，不采集点评明文', true, '需用完整 Response 复核 source key'],
+            ['review_service_score', '点评服务评分', 'quality_psi', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore', 'number', '分', 'needs_parser', '候选字段；不与 PSI service_score 混用', true, '若真实 key 为 serviceScore，需先复核口径再确认'],
+            ['review_cleanliness_score', '点评卫生评分', 'quality_psi', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'cleanlinessScore, cleanScore, hygieneScore, sanitationScore', 'number', '分', 'needs_parser', '候选字段；只保存评分汇总，不采集点评明文', true, '需用完整 Response 复核 source key'],
+            ['review_photo_count', '带图点评数', 'quality_psi', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'hasPicCount', 'integer', '条', 'confirmed', '固定取 data.hasPicCount；只保存聚合计数', true, '不保存图片、点评正文或点评列表'],
+            ['review_photo_rate', '带图点评率', 'quality_psi', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'hasPicCount, commentCount', 'percent', '%', 'confirmed', '公式：hasPicCount / commentCount * 100；commentCount 缺失或为 0 时保持缺失', true, '不保存图片、点评正文或点评列表'],
             ['rating_competitor_total', '点评竞争圈酒店数', 'quality_psi', 'quality', 'getCommentsScoreV2', 'competitorHotelTotal', 'integer', '家', 'confirmed', '点评排名分母，不作为经营规模指标'],
             ['reply_rate', '5分钟回复率', 'business_overview', 'quality', 'getDayReportServerQuantity / getImIndex', 'replyrate5m, replyRate, fiveMinuteReplyRate, fiveMinReplyRate', 'percent', '%', 'confirmed', '固定取 data.replyrate5m'],
             ['reply_rank', '5分钟回复率竞争圈排名', 'business_overview', 'quality', 'getDayReportServerQuantity', 'imScoreHtlrank', 'rank', '名', 'confirmed', '固定取 data.imScoreHtlrank'],
@@ -28926,6 +29043,7 @@ JAVASCRIPT;
     private function buildCollectionHistoryReplayRows(?int $hotelId, string $startDate, string $endDate, int $limit): array
     {
         $rows = $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, $limit);
+        $rows = $this->mergeCtripCoreRowsForCollectionHistory($rows, $hotelId, $startDate, $endDate, $limit);
         $result = [];
         foreach ($rows as $row) {
             $id = (int)($row['id'] ?? 0);
@@ -28948,6 +29066,71 @@ JAVASCRIPT;
             ];
         }
         return $result;
+    }
+
+    private function mergeCtripCoreRowsForCollectionHistory(array $rows, ?int $hotelId, string $startDate, string $endDate, int $limit): array
+    {
+        if ($hotelId === null || $limit <= 0) {
+            return $rows;
+        }
+
+        $columns = $this->getOnlineDailyDataColumns();
+        if (!isset($columns['source'], $columns['dimension'])) {
+            return $rows;
+        }
+
+        $fields = array_values(array_filter([
+            'id', 'system_hotel_id', 'hotel_id', 'hotel_name', 'source', 'data_type', 'data_date',
+            'amount', 'quantity', 'book_order_num', 'comment_score', 'qunar_comment_score', 'data_value',
+            'dimension', 'compare_type', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+            'raw_data', 'validation_status', 'validation_flags', 'create_time', 'update_time',
+        ], static fn(string $field): bool => isset($columns[$field])));
+
+        if (empty($fields)) {
+            return $rows;
+        }
+
+        $query = Db::name('online_daily_data')
+            ->field($fields)
+            ->where('source', 'ctrip')
+            ->where('data_date', '>=', $startDate)
+            ->where('data_date', '<=', $endDate)
+            ->where(function ($q): void {
+                $q->where('dimension', 'like', 'catalog:%')
+                    ->whereOr('dimension', 'like', 'Ctrip:%');
+            });
+
+        if (isset($columns['data_type'])) {
+            $query->whereIn('data_type', ['business', 'traffic', 'quality', 'ranking']);
+        }
+        if (!$this->applyCollectionHotelScope($query, $hotelId, $columns)) {
+            return $rows;
+        }
+
+        $coreRows = $query
+            ->order('data_date', 'desc')
+            ->order('id', 'desc')
+            ->limit(max(12, $limit))
+            ->select()
+            ->toArray();
+
+        $coreRows = $this->filterAmbiguousCtripHotelRows($coreRows, $hotelId);
+        $ownHotelNames = array_values(array_filter(
+            array_map(static fn (array $hotel): string => (string)($hotel['name'] ?? ''), $this->loadDashboardHotels($hotelId)),
+            static fn (string $name): bool => trim($name) !== ''
+        ));
+        $coreRows = OtaOperatingScope::filterOwnOperatingRows($coreRows, $ownHotelNames);
+
+        $merged = [];
+        foreach (array_merge($coreRows, $rows) as $row) {
+            $id = (int)($row['id'] ?? 0);
+            $key = $id > 0 ? (string)$id : md5(json_encode($row, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?: '');
+            if (!isset($merged[$key])) {
+                $merged[$key] = $row;
+            }
+        }
+
+        return array_slice(array_values($merged), 0, max(1, $limit));
     }
 
     private function applyCollectionHotelScope($query, ?int $hotelId, array $columns): bool
@@ -29052,6 +29235,46 @@ JAVASCRIPT;
 
         [$raw] = $this->decodeOnlineDataQualityRaw($row['raw_data'] ?? null);
         if (is_array($raw)) {
+            $rawMetricKeys = [];
+            if (!isset($preview['metric_key'])) {
+                $dimension = (string)($preview['dimension'] ?? '');
+                if ($dimension !== '' && preg_match('/^catalog:[^:]+:[^:]+:([^:]+)/', $dimension, $matches)) {
+                    $preview['metric_key'] = strtolower(trim((string)$matches[1]));
+                }
+            }
+            foreach (['capture_section', 'endpoint_id', 'metric_key', 'metric_label'] as $field) {
+                if (!isset($preview[$field]) && array_key_exists($field, $raw) && is_scalar($raw[$field]) && $raw[$field] !== '') {
+                    $preview[$field] = $raw[$field];
+                }
+            }
+            foreach (['metrics', 'rank_metrics'] as $metricMapKey) {
+                if (!is_array($raw[$metricMapKey] ?? null)) {
+                    continue;
+                }
+                foreach ($raw[$metricMapKey] as $metricKey => $metricValue) {
+                    $metricKey = strtolower(trim((string)$metricKey));
+                    if ($metricKey === '') {
+                        continue;
+                    }
+                    $rawMetricKeys[$metricKey] = true;
+                    $this->appendCollectionMetricPreviewValue($preview, $metricKey, $metricValue);
+                }
+            }
+            foreach (is_array($raw['facts'] ?? null) ? $raw['facts'] : [] as $fact) {
+                if (!is_array($fact)) {
+                    continue;
+                }
+                $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
+                if ($metricKey === '') {
+                    continue;
+                }
+                $rawMetricKeys[$metricKey] = true;
+                $value = $fact['value'] ?? $fact['metric_value'] ?? $fact['data_value'] ?? null;
+                $this->appendCollectionMetricPreviewValue($preview, $metricKey, $value);
+            }
+            if (!isset($preview['metric_key']) && $rawMetricKeys !== []) {
+                $preview['metric_key'] = implode('+', array_slice(array_keys($rawMetricKeys), 0, 8));
+            }
             foreach ([
                 'amount_rank' => ['amountRank', 'amount_rank', 'bookingGMVrank', 'rankOfAmount', 'rank'],
                 'quantity_rank' => ['quantityRank', 'quantity_rank', 'stayInRNrank', 'rankOfQuantity'],
@@ -29064,6 +29287,12 @@ JAVASCRIPT;
                 'five_min_reply_rate' => ['five_min_reply_rate', 'fiveMinReplyRate', 'fiveMinuteReplyRate', 'replyRate5Min'],
                 'reply_rate' => ['reply_rate', 'replyRate'],
                 'comment_response_rate' => ['comment_response_rate', 'responseRate'],
+                'review_environment_score' => ['review_environment_score', 'environmentScore', 'envScore', 'surroundingScore'],
+                'review_facility_score' => ['review_facility_score', 'facilityScore', 'facilitiesScore', 'equipmentScore'],
+                'review_service_score' => ['review_service_score', 'reviewServiceScore', 'commentServiceScore', 'serviceRating'],
+                'review_cleanliness_score' => ['review_cleanliness_score', 'cleanlinessScore', 'cleanScore', 'hygieneScore'],
+                'review_photo_count' => ['review_photo_count', 'hasPicCount'],
+                'review_photo_rate' => ['review_photo_rate'],
                 'hotel_collect' => ['hotel_collect', 'hotelCollect', 'collectCount', 'favoriteCount', 'favCount'],
                 'ad_order_amount' => ['ad_order_amount', 'orderAmount', 'adOrderAmount', 'bookingAmount', 'gmv'],
                 'roas' => ['roas', 'ROAS', 'roi'],
@@ -29077,6 +29306,15 @@ JAVASCRIPT;
             }
         }
         return $preview;
+    }
+
+    private function appendCollectionMetricPreviewValue(array &$preview, string $metricKey, mixed $value): void
+    {
+        $metricKey = strtolower(trim($metricKey));
+        if ($metricKey === '' || is_array($value) || is_object($value) || $value === null || $value === '') {
+            return;
+        }
+        $preview[$metricKey] = $value;
     }
 
 

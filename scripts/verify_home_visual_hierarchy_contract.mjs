@@ -11,6 +11,15 @@ const checks = [
       && publicSource.includes('openHomeQuickEntry(row.entry)'),
   },
   {
+    name: 'home cockpit header exposes compact signal row without new data source',
+    pass: publicSource.includes('data-testid="home-cockpit-header"')
+      && publicSource.includes('data-testid="home-header-signal-row"')
+      && publicSource.includes('{{ compassDataReadiness.summaryText }}')
+      && publicSource.includes("{{ homeObservation?.sampleDaysText || '--' }}")
+      && publicSource.includes("{{ homeCompetitorReadiness.label || '待同步' }}")
+      && publicSource.includes("{{ homeBoardActionRows[0]?.title || '复核数据' }}"),
+  },
+  {
     name: 'decision strip reuses current dashboard state instead of new fallback data',
     pass: publicSource.includes('const homeDecisionSummaryRows = computed')
       && publicSource.includes('const readiness = compassDataReadiness.value || {}')
@@ -26,6 +35,20 @@ const checks = [
     name: 'competitor summary keeps VIP no-inference wording on the home decision strip',
     pass: publicSource.includes("note: homeCompetitorPlatformTagText.value || homeCompetitorSourceNotice.value || '不推断VIP'")
       && publicSource.includes("entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' }"),
+  },
+  {
+    name: 'home competitor summary uses dense evidence-first five-card grid',
+    pass: publicSource.includes('data-testid="home-competitor-summary"')
+      && publicSource.includes('data-testid="home-competitor-card-grid"')
+      && publicSource.includes('lg:grid-cols-5')
+      && publicSource.includes('{{ card.note || \'-\' }}')
+      && publicSource.includes('homeCompetitorSourceNotice'),
+  },
+  {
+    name: 'home action panel renders action rationale instead of only badges',
+    pass: publicSource.includes('data-testid="home-action-panel"')
+      && publicSource.includes('{{ action.detail || \'-\' }}')
+      && publicSource.includes('v-for="action in homeBoardActionRows"'),
   },
   {
     name: 'home visual hierarchy verifier is exposed through npm',

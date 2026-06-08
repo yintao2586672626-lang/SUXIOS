@@ -324,8 +324,12 @@ function verifyCatalog() {
   assertContract(JSON.stringify(normalizeCtripCaptureSections('business,traffic')) === JSON.stringify(['business_overview', 'traffic_report']), 'legacy business/traffic aliases must work');
   assertContract(!normalizeCtripCaptureSections('default').includes('room_type'), 'default Profile capture must not include room_type');
   assertContract(!normalizeCtripCaptureSections('core').includes('room_type'), 'core Profile capture must not include room_type');
-  for (const section of ['comment_review', 'competitor_overview', 'loss_analysis', 'competitor_rank', 'quality_psi', 'ads_pyramid', 'market_calendar', 'user_profile']) {
+  for (const section of ['business_overview', 'traffic_report']) {
     assertContract(normalizeCtripCaptureSections('default').includes(section), `default Profile capture must include ${section}`);
+  }
+  for (const section of ['comment_review', 'competitor_overview', 'loss_analysis', 'competitor_rank', 'quality_psi', 'ads_pyramid', 'market_calendar', 'user_profile']) {
+    assertContract(!normalizeCtripCaptureSections('default').includes(section), `default Profile capture must not include optional section ${section}`);
+    assertContract(normalizeCtripCaptureSections('wide').includes(section), `wide Profile capture must include ${section}`);
   }
   assertContract(normalizeCtripCaptureSections('marketanalysis')[0] === 'market_calendar', 'marketanalysis alias must route to market_calendar');
   assertContract(normalizeCtripCaptureSections('all').length === Object.keys(CTRIP_CAPTURE_SECTIONS).length, 'all sections must expand');

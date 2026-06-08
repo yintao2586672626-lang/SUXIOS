@@ -252,6 +252,11 @@ test('maps Ctrip comment aggregate response without review text fields', () => {
       commentScore: 4.8,
       totalCount: 577,
       badReviewCount: 6,
+      environmentScore: 4.91,
+      facilityScore: 4.75,
+      reviewServiceScore: 4.91,
+      hygieneScore: 4.75,
+      hasPicCount: 288,
     },
   };
   const facts = extractCtripCatalogFacts(payload, {
@@ -265,7 +270,7 @@ test('maps Ctrip comment aggregate response without review text fields', () => {
   });
 
   const factKeys = new Set(facts.map((fact) => fact.metric_key));
-  for (const key of ['comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count']) {
+  for (const key of ['comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count', 'review_environment_score', 'review_facility_score', 'review_service_score', 'review_cleanliness_score', 'review_photo_count', 'review_photo_rate']) {
     assert.equal(factKeys.has(key), true, key);
   }
   assert.equal(factKeys.has('comment_rows'), false);
@@ -284,6 +289,36 @@ test('maps Ctrip comment aggregate response without review text fields', () => {
   assert.equal(rows[0].comment_score, 4.8);
   assert.equal(rows[0].data_value, 577);
   assert.equal(rows[0].raw_data.metrics.bad_review_count, 6);
+  assert.equal(rows[0].raw_data.metrics.review_environment_score, 4.91);
+  assert.equal(rows[0].raw_data.metrics.review_facility_score, 4.75);
+  assert.equal(rows[0].raw_data.metrics.review_service_score, 4.91);
+  assert.equal(rows[0].raw_data.metrics.review_cleanliness_score, 4.75);
+  assert.equal(rows[0].raw_data.metrics.review_photo_count, 288);
+  assert.equal(rows[0].raw_data.metrics.review_photo_rate, 49.9);
+});
+
+test('keeps Ctrip review photo rate missing when comment count denominator is unavailable', () => {
+  const url = 'https://ebooking.ctrip.com/comment/api/getCommentNumV2';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'comment_review_aggregate');
+
+  const facts = extractCtripCatalogFacts({
+    data: {
+      hasPicCount: 5,
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-05',
+    capturedAt: '2026-06-06T00:00:00.000Z',
+    url,
+  });
+
+  const factKeys = new Set(facts.map((fact) => fact.metric_key));
+  assert.equal(factKeys.has('review_photo_count'), true);
+  assert.equal(factKeys.has('review_photo_rate'), false);
 });
 
 test('maps Ctrip comment list response to aggregate fields only', () => {
@@ -569,11 +604,17 @@ test('maps Ctrip user behavior user-analysis distribution responses', () => {
     rcode: 0,
     data: {
       ctripCommentCount: 578,
+      commentCount: 30,
       qunarCommentCount: null,
       elongCommentCount: null,
       ctripRatingall: 4.8,
       qunarRatingall: 4.9,
       elongRatingall: null,
+      environmentScore: 4.91,
+      facilityScore: 4.75,
+      reviewServiceScore: 4.91,
+      hygieneScore: 4.75,
+      hasPicCount: 25,
       ctripRatingAllRanking: 4,
       qunarRatingAllRanking: 8,
       competitorHotelTotal: 26,
@@ -588,6 +629,12 @@ test('maps Ctrip user behavior user-analysis distribution responses', () => {
   assert.equal(commentRow.data_value, 4.8);
   assert.equal(commentRow.raw_data.metrics.ctrip_comment_count, 578);
   assert.equal(commentRow.raw_data.metrics.ctrip_rating, 4.8);
+  assert.equal(commentRow.raw_data.metrics.review_environment_score, 4.91);
+  assert.equal(commentRow.raw_data.metrics.review_facility_score, 4.75);
+  assert.equal(commentRow.raw_data.metrics.review_service_score, 4.91);
+  assert.equal(commentRow.raw_data.metrics.review_cleanliness_score, 4.75);
+  assert.equal(commentRow.raw_data.metrics.review_photo_count, 25);
+  assert.equal(commentRow.raw_data.metrics.review_photo_rate, 83.3);
   assert.equal(commentRow.comment_score, 4.8);
   assert.equal(commentRow.qunar_comment_score, 4.9);
   assert.equal(commentRow.raw_data.rank_metrics.ctrip_rating_rank, 4);
@@ -1649,6 +1696,7 @@ test('catalog verifier can resolve i18n terminology from SUXIOS_CTRIP_I18N_FILE 
   const output = execFileSync('node', ['scripts/verify_ctrip_capture_catalog.mjs', '--json', '--no-write'], {
     cwd: process.cwd(),
     encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
     env: {
       ...process.env,
       SUXIOS_CTRIP_I18N_FILE: i18nPath,

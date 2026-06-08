@@ -73,6 +73,39 @@ final class OnlineDataTest extends TestCase
         self::assertNotEmpty($snapshot['source_breakdown']);
     }
 
+    public function testCollectionMetricPreviewExposesCtripStandardRowMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $preview = $this->invokeNonPublic($controller, 'buildCollectionMetricPreview', [[
+            'source' => 'ctrip',
+            'data_type' => 'quality',
+            'data_date' => '2026-06-06',
+            'dimension' => 'catalog:quality_psi:psi_overview:psi_score+reply_rate:root',
+            'data_value' => 0,
+            'raw_data' => json_encode([
+                'capture_section' => 'quality_psi',
+                'endpoint_id' => 'psi_overview',
+                'metrics' => [
+                    'psi_score' => '4.54',
+                ],
+                'rank_metrics' => [
+                    'amount_rank' => 8,
+                ],
+                'facts' => [
+                    ['metric_key' => 'reply_rate', 'value' => '91.2'],
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        self::assertSame('quality_psi', $preview['capture_section']);
+        self::assertSame('psi_overview', $preview['endpoint_id']);
+        self::assertSame('psi_score+reply_rate', $preview['metric_key']);
+        self::assertSame('4.54', $preview['psi_score']);
+        self::assertSame(8, $preview['amount_rank']);
+        self::assertSame('91.2', $preview['reply_rate']);
+    }
+
     public function testNonNumericCtripFactRowsDoNotRequireRevenueMetrics(): void
     {
         $controller = $this->controller();
@@ -1750,7 +1783,7 @@ final class OnlineDataTest extends TestCase
         ]);
 
         self::assertSame([
-            ['where', 'update_time', '2026-06-06 18:20:00'],
+            ['whereBetween', 'update_time', ['2026-06-06 18:18:00', '2026-06-06 18:20:00']],
         ], $query->calls);
     }
 
@@ -1768,7 +1801,24 @@ final class OnlineDataTest extends TestCase
 
         self::assertSame([
             ['where', 'system_hotel_id', 7],
-            ['where', 'update_time', '2026-06-06 18:20:00'],
+            ['whereBetween', 'update_time', ['2026-06-06 18:18:00', '2026-06-06 18:20:00']],
+        ], $query->calls);
+    }
+
+    public function testMeituanCompetitorLatestBatchScopePrefersSyncTaskIdWhenAvailable(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+
+        $this->invokeNonPublic($controller, 'applyMeituanCompetitorLatestBatchScope', [
+            $query,
+            ['system_hotel_id' => 7, 'update_time' => '2026-06-06 18:20:00', 'sync_task_id' => 42],
+            '7',
+            ['system_hotel_id' => true, 'update_time' => true, 'sync_task_id' => true],
+        ]);
+
+        self::assertSame([
+            ['where', 'sync_task_id', 42],
         ], $query->calls);
     }
 
@@ -3270,6 +3320,12 @@ final class OnlineDataTest extends TestCase
             'psi_score',
             'service_score_rank',
             'ctrip_rating',
+            'review_environment_score',
+            'review_facility_score',
+            'review_service_score',
+            'review_cleanliness_score',
+            'review_photo_count',
+            'review_photo_rate',
             'comment_score_summary',
             'reply_rate',
             'reply_rank',
@@ -3428,6 +3484,25 @@ final class OnlineDataTest extends TestCase
         self::assertSame('data.elongId', $byKey['elong_comment_id']['json_path']);
         self::assertSame('getCommentsScoreV2', $byKey['comment_response_rate']['source_interface']);
         self::assertSame('data.responseRate', $byKey['comment_response_rate']['json_path']);
+        self::assertSame('quality_psi', $byKey['review_environment_score']['section']);
+        self::assertSame('needs_parser', $byKey['review_environment_score']['status']);
+        self::assertStringContainsString('environmentScore', $byKey['review_environment_score']['source_keys']);
+        self::assertSame('quality_psi', $byKey['review_facility_score']['section']);
+        self::assertSame('needs_parser', $byKey['review_facility_score']['status']);
+        self::assertStringContainsString('facilityScore', $byKey['review_facility_score']['source_keys']);
+        self::assertSame('quality_psi', $byKey['review_service_score']['section']);
+        self::assertSame('needs_parser', $byKey['review_service_score']['status']);
+        self::assertStringContainsString('reviewServiceScore', $byKey['review_service_score']['source_keys']);
+        self::assertSame('quality_psi', $byKey['review_cleanliness_score']['section']);
+        self::assertSame('needs_parser', $byKey['review_cleanliness_score']['status']);
+        self::assertStringContainsString('hygieneScore', $byKey['review_cleanliness_score']['source_keys']);
+        self::assertSame('confirmed', $byKey['review_photo_count']['status']);
+        self::assertSame('data.hasPicCount', $byKey['review_photo_count']['json_path']);
+        self::assertStringContainsString('raw_data.metrics.review_photo_count', $byKey['review_photo_count']['storage_field']);
+        self::assertSame('confirmed', $byKey['review_photo_rate']['status']);
+        self::assertSame('derived:data.hasPicCount / data.commentCount', $byKey['review_photo_rate']['json_path']);
+        self::assertStringContainsString('hasPicCount / commentCount * 100', $byKey['review_photo_rate']['notes']);
+        self::assertStringContainsString('raw_data.metrics.review_photo_rate', $byKey['review_photo_rate']['storage_field']);
         self::assertSame('im_board', $byKey['five_min_reply_rate']['section']);
         self::assertSame('getImIndex', $byKey['five_min_reply_rate']['source_interface']);
         self::assertSame('data.replyRate5m / data.fiveMinReplyRate / data.replyRate', $byKey['five_min_reply_rate']['json_path']);
@@ -5206,6 +5281,12 @@ final class OnlineDataQuerySpy
     public function whereIn(string $field, array $values): self
     {
         $this->calls[] = ['whereIn', $field, $values];
+        return $this;
+    }
+
+    public function whereBetween(string $field, array $values): self
+    {
+        $this->calls[] = ['whereBetween', $field, $values];
         return $this;
     }
 }

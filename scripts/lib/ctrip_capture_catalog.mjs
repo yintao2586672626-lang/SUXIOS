@@ -353,6 +353,12 @@ const qualityFields = [
   field('ctrip_rating_rank', '携程评分排名', ['ctripRatingAllRanking']),
   field('qunar_rating_rank', '去哪儿评分排名', ['qunarRatingAllRanking']),
   field('comment_response_rate', '点评回复率', ['responseRate'], '点评/评论回复率，不等同于 IM 5分钟回复率', { unit: '%' }),
+  field('review_environment_score', '点评环境评分', ['environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
+  field('review_facility_score', '点评设施评分', ['facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
+  field('review_service_score', '点评服务评分', ['reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分，不与 PSI service_score 混用', { unit: '分' }),
+  field('review_cleanliness_score', '点评卫生评分', ['cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
+  field('review_photo_count', '带图点评数', ['hasPicCount', 'photoCommentCount', 'pictureCommentCount', 'imageCommentCount'], '带图点评数量；只保存聚合计数，不保存图片或点评明文'),
+  field('review_photo_rate', '带图点评率', ['hasPicCount/commentCount'], '按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失', { unit: '%' }),
   field('rating_competitor_total', '点评竞争圈酒店数', ['competitorHotelTotal']),
   field('ctrip_comment_id', '携程点评主体ID', ['ctripId']),
   field('qunar_comment_id', '去哪儿点评主体ID', ['qunarId']),
@@ -477,6 +483,12 @@ const commentAggregateFields = [
   field('comment_score', '点评分', ['score', 'commentScore', 'rating', 'ratingall', 'HotelRating', 'ctripRatingall', 'totalScore', 'overallScore'], '只采集评分聚合值，不保存点评明文', { unit: '分' }),
   field('comment_count', '点评数量', ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount'], '只采集点评/评论数量，不保存点评明文'),
   field('bad_review_count', '差评数', ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount'], '优先聚合接口差评数；列表评分仅通过显式聚合计算，不保存点评明文'),
+  field('review_environment_score', '点评环境评分', ['environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
+  field('review_facility_score', '点评设施评分', ['facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
+  field('review_service_score', '点评服务评分', ['reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分，不与 PSI service_score 混用', { unit: '分' }),
+  field('review_cleanliness_score', '点评卫生评分', ['cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
+  field('review_photo_count', '带图点评数', ['hasPicCount', 'photoCommentCount', 'pictureCommentCount', 'imageCommentCount'], '带图点评数量；只保存聚合计数，不保存图片或点评明文'),
+  field('review_photo_rate', '带图点评率', ['hasPicCount/commentCount'], '按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失', { unit: '%' }),
 ];
 
 const FACT_ONLY_FIELD_IDS = new Set([
@@ -1484,16 +1496,25 @@ const COMPETITOR_INDEX_FIELD_IDS = new Map([
   [12, 'psi_score'],
 ]);
 
+const REVIEW_PHOTO_COUNT_KEYS = ['hasPicCount', 'photoCommentCount', 'pictureCommentCount', 'imageCommentCount'];
+const REVIEW_COMMENT_COUNT_KEYS = ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount', 'allCount'];
+
 function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo) {
   const endpointId = endpointInfo?.id || '';
   if (endpointId === 'comment_review_aggregate') {
-    return extractCommentReviewAggregateFacts(node, path, fields, context, endpointInfo);
+    return [
+      ...extractCommentReviewAggregateFacts(node, path, fields, context, endpointInfo),
+      ...extractReviewPhotoRateFacts(node, path, fields, context, endpointInfo),
+    ];
   }
   if (endpointId === 'psi_overview') {
     return extractPsiBasicScoreItemFacts(node, path, fields, context, endpointInfo);
   }
   if (endpointId === 'user_profile_dimensions') {
     return extractUserProfileDistributionFacts(node, path, fields, context, endpointInfo);
+  }
+  if (endpointId === 'traffic_comment_score_summary') {
+    return extractReviewPhotoRateFacts(node, path, fields, context, endpointInfo);
   }
   if (!['competitor_management', 'competitor_flow', 'competitor_service'].includes(endpointId)) {
     return [];
@@ -1537,6 +1558,47 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
     sourceKey: 'rankComp',
   });
   return facts;
+}
+
+function extractReviewPhotoRateFacts(node, path, fields, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    return [];
+  }
+  const photoCount = firstNumericNodeValue(node, REVIEW_PHOTO_COUNT_KEYS);
+  const commentCount = firstNumericNodeValue(node, REVIEW_COMMENT_COUNT_KEYS);
+  if (!photoCount || !commentCount || photoCount.number < 0 || commentCount.number <= 0) {
+    return [];
+  }
+
+  const fieldInfo = fields.find((item) => item.id === 'review_photo_rate');
+  if (!fieldInfo) {
+    return [];
+  }
+
+  const rate = Math.round((photoCount.number / commentCount.number) * 1000) / 10;
+  return [buildEndpointSpecificFact({
+    context,
+    endpointInfo,
+    fieldInfo,
+    sourceKey: `${photoCount.key}/${commentCount.key}`,
+    sourcePath: [...path, photoCount.key],
+    sourceParentPath: path,
+    value: rate,
+    derived_from: 'hasPicCount/commentCount',
+  })];
+}
+
+function firstNumericNodeValue(node, keys) {
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(node, key)) {
+      continue;
+    }
+    const number = numericFactValue(node[key]);
+    if (number !== null) {
+      return { key, number };
+    }
+  }
+  return null;
 }
 
 function extractCommentReviewAggregateFacts(node, path, fields, context, endpointInfo) {
@@ -2698,6 +2760,8 @@ function standardDataTypeForFacts(facts) {
     'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
     'ctrip_rating', 'qunar_rating', 'elong_rating',
     'ctrip_rating_rank', 'qunar_rating_rank', 'comment_response_rate', 'rating_competitor_total',
+    'review_environment_score', 'review_facility_score', 'review_service_score', 'review_cleanliness_score',
+    'review_photo_count', 'review_photo_rate',
     'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
     'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate',
     'bpi_score', 'basis_score', 'plus_score', 'minus_score',
@@ -2758,6 +2822,8 @@ function standardDataTypeForField(fieldId) {
     'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
     'ctrip_rating', 'qunar_rating', 'elong_rating',
     'ctrip_rating_rank', 'qunar_rating_rank', 'comment_response_rate', 'rating_competitor_total',
+    'review_environment_score', 'review_facility_score', 'review_service_score', 'review_cleanliness_score',
+    'review_photo_count', 'review_photo_rate',
     'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
     'session_count', 'manual_session_count', 'robot_session_count', 'im_order_conversion_rate',
     'bpi_score', 'basis_score', 'plus_score', 'minus_score',
@@ -2918,6 +2984,12 @@ function applyFactToStandardRow(row, fact) {
       break;
     case 'comment_response_rate':
       row.flow_rate = normalizeCommentResponseRate(number);
+      break;
+    case 'review_photo_rate':
+      rawMetrics[id] = normalizeFactPercent(number);
+      if (row.data_value === 0) {
+        row.data_value = rawMetrics[id];
+      }
       break;
     case 'comment_count':
       row.data_value = Math.round(number);

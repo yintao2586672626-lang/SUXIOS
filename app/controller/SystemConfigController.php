@@ -149,7 +149,8 @@ class SystemConfigController extends Base
     {
         $this->checkSuperAdmin();
 
-        $configs = SystemConfig::getAllConfigs();
+        $redactionStats = ['redacted_count' => 0];
+        $configs = $this->redactExportConfigs(SystemConfig::getAllConfigs(), $redactionStats);
         $generatedAt = date('Y-m-d H:i:s');
         $requestId = trim((string)($this->request->request_id ?? $this->request->header('X-Request-ID', '')));
         if ($requestId === '') {
@@ -165,6 +166,11 @@ class SystemConfigController extends Base
                 'hotel_id' => !empty($this->currentUser->hotel_id) ? (int)$this->currentUser->hotel_id : null,
                 'request_id' => $requestId,
                 'generated_at' => $generatedAt,
+                'redaction' => [
+                    'status' => $redactionStats['redacted_count'] > 0 ? 'redacted' : 'none',
+                    'redacted_count' => $redactionStats['redacted_count'],
+                    'rule' => 'sensitive_config_value_masked',
+                ],
             ],
             'configs' => $configs,
         ];
@@ -175,6 +181,117 @@ class SystemConfigController extends Base
             'Content-Type' => 'application/json',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $configs
+     * @param array<string, int> $stats
+     * @return array<string, mixed>
+     */
+    private function redactExportConfigs(array $configs, array &$stats): array
+    {
+        $redacted = [];
+        foreach ($configs as $key => $value) {
+            $redacted[$key] = $this->redactExportConfigValue((string)$key, $value, $stats);
+        }
+
+        return $redacted;
+    }
+
+    /**
+     * @param mixed $value
+     * @param array<string, int> $stats
+     * @return mixed
+     */
+    private function redactExportConfigValue(string $key, $value, array &$stats)
+    {
+        if ($this->isSensitiveExportConfigKey($key)) {
+            $stats['redacted_count']++;
+            return $this->maskedExportSecret($value);
+        }
+
+        if (is_string($value) && $this->looksLikeJsonObject($value)) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                $nested = $this->redactExportConfigArray($decoded, $stats);
+                return json_encode($nested, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+        }
+
+        if (is_array($value)) {
+            return $this->redactExportConfigArray($value, $stats);
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<mixed> $value
+     * @param array<string, int> $stats
+     * @return array<mixed>
+     */
+    private function redactExportConfigArray(array $value, array &$stats): array
+    {
+        $redacted = [];
+        foreach ($value as $key => $child) {
+            $keyText = is_string($key) ? $key : (string)$key;
+            $redacted[$key] = $this->redactExportConfigValue($keyText, $child, $stats);
+        }
+
+        return $redacted;
+    }
+
+    private function isSensitiveExportConfigKey(string $key): bool
+    {
+        $normalized = strtolower((string)preg_replace('/[^a-z0-9]+/i', '_', $key));
+        $normalized = trim($normalized, '_');
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach ([
+            'api_key',
+            'apikey',
+            'app_secret',
+            'authorization',
+            'auth_data',
+            'cookie',
+            'cookies',
+            'headers',
+            'llm_api_key',
+            'mtgsig',
+            'password',
+            'protected_capability_policy',
+            'secret',
+            'spidertoken',
+            'token',
+            'wechat_mini_secret',
+            'notify_email_pass',
+        ] as $needle) {
+            if ($normalized === $needle || str_contains($normalized, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function maskedExportSecret($value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        return '[REDACTED]';
+    }
+
+    private function looksLikeJsonObject(string $value): bool
+    {
+        $trimmed = trim($value);
+        return $trimmed !== '' && (
+            (str_starts_with($trimmed, '{') && str_ends_with($trimmed, '}'))
+            || (str_starts_with($trimmed, '[') && str_ends_with($trimmed, ']'))
+        );
     }
 
     /**

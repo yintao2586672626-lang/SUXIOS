@@ -195,7 +195,7 @@
 
 - 模块数：18
 - 接口规则数：77
-- 去重字段数：246
+- 去重字段数：252
 - 页面交互计划：16 个模块 / 80 个触发动作
 - 点评明文采集：默认禁用；Profile 仅保留评分汇总、回复率、点评条数和好评/差评聚合等非点评明文指标。
 
@@ -355,6 +355,12 @@
 | ctrip_rating_rank | 携程评分排名 | ctripRatingAllRanking | - |
 | qunar_rating_rank | 去哪儿评分排名 | qunarRatingAllRanking | - |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
+| review_environment_score | 点评环境评分 | environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；只采集评分汇总，不采集点评明文 |
+| review_facility_score | 点评设施评分 | facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；只采集评分汇总，不采集点评明文 |
+| review_service_score | 点评服务评分 | reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；只采集评分汇总，不采集点评明文 |
+| review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
+| review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
 | ctrip_comment_id | 携程点评主体ID | ctripId | - |
 | qunar_comment_id | 去哪儿点评主体ID | qunarId | - |
@@ -1574,6 +1580,12 @@
 | ctrip_rating_rank | 携程评分排名 | ctripRatingAllRanking | - |
 | qunar_rating_rank | 去哪儿评分排名 | qunarRatingAllRanking | - |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
+| review_environment_score | 点评环境评分 | environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；只采集评分汇总，不采集点评明文 |
+| review_facility_score | 点评设施评分 | facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；只采集评分汇总，不采集点评明文 |
+| review_service_score | 点评服务评分 | reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；只采集评分汇总，不采集点评明文 |
+| review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
+| review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
 | ctrip_comment_id | 携程点评主体ID | ctripId | - |
 | qunar_comment_id | 去哪儿点评主体ID | qunarId | - |
@@ -1614,6 +1626,12 @@
 | ctrip_rating_rank | 携程评分排名 | ctripRatingAllRanking | - |
 | qunar_rating_rank | 去哪儿评分排名 | qunarRatingAllRanking | - |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
+| review_environment_score | 点评环境评分 | environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；只采集评分汇总，不采集点评明文 |
+| review_facility_score | 点评设施评分 | facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；只采集评分汇总，不采集点评明文 |
+| review_service_score | 点评服务评分 | reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；只采集评分汇总，不采集点评明文 |
+| review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
+| review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
 | ctrip_comment_id | 携程点评主体ID | ctripId | - |
 | qunar_comment_id | 去哪儿点评主体ID | qunarId | - |
@@ -1638,6 +1656,12 @@
 | comment_score | 点评分 | score, commentScore, rating, ratingall, HotelRating, ctripRatingall, totalScore, overallScore | 只采集评分聚合值，不保存点评明文 |
 | comment_count | 点评数量 | commentCount, commentsCount, reviewCount, totalCommentCount, totalCount | 只采集点评/评论数量，不保存点评明文 |
 | bad_review_count | 差评数 | badReviewCount, negativeCommentCount, negativeCount, badCount, lowScoreCount | 优先聚合接口差评数；列表评分仅通过显式聚合计算，不保存点评明文 |
+| review_environment_score | 点评环境评分 | environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；只采集评分汇总，不采集点评明文 |
+| review_facility_score | 点评设施评分 | facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；只采集评分汇总，不采集点评明文 |
+| review_service_score | 点评服务评分 | reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；只采集评分汇总，不采集点评明文 |
+| review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
+| review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 
 ### competitor_management
 
@@ -1760,6 +1784,12 @@
 | ctrip_rating_rank | 携程评分排名 | ctripRatingAllRanking | - |
 | qunar_rating_rank | 去哪儿评分排名 | qunarRatingAllRanking | - |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
+| review_environment_score | 点评环境评分 | environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；只采集评分汇总，不采集点评明文 |
+| review_facility_score | 点评设施评分 | facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；只采集评分汇总，不采集点评明文 |
+| review_service_score | 点评服务评分 | reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；只采集评分汇总，不采集点评明文 |
+| review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
+| review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
 | ctrip_comment_id | 携程点评主体ID | ctripId | - |
 | qunar_comment_id | 去哪儿点评主体ID | qunarId | - |
@@ -2273,6 +2303,12 @@
 | ctrip_rating_rank | 携程评分排名 | ctripRatingAllRanking | - |
 | qunar_rating_rank | 去哪儿评分排名 | qunarRatingAllRanking | - |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
+| review_environment_score | 点评环境评分 | environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；只采集评分汇总，不采集点评明文 |
+| review_facility_score | 点评设施评分 | facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；只采集评分汇总，不采集点评明文 |
+| review_service_score | 点评服务评分 | reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；只采集评分汇总，不采集点评明文 |
+| review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
+| review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
 | ctrip_comment_id | 携程点评主体ID | ctripId | - |
 | qunar_comment_id | 去哪儿点评主体ID | qunarId | - |
@@ -2326,6 +2362,12 @@
 | ctrip_rating_rank | 携程评分排名 | ctripRatingAllRanking | - |
 | qunar_rating_rank | 去哪儿评分排名 | qunarRatingAllRanking | - |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
+| review_environment_score | 点评环境评分 | environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；只采集评分汇总，不采集点评明文 |
+| review_facility_score | 点评设施评分 | facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；只采集评分汇总，不采集点评明文 |
+| review_service_score | 点评服务评分 | reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；只采集评分汇总，不采集点评明文 |
+| review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
+| review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
 | ctrip_comment_id | 携程点评主体ID | ctripId | - |
 | qunar_comment_id | 去哪儿点评主体ID | qunarId | - |
@@ -2367,6 +2409,12 @@
 | ctrip_rating_rank | 携程评分排名 | ctripRatingAllRanking | - |
 | qunar_rating_rank | 去哪儿评分排名 | qunarRatingAllRanking | - |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
+| review_environment_score | 点评环境评分 | environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；只采集评分汇总，不采集点评明文 |
+| review_facility_score | 点评设施评分 | facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；只采集评分汇总，不采集点评明文 |
+| review_service_score | 点评服务评分 | reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；只采集评分汇总，不采集点评明文 |
+| review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
+| review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
 | ctrip_comment_id | 携程点评主体ID | ctripId | - |
 | qunar_comment_id | 去哪儿点评主体ID | qunarId | - |

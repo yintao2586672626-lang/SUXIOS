@@ -18,6 +18,8 @@ const meituanVisibleRankInsightEnd = publicSource.indexOf('const meituanRankHeal
 const meituanVisibleRankInsightSource = meituanVisibleRankInsightStart >= 0 && meituanVisibleRankInsightEnd > meituanVisibleRankInsightStart
   ? publicSource.slice(meituanVisibleRankInsightStart, meituanVisibleRankInsightEnd)
   : '';
+const hasBindingCheckKey = (key) => controllerSource.includes(`'key' => '${key}'`)
+  || new RegExp(`buildPlatformProfileBindingCheck\\(\\s*'${key}'`).test(controllerSource);
 
 const checks = [
   {
@@ -34,7 +36,7 @@ const checks = [
   },
   {
     name: 'P0 binding checks cover hotel binding, platform identity, login, and trial capture',
-    pass: ['hotel_binding', 'platform_identity', 'profile_login', 'trial_capture'].every((key) => controllerSource.includes(`'key' => '${key}'`)),
+    pass: ['hotel_binding', 'platform_identity', 'profile_login', 'trial_capture'].every(hasBindingCheckKey),
   },
   {
     name: 'collection reliability exposes lifecycle catalog and field asset summary',
@@ -49,9 +51,12 @@ const checks = [
       && controllerSource.includes("'readiness' => $this->buildMeituanCompetitorSummaryReadiness([], $context, false)"),
   },
   {
-    name: 'competitor summary uses latest data_date before fetch time',
+    name: 'competitor summary uses latest data_date and adjacent batch window',
     pass: /if\s*\(isset\(\$columns\['data_date'\]\)\)\s*\{\s*\$query->order\('data_date',\s*'desc'\);\s*\}\s*\$this->orderOnlineDataByFetchTime\(\$query,\s*\$columns,\s*'desc'\);/.test(controllerSource)
-      && controllerSource.includes('Meituan ranking modules are written as adjacent batches for one'),
+      && controllerSource.includes('MEITUAN_COMPETITOR_BATCH_WINDOW_SECONDS')
+      && controllerSource.includes("$query->where('sync_task_id'")
+      && controllerSource.includes("$query->where('source_trace_id'")
+      && controllerSource.includes('$query->whereBetween($column'),
   },
   {
     name: 'Meituan VIP and platform tags are recorded as field assets',
