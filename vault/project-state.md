@@ -125,6 +125,11 @@ Updated: 2026-06-10 Asia/Shanghai
 - `app/controller/OnlineData.php` decreased from `28485` lines to `28276` lines; current split map has `873` methods; the `analysis` domain span decreased from `388` to `186` lines.
 - Current staged self-audit after the second backend split: tracked files about `17.78 MB` / `593` files; code scope `350` files, `186325` total lines, `170620` nonblank lines.
 - Verified after the second split: PHP syntax checks for `app/controller/OnlineData.php`, `app/service/OnlineDataAnalysisReportService.php`, and `tests/OnlineDataAnalysisReportServiceTest.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataAnalysisReportServiceTest.php` with 2 tests and 9 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Third backend split target chosen from split-map evidence: `buildPlatformProfileBindingChecks` in `app/controller/OnlineData.php`.
+- Added `app/service/PlatformProfileBindingReadinessService.php` for platform Profile P0 readiness check generation; `OnlineData.php` keeps a thin `buildPlatformProfileBindingChecks()` wrapper for existing internal calls and reflection tests.
+- `app/controller/OnlineData.php` decreased from `28276` lines to `28119` lines; the `profile` domain span decreased from `1099` to `941` lines.
+- Current staged self-audit after the third backend split: tracked files about `17.79 MB` / `594` files; code scope `351` files, `186394` total lines, `170684` nonblank lines.
+- Verified after the third split: PHP syntax checks for `app/controller/OnlineData.php` and `app/service/PlatformProfileBindingReadinessService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter PlatformProfile` with 4 tests and 22 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule

@@ -110,7 +110,7 @@
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
 | `public/index.html` | 43,322 | 3.11 MB | 否 | 当前前端 SPA 主入口，后续应按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
-| `app/controller/OnlineData.php` | 28,276 | 1.22 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑和在线数据分析报告渲染逻辑，后续继续迁移到聚焦 service，不改变现有路由。 |
+| `app/controller/OnlineData.php` | 28,119 | 1.21 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，后续继续迁移到聚焦 service，不改变现有路由。 |
 
 前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分只改动 `app/controller/OnlineData.php`、新增聚焦 service、对应测试和状态文档。
 
@@ -131,7 +131,7 @@
 | 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
 |---|---:|---|---|
 | `public/index.html` | 1,162 个函数级块；44 个 `currentPage` 引用 | `resetSystemConfig` 421 行、`printFeasibilityReport` 342 行、`formatOtaMetricValue` 312 行 | `general` 11,061 行、`ctrip` 3,909 行、`hotel_admin` 1,571 行、`ai` 1,543 行 |
-| `app/controller/OnlineData.php` | 873 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 12,319 行、`meituan` 5,307 行、`general` 4,478 行、`auto_fetch` 1,838 行 |
+| `app/controller/OnlineData.php` | 873 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 12,319 行、`meituan` 5,307 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
 
 ## 2026-06-10 后端第一刀拆分
 
@@ -151,6 +151,16 @@
 - 路由、接口名、字段口径、OTA 渠道边界不变。
 - 暂存态自审计：跟踪文件约 `17.78 MB` / `593` 个；代码范围 `350` 个文件，`186,325` 行，非空行 `170,620`。
 - 验证通过：PHP 语法检查、`tests\OnlineDataAnalysisReportServiceTest.php`、完整 `tests\OnlineDataTest.php`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
+## 2026-06-10 后端第三刀拆分
+
+- 新增 `app/service/PlatformProfileBindingReadinessService.php`，承载平台 Profile 绑定检查的 P0 readiness 状态生成逻辑。
+- `OnlineData.php` 保留 `buildPlatformProfileBindingChecks()` 薄包装，兼容现有内部调用和反射测试；平台登录状态文本、缓存、数据源绑定等控制器逻辑未迁移。
+- `OnlineData.php` 从 `28,276` 行降至 `28,119` 行；拆分地图显示 `profile` 领域 span 从 `1,099` 行降至 `941` 行。
+- 路由、接口名、字段口径、OTA 渠道边界不变。
+- 暂存态自审计：跟踪文件约 `17.79 MB` / `594` 个；代码范围 `351` 个文件，`186,394` 行，非空行 `170,684`。
+- 验证通过：PHP 语法检查、`tests\OnlineDataTest.php --filter PlatformProfile`、完整 `tests\OnlineDataTest.php`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
 ## 后续处理建议
