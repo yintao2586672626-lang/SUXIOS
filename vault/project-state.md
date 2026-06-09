@@ -245,6 +245,16 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the thirteenth frontend split: Node syntax check for `public/system-static.js`; residual inline menu-definition scan; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
+## 2026-06-10 Progress: Frontend Notification Utility Split
+
+- Fourteenth frontend split target chosen from low-risk global notification display helpers in `public/index.html`.
+- Added `public/notification-static.js` for global notification text sanitizing, severity/style mapping, action-target mapping, time formatting, id building, and backend-notification normalization.
+- `public/index.html` now loads `notification-static.js` and binds those helpers from `window.SUXI_NOTIFICATION_STATIC`; missing script throws an explicit configuration error instead of silently falling back.
+- `public/index.html` decreased from `41899` lines to `41837` lines; current split map reports `1166` frontend function-level blocks and `44` `currentPage` references.
+- Current staged self-audit after the fourteenth frontend split: full directory about `241.64 MB`, without `.git` about `91.93 MB`, without `.git` and dependencies about `62.74 MB`, tracked files about `17.81 MB` / `605` files; code scope `362` files, `186024` total lines, `170374` nonblank lines.
+- Verified after the fourteenth frontend split: `node --check public\notification-static.js`; residual notification-helper definition scan; `git diff --check`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
