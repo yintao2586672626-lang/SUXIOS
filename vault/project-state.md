@@ -1,6 +1,6 @@
 # SUXIOS Project State Vault
 
-Updated: 2026-06-07 Asia/Shanghai
+Updated: 2026-06-10 Asia/Shanghai
 
 ## Current Verified State
 
@@ -66,6 +66,14 @@ Updated: 2026-06-07 Asia/Shanghai
 - Executed `npm.cmd run self:clean`; it removed 4 local artifact targets and did not delete tracked report files.
 - Verified after cleanup: full directory about `228.37 MB`, without `.git` about `91.86 MB`, without `.git` and dependencies about `62.67 MB`, `reports` about `1.14 MB`, and default cleanup reclaim `0 MB`.
 - Verification passed after cleanup: `npm.cmd run self:check` and `git diff --check`.
+
+## 2026-06-10 Progress: Tracked Code Hotspot Audit
+
+- Extended `scripts/project_self_audit.mjs` to report tracked code hotspots and split candidates.
+- Current verified self-audit after this change: full directory about `228.39 MB`, without `.git` about `91.87 MB`, without `.git` and dependencies about `62.68 MB`, tracked files about `17.75 MB`, default cleanup reclaim `0 MB`.
+- Current verified code-line scope: `345` tracked code files, `185758` total code lines, and `170103` nonblank code lines.
+- Current split candidates are `public/index.html`, `app/controller/OnlineData.php`, and `public/tailwind.min.css`; these are monitoring/refactor-priority signals, not automatic cleanup targets.
+- Verification passed for the hotspot audit change: `npm.cmd run self:audit`.
 
 ## Maintenance Rule
 

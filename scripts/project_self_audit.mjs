@@ -13,8 +13,11 @@ const outputJson = args.json === 'true';
 const includeDependencies = args.includeDependencies === 'true';
 const includeSensitiveBackups = args.includeSensitiveBackups === 'true';
 const failOnArtifacts = args.failOnArtifacts === 'true';
+const failOnSplitCandidates = args.failOnSplitCandidates === 'true';
 const requireCleanGit = args.requireCleanGit === 'true';
 const maxReclaimMb = numberArg(args.maxReclaimMb, 0);
+const splitLinesThreshold = numberArg(args.splitLinesThreshold, 10_000);
+const splitMbThreshold = numberArg(args.splitMbThreshold, 1);
 const topLimit = Math.max(1, numberArg(args.top, 12));
 
 const codeExtensions = new Set(['.php', '.html', '.js', '.mjs', '.ts', '.tsx', '.vue', '.css', '.scss', '.py', '.ps1', '.sh']);
@@ -26,7 +29,7 @@ const lineStats = measureLineStats(trackedFiles);
 const topLevelSizes = measureTopLevel();
 const cleanup = measureCleanupTargets();
 const git = gitState();
-const status = resolveStatus({ cleanup, git });
+const status = resolveStatus({ cleanup, git, splitCandidates: lineStats.code.split_candidates });
 
 const audit = {
   schema_version: 1,
@@ -129,7 +132,8 @@ function measureLineStats(files) {
   for (const relativePath of files) {
     const extension = path.extname(relativePath).toLowerCase();
     const absolutePath = path.join(repoRoot, relativePath);
-    if (!safeStat(absolutePath)?.isFile()) {
+    const stat = safeStat(absolutePath);
+    if (!stat?.isFile()) {
       continue;
     }
     if (!codeExtensions.has(extension) && !textExtensions.has(extension)) {
@@ -146,6 +150,7 @@ function measureLineStats(files) {
     }
     if (codeExtensions.has(extension)) {
       addLineSummary(code, extension, lines, nonblank);
+      addCodeHotspot(code, relativePath, extension, lines, nonblank, stat.size);
     }
   }
   finalizeLineSummary(code);
@@ -159,6 +164,8 @@ function emptyLineSummary() {
     lines: 0,
     nonblank: 0,
     by_extension: {},
+    top_files: [],
+    split_candidates: [],
   };
 }
 
@@ -179,6 +186,60 @@ function finalizeLineSummary(summary) {
   summary.by_extension = Object.fromEntries(
     Object.entries(summary.by_extension).sort(([, a], [, b]) => b.lines - a.lines),
   );
+  summary.top_files.sort((a, b) => b.lines - a.lines || b.mb - a.mb);
+  summary.split_candidates.sort((a, b) => b.lines - a.lines || b.mb - a.mb);
+}
+
+function addCodeHotspot(summary, relativePath, extension, lines, nonblank, bytes) {
+  const mb = roundMb(bytes);
+  const row = {
+    path: normalizePath(relativePath),
+    ext: extension || '[no_ext]',
+    lines,
+    nonblank,
+    mb,
+  };
+  summary.top_files.push(row);
+
+  const reasons = [];
+  if (lines >= splitLinesThreshold) {
+    reasons.push(`lines>=${splitLinesThreshold}`);
+  }
+  if (mb >= splitMbThreshold) {
+    reasons.push(`mb>=${splitMbThreshold}`);
+  }
+  if (reasons.length === 0) {
+    return;
+  }
+
+  summary.split_candidates.push({
+    ...row,
+    reasons,
+    suggested_action: splitSuggestion(relativePath, extension),
+  });
+}
+
+function splitSuggestion(relativePath, extension) {
+  const normalized = normalizePath(relativePath);
+  if (normalized === 'public/index.html') {
+    return 'Split by page or panel after preserving current Vue CDN runtime contract.';
+  }
+  if (normalized === 'app/controller/OnlineData.php') {
+    return 'Move OTA capture, field config, and display helpers into focused services without changing routes.';
+  }
+  if (extension === '.css') {
+    return 'Review whether this is generated/vendor CSS; keep only if still required by the single-file frontend.';
+  }
+  if (normalized.startsWith('scripts/')) {
+    return 'Extract reusable helpers into scripts/lib and keep CLI scripts thin.';
+  }
+  if (normalized.startsWith('app/controller/')) {
+    return 'Move business logic into services and keep controller as request/response boundary.';
+  }
+  if (normalized.startsWith('app/service/')) {
+    return 'Split service responsibilities by domain boundary and keep public method contracts stable.';
+  }
+  return 'Review for domain split, generated content, or archival move.';
 }
 
 function countLines(content) {
@@ -341,7 +402,7 @@ function measurePath(absolutePath) {
   return { bytes, files };
 }
 
-function resolveStatus({ cleanup, git }) {
+function resolveStatus({ cleanup, git, splitCandidates }) {
   const failures = [];
   const warnings = [];
   if (git.index_lock) {
@@ -356,6 +417,14 @@ function resolveStatus({ cleanup, git }) {
     failures.push(`Cleanup reclaim ${cleanup.estimated_reclaim_mb} MB exceeds allowed ${maxReclaimMb} MB.`);
   } else if (cleanup.estimated_reclaim_mb > 0) {
     warnings.push(`Default cleanup can reclaim ${cleanup.estimated_reclaim_mb} MB.`);
+  }
+  if (Array.isArray(splitCandidates) && splitCandidates.length > 0) {
+    const message = `Tracked code split candidates: ${splitCandidates.length}.`;
+    if (failOnSplitCandidates) {
+      failures.push(message);
+    } else {
+      warnings.push(message);
+    }
   }
   return {
     ok: failures.length === 0,
@@ -425,6 +494,12 @@ function renderText(audit) {
   console.log(`- lines: ${audit.code_lines.lines}`);
   console.log(`- nonblank: ${audit.code_lines.nonblank}`);
   renderExtensionRows(audit.code_lines.by_extension);
+  console.log('');
+  console.log('Tracked code hotspots');
+  renderRows(audit.code_lines.top_files.slice(0, topLimit), ['path', 'ext', 'lines', 'mb']);
+  console.log('');
+  console.log('Split candidates');
+  renderRows(audit.code_lines.split_candidates.slice(0, topLimit), ['path', 'lines', 'mb', 'reasons', 'suggested_action']);
   console.log('');
 
   console.log('Top-level size');
