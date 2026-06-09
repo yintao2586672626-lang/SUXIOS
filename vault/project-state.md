@@ -187,6 +187,13 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current staged self-audit after the fifth frontend split: full directory about `236 MB`, without `.git` about `91.90 MB`, without `.git` and dependencies about `62.71 MB`, tracked files about `17.78 MB` / `599` files; code scope `356` files, `185849` total lines, `170210` nonblank lines.
 - Verified after the fifth frontend split: Node syntax check for `public/compass-static.js`; `git diff --cached --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+- Sixth frontend split target chosen from simulation/transfer static field boundaries: simulation defaults, benchmark model detail fields, collaboration status options, expansion record page-type mapping, transfer decision fields, and simulation field groups embedded in `public/index.html`.
+- Added `public/simulation-static.js` for simulation and transfer static field definitions.
+- `public/index.html` now loads `simulation-static.js` and binds simulation static values from `window.SUXI_SIMULATION_STATIC`; missing script or missing keys throw explicit configuration errors instead of silently falling back.
+- `public/index.html` decreased from `42744` lines to `42521` lines; the frontend `general` span decreased from `11008` to `10842` lines, and `config` span decreased from `984` to `897` lines.
+- Current staged self-audit after the sixth frontend split: full directory about `237 MB`, without `.git` about `91.90 MB`, without `.git` and dependencies about `62.71 MB`, tracked files about `17.79 MB` / `600` files; code scope `357` files, `185810` total lines, `170171` nonblank lines.
+- Verified after the sixth frontend split: Node syntax check for `public/simulation-static.js`; `git diff --cached --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
