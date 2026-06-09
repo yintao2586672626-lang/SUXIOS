@@ -215,6 +215,13 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current staged self-audit after the ninth frontend split: full directory about `238.66 MB`, without `.git` about `91.91 MB`, without `.git` and dependencies about `62.72 MB`, tracked files about `17.80 MB` / `602` files; code scope `359` files, `185888` total lines, `170247` nonblank lines.
 - Verified after the ninth frontend split: Node syntax check for `public/ctrip-static.js`; residual inline static-definition scan; `git diff --check`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run verify:p0-guards`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+- Tenth frontend split target chosen from system/AI/knowledge static UI boundaries: test-id name map, hotel/user table columns, knowledge import/source options, AI quick setup options, AI governance tabs, data config profile copy, document extension lists, and Agent tabs embedded in `public/index.html`.
+- Added `public/system-static.js` for system, AI, and knowledge-center static UI/config definitions.
+- `public/index.html` now loads `system-static.js` and binds system static values from `window.SUXI_SYSTEM_STATIC`; missing script or missing keys throw explicit configuration errors instead of silently falling back.
+- `public/index.html` decreased from `42404` lines to `42241` lines; the frontend `general` span decreased from `10751` to `10586` lines.
+- Current staged self-audit after the tenth frontend split: full directory about `239.26 MB`, without `.git` about `91.91 MB`, without `.git` and dependencies about `62.72 MB`, tracked files about `17.80 MB` / `603` files; code scope `360` files, `185930` total lines, `170289` nonblank lines.
+- Verified after the tenth frontend split: Node syntax check for `public/system-static.js`; residual inline static-definition scan; `git diff --cached --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
