@@ -1,0 +1,256 @@
+window.SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC = (() => {
+    const hotelAiToolboxLinks = [
+        { name: 'ChatGPT', scene: '通用', desc: '通用问答、文案、数据分析与方案生成。', url: 'https://chatgpt.com/', icon: 'fas fa-comments', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600' },
+        { name: 'DeepSeek', scene: '推理', desc: '长文本推理、代码辅助、经营分析草稿。', url: 'https://chat.deepseek.com/', icon: 'fas fa-brain', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+        { name: '豆包', scene: '内容', desc: '中文内容生成、短文案、运营素材处理。', url: 'https://www.doubao.com/chat/', icon: 'fas fa-pen-nib', iconBg: 'bg-orange-50', iconColor: 'text-orange-600' },
+        { name: '通义千问', scene: '办公', desc: '中文知识问答、表格理解、办公辅助。', url: 'https://tongyi.aliyun.com/qianwen/', icon: 'fas fa-lightbulb', iconBg: 'bg-violet-50', iconColor: 'text-violet-600' },
+        { name: 'Kimi', scene: '文档', desc: '长文档阅读、报告提炼、资料归纳。', url: 'https://www.kimi.com/', icon: 'fas fa-file-alt', iconBg: 'bg-sky-50', iconColor: 'text-sky-600' },
+        { name: '腾讯元宝', scene: '检索', desc: '中文检索问答、内容创作与办公协同。', url: 'https://yuanbao.tencent.com/', icon: 'fas fa-search', iconBg: 'bg-cyan-50', iconColor: 'text-cyan-600' },
+        { name: '文心一言', scene: '品牌', desc: '中文生成、品牌内容、经营问答。', url: 'https://yiyan.baidu.com/', icon: 'fas fa-feather-alt', iconBg: 'bg-red-50', iconColor: 'text-red-600' },
+        { name: '秘塔AI搜索', scene: '核验', desc: '联网搜索、资料核验、行业信息整理。', url: 'https://metaso.cn/', icon: 'fas fa-globe', iconBg: 'bg-slate-50', iconColor: 'text-slate-600' },
+    ];
+    const hotelImageOptimizerScenes = [
+        { value: 'guestroom', label: '客房' },
+        { value: 'bathroom', label: '卫浴' },
+        { value: 'lobby', label: '大堂 / 公区' },
+        { value: 'breakfast', label: '早餐 / 餐厅' },
+        { value: 'exterior', label: '外立面' },
+    ];
+    const hotelImageOptimizerGoals = [
+        { value: 'ota_cover', label: 'OTA首图' },
+        { value: 'room_gallery', label: '房型图集' },
+        { value: 'review_repair', label: '差评整改' },
+        { value: 'brand_material', label: '品牌物料' },
+    ];
+    const hotelImageOptimizerStyles = [
+        { value: 'natural_hotel', label: '真实酒店风' },
+        { value: 'premium_hotel', label: '高级酒店风' },
+        { value: 'homestay_clean', label: '清爽民宿风' },
+        { value: 'warm_bright', label: '明亮暖白风' },
+    ];
+    const hotelImageOptimizerPromptProfiles = [
+        {
+            key: 'guestroom',
+            label: '客房',
+            scene: 'guestroom',
+            hint: '默认模板，适合床品、窗帘、墙面、地板和整体空间感优化。',
+            actions: [
+                { label: '空间感', action: '优化广角透视和垂直线条，让房间更宽敞、通透、明亮。' },
+                { label: '床品洁净度', action: '整理床品褶皱、提升布草蓬松洁净感，避免过度假化。' },
+                { label: '杂物清理', action: '去除电线、垃圾桶、临时物品和影响 OTA 展示的杂乱元素。' },
+            ],
+            prompt: [
+                '专业酒店客房空间摄影精修，高端酒店风格，现代轻奢设计，视觉空间放大，高级感与舒适感兼具。',
+                '通过专业广角构图与空间透视优化，让房间显得更加宽敞、通透、明亮，保持墙体、门窗、家具垂直线条自然，避免畸变。',
+                '自然采光充足，整体氛围温暖治愈，提升床品洁净度与高级感，白色布草饱满蓬松，枕头整齐。',
+                '优化地板、木饰面、窗帘、沙发与灯具细节质感，整体色调采用奶油暖白、原木色、暖灰色系。',
+                '去除杂乱物品、电线、污渍与无关元素，画面干净整洁，真实自然，不过度滤镜。',
+            ].join('\n'),
+        },
+        {
+            key: 'bathroom',
+            label: '卫生间',
+            scene: 'bathroom',
+            hint: '适合镜面、水渍、玻璃、瓷砖、灯光和卫浴洁净度优化。',
+            actions: [
+                { label: '洁净标准', action: '清理镜面、水渍、玻璃隔断、马桶、淋浴区和台面瑕疵。' },
+                { label: '材质质感', action: '增强瓷砖、岩板、五金、镜面和玻璃的真实高级质感。' },
+                { label: '灯光通透', action: '优化镜前灯和暖白氛围灯，避免阴暗压抑或局部过曝。' },
+            ],
+            prompt: [
+                '专业酒店卫生间空间摄影精修，高端精品酒店风格，现代轻奢卫浴设计，干净通透，高级感强。',
+                '整体空间明亮宽敞，修正广角透视与镜面变形，保持墙体、玻璃与洗手台线条垂直自然。',
+                '镜面干净无水渍，玻璃隔断通透明亮，马桶、淋浴区、浴缸和洗手台洁净无污渍。',
+                '提升大理石、岩板、瓷砖与金属五金质感，灯光柔和高级，色调采用奶油白、暖灰、原木和高级暖光。',
+                '去除洗漱杂物、水渍、电线和无关元素，真实自然，不过度磨皮与 HDR。',
+            ].join('\n'),
+        },
+        {
+            key: 'exterior_day',
+            label: '外观-白天',
+            scene: 'exterior',
+            hint: '适合门头、外立面、庭院、蓝天和白天首图。',
+            actions: [
+                { label: '第一眼吸引力', action: '突出门头、外立面线条、庭院绿植和自然阳光。' },
+                { label: '画面清理', action: '去除车辆、电线、广告牌、路障和脏污。' },
+                { label: '建筑质感', action: '优化玻璃、墙体、木饰面和金属材质，保留真实比例。' },
+            ],
+            prompt: [
+                '专业酒店白天外观摄影，高端风格，现代轻奢建筑设计，高端度假酒店氛围。',
+                '阳光自然通透，蓝天白云，整体画面明亮干净，采用专业建筑摄影构图，增强建筑气势与空间纵深感。',
+                '优化酒店外立面线条与比例，墙体、玻璃、木饰面与金属材质质感高级细腻，反光自然真实。',
+                '入口区域宽敞整洁，突出酒店门头与品牌感，增强庭院绿植层次与自然景观氛围。',
+                '去除车辆、杂乱元素、电线、广告牌、路障与脏污，真实自然，不过度 HDR。',
+            ].join('\n'),
+        },
+        {
+            key: 'exterior_night',
+            label: '外观-夜景',
+            scene: 'exterior',
+            hint: '适合夜景外立面、灯光氛围、蓝调时刻和门头质感。',
+            actions: [
+                { label: '夜景灯光', action: '增强暖金色灯光、轮廓光、庭院灯和窗内暖光层次。' },
+                { label: '品牌门头', action: '优化 LOGO 和门头灯光，让夜间识别更清楚。' },
+                { label: '画面洁净', action: '去除车辆、电线、路障和脏污，保留真实夜景。' },
+            ],
+            prompt: [
+                '专业酒店夜景摄影，高端酒店风格，电影感灯光氛围，高级度假酒店视觉效果。',
+                '整体采用暖金色灯光与深灰蓝夜空，增强建筑轮廓光与立体感，隐藏灯带、落地窗暖光、庭院氛围灯自然融合。',
+                '玻璃窗内透出温暖灯光，天空采用深蓝色电影感夜空或蓝调时刻，地面可有轻微自然反光。',
+                '优化酒店 LOGO 与门头灯光，让品牌更醒目，去除车辆、电线、路障、脏污与无关元素。',
+                '光影过渡自然，不过曝不过暗，保留真实灯光细节与建筑材质。',
+            ].join('\n'),
+        },
+        {
+            key: 'restaurant',
+            label: '餐厅 / 早餐',
+            scene: 'breakfast',
+            hint: '适合早餐区、自助餐台、餐厅空间和餐具摆台。',
+            actions: [
+                { label: '食欲感', action: '提升自然光、暖光、餐具和食物色泽，保持真实诱人。' },
+                { label: '摆台整洁', action: '清理空盘、污渍、电线和杂物，优化餐桌秩序。' },
+                { label: '空间氛围', action: '增强餐厅纵深、灯光层次和高级用餐体验。' },
+            ],
+            prompt: [
+                '专业酒店餐厅空间摄影精修，高端精品酒店餐厅风格，现代轻奢设计，高级餐饮氛围感。',
+                '整体空间宽敞通透，自然采光与室内暖光融合，吊灯、氛围灯和隐藏灯带柔和高级。',
+                '优化餐桌、餐椅、木饰面、大理石与金属材质细节，餐桌摆台精致整洁。',
+                '早餐区域突出丰富精致感，自助餐台整洁高级，食物色泽自然诱人。',
+                '去除空盘、污渍、电线、杂物与不协调物品，真实自然，不过度 HDR。',
+            ].join('\n'),
+        },
+        {
+            key: 'public_area',
+            label: '公区-通用',
+            scene: 'lobby',
+            hint: '适合休息区、公共走廊、茶室、公共空间等通用优化。',
+            actions: [
+                { label: '通透明亮', action: '增强空间纵深、空气感、灯光层次和公共区域整洁度。' },
+                { label: '材质统一', action: '提升地面、木饰面、玻璃、金属和软装质感。' },
+                { label: '杂物清理', action: '去除指示牌、电线、垃圾桶、脏污和无关物品。' },
+            ],
+            prompt: [
+                '整体空间通透明亮，增强空间纵深感与高级层次感，让公区显得更加宽敞、大气、整洁。',
+                '采用专业商业空间摄影构图，优化广角透视与建筑比例，保持墙体、门框、家具与灯光线条自然垂直。',
+                '自然采光与暖色氛围灯融合，增强地面、大理石、木饰面、玻璃、金属与软装材质细节。',
+                '整体色调采用奶油暖白、暖灰色、原木色与暖金色灯光，画面干净通透。',
+                '去除杂乱元素、电线、污渍、指示牌、垃圾桶、杂物与无关物品，真实自然。',
+            ].join('\n'),
+        },
+        {
+            key: 'lobby',
+            label: '大堂 / 前台',
+            scene: 'lobby',
+            hint: '适合前台、接待区、品牌 LOGO 和第一印象图。',
+            actions: [
+                { label: '接待氛围', action: '突出大堂开阔感、前台灯光和品牌 LOGO。' },
+                { label: '软装质感', action: '优化休息区软装、地面和墙面材质。' },
+                { label: '秩序感', action: '清理前台杂物和无关指示物，保持接待区整洁。' },
+            ],
+            prompt: '大堂气势开阔，高级酒店接待氛围，前台灯光高级通透，品牌 LOGO 醒目，休息区软装精致，增强五星级酒店第一视觉冲击力。',
+        },
+        {
+            key: 'corridor',
+            label: '走廊',
+            scene: 'lobby',
+            hint: '适合客房走廊、公共过道和动线图。',
+            actions: [
+                { label: '延伸感', action: '增强走廊纵深、灯光均匀度和空间静谧感。' },
+                { label: '洁净度', action: '清理地毯、墙面、门牌附近的污渍和杂物。' },
+                { label: '安全真实', action: '保留真实门牌、消防与导视信息，不做虚假设施。' },
+            ],
+            prompt: '走廊灯光均匀柔和，地毯与墙面干净高级，增强空间延伸感与静谧高级氛围，具有五星级酒店质感。',
+        },
+        {
+            key: 'gym',
+            label: '健身房',
+            scene: 'lobby',
+            hint: '适合健身器械、镜面、玻璃和运动空间。',
+            actions: [
+                { label: '器械秩序', action: '整理器械摆放和地面清洁，突出设备高级感。' },
+                { label: '镜面玻璃', action: '清理镜面、玻璃、水印和反射杂乱。' },
+                { label: '运动氛围', action: '增强自然采光和现代运动空间感。' },
+            ],
+            prompt: '器械整齐高级，玻璃与镜面通透干净，增强现代运动空间感与高级健身氛围，自然采光充足，具有精品酒店运动体验感。',
+        },
+        {
+            key: 'laundry',
+            label: '洗衣房',
+            scene: 'lobby',
+            hint: '适合自助洗衣、配套服务展示和设备空间。',
+            actions: [
+                { label: '设备统一', action: '让洗衣设备看起来整齐统一、清洁明亮。' },
+                { label: '便利服务感', action: '突出自助服务、现代便利和高品质配套。' },
+                { label: '杂物清理', action: '去除清洁工具、纸箱、污渍和临时堆放物。' },
+            ],
+            prompt: '空间整洁明亮，洗衣设备高级统一，增强现代便利服务感，整体干净舒适，体现高品质酒店配套。',
+        },
+        {
+            key: 'meeting',
+            label: '会议室',
+            scene: 'lobby',
+            hint: '适合商务会议室、会议桌椅和办公场景。',
+            actions: [
+                { label: '商务感', action: '突出会议桌椅统一、灯光均匀和空间专业度。' },
+                { label: '画面秩序', action: '清理桌面杂物、线缆、纸张和无关物品。' },
+                { label: '空间比例', action: '优化垂直线条和广角透视，保持真实会议室结构。' },
+            ],
+            prompt: '会议空间专业大气，灯光均匀高级，会议桌椅整洁统一，增强商务酒店高级感与现代办公氛围。',
+        },
+    ];
+    const hotelImageOptimizerIssueOptions = [
+        { key: 'ceiling_stain', label: '天花板污渍/发黄', hint: '清理脏污，保留真实纹理', action: '优先清理天花板污渍、发黄和斑驳痕迹，保持浅米白或原有材质质感。', prompt: '清理天花板污渍、发黄和斑驳痕迹，使天花板干净自然，保留真实材质纹理' },
+        { key: 'overexposure', label: '窗户/灯光过曝', hint: '压高光，保留窗帘层次', action: '压低窗户和灯光高光，恢复窗帘、玻璃和墙面的柔和层次。', prompt: '降低窗户和灯光区域过曝，恢复纱帘、玻璃和墙面高光层次' },
+        { key: 'yellow_cast', label: '整体偏黄/偏灰', hint: '校正色温和通透感', action: '降低不自然偏黄或偏灰，调整为真实暖白色，提升通透感。', prompt: '校正整体色温为自然暖白，降低过度发黄或发灰，提升通透感和清晰度' },
+        { key: 'bedding_wrinkle', label: '床品褶皱', hint: '轻微平整，不要假', action: '轻微平整床品边缘和明显褶皱，保留真实柔软质感。', prompt: '轻微整理床品褶皱和边缘凌乱，保持真实柔软，不要过度平滑' },
+        { key: 'clutter', label: '杂物/玩具/垃圾', hint: '移除影响展示的物品', action: '移除画面中影响房源展示的杂物、玩具、垃圾和临时用品。', prompt: '移除画面中影响展示的杂物、玩具、垃圾和临时用品，保持空间整洁' },
+        { key: 'wall_floor', label: '墙面/地板瑕疵', hint: '修小污点和划痕', action: '清理墙面、地板的小污点、划痕和局部脏痕，不改变材质。', prompt: '清理墙面和地板的小污点、划痕和局部脏痕，保持原有材质与颜色' },
+        { key: 'composition', label: '构图不够聚焦', hint: '保持结构，优化视觉重心', action: '保持原始透视和家具位置，仅优化裁切建议与视觉重心。', prompt: '保持原始透视、构图和家具位置不变，只增强视觉重心与空间层次' },
+        { key: 'sharpness', label: '清晰度不足', hint: '轻微锐化和降噪', action: '进行轻微降噪、锐化和细节增强，避免过度锐化。', prompt: '轻微降噪、锐化和增强细节，保持自然真实，不要过度锐化或塑料感' },
+    ];
+    const hotelImageOptimizerRecommendedTools = [
+        {
+            name: '美图设计室',
+            tag: '中文易用',
+            bestFor: 'AI消除、变清晰、快速运营修图',
+            desc: '适合门店运营先处理杂物、清晰度和基础美化，学习成本低，适合日常批量处理。',
+            caution: '注意不要使用商品图/商拍模板生成不存在的酒店设施。',
+            url: 'https://www.designkit.cn/',
+            icon: 'fas fa-magic',
+            iconBg: 'bg-pink-50',
+            iconColor: 'text-pink-600',
+        },
+        {
+            name: '稿定设计',
+            tag: '在线修图',
+            bestFor: 'AI抠图、智能消除、AI变清晰、扩图',
+            desc: '适合处理房源图里的杂物、背景干扰、模糊和构图边界问题，也方便继续做 OTA 封面和运营物料。',
+            caution: '适合修复画面问题，不要把电商模板或素材包装成真实房源设施。',
+            url: 'https://www.gaoding.com/koutu',
+            icon: 'fas fa-object-group',
+            iconBg: 'bg-cyan-50',
+            iconColor: 'text-cyan-600',
+        },
+        {
+            name: '即梦 AI',
+            tag: '图像大模型',
+            bestFor: '局部重绘、一键扩图、图像消除、抠图',
+            desc: '适合需要更强生成能力的场景，例如局部重绘天花板、扩展构图、消除干扰物和图像改造。',
+            caution: '模型生成更容易改动真实结构，上线 OTA 前必须逐项核对原房源事实。',
+            url: 'https://www.jimeng.com/',
+            icon: 'fas fa-pen-fancy',
+            iconBg: 'bg-blue-50',
+            iconColor: 'text-blue-600',
+        },
+    ];
+
+    return {
+        hotelAiToolboxLinks,
+        hotelImageOptimizerScenes,
+        hotelImageOptimizerGoals,
+        hotelImageOptimizerStyles,
+        hotelImageOptimizerPromptProfiles,
+        hotelImageOptimizerIssueOptions,
+        hotelImageOptimizerRecommendedTools,
+    };
+})();

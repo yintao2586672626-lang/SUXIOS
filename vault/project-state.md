@@ -159,6 +159,12 @@ Updated: 2026-06-10 Asia/Shanghai
 - `public/index.html` decreased from `43322` lines to `43132` lines; the frontend `config` span decreased from `1197` to `984` lines.
 - Current staged self-audit after the first frontend split: full directory about `234 MB`, without `.git` about `91.88 MB`, without `.git` and dependencies about `62.69 MB`, tracked files about `17.77 MB` / `595` files; code scope `352` files, `185669` total lines, `170036` nonblank lines.
 - Verified after the first frontend split: Node syntax checks for `public/expansion-static-options.js`, `scripts/verify_expansion_p2.mjs`, and `scripts/verify_strategy_location_ui_contract.mjs`; `node scripts\verify_expansion_p2.mjs`; `node scripts\verify_strategy_location_ui_contract.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:p0-guards`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Second frontend split target chosen from split-map evidence and low-risk static-data boundaries: hotel AI toolbox and hotel image optimizer static option data embedded in `public/index.html`.
+- Added `public/hotel-image-optimizer-static.js` for hotel AI toolbox links, hotel image optimizer scenes, goals, styles, prompt profiles, issue options, and recommended tools.
+- `public/index.html` now loads `hotel-image-optimizer-static.js` and binds the same option variables from `window.SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC`; missing script or missing keys throw explicit configuration errors instead of silently falling back to empty options.
+- `public/index.html` decreased from `43132` lines to `42907` lines; the frontend `ota` span decreased from `1010` to `754` lines.
+- Current staged self-audit after the second frontend split: full directory about `234 MB`, without `.git` about `91.89 MB`, without `.git` and dependencies about `62.7 MB`, tracked files about `17.77 MB` / `596` files; code scope `353` files, `185700` total lines, `170066` nonblank lines.
+- Verified after the second frontend split: Node syntax check for `public/hotel-image-optimizer-static.js`; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
