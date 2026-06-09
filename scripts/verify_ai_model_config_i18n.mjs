@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const html = readFileSync(join(root, 'public/index.html'), 'utf8');
+const systemStatic = readFileSync(join(root, 'public/system-static.js'), 'utf8');
+const contractSource = `${html}\n${systemStatic}`;
 
 const stripHtmlComments = (content) => content.replace(/<!--[\s\S]*?-->/g, '');
 const extractPageBlock = (pageName) => {
@@ -175,7 +177,7 @@ const requiredSnippets = [
 ];
 
 for (const snippet of requiredSnippets) {
-  if (!html.includes(snippet)) {
+  if (!contractSource.includes(snippet)) {
     failures.push(`missing i18n contract: ${snippet}`);
   }
 }

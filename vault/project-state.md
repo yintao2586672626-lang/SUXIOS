@@ -222,6 +222,14 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current staged self-audit after the tenth frontend split: full directory about `239.26 MB`, without `.git` about `91.91 MB`, without `.git` and dependencies about `62.72 MB`, tracked files about `17.80 MB` / `603` files; code scope `360` files, `185930` total lines, `170289` nonblank lines.
 - Verified after the tenth frontend split: Node syntax check for `public/system-static.js`; residual inline static-definition scan; `git diff --cached --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+- Eleventh frontend split target chosen from system/AI i18n static boundaries: AI model configuration i18n copy and language options embedded in `public/index.html`.
+- Extended `public/system-static.js` for `aiModelConfigI18n` and `languageOptions`.
+- `public/index.html` now reads `aiModelConfigI18n` and `languageOptions` through `window.SUXI_SYSTEM_STATIC`; missing script or missing keys throw explicit configuration errors instead of silently falling back.
+- Updated `scripts/verify_ai_model_config_i18n.mjs` so the i18n contract checks both `public/index.html` and `public/system-static.js` after the static split.
+- `public/index.html` decreased from `42241` lines to `42101` lines; current split map reports `1172` frontend function-level blocks and `44` `currentPage` references.
+- Current staged self-audit after the eleventh frontend split: full directory about `239.29 MB`, without `.git` about `91.92 MB`, without `.git` and dependencies about `62.73 MB`, tracked files about `17.80 MB` / `603` files; code scope `360` files, `185946` total lines, `170305` nonblank lines.
+- Verified after the eleventh frontend split: Node syntax checks for `public/system-static.js` and `scripts/verify_ai_model_config_i18n.mjs`; `node scripts\verify_ai_model_config_i18n.mjs`; residual inline static-definition scan; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
