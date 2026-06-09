@@ -113,11 +113,11 @@ Updated: 2026-06-10 Asia/Shanghai
 - Previous 10-file business checkpoint was saved separately as commit `5f4e4c6` (`[保存] 同步启动与自动抓取间隔`) and pushed to `origin/codex/save-project-20260531`.
 - PR #2 was verified after that push as open, draft, mergeable, with head `5f4e4c6`; both latest PHP Composer checks completed successfully.
 - First backend split target chosen from split-map evidence: `defaultCtripProfileFieldMeta` in `app/controller/OnlineData.php`.
-- Added `app/service/CtripProfileFieldMetaService.php` for the base Ctrip profile field metadata table, Ctrip profile key-field list, metadata refresh key list, and default capture field rows; `OnlineData.php` keeps orchestration for flow transform, weekly report, competition profile metadata, normalization, filtering, and compatibility handling.
-- `app/controller/OnlineData.php` decreased from `31140` lines to `29023` lines; the new service is `2152` lines.
-- Current split map after the backend metadata splits: `app/controller/OnlineData.php` still has `877` methods; largest methods are now `summarizeCtripOverviewRows` (`281` lines), `captureMeituanBrowserData` (`274` lines), and `captureCtripBrowserData` (`272` lines); Ctrip-domain method span is now `12858` lines.
+- Added `app/service/CtripProfileFieldMetaService.php` for the base Ctrip profile field metadata table, Ctrip profile key-field list, metadata refresh key list, default capture field rows, flow-transform metadata, weekly report metadata, and competition-profile metadata; `OnlineData.php` keeps normalization, filtering, and compatibility handling.
+- `app/controller/OnlineData.php` decreased from `31140` lines to `28761` lines; the new service is `2415` lines.
+- Current split map after the backend metadata splits: `app/controller/OnlineData.php` has `874` methods; largest methods are now `summarizeCtripOverviewRows` (`281` lines), `captureMeituanBrowserData` (`274` lines), and `captureCtripBrowserData` (`272` lines); Ctrip-domain method span is now `12596` lines.
 - Verified after the split: PHP syntax checks for `app/controller/OnlineData.php` and `app/service/CtripProfileFieldMetaService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter CtripProfile` with 29 tests and 576 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `npm.cmd run verify:p0-guards`; `npm.cmd run self:audit`.
-- Current staged self-audit after the split: tracked files about `17.78 MB` / `590` files; code scope `347` files, `186168` total lines, `170483` nonblank lines.
+- Current staged self-audit after the split: tracked files about `17.78 MB` / `590` files; code scope `347` files, `186169` total lines, `170484` nonblank lines.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule

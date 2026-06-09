@@ -7,6 +7,7 @@ final class CtripProfileFieldMetaService
 {
     private const CTRIP_BUSINESS_REPORT_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
     private const CTRIP_FLOW_TRANSFORM_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true';
+    private const CTRIP_FLOW_TRANSFORM_REQUEST_URL = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking';
     private const CTRIP_PSI_PAGE_URL = 'https://ebooking.ctrip.com/psi/index?microJump=true';
     private const CTRIP_PSI_REQUEST_URL = 'https://ebooking.ctrip.com/psi/api/getHotelPsiV2';
     private const CTRIP_ADS_PAGE_URL = 'https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true';
@@ -523,6 +524,268 @@ final class CtripProfileFieldMetaService
             ['bad_review_count', '差评数', 'comment_review', 'review', 'getCommentNumV2 / getCommentList', 'badReviewCount, negativeCommentCount, negativeCount, badCount, lowScoreCount, noRecommendCount, score, commentScore, rating', 'integer', '条', 'confirmed', '优先聚合接口差评/不推荐数；只有列表评分时按 0 < score < 4.0 聚合，不保存正文', true, '携程 OTA 点评页聚合口径；只保存聚合结果'],
         ];
     }
+    public static function flowTransform(string $fieldKey): array
+    {
+        $selfRule = 'hotelId/masterHotelId=当前携程酒店ID（如 6866634）为本店数据';
+        $competitorRule = 'hotelId=-1 为竞争圈平均数据';
+        $common = [
+            'page_url' => self::CTRIP_FLOW_TRANSFORM_PAGE_URL,
+            'request_url' => self::CTRIP_FLOW_TRANSFORM_REQUEST_URL,
+        ];
+        $map = [
+            'list_exposure' => ['response[hotelId=当前携程酒店ID].listExposure', $selfRule, 'online_daily_data.list_exposure'],
+            'detail_visitor' => ['response[hotelId=当前携程酒店ID].detailExposure', $selfRule, 'online_daily_data.detail_exposure'],
+            'flow_rate' => ['response[hotelId=当前携程酒店ID].flowRate', $selfRule, 'online_daily_data.flow_rate'],
+            'order_page_visitor' => ['response[hotelId=当前携程酒店ID].orderFillingNum', $selfRule, 'online_daily_data.order_filling_num'],
+            'order_submit_user' => ['response[hotelId=当前携程酒店ID].orderSubmitNum', $selfRule, 'online_daily_data.order_submit_num'],
+            'order_fill_rate' => ['response[hotelId=当前携程酒店ID].orderFillingNum / response[hotelId=当前携程酒店ID].detailExposure', $selfRule, 'online_daily_data.raw_data.facts.metric_key=order_fill_rate'],
+            'deal_rate' => ['response[hotelId=当前携程酒店ID].orderSubmitNum / response[hotelId=当前携程酒店ID].orderFillingNum', $selfRule, 'online_daily_data.raw_data.facts.metric_key=deal_rate'],
+            'competitor_list_exposure' => ['response[hotelId=-1].listExposure', $competitorRule, 'online_daily_data.list_exposure where compare_type=competitor_avg'],
+            'competitor_detail_visitor' => ['response[hotelId=-1].detailExposure', $competitorRule, 'online_daily_data.detail_exposure where compare_type=competitor_avg'],
+            'competitor_flow_rate' => ['response[hotelId=-1].flowRate', $competitorRule, 'online_daily_data.flow_rate where compare_type=competitor_avg'],
+            'competitor_order_page_visitor' => ['response[hotelId=-1].orderFillingNum', $competitorRule, 'online_daily_data.order_filling_num where compare_type=competitor_avg'],
+            'competitor_order_submit_user' => ['response[hotelId=-1].orderSubmitNum', $competitorRule, 'online_daily_data.order_submit_num where compare_type=competitor_avg'],
+            'competitor_order_fill_rate' => ['response[hotelId=-1].orderFillingNum / response[hotelId=-1].detailExposure', $competitorRule, 'online_daily_data.raw_data.facts.metric_key=competitor_order_fill_rate'],
+            'competitor_deal_rate' => ['response[hotelId=-1].orderSubmitNum / response[hotelId=-1].orderFillingNum', $competitorRule, 'online_daily_data.raw_data.facts.metric_key=competitor_deal_rate'],
+        ];
+        if (!isset($map[$fieldKey])) {
+            return [];
+        }
+
+        [$jsonPath, $ownershipRule, $storageField] = $map[$fieldKey];
+        return array_merge($common, [
+            'json_path' => $jsonPath,
+            'ownership_rule' => $ownershipRule,
+            'storage_field' => $storageField,
+        ]);
+    }
+
+    public static function weekly(string $fieldKey): array
+    {
+        $weeklyPage = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/weekReport?microJump=true';
+        $reportBase = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/';
+        $selfRule = '携程周报 OTA 渠道口径，仅代表携程 eBooking 周报，不得包装成全酒店经营数据。';
+        $rankRule = '周报竞争圈排名口径，仅保留 ranking/data_value/raw_data.rank_metrics，不写入金额、间夜或订单事实。';
+        $peerRule = '周报竞争圈/同城标杆口径，仅作为对比维度，不覆盖本店 OTA 指标。';
+
+        $rankMeta = [
+            'book_order_num_rank' => ['bookOrderNum', '预订订单排名'],
+            'comment_score_rank' => ['commentScore', '点评分排名'],
+            'conversion_rank' => ['convertionRate', 'APP转化率排名'],
+        ];
+        if (isset($rankMeta[$fieldKey])) {
+            [$sourceKey, $meaning] = $rankMeta[$fieldKey];
+            return [
+                'page_url' => $weeklyPage,
+                'request_url' => $reportBase . 'getCompeteHotelReportV1',
+                'json_path' => 'data[hotelId=当前携程酒店ID].' . $sourceKey,
+                'ownership_rule' => $rankRule,
+                'storage_field' => 'online_daily_data.raw_data.rank_metrics.' . $fieldKey,
+                'source_interface' => 'getCompeteHotelReportV1',
+                'source_keys' => $sourceKey,
+                'target_value' => $sourceKey,
+                'value_meaning' => $meaning,
+                'notes' => '周报竞争圈排名榜字段；只保留排名，不写入本店收入、间夜或订单数。',
+            ];
+        }
+
+        $lastWeekMeta = [
+            'last_week_checkout_room_nights' => ['lastWeekCheckoutRoomNights', 'integer', '间夜', '上周离店间夜量'],
+            'last_week_checkout_sales' => ['lastWeekCheckoutSales', 'amount', '元', '上周离店销售额'],
+            'last_week_checkout_room_price' => ['lastWeekCheckoutRoomPrice', 'amount', '元', '上周离店平均房价'],
+            'last_week_book_quantity' => ['lastWeekBookQuantity', 'integer', '单', '上周预订订单'],
+            'last_week_book_room_nights' => ['lastWeekBookRoomNights', 'integer', '间夜', '上周预订间夜量'],
+            'last_week_book_sales' => ['lastWeekBookSales', 'amount', '元', '上周预订销售额'],
+        ];
+        if (isset($lastWeekMeta[$fieldKey])) {
+            [$sourceKey, $valueType, $unit, $meaning] = $lastWeekMeta[$fieldKey];
+            return [
+                'page_url' => $weeklyPage,
+                'request_url' => $reportBase . 'getLastWeekReportV1',
+                'json_path' => 'data.' . $sourceKey,
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=' . $fieldKey,
+                'source_interface' => 'getLastWeekReportV1',
+                'source_keys' => $sourceKey,
+                'target_value' => $sourceKey,
+                'value_type' => $valueType,
+                'unit' => $unit,
+                'value_meaning' => $meaning,
+                'notes' => '携程经营报告周报概要字段，按接口返回业务周口径入库。',
+            ];
+        }
+
+        $trafficGroups = [
+            'weekly_self' => ['data.myHotel', $selfRule, '我的酒店'],
+            'weekly_competitor' => ['data.competeHotelAvg', $peerRule, '竞争圈均值'],
+            'top_competitor' => ['data.topCompeteHotel', $peerRule, '同城标杆/最高竞品'],
+        ];
+        $trafficMetrics = [
+            'list_exposure' => ['totalListExposure', 'integer', '次', '列表页曝光'],
+            'detail_exposure' => ['totalDetailExposure', 'integer', '人', '详情页访客'],
+            'order_filling_num' => ['orderFillingNum', 'integer', '人', '订单填写页访客'],
+            'order_submit_num' => ['orderSubmitNum', 'integer', '人', '订单提交人数'],
+            'flow_rate' => ['listTransforDetailRate', 'percent', '%', '曝光转化率'],
+            'order_fill_rate' => ['detailTransforOrderFillRate', 'percent', '%', '下单转化率'],
+            'deal_rate' => ['orderFillTransforOrderSubmitRate', 'percent', '%', '成交转化率'],
+        ];
+        foreach ($trafficGroups as $prefix => [$jsonBase, $ownershipRule, $groupLabel]) {
+            foreach ($trafficMetrics as $metric => [$sourceKey, $valueType, $unit, $label]) {
+                $key = $prefix . '_' . $metric;
+                if ($fieldKey !== $key) {
+                    continue;
+                }
+                return [
+                    'page_url' => $weeklyPage,
+                    'request_url' => $reportBase . 'getTrafficReportV1',
+                    'json_path' => $jsonBase . '.' . $sourceKey,
+                    'ownership_rule' => $ownershipRule,
+                    'storage_field' => 'ota_ctrip_metric_facts.metric_key=' . $fieldKey,
+                    'source_interface' => 'getTrafficReportV1',
+                    'source_keys' => $sourceKey,
+                    'target_value' => $sourceKey,
+                    'value_type' => $valueType,
+                    'unit' => $unit,
+                    'value_meaning' => '周报' . $groupLabel . $label,
+                    'notes' => '携程 APP 流量漏斗周报字段。',
+                ];
+            }
+        }
+
+        $legacyWeeklyTrafficMeta = [
+            'weekly_order_page_visitor' => ['data.myHotel.orderFillingNum', 'orderFillingNum, orderVisitors', '周报本店订单页访客'],
+            'weekly_competitor_avg_order_page_visitor' => ['data.competeHotelAvg.orderFillingNum', 'avgOrderFillingNum, competitorAvgOrderVisitors, orderFillingNum', '周报竞争圈订单页访客均值'],
+            'weekly_top_competitor_order_page_visitor' => ['data.topCompeteHotel.orderFillingNum', 'topOrderFillingNum, topCompetitorOrderVisitors, orderFillingNum', '周报最高竞品订单页访客'],
+            'weekly_submit_user' => ['data.myHotel.orderSubmitNum', 'orderSubmitNum, submitUsers', '周报本店提交人数'],
+            'weekly_competitor_avg_submit_user' => ['data.competeHotelAvg.orderSubmitNum', 'avgOrderSubmitNum, competitorAvgSubmitUsers, orderSubmitNum', '周报竞争圈提交人数均值'],
+            'weekly_top_competitor_submit_user' => ['data.topCompeteHotel.orderSubmitNum', 'topOrderSubmitNum, topCompetitorSubmitUsers, orderSubmitNum', '周报最高竞品提交人数'],
+        ];
+        if (isset($legacyWeeklyTrafficMeta[$fieldKey])) {
+            [$jsonPath, $sourceKeys, $meaning] = $legacyWeeklyTrafficMeta[$fieldKey];
+            return [
+                'page_url' => $weeklyPage,
+                'request_url' => $reportBase . 'getTrafficReportV1',
+                'json_path' => $jsonPath,
+                'ownership_rule' => str_contains($fieldKey, 'competitor') ? $peerRule : $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=' . $fieldKey,
+                'source_interface' => 'getTrafficReportV1',
+                'source_keys' => $sourceKeys,
+                'target_value' => substr($jsonPath, strrpos($jsonPath, '.') + 1),
+                'value_type' => 'integer',
+                'unit' => '人',
+                'value_meaning' => $meaning,
+                'notes' => '周报流量漏斗兼容字段，主字段使用 weekly_*_order_filling_num / weekly_*_order_submit_num。',
+            ];
+        }
+
+        $userBehaviorMeta = [
+            'last_week_comment_score' => ['lastWeekCommentScore', 'number', '分', '上周点评分'],
+            'last_week_good_add' => ['lastWeekGoodAdd', 'integer', '条', '上周新增好评数'],
+            'last_week_bad_add' => ['lastWeekBadAdd', 'integer', '条', '上周新增差评数'],
+            'last_week_price_score' => ['lastWeekPriceScore', 'number', '分', '上周起价竞争分'],
+        ];
+        if (isset($userBehaviorMeta[$fieldKey])) {
+            [$sourceKey, $valueType, $unit, $meaning] = $userBehaviorMeta[$fieldKey];
+            return [
+                'page_url' => $weeklyPage,
+                'request_url' => $reportBase . 'getUserBehavorV1',
+                'json_path' => 'data.' . $sourceKey,
+                'ownership_rule' => $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=' . $fieldKey,
+                'source_interface' => 'getUserBehaviorV1 / getUserBehavorV1',
+                'source_keys' => $sourceKey,
+                'target_value' => $sourceKey,
+                'value_type' => $valueType,
+                'unit' => $unit,
+                'value_meaning' => $meaning,
+                'notes' => '携程周报用户行为字段，兼容平台接口拼写 getUserBehavorV1。',
+            ];
+        }
+
+        $marketLossMeta = [
+            'flow_lost_order_num' => ['getFlowHotelsV1', 'data.lossOrderVo.ordernum', 'ordernum', 'integer', '单', '流失订单量'],
+            'flow_lost_room_nights' => ['getFlowHotelsV1', 'data.lossOrderVo.ordquantity', 'ordquantity', 'integer', '间夜', '流失间夜量'],
+            'flow_lost_amount' => ['getFlowHotelsV1', 'data.lossOrderVo.ordamount', 'ordamount', 'amount', '元', '流失订单金额'],
+            'top_flow_hotel' => ['getFlowHotelsV1', 'data.flowHotelItemVos.0.hotelName', 'hotelName', 'text', '', '流失访客榜首酒店'],
+            'top_flow_hotel_browse_rate' => ['getFlowHotelsV1', 'data.flowHotelItemVos.0.proportion', 'proportion', 'percent', '%', '榜首酒店同时浏览率'],
+            'top_flow_hotel_order_rate' => ['getFlowHotelsV1', 'data.flowHotelItemVos.0.orderPro', 'orderPro', 'percent', '%', '榜首酒店下单转化率'],
+            'top_hot_room' => ['getHotRoomsV1', 'data.hotRooms.0.roomShortName', 'roomShortName, roomName', 'text', '', '热售房型 TOP1'],
+            'top_hot_room_nights' => ['getHotRoomsV1', 'data.hotRooms.0.saleRoomNights', 'saleRoomNights', 'integer', '间夜', '热售房型 TOP1 间夜'],
+            'top_hot_room_sale_percent' => ['getHotRoomsV1', 'data.hotRooms.0.salePercent', 'salePercent', 'percent', '%', '热售房型 TOP1 销售占比'],
+            'hot_words_count' => ['getHotWordsV1', 'count(data[])', 'data[]', 'integer', '个', '同城热门关键词数量'],
+            'top_hot_words' => ['getHotWordsV1', 'data[0:10]', 'data[]', 'json', '', '同城热门关键词 TOP10'],
+            'hot_hotels_count' => ['getHotHotelsV1', 'count(data[])', 'data[]', 'integer', '家', '同城热门酒店数量'],
+            'top_hot_hotels' => ['getHotHotelsV1', 'data[0:10]', 'data[]', 'json', '', '同城热门酒店 TOP10'],
+        ];
+        if (isset($marketLossMeta[$fieldKey])) {
+            [$interface, $jsonPath, $sourceKeys, $valueType, $unit, $meaning] = $marketLossMeta[$fieldKey];
+            return [
+                'page_url' => $weeklyPage,
+                'request_url' => $reportBase . $interface,
+                'json_path' => $jsonPath,
+                'ownership_rule' => str_starts_with($fieldKey, 'top_flow_') || str_starts_with($fieldKey, 'hot_') || str_starts_with($fieldKey, 'top_hot_')
+                    ? $peerRule
+                    : $selfRule,
+                'storage_field' => 'ota_ctrip_metric_facts.metric_key=' . $fieldKey,
+                'source_interface' => $interface,
+                'source_keys' => $sourceKeys,
+                'target_value' => $sourceKeys,
+                'value_type' => $valueType,
+                'unit' => $unit,
+                'value_meaning' => $meaning,
+                'notes' => '携程经营报告周报市场分析/热门榜单字段；榜单文本只作为 OTA 证据池与对比维度。',
+            ];
+        }
+
+        return [];
+    }
+
+    public static function competitionProfile(string $fieldKey): array
+    {
+        $pageUrl = 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true';
+        $requestBase = 'https://ebooking.ctrip.com/restapi/soa2/{hotelId}/';
+        $ownershipRule = '竞争圈概览页：val 为本店值；avgComp/rankComp 仅保存到 raw_data.metrics，不覆盖本店经营指标。';
+        $notes = '截图核对允许轻微聚合差异：计数差 <=1 或百分比差 <=0.05pct 视为同口径一致；接口未采到时保持缺采状态。';
+
+        $meta = [
+            'competition_profile_order_count' => ['getManagementData', 'dataList[indexType=0].val', 'indexType=0, val, avgComp, rankComp', 'online_daily_data.book_order_num', 'integer', '单', '竞争圈概览预订订单量'],
+            'competition_profile_order_amount' => ['getManagementData', 'dataList[indexType=1].val', 'indexType=1, val, avgComp, rankComp', 'online_daily_data.amount', 'amount', '元', '竞争圈概览预订销售额'],
+            'competition_profile_room_nights' => ['getManagementData', 'dataList[indexType=2].val', 'indexType=2, val, avgComp, rankComp', 'online_daily_data.quantity', 'integer', '间夜', '竞争圈概览在店间夜'],
+            'competition_profile_occupancy_rate' => ['getManagementData', 'dataList[indexType=3].val', 'indexType=3, val, avgComp, rankComp', 'online_daily_data.raw_data.metrics.occupancy_rate', 'percent', '%', '竞争圈概览出租率'],
+            'competition_profile_app_visitor' => ['getFlowData', 'dataList[indexType=6].val', 'indexType=6, val, avgComp, rankComp', 'online_daily_data.detail_exposure', 'integer', '人', '竞争圈概览携程APP访客'],
+            'competition_profile_app_conversion_rate' => ['getManagementData', 'dataList[indexType=5].val', 'indexType=5, val, avgComp, rankComp', 'online_daily_data.flow_rate', 'percent', '%', '竞争圈概览携程APP转化率'],
+            'competition_profile_list_exposure' => ['getFlowData / getFlowSource', 'dataList[metric=列表页曝光].val / sources[].listExposure', 'listExposure, exposure, val, avgComp, rankComp', 'online_daily_data.list_exposure', 'integer', '次', '竞争圈概览列表页曝光'],
+            'competition_profile_detail_visitor' => ['getFlowData', 'dataList[indexType=7].val', 'indexType=7, val, avgComp, rankComp', 'online_daily_data.detail_exposure', 'integer', '人', '竞争圈概览APP详情页访客'],
+            'competition_profile_order_page_visitor' => ['getFlowData', 'dataList[indexType=8].val', 'indexType=8, val, avgComp, rankComp', 'online_daily_data.order_submit_num / online_daily_data.order_filling_num', 'integer', '人', '竞争圈概览订单页访客'],
+            'competition_profile_list_to_detail_rate' => ['getFlowData', 'dataList[indexType=9].val', 'indexType=9, val, avgComp, rankComp', 'online_daily_data.flow_rate', 'percent', '%', '竞争圈概览列表页曝光转化'],
+            'competition_profile_order_fill_rate' => ['getFlowData', 'dataList[indexType=10].val', 'indexType=10, val, avgComp, rankComp', 'online_daily_data.flow_rate', 'percent', '%', '竞争圈概览App下单转化'],
+            'competition_profile_ctrip_rating' => ['getServiceData', 'dataList[indexType=11].val', 'indexType=11, val, avgComp, rankComp', 'online_daily_data.comment_score', 'number', '分', '竞争圈概览携程点评分'],
+            'competition_profile_psi_score' => ['getServiceData', 'dataList[indexType=12].val', 'indexType=12, val, avgComp, rankComp', 'online_daily_data.raw_data.metrics.psi_score', 'number', '分', '竞争圈概览PSI服务质量'],
+        ];
+
+        if (!isset($meta[$fieldKey])) {
+            return [];
+        }
+
+        [$sourceInterface, $jsonPath, $sourceKeys, $storageField, $valueType, $unit, $valueMeaning] = $meta[$fieldKey];
+        $requestEndpoint = trim(strtok($sourceInterface, ' /') ?: $sourceInterface);
+
+        return [
+            'page_url' => $pageUrl,
+            'request_url' => $requestBase . $requestEndpoint,
+            'json_path' => $jsonPath,
+            'ownership_rule' => $ownershipRule,
+            'storage_field' => $storageField . '; competitor_average/rank => raw_data.metrics',
+            'source_interface' => $sourceInterface,
+            'source_keys' => $sourceKeys,
+            'target_value' => 'val',
+            'value_type' => $valueType,
+            'unit' => $unit,
+            'value_meaning' => $valueMeaning,
+            'notes' => $notes,
+        ];
+    }
+
     public static function base(string $fieldKey): array
     {
         $businessPage = self::CTRIP_BUSINESS_REPORT_PAGE_URL;
