@@ -25,12 +25,19 @@ const textExtensions = new Set([...codeExtensions, '.md', '.json', '.xml', '.yml
 const splitDispositions = loadSplitDispositions();
 
 const trackedFiles = listTrackedFiles();
+const git = gitState();
+const changedPathSet = new Set(git.changed_files);
 const trackedStats = measureTrackedFiles(trackedFiles);
 const lineStats = measureLineStats(trackedFiles);
 const topLevelSizes = measureTopLevel();
 const cleanup = measureCleanupTargets();
-const git = gitState();
-const status = resolveStatus({ cleanup, git, splitCandidates: lineStats.code.split_candidates, splitDispositions });
+const status = resolveStatus({
+  cleanup,
+  git,
+  splitCandidates: lineStats.code.split_candidates,
+  splitDispositions,
+  dirtySplitCandidates: lineStats.code.split_candidates.filter((row) => row.worktree_changed),
+});
 
 const audit = {
   schema_version: 1,
@@ -149,15 +156,29 @@ function listTrackedFiles() {
 function gitState() {
   const statusShort = runGit(['-c', 'core.quotePath=false', 'status', '--short', '--branch']).trimEnd();
   const changed = statusShort.split(/\r?\n/).filter((line) => line && !line.startsWith('##'));
+  const changedFiles = changed.map(statusPath).filter(Boolean);
   const branchLine = statusShort.split(/\r?\n/).find((line) => line.startsWith('##')) || '';
   const indexLockPath = path.join(repoRoot, '.git', 'index.lock');
   return {
     branch: branchLine.replace(/^##\s*/, ''),
     clean: changed.length === 0,
     changed_paths: changed.length,
+    changed_files: changedFiles,
     index_lock: fs.existsSync(indexLockPath),
     status_short: statusShort,
   };
+}
+
+function statusPath(line) {
+  let value = String(line || '').slice(3).trim();
+  if (!value) {
+    return '';
+  }
+  const renameMarker = ' -> ';
+  if (value.includes(renameMarker)) {
+    value = value.slice(value.lastIndexOf(renameMarker) + renameMarker.length);
+  }
+  return normalizePath(value.replace(/^"|"$/g, ''));
 }
 
 function measureTrackedFiles(files) {
@@ -256,6 +277,7 @@ function addCodeHotspot(summary, relativePath, extension, lines, nonblank, bytes
     lines,
     nonblank,
     mb,
+    worktree_changed: changedPathSet.has(normalizePath(relativePath)),
   };
   summary.top_files.push(row);
 
@@ -473,7 +495,7 @@ function measurePath(absolutePath) {
   return { bytes, files };
 }
 
-function resolveStatus({ cleanup, git, splitCandidates, splitDispositions }) {
+function resolveStatus({ cleanup, git, splitCandidates, splitDispositions, dirtySplitCandidates }) {
   const failures = [];
   const warnings = [];
   if (splitDispositions.error) {
@@ -499,6 +521,10 @@ function resolveStatus({ cleanup, git, splitCandidates, splitDispositions }) {
     } else {
       warnings.push(message);
     }
+  }
+  if (Array.isArray(dirtySplitCandidates) && dirtySplitCandidates.length > 0) {
+    const paths = dirtySplitCandidates.map((row) => row.path).join(', ');
+    warnings.push(`Split candidates with local changes: ${paths}.`);
   }
   return {
     ok: failures.length === 0,
@@ -582,10 +608,10 @@ function renderText(audit) {
   renderRows(audit.code_lines.top_files.slice(0, topLimit), ['path', 'ext', 'lines', 'mb']);
   console.log('');
   console.log('Split candidates');
-  renderRows(audit.code_lines.split_candidates.slice(0, topLimit), ['path', 'lines', 'mb', 'reasons', 'suggested_action']);
+  renderRows(audit.code_lines.split_candidates.slice(0, topLimit), ['path', 'lines', 'mb', 'worktree_changed', 'reasons', 'suggested_action']);
   console.log('');
   console.log('Accepted split candidates');
-  renderRows(audit.code_lines.accepted_split_candidates.slice(0, topLimit), ['path', 'lines', 'mb', 'reasons', 'disposition_reason']);
+  renderRows(audit.code_lines.accepted_split_candidates.slice(0, topLimit), ['path', 'lines', 'mb', 'worktree_changed', 'reasons', 'disposition_reason']);
   console.log('');
 
   console.log('Top-level size');

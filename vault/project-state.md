@@ -91,6 +91,14 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current verified self-audit after this disposition: full directory about `228.44 MB`, without `.git` about `91.87 MB`, without `.git` and dependencies about `62.68 MB`, tracked files about `17.76 MB`; code scope `345` files, `185844` total lines, `170185` nonblank lines.
 - Verification passed: `node --check scripts\project_self_audit.mjs`, JSON parse for `docs/self_cleaning_split_dispositions.json`, `node scripts/project_self_audit.mjs --json` parse with `split=2` and `accepted=1`, `git diff --check`, and `npm.cmd run self:check`; strict gate failure was confirmed as expected on the 2 remaining split candidates.
 
+## 2026-06-10 Progress: Dirty Split Candidate Guard
+
+- Extended `scripts/project_self_audit.mjs` to mark each split candidate with `worktree_changed` based on current `git status --short`.
+- Current verified self-audit reports both remaining split candidates as locally changed: `public/index.html` and `app/controller/OnlineData.php`.
+- Current verified size and line scope after this guard: full directory about `228.47 MB`, without `.git` about `91.88 MB`, without `.git` and dependencies about `62.69 MB`, tracked files about `17.76 MB`; code scope `345` files, `185870` total lines, `170210` nonblank lines.
+- Split work should not directly edit those two files in a self-cleaning commit while their unrelated business changes remain uncommitted; first save or isolate the business changes.
+- Verification passed: `node --check scripts\project_self_audit.mjs`, `npm.cmd run self:audit`, `git diff --check`, `npm.cmd run self:check`, and JSON parse with `split=2`, `dirty=2`, `accepted=1`; strict gate failure was confirmed as expected on the 2 remaining dirty split candidates.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
