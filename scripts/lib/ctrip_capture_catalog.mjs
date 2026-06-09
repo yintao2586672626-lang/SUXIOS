@@ -356,10 +356,10 @@ const qualityFields = [
   field('comment_response_rate', '点评回复率', ['responseRate'], '点评/评论回复率，不等同于 IM 5分钟回复率', { unit: '%' }),
   field('comment_unreply_count', '未回复点评数', ['unReplyCount', 'unreplyCount', 'unRepliedCount', 'unrepliedCount'], '只保存未回复点评聚合计数，不保存点评明文'),
   field('comment_good_rate', '点评好评率', ['goodRate'], '点评/评论好评率聚合值，不保存点评明文', { unit: '%' }),
-  field('review_environment_score', '点评环境评分', ['ratingLocation', 'environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文', { unit: '分' }),
-  field('review_facility_score', '点评设施评分', ['ratingFacility', 'facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文', { unit: '分' }),
-  field('review_service_score', '点评服务评分', ['ratingService', 'reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用', { unit: '分' }),
-  field('review_cleanliness_score', '点评卫生评分', ['ratingRoom', 'cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文', { unit: '分' }),
+  field('review_environment_score', '点评环境评分', ['ratingLocation', 'environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文', { unit: '分' }),
+  field('review_facility_score', '点评设施评分', ['ratingFacility', 'facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文', { unit: '分' }),
+  field('review_service_score', '点评服务评分', ['ratingService', 'reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用', { unit: '分' }),
+  field('review_cleanliness_score', '点评卫生评分', ['ratingRoom', 'cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文', { unit: '分' }),
   field('review_photo_count', '带图点评数', ['hasPicCount', 'photoCommentCount', 'pictureCommentCount', 'imageCommentCount'], '带图点评数量；只保存聚合计数，不保存图片或点评明文'),
   field('review_photo_rate', '带图点评率', ['hasPicCount/commentCount'], '按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失', { unit: '%' }),
   field('rating_competitor_total', '点评竞争圈酒店数', ['competitorHotelTotal']),
@@ -441,7 +441,7 @@ const userProfileFields = [
   field('order_hotel_count', '订购酒店次数', ['userOrders', 'hotelOrderCount', 'orderHotelCount', 'orders']),
   field('order_preference', '订购偏好', ['orderPreference']),
   field('preference_frequency', '偏好频次', ['preferenceFrequency']),
-  field('distribution_share', '分布占比', ['distributionShare'], '用户行为分布图表占比，来自对应接口 value / valueList / rate 字段', { unit: '%' }),
+  field('distribution_share', '分布占比', ['distributionShare', 'percent'], '用户行为分布图表占比，来自对应接口 value / valueList / percent / rate 字段', { unit: '%' }),
   field('strategy', '提升策略', ['strategy', 'suggestion', 'imageList']),
 ];
 
@@ -491,10 +491,10 @@ const commentAggregateFields = [
   field('comment_good_rate', '点评好评率', ['goodRate'], '点评/评论好评率聚合值，不保存点评明文', { unit: '%' }),
   field('comment_response_rate', '点评回复率', ['responseRate'], '点评/评论回复率，不等同于 IM 5分钟回复率', { unit: '%' }),
   field('target_url', '点评跳转地址', ['jumpUrl'], '只保留平台点评页跳转地址，不保存点评明文'),
-  field('review_environment_score', '点评环境评分', ['ratingLocation', 'environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文', { unit: '分' }),
-  field('review_facility_score', '点评设施评分', ['ratingFacility', 'facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文', { unit: '分' }),
-  field('review_service_score', '点评服务评分', ['ratingService', 'reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用', { unit: '分' }),
-  field('review_cleanliness_score', '点评卫生评分', ['ratingRoom', 'cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文', { unit: '分' }),
+  field('review_environment_score', '点评环境评分', ['ratingLocation', 'environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文', { unit: '分' }),
+  field('review_facility_score', '点评设施评分', ['ratingFacility', 'facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文', { unit: '分' }),
+  field('review_service_score', '点评服务评分', ['ratingService', 'reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用', { unit: '分' }),
+  field('review_cleanliness_score', '点评卫生评分', ['ratingRoom', 'cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文', { unit: '分' }),
   field('review_photo_count', '带图点评数', ['hasPicCount', 'photoCommentCount', 'pictureCommentCount', 'imageCommentCount'], '带图点评数量；只保存聚合计数，不保存图片或点评明文'),
   field('review_photo_rate', '带图点评率', ['hasPicCount/commentCount'], '按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失', { unit: '%' }),
 ];
@@ -1486,11 +1486,16 @@ function filterCtripCatalogFieldsBySourceContext(fields, sourceKey, path = []) {
     result = result.filter((item) => !['comment_score', 'bad_review_count'].includes(String(item.id || '')));
   }
 
-  if (parentSegments.includes('subscores') && ['score', 'scoresimple'].includes(key)) {
-    result = result.filter((item) => !['comment_score', 'bad_review_count'].includes(String(item.id || '')));
+  if (
+    parentSegments.includes('subscores')
+    && ['score', 'scoresimple', 'commentcount', 'commentscore', 'badreviewcount'].includes(key)
+  ) {
+    result = result.filter((item) => !['comment_count', 'comment_score', 'bad_review_count'].includes(String(item.id || '')));
   }
 
-  const inHotelRatingAggregate = parentSegments.includes('ratinginfo') || parentSegments.includes('ctripratings');
+  const inHotelRatingAggregate = parentSegments.includes('ratinginfo')
+    || parentSegments.includes('ctripratings')
+    || parentSegments.includes('elongratings');
   if (inHotelRatingAggregate && ['ratingall', 'ratinglocation', 'ratingfacility', 'ratingservice', 'ratingroom'].includes(key)) {
     return result.filter((item) => ![
       'comment_score',
@@ -1799,6 +1804,7 @@ function extractHotelRatingFacts(node, path, fields, context, endpointInfo) {
   const roots = [
     ['ratingInfo', node.ratingInfo],
     ['ctripRatings', node.ctripRatings],
+    ['elongRatings', node.elongRatings],
     ['data', node.data],
     ['', node],
   ].filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value));
@@ -2165,12 +2171,13 @@ function isNameValueDistributionNode(node) {
     && typeof node === 'object'
     && !Array.isArray(node)
     && isScalar(node.name)
-    && isScalar(node.value)
+    && userDistributionShareKey(node)
   );
 }
 
 function extractUserTitleListDistributionFacts(node, path, fields, context, endpointInfo, options = {}) {
-  if (!node || typeof node !== 'object' || Array.isArray(node) || !Array.isArray(node.titleList) || !Array.isArray(node.valueList)) {
+  const shareList = userDistributionShareList(node);
+  if (!node || typeof node !== 'object' || Array.isArray(node) || !Array.isArray(node.titleList) || !shareList) {
     return [];
   }
 
@@ -2198,7 +2205,7 @@ function extractUserTitleListDistributionFacts(node, path, fields, context, endp
   }
 
   node.titleList.forEach((title, index) => {
-    const share = node.valueList[index];
+    const share = shareList.values[index];
     if (!isScalar(title) || !isScalar(share)) {
       return;
     }
@@ -2211,8 +2218,8 @@ function extractUserTitleListDistributionFacts(node, path, fields, context, endp
       dimensionSourceKey: 'titleList',
       dimensionSourcePath: [...path, 'titleList', String(index)],
       dimensionValue: title,
-      shareSourceKey: 'valueList',
-      shareSourcePath: [...path, 'valueList', String(index)],
+      shareSourceKey: shareList.key,
+      shareSourcePath: [...path, shareList.key, String(index)],
       shareValue: share,
     }));
   });
@@ -2257,6 +2264,7 @@ function extractUserSourceDistributionFacts(node, path, fields, context, endpoin
     return [];
   }
 
+  const shareKey = userDistributionShareKey(node);
   return buildUserDistributionFactPair({
     fields,
     context,
@@ -2265,9 +2273,33 @@ function extractUserSourceDistributionFacts(node, path, fields, context, endpoin
     dimensionFieldId: lastParent === 'cities' ? 'source_city' : 'source_region',
     dimensionSourceKey: 'name',
     dimensionValue: node.name,
-    shareSourceKey: 'value',
-    shareValue: node.value,
+    shareSourceKey: shareKey,
+    shareValue: node[shareKey],
   });
+}
+
+function userDistributionShareList(node) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    return null;
+  }
+  for (const key of ['valueList', 'percentList', 'rateList', 'ratioList', 'shareList', 'proportionList']) {
+    if (Array.isArray(node[key])) {
+      return { key, values: node[key] };
+    }
+  }
+  return null;
+}
+
+function userDistributionShareKey(node) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    return '';
+  }
+  for (const key of ['value', 'percent', 'rate', 'ratio', 'share', 'proportion']) {
+    if (isMeaningfulScalar(node[key])) {
+      return key;
+    }
+  }
+  return '';
 }
 
 function extractUserPointPreferenceFacts(node, path, fields, context, endpointInfo) {
@@ -2813,9 +2845,9 @@ function extractMetricPairFacts(node, path, fields, context) {
     return [];
   }
 
-  const valueKey = ['value', 'realValue', 'num', 'count', 'score', 'rate', 'myValue', 'yourValue', 'hotelValue', 'selfValue', 'currentValue', 'ownValue']
-    .find((key) => Object.prototype.hasOwnProperty.call(node, key));
-  if (!valueKey || !isScalar(node[valueKey])) {
+  const valueKey = metricPairValueKeys()
+    .find((key) => Object.prototype.hasOwnProperty.call(node, key) && isMeaningfulScalar(node[key]));
+  if (!valueKey) {
     return [];
   }
 
@@ -2828,28 +2860,33 @@ function extractMetricPairFacts(node, path, fields, context) {
     return [];
   }
 
-  const result = [{
-    platform: normalizeCtripCapturePlatform(context.platform),
-    section: context.section || context.endpoint?.section || '',
-    endpoint_id: context.endpoint?.id || '',
-    endpoint_label: context.endpoint?.label || '',
-    data_type: context.endpoint?.dataType || context.dataType || '',
-    metric_key: fieldInfo.id,
-    metric_label: fieldInfo.label,
-    metric_scope: fieldInfo.scope,
-    unit: fieldInfo.unit,
-    source_key: String(node.key || node.name || valueKey),
-    source_path: [...path, valueKey].join('.'),
-    source_parent_path: metricPairGroupPath(node, path),
-    value: normalizeFactValue(node[valueKey]),
-    value_type: typeof node[valueKey],
-    hotel_id: context.hotelId || '',
-    data_date: context.dataDate || '',
-    captured_at: context.capturedAt || '',
-    source_url: context.url || '',
-    metric_pair: true,
-    metric_pair_label: metricText,
-  }];
+  const result = [];
+  const resolvedValue = resolveMetricPairPrimaryValue(node, path, valueKey, fieldInfo);
+  if (resolvedValue) {
+    result.push({
+      platform: normalizeCtripCapturePlatform(context.platform),
+      section: context.section || context.endpoint?.section || '',
+      endpoint_id: context.endpoint?.id || '',
+      endpoint_label: context.endpoint?.label || '',
+      data_type: context.endpoint?.dataType || context.dataType || '',
+      metric_key: fieldInfo.id,
+      metric_label: fieldInfo.label,
+      metric_scope: fieldInfo.scope,
+      unit: fieldInfo.unit,
+      source_key: String(node.key || node.name || resolvedValue.sourceKey),
+      source_path: resolvedValue.sourcePath,
+      source_parent_path: metricPairGroupPath(node, path),
+      value: normalizeFactValue(resolvedValue.value),
+      value_type: resolvedValue.valueType,
+      hotel_id: context.hotelId || '',
+      data_date: context.dataDate || '',
+      captured_at: context.capturedAt || '',
+      source_url: context.url || '',
+      metric_pair: true,
+      metric_pair_label: metricText,
+      ...resolvedValue.meta,
+    });
+  }
 
   const comparisonFields = [
     ['competitor_average', ['competitorAvg', 'competitorAverage', 'competeAvg', 'competeAverage', 'peerAvg', 'peerAverage', 'avgValue', 'averageValue', 'circleAvg']],
@@ -2897,8 +2934,95 @@ function isMetricPairObject(node) {
     && typeof node === 'object'
     && !Array.isArray(node)
     && ['key', 'name', 'metric', 'title', 'label', 'remark', 'indexName', 'rankName'].some((key) => Object.prototype.hasOwnProperty.call(node, key))
-    && ['value', 'realValue', 'num', 'count', 'score', 'rate', 'myValue', 'yourValue', 'hotelValue', 'selfValue', 'currentValue', 'ownValue'].some((key) => Object.prototype.hasOwnProperty.call(node, key)),
+    && metricPairValueKeys().some((key) => Object.prototype.hasOwnProperty.call(node, key) && isMeaningfulScalar(node[key])),
   );
+}
+
+function isMeaningfulScalar(value) {
+  return isScalar(value) && value !== null && value !== '';
+}
+
+function metricPairValueKeys() {
+  return ['value', 'realValue', 'num', 'count', 'score', 'rate', 'myValue', 'yourValue', 'hotelValue', 'selfValue', 'currentValue', 'ownValue', 'percent'];
+}
+
+function resolveMetricPairPrimaryValue(node, path, valueKey, fieldInfo) {
+  if (valueKey !== 'percent' || isPercentMetricField(fieldInfo)) {
+    return {
+      sourceKey: valueKey,
+      sourcePath: [...path, valueKey].join('.'),
+      value: node[valueKey],
+      valueType: typeof node[valueKey],
+      meta: {},
+    };
+  }
+
+  const percent = normalizePercentNumber(numericFactValue(node[valueKey]));
+  const denominator = metricPairPercentDenominator(node);
+  if (percent === null || !denominator || denominator.value <= 0) {
+    return null;
+  }
+
+  return {
+    sourceKey: valueKey,
+    sourcePath: [...path, valueKey].join('.'),
+    value: Math.round(denominator.value * percent) / 100,
+    valueType: 'number',
+    meta: {
+      derived_from: 'percent_of_total',
+      derived_percent: percent,
+      derived_total: denominator.value,
+      denominator_source_key: denominator.key,
+      denominator_source_path: [...path, denominator.key].join('.'),
+    },
+  };
+}
+
+function isPercentMetricField(fieldInfo) {
+  const id = String(fieldInfo?.id || '').toLowerCase();
+  const unit = String(fieldInfo?.unit || '').trim();
+  return unit === '%'
+    || /(rate|ratio|percent|share|proportion)$/.test(id)
+    || /(rate|ratio|percent|share|proportion)/.test(id);
+}
+
+function metricPairPercentDenominator(node) {
+  for (const key of [
+    'total',
+    'totalValue',
+    'totalNum',
+    'totalCount',
+    'totalAmount',
+    'sum',
+    'sumValue',
+    'base',
+    'baseValue',
+    'baseCount',
+    'sampleSize',
+    'sampleCount',
+    'all',
+    'allValue',
+    'allCount',
+    'overall',
+    'overallValue',
+    'overallCount',
+  ]) {
+    if (!Object.prototype.hasOwnProperty.call(node, key)) {
+      continue;
+    }
+    const value = numericFactValue(node[key]);
+    if (value !== null && Number.isFinite(value)) {
+      return { key, value };
+    }
+  }
+  return null;
+}
+
+function normalizePercentNumber(number) {
+  if (number === null || !Number.isFinite(number) || number < 0) {
+    return null;
+  }
+  return number > 0 && number <= 1 ? Math.round(number * 10000) / 100 : Math.round(number * 100) / 100;
 }
 
 function metricPairField(fields, metricText) {

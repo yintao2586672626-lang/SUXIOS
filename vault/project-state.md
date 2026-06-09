@@ -29,6 +29,27 @@ Updated: 2026-06-07 Asia/Shanghai
 - Remaining Ctrip gaps must stay explicit; do not replace missing values with `0` or fallback success.
 - Every field must keep Ctrip OTA channel scope unless whole-hotel source evidence exists.
 
+## 2026-06-09 Save: Tiancheng Ctrip Patrol Report
+
+- User requested a Beijing-time patrol report for Tiancheng's Ctrip data and then requested project save.
+- Verified store match: `西安天诚`, `hotels.id = 58`.
+- Verified source tables used: `platform_data_sources` and `online_daily_data` in local MySQL database `hotelx`.
+- Verified Ctrip Profile source state for store `58`: source `10` succeeded at `2026-06-09 13:19:39`; source `12` succeeded at `2026-06-09 15:53:26`; disabled duplicate source `9` remains failed from `2026-06-03`.
+- Verified 2026-06-09 Ctrip-scope rows for store `58`: `1592` raw rows; after latest-snapshot dedupe by `source/platform/data_type/dimension/compare_type`, `361` metric rows.
+- Latest verified data window: snapshot max `2026-06-09 15:44:36`, update max `2026-06-09 15:53:26`.
+- Report boundary: Ctrip OTA channel scope only; do not treat these values as whole-hotel occupancy, ADR, RevPAR, or full-property revenue without PMS/CRS or full-hotel source evidence.
+- Worktree was already dirty before this save with unrelated/unowned modifications in 9 files; do not commit or revert them without explicit user instruction.
+
+## 2026-06-10 Save: Project Slimming and OTA Display Closure
+
+- User requested project slimming and GitHub submission.
+- Project slimming used the repo script `npm.cmd run slim:local` from the `HOTEL/` repo root.
+- Verified dry-run before cleanup: 22 local artifact targets, estimated reclaim `485.94 MB`, limited to ignored runtime/test/output/local Ctrip profile artifacts; dependencies were not included.
+- Verified cleanup result: 22 local artifact targets removed; follow-up `npm.cmd run slim:local:dry-run` reported `Target count: 0` and `Estimated reclaim: 0 MB`.
+- Verified submit scope before commit: 10 tracked files covering OTA data display, Ctrip field/catalog closure, Meituan percent-derived display metrics, field ledger checks, and related tests/state.
+- Pre-submit verification passed: `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:ctrip-capture-catalog`; `npm.cmd run verify:field-asset-ledger`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run review:non-security`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php` with 139 tests and 1649 assertions; PHP syntax checks for `app/controller/OnlineData.php` and `app/service/platform/CtripBrowserProfileDataSourceAdapter.php`.
+- Release boundary remains unchanged: this is a development save/sync, not a release-ready handoff; release readiness still requires production env evidence, LLM connectivity attestation, design handoff manifest, and OTA credential rotation attestation.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

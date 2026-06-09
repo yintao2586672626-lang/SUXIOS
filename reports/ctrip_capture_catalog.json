@@ -2109,7 +2109,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -2131,7 +2131,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -2154,7 +2154,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -2177,7 +2177,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -9484,9 +9484,10 @@
           "id": "distribution_share",
           "label": "分布占比",
           "sourceKeys": [
-            "distributionShare"
+            "distributionShare",
+            "percent"
           ],
-          "description": "用户行为分布图表占比，来自对应接口 value / valueList / rate 字段",
+          "description": "用户行为分布图表占比，来自对应接口 value / valueList / percent / rate 字段",
           "scope": "ota_channel",
           "unit": "%",
           "required": false,
@@ -21112,7 +21113,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21134,7 +21135,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21157,7 +21158,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21180,7 +21181,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21872,7 +21873,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21894,7 +21895,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21917,7 +21918,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21940,7 +21941,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22428,7 +22429,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22450,7 +22451,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22473,7 +22474,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22496,7 +22497,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22946,7 +22947,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22968,7 +22969,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22991,7 +22992,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -23014,7 +23015,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -25004,7 +25005,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -25026,7 +25027,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -25049,7 +25050,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -25072,7 +25073,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -27539,9 +27540,10 @@
           "id": "distribution_share",
           "label": "分布占比",
           "sourceKeys": [
-            "distributionShare"
+            "distributionShare",
+            "percent"
           ],
-          "description": "用户行为分布图表占比，来自对应接口 value / valueList / rate 字段",
+          "description": "用户行为分布图表占比，来自对应接口 value / valueList / percent / rate 字段",
           "scope": "ota_channel",
           "unit": "%",
           "required": false,
@@ -28127,9 +28129,10 @@
           "id": "distribution_share",
           "label": "分布占比",
           "sourceKeys": [
-            "distributionShare"
+            "distributionShare",
+            "percent"
           ],
-          "description": "用户行为分布图表占比，来自对应接口 value / valueList / rate 字段",
+          "description": "用户行为分布图表占比，来自对应接口 value / valueList / percent / rate 字段",
           "scope": "ota_channel",
           "unit": "%",
           "required": false,
@@ -32562,7 +32565,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -32584,7 +32587,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -32607,7 +32610,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -32630,7 +32633,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -33589,7 +33592,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -33611,7 +33614,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -33634,7 +33637,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -33657,7 +33660,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -34392,7 +34395,7 @@
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -34414,7 +34417,7 @@
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -34437,7 +34440,7 @@
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -34460,7 +34463,7 @@
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,

@@ -358,10 +358,10 @@
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | comment_unreply_count | 未回复点评数 | unReplyCount, unreplyCount, unRepliedCount, unrepliedCount | 只保存未回复点评聚合计数，不保存点评明文 |
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
@@ -822,7 +822,7 @@
 | order_hotel_count | 订购酒店次数 | userOrders, hotelOrderCount, orderHotelCount, orders | - |
 | order_preference | 订购偏好 | orderPreference | - |
 | preference_frequency | 偏好频次 | preferenceFrequency | - |
-| distribution_share | 分布占比 | distributionShare | 用户行为分布图表占比，来自对应接口 value / valueList / rate 字段 |
+| distribution_share | 分布占比 | distributionShare, percent | 用户行为分布图表占比，来自对应接口 value / valueList / percent / rate 字段 |
 | strategy | 提升策略 | strategy, suggestion, imageList | - |
 
 ### sales_market_detail
@@ -1583,10 +1583,10 @@
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | comment_unreply_count | 未回复点评数 | unReplyCount, unreplyCount, unRepliedCount, unrepliedCount | 只保存未回复点评聚合计数，不保存点评明文 |
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
@@ -1629,10 +1629,10 @@
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | comment_unreply_count | 未回复点评数 | unReplyCount, unreplyCount, unRepliedCount, unrepliedCount | 只保存未回复点评聚合计数，不保存点评明文 |
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
@@ -1664,10 +1664,10 @@
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | target_url | 点评跳转地址 | jumpUrl | 只保留平台点评页跳转地址，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 
@@ -1697,10 +1697,10 @@
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | target_url | 点评跳转地址 | jumpUrl | 只保留平台点评页跳转地址，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 
@@ -1828,10 +1828,10 @@
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | comment_unreply_count | 未回复点评数 | unReplyCount, unreplyCount, unRepliedCount, unrepliedCount | 只保存未回复点评聚合计数，不保存点评明文 |
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
@@ -1991,7 +1991,7 @@
 | order_hotel_count | 订购酒店次数 | userOrders, hotelOrderCount, orderHotelCount, orders | - |
 | order_preference | 订购偏好 | orderPreference | - |
 | preference_frequency | 偏好频次 | preferenceFrequency | - |
-| distribution_share | 分布占比 | distributionShare | 用户行为分布图表占比，来自对应接口 value / valueList / rate 字段 |
+| distribution_share | 分布占比 | distributionShare, percent | 用户行为分布图表占比，来自对应接口 value / valueList / percent / rate 字段 |
 | strategy | 提升策略 | strategy, suggestion, imageList | - |
 
 ### user_profile_dimensions
@@ -2027,7 +2027,7 @@
 | order_hotel_count | 订购酒店次数 | userOrders, hotelOrderCount, orderHotelCount, orders | - |
 | order_preference | 订购偏好 | orderPreference | - |
 | preference_frequency | 偏好频次 | preferenceFrequency | - |
-| distribution_share | 分布占比 | distributionShare | 用户行为分布图表占比，来自对应接口 value / valueList / rate 字段 |
+| distribution_share | 分布占比 | distributionShare, percent | 用户行为分布图表占比，来自对应接口 value / valueList / percent / rate 字段 |
 | strategy | 提升策略 | strategy, suggestion, imageList | - |
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
@@ -2347,10 +2347,10 @@
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | comment_unreply_count | 未回复点评数 | unReplyCount, unreplyCount, unRepliedCount, unrepliedCount | 只保存未回复点评聚合计数，不保存点评明文 |
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
@@ -2406,10 +2406,10 @@
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | comment_unreply_count | 未回复点评数 | unReplyCount, unreplyCount, unRepliedCount, unrepliedCount | 只保存未回复点评聚合计数，不保存点评明文 |
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |
@@ -2453,10 +2453,10 @@
 | comment_response_rate | 点评回复率 | responseRate | 点评/评论回复率，不等同于 IM 5分钟回复率 |
 | comment_unreply_count | 未回复点评数 | unReplyCount, unreplyCount, unRepliedCount, unrepliedCount | 只保存未回复点评聚合计数，不保存点评明文 |
 | comment_good_rate | 点评好评率 | goodRate | 点评/评论好评率聚合值，不保存点评明文 |
-| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文 |
-| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文 |
-| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用 |
-| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文 |
+| review_environment_score | 点评环境评分 | ratingLocation, environmentScore, envScore, surroundingScore, surroundingsScore, ambienceScore | 点评环境子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingLocation，不采集点评明文 |
+| review_facility_score | 点评设施评分 | ratingFacility, facilityScore, facilitiesScore, equipmentScore | 点评设施子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingFacility，不采集点评明文 |
+| review_service_score | 点评服务评分 | ratingService, reviewServiceScore, commentServiceScore, serviceRating, serviceCommentScore | 点评服务子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingService，不与 PSI service_score 混用 |
+| review_cleanliness_score | 点评卫生评分 | ratingRoom, cleanlinessScore, cleanScore, hygieneScore, sanitationScore | 点评卫生子评分；getHotelRating 取 ratingInfo/ctripRatings/elongRatings.ratingRoom，不采集点评明文 |
 | review_photo_count | 带图点评数 | hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount | 带图点评数量；只保存聚合计数，不保存图片或点评明文 |
 | review_photo_rate | 带图点评率 | hasPicCount/commentCount | 按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失 |
 | rating_competitor_total | 点评竞争圈酒店数 | competitorHotelTotal | - |

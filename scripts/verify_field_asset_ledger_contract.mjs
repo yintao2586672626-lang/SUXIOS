@@ -34,12 +34,12 @@ const profileFieldPanel = sliceBetween(
 );
 const profileFieldComputeds = sliceBetween(
   publicSource,
-  'const ctripProfileForbiddenFieldAssets = [',
-  'const filteredCtripProfileFields = computed'
+  'const ctripProfileForbiddenFieldKeys = new Set',
+  'const refreshSelectedCtripProfileSampleField'
 );
 const profileFieldFilterLogic = sliceBetween(
   publicSource,
-  'const filteredCtripProfileFields = computed',
+  'const ctripProfileFieldMatchesFilters = (field',
   'const platformAccountBindingStatusRows = computed'
 );
 const publicReturn = sliceBetween(
@@ -93,14 +93,18 @@ const checks = [
     pass: profileFieldPanel.includes('data-testid="ctrip-profile-field-asset-ledger"')
       && profileFieldPanel.includes('ctripProfileFieldAssetLedgerCards')
       && profileFieldPanel.includes('ctripProfileForbiddenFieldAssets')
-      && profileFieldComputeds.includes('未返回获取值')
-      && profileFieldComputeds.includes('启用字段暂无历史获取值，不等于未配置字段'),
+      && profileFieldPanel.includes('ctripProfileCaptureResultText')
+      && profileFieldComputeds.includes('应抓 ${ctripProfileEnabledFieldCount.value} / 抓到 ${ctripProfileEnabledSampledFieldCount.value} / 未返回 ${ctripProfileEnabledMissingFieldCount.value}')
+      && profileFieldComputeds.includes('未返回/失败')
+      && profileFieldComputeds.includes('当前展示启用字段暂无历史获取值，需区分接口未触发或字段未入库')
+      && profileFieldComputeds.includes('当前筛选 ${visible} / 配置表 ${total}'),
   },
   {
     name: 'profile field ledger keeps forbidden privacy fields explicit',
     pass: forbiddenFields.every((field) => profileFieldComputeds.includes(`key: '${field}'`))
-      && profileFieldComputeds.includes('ctripProfileNotReturnedFieldCount')
-      && profileFieldComputeds.includes('ctripProfileStableFieldCount')
+      && profileFieldComputeds.includes('isCtripProfileFieldCollectable')
+      && profileFieldComputeds.includes('ctripProfileNotReturnedVisibleFieldCount')
+      && profileFieldComputeds.includes('ctripProfileStableVisibleFieldCount')
       && profileFieldComputeds.includes('不进表'),
   },
   {
@@ -109,6 +113,14 @@ const checks = [
       && profileFieldFilterLogic.includes("filters.sample === 'not_returned'")
       && profileFieldFilterLogic.includes('isCtripProfileFieldEnabled(field)')
       && profileFieldFilterLogic.includes('!sampleText'),
+  },
+  {
+    name: 'profile field recheck includes enabled fields with no returned sample',
+    pass: publicSource.includes('重抓缺口/不符')
+      && publicSource.includes('!ctripProfileFieldSamplesLoaded')
+      && publicSource.includes('const noReturnedValue = ctripProfileFieldSamplesLoaded.value')
+      && publicSource.includes("String(field.latest_value || '').trim() === ''")
+      && publicReturn.includes('ctripProfileFieldRecheckTargetCount'),
   },
   {
     name: 'Meituan Profile placeholder no longer nudges order capture',
@@ -125,6 +137,8 @@ const checks = [
     name: 'new field asset ledger bindings are returned from setup',
     pass: publicReturn.includes('ctripProfileForbiddenFieldAssets')
       && publicReturn.includes('ctripProfileFieldAssetLedgerCards')
+      && publicReturn.includes('ctripProfileCaptureResultText')
+      && publicReturn.includes('ctripProfileEnabledMissingFieldCount')
       && publicSource.includes('collectionHealthFieldAssetCards, collectionHealthFieldAssetListText'),
   },
   {

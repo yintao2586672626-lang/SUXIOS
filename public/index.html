@@ -5394,7 +5394,7 @@
                             <div class="p-6">
                                 <!-- Tabs -->
                                 <div class="flex flex-wrap border-b mb-6">
-                                    <button @click="onlineDataTab = 'data-health'; loadDataHealthPanel()"
+                                    <button @click="onlineDataTab = 'data-health'; loadDataHealthPanel('light')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'data-health' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         门店数据总览
                                     </button>
@@ -5539,9 +5539,9 @@
                                             <div class="rounded-lg border border-gray-200 bg-white p-3">
                                                 <div class="flex items-center justify-between gap-2">
                                                     <div class="text-sm font-semibold text-gray-900">高风险后台动作</div>
-                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthHighRiskActionRows.some(row => row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthHighRiskActionRows.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ dataHealthHighRiskActionRows.length }} 项</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthPriorityClass(dataHealthHighRiskSummary.status)]">{{ dataHealthHighRiskSummary.text }}</span>
                                                 </div>
-                                                <div class="mt-2 text-xs text-gray-500 truncate" :title="dataHealthHighRiskActionRows[0]?.title || '暂无需复核动作'">{{ dataHealthHighRiskActionRows[0]?.title || '暂无需复核动作' }}</div>
+                                                <div class="mt-2 text-xs text-gray-500 truncate" :title="dataHealthHighRiskActionRows[0]?.title || dataHealthHighRiskSummary.detail">{{ dataHealthHighRiskActionRows[0]?.title || dataHealthHighRiskSummary.detail }}</div>
                                             </div>
                                         </div>
 
@@ -12483,7 +12483,7 @@
                             <div class="p-4 sm:p-6">
                                 <!-- Tabs -->
                                 <div class="flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-6">
-                                    <button @click="onlineDataTab = 'data-health'; loadDataHealthPanel()"
+                                    <button @click="onlineDataTab = 'data-health'; loadDataHealthPanel('light')"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data-health' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         酒店数据驾驶舱
                                     </button>
@@ -12523,7 +12523,7 @@
                                             </div>
                                         </div>
                                         <div class="flex flex-wrap gap-2">
-                                            <button @click="loadDataHealthPanel('light')" :disabled="hotelDashboardLoading || collectionReliabilityLoading"
+                                            <button @click="loadDataHealthPanel('light', { force: true })" :disabled="hotelDashboardLoading || collectionReliabilityLoading"
                                                 class="inline-flex items-center justify-center rounded-lg border border-white border-opacity-20 bg-white bg-opacity-10 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-400">
                                                 <i class="fas fa-sync-alt mr-1"></i>{{ hotelDashboardLoading || collectionReliabilityLoading ? '刷新中' : '轻量刷新' }}
                                             </button>
@@ -12631,12 +12631,13 @@
                                                         <h4 class="text-base font-semibold text-gray-900">后台高风险动作摘要</h4>
                                                         <div class="text-xs text-gray-500 mt-1">近 7 天配置变更、批量删除、自动抓取、Agent 执行</div>
                                                     </div>
-                                                    <span :class="['rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap', dataHealthHighRiskActionRows.some(row => row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthHighRiskActionRows.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">
-                                                        {{ dataHealthHighRiskActionRows.length }} 项
+                                                    <span :class="['rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap', dataHealthPriorityClass(dataHealthHighRiskSummary.status)]">
+                                                        {{ dataHealthHighRiskSummary.text }}
                                                     </span>
                                                 </div>
                                                 <div v-if="dataHealthOperationLogLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">高风险动作加载中...</div>
                                                 <div v-else-if="dataHealthOperationLogError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ dataHealthOperationLogError }}</div>
+                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看后台高风险动作摘要；未展示不代表暂无风险。</div>
                                                 <div v-else-if="dataHealthHighRiskActionRows.length" class="space-y-2 max-h-72 overflow-y-auto">
                                                     <div v-for="row in dataHealthHighRiskActionRows" :key="`${row.id}-${row.action}`" class="rounded-lg border border-gray-200 bg-gray-50 p-3">
                                                         <div class="flex items-start justify-between gap-3">
@@ -12649,7 +12650,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无需要重点复核的高风险动作</div>
+                                                <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">已加载近 7 天摘要，暂无需要重点复核的高风险动作。</div>
                                                 <div v-if="dataHealthOperationLogScope" class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
                                                     当前为摘要口径：近 {{ dataHealthOperationLogScope.scanned_count || 0 }} 条操作日志中命中 {{ dataHealthOperationLogScope.matched_count || 0 }} 条，高风险摘要最多扫描 {{ dataHealthOperationLogScope.scan_limit || 100 }} 条，不等同完整审计导出。
                                                 </div>
@@ -12667,11 +12668,12 @@
                                                         <div class="text-xs text-gray-500 mt-1">receive-cookies 与 cron-trigger 不走常规登录中间件，仅展示脱敏审计、限流和令牌配置状态。</div>
                                                     </div>
                                                     <span :class="['rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap', dataHealthPriorityClass(publicEndpointSecuritySummary.status)]">
-                                                        {{ dataHealthPriorityText(publicEndpointSecuritySummary.status) }}
+                                                        {{ publicEndpointSecuritySummary.text }}
                                                     </span>
                                                 </div>
                                                 <div v-if="publicEndpointSecurityLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">公开入口安全状态加载中...</div>
                                                 <div v-else-if="publicEndpointSecurityError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ publicEndpointSecurityError }}</div>
+                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看公开 OTA 入口安全摘要；未展示不代表暂无风险。</div>
                                                 <div v-else-if="publicEndpointSecurityRows.length" class="space-y-3">
                                                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -12705,7 +12707,7 @@
                                                         证据来自 operation_logs 中的公开入口失败审计；Cookie、token、Authorization、spidertoken、mtgsig 等敏感值只保留遮罩状态，不展示原文。
                                                     </div>
                                                 </div>
-                                                <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无公开入口安全审计数据</div>
+                                                <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">公开入口安全摘要尚未加载；请刷新数据健康页后再判断。</div>
                                             </div>
                                         </div>
 
@@ -13305,6 +13307,7 @@
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
                                                 <div class="text-xs text-gray-500">来自平台自动获取写入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前最多展示前 {{ onlineAnalysisPagination.page_size || 200 }} 条；收益分析不再拉取全量明细。</div>
+                                                <div v-if="onlineAnalysisQualitySummary" class="mt-1 text-xs text-amber-700">{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
                                                 <i :class="onlineAnalysisRowsLoading ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>刷新
@@ -13348,7 +13351,7 @@
                                             </table>
                                         </div>
                                         <div v-if="onlineAnalysisPagination.total > 0" class="px-4 py-3 border-t text-sm text-gray-500">
-                                            共 {{ onlineAnalysisPagination.total }} 条入库明细，当前展示 {{ onlineAnalysisRows.length }} 条
+                                            共 {{ onlineAnalysisPagination.total }} 条入库明细，当前展示 {{ onlineAnalysisRows.length }} 条；{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}
                                         </div>
                                     </div>
                                 </div>
@@ -15632,7 +15635,7 @@
                                             <div>
                                                 <h4 class="text-lg font-semibold text-gray-900">携程登录会话字段配置</h4>
                                                 <div class="text-xs text-gray-500 mt-1">
-                                                    配置 {{ ctripProfileFieldSummary.total || ctripProfileFields.length }} 个字段，已确认 {{ ctripProfileConfirmedFieldCount }} 个，存疑待修正 {{ ctripProfileDoubtfulFieldCount }} 个，启用 {{ ctripProfileFieldSummary.enabled || 0 }} 个；获取值 {{ ctripProfileFieldSampleLoading ? '加载中' : (ctripProfileFieldSamplesLoaded ? ctripProfileFieldSampledCount + ' 个字段' : '未加载，点击查看历史获取值') }}；人工核验 相符 {{ ctripProfileFieldSummary.sample_verification_counts?.matched || 0 }} / 不符 {{ ctripProfileFieldSummary.sample_verification_counts?.mismatched || 0 }} / 待核验 {{ ctripProfileFieldSummary.sample_verification_counts?.unverified || 0 }}；自动获取关键字段 {{ ctripProfileFieldSummary.auto_fetch_field_count || 0 }} 个，待同步 {{ ctripProfileFieldSummary.auto_fetch_missing_field_count || 0 }} 个，已跳过非关键字段 {{ ctripProfileFieldSummary.auto_fetch_skipped_field_count || 0 }} 个
+                                                    配置 {{ ctripProfileFieldSummary.total || ctripProfileFields.length }} 个字段，已确认 {{ ctripProfileConfirmedFieldCount }} 个，存疑待修正 {{ ctripProfileDoubtfulFieldCount }} 个；抓取结果 {{ ctripProfileCaptureResultText }}；历史有值 {{ ctripProfileFieldSampleLoading ? '加载中' : (ctripProfileFieldSamplesLoaded ? ctripProfileFieldSampledCount + ' 个字段' : '未加载') }}；人工核验 相符 {{ ctripProfileFieldSummary.sample_verification_counts?.matched || 0 }} / 不符 {{ ctripProfileFieldSummary.sample_verification_counts?.mismatched || 0 }} / 待核验 {{ ctripProfileFieldSummary.sample_verification_counts?.unverified || 0 }}；自动获取关键字段 {{ ctripProfileFieldSummary.auto_fetch_field_count || 0 }} 个，待同步 {{ ctripProfileFieldSummary.auto_fetch_missing_field_count || 0 }} 个，已跳过非关键字段 {{ ctripProfileFieldSummary.auto_fetch_skipped_field_count || 0 }} 个
                                                 </div>
                                             </div>
                                             <div class="flex flex-wrap gap-2">
@@ -15645,9 +15648,9 @@
                                                     <i class="fas fa-layer-group mr-1"></i>同步默认字段
                                                 </button>
                                                 <button type="button" @click="recheckCtripProfileMismatchedFields"
-                                                    :disabled="ctripProfileFieldRechecking || ctripProfileFieldLoading || ctripBrowserCaptureRunning || !((ctripProfileFieldSummary.sample_verification_counts?.mismatched || 0) + (ctripProfileFieldSummary.status_counts?.needs_parser || 0))"
+                                                    :disabled="ctripProfileFieldRechecking || ctripProfileFieldLoading || ctripProfileFieldSampleLoading || !ctripProfileFieldSamplesLoaded || ctripBrowserCaptureRunning || !ctripProfileFieldRecheckTargetCount"
                                                     class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
-                                                    <i :class="ctripProfileFieldRechecking ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripProfileFieldRechecking ? '重抓中...' : '重抓不符并二次确认' }}
+                                                    <i :class="ctripProfileFieldRechecking ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripProfileFieldRechecking ? '重抓中...' : '重抓缺口/不符' }}
                                                 </button>
                                                 <button type="button" @click="openCtripProfileFieldCreateForm"
                                                     class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
@@ -18924,10 +18927,31 @@
             });
             const editingCtripProfileFieldSamples = computed(() => ctripProfileFieldDisplaySampleItems(editingCtripProfileField.value));
             const selectedCtripProfileFieldSamples = computed(() => ctripProfileFieldDisplaySampleItems(selectedCtripProfileSampleField.value));
+            const ctripProfileForbiddenFieldKeys = new Set(['guest_phone', 'order_phone', 'room_status', 'room_source_mapping']);
+            const isCtripProfileFieldEnabled = (field) => field?.enabled !== false && Number(field?.enabled ?? 1) !== 0 && String(field?.enabled ?? '').toLowerCase() !== 'false';
+            const isCtripProfileFieldForbidden = (field) => (
+                ctripProfileForbiddenFieldKeys.has(String(field?.field_key || field?.field || '').trim())
+                || String(field?.asset_status || '').trim() === 'forbidden'
+                || String(field?.storage_table || '').trim() === 'not_collected'
+            );
+            const isCtripProfileFieldCollectable = (field) => isCtripProfileFieldEnabled(field) && !isCtripProfileFieldForbidden(field);
             const ctripProfileFieldSampledCount = computed(() => {
                 const value = Number(ctripProfileFieldSummary.value?.sampled_field_count ?? NaN);
                 if (Number.isFinite(value)) return value;
                 return ctripProfileFields.value.filter(field => ctripProfileFieldSampleText(field)).length;
+            });
+            const ctripProfileEnabledFieldCount = computed(() => ctripProfileFields.value.filter(isCtripProfileFieldCollectable).length);
+            const ctripProfileEnabledSampledFieldCount = computed(() => (
+                ctripProfileFields.value.filter(field => isCtripProfileFieldCollectable(field) && ctripProfileFieldSampleText(field)).length
+            ));
+            const ctripProfileEnabledMissingFieldCount = computed(() => {
+                if (!ctripProfileFieldSamplesLoaded.value) return null;
+                return Math.max(0, ctripProfileEnabledFieldCount.value - ctripProfileEnabledSampledFieldCount.value);
+            });
+            const ctripProfileCaptureResultText = computed(() => {
+                if (ctripProfileFieldSampleLoading.value) return '加载中';
+                if (!ctripProfileFieldSamplesLoaded.value) return `应抓 ${ctripProfileEnabledFieldCount.value} / 抓到未加载 / 未返回未加载`;
+                return `应抓 ${ctripProfileEnabledFieldCount.value} / 抓到 ${ctripProfileEnabledSampledFieldCount.value} / 未返回 ${ctripProfileEnabledMissingFieldCount.value}`;
             });
             const ctripProfileFieldCurrentBatchSampledCount = computed(() => (
                 ctripProfileFields.value.filter(field => ctripProfileFieldLatestBatchSampleItems(field).length > 0).length
@@ -18949,39 +18973,100 @@
                 { key: 'room_status', label: '房态明细' },
                 { key: 'room_source_mapping', label: '房源映射' },
             ];
-            const ctripProfileStableFieldCount = computed(() => ctripProfileFields.value.filter(field => (
+            const ctripProfileFieldMatchesFilters = (field, filters = ctripProfileFieldFilters.value) => {
+                const keyword = String(filters.keyword || '').trim().toLowerCase();
+                if (filters.section && String(field.section || '') !== filters.section) return false;
+                if (filters.status && String(field.status || '') !== filters.status) return false;
+                if (filters.enabled === 'enabled' && !isCtripProfileFieldEnabled(field)) return false;
+                if (filters.enabled === 'disabled' && isCtripProfileFieldEnabled(field)) return false;
+                const sampleText = ctripProfileFieldSampleText(field);
+                if (filters.sample === 'with_sample' && !sampleText) return false;
+                if (filters.sample === 'not_returned' && (!isCtripProfileFieldCollectable(field) || sampleText)) return false;
+                if (filters.sample === 'without_sample' && sampleText) return false;
+                if (!keyword) return true;
+                return [
+                    field.field_key,
+                    field.field_name,
+                    ctripProfileCaptureSectionText(field.section),
+                    field.page_location,
+                    field.target_field,
+                    field.target_value,
+                    field.value_meaning,
+                    field.source_interface,
+                    field.source_keys,
+                    field.page_url,
+                    field.request_url,
+                    field.json_path,
+                    field.ownership_rule,
+                    field.storage_field,
+                    field.value_type,
+                    field.unit,
+                    field.transform_rule,
+                    field.notes,
+                    sampleText,
+                    field.latest_sample_note,
+                ].some(item => String(item || '').toLowerCase().includes(keyword));
+            };
+            const filteredCtripProfileFields = computed(() => ctripProfileFields.value.filter(field => ctripProfileFieldMatchesFilters(field)));
+            const ctripProfileFieldVisibleCount = computed(() => filteredCtripProfileFields.value.length);
+            const ctripProfileFieldTotalCount = computed(() => ctripProfileFields.value.length);
+            const ctripProfileEnabledVisibleFieldCount = computed(() => filteredCtripProfileFields.value.filter(isCtripProfileFieldCollectable).length);
+            const ctripProfileSampledVisibleFieldCount = computed(() => (
+                filteredCtripProfileFields.value.filter(field => isCtripProfileFieldCollectable(field) && ctripProfileFieldSampleText(field)).length
+            ));
+            const ctripProfileFieldVisibleDetail = computed(() => {
+                const visible = ctripProfileFieldVisibleCount.value;
+                const total = ctripProfileFieldTotalCount.value;
+                return visible === total ? '只放已定义标准字段' : `当前筛选 ${visible} / 配置表 ${total}`;
+            });
+            const ctripProfileStableVisibleFieldCount = computed(() => filteredCtripProfileFields.value.filter(field => (
                 String(field.status || '').trim() === 'confirmed'
                 || normalizeCtripProfileFieldVerificationStatus(field.sample_verification_status) === 'matched'
             )).length);
-            const isCtripProfileFieldEnabled = (field) => field?.enabled !== false && Number(field?.enabled ?? 1) !== 0 && String(field?.enabled ?? '').toLowerCase() !== 'false';
-            const ctripProfileNotReturnedFieldCount = computed(() => {
+            const ctripProfileNotReturnedVisibleFieldCount = computed(() => {
                 if (!ctripProfileFieldSamplesLoaded.value) return null;
-                return ctripProfileFields.value.filter(field => isCtripProfileFieldEnabled(field) && !ctripProfileFieldSampleText(field)).length;
+                return Math.max(0, ctripProfileEnabledVisibleFieldCount.value - ctripProfileSampledVisibleFieldCount.value);
             });
             const ctripProfileFieldAssetLedgerCards = computed(() => ([
                 {
                     key: 'standard',
                     label: '标准字段',
-                    value: ctripProfileFieldSummary.value?.total || ctripProfileFields.value.length,
-                    badge: '配置表',
+                    value: ctripProfileFieldVisibleCount.value,
+                    badge: ctripProfileFieldVisibleCount.value === ctripProfileFieldTotalCount.value ? '配置表' : '当前展示',
                     className: 'bg-slate-100 text-slate-700',
-                    detail: '只放已定义标准字段',
+                    detail: ctripProfileFieldVisibleDetail.value,
+                },
+                {
+                    key: 'capture_target',
+                    label: '应抓字段',
+                    value: ctripProfileEnabledVisibleFieldCount.value,
+                    badge: '启用',
+                    className: 'bg-blue-100 text-blue-700',
+                    detail: '当前展示中启用且非禁止采集的字段',
+                },
+                {
+                    key: 'capture_success',
+                    label: '已抓到',
+                    value: ctripProfileFieldSampleLoading.value ? '加载中' : (ctripProfileFieldSamplesLoaded.value ? ctripProfileSampledVisibleFieldCount.value : '未加载'),
+                    badge: '有值',
+                    className: ctripProfileFieldSamplesLoaded.value ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600',
+                    detail: '当前展示启用字段已有历史获取值',
                 },
                 {
                     key: 'stable',
                     label: '稳定字段',
-                    value: ctripProfileStableFieldCount.value,
+                    value: ctripProfileStableVisibleFieldCount.value,
                     badge: '已确认',
                     className: 'bg-emerald-100 text-emerald-700',
-                    detail: '字段已确认或样例相符',
+                    detail: '当前展示字段已确认或样例相符',
                 },
                 {
                     key: 'not_returned',
-                    label: '未返回获取值',
-                    value: ctripProfileFieldSampleLoading.value ? '加载中' : (ctripProfileFieldSamplesLoaded.value ? ctripProfileNotReturnedFieldCount.value : '未加载'),
-                    badge: ctripProfileFieldSamplesLoaded.value ? '保留缺口' : '待加载',
+                    label: '未返回/失败',
+                    value: ctripProfileFieldSampleLoading.value ? '加载中' : (ctripProfileFieldSamplesLoaded.value ? ctripProfileNotReturnedVisibleFieldCount.value : '未加载'),
+                    badge: ctripProfileFieldSamplesLoaded.value ? '需复核' : '待加载',
                     className: ctripProfileFieldSamplesLoaded.value ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600',
-                    detail: '启用字段暂无历史获取值，不等于未配置字段',
+                    detail: '当前展示启用字段暂无历史获取值，需区分接口未触发或字段未入库',
                 },
                 {
                     key: 'forbidden',
@@ -18992,43 +19077,6 @@
                     detail: '手机号、房态、房源映射不进表',
                 },
             ]));
-            const filteredCtripProfileFields = computed(() => {
-                const filters = ctripProfileFieldFilters.value;
-                const keyword = String(filters.keyword || '').trim().toLowerCase();
-                return ctripProfileFields.value.filter(field => {
-                    if (filters.section && String(field.section || '') !== filters.section) return false;
-                    if (filters.status && String(field.status || '') !== filters.status) return false;
-                    if (filters.enabled === 'enabled' && !isCtripProfileFieldEnabled(field)) return false;
-                    if (filters.enabled === 'disabled' && isCtripProfileFieldEnabled(field)) return false;
-                    const sampleText = ctripProfileFieldSampleText(field);
-                    if (filters.sample === 'with_sample' && !sampleText) return false;
-                    if (filters.sample === 'not_returned' && (!isCtripProfileFieldEnabled(field) || sampleText)) return false;
-                    if (filters.sample === 'without_sample' && sampleText) return false;
-                    if (!keyword) return true;
-                    return [
-                        field.field_key,
-                        field.field_name,
-                        ctripProfileCaptureSectionText(field.section),
-                        field.page_location,
-                        field.target_field,
-                        field.target_value,
-                        field.value_meaning,
-                        field.source_interface,
-                        field.source_keys,
-                        field.page_url,
-                        field.request_url,
-                        field.json_path,
-                        field.ownership_rule,
-                        field.storage_field,
-                        field.value_type,
-                        field.unit,
-                        field.transform_rule,
-                        field.notes,
-                        sampleText,
-                        field.latest_sample_note,
-                    ].some(item => String(item || '').toLowerCase().includes(keyword));
-                });
-            });
             const refreshSelectedCtripProfileSampleField = () => {
                 const selectedId = String(selectedCtripProfileSampleField.value?.id || '');
                 if (!selectedId) return;
@@ -20224,6 +20272,17 @@
                 const prompts = quality?.prompts || quality?.top_prompts || [];
                 return Array.isArray(prompts) ? prompts.filter(Boolean).slice(0, limit) : [];
             };
+            const onlineDataQualityScopeText = (quality) => {
+                if (!quality) return '质量摘要未加载。';
+                const scope = quality.calculation_scope || 'selected_rows';
+                const sampleSize = Number(quality.sample_size ?? quality.checked_records ?? 0);
+                const totalRecords = Number(quality.total_records ?? sampleSize);
+                const page = Number(quality.page || 1);
+                if (scope === 'current_page') {
+                    return `质量摘要仅统计当前第 ${page} 页 ${sampleSize} 条样本，筛选范围共 ${totalRecords} 条，不是全量质量结论。`;
+                }
+                return `质量摘要统计已加载样本 ${sampleSize} 条。`;
+            };
             const autoFetchRecordStatusClass = (status) => {
                 if (status === 'success') return 'bg-green-100 text-green-700';
                 if (status === 'skipped') return 'bg-gray-200 text-gray-600';
@@ -20461,15 +20520,53 @@
                 })
                 .filter(row => row.priority !== 'low')
                 .slice(0, 8));
+            const dataHealthHighRiskSummary = computed(() => {
+                if (!user.value?.is_super_admin) {
+                    return {
+                        status: 'unknown',
+                        text: '无权限',
+                        detail: '当前账号无权查看后台高风险动作摘要；未展示不代表暂无风险。',
+                    };
+                }
+                if (dataHealthOperationLogLoading.value) {
+                    return { status: 'unknown', text: '加载中', detail: '高风险动作摘要正在加载。' };
+                }
+                if (dataHealthOperationLogError.value) {
+                    return { status: 'high', text: '加载失败', detail: dataHealthOperationLogError.value };
+                }
+                const rows = dataHealthHighRiskActionRows.value;
+                const hasHigh = rows.some(row => row.priority === 'high');
+                return {
+                    status: hasHigh ? 'high' : (rows.length ? 'medium' : 'ok'),
+                    text: rows.length ? `${rows.length} 项` : '暂无风险',
+                    detail: rows.length ? `${rows.length} 项高风险后台动作待复核` : '已加载近 7 天摘要，暂无需要重点复核的高风险动作。',
+                };
+            });
             const publicEndpointSecurityRows = computed(() => Array.isArray(publicEndpointSecurity.value?.endpoints) ? publicEndpointSecurity.value.endpoints : []);
             const publicEndpointSecuritySummary = computed(() => {
+                if (!user.value?.is_super_admin) {
+                    return { status: 'unknown', text: '无权限', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+                }
+                if (publicEndpointSecurityLoading.value) {
+                    return { status: 'unknown', text: '加载中', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+                }
+                if (publicEndpointSecurityError.value) {
+                    return { status: 'high', text: '加载失败', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+                }
+                if (!publicEndpointSecurity.value) {
+                    return { status: 'unknown', text: '未加载', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+                }
                 const rows = publicEndpointSecurityRows.value;
+                if (!rows.length) {
+                    return { status: 'unknown', text: '未加载', failureCount: 0, rateLimitedCount: 0, period: publicEndpointSecurity.value?.period || {}, scanScope: publicEndpointSecurity.value?.scan_scope || {} };
+                }
                 const failureCount = rows.reduce((sum, row) => sum + Number(row?.recent_failure_count || 0), 0);
                 const rateLimitedCount = rows.reduce((sum, row) => sum + Number(row?.rate_limited_count || 0), 0);
                 const cron = rows.find(row => row?.endpoint === 'cron_trigger') || {};
                 const status = cron.token_configured === false ? 'high' : (failureCount > 0 ? 'medium' : 'ok');
                 return {
                     status,
+                    text: status === 'high' ? '需处理' : (status === 'medium' ? '有失败' : '暂无风险'),
                     failureCount,
                     rateLimitedCount,
                     period: publicEndpointSecurity.value?.period || {},
@@ -20818,7 +20915,7 @@
                 try {
                     const jobs = [loadBackendGlobalNotifications()];
                     if (!options.backendOnly) {
-                        jobs.push(loadDataHealthPanel());
+                        jobs.push(loadDataHealthPanel('light'));
                     }
                     const results = await Promise.allSettled(jobs);
                     const failed = results.find(item => item.status === 'rejected');
@@ -20854,7 +20951,7 @@
                     if (item.target_page === 'operation-logs' && typeof reloadOperationLogs === 'function') {
                         reloadOperationLogs();
                     } else if (item.target_page === 'online-data' || item.target_page === 'ctrip-ebooking') {
-                        loadDataHealthPanel();
+                        loadDataHealthPanel('light');
                     }
                 });
             };
@@ -21997,7 +22094,17 @@
             let homeTrendChart = null;
             let homeTrendRequestId = 0;
             let homeTrendChartRenderQueued = false;
+            const destroyHomeTrendChart = () => {
+                if (homeTrendChart) {
+                    homeTrendChart.destroy();
+                    homeTrendChart = null;
+                }
+            };
             const scheduleHomeTrendChartRender = (retryCount = 0) => {
+                if (currentPage.value !== 'compass') {
+                    destroyHomeTrendChart();
+                    return;
+                }
                 if (homeTrendChartRenderQueued && retryCount === 0) return;
                 homeTrendChartRenderQueued = true;
                 deferFrameTask(() => {
@@ -23404,6 +23511,7 @@
             const onlineAnalysisError = ref('');
             const onlineAnalysisPageSize = 200;
             const onlineAnalysisPagination = ref({ total: 0, page: 1, page_size: onlineAnalysisPageSize });
+            const onlineAnalysisQualitySummary = ref(null);
             const onlineAnalysisSourceRecord = ref(null);
             const onlineAnalysisLoading = computed(() => onlineAnalysisRowsLoading.value);
             const onlineAnalysisSourceText = (source) => {
@@ -23505,7 +23613,17 @@
             ]);
             let analysisChart = null;
             let analysisChartRenderQueued = false;
+            const destroyAnalysisChart = () => {
+                if (analysisChart) {
+                    analysisChart.destroy();
+                    analysisChart = null;
+                }
+            };
             const scheduleAnalysisChartRender = (retryCount = 0) => {
+                if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'analysis') {
+                    destroyAnalysisChart();
+                    return;
+                }
                 if (analysisChartRenderQueued && retryCount === 0) return;
                 analysisChartRenderQueued = true;
                 deferFrameTask(() => {
@@ -23564,11 +23682,16 @@
                     return;
                 }
                 const canvas = document.getElementById('analysisChart');
-                if (!canvas || !analysisData.value.chart_data) return;
+                if (!canvas || !analysisData.value.chart_data) {
+                    destroyAnalysisChart();
+                    return;
+                }
 
                 // 确保canvas在DOM中且可见
-                if (!document.body.contains(canvas)) return;
-                if (canvas.offsetParent === null) return; // 元素不可见
+                if (!document.body.contains(canvas) || canvas.offsetParent === null) {
+                    destroyAnalysisChart();
+                    return;
+                }
 
                 try {
                     if (analysisChart) {
@@ -24442,14 +24565,17 @@
                     if (res.code === 200) {
                         onlineAnalysisRows.value = res.data?.list || [];
                         onlineAnalysisPagination.value = res.data?.pagination || { total: onlineAnalysisRows.value.length, page: 1, page_size: onlineAnalysisPageSize };
+                        onlineAnalysisQualitySummary.value = res.data?.data_quality_summary || null;
                         onlineAnalysisError.value = '';
                     } else {
                         onlineAnalysisRows.value = [];
+                        onlineAnalysisQualitySummary.value = null;
                         onlineAnalysisError.value = res.message || '入库明细加载失败';
                     }
                 } catch (error) {
                     console.error('加载入库明细失败:', error);
                     onlineAnalysisRows.value = [];
+                    onlineAnalysisQualitySummary.value = null;
                     onlineAnalysisError.value = '入库明细加载失败';
                 } finally {
                     onlineAnalysisRowsLoading.value = false;
@@ -25046,7 +25172,7 @@
                 }
             };
 
-            const loadCollectionReliability = async () => {
+            const loadCollectionReliability = async (mode = 'light') => {
                 const requestSeq = ++collectionReliabilityRequestSeq;
                 collectionReliabilityLoading.value = true;
                 collectionReliabilityError.value = '';
@@ -25057,6 +25183,7 @@
                         params.append('hotel_id', hotelId);
                     }
                     params.append('days', '30');
+                    params.append('mode', mode === 'full' ? 'full' : 'light');
                     const query = params.toString();
                     const res = await request(`/online-data/collection-reliability${query ? '?' + query : ''}`);
                     if (requestSeq !== collectionReliabilityRequestSeq || String(hotelId || '') !== String(getAutoFetchHotelId() || '')) {
@@ -25184,10 +25311,48 @@
                 }
             };
 
-            const loadDataHealthPanel = async (mode = 'light') => {
+            const DATA_HEALTH_LIGHT_CACHE_TTL_MS = 45000;
+            let dataHealthLightCache = {
+                key: '',
+                expiresAt: 0,
+                promise: null,
+            };
+
+            const resetDataHealthLightCache = () => {
+                dataHealthLightCache = {
+                    key: '',
+                    expiresAt: 0,
+                    promise: null,
+                };
+            };
+
+            const dataHealthLightCacheKey = (hotelId) => [
+                String(hotelId || ''),
+                String(user.value?.id || ''),
+                user.value?.is_super_admin ? 'super' : 'normal',
+            ].join('|');
+
+            const loadDataHealthPanel = async (mode = 'light', options = {}) => {
+                const normalizedMode = mode === 'full' ? 'full' : 'light';
+                const force = !!options.force || normalizedMode === 'full';
                 await syncCtripOverviewTargetHotel({ loadConfig: false });
                 const currentHotelId = String(getAutoFetchHotelId() || '');
-                if (mode !== 'full') {
+                const cacheKey = dataHealthLightCacheKey(currentHotelId);
+                if (normalizedMode === 'light' && !force) {
+                    const now = Date.now();
+                    if (dataHealthLightCache.key === cacheKey) {
+                        if (dataHealthLightCache.promise) {
+                            return dataHealthLightCache.promise;
+                        }
+                        if (dataHealthLightCache.expiresAt > now) {
+                            return;
+                        }
+                    }
+                }
+                if (force) {
+                    resetDataHealthLightCache();
+                }
+                if (normalizedMode !== 'full') {
                     hotelDashboardError.value = '';
                     if (dataHealthFullDiagnosticsHotelId.value !== currentHotelId) {
                         dataHealthFullDiagnosticsLoaded.value = false;
@@ -25196,14 +25361,27 @@
                 const jobs = [
                     loadAutoFetchStatus(),
                     loadCookieStatus(),
-                    loadCollectionReliability(),
+                    loadCollectionReliability(normalizedMode),
                     loadDataHealthOperationLogs(),
                     loadPublicEndpointSecurity(),
                 ];
-                if (mode === 'full') {
+                if (normalizedMode === 'full') {
                     jobs.push(loadHotelDataDashboard(), loadPlatformCollectionResources());
                 }
-                await Promise.allSettled(jobs);
+                const run = Promise.allSettled(jobs).finally(() => {
+                    if (normalizedMode === 'light' && dataHealthLightCache.key === cacheKey && dataHealthLightCache.promise === run) {
+                        dataHealthLightCache.promise = null;
+                        dataHealthLightCache.expiresAt = Date.now() + DATA_HEALTH_LIGHT_CACHE_TTL_MS;
+                    }
+                });
+                if (normalizedMode === 'light') {
+                    dataHealthLightCache = {
+                        key: cacheKey,
+                        expiresAt: Date.now() + DATA_HEALTH_LIGHT_CACHE_TTL_MS,
+                        promise: run,
+                    };
+                }
+                await run;
             };
 
             // 手动触发自动获取
@@ -25371,103 +25549,175 @@
                 showToast('Cookie脚本已复制，请到携程页面控制台粘贴执行');
             };
 
+            const PAGE_LOAD_DEDUP_MS = 2000;
+            let lastLoadedPage = '';
+            let lastLoadedPageAt = 0;
+            let suppressNextDataHealthTabLoad = false;
+            const pageLoadRequests = new Map();
+
+            const runPageLoadOnce = (page, loadingKey, task, options = {}) => {
+                const key = `${page}:${loadingKey}`;
+                const now = Date.now();
+                const ttl = Number(options.ttlMs ?? PAGE_LOAD_DEDUP_MS);
+                const current = pageLoadRequests.get(key);
+                if (!options.force && current?.promise) {
+                    return current.promise;
+                }
+                if (!options.force && lastLoadedPage === key && now - lastLoadedPageAt < ttl) {
+                    return Promise.resolve();
+                }
+                if (!options.force && current?.loadedAt && now - current.loadedAt < ttl) {
+                    return Promise.resolve();
+                }
+                const promise = Promise.resolve()
+                    .then(task)
+                    .catch((error) => {
+                        console.error('页面加载失败:', key, error);
+                    })
+                    .finally(() => {
+                        lastLoadedPage = key;
+                        lastLoadedPageAt = Date.now();
+                        pageLoadRequests.set(key, { loadedAt: lastLoadedPageAt, promise: null });
+                    });
+                pageLoadRequests.set(key, { loadedAt: current?.loadedAt || 0, promise });
+                return promise;
+            };
+
+            const setOnlineDataTabFromPage = (tab) => {
+                if (onlineDataTab.value === tab) return false;
+                if (tab === 'data-health') {
+                    suppressNextDataHealthTabLoad = true;
+                }
+                onlineDataTab.value = tab;
+                return true;
+            };
+
             // 监听页面切换
             watch(currentPage, (newPage) => {
                 scheduleTestIdRefresh();
                 startPageControlTestIdObserver();
+                if (newPage !== 'compass') {
+                    destroyHomeTrendChart();
+                }
+                if (newPage !== 'online-data') {
+                    destroyAnalysisChart();
+                }
                 if (newPage === 'compass') {
-                    loadCompassData();
+                    runPageLoadOnce(newPage, 'main', () => loadCompassData());
                 }
                 if (newPage === 'ctrip-ebooking') {
-                    onlineDataTab.value = 'data-health';
-                    loadOnlineDataHotelList();
-                    loadCtripConfigList().then(() => loadLatestCtripData({ silent: true }));
-                    loadDataHealthPanel();
+                    setOnlineDataTabFromPage('data-health');
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        loadOnlineDataHotelList(),
+                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),
+                        loadDataHealthPanel('light'),
+                    ]));
                 }
                 if (newPage === 'meituan-ebooking') {
                     onlineDataTab.value = 'meituan-ranking';
-                    loadMeituanConfig();
-                    loadOnlineDataHotelList();
-                    loadMeituanConfigList();
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        loadMeituanConfig(),
+                        loadOnlineDataHotelList(),
+                        loadMeituanConfigList(),
+                    ]));
                 }
                 if (newPage === 'hotels') {
-                    ensureHotelOtaConfigLists();
-                    loadCompetitorSummary();
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        ensureHotelOtaConfigLists(),
+                        loadCompetitorSummary(),
+                    ]));
                 }
                 if (newPage === 'online-data' && token.value) {
-                    onlineDataTab.value = 'data-health';
+                    setOnlineDataTabFromPage('data-health');
                     // 延迟加载，确保页面渲染完成
                     setTimeout(() => {
-                        loadOnlineDataHotelList();
-                        loadAutoFetchPanel();
-                        loadDataHealthPanel();
+                        runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                            loadOnlineDataHotelList(),
+                            loadAutoFetchPanel(),
+                            loadDataHealthPanel('light'),
+                        ]));
                     }, 100);
                 }
                 if (newPage === 'operation-logs') {
-                    loadOperationLogs();
+                    runPageLoadOnce(newPage, 'main', () => loadOperationLogs());
                 }
                 if (['ai-model-config', 'agent-center', 'asset-pricing', 'knowledge-center'].includes(newPage)) {
-                    loadAiModelConfigs();
+                    runPageLoadOnce(newPage, 'ai-model-configs', () => loadAiModelConfigs());
                 }
                 if (newPage === 'ai-governance') {
-                    loadAiGovernance();
+                    runPageLoadOnce(newPage, 'main', () => loadAiGovernance());
                 }
                 if (newPage === 'knowledge-center') {
-                    loadKnowledgeCenter();
-                    if (!hotels.value.length) {
-                        loadHotels();
-                    }
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        loadKnowledgeCenter(),
+                        !hotels.value.length ? loadHotels() : Promise.resolve(),
+                    ]));
                 }
                 if (newPage === 'agent-center') {
-                    loadCtripConfigList();
-                    loadMeituanConfigList();
-                    loadOnlineDataHotelList();
+                    runPageLoadOnce(newPage, 'platform-configs', () => Promise.allSettled([
+                        loadCtripConfigList(),
+                        loadMeituanConfigList(),
+                        loadOnlineDataHotelList(),
+                    ]));
                 }
                 if (newPage === 'lifecycle') {
-                    loadLifecycleOverview();
+                    runPageLoadOnce(newPage, 'main', () => loadLifecycleOverview());
                 }
                 if (newPage === 'ai-strategy') {
-                    if (!aiStrategyResult.value) handleStrategy();
-                    loadStrategyRecords();
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        !aiStrategyResult.value ? handleStrategy() : Promise.resolve(),
+                        loadStrategyRecords(),
+                    ]));
                 }
                 if (newPage === 'ai-simulation') {
-                    if (!aiSimulationResult.value) refreshSimulationState(true);
-                    loadSimulationRecords();
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        !aiSimulationResult.value ? refreshSimulationState(true) : Promise.resolve(),
+                        loadSimulationRecords(),
+                    ]));
                 }
                 if (newPage === 'ai-feasibility') {
-                    loadFeasibilityRecords();
+                    runPageLoadOnce(newPage, 'main', () => loadFeasibilityRecords());
                 }
                 if (newPage === 'opening-overview' || newPage === 'opening-checklist') {
                     localStorage.setItem('openingCurrentPage', newPage);
-                    if (openingProjects.value.length === 0) loadOpeningProjects();
-                    if (newPage === 'opening-overview' && selectedOpeningProjectId.value) loadOpeningOverview();
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        openingProjects.value.length === 0 ? loadOpeningProjects() : Promise.resolve(),
+                        newPage === 'opening-overview' && selectedOpeningProjectId.value ? loadOpeningOverview() : Promise.resolve(),
+                    ]));
                 }
-                if (newPage === 'ops-source') loadOperationFullData();
-                if (newPage === 'ops-insight') loadOperationAlerts();
+                if (newPage === 'ops-source') runPageLoadOnce(newPage, 'main', () => loadOperationFullData());
+                if (newPage === 'ops-insight') runPageLoadOnce(newPage, 'main', () => loadOperationAlerts());
                 if (newPage === 'ai-daily-report') {
-                    loadAiDailyReport();
+                    runPageLoadOnce(newPage, 'main', () => loadAiDailyReport());
                 }
                 if (newPage === 'ops-track') {
-                    loadOperationActions();
-                    loadAiDailyReport();
+                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
+                        loadOperationActions(),
+                        loadAiDailyReport(),
+                    ]));
                 }
             });
 
             watch(isLoggedIn, (loggedIn) => {
                 if (loggedIn) {
                     startPageControlTestIdObserver();
-                } else if (pageControlTestIdObserver) {
-                    pageControlTestIdObserver.disconnect();
-                    pageControlTestIdObserver = null;
-                    pageControlTestIdObserverRoot = null;
+                } else {
+                    stopPageControlTestIdObserver();
                 }
             });
 
             // 监听数据记录标签页切换（添加防抖）
             let dataLoadTimer = null;
             watch(onlineDataTab, (newTab) => {
+                if (newTab !== 'analysis') {
+                    destroyAnalysisChart();
+                }
                 if (newTab === 'data-health') {
-                    loadDataHealthPanel();
+                    if (suppressNextDataHealthTabLoad) {
+                        suppressNextDataHealthTabLoad = false;
+                    } else {
+                        loadDataHealthPanel('light');
+                    }
                 }
                 if (newTab === 'data') {
                     // 清除之前的定时器，防止重复加载
@@ -25736,6 +25986,26 @@
             let pageControlTestIdObserverRoot = null;
             let pageControlTestIdPending = false;
 
+            const pageControlTestIdsEnabled = () => {
+                try {
+                    const host = window.location.hostname;
+                    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+                    const params = new URLSearchParams(window.location.search || '');
+                    if (params.get('testids') === '1' || params.get('e2e') === '1') return true;
+                    return localStorage.getItem('enablePageTestIds') === '1';
+                } catch (error) {
+                    return false;
+                }
+            };
+
+            const stopPageControlTestIdObserver = () => {
+                if (pageControlTestIdObserver) {
+                    pageControlTestIdObserver.disconnect();
+                    pageControlTestIdObserver = null;
+                    pageControlTestIdObserverRoot = null;
+                }
+            };
+
             const elementVisibleForTestId = (element) => {
                 const style = window.getComputedStyle(element);
                 return style.visibility !== 'hidden'
@@ -25795,6 +26065,7 @@
             };
 
             const scheduleTestIdRefresh = () => {
+                if (!pageControlTestIdsEnabled()) return;
                 if (pageControlTestIdPending) return;
                 pageControlTestIdPending = true;
                 nextTick(() => {
@@ -25804,6 +26075,10 @@
             };
 
             const startPageControlTestIdObserver = () => {
+                if (!pageControlTestIdsEnabled()) {
+                    stopPageControlTestIdObserver();
+                    return;
+                }
                 nextTick(() => {
                     const root = pageControlTestIdRoot();
                     if (!root) {
@@ -27527,7 +27802,11 @@
                 if (!field?.id) return false;
                 const sampleStatus = normalizeCtripProfileFieldVerificationStatus(field.sample_verification_status);
                 const status = String(field.status || '').trim();
-                return sampleStatus === 'mismatched' || status === 'needs_parser';
+                const enabled = field.enabled !== false;
+                const noReturnedValue = ctripProfileFieldSamplesLoaded.value
+                    && enabled
+                    && String(field.latest_value || '').trim() === '';
+                return sampleStatus === 'mismatched' || status === 'needs_parser' || noReturnedValue;
             };
 
             const ctripProfileFieldNeedsSecondConfirmation = (field) => {
@@ -27538,6 +27817,7 @@
             };
 
             const ctripProfileFieldsNeedingRecheck = () => ctripProfileFields.value.filter(ctripProfileFieldNeedsRecheck);
+            const ctripProfileFieldRecheckTargetCount = computed(() => ctripProfileFieldsNeedingRecheck().length);
 
             const ctripProfileFieldRecheckSections = (fields = []) => {
                 const sections = Array.from(new Set(fields
@@ -27548,9 +27828,13 @@
 
             const recheckCtripProfileMismatchedFields = async () => {
                 const requestSeq = ++ctripProfileFieldRequestSeq;
+                if (!ctripProfileFieldSamplesLoaded.value) {
+                    showToast('请等待字段获取值加载完成后再重抓缺口', 'warning');
+                    return;
+                }
                 const targets = ctripProfileFieldsNeedingRecheck();
                 if (!targets.length) {
-                    showToast('暂无不符或待补解析字段需要重抓', 'warning');
+                    showToast('暂无未返回、不符或待补解析字段需要重抓', 'warning');
                     return;
                 }
                 const sections = ctripProfileFieldRecheckSections(targets);
@@ -27567,14 +27851,14 @@
                     type: 'running',
                     stage: canRecapture ? 'capture' : 'refresh_samples',
                     message: canRecapture
-                        ? `正在重抓 ${targets.length} 个存疑字段，浏览器会按模块触发接口；${ctripProfileFieldRecheckEstimatedText.value}。`
+                        ? `正在重抓 ${targets.length} 个缺口/存疑字段，浏览器会按模块触发接口；${ctripProfileFieldRecheckEstimatedText.value}。`
                         : '未选目标酒店，无法启动浏览器重抓，正在刷新已有历史获取值。',
                     started_at: startedAt,
                     finished_at: '',
                     target_count: targets.length,
                     sections,
                 };
-                showToast(`开始重抓 ${targets.length} 个字段，${ctripProfileFieldRecheckEstimatedText.value}`, 'info');
+                showToast(`开始重抓 ${targets.length} 个缺口/存疑字段，${ctripProfileFieldRecheckEstimatedText.value}`, 'info');
                 try {
                     if (canRecapture) {
                         const captureRes = await runCtripBrowserCapture({
@@ -28405,7 +28689,7 @@
 
                 currentPage.value = 'online-data';
                 onlineDataTab.value = 'data-health';
-                await loadDataHealthPanel();
+                await loadDataHealthPanel('light');
             };
             const operationExecutionItems = computed(() => operationExecutionFlow.value?.list || []);
             const operationExecutionStages = computed(() => operationExecutionFlow.value?.stages || []);
@@ -30076,17 +30360,20 @@
                     return;
                 }
                 if (!homeTrendHasSamples.value) {
-                    if (homeTrendChart) {
-                        homeTrendChart.destroy();
-                        homeTrendChart = null;
-                    }
+                    destroyHomeTrendChart();
                     return;
                 }
 
                 const canvas = document.getElementById('homeTrendChart');
                 const metric = homeTrendData.value?.chart?.metrics?.[homeTrendMetric.value];
-                if (!canvas || !metric || !Array.isArray(metric.data)) return;
-                if (!document.body.contains(canvas) || canvas.offsetParent === null) return;
+                if (!canvas || !metric || !Array.isArray(metric.data)) {
+                    destroyHomeTrendChart();
+                    return;
+                }
+                if (!document.body.contains(canvas) || canvas.offsetParent === null) {
+                    destroyHomeTrendChart();
+                    return;
+                }
 
                 try {
                     if (homeTrendChart) {
@@ -36020,7 +36307,7 @@
                             await loadLatestCtripData({ silent: true });
                             await refreshOnlineHistory();
                             if (onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value) {
-                                await loadDataHealthPanel();
+                                await loadDataHealthPanel('light', { force: true });
                             }
                         }
                         if (loginOnly || options.bindDataSource !== false) {
@@ -36388,7 +36675,7 @@
                         await loadLatestCtripData({ silent: true });
                         await refreshOnlineHistory();
                         if (onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value) {
-                            await loadDataHealthPanel();
+                            await loadDataHealthPanel('light', { force: true });
                         }
                     } else {
                         ctripBrowserCaptureResult.value = res.data || { error: res.message || '携程 Cookie API 采集失败' };
@@ -37043,7 +37330,7 @@
                     autoFetchHotelId.value = String(event.target.value || '');
                 }
                 await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });
-                await loadDataHealthPanel();
+                await loadDataHealthPanel('light');
             };
 
             const applyCtripHotelConfig = async (showMessage = true) => {
@@ -37160,7 +37447,7 @@
                         onlineDataTab.value = 'data-health';
                     }
                     if (options.refreshAfter !== false) {
-                        await loadDataHealthPanel();
+                        await loadDataHealthPanel('light', { force: true });
                     }
                 }
             };
@@ -37185,7 +37472,7 @@
                         await action();
                     }
                     onlineDataTab.value = 'data-health';
-                    await loadDataHealthPanel();
+                    await loadDataHealthPanel('light', { force: true });
                 } finally {
                     ctripOverviewCoreFetchRunning.value = false;
                     ctripOverviewFetchActionLoading.value = '';
@@ -37876,7 +38163,7 @@
                         showToast('携程 Cookie 已保存');
                         showCtripCookieEditorModal.value = false;
                         await loadCtripConfigList();
-                        await loadDataHealthPanel();
+                        await loadDataHealthPanel('light', { force: true });
                     } else {
                         showToast(res.message || res.msg || '保存失败，请重试', 'error');
                     }
@@ -37894,7 +38181,7 @@
                     return;
                 }
                 await deleteCtripConfig(configId);
-                await loadDataHealthPanel();
+                await loadDataHealthPanel('light', { force: true });
             };
 
             const batchDeleteCtripConfigs = async () => {
@@ -42880,11 +43167,11 @@
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
                 onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileStrategyText, platformProfilePrimaryActionText, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
-                ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
+                ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
-                onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, autoFetchRecordStatusClass,
+                onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, onlineDataQualityScopeText, autoFetchRecordStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
@@ -42895,7 +43182,7 @@
                 collectionHealthLifecycleRows, collectionHealthLifecycleReadyCount, collectionHealthFieldAssetSummary, collectionHealthFieldAssetStatus, collectionHealthFieldAssetCards, collectionHealthFieldAssetListText,
                 dataHealthDiagnosticBoundary, collectionHealthFailureReasonRanking,
                 dataHealthDrilldownRows, openDataHealthDrilldown,
-                dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthTodayWorkOrders,
+                dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthHighRiskSummary, dataHealthTodayWorkOrders,
                 dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthOperationLogScope, dataHealthPriorityClass, dataHealthPriorityText,
                 publicEndpointSecurity, publicEndpointSecurityLoading, publicEndpointSecurityError, publicEndpointSecurityRows, publicEndpointSecuritySummary, publicEndpointTokenText, publicEndpointPathText,
                 collectionHealthCtripCatalogGateText, collectionHealthCtripCatalogCards, collectionHealthCtripCatalogDiagnosticScope,
@@ -42945,7 +43232,7 @@
                 selectAllMeituanAiHotels, clearMeituanAiHotelSelection, startMeituanAiAnalysis, copyMeituanAiAnalysisResult, viewMeituanAiAnalysisRecord,
                 // 数据分析
                 analysisDimension, analysisData, loadAnalysisData,
-                onlineAnalysisRows, onlineAnalysisRowsLoading, onlineAnalysisLoading, onlineAnalysisError, onlineAnalysisPagination,
+                onlineAnalysisRows, onlineAnalysisRowsLoading, onlineAnalysisLoading, onlineAnalysisError, onlineAnalysisPagination, onlineAnalysisQualitySummary,
                 onlineAnalysisSourceRecord, onlineAnalysisSummaryCards, onlineAnalysisMetricDefinitionRows, onlineAnalysisSourceText, onlineAnalysisDataTypeText, loadOnlineAnalysisRows, refreshOnlineAnalysis, openOnlineAnalysisTab,
                 // 操作日志
                 operationLogs, logModules, logActions, logUsers, logHotels, logFilter, logPagination, logSummary, selectedLog, showLogDetailModal,

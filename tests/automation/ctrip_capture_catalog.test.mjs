@@ -355,6 +355,8 @@ test('maps Ctrip getHotelRating response to rating aggregate fields only', () =>
     assert.equal(factKeys.has(key), true, key);
   }
   assert.equal(factKeys.has('bad_review_tag'), false);
+  assert.equal(facts.some((fact) => fact.metric_key === 'comment_count' && String(fact.source_path || '').includes('subScores')), false);
+  assert.equal(facts.some((fact) => fact.metric_key === 'bad_review_count' && String(fact.source_path || '').includes('subScores')), false);
 
   const rows = buildCtripStandardRowsFromFacts(facts, {
     systemHotelId: 58,
@@ -374,6 +376,58 @@ test('maps Ctrip getHotelRating response to rating aggregate fields only', () =>
   const encodedRaw = JSON.stringify(rows.map((row) => row.raw_data));
   assert.equal(encodedRaw.includes('提供接送'), false);
   assert.equal(encodedRaw.includes('服务一般'), false);
+});
+
+test('maps Ctrip getHotelRating elongRatings response into aggregate fields', () => {
+  const url = 'https://ebooking.ctrip.com/restapi/soa2/26353/getHotelRating?_fxpcqlniredt=09031057118856912388';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'comment_hotel_rating');
+
+  const facts = extractCtripCatalogFacts({
+    ResponseStatus: { Ack: 'Success' },
+    elongRatings: {
+      scoreInfo: {
+        maxScore: 5,
+        avgScore: 4.9,
+        commentLevel: 'excellent',
+        subScores: [
+          { type: 'ratingLocation', name: 'environment', score: 4.9 },
+          { type: 'ratingFacility', name: 'facility', score: 4.8 },
+          { type: 'ratingService', name: 'service', score: 4.9 },
+          { type: 'ratingRoom', name: 'cleanliness', score: 4.9 },
+        ],
+      },
+      ratingAll: 4.9,
+      ratingLocation: 4.9,
+      ratingFacility: 4.8,
+      ratingService: 4.9,
+      ratingRoom: 4.9,
+    },
+    resStatus: { rcode: 200, rmsg: 'Success' },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-09',
+    capturedAt: '2026-06-09T00:00:00.000Z',
+    url,
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'fallback hotel',
+    profileId: '6866634',
+    dataDate: '2026-06-09',
+  });
+  const metricRows = rows.filter((row) => row.raw_data.metrics?.comment_score !== undefined);
+  assert.equal(metricRows.length, 1);
+  assert.equal(metricRows[0].comment_score, 4.9);
+  assert.equal(metricRows[0].raw_data.metrics.review_environment_score, 4.9);
+  assert.equal(metricRows[0].raw_data.metrics.review_facility_score, 4.8);
+  assert.equal(metricRows[0].raw_data.metrics.review_service_score, 4.9);
+  assert.equal(metricRows[0].raw_data.metrics.review_cleanliness_score, 4.9);
+  assert.equal(facts.some((fact) => String(fact.source_path || '').startsWith('elongRatings.')), true);
 });
 
 test('keeps Ctrip review photo rate missing when comment count denominator is unavailable', () => {
@@ -598,6 +652,16 @@ test('maps Ctrip user behavior user-analysis distribution responses', () => {
   assert.equal(femaleRow.data_value, 47.19);
   assert.equal(femaleRow.raw_data.metrics.distribution_share, 47.19);
   assert.equal(femaleRow.raw_data.metrics.user_sex, '女');
+
+  const percentRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserSex', {
+    rcode: 0,
+    data: [{ name: 'female', value: null, percent: 5.13 }, { name: 'male', percent: 94.87 }],
+  });
+  const percentFemaleRow = percentRows.find((row) => row.raw_data.dimension_values?.user_sex === 'female');
+  assert.ok(percentFemaleRow);
+  assert.equal(percentFemaleRow.data_value, 5.13);
+  assert.equal(percentFemaleRow.raw_data.metrics.distribution_share, 5.13);
+  assert.equal(percentFemaleRow.raw_data.facts.some((fact) => fact.source_path === 'data.0.percent'), true);
 
   const typeRows = buildRows('https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/queryUserType', {
     rcode: 0,
@@ -872,6 +936,49 @@ test('maps Ctrip business overview visitor title daily fields', () => {
   assert.equal(row.raw_data.metrics.qunar_competitor_avg_visitor, 23);
   assert.equal(row.raw_data.rank_metrics.visitor_rank, 15);
   assert.equal(row.raw_data.rank_metrics.qunar_visitor_rank, 11);
+});
+
+test('derives Ctrip metric-pair actual values from percent when a denominator exists', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2';
+  const endpoint = findCtripEndpointByUrl(url, { preferredSection: 'business_overview' });
+  assert.ok(endpoint);
+
+  const context = {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    platform: 'Ctrip',
+    hotelId: '6866634',
+    hotelName: 'Test Hotel',
+    dataDate: '2026-06-05',
+    capturedAt: '2026-06-05T00:00:00.000Z',
+    url,
+  };
+  const facts = extractCtripCatalogFacts({
+    data: [
+      { title: 'visitor count', value: null, percent: 5.13, total: 1000 },
+      { title: 'visitor count', percent: 5.13 },
+    ],
+  }, context);
+
+  const visitorFacts = facts.filter((fact) => fact.metric_key === 'visitor_count');
+  assert.equal(visitorFacts.length, 1);
+  assert.equal(visitorFacts[0].value, 51.3);
+  assert.equal(visitorFacts[0].derived_from, 'percent_of_total');
+  assert.equal(visitorFacts[0].derived_percent, 5.13);
+  assert.equal(visitorFacts[0].derived_total, 1000);
+  assert.equal(visitorFacts[0].denominator_source_path, 'data.0.total');
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'Test Hotel',
+    profileId: '6866634',
+    dataDate: '2026-06-05',
+  });
+  const row = rows.find((candidate) => candidate.raw_data.metrics.visitor_count === 51.3);
+  assert.ok(row);
+  assert.equal(row.detail_exposure, 51);
+  assert.equal(row.data_value, 51);
 });
 
 test('covers reusable Ctrip platform notice endpoints as support facts only', () => {
@@ -1454,8 +1561,11 @@ test('maps Ctrip weekly report responses to exact Profile field keys', () => {
       url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getFlowHotelsV1',
       data: {
         data: {
-          lossOrderVo: { ordernum: 49, ordquantity: 76, ordamount: 18578.8 },
-          flowHotelItemVos: [{ hotelName: 'Competitor A', proportion: '31.78%', orderPro: '24.39%' }],
+          lossOrderVo: { ordernum: 57, ordquantity: 95.0, ordamount: 21809.88 },
+          flowHotelItemVos: [
+            { hotelName: 'Home Inn Airport T3 T5', proportion: '36.49%', orderPro: '9.26%', masterHotelId: 105975125 },
+            { hotelName: 'Harbor Business Hotel', proportion: '19.59%', orderPro: '13.79%', masterHotelId: 98485819 },
+          ],
         },
       },
       expected: ['flow_lost_order_num', 'top_flow_hotel', 'top_flow_hotel_order_rate'],
@@ -1502,6 +1612,12 @@ test('maps Ctrip weekly report responses to exact Profile field keys', () => {
   const metricRows = rows.filter((row) => row.capture_section === 'business_weekly_overview');
   assert.equal(metricRows.some((row) => row.raw_data.metrics.last_week_book_sales === 2827), true);
   assert.equal(metricRows.some((row) => row.raw_data.metrics.weekly_self_list_exposure === 1397), true);
+  assert.equal(metricRows.some((row) => row.raw_data.metrics.flow_lost_order_num === 57), true);
+  assert.equal(metricRows.some((row) => row.raw_data.metrics.flow_lost_room_nights === 95), true);
+  assert.equal(metricRows.some((row) => row.raw_data.metrics.flow_lost_amount === 21809.88), true);
+  assert.equal(metricRows.some((row) => row.raw_data.metrics.top_flow_hotel === 'Home Inn Airport T3 T5'), true);
+  assert.equal(metricRows.some((row) => row.raw_data.metrics.top_flow_hotel_browse_rate === 36.49), true);
+  assert.equal(metricRows.some((row) => row.raw_data.metrics.top_flow_hotel_order_rate === 9.26), true);
   assert.equal(metricRows.some((row) => Array.isArray(row.raw_data.metrics.top_hot_words) && row.raw_data.metrics.top_hot_words[0] === '钟楼'), true);
   assert.equal(metricRows.some((row) => Array.isArray(row.raw_data.metrics.top_hot_hotels) && row.raw_data.metrics.top_hot_hotels[1] === '竞品酒店B'), true);
 });

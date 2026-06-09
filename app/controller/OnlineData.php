@@ -17,7 +17,7 @@ use think\facade\Db;
 class OnlineData extends Base
 {
     private const CTRIP_PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
-    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 26;
+    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 30;
     private const CTRIP_PROFILE_MODULES_CONFIG_KEY = 'ctrip_profile_capture_modules';
     private const CTRIP_PROFILE_MODULES_CONFIG_VERSION = 3;
     private const MEITUAN_COMPETITOR_BATCH_WINDOW_SECONDS = 120;
@@ -272,6 +272,18 @@ class OnlineData extends Base
         'peer_top',
         'peer_avg',
         'ad_self_rank',
+    ];
+    private const CTRIP_PROFILE_FIELD_META_REFRESH_KEYS = [
+        'flow_lost_order_num',
+        'flow_lost_room_nights',
+        'flow_lost_amount',
+        'top_flow_hotel',
+        'top_flow_hotel_browse_rate',
+        'top_flow_hotel_order_rate',
+        'review_environment_score',
+        'review_facility_score',
+        'review_service_score',
+        'review_cleanliness_score',
     ];
 
     private function shouldVerifyOtaSsl(): bool
@@ -6942,6 +6954,10 @@ class OnlineData extends Base
             'ad' => 'ads_pyramid',
             'psi' => 'quality_psi',
             'quality' => 'quality_psi',
+            'comment' => 'comment_review',
+            'comments' => 'comment_review',
+            'review' => 'comment_review',
+            'reviews' => 'comment_review',
             'market' => 'market_calendar',
             'user' => 'user_profile',
             'profile' => 'user_profile',
@@ -8935,7 +8951,7 @@ class OnlineData extends Base
             }
         }
         if ($selfKey === null || !isset($hotelMap[$selfKey]) || !is_array($hotelMap[$selfKey])) {
-            return $hotelMap;
+            return $this->applyMeituanPercentScaleDerivedMetrics($hotelMap);
         }
 
         $fields = ['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'viewConversion', 'payConversion', 'exposure', 'views'];
@@ -8984,7 +9000,111 @@ class OnlineData extends Base
             unset($row);
         }
 
+        return $this->applyMeituanPercentScaleDerivedMetrics($hotelMap);
+    }
+
+    private function applyMeituanPercentScaleDerivedMetrics(array $hotelMap): array
+    {
+        foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'exposure', 'views'] as $field) {
+            $scale = $this->inferMeituanMinimalPercentScale($hotelMap, $field);
+            if ($scale === null) {
+                continue;
+            }
+
+            foreach ($hotelMap as &$row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $rowPercent = $this->meituanMetricRankPercent($row, $field);
+                if ($rowPercent === null || $rowPercent < 0) {
+                    continue;
+                }
+
+                $status = (string)($row['metricSourceStatus'][$field] ?? '');
+                if ((float)($row[$field] ?? 0) > 0 && $this->isMeituanMetricSourceUsable($status)) {
+                    continue;
+                }
+
+                $derivedValue = $this->roundMeituanDerivedMetric($field, $scale * $rowPercent / 100);
+                if ($this->isMeituanIntegerScaleMetric($field)) {
+                    $derivedValue = (float)max(0, (int)round($derivedValue));
+                }
+
+                $row[$field] = $derivedValue;
+                $row['metricSourceStatus'][$field] = '按美团百分比最小整数比例尺估算';
+                $row['metricDerived'][$field] = [
+                    'method' => 'percent_min_integer_scale',
+                    'scale_value' => $scale,
+                    'row_percent' => $rowPercent,
+                    'percent_precision' => 2,
+                    'source_scope' => 'meituan_rank_percent_only',
+                ];
+
+                if (is_array($row['rankHistory'] ?? null)) {
+                    foreach ($row['rankHistory'] as &$history) {
+                        if (is_array($history) && ($history['metric'] ?? '') === $field) {
+                            $history['value'] = $derivedValue;
+                            $history['sourceLabel'] = '按美团百分比最小整数比例尺估算';
+                            $history['derived'] = $row['metricDerived'][$field];
+                        }
+                    }
+                    unset($history);
+                }
+            }
+            unset($row);
+        }
+
         return $hotelMap;
+    }
+
+    private function inferMeituanMinimalPercentScale(array $hotelMap, string $field): ?int
+    {
+        $percents = [];
+        foreach ($hotelMap as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $percent = $this->meituanMetricRankPercent($row, $field);
+            if ($percent === null || $percent < 0 || $percent > 100.005) {
+                continue;
+            }
+            $percents[sprintf('%.2F', round($percent, 2))] = round($percent, 2);
+        }
+
+        $positivePercents = array_values(array_filter($percents, static fn(float $percent): bool => $percent > 0));
+        if (count($positivePercents) < 2 || abs(max($positivePercents) - 100.0) > 0.005) {
+            return null;
+        }
+
+        sort($positivePercents, SORT_NUMERIC);
+        $maxScale = 50000;
+        for ($scale = 1; $scale <= $maxScale; $scale++) {
+            if ($this->meituanPercentScaleMatches($scale, $positivePercents)) {
+                return $scale;
+            }
+        }
+
+        return null;
+    }
+
+    private function meituanPercentScaleMatches(int $scale, array $percents): bool
+    {
+        foreach ($percents as $percent) {
+            $value = (int)round($scale * $percent / 100);
+            if ($percent > 0 && $value <= 0) {
+                return false;
+            }
+            $restoredPercent = round($value * 100 / $scale, 2);
+            if (abs($restoredPercent - $percent) > 0.0050001) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function isMeituanIntegerScaleMetric(string $field): bool
+    {
+        return in_array($field, ['roomNights', 'salesRoomNights', 'exposure', 'views'], true);
     }
 
     private function meituanMetricRankPercent(array $row, string $field): ?float
@@ -9043,7 +9163,19 @@ class OnlineData extends Base
 
     private function isMeituanMetricSourceUsable(string $status): bool
     {
-        return in_array($status, ['美团榜单返回', '美团榜单入库', '按本店值和美团百分比推导'], true);
+        if (str_starts_with($status, '按美团百分比')) {
+            return true;
+        }
+        return in_array($status, [
+            '美团榜单返回',
+            '美团榜单入库',
+            '按本店值和美团百分比推导',
+            '按销售间夜代理估算',
+            '按曝光和浏览估算',
+            '按订单量和浏览估算',
+            '按订单量和曝光估算',
+            '按浏览转化和支付转化估算',
+        ], true);
     }
 
     private function meituanBusinessDisplayHotelKey(string $poiId, string $hotelName): string
@@ -9357,18 +9489,75 @@ class OnlineData extends Base
             $roomRevenue = (float)($row['roomRevenue'] ?? 0);
             $salesRoomNights = (float)($row['salesRoomNights'] ?? 0);
             $sales = (float)($row['sales'] ?? 0);
+            $exposure = (float)($row['exposure'] ?? 0);
             $views = (float)($row['views'] ?? 0);
             $viewConversion = (float)($row['viewConversion'] ?? 0);
             $payConversion = (float)($row['payConversion'] ?? 0);
+            $metricSourceStatus = is_array($row['metricSourceStatus'] ?? null) ? $row['metricSourceStatus'] : [];
+            $metricDerived = is_array($row['metricDerived'] ?? null) ? $row['metricDerived'] : [];
 
             $avgRoomPrice = $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : 0.0;
             $avgSalesPrice = $salesRoomNights > 0 ? round($sales / $salesRoomNights, 2) : 0.0;
-            $orderCount = $views > 0 && $payConversion > 0 ? (int)round($views * $payConversion) : 0;
-            $absoluteConversion = $viewConversion > 0 && $payConversion > 0 ? round($viewConversion * $payConversion, 4) : 0.0;
+            $orderCount = (int)round((float)($row['orderCount'] ?? 0));
+            if ($orderCount <= 0 && $views > 0 && $payConversion > 0) {
+                $orderCount = (int)round($views * $payConversion);
+            }
+            if ($orderCount <= 0 && $salesRoomNights > 0 && $views > 0) {
+                $orderCount = (int)round($salesRoomNights);
+                $metricSourceStatus['orderCount'] = '按销售间夜代理估算';
+                $metricDerived['orderCount'] = [
+                    'method' => 'sales_room_nights_as_order_count_proxy',
+                    'sales_room_nights' => $salesRoomNights,
+                    'source_scope' => 'meituan_rank_percent_only',
+                ];
+            }
+            if ($viewConversion <= 0 && $exposure > 0 && $views > 0) {
+                $viewConversion = round($views / $exposure, 4);
+                $metricSourceStatus['viewConversion'] = '按曝光和浏览估算';
+                $metricDerived['viewConversion'] = [
+                    'method' => 'views_div_exposure',
+                    'views' => $views,
+                    'exposure' => $exposure,
+                    'source_scope' => 'meituan_rank_percent_only',
+                ];
+            }
+            if ($payConversion <= 0 && $views > 0 && $orderCount > 0) {
+                $payConversion = round($orderCount / $views, 4);
+                $metricSourceStatus['payConversion'] = '按订单量和浏览估算';
+                $metricDerived['payConversion'] = [
+                    'method' => 'order_count_div_views',
+                    'order_count' => $orderCount,
+                    'views' => $views,
+                    'order_count_source' => (string)($metricDerived['orderCount']['method'] ?? 'display_order_count'),
+                    'source_scope' => 'meituan_rank_percent_only',
+                ];
+            }
+            $absoluteConversion = (float)($row['absoluteConversion'] ?? 0);
+            if ($absoluteConversion <= 0 && $viewConversion > 0 && $payConversion > 0) {
+                $absoluteConversion = round($viewConversion * $payConversion, 4);
+                if (isset($metricDerived['viewConversion']) || isset($metricDerived['payConversion'])) {
+                    $metricSourceStatus['absoluteConversion'] = '按浏览转化和支付转化估算';
+                    $metricDerived['absoluteConversion'] = [
+                        'method' => 'view_conversion_times_pay_conversion',
+                        'view_conversion' => $viewConversion,
+                        'pay_conversion' => $payConversion,
+                        'source_scope' => 'meituan_rank_percent_only',
+                    ];
+                }
+            } elseif ($absoluteConversion <= 0 && $exposure > 0 && $orderCount > 0) {
+                $absoluteConversion = round($orderCount / $exposure, 4);
+                $metricSourceStatus['absoluteConversion'] = '按订单量和曝光估算';
+                $metricDerived['absoluteConversion'] = [
+                    'method' => 'order_count_div_exposure',
+                    'order_count' => $orderCount,
+                    'exposure' => $exposure,
+                    'order_count_source' => (string)($metricDerived['orderCount']['method'] ?? 'display_order_count'),
+                    'source_scope' => 'meituan_rank_percent_only',
+                ];
+            }
             $rankSummary = $this->summarizeMeituanRankHistory(is_array($row['rankHistory'] ?? null) ? $row['rankHistory'] : [], (int)($row['rank'] ?? 0));
             $platformTags = is_array($row['platformTags'] ?? null) ? $this->mergeStringList([], $row['platformTags']) : [];
             $hasVipTag = $this->hasMeituanVipPlatformTag($platformTags);
-            $metricSourceStatus = is_array($row['metricSourceStatus'] ?? null) ? $row['metricSourceStatus'] : [];
 
             $row['avgRoomPrice'] = $avgRoomPrice;
             $row['avgRoomPriceText'] = $avgRoomPrice > 0 ? number_format($avgRoomPrice, 0, '.', ',') : '-';
@@ -9376,10 +9565,14 @@ class OnlineData extends Base
             $row['avgSalesPriceText'] = $avgSalesPrice > 0 ? number_format($avgSalesPrice, 0, '.', ',') : '-';
             $row['orderCount'] = $orderCount;
             $row['orderCountText'] = $orderCount > 0 ? number_format($orderCount) : '-';
+            $row['viewConversion'] = $viewConversion;
+            $row['payConversion'] = $payConversion;
             $row['absoluteConversion'] = $absoluteConversion;
             $row['absoluteConversionText'] = $absoluteConversion > 0 ? number_format($absoluteConversion * 100, 2, '.', '') . '%' : '-';
             $row['viewConversionText'] = $viewConversion > 0 ? number_format($viewConversion * 100, 2, '.', '') . '%' : '-';
             $row['payConversionText'] = $payConversion > 0 ? number_format($payConversion * 100, 2, '.', '') . '%' : '-';
+            $row['metricSourceStatus'] = $metricSourceStatus;
+            $row['metricDerived'] = $metricDerived;
             $row['platformTags'] = $platformTags;
             $row['platformTagText'] = !empty($platformTags) ? implode(' / ', $platformTags) : '未返回';
             $row['platformTagSourceText'] = !empty($platformTags)
@@ -9400,8 +9593,8 @@ class OnlineData extends Base
             $row['displayMetricStatus'] = [
                 'avgRoomPrice' => $roomNights > 0 ? 'ok' : 'missing_room_nights',
                 'avgSalesPrice' => $salesRoomNights > 0 ? 'ok' : 'missing_sales_room_nights',
-                'orderCount' => $views > 0 && $payConversion > 0 ? 'ok' : 'missing_views_or_pay_conversion',
-                'absoluteConversion' => $viewConversion > 0 && $payConversion > 0 ? 'ok' : 'missing_conversion',
+                'orderCount' => $orderCount > 0 ? 'ok' : 'missing_views_or_pay_conversion',
+                'absoluteConversion' => $absoluteConversion > 0 ? 'ok' : 'missing_conversion',
             ];
         }
         unset($row);
@@ -9718,6 +9911,9 @@ class OnlineData extends Base
         $avgViewConversionRate = $this->avgBusinessRows($rows, 'viewConversion') * 100;
         $avgPayConversionRate = $this->avgBusinessRows($rows, 'payConversion') * 100;
         $avgAbsoluteConversionRate = $this->avgBusinessRows($rows, 'absoluteConversion') * 100;
+        $hasViewConversionValue = $this->hasPositiveBusinessRows($rows, 'viewConversion');
+        $hasPayConversionValue = $this->hasPositiveBusinessRows($rows, 'payConversion');
+        $hasAbsoluteConversionValue = $this->hasPositiveBusinessRows($rows, 'absoluteConversion');
         $revenueHhi = $this->hhiBusinessRows($rows, 'sales');
         $visitHhi = $this->hhiBusinessRows($rows, 'views');
         $operationFocus = $revenueHhi > 0 && $visitHhi > 0 && $revenueHhi - $visitHhi > 0 ? '提高转化率' : ($revenueHhi > 0 && $visitHhi > 0 ? '抢夺流量' : '-');
@@ -9736,7 +9932,7 @@ class OnlineData extends Base
         $platformTagSummary = $this->buildMeituanPlatformTagSummary($rows);
         $derivedMetricCount = $this->countMeituanDerivedMetrics($rows);
         $sourceNotice = $derivedMetricCount > 0
-            ? '美团榜单部分指标仅返回百分比；已按本店真实值 × 对方 percent ÷ 本店 percent 推导，并在 metricDerived 中保留推导依据。未返回且不可推导字段继续保留缺失状态。'
+            ? '美团榜单部分指标仅返回百分比；已优先按本店真实值 × 对方 percent ÷ 本店 percent 推导，缺少本店真实值时按百分比序列的最小一致整数比例尺估算，并在 metricDerived 中保留依据。未返回且不可推导字段继续保留缺失状态。'
             : '仅展示美团榜单已返回字段；不通过订单、客人、房态或房源映射推断。';
         $selfPositionText = $selfRow ? (string)($selfRow['circlePositionText'] ?? '已返回') : '本店未返回';
 
@@ -9793,9 +9989,9 @@ class OnlineData extends Base
                 $this->businessSummaryCard('totalExposure', '总曝光量', number_format($totalExposure), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->businessSummaryCard('totalViews', '总浏览量', number_format($totalViews), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->businessSummaryCard('totalOrderCount', '总订单量', number_format($totalOrderCount), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
-                $this->businessSummaryCard('avgViewConversionRate', '平均浏览转化率', number_format($avgViewConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
-                $this->businessSummaryCard('avgPayConversionRate', '平均支付转化率', number_format($avgPayConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
-                $this->businessSummaryCard('avgAbsoluteConversionRate', '绝对转化率', number_format($avgAbsoluteConversionRate, 2, '.', '') . '%', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->businessSummaryCard('avgViewConversionRate', '平均浏览转化率', $hasViewConversionValue ? number_format($avgViewConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->businessSummaryCard('avgPayConversionRate', '平均支付转化率', $hasPayConversionValue ? number_format($avgPayConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
+                $this->businessSummaryCard('avgAbsoluteConversionRate', '绝对转化率', $hasAbsoluteConversionValue ? number_format($avgAbsoluteConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
             ],
             'rank_insights' => $rankInsights,
             'rank_health_rows' => $rankHealthRows,
@@ -10215,6 +10411,16 @@ class OnlineData extends Base
             }
         }
         return count($values) > 0 ? array_sum($values) / count($values) : 0.0;
+    }
+
+    private function hasPositiveBusinessRows(array $rows, string $field): bool
+    {
+        foreach ($rows as $row) {
+            if ((float)($row[$field] ?? 0) > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hhiCtripBusinessRows(array $rows, string $field): float
@@ -13263,7 +13469,9 @@ JAVASCRIPT;
         }
 
         $defaultFields = $this->defaultCtripProfileCaptureFields();
-        $refreshDefaultFieldKeys = self::CTRIP_PROFILE_KEY_FIELD_KEYS;
+        $refreshDefaultFieldKeys = $payloadVersion < (self::CTRIP_PROFILE_FIELDS_CONFIG_VERSION - 1)
+            ? self::CTRIP_PROFILE_KEY_FIELD_KEYS
+            : self::CTRIP_PROFILE_FIELD_META_REFRESH_KEYS;
         $hasNewDefaults = false;
         foreach ($defaultFields as $id => $field) {
             if (!isset($fields[$id])) {
@@ -13279,6 +13487,10 @@ JAVASCRIPT;
                 $fields[$id] = array_merge($existing, $field, [
                     'id' => $existing['id'] ?? $field['id'],
                     'created_at' => $existing['created_at'] ?? $field['created_at'],
+                    'status' => $existing['status'] ?? $field['status'],
+                    'enabled' => $existing['enabled'] ?? $field['enabled'],
+                    'deleted_at' => $existing['deleted_at'] ?? '',
+                    'deleted_by' => $existing['deleted_by'] ?? null,
                     'sample_verification_status' => $existing['sample_verification_status'] ?? 'unverified',
                     'sample_verified_at' => $existing['sample_verified_at'] ?? '',
                     'sample_verified_by' => $existing['sample_verified_by'] ?? null,
@@ -14989,7 +15201,7 @@ JAVASCRIPT;
         $userBehaviorImPage = 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im';
         $userBehaviorApi = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/userbehavior/';
         $commentPage = 'https://ebooking.ctrip.com/comment/commentList?microJump=true';
-        $commentSummaryUrl = 'https://ebooking.ctrip.com/comment/api/getCommentNumV2';
+        $commentSummaryUrl = 'https://ebooking.ctrip.com/restapi/soa2/26353/getCommentNumV2';
         $commentListUrl = 'https://ebooking.ctrip.com/comment/api/getCommentList';
         $hotelRatingUrl = 'https://ebooking.ctrip.com/restapi/soa2/26353/getHotelRating';
 
@@ -16197,7 +16409,7 @@ JAVASCRIPT;
                 'notes' => '只保存评分汇总，不保存点评明文。',
             ],
             'elong_rating' => [
-                'page_url' => $businessPage . ' / ' . $userBehaviorPage,
+                'page_url' => self::CTRIP_FLOW_TRANSFORM_PAGE_URL,
                 'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/comment/getCommentsScoreV2',
                 'json_path' => 'data.elongRatingall',
                 'ownership_rule' => '艺龙 OTA 点评摘要；只采集评分汇总，不采集点评明文。',
@@ -16247,7 +16459,7 @@ JAVASCRIPT;
             'review_environment_score' => [
                 'page_url' => $commentPage,
                 'request_url' => $hotelRatingUrl,
-                'json_path' => 'ratingInfo.ratingLocation / ctripRatings.ratingLocation / ratingInfo.scoreInfo.subScores[type=ratingLocation].scoreSimple',
+                'json_path' => 'ratingInfo.ratingLocation / ctripRatings.ratingLocation / elongRatings.ratingLocation / ratingInfo.scoreInfo.subScores[type=ratingLocation].scoreSimple / elongRatings.scoreInfo.subScores[type=ratingLocation].score',
                 'ownership_rule' => '携程 OTA 点评质量摘要；只采集环境子评分，不采集点评明文。',
                 'storage_field' => 'online_daily_data.raw_data.metrics.review_environment_score',
                 'source_interface' => 'getHotelRating',
@@ -16260,7 +16472,7 @@ JAVASCRIPT;
             'review_facility_score' => [
                 'page_url' => $commentPage,
                 'request_url' => $hotelRatingUrl,
-                'json_path' => 'ratingInfo.ratingFacility / ctripRatings.ratingFacility / ratingInfo.scoreInfo.subScores[type=ratingFacility].scoreSimple',
+                'json_path' => 'ratingInfo.ratingFacility / ctripRatings.ratingFacility / elongRatings.ratingFacility / ratingInfo.scoreInfo.subScores[type=ratingFacility].scoreSimple / elongRatings.scoreInfo.subScores[type=ratingFacility].score',
                 'ownership_rule' => '携程 OTA 点评质量摘要；只采集设施子评分，不采集点评明文。',
                 'storage_field' => 'online_daily_data.raw_data.metrics.review_facility_score',
                 'source_interface' => 'getHotelRating',
@@ -16273,7 +16485,7 @@ JAVASCRIPT;
             'review_service_score' => [
                 'page_url' => $commentPage,
                 'request_url' => $hotelRatingUrl,
-                'json_path' => 'ratingInfo.ratingService / ctripRatings.ratingService / ratingInfo.scoreInfo.subScores[type=ratingService].scoreSimple',
+                'json_path' => 'ratingInfo.ratingService / ctripRatings.ratingService / elongRatings.ratingService / ratingInfo.scoreInfo.subScores[type=ratingService].scoreSimple / elongRatings.scoreInfo.subScores[type=ratingService].score',
                 'ownership_rule' => '携程 OTA 点评质量摘要；只采集点评服务子评分，不与 PSI 服务质量分混用。',
                 'storage_field' => 'online_daily_data.raw_data.metrics.review_service_score',
                 'source_interface' => 'getHotelRating',
@@ -16286,7 +16498,7 @@ JAVASCRIPT;
             'review_cleanliness_score' => [
                 'page_url' => $commentPage,
                 'request_url' => $hotelRatingUrl,
-                'json_path' => 'ratingInfo.ratingRoom / ctripRatings.ratingRoom / ratingInfo.scoreInfo.subScores[type=ratingRoom].scoreSimple',
+                'json_path' => 'ratingInfo.ratingRoom / ctripRatings.ratingRoom / elongRatings.ratingRoom / ratingInfo.scoreInfo.subScores[type=ratingRoom].scoreSimple / elongRatings.scoreInfo.subScores[type=ratingRoom].score',
                 'ownership_rule' => '携程 OTA 点评质量摘要；只采集卫生子评分，不采集点评明文。',
                 'storage_field' => 'online_daily_data.raw_data.metrics.review_cleanliness_score',
                 'source_interface' => 'getHotelRating',
@@ -16303,7 +16515,7 @@ JAVASCRIPT;
                 'ownership_rule' => '携程 OTA 点评质量摘要；只保存带图点评聚合计数，不保存图片或点评明文。',
                 'storage_field' => 'online_daily_data.raw_data.metrics.review_photo_count',
                 'source_interface' => 'getCommentsScoreV2 / getCommentNumV2',
-                'source_keys' => 'hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount',
+                'source_keys' => 'hasPicCount, ctripCount.hasPicCount, qunarCount.hasPicCount, elongCount.hasPicCount, zxCount.hasPicCount, zhixingCount.hasPicCount, photoCommentCount, pictureCommentCount, imageCommentCount',
                 'target_value' => 'review_photo_count',
                 'value_meaning' => '带图点评数，单位条。',
                 'notes' => '作为带图点评率分子；缺失时不补 0。',
@@ -16423,7 +16635,7 @@ JAVASCRIPT;
                 'ownership_rule' => '点评未回复数聚合口径；只保存计数，不保存点评内容。',
                 'storage_field' => 'online_daily_data.raw_data.metrics.comment_unreply_count',
                 'source_interface' => 'getCommentNumV2',
-                'source_keys' => 'unReplyCount, unreplyCount, unRepliedCount, unrepliedCount',
+                'source_keys' => 'unReplyCount, ctripCount.unReplyCount, qunarCount.unReplyCount, elongCount.unReplyCount, zxCount.unReplyCount, zhixingCount.unReplyCount, unreplyCount, unRepliedCount, unrepliedCount',
                 'target_value' => 'unReplyCount',
                 'value_meaning' => '未回复点评数，单位条。',
                 'notes' => '可与 responseRate 互相复核；缺失时保持缺失，不补 0。',
@@ -16435,7 +16647,7 @@ JAVASCRIPT;
                 'ownership_rule' => '点评好评率聚合口径；只保存百分比，不保存点评内容。',
                 'storage_field' => 'online_daily_data.raw_data.metrics.comment_good_rate',
                 'source_interface' => 'getCommentNumV2',
-                'source_keys' => 'goodRate',
+                'source_keys' => 'goodRate, ctripCount.goodRate, qunarCount.goodRate, elongCount.goodRate, zxCount.goodRate, zhixingCount.goodRate',
                 'target_value' => 'goodRate',
                 'value_meaning' => '点评好评率，单位 %。',
                 'notes' => '0-1 小数入库时按百分比展示；缺失时保持缺失，不用差评数反推。',
@@ -17025,18 +17237,18 @@ JAVASCRIPT;
             ['zx_comment_count', '智行点评数量', 'comment_review', 'quality', 'getCommentNumV2', 'zxCount.commentCount, zhixingCount.commentCount', 'integer', '条', 'confirmed', '只采集点评数量，不采集点评明文', true, '来自 getCommentNumV2 渠道聚合对象；缺失时保持缺失，不补 0'],
             ['ctrip_rating', '酒店点评分', 'quality_psi', 'quality', 'getDayReportServerQuantity / getCommentsScoreV2', 'ctripRatingall', 'number', '分', 'confirmed', '固定取 data.ctripRatingall；点评接口和日概览接口同源 key'],
             ['qunar_rating', '去哪儿评分', 'quality_psi', 'quality', 'getCommentsScoreV2', 'qunarRatingall', 'number', '分', 'confirmed', '只采集评分汇总，不采集点评明文'],
-            ['elong_rating', '艺龙评分', 'quality_psi', 'quality', 'getCommentsScoreV2', 'elongRatingall', 'number', '分', 'confirmed', '接口返回 null 时保持缺失，不补默认评分'],
+            ['elong_rating', '艺龙评分', 'traffic_report', 'quality', 'getCommentsScoreV2', 'elongRatingall', 'number', '分', 'confirmed', '接口返回 null 时保持缺失，不补默认评分'],
             ['ctrip_rating_rank', '携程评分排名', 'quality_psi', 'quality', 'getCommentsScoreV2', 'ctripRatingAllRanking', 'rank', '名', 'confirmed', '点评分竞争圈排名，只写 raw_data.rank_metrics'],
             ['qunar_rating_rank', '去哪儿评分排名', 'quality_psi', 'quality', 'getCommentsScoreV2', 'qunarRatingAllRanking', 'rank', '名', 'confirmed', '点评分竞争圈排名，只写 raw_data.rank_metrics'],
             ['comment_score_summary', '酒店点评分兼容字段', 'business_overview', 'quality', 'getDayReportServerQuantity / getCommentsScoreV2', 'ctripRatingall, qunarRatingall, HotelRating, ratingall', 'number', '分', 'confirmed', '只采集评分汇总，不采集点评明文'],
             ['comment_response_rate', '点评回复率', 'quality_psi', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'responseRate, ctripCount.responseRate', 'percent', '%', 'confirmed', '点评回复率，不等同于 IM 5分钟回复率'],
-            ['comment_unreply_count', '未回复点评数', 'comment_review', 'quality', 'getCommentNumV2', 'unReplyCount, unreplyCount, unRepliedCount, unrepliedCount', 'integer', '条', 'confirmed', '只保存未回复点评聚合计数，不保存点评明文', true, '可与 responseRate 互相复核；缺失时保持缺失，不补 0'],
-            ['comment_good_rate', '点评好评率', 'comment_review', 'quality', 'getCommentNumV2', 'goodRate', 'percent', '%', 'confirmed', '只保存好评率聚合值，不保存点评明文', true, '0-1 小数按百分比展示；缺失时保持缺失，不反推'],
-            ['review_environment_score', '点评环境评分', 'comment_review', 'quality', 'getHotelRating', 'ratingLocation, scoreInfo.subScores[type=ratingLocation].scoreSimple', 'number', '分', 'confirmed', '固定取 ratingInfo.ratingLocation 或 ctripRatings.ratingLocation；只保存评分汇总，不采集点评明文', true, '来自 getHotelRating 成功响应；goodCommentTags/poorCommentTags 不进入默认经营指标'],
-            ['review_facility_score', '点评设施评分', 'comment_review', 'quality', 'getHotelRating', 'ratingFacility, scoreInfo.subScores[type=ratingFacility].scoreSimple', 'number', '分', 'confirmed', '固定取 ratingInfo.ratingFacility 或 ctripRatings.ratingFacility；只保存评分汇总，不采集点评明文', true, '来自 getHotelRating 成功响应；goodCommentTags/poorCommentTags 不进入默认经营指标'],
-            ['review_service_score', '点评服务评分', 'comment_review', 'quality', 'getHotelRating', 'ratingService, scoreInfo.subScores[type=ratingService].scoreSimple', 'number', '分', 'confirmed', '固定取 ratingInfo.ratingService 或 ctripRatings.ratingService；不与 PSI service_score 混用', true, '来自 getHotelRating 成功响应；字段名为 ratingService，不与 PSI service_score 混用'],
-            ['review_cleanliness_score', '点评卫生评分', 'comment_review', 'quality', 'getHotelRating', 'ratingRoom, scoreInfo.subScores[type=ratingRoom].scoreSimple', 'number', '分', 'confirmed', '固定取 ratingInfo.ratingRoom 或 ctripRatings.ratingRoom；只保存评分汇总，不采集点评明文', true, '来自 getHotelRating 成功响应；goodCommentTags/poorCommentTags 不进入默认经营指标'],
-            ['review_photo_count', '带图点评数', 'comment_review', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'hasPicCount', 'integer', '条', 'confirmed', '固定取 data.hasPicCount；只保存聚合计数', true, '来自点评页 comment/commentList；不保存图片、点评正文或点评列表'],
+            ['comment_unreply_count', '未回复点评数', 'comment_review', 'quality', 'getCommentNumV2', 'unReplyCount, ctripCount.unReplyCount, qunarCount.unReplyCount, elongCount.unReplyCount, zxCount.unReplyCount, zhixingCount.unReplyCount, unreplyCount, unRepliedCount, unrepliedCount', 'integer', '条', 'confirmed', '只保存未回复点评聚合计数，不保存点评明文', true, '可与 responseRate 互相复核；缺失时保持缺失，不补 0'],
+            ['comment_good_rate', '点评好评率', 'comment_review', 'quality', 'getCommentNumV2', 'goodRate, ctripCount.goodRate, qunarCount.goodRate, elongCount.goodRate, zxCount.goodRate, zhixingCount.goodRate', 'percent', '%', 'confirmed', '只保存好评率聚合值，不保存点评明文', true, '0-1 小数按百分比展示；缺失时保持缺失，不反推'],
+            ['review_environment_score', '点评环境评分', 'comment_review', 'quality', 'getHotelRating', 'ratingLocation, scoreInfo.subScores[type=ratingLocation].scoreSimple', 'number', '分', 'confirmed', '固定取 ratingInfo.ratingLocation、ctripRatings.ratingLocation 或 elongRatings.ratingLocation；只保存评分汇总，不采集点评明文', true, '来自 getHotelRating 成功响应；goodCommentTags/poorCommentTags 不进入默认经营指标'],
+            ['review_facility_score', '点评设施评分', 'comment_review', 'quality', 'getHotelRating', 'ratingFacility, scoreInfo.subScores[type=ratingFacility].scoreSimple', 'number', '分', 'confirmed', '固定取 ratingInfo.ratingFacility、ctripRatings.ratingFacility 或 elongRatings.ratingFacility；只保存评分汇总，不采集点评明文', true, '来自 getHotelRating 成功响应；goodCommentTags/poorCommentTags 不进入默认经营指标'],
+            ['review_service_score', '点评服务评分', 'comment_review', 'quality', 'getHotelRating', 'ratingService, scoreInfo.subScores[type=ratingService].scoreSimple', 'number', '分', 'confirmed', '固定取 ratingInfo.ratingService、ctripRatings.ratingService 或 elongRatings.ratingService；不与 PSI service_score 混用', true, '来自 getHotelRating 成功响应；字段名为 ratingService，不与 PSI service_score 混用'],
+            ['review_cleanliness_score', '点评卫生评分', 'comment_review', 'quality', 'getHotelRating', 'ratingRoom, scoreInfo.subScores[type=ratingRoom].scoreSimple', 'number', '分', 'confirmed', '固定取 ratingInfo.ratingRoom、ctripRatings.ratingRoom 或 elongRatings.ratingRoom；只保存评分汇总，不采集点评明文', true, '来自 getHotelRating 成功响应；goodCommentTags/poorCommentTags 不进入默认经营指标'],
+            ['review_photo_count', '带图点评数', 'comment_review', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'hasPicCount, ctripCount.hasPicCount, qunarCount.hasPicCount, elongCount.hasPicCount, zxCount.hasPicCount, zhixingCount.hasPicCount', 'integer', '条', 'confirmed', '固定取 data.hasPicCount 或 {channel}Count.hasPicCount；只保存聚合计数', true, '来自点评页 comment/commentList；不保存图片、点评正文或点评列表'],
             ['review_photo_rate', '带图点评率', 'quality_psi', 'quality', 'getCommentsScoreV2 / getCommentNumV2', 'hasPicCount, commentCount', 'percent', '%', 'confirmed', '公式：hasPicCount / commentCount * 100；commentCount 缺失或为 0 时保持缺失', true, '不保存图片、点评正文或点评列表'],
             ['rating_competitor_total', '点评竞争圈酒店数', 'quality_psi', 'quality', 'getCommentsScoreV2', 'competitorHotelTotal', 'integer', '家', 'confirmed', '点评排名分母，不作为经营规模指标'],
             ['reply_rate', '5分钟回复率', 'business_overview', 'quality', 'getDayReportServerQuantity / getImIndex', 'replyrate5m, replyRate, fiveMinuteReplyRate, fiveMinReplyRate', 'percent', '%', 'confirmed', '固定取 data.replyrate5m'],
@@ -18530,6 +18742,15 @@ JAVASCRIPT;
                     return $this->success([
                         'list' => [],
                         'pagination' => ['total' => 0, 'page' => $page, 'page_size' => $pageSize],
+                        'data_quality_summary' => $this->buildOnlineDataQualitySummary([], [
+                            'calculation_scope' => 'current_page',
+                            'scope_label' => '当前页样本',
+                            'total_records' => 0,
+                            'page' => $page,
+                            'page_size' => $pageSize,
+                            'limited' => false,
+                            'all_requested' => $fetchAllRequested,
+                        ]),
                     ]);
                 }
                 $query->whereIn('system_hotel_id', $permittedHotelIds);
@@ -18576,7 +18797,15 @@ JAVASCRIPT;
                     'all_requested' => $fetchAllRequested,
                     'limited' => $fetchAllRequested || $total > $pageSize,
                 ],
-                'data_quality_summary' => $this->buildOnlineDataQualitySummary($list),
+                'data_quality_summary' => $this->buildOnlineDataQualitySummary($list, [
+                    'calculation_scope' => 'current_page',
+                    'scope_label' => '当前页样本',
+                    'total_records' => $total,
+                    'page' => $page,
+                    'page_size' => $pageSize,
+                    'limited' => $fetchAllRequested || $total > $pageSize,
+                    'all_requested' => $fetchAllRequested,
+                ]),
             ]);
         } catch (\Throwable $e) {
             \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
@@ -18584,7 +18813,7 @@ JAVASCRIPT;
         }
     }
 
-    private function buildOnlineDataQualitySummary(array $rows): array
+    private function buildOnlineDataQualitySummary(array $rows, array $scope = []): array
     {
         $checkedRecords = count($rows);
         $issueRecords = 0;
@@ -18627,6 +18856,14 @@ JAVASCRIPT;
         return [
             'status' => $status,
             'checked_records' => $checkedRecords,
+            'sample_size' => $checkedRecords,
+            'total_records' => (int)($scope['total_records'] ?? $checkedRecords),
+            'calculation_scope' => (string)($scope['calculation_scope'] ?? 'selected_rows'),
+            'scope_label' => (string)($scope['scope_label'] ?? '已加载样本'),
+            'page' => (int)($scope['page'] ?? 1),
+            'page_size' => (int)($scope['page_size'] ?? max(1, $checkedRecords)),
+            'limited' => (bool)($scope['limited'] ?? false),
+            'all_requested' => (bool)($scope['all_requested'] ?? false),
             'ok_records' => max(0, $checkedRecords - $issueRecords),
             'issue_records' => $issueRecords,
             'missing_count' => $missingCount,
@@ -26726,8 +26963,20 @@ JAVASCRIPT;
         $hotelIdRaw = $this->request->get('hotel_id', $this->request->get('system_hotel_id', ''));
         $hotelId = $this->resolveOnlineDataSystemHotelId($hotelIdRaw);
         [$startDate, $endDate] = $this->resolveDashboardDateRange();
+        $mode = $this->normalizeCollectionReliabilityMode($this->request->get('mode', 'full'));
 
         try {
+            if ($mode === 'light') {
+                $cacheKey = $this->collectionReliabilityCacheKey($hotelId, $startDate, $endDate, $mode);
+                $cached = cache($cacheKey);
+                if (is_array($cached)) {
+                    return $this->success($cached);
+                }
+                $payload = $this->buildCollectionReliabilityLightPayload($hotelId, $startDate, $endDate);
+                cache($cacheKey, $payload, 45);
+                return $this->success($payload);
+            }
+
             return $this->success($this->buildCollectionReliabilityPayload($hotelId, $startDate, $endDate));
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
@@ -26814,6 +27063,90 @@ JAVASCRIPT;
         return [$startDate, $endDate];
     }
 
+    private function normalizeCollectionReliabilityMode($mode): string
+    {
+        return strtolower(trim((string)$mode)) === 'light' ? 'light' : 'full';
+    }
+
+    private function collectionReliabilityCacheKey(?int $hotelId, string $startDate, string $endDate, string $mode): string
+    {
+        $scope = 'guest';
+        if ($this->currentUser) {
+            if ($this->currentUser->isSuperAdmin()) {
+                $scope = 'super';
+            } else {
+                $hotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+                sort($hotelIds);
+                $scope = 'user_' . (int)($this->currentUser->id ?? 0) . '_' . implode('-', $hotelIds);
+            }
+        }
+
+        return 'collection_reliability:' . md5(implode('|', [
+            (string)($hotelId ?? 'all'),
+            $startDate,
+            $endDate,
+            $mode,
+            $scope,
+        ]));
+    }
+
+    private function unloadedCollectionQualitySnapshot(): array
+    {
+        return [
+            'status' => 'not_loaded',
+            'score' => null,
+            'grade' => 'not_loaded',
+            'checked_records' => 0,
+            'missing_count' => 0,
+            'top_prompts' => [],
+            'prompts' => [],
+            'calculation_scope' => 'light_mode_not_loaded',
+            'message' => 'Light mode does not load online_daily_data quality rows. Use mode=full for field quality evidence.',
+        ];
+    }
+
+    private function buildCollectionReliabilityLightPayload(?int $hotelId, string $startDate, string $endDate): array
+    {
+        $periodDays = (int)floor((strtotime($endDate) - strtotime($startDate)) / 86400) + 1;
+        $authorizationRows = $this->filterCollectionAuthorizationRows($this->buildCookieStatusRows(), $hotelId);
+        $alerts = $this->filterCollectionAlertsByHotel($this->getCookieAlerts(), $hotelId);
+        $collectionLogs = $this->buildCollectionLogRows($hotelId, $startDate, $endDate, 10);
+
+        return [
+            'mode' => 'light',
+            'period' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'days' => $periodDays,
+            ],
+            'hotel_id' => $hotelId,
+            'status_catalog' => $this->collectionReliabilityStatusCatalog(),
+            'collection_lifecycle_catalog' => $this->collectionLifecycleCatalog(),
+            'authorization' => [
+                'summary' => $this->buildCollectionAuthorizationSummary($authorizationRows),
+                'list' => $authorizationRows,
+                'reauthorize_entry' => $this->cookieReauthorizeEntry(),
+            ],
+            'failure_reasons' => $this->buildCollectionFailureReasons($alerts, $collectionLogs, 20),
+            'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
+            'pending_actions' => $this->buildCollectionPendingActions($authorizationRows, $alerts, $collectionLogs, []),
+            'data_quality' => $this->unloadedCollectionQualitySnapshot(),
+            'field_asset_summary' => [
+                'status' => 'not_loaded',
+                'message' => 'Light mode skips field definitions. Use mode=full for field asset evidence.',
+            ],
+            'field_definitions' => [],
+            'history_replay' => [],
+            'ctrip_capture_catalog' => ['status' => 'not_loaded', 'message' => 'Light mode skips capture catalog evidence.'],
+            'ctrip_latest_capture' => ['available' => false, 'status' => 'not_loaded', 'message' => 'Light mode skips latest capture evidence.'],
+            'ctrip_hotel_identity_filter' => ['status' => 'not_loaded', 'message' => 'Light mode skips hotel identity filter evidence.'],
+            'cache' => [
+                'ttl_seconds' => 45,
+                'scope' => 'hotel_id + start_date + end_date + mode + user_scope',
+            ],
+        ];
+    }
+
     private function buildCollectionReliabilityPayload(?int $hotelId, string $startDate, string $endDate): array
     {
         $periodDays = (int)floor((strtotime($endDate) - strtotime($startDate)) / 86400) + 1;
@@ -26825,6 +27158,7 @@ JAVASCRIPT;
         $fieldDefinitions = $this->buildOtaCollectionFieldDefinitions();
 
         return [
+            'mode' => 'full',
             'period' => [
                 'start_date' => $startDate,
                 'end_date' => $endDate,
