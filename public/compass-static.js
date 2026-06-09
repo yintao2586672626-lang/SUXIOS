@@ -106,6 +106,49 @@ window.SUXI_COMPASS_STATIC = (() => {
         { key: 'hotel-management', title: '酒店管理', desc: '维护基础信息', page: 'hotels', icon: 'fas fa-hotel' },
         { key: 'system-settings', title: '系统设置', desc: '配置数据源与权限', page: 'system-config', icon: 'fas fa-cog', requireSuper: true },
     ];
+    const macroSignalMeaningMap = {
+        cycle: {
+            icon: 'fas fa-calendar-check',
+            meaning: '判断订单节奏、周末与节假日窗口是否进入机会期。',
+            impact: '影响预售价、库存保留和连住策略。',
+            action: '结合订单节奏复核未来7天价盘。',
+        },
+        weather: {
+            icon: 'fas fa-cloud-sun-rain',
+            meaning: '判断天气对到店率、取消率和周边游需求的影响。',
+            impact: '影响到店提醒、取消订单二次售卖和本地客需求。',
+            action: '按异常天气日期补充到店提醒。',
+        },
+        channel: {
+            icon: 'fas fa-route',
+            meaning: '判断 OTA 曝光、点击、访客与订单承接是否顺畅。',
+            impact: '影响渠道投放、主图卖点、价格力和转化效率。',
+            action: '优先检查低转化渠道的价格与详情页。',
+        },
+        price: {
+            icon: 'fas fa-tags',
+            meaning: '判断本店 ADR 与竞对价格是否形成明显价差。',
+            impact: '影响调价、促销、底价和竞对跟价动作。',
+            action: '结合入住率和转化率小步调整价格。',
+        },
+        demand: {
+            icon: 'fas fa-users',
+            meaning: '判断近期订单与未来需求预测是否走强或走弱。',
+            impact: '影响保留房量、涨价幅度和高峰日房型控制。',
+            action: '用近3天与近7天订单节奏校准库存。',
+        },
+    };
+    const homeMarketForecastSummaryNoteMap = {
+        '市场需求': '判断是否需要保留高价值库存、控制低价房。',
+        '价格带': '判断价格区间是否支撑提价、补量或竞对校准。',
+        '渠道热度': '判断 OTA 曝光、访客、转化是否支撑当前策略。',
+    };
+    const defaultMeituanRankTypes = [
+        { key: 'P_RZ', label: '入住榜' },
+        { key: 'P_XS', label: '销售榜' },
+        { key: 'P_LL', label: '流量榜' },
+        { key: 'P_ZH', label: '转化榜' },
+    ];
 
     return {
         defaultHomeQuickEntryOrder,
@@ -119,5 +162,8 @@ window.SUXI_COMPASS_STATIC = (() => {
         weatherMajorCities,
         defaultCompassWeatherCity,
         homeQuickEntryDefinitions,
+        macroSignalMeaningMap,
+        homeMarketForecastSummaryNoteMap,
+        defaultMeituanRankTypes,
     };
 })();

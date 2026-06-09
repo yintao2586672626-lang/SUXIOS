@@ -201,6 +201,13 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current staged self-audit after the seventh frontend split: full directory about `237 MB`, without `.git` about `91.90 MB`, without `.git` and dependencies about `62.71 MB`, tracked files about `17.79 MB` / `601` files; code scope `358` files, `185852` total lines, `170212` nonblank lines.
 - Verified after the seventh frontend split: Node syntax check for `public/operation-static.js`; `git diff --cached --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+- Eighth frontend split target chosen from compass macro-signal static copy: macro signal meanings, home market forecast summary notes, and default Meituan rank types embedded in `public/index.html`.
+- Extended `public/compass-static.js` for macro signal and competitor display static copy.
+- `public/index.html` now reuses the existing `window.SUXI_COMPASS_STATIC` binding for those values; missing keys still throw explicit configuration errors through `requireCompassStatic`.
+- `public/index.html` decreased from `42493` lines to `42453` lines; the frontend `general` span decreased from `10809` to `10769` lines.
+- Current staged self-audit after the eighth frontend split: full directory about `238 MB`, without `.git` about `91.91 MB`, without `.git` and dependencies about `62.72 MB`, tracked files about `17.79 MB` / `601` files; code scope `358` files, `185858` total lines, `170218` nonblank lines.
+- Verified after the eighth frontend split: Node syntax check for `public/compass-static.js`; `git diff --cached --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
