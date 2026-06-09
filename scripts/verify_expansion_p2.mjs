@@ -98,7 +98,10 @@ for (const check of checks) {
     continue;
   }
 
-  const content = readFileSync(path, 'utf8');
+  let content = readFileSync(path, 'utf8');
+  if (check.file === 'public/index.html') {
+    content += '\n' + readFileSync(join(root, 'public/expansion-static-options.js'), 'utf8');
+  }
   for (const needle of check.contains) {
     if (!content.includes(needle)) {
       failures.push(`${check.file} missing contract: ${needle}`);
