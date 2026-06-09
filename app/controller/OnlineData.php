@@ -11470,54 +11470,8 @@ JAVASCRIPT;
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+
         return $this->commentCollectionDisabledResponse();
-
-        $name = $this->request->post('name', '');
-        $partnerId = $this->request->post('partner_id', '');
-        $poiId = $this->request->post('poi_id', '');
-        $mtsiEbU = $this->request->post('mtsi_eb_u', $this->request->post('_mtsi_eb_u', ''));
-        $cookies = $this->request->post('cookies', '');
-        $mtgsig = $this->request->post('mtgsig', '');
-        $requestUrl = $this->request->post('request_url', '');
-
-        if (empty($name)) {
-            return $this->error('配置名称不能为空');
-        }
-        if (empty($partnerId) || empty($poiId)) {
-            return $this->error('Partner ID 和 POI ID 不能为空');
-        }
-        if ($requestUrl !== '' && !$this->isAllowedOtaRequestUrl($requestUrl, ['meituan.com'])) {
-            return $this->error('仅允许保存美团官方域名请求地址');
-        }
-
-        // 获取配置列表
-        $key = 'meituan_comment_config_list';
-        $list = $this->getConfigList($key);
-
-        $id = md5($name . $partnerId . $poiId);
-        $originalConfig = $list[$id] ?? [];
-        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', $originalConfig['system_hotel_id'] ?? null));
-        $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
-        $list[$id] = [
-            'id' => $id,
-            'name' => $name,
-            'partner_id' => $partnerId,
-            'poi_id' => $poiId,
-            'system_hotel_id' => $systemHotelId,
-            'user_id' => $userId,
-            'mtsi_eb_u' => $mtsiEbU,
-            'cookies' => $cookies,
-            'mtgsig' => $mtgsig,
-            'request_url' => $requestUrl,
-            'update_time' => date('Y-m-d H:i:s'),
-            'created_at' => $list[$id]['created_at'] ?? date('Y-m-d H:i:s'),
-        ];
-
-        $this->setConfigList($key, $list);
-
-        OperationLog::record('online_data', 'save_meituan_comment_config', "保存美团点评配置: {$name}", $this->currentUser->id);
-
-        return $this->success($this->sanitizeSecretConfig($list[$id]), '配置保存成功');
     }
 
     /**
@@ -11526,21 +11480,8 @@ JAVASCRIPT;
     public function getMeituanCommentConfigList(): Response
     {
         $this->checkPermission();
+
         return $this->success([]);
-
-        $key = 'meituan_comment_config_list';
-        $list = $this->getConfigList($key);
-        $list = $this->filterOtaConfigListForCurrentUser($list);
-
-        // 按更新时间降序排序
-        $list = array_values($list);
-        usort($list, function($a, $b) {
-            $timeA = $a['update_time'] ?? $a['created_at'] ?? '1970-01-01 00:00:00';
-            $timeB = $b['update_time'] ?? $b['created_at'] ?? '1970-01-01 00:00:00';
-            return strcmp($timeB, $timeA);
-        });
-
-        return $this->success(array_map([$this, 'sanitizeSecretConfig'], $list));
     }
 
     /**
@@ -27541,53 +27482,8 @@ JAVASCRIPT;
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+
         return $this->commentCollectionDisabledResponse();
-
-        $name = $this->request->post('name', '');
-        $hotelId = $this->request->post('hotel_id', '');
-        $masterHotelId = $this->request->post('master_hotel_id', '');
-        $requestUrl = $this->request->post('request_url', '');
-        $cookies = $this->request->post('cookies', '');
-        $token = $this->request->post('spidertoken', '') ?: $this->request->post('token', '');
-
-        if (empty($name)) {
-            $name = '携程点评-' . $hotelId;
-        }
-
-        if (empty($hotelId)) {
-            return $this->error('Hotel ID不能为空');
-        }
-        if ($requestUrl !== '' && !$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com'])) {
-            return $this->error('仅允许保存携程官方域名请求地址');
-        }
-
-        // 获取配置列表
-        $key = 'ctrip_comment_config_list';
-        $list = $this->getConfigList($key);
-
-        $id = md5($name . $hotelId);
-        $originalConfig = $list[$id] ?? [];
-        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', $originalConfig['system_hotel_id'] ?? null));
-        $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
-        $list[$id] = [
-            'id' => $id,
-            'name' => $name,
-            'hotel_id' => $hotelId,
-            'system_hotel_id' => $systemHotelId,
-            'user_id' => $userId,
-            'master_hotel_id' => $masterHotelId,
-            'request_url' => $requestUrl,
-            'cookies' => $cookies,
-            'token' => $token,
-            'update_time' => date('Y-m-d H:i:s'),
-            'created_at' => $list[$id]['created_at'] ?? date('Y-m-d H:i:s'),
-        ];
-
-        $this->setConfigList($key, $list);
-
-        OperationLog::record('online_data', 'save_ctrip_comment_config', "保存携程点评配置: {$name}", $this->currentUser->id);
-
-        return $this->success($this->sanitizeSecretConfig($list[$id]), '配置保存成功');
     }
 
     /**
@@ -27596,20 +27492,7 @@ JAVASCRIPT;
     public function getCtripCommentConfigList(): Response
     {
         $this->checkPermission();
+
         return $this->success([]);
-
-        $key = 'ctrip_comment_config_list';
-        $list = $this->getConfigList($key);
-        $list = $this->filterOtaConfigListForCurrentUser($list);
-
-        // 按更新时间降序排序
-        $list = array_values($list);
-        usort($list, function($a, $b) {
-            $timeA = $a['update_time'] ?? $a['created_at'] ?? '1970-01-01 00:00:00';
-            $timeB = $b['update_time'] ?? $b['created_at'] ?? '1970-01-01 00:00:00';
-            return strcmp($timeB, $timeA);
-        });
-
-        return $this->success(array_map([$this, 'sanitizeSecretConfig'], $list));
     }
 }
