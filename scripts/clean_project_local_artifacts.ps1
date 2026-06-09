@@ -61,6 +61,21 @@ if (Test-Path -LiteralPath "storage") {
     ForEach-Object { $_.FullName }
 }
 
+if (Test-Path -LiteralPath "reports") {
+  foreach ($assetDir in @("reports/ctrip_capture_assets", "reports/meituan_capture_assets")) {
+    $candidatePaths += $assetDir
+  }
+
+  foreach ($pattern in @(
+    "ctrip_browser_capture_*.json",
+    "meituan_browser_capture_*.json",
+    "ctrip_capture_target_*.json"
+  )) {
+    $candidatePaths += Get-ChildItem -LiteralPath "reports" -Force -File -Filter $pattern -ErrorAction SilentlyContinue |
+      ForEach-Object { $_.FullName }
+  }
+}
+
 if ($IncludeDependencies) {
   $candidatePaths += @("node_modules", "vendor")
 }

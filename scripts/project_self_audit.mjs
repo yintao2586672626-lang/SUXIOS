@@ -256,6 +256,23 @@ function measureCleanupTargets() {
       }
     }
   }
+  const reportsPath = path.join(repoRoot, 'reports');
+  if (safeStat(reportsPath)?.isDirectory()) {
+    candidates.push(path.join('reports', 'ctrip_capture_assets'));
+    candidates.push(path.join('reports', 'meituan_capture_assets'));
+    for (const entry of fs.readdirSync(reportsPath, { withFileTypes: true })) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      if (
+        /^ctrip_browser_capture_.*\.json$/.test(entry.name)
+        || /^meituan_browser_capture_.*\.json$/.test(entry.name)
+        || /^ctrip_capture_target_.*\.json$/.test(entry.name)
+      ) {
+        candidates.push(path.join('reports', entry.name));
+      }
+    }
+  }
   if (includeDependencies) {
     candidates.push('node_modules', 'vendor');
   }

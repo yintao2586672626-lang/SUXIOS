@@ -59,6 +59,14 @@ Updated: 2026-06-07 Asia/Shanghai
 - Verified code-line scope: tracked project code only, about `344` code files, `185171` total code lines, and `169563` nonblank code lines at the time of this audit.
 - Existing unrelated/unowned local changes were present during this self-cleaning pass in auto-fetch scheduling files; do not revert or include them in a self-cleaning-only save unless explicitly requested.
 
+## 2026-06-10 Progress: Reports Artifact Cleanup
+
+- Extended controlled local cleanup to include ignored report artifacts: `reports/ctrip_capture_assets`, `reports/meituan_capture_assets`, `reports/ctrip_browser_capture_*.json`, `reports/meituan_browser_capture_*.json`, and `reports/ctrip_capture_target_*.json`.
+- Verified before cleanup: `npm.cmd run self:audit` reported 4 cleanup targets and estimated reclaim `153.08 MB`, mostly `reports/ctrip_capture_assets`.
+- Executed `npm.cmd run self:clean`; it removed 4 local artifact targets and did not delete tracked report files.
+- Verified after cleanup: full directory about `228.37 MB`, without `.git` about `91.86 MB`, without `.git` and dependencies about `62.67 MB`, `reports` about `1.14 MB`, and default cleanup reclaim `0 MB`.
+- Verification passed after cleanup: `npm.cmd run self:check` and `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

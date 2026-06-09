@@ -81,6 +81,15 @@
 | `npm run verify:e2e-contracts` | 通过。 |
 | `npm run review:non-security` | 通过。 |
 
+## 2026-06-10 报告产物治理补充
+
+| 命令 | 结果 |
+|---|---|
+| `npm run self:audit` | 识别 `reports/ctrip_capture_assets/` 和忽略的 raw capture JSON 为默认清理候选，预计可释放约 153.08 MB。 |
+| `npm run self:clean` | 通过，删除 4 个本地报告产物目标：`reports/ctrip_capture_assets/`、2 个 `reports/ctrip_browser_capture_*.json`、`runtime/`。 |
+| `npm run self:audit` | 清理后完整目录约 228.37 MB，不含 `.git` 约 91.86 MB，不含 `.git` 和依赖约 62.67 MB，`reports/` 降至约 1.14 MB。 |
+| `npm run self:check` | 通过，默认可清理目标为 0 MB，P0 guard 通过。 |
+
 ## 代码行数口径
 
 `npm run self:audit` 当前只统计 Git 跟踪的项目代码文件，不把 `node_modules/`、`vendor/` 和本地运行产物算作项目代码。
