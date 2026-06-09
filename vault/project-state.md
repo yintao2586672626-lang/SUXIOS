@@ -180,6 +180,13 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current staged self-audit after the fourth frontend split: full directory about `236 MB`, without `.git` about `91.89 MB`, without `.git` and dependencies about `62.7 MB`, tracked files about `17.78 MB` / `598` files; code scope `355` files, `185764` total lines, `170126` nonblank lines.
 - Verified after the fourth frontend split: Node syntax check for `public/auto-fetch-static.js`; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+- Fifth frontend split target chosen from static display/config boundaries: compass home trend options, default trend cards, daily operations actions, review steps, weather city list, and quick-entry definitions embedded in `public/index.html`.
+- Added `public/compass-static.js` for compass/home static options and definitions.
+- `public/index.html` now loads `compass-static.js` and binds compass static values from `window.SUXI_COMPASS_STATIC`; missing script or missing keys throw explicit configuration errors instead of silently falling back.
+- `public/index.html` decreased from `42782` lines to `42744` lines; the frontend `general` span decreased from `11020` to `11008` lines, and `ai` span decreased from `1543` to `1516` lines.
+- Current staged self-audit after the fifth frontend split: full directory about `236 MB`, without `.git` about `91.90 MB`, without `.git` and dependencies about `62.71 MB`, tracked files about `17.78 MB` / `599` files; code scope `356` files, `185849` total lines, `170210` nonblank lines.
+- Verified after the fifth frontend split: Node syntax check for `public/compass-static.js`; `git diff --cached --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
