@@ -10,10 +10,10 @@
 
 | 项目 | 体积 | 处理策略 |
 |---|---:|---|
-| 完整 `HOTEL/` 目录 | 约 235 MB | 包含 `.git`、依赖、本地报告和项目代码；会随本地 Git 对象轻微波动。 |
+| 完整 `HOTEL/` 目录 | 约 236 MB | 包含 `.git`、依赖、本地报告和项目代码；会随本地 Git 对象轻微波动。 |
 | 不含 `.git` | 约 91.89 MB | 更接近工作副本体积。 |
 | 不含 `.git`、`node_modules/`、`vendor/` | 约 62.7 MB | 更接近业务与资料体积。 |
-| Git 跟踪文件 | 约 17.78 MB / 597 个文件 | 这是代码提交体积口径。 |
+| Git 跟踪文件 | 约 17.78 MB / 598 个文件 | 这是代码提交体积口径。 |
 | `reports/` | 约 1.14 MB | 大型可再生成采集产物已清理；剩余报告文件默认保留。 |
 | `node_modules/`、`vendor/` | 约 29.19 MB | 默认不清理；需要重新安装依赖时可显式清理。 |
 
@@ -99,9 +99,9 @@
 
 | 口径 | 当前值 |
 |---|---:|
-| 代码文件 | 354 |
-| 总代码行 | 约 185,741 |
-| 非空代码行 | 约 170,104 |
+| 代码文件 | 355 |
+| 总代码行 | 约 185,764 |
+| 非空代码行 | 约 170,126 |
 
 ## 跟踪代码热点
 
@@ -109,7 +109,7 @@
 
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
-| `public/index.html` | 42,830 | 3.06 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，并抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
+| `public/index.html` | 42,782 | 3.06 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，并抽出自动采集静态配置到 `public/auto-fetch-static.js`；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
 | `app/controller/OnlineData.php` | 27,333 | 1.17 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程/美团点评旧直连、旧浏览器抓取、旧配置读写和旧自动抓取执行死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
 
 前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分集中在 `app/controller/OnlineData.php` 后端瘦身与 `public/index.html` 前端静态配置拆分，均保持现有路由、接口和 Vue CDN 运行契约。
@@ -130,7 +130,7 @@
 
 | 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
 |---|---:|---|---|
-| `public/index.html` | 1,165 个函数级块；44 个 `currentPage` 引用 | `printFeasibilityReport` 342 行、`setOnlineDataTabFromPage` 304 行、`buildCollaborationTasks` 294 行 | `general` 11,069 行、`ctrip` 3,909 行、`ai` 1,543 行、`hotel_admin` 1,515 行、`meituan` 1,426 行 |
+| `public/index.html` | 1,166 个函数级块；44 个 `currentPage` 引用 | `printFeasibilityReport` 342 行、`setOnlineDataTabFromPage` 304 行、`buildCollaborationTasks` 294 行 | `general` 11,020 行、`ctrip` 3,909 行、`ai` 1,543 行、`hotel_admin` 1,515 行、`meituan` 1,426 行 |
 | `app/controller/OnlineData.php` | 871 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 11,861 行、`meituan` 4,979 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
 
 ## 2026-06-10 后端第一刀拆分
@@ -233,6 +233,15 @@
 - `public/index.html` 从 `42,907` 行降至 `42,830` 行；`hotel_admin` 领域 span 从 `1,601` 行降至 `1,515` 行。
 - 当前审计：完整目录约 `235 MB`；不含 `.git` 约 `91.89 MB`；不含 `.git` 和依赖约 `62.7 MB`；Git 跟踪文件约 `17.78 MB` / `597` 个；代码范围 `354` 个文件、`185,741` 行、非空 `170,104` 行。
 - 验证通过：`node --check public\revenue-research-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`git diff --check`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
+## 2026-06-10 前端第四刀拆分
+
+- 新增 `public/auto-fetch-static.js`，承载平台自动采集模式选项、采集蓝图行和 OTA 字段范围分组。
+- `public/index.html` 新增脚本引用，并通过 `window.SUXI_AUTO_FETCH_STATIC` 显式读取自动采集静态配置；缺少脚本或字段时直接抛出明确配置错误，不用空数组或默认值兜底。
+- `public/index.html` 从 `42,830` 行降至 `42,782` 行；`general` 领域 span 从 `11,069` 行降至 `11,020` 行。
+- 当前审计：完整目录约 `236 MB`；不含 `.git` 约 `91.89 MB`；不含 `.git` 和依赖约 `62.7 MB`；Git 跟踪文件约 `17.78 MB` / `598` 个；代码范围 `355` 个文件、`185,764` 行、非空 `170,126` 行。
+- 验证通过：`node --check public\auto-fetch-static.js`、`git diff --check`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
 ## 后续处理建议

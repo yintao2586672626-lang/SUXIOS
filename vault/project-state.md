@@ -173,6 +173,13 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current staged self-audit after the third frontend split: full directory about `235 MB`, without `.git` about `91.89 MB`, without `.git` and dependencies about `62.7 MB`, tracked files about `17.78 MB` / `597` files; code scope `354` files, `185741` total lines, `170104` nonblank lines.
 - Verified after the third frontend split: Node syntax checks for `public/revenue-research-static.js` and `scripts/verify_e2e_contracts.mjs`; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+- Fourth frontend split target chosen from static display/config boundaries: platform auto-fetch mode options, collection blueprint rows, and OTA field-scope groups embedded in `public/index.html`.
+- Added `public/auto-fetch-static.js` for auto-fetch mode options, collection blueprint rows, and OTA field-scope groups.
+- `public/index.html` now loads `auto-fetch-static.js` and binds `autoFetchModeOptions`, `autoFetchCollectionBlueprintRows`, and `autoFetchFieldScopeGroups` from `window.SUXI_AUTO_FETCH_STATIC`; missing script or missing keys throw explicit configuration errors instead of silently falling back.
+- `public/index.html` decreased from `42830` lines to `42782` lines; the frontend `general` span decreased from `11069` to `11020` lines.
+- Current staged self-audit after the fourth frontend split: full directory about `236 MB`, without `.git` about `91.89 MB`, without `.git` and dependencies about `62.7 MB`, tracked files about `17.78 MB` / `598` files; code scope `355` files, `185764` total lines, `170126` nonblank lines.
+- Verified after the fourth frontend split: Node syntax check for `public/auto-fetch-static.js`; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
