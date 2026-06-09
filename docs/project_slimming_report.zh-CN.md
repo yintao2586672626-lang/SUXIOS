@@ -10,10 +10,10 @@
 
 | 项目 | 体积 | 处理策略 |
 |---|---:|---|
-| 完整 `HOTEL/` 目录 | 约 228.47 MB | 包含 `.git`、依赖、本地报告和项目代码。 |
-| 不含 `.git` | 约 91.88 MB | 更接近工作副本体积。 |
-| 不含 `.git`、`node_modules/`、`vendor/` | 约 62.69 MB | 更接近业务与资料体积。 |
-| Git 跟踪文件 | 约 17.76 MB / 587 个文件 | 这是代码提交体积口径。 |
+| 完整 `HOTEL/` 目录 | 约 228.52 MB | 包含 `.git`、依赖、本地报告和项目代码。 |
+| 不含 `.git` | 约 91.89 MB | 更接近工作副本体积。 |
+| 不含 `.git`、`node_modules/`、`vendor/` | 约 62.70 MB | 更接近业务与资料体积。 |
+| Git 跟踪文件 | 约 17.77 MB / 589 个文件 | 这是代码提交体积口径。 |
 | `reports/` | 约 1.14 MB | 大型可再生成采集产物已清理；剩余报告文件默认保留。 |
 | `node_modules/`、`vendor/` | 约 29.19 MB | 默认不清理；需要重新安装依赖时可显式清理。 |
 
@@ -23,6 +23,8 @@
 |---|---|
 | `npm run self:audit` | 只读输出项目体积、Git 状态、代码行数、可清理目标和大文件清单。 |
 | `npm run self:audit:json` | 输出机器可读 JSON，供后续自动化或报告引用。 |
+| `npm run self:split-map` | 只读输出剩余拆分候选的页面/方法/领域分布和最大块。 |
+| `npm run self:split-map:json` | 输出机器可读拆分地图，供后续自动化或拆分计划引用。 |
 | `npm run self:check` | 自审计 + P0 guard；当默认可清理产物超过阈值时失败。 |
 | `npm run self:check:strict` | 严格自审计 + P0 guard；除默认可清理产物外，还会在跟踪代码拆分候选存在时失败，用于重构收口阶段。 |
 | `npm run self:clean:dry-run` | `slim:local:dry-run` 的语义化别名。 |
@@ -97,9 +99,9 @@
 
 | 口径 | 当前值 |
 |---|---:|
-| 代码文件 | 345 |
-| 总代码行 | 约 185,870 |
-| 非空代码行 | 约 170,210 |
+| 代码文件 | 346 |
+| 总代码行 | 约 186,133 |
+| 非空代码行 | 约 170,454 |
 
 ## 跟踪代码热点
 
@@ -121,6 +123,15 @@
 | `public/tailwind.min.css` | 1 | 2.80 MB | 当前 `public/index.html` 直接加载的本地 Tailwind CSS 静态依赖，不作为业务代码拆分目标；前端拆分或迁移后复查。 |
 
 `npm run self:check` 保持日常可通过，只把默认可清理产物超过阈值视为失败；`npm run self:check:strict` 用于核心大文件拆分阶段，当前预计会因为 `public/index.html` 和 `app/controller/OnlineData.php` 两个拆分候选失败。
+
+## 拆分地图
+
+`npm run self:split-map` 当前只读分析剩余两个严格候选，不修改业务文件。当前两个候选均有本地未提交业务改动，拆分前仍需先保存或隔离。
+
+| 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
+|---|---:|---|---|
+| `public/index.html` | 1,162 个函数级块；44 个 `currentPage` 引用 | `resetSystemConfig` 421 行、`printFeasibilityReport` 342 行、`formatOtaMetricValue` 312 行 | `general` 11,061 行、`ctrip` 3,909 行、`hotel_admin` 1,571 行、`ai` 1,543 行 |
+| `app/controller/OnlineData.php` | 877 个方法 | `defaultCtripProfileFieldMeta` 1,664 行、`summarizeCtripOverviewRows` 281 行、`captureMeituanBrowserData` 274 行 | `ctrip` 14,719 行、`meituan` 5,307 行、`general` 4,486 行、`auto_fetch` 1,838 行 |
 
 ## 后续处理建议
 

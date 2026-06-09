@@ -99,6 +99,15 @@ Updated: 2026-06-10 Asia/Shanghai
 - Split work should not directly edit those two files in a self-cleaning commit while their unrelated business changes remain uncommitted; first save or isolate the business changes.
 - Verification passed: `node --check scripts\project_self_audit.mjs`, `npm.cmd run self:audit`, `git diff --check`, `npm.cmd run self:check`, and JSON parse with `split=2`, `dirty=2`, `accepted=1`; strict gate failure was confirmed as expected on the 2 remaining dirty split candidates.
 
+## 2026-06-10 Progress: Split Map Tooling
+
+- Added read-only split-map command family: `npm.cmd run self:split-map` and `npm.cmd run self:split-map:json`.
+- Split-map target scope is currently limited to the 2 remaining strict split candidates: `public/index.html` and `app/controller/OnlineData.php`.
+- Current verified split map for `public/index.html`: `43322` lines, worktree changed, `1162` function-level blocks, `44` `currentPage` references; largest blocks include `resetSystemConfig` (`421` lines), `printFeasibilityReport` (`342` lines), and `formatOtaMetricValue` (`312` lines).
+- Current verified split map for `app/controller/OnlineData.php`: `31140` lines, worktree changed, `877` methods; largest methods include `defaultCtripProfileFieldMeta` (`1664` lines), `summarizeCtripOverviewRows` (`281` lines), and `captureMeituanBrowserData` (`274` lines).
+- Current verified self-audit after adding the split-map tool: full directory about `228.52 MB`, without `.git` about `91.89 MB`, without `.git` and dependencies about `62.70 MB`, tracked files about `17.77 MB` / `589` files; code scope `346` files, `186133` total lines, `170454` nonblank lines.
+- Verification passed: `node --check scripts\project_split_map.mjs`, package JSON parse, `npm.cmd run self:split-map`, JSON parse with `targets=2`, `frontendBlocks=1162`, `backendMethods=877`, `git diff --check`, and `npm.cmd run self:check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

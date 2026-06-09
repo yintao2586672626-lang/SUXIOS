@@ -64,6 +64,8 @@
     "review:release-external-state:local": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& { ./scripts/collect_release_external_state.ps1 -OutputPath docs/release_external_state_evidence.local.json; $env:RELEASE_EXTERNAL_STATE_FILE='docs/release_external_state_evidence.local.json'; node scripts/verify_release_external_state.mjs; exit $LASTEXITCODE }\"",
     "self:audit": "node scripts/project_self_audit.mjs",
     "self:audit:json": "node scripts/project_self_audit.mjs --json",
+    "self:split-map": "node scripts/project_split_map.mjs",
+    "self:split-map:json": "node scripts/project_split_map.mjs --json",
     "self:check": "node scripts/project_self_audit.mjs --fail-on-artifacts --max-reclaim-mb=100 && npm run verify:p0-guards",
     "self:check:strict": "node scripts/project_self_audit.mjs --fail-on-artifacts --max-reclaim-mb=100 --fail-on-split-candidates && npm run verify:p0-guards",
     "self:clean:dry-run": "npm run slim:local:dry-run",
