@@ -50,7 +50,8 @@
 ## 本机环境注意
 
 - 当前 `php` 不在 PATH；如需 PHP CLI，优先使用 XAMPP 路径，例如：
-  `C:\xampp\php\php.exe think run --host 127.0.0.1 --port 8080`
+  `C:\xampp\php\php.exe`
+- 本地打开/运营项目必须使用 `npm.cmd run start -- --NoBrowser` 或 `scripts/start_local_stack.ps1`；该入口会自动启动/验证 MySQL 后再启动 ThinkPHP。不要只运行 `think run`，否则登录接口可能出现 HTTP 500。
 - `rg` 在当前环境返回 `Access is denied`；搜索代码时用 PowerShell：
   `Get-ChildItem -Recurse -File | Select-String -Pattern '关键词'`
 - Browser Use 插件的 Node REPL 当前返回 `拒绝访问`，无法接管内置浏览器；测试携程页面时用系统浏览器或手动操作。

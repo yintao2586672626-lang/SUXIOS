@@ -34,8 +34,9 @@
 ```bash
 cd "D:\桌面\SUXIOS\宿析OS初始版\HOTEL\"
 composer install
-# 启动 XAMPP (Apache + MySQL)
-# 访问 http://hotelx.local/ 或 http://localhost/HOTEL/public/
+npm.cmd run start -- --NoBrowser
+# 本地打开/运营项目必须走 scripts/start_local_stack.ps1，由它自动启动/验证 MySQL 后再启动 ThinkPHP。
+# 访问 http://127.0.0.1:8080/
 ```
 
 ## 认证机制

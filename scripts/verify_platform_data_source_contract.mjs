@@ -174,7 +174,9 @@ for (const [needle, label] of [
 
 for (const [needle, label] of [
   ['online_data_historical_executed_', 'cron command dedupes historical runs by business date'],
-  ['online_data_realtime_executed_', 'cron command dedupes realtime runs by hour'],
+  ['online_data_realtime_executed_', 'cron command dedupes realtime runs by scheduled hour'],
+  ['realtime_schedule_interval_hours', 'cron command supports realtime interval hours'],
+  ['isRealtimeScheduleHourDue', 'cron command gates realtime runs by configured interval'],
   ['online_data_profile_lock_', 'cron command serializes tasks per Profile'],
   ['skipped_locked', 'cron command reports Profile lock skips explicitly'],
   ["'data_period' => $dataPeriod", 'cron command passes data period into Profile sync'],
@@ -225,7 +227,8 @@ for (const [needle, label] of [
   ['ctrip_auto_fetch_mode', 'frontend sends Ctrip-specific auto-fetch mode'],
   ['meituan_auto_fetch_mode', 'frontend keeps Meituan auto-fetch mode separate'],
   ['historical_schedule_time', 'frontend sends historical fixed-data schedule time'],
-  ['realtime_schedule_minute', 'frontend sends realtime hourly schedule minute'],
+  ['realtime_schedule_minute', 'frontend sends realtime schedule minute'],
+  ['realtime_schedule_interval_hours', 'frontend sends realtime interval hours'],
   ['autoFetchCtripSectionConcurrency', 'frontend exposes Ctrip internal section concurrency'],
   ['ctrip_section_concurrency', 'frontend sends Ctrip section concurrency'],
   ["data_period: 'realtime_snapshot'", 'frontend manual trigger requests realtime snapshot data'],

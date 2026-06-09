@@ -310,11 +310,14 @@ const checks = [
       && controllerSource.includes('profile_browser'),
   },
   {
-    name: 'auto-fetch exposes hourly schedule and browser headless settings',
+    name: 'auto-fetch exposes realtime interval schedule and browser headless settings',
     pass: source.includes('autoFetchScheduleMinute')
+      && source.includes('autoFetchRealtimeIntervalHours')
       && source.includes('autoFetchBrowserHeadless')
       && source.includes('buildAutoFetchSchedulePayload')
       && controllerSource.includes('schedule_minute')
+      && controllerSource.includes('realtime_schedule_interval_hours')
+      && controllerSource.includes('normalizeAutoFetchScheduleIntervalHours')
       && controllerSource.includes('browser_headless')
       && controllerSource.includes('normalizeAutoFetchScheduleMinute'),
   },

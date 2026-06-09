@@ -20969,6 +20969,24 @@ JAVASCRIPT;
         return $minute >= 0 && $minute <= 59 ? $minute : null;
     }
 
+    private function normalizeAutoFetchScheduleIntervalHours($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (!is_numeric($value)) {
+            return null;
+        }
+        $hours = (int)$value;
+        return $hours >= 1 && $hours <= 24 ? $hours : null;
+    }
+
+    private function isRealtimeAutoFetchHourDue(int $hour, int $intervalHours): bool
+    {
+        $intervalHours = $this->normalizeAutoFetchScheduleIntervalHours($intervalHours) ?? 2;
+        return $hour % $intervalHours === 0;
+    }
+
     private function normalizeAutoFetchScheduleStatus(array $status): array
     {
         $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '10:00')) ?? '10:00';
@@ -20976,6 +20994,7 @@ JAVASCRIPT;
         if ($realtimeMinute === null) {
             $realtimeMinute = 5;
         }
+        $realtimeIntervalHours = $this->normalizeAutoFetchScheduleIntervalHours($status['realtime_schedule_interval_hours'] ?? $status['realtime_interval_hours'] ?? $status['schedule_interval_hours'] ?? null) ?? 2;
 
         $historicalEnabled = array_key_exists('historical_enabled', $status)
             ? $this->isTruthyRequestValue($status['historical_enabled'])
@@ -20988,13 +21007,15 @@ JAVASCRIPT;
         $status['realtime_enabled'] = $realtimeEnabled;
         $status['historical_schedule_time'] = $historicalTime;
         $status['realtime_schedule_minute'] = $realtimeMinute;
+        $status['realtime_schedule_interval_hours'] = $realtimeIntervalHours;
         $status['schedule_time'] = $historicalTime;
         $status['schedule_minute'] = $realtimeMinute;
+        $status['schedule_interval_hours'] = $realtimeIntervalHours;
         $status['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($status['ctrip_section_concurrency'] ?? $status['ctripSectionConcurrency'] ?? 3);
 
         $enabled = !empty($status['enabled']);
         $historicalNext = $enabled && $historicalEnabled ? $this->nextHistoricalAutoFetchRunTime($historicalTime) : '-';
-        $realtimeNext = $enabled && $realtimeEnabled ? $this->nextRealtimeAutoFetchRunTime($realtimeMinute) : '-';
+        $realtimeNext = $enabled && $realtimeEnabled ? $this->nextRealtimeAutoFetchRunTime($realtimeMinute, $realtimeIntervalHours) : '-';
         $status['historical'] = [
             'enabled' => $historicalEnabled,
             'schedule_time' => $historicalTime,
@@ -21004,6 +21025,7 @@ JAVASCRIPT;
         $status['realtime'] = [
             'enabled' => $realtimeEnabled,
             'schedule_minute' => $realtimeMinute,
+            'schedule_interval_hours' => $realtimeIntervalHours,
             'data_period' => 'realtime_snapshot',
             'next_run_time' => $realtimeNext,
         ];
@@ -21028,13 +21050,18 @@ JAVASCRIPT;
         return date('Y-m-d H:i', $timestamp);
     }
 
-    private function nextRealtimeAutoFetchRunTime(int $scheduleMinute): string
+    private function nextRealtimeAutoFetchRunTime(int $scheduleMinute, int $intervalHours = 2): string
     {
-        $timestamp = strtotime(date('Y-m-d H') . sprintf(':%02d:00', $scheduleMinute));
-        if ($timestamp === false || $timestamp <= time()) {
-            $timestamp = strtotime('+1 hour', $timestamp ?: time());
+        $intervalHours = $this->normalizeAutoFetchScheduleIntervalHours($intervalHours) ?? 2;
+        $base = strtotime(date('Y-m-d H') . sprintf(':%02d:00', $scheduleMinute));
+        $now = time();
+        for ($offset = 0; $offset <= 48; $offset++) {
+            $timestamp = strtotime("+{$offset} hour", $base ?: $now);
+            if ($timestamp !== false && $timestamp > $now && $this->isRealtimeAutoFetchHourDue((int)date('G', $timestamp), $intervalHours)) {
+                return date('Y-m-d H:i', $timestamp);
+            }
         }
-        return date('Y-m-d H:i', $timestamp);
+        return date('Y-m-d H:i', strtotime("+{$intervalHours} hour", $base ?: $now) ?: $now);
     }
 
     private function normalizeAutoFetchTiming(array $timing): array
@@ -22593,6 +22620,8 @@ JAVASCRIPT;
                     'last_result' => null,
                     'schedule_time' => '10:00',
                     'schedule_minute' => 5,
+                    'schedule_interval_hours' => 2,
+                    'realtime_schedule_interval_hours' => 2,
                     'daily_report_time' => '09:00',
                     'browser_headless' => true,
                     'ctrip_section_concurrency' => 3,
@@ -22616,6 +22645,8 @@ JAVASCRIPT;
             'last_result' => null,
             'schedule_time' => '10:00',
             'schedule_minute' => 5,
+            'schedule_interval_hours' => 2,
+            'realtime_schedule_interval_hours' => 2,
             'daily_report_time' => '09:00',
             'browser_headless' => true,
             'ctrip_section_concurrency' => 3,
@@ -22642,6 +22673,8 @@ JAVASCRIPT;
         if ($status['schedule_minute'] === null) {
             $status['schedule_minute'] = 5;
         }
+        $status['schedule_interval_hours'] = $this->normalizeAutoFetchScheduleIntervalHours($status['realtime_schedule_interval_hours'] ?? $status['schedule_interval_hours'] ?? null) ?? 2;
+        $status['realtime_schedule_interval_hours'] = $status['schedule_interval_hours'];
         $status['daily_report_time'] = $this->normalizeFetchScheduleTime((string)($status['daily_report_time'] ?? $status['schedule_time'] ?? '09:00')) ?? '09:00';
         $status['browser_headless'] = array_key_exists('browser_headless', $status) ? $this->isTruthyRequestValue($status['browser_headless']) : true;
         $status['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($status['ctrip_section_concurrency'] ?? $status['ctripSectionConcurrency'] ?? 3);
@@ -22651,19 +22684,6 @@ JAVASCRIPT;
         $status['ctrip_auto_fetch_mode'] = $this->normalizeAutoFetchMode($status['ctrip_auto_fetch_mode'] ?? 'profile_browser');
         $status['meituan_auto_fetch_mode'] = $this->normalizeAutoFetchMode($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['auto_fetch_mode_label'] = $this->autoFetchModeLabel((string)$status['auto_fetch_mode']);
-        // 计算下次运行时间
-        if ($status['enabled']) {
-            $scheduleMinute = (int)$status['schedule_minute'];
-            $now = time();
-            $nextTimestamp = strtotime(date('Y-m-d H') . sprintf(':%02d:00', $scheduleMinute));
-            if ($nextTimestamp === false || $nextTimestamp <= $now) {
-                $nextTimestamp = strtotime('+1 hour', $nextTimestamp ?: $now);
-            }
-            $status['next_run_time'] = date('Y-m-d H:i', $nextTimestamp);
-        } else {
-            $status['next_run_time'] = '未开启';
-        }
-
         $status = $this->normalizeAutoFetchScheduleStatus($status);
         $status['recent_runs'] = array_values(is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : []);
         $status['failed_records'] = array_values(is_array($status['failed_records'] ?? null) ? $status['failed_records'] : []);
@@ -23151,6 +23171,12 @@ JAVASCRIPT;
         if (!isset($status['schedule_minute'])) {
             $status['schedule_minute'] = 5;
         }
+        if (!isset($status['realtime_schedule_interval_hours'])) {
+            $status['realtime_schedule_interval_hours'] = 2;
+        }
+        $intervalRaw = $requestData['realtime_schedule_interval_hours'] ?? $requestData['realtimeScheduleIntervalHours'] ?? $requestData['schedule_interval_hours'] ?? $requestData['scheduleIntervalHours'] ?? $status['realtime_schedule_interval_hours'];
+        $status['realtime_schedule_interval_hours'] = $this->normalizeAutoFetchScheduleIntervalHours($intervalRaw) ?? 2;
+        $status['schedule_interval_hours'] = $status['realtime_schedule_interval_hours'];
         if (!isset($status['daily_report_time'])) {
             $status['daily_report_time'] = '09:00';
         }
@@ -23173,6 +23199,8 @@ JAVASCRIPT;
             'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'],
             'meituan_auto_fetch_mode' => $status['meituan_auto_fetch_mode'],
             'schedule_minute' => (int)$status['schedule_minute'],
+            'schedule_interval_hours' => (int)$status['schedule_interval_hours'],
+            'realtime_schedule_interval_hours' => (int)$status['realtime_schedule_interval_hours'],
             'daily_report_time' => (string)$status['daily_report_time'],
             'browser_headless' => (bool)$status['browser_headless'],
             'ctrip_section_concurrency' => (int)$status['ctrip_section_concurrency'],
@@ -23193,6 +23221,8 @@ JAVASCRIPT;
         $scheduleTime = $this->normalizeFetchScheduleTime((string)($requestData['historical_schedule_time'] ?? $requestData['historicalScheduleTime'] ?? $this->request->post('schedule_time', '10:00')));
         $scheduleMinuteRaw = $requestData['realtime_schedule_minute'] ?? $requestData['realtimeScheduleMinute'] ?? $requestData['schedule_minute'] ?? $requestData['scheduleMinute'] ?? null;
         $scheduleMinute = $this->normalizeAutoFetchScheduleMinute($scheduleMinuteRaw);
+        $scheduleIntervalRaw = $requestData['realtime_schedule_interval_hours'] ?? $requestData['realtimeScheduleIntervalHours'] ?? $requestData['schedule_interval_hours'] ?? $requestData['scheduleIntervalHours'] ?? null;
+        $scheduleIntervalHours = $this->normalizeAutoFetchScheduleIntervalHours($scheduleIntervalRaw);
         $dailyReportTime = $this->normalizeAutoFetchDailyReportTimeFromRequest($requestData, $scheduleTime);
 
         // 验证时间格式
@@ -23200,7 +23230,10 @@ JAVASCRIPT;
             return $this->error('时间格式错误，请使用 HH:MM 格式');
         }
         if ($scheduleMinuteRaw !== null && $scheduleMinute === null) {
-            return $this->error('每小时任务执行分钟必须在 0-59 之间');
+            return $this->error('实时任务执行分钟必须在 0-59 之间');
+        }
+        if ($scheduleIntervalRaw !== null && $scheduleIntervalHours === null) {
+            return $this->error('实时采集间隔必须在 1-24 小时之间');
         }
         if ($dailyReportTime === null) {
             return $this->error('日报发送时间格式错误，请使用 HH:MM 格式');
@@ -23223,6 +23256,7 @@ JAVASCRIPT;
         $status = cache($statusKey) ?: [];
         $status['historical_schedule_time'] = $scheduleTime;
         $status['realtime_schedule_minute'] = $scheduleMinute ?? $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? null) ?? 5;
+        $status['realtime_schedule_interval_hours'] = $scheduleIntervalHours ?? $this->normalizeAutoFetchScheduleIntervalHours($status['realtime_schedule_interval_hours'] ?? $status['schedule_interval_hours'] ?? null) ?? 2;
         $status['historical_enabled'] = array_key_exists('historical_enabled', $requestData) || array_key_exists('historicalEnabled', $requestData)
             ? $this->isTruthyRequestValue($requestData['historical_enabled'] ?? $requestData['historicalEnabled'] ?? false)
             : ($status['historical_enabled'] ?? true);
@@ -23231,6 +23265,7 @@ JAVASCRIPT;
             : ($status['realtime_enabled'] ?? true);
         $status['schedule_time'] = $status['historical_schedule_time'];
         $status['schedule_minute'] = $status['realtime_schedule_minute'];
+        $status['schedule_interval_hours'] = $status['realtime_schedule_interval_hours'];
         $status['daily_report_time'] = $dailyReportTime;
         if (array_key_exists('browser_headless', $requestData) || array_key_exists('headless', $requestData)) {
             $status['browser_headless'] = $this->autoFetchBrowserHeadlessFromRequest($requestData, true);
@@ -23261,6 +23296,8 @@ JAVASCRIPT;
             'historical_schedule_time' => (string)$status['historical_schedule_time'],
             'realtime_enabled' => (bool)$status['realtime_enabled'],
             'realtime_schedule_minute' => (int)$status['realtime_schedule_minute'],
+            'realtime_schedule_interval_hours' => (int)$status['realtime_schedule_interval_hours'],
+            'schedule_interval_hours' => (int)$status['schedule_interval_hours'],
             'historical' => $status['historical'],
             'realtime' => $status['realtime'],
             'daily_report_time' => $dailyReportTime,
@@ -23270,7 +23307,7 @@ JAVASCRIPT;
             'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'],
             'meituan_auto_fetch_mode' => $status['meituan_auto_fetch_mode'],
             'auto_fetch_mode_label' => $this->autoFetchModeLabel($status['auto_fetch_mode']),
-        ], "设置成功，将在每小时第 {$status['schedule_minute']} 分钟自动获取数据");
+        ], "设置成功，历史数据 {$scheduleTime} 保底抓取；实时数据每 {$status['realtime_schedule_interval_hours']} 小时第 {$status['schedule_minute']} 分钟抓取");
     }
 
     public function retryAutoFetch(): Response
@@ -23967,12 +24004,16 @@ JAVASCRIPT;
                     'executed_message' => '历史固定数据今天已执行',
                 ];
             }
-            if (!empty($status['realtime_enabled']) && $currentMinute === (int)$status['realtime_schedule_minute']) {
+            $realtimeIntervalHours = (int)($status['realtime_schedule_interval_hours'] ?? $status['schedule_interval_hours'] ?? 2);
+            if (!empty($status['realtime_enabled'])
+                && $currentMinute === (int)$status['realtime_schedule_minute']
+                && $this->isRealtimeAutoFetchHourDue((int)$currentHour, $realtimeIntervalHours)
+            ) {
                 $dueRuns[] = [
                     'period' => 'realtime_snapshot',
                     'data_date' => $today,
                     'executed_key' => "online_data_realtime_executed_{$hotelId}_{$today}_{$currentHour}",
-                    'executed_message' => '实时快照本小时已执行',
+                    'executed_message' => "实时快照本 {$realtimeIntervalHours} 小时窗口已执行",
                 ];
             }
             if (empty($dueRuns)) {

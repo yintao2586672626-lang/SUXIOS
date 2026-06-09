@@ -211,8 +211,9 @@ pnpm install
 
 # 方式二：PHP 内置服务器（仅开发用）
 cd HOTEL/
-# 手动启动也必须先确认 MySQL 已启动；只开 PHP 会导致登录页或初始化接口出现 HTTP 500。
-"C:\xampp\php\php.exe" think run --port 8080
+# 必须使用本地启动脚本；它会先自动启动/验证 MySQL，再启动 ThinkPHP。
+# 禁止只运行 think run，否则登录页或初始化接口会因数据库未启动出现 HTTP 500。
+npm.cmd run start -- --NoBrowser
 # 访问前先验证 http://127.0.0.1:8080/api/health；页面仍显示 HTTP 500 时不得声称项目已打开完成。
 # 访问 http://localhost:8080/
 ```

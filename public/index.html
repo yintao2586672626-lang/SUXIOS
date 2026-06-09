@@ -8059,7 +8059,7 @@
                             </div>
 
                             <div class="border rounded-lg p-4">
-                                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                                <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店</label>
                                         <select v-model="autoFetchHotelId" @change="loadAutoFetchStatus"
@@ -8077,6 +8077,11 @@
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">每日运行时间</label>
                                         <input type="time" v-model="autoFetchScheduleTime" @change="saveFetchSchedule" :disabled="!autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)"
+                                            class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">实时间隔（小时）</label>
+                                        <input type="number" min="1" max="24" step="1" v-model.number="autoFetchRealtimeIntervalHours" @change="saveFetchSchedule" :disabled="!autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)"
                                             class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400">
                                     </div>
                                     <div>
@@ -13306,7 +13311,7 @@
                                         <div class="px-4 py-3 border-b flex items-center justify-between gap-3">
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
-                                                <div class="text-xs text-gray-500">来自平台自动获取写入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前最多展示前 {{ onlineAnalysisPagination.page_size || 200 }} 条；收益分析不再拉取全量明细。</div>
+                                                <div class="text-xs text-gray-500">来自平台自动获取写入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，分析面板拉取全部筛选明细。</div>
                                                 <div v-if="onlineAnalysisQualitySummary" class="mt-1 text-xs text-amber-700">{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
@@ -14079,10 +14084,19 @@
                                                             </div>
                                                         </div>
                                                         <div class="p-4 space-y-3">
-                                                            <label class="block text-sm text-gray-700">每小时任务执行分钟（0-59）</label>
-                                                            <input type="number" min="0" max="59" step="1" v-model.number="autoFetchScheduleMinute"
-                                                                class="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                            <div class="text-xs text-gray-500">例：填 5 表示每小时的第5分钟执行</div>
+                                                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                                <div>
+                                                                    <label class="block text-sm text-gray-700">实时采集间隔（小时）</label>
+                                                                    <input type="number" min="1" max="24" step="1" v-model.number="autoFetchRealtimeIntervalHours"
+                                                                        class="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                                </div>
+                                                                <div>
+                                                                    <label class="block text-sm text-gray-700">实时任务执行分钟（0-59）</label>
+                                                                    <input type="number" min="0" max="59" step="1" v-model.number="autoFetchScheduleMinute"
+                                                                        class="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                                </div>
+                                                            </div>
+                                                            <div class="text-xs text-gray-500">默认每 2 小时，在指定分钟触发实时快照；历史固定数据按每日时间保底抓取。</div>
                                                             <button type="button" @click="saveFetchSchedule"
                                                                 :disabled="!autoFetchHotelId || !hasAnyPlatformFetchConfigByHotelId(autoFetchHotelId)"
                                                                 class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 text-sm">
@@ -14329,7 +14343,7 @@
                                                     <div class="mt-4 grid grid-cols-2 gap-3 text-xs">
                                                         <div class="rounded bg-white border px-3 py-2">
                                                             <div class="text-slate-400">时间</div>
-                                                            <div class="mt-1 text-slate-800">{{ autoFetchScheduleTime || '-' }}</div>
+                                                            <div class="mt-1 text-slate-800">{{ autoFetchScheduleTime || '-' }} · 实时{{ autoFetchRealtimeIntervalHours || 2 }}h</div>
                                                         </div>
                                                         <div class="rounded bg-white border px-3 py-2">
                                                             <div class="text-slate-400">策略</div>
@@ -21978,6 +21992,7 @@
             };
             const autoFetchScheduleTime = ref('10:00');
             const autoFetchScheduleMinute = ref(5);
+            const autoFetchRealtimeIntervalHours = ref(2);
             const autoFetchBrowserHeadless = ref(true);
             const autoFetchCtripSectionConcurrency = ref(3);
 
@@ -23509,7 +23524,7 @@
             const onlineAnalysisRows = ref([]);
             const onlineAnalysisRowsLoading = ref(false);
             const onlineAnalysisError = ref('');
-            const onlineAnalysisPageSize = 200;
+            const onlineAnalysisPageSize = 'all';
             const onlineAnalysisPagination = ref({ total: 0, page: 1, page_size: onlineAnalysisPageSize });
             const onlineAnalysisQualitySummary = ref(null);
             const onlineAnalysisSourceRecord = ref(null);
@@ -23755,7 +23770,7 @@
                         body: JSON.stringify({ hotel_id: hotelId, ...schedulePayload, ...buildAutoFetchModePayload() })
                     });
                     if (res.code === 200) {
-                        showToast(`已保存：历史 ${schedulePayload.historical_schedule_time}；实时每小时第 ${schedulePayload.realtime_schedule_minute} 分钟；携程 ${schedulePayload.ctrip_section_concurrency} 页并发；${schedulePayload.browser_headless ? '无头运行' : '可视浏览器'}`);
+                        showToast(`已保存：历史 ${schedulePayload.historical_schedule_time}；实时每 ${schedulePayload.realtime_schedule_interval_hours} 小时第 ${schedulePayload.realtime_schedule_minute} 分钟；携程 ${schedulePayload.ctrip_section_concurrency} 页并发；${schedulePayload.browser_headless ? '无头运行' : '可视浏览器'}`);
                         loadAutoFetchStatus();
                     } else {
                         showToast(res.message || '设置失败', 'error');
@@ -23829,6 +23844,11 @@
                 if (!Number.isFinite(minute)) return 5;
                 return Math.max(0, Math.min(59, minute));
             };
+            const normalizeAutoFetchRealtimeIntervalHoursValue = () => {
+                const hours = Number.parseInt(autoFetchRealtimeIntervalHours.value, 10);
+                if (!Number.isFinite(hours)) return 2;
+                return Math.max(1, Math.min(24, hours));
+            };
             const normalizeCtripSectionConcurrencyValue = () => {
                 const count = Number.parseInt(autoFetchCtripSectionConcurrency.value, 10);
                 if (!Number.isFinite(count)) return 3;
@@ -23847,6 +23867,8 @@
                 historical_schedule_time: autoFetchScheduleTime.value || '10:00',
                 realtime_enabled: true,
                 realtime_schedule_minute: normalizeAutoFetchScheduleMinuteValue(),
+                realtime_schedule_interval_hours: normalizeAutoFetchRealtimeIntervalHoursValue(),
+                schedule_interval_hours: normalizeAutoFetchRealtimeIntervalHoursValue(),
                 browser_headless: !!autoFetchBrowserHeadless.value,
                 ctrip_section_concurrency: normalizeCtripSectionConcurrencyValue(),
             });
@@ -24544,7 +24566,7 @@
                 try {
                     const params = new URLSearchParams({
                         page: '1',
-                        page_size: String(onlineAnalysisPageSize),
+                        page_size: 'all',
                     });
                     if (onlineDataFilter.value.start_date) {
                         params.append('start_date', onlineDataFilter.value.start_date);
@@ -24779,6 +24801,8 @@
                         autoFetchScheduleTime.value = res.data?.historical_schedule_time || res.data?.schedule_time || '10:00';
                         const scheduleMinute = Number.parseInt(res.data?.realtime_schedule_minute ?? res.data?.schedule_minute, 10);
                         autoFetchScheduleMinute.value = Number.isFinite(scheduleMinute) ? Math.max(0, Math.min(59, scheduleMinute)) : 5;
+                        const realtimeIntervalHours = Number.parseInt(res.data?.realtime_schedule_interval_hours ?? res.data?.schedule_interval_hours, 10);
+                        autoFetchRealtimeIntervalHours.value = Number.isFinite(realtimeIntervalHours) ? Math.max(1, Math.min(24, realtimeIntervalHours)) : 2;
                         autoFetchBrowserHeadless.value = !(res.data?.browser_headless === false || res.data?.browser_headless === 0 || res.data?.browser_headless === '0' || res.data?.browser_headless === 'false');
                         const sectionConcurrency = Number.parseInt(res.data?.ctrip_section_concurrency ?? res.data?.last_result?.ctrip_section_concurrency, 10);
                         autoFetchCtripSectionConcurrency.value = Number.isFinite(sectionConcurrency) ? Math.max(1, Math.min(4, sectionConcurrency)) : 3;
@@ -43202,7 +43226,7 @@
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
                 selectedOnlineDataIds, isAutoFetchRecordDeletable, autoFetchRecordDeletableRows, toggleSelectAllOnlineData, isAllOnlineDataSelected, batchDeleteOnlineData, clearAutoFetchRecordHistory,
-                autoFetchScheduleTime, autoFetchScheduleMinute, autoFetchBrowserHeadless, autoFetchCtripSectionConcurrency, saveFetchSchedule, autoFetchHotelId, autoFetchMode, autoFetchModeOptions, autoFetchModeLabel, autoFetchRunState, autoFetchRunElapsedSeconds, formatAutoFetchElapsed, autoFetchRunningHint, loadAutoFetchPanel,
+                autoFetchScheduleTime, autoFetchScheduleMinute, autoFetchRealtimeIntervalHours, autoFetchBrowserHeadless, autoFetchCtripSectionConcurrency, saveFetchSchedule, autoFetchHotelId, autoFetchMode, autoFetchModeOptions, autoFetchModeLabel, autoFetchRunState, autoFetchRunElapsedSeconds, formatAutoFetchElapsed, autoFetchRunningHint, loadAutoFetchPanel,
                 autoFetchCollectionBlueprintRows, autoFetchPlatformCards, autoFetchPlatformResultRows, autoFetchTimingRows, autoFetchCtripExecutionText, autoFetchResultStatusText, autoFetchResultStatusClass, autoFetchModuleLabel, formatAutoFetchMs,
                 autoFetchBackfillDate, autoFetchBackfillingDate, autoFetchMaxBackfillDate, autoFetchLegacyItems, autoFetchRecentRuns, retryAutoFetchDate,
                 loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, openAutoFetchRecordAnalysis, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter,

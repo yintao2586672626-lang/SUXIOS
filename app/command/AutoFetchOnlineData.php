@@ -47,6 +47,7 @@ class AutoFetchOnlineData extends Command
             $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '10:00')) ?? '10:00';
             $realtimeMinute = $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? 5);
             $realtimeMinute = $realtimeMinute === null ? 5 : $realtimeMinute;
+            $realtimeIntervalHours = $this->normalizeRealtimeScheduleIntervalHours($status['realtime_schedule_interval_hours'] ?? $status['realtime_interval_hours'] ?? $status['schedule_interval_hours'] ?? 2);
             $historicalEnabled = array_key_exists('historical_enabled', $status) ? $this->truthy($status['historical_enabled']) : true;
             $realtimeEnabled = array_key_exists('realtime_enabled', $status) ? $this->truthy($status['realtime_enabled']) : true;
 
@@ -59,7 +60,7 @@ class AutoFetchOnlineData extends Command
                     'label' => 'historical',
                 ];
             }
-            if ($realtimeEnabled && $currentMinute === $realtimeMinute) {
+            if ($realtimeEnabled && $currentMinute === $realtimeMinute && $this->isRealtimeScheduleHourDue((int)$currentHour, $realtimeIntervalHours)) {
                 $dueRuns[] = [
                     'period' => 'realtime_snapshot',
                     'data_date' => $today,
@@ -106,6 +107,7 @@ class AutoFetchOnlineData extends Command
                         'data_period' => $run['period'],
                         'timing' => is_array($result['timing'] ?? null) ? $result['timing'] : [],
                         'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $ctripSectionConcurrency,
+                        'realtime_schedule_interval_hours' => $realtimeIntervalHours,
                     ]);
                     $output->writeln("Hotel {$hotelName} {$run['label']} " . (!empty($result['success']) ? 'success' : 'failed') . ': ' . (string)($result['message'] ?? '-'));
                     Cache::set($run['executed_key'], true, 86400);
@@ -320,6 +322,20 @@ class AutoFetchOnlineData extends Command
 
         $minute = (int)$value;
         return $minute >= 0 && $minute <= 59 ? $minute : null;
+    }
+
+    private function normalizeRealtimeScheduleIntervalHours($value): int
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return 2;
+        }
+        return max(1, min(24, (int)$value));
+    }
+
+    private function isRealtimeScheduleHourDue(int $hour, int $intervalHours): bool
+    {
+        $intervalHours = $this->normalizeRealtimeScheduleIntervalHours($intervalHours);
+        return $hour % $intervalHours === 0;
     }
 
     private function normalizeCtripSectionConcurrency($value): int
@@ -614,6 +630,11 @@ class AutoFetchOnlineData extends Command
             $runRecord['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
             $status['ctrip_section_concurrency'] = $runRecord['ctrip_section_concurrency'];
         }
+        if (array_key_exists('realtime_schedule_interval_hours', $details)) {
+            $runRecord['realtime_schedule_interval_hours'] = $this->normalizeRealtimeScheduleIntervalHours($details['realtime_schedule_interval_hours']);
+            $status['realtime_schedule_interval_hours'] = $runRecord['realtime_schedule_interval_hours'];
+            $status['schedule_interval_hours'] = $runRecord['realtime_schedule_interval_hours'];
+        }
 
         $status['last_run_time'] = $runAt;
         $status['last_data_date'] = $dataDate;
@@ -629,6 +650,9 @@ class AutoFetchOnlineData extends Command
         }
         if (array_key_exists('ctrip_section_concurrency', $details)) {
             $status['last_result']['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
+        }
+        if (array_key_exists('realtime_schedule_interval_hours', $details)) {
+            $status['last_result']['realtime_schedule_interval_hours'] = $this->normalizeRealtimeScheduleIntervalHours($details['realtime_schedule_interval_hours']);
         }
 
         $recentRuns = $status['recent_runs'] ?? [];
