@@ -79,9 +79,17 @@ Updated: 2026-06-10 Asia/Shanghai
 
 - Added a visible audit policy section to `scripts/project_self_audit.mjs` so cleanup thresholds and split-candidate thresholds are explicit in text and JSON output.
 - Added optional strict command `npm.cmd run self:check:strict`; it keeps the same cleanup threshold as `self:check` and also fails when tracked split candidates are present.
-- `self:check:strict` is a refactor-stage gate, not the daily guard; current known split candidates mean it is expected to fail until `public/index.html`, `app/controller/OnlineData.php`, and `public/tailwind.min.css` are dispositioned.
+- `self:check:strict` is a refactor-stage gate, not the daily guard; after static asset disposition, it is expected to fail until `public/index.html` and `app/controller/OnlineData.php` are split or otherwise dispositioned.
 - Verified after adding the strict gate: full directory about `228.42 MB`, without `.git` about `91.87 MB`, without `.git` and dependencies about `62.68 MB`, tracked files about `17.76 MB`; code scope `345` files, `185779` total lines, `170123` nonblank lines.
-- Verification passed: `node --check scripts\project_self_audit.mjs`, package JSON parse, `npm.cmd run self:audit`, `git diff --check`, and `npm.cmd run self:check`; strict gate failure was confirmed as expected on the 3 known split candidates.
+- Verification passed at strict-gate introduction: `node --check scripts\project_self_audit.mjs`, package JSON parse, `npm.cmd run self:audit`, `git diff --check`, and `npm.cmd run self:check`; strict gate failure was confirmed at that stage on 3 split candidates.
+
+## 2026-06-10 Progress: Static Asset Split Disposition
+
+- Added `docs/self_cleaning_split_dispositions.json` to record split-candidate dispositions with evidence.
+- `public/tailwind.min.css` was verified as referenced by `public/index.html` and classified as an accepted local static CSS dependency, not a business-code split target.
+- Self-audit now reports accepted split candidates separately; strict split candidates reduced from 3 to 2: `public/index.html` and `app/controller/OnlineData.php`.
+- Current verified self-audit after this disposition: full directory about `228.44 MB`, without `.git` about `91.87 MB`, without `.git` and dependencies about `62.68 MB`, tracked files about `17.76 MB`; code scope `345` files, `185844` total lines, `170185` nonblank lines.
+- Verification passed: `node --check scripts\project_self_audit.mjs`, JSON parse for `docs/self_cleaning_split_dispositions.json`, `node scripts/project_self_audit.mjs --json` parse with `split=2` and `accepted=1`, `git diff --check`, and `npm.cmd run self:check`; strict gate failure was confirmed as expected on the 2 remaining split candidates.
 
 ## Maintenance Rule
 

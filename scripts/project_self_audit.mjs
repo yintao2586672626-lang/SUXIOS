@@ -22,6 +22,7 @@ const topLimit = Math.max(1, numberArg(args.top, 12));
 
 const codeExtensions = new Set(['.php', '.html', '.js', '.mjs', '.ts', '.tsx', '.vue', '.css', '.scss', '.py', '.ps1', '.sh']);
 const textExtensions = new Set([...codeExtensions, '.md', '.json', '.xml', '.yml', '.yaml', '.sql', '.txt', '.env', '.example']);
+const splitDispositions = loadSplitDispositions();
 
 const trackedFiles = listTrackedFiles();
 const trackedStats = measureTrackedFiles(trackedFiles);
@@ -29,7 +30,7 @@ const lineStats = measureLineStats(trackedFiles);
 const topLevelSizes = measureTopLevel();
 const cleanup = measureCleanupTargets();
 const git = gitState();
-const status = resolveStatus({ cleanup, git, splitCandidates: lineStats.code.split_candidates });
+const status = resolveStatus({ cleanup, git, splitCandidates: lineStats.code.split_candidates, splitDispositions });
 
 const audit = {
   schema_version: 1,
@@ -47,6 +48,12 @@ const audit = {
       fail_on_split_candidates: failOnSplitCandidates,
       lines_threshold: splitLinesThreshold,
       mb_threshold: splitMbThreshold,
+    },
+    split_dispositions: {
+      file: splitDispositions.file,
+      loaded: splitDispositions.loaded,
+      accepted_count: splitDispositions.count,
+      error: splitDispositions.error,
     },
   },
   git,
@@ -83,6 +90,42 @@ if (status.failures.length > 0) {
 function numberArg(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function loadSplitDispositions() {
+  const file = path.join(repoRoot, 'docs', 'self_cleaning_split_dispositions.json');
+  const result = {
+    file: normalizePath(path.relative(repoRoot, file)),
+    loaded: false,
+    count: 0,
+    error: '',
+    byPath: new Map(),
+  };
+  if (!fs.existsSync(file)) {
+    return result;
+  }
+
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const accepted = Array.isArray(data.accepted) ? data.accepted : [];
+    for (const item of accepted) {
+      const itemPath = normalizePath(item?.path || '');
+      if (!itemPath) {
+        continue;
+      }
+      result.byPath.set(itemPath, {
+        status: 'accepted',
+        reason: String(item.reason || ''),
+        review_after: String(item.review_after || ''),
+        evidence: Array.isArray(item.evidence) ? item.evidence.map((value) => String(value)) : [],
+      });
+    }
+    result.loaded = true;
+    result.count = result.byPath.size;
+  } catch (error) {
+    result.error = String(error?.message || error);
+  }
+  return result;
 }
 
 function runGit(gitArgs, options = {}) {
@@ -179,6 +222,7 @@ function emptyLineSummary() {
     by_extension: {},
     top_files: [],
     split_candidates: [],
+    accepted_split_candidates: [],
   };
 }
 
@@ -201,6 +245,7 @@ function finalizeLineSummary(summary) {
   );
   summary.top_files.sort((a, b) => b.lines - a.lines || b.mb - a.mb);
   summary.split_candidates.sort((a, b) => b.lines - a.lines || b.mb - a.mb);
+  summary.accepted_split_candidates.sort((a, b) => b.lines - a.lines || b.mb - a.mb);
 }
 
 function addCodeHotspot(summary, relativePath, extension, lines, nonblank, bytes) {
@@ -222,6 +267,19 @@ function addCodeHotspot(summary, relativePath, extension, lines, nonblank, bytes
     reasons.push(`mb>=${splitMbThreshold}`);
   }
   if (reasons.length === 0) {
+    return;
+  }
+
+  const disposition = splitDispositions.byPath.get(row.path);
+  if (disposition?.status === 'accepted') {
+    summary.accepted_split_candidates.push({
+      ...row,
+      reasons,
+      disposition_status: disposition.status,
+      disposition_reason: disposition.reason,
+      review_after: disposition.review_after,
+      evidence: disposition.evidence,
+    });
     return;
   }
 
@@ -415,9 +473,12 @@ function measurePath(absolutePath) {
   return { bytes, files };
 }
 
-function resolveStatus({ cleanup, git, splitCandidates }) {
+function resolveStatus({ cleanup, git, splitCandidates, splitDispositions }) {
   const failures = [];
   const warnings = [];
+  if (splitDispositions.error) {
+    failures.push(`Split disposition file is invalid: ${splitDispositions.error}.`);
+  }
   if (git.index_lock) {
     failures.push('.git/index.lock is present.');
   }
@@ -502,6 +563,7 @@ function renderText(audit) {
   console.log(`- include sensitive backups: ${audit.policy.cleanup.include_sensitive_backups ? 'yes' : 'no'}`);
   console.log(`- split candidate thresholds: lines>=${audit.policy.split_candidates.lines_threshold}, mb>=${audit.policy.split_candidates.mb_threshold}`);
   console.log(`- fail on split candidates: ${audit.policy.split_candidates.fail_on_split_candidates ? 'yes' : 'no'}`);
+  console.log(`- split dispositions: ${audit.policy.split_dispositions.loaded ? `${audit.policy.split_dispositions.accepted_count} accepted` : 'none'}`);
   console.log('');
 
   console.log('Cleanup candidates');
@@ -521,6 +583,9 @@ function renderText(audit) {
   console.log('');
   console.log('Split candidates');
   renderRows(audit.code_lines.split_candidates.slice(0, topLimit), ['path', 'lines', 'mb', 'reasons', 'suggested_action']);
+  console.log('');
+  console.log('Accepted split candidates');
+  renderRows(audit.code_lines.accepted_split_candidates.slice(0, topLimit), ['path', 'lines', 'mb', 'reasons', 'disposition_reason']);
   console.log('');
 
   console.log('Top-level size');

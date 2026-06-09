@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "accepted": [
+    {
+      "path": "public/tailwind.min.css",
+      "reason": "Local Tailwind CSS dependency for the current public/index.html SPA entry; not a business-code split target.",
+      "evidence": [
+        "public/index.html loads tailwind.min.css with a relative stylesheet link",
+        "app/view admin pages use CDN Tailwind links and do not depend on this local file"
+      ],
+      "review_after": "Revisit when the public SPA is split or migrated away from the current Vue CDN runtime."
+    }
+  ]
+}
