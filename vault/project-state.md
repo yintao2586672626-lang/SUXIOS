@@ -237,6 +237,13 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current staged self-audit after the twelfth frontend split: full directory about `240.43 MB`, without `.git` about `91.92 MB`, without `.git` and dependencies about `62.73 MB`, tracked files about `17.80 MB` / `604` files; code scope `361` files, `185977` total lines, `170335` nonblank lines.
 - Verified after the twelfth frontend split: Node syntax check for `public/shared-components.js`; residual inline component-definition scan; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; serial retry of `npm.cmd run self:check` after confirming `.git/index.lock` was absent; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+- Thirteenth frontend split target chosen from static navigation boundaries: main sidebar menu definitions embedded in `public/index.html`.
+- Extended `public/system-static.js` for `menuItemDefinitions`.
+- `public/index.html` now builds menu items from `menuItemDefinitions`, keeping only recursive dynamic-name injection for `systemConfig.menu_hotel_name`; missing static keys still throw explicit configuration errors through `requireAppSystemStatic`.
+- `public/index.html` decreased from `41996` lines to `41899` lines; current split map reports `1174` frontend function-level blocks and `44` `currentPage` references.
+- Current staged self-audit after the thirteenth frontend split: full directory about `240.46 MB`, without `.git` about `91.92 MB`, without `.git` and dependencies about `62.73 MB`, tracked files about `17.81 MB` / `604` files; code scope `361` files, `185990` total lines, `170348` nonblank lines.
+- Verified after the thirteenth frontend split: Node syntax check for `public/system-static.js`; residual inline menu-definition scan; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
