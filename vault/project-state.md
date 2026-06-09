@@ -130,6 +130,11 @@ Updated: 2026-06-10 Asia/Shanghai
 - `app/controller/OnlineData.php` decreased from `28276` lines to `28119` lines; the `profile` domain span decreased from `1099` to `941` lines.
 - Current staged self-audit after the third backend split: tracked files about `17.79 MB` / `594` files; code scope `351` files, `186394` total lines, `170684` nonblank lines.
 - Verified after the third split: PHP syntax checks for `app/controller/OnlineData.php` and `app/service/PlatformProfileBindingReadinessService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter PlatformProfile` with 4 tests and 22 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Fourth backend cleanup target chosen from split-map evidence: unreachable legacy code inside `fetchCtripComments`.
+- Removed the old Ctrip comment direct-request branch after `commentCollectionDisabledResponse()`; retained `parseAndSaveCtripComments()` and Browser Profile aggregate-only call sites.
+- `app/controller/OnlineData.php` decreased from `28119` lines to `27942` lines; the `ctrip` domain span decreased from `12319` to `12142` lines, and `fetchCtripComments` no longer appears in the largest-block list.
+- Current staged self-audit after the fourth backend cleanup: tracked files about `17.78 MB` / `594` files; code scope `351` files, `186217` total lines, `170527` nonblank lines.
+- Verified after the fourth cleanup: PHP syntax check for `app/controller/OnlineData.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "CtripComment|Comment|PlatformProfile"` with 8 tests and 40 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
