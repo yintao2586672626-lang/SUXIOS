@@ -50,6 +50,15 @@ Updated: 2026-06-07 Asia/Shanghai
 - Pre-submit verification passed: `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:ctrip-capture-catalog`; `npm.cmd run verify:field-asset-ledger`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run review:non-security`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php` with 139 tests and 1649 assertions; PHP syntax checks for `app/controller/OnlineData.php` and `app/service/platform/CtripBrowserProfileDataSourceAdapter.php`.
 - Release boundary remains unchanged: this is a development save/sync, not a release-ready handoff; release readiness still requires production env evidence, LLM connectivity attestation, design handoff manifest, and OTA credential rotation attestation.
 
+## 2026-06-10 Progress: Project Self-Cleaning
+
+- User objective: `项目自净化`.
+- Added read-only self-audit command family: `npm.cmd run self:audit`, `npm.cmd run self:audit:json`, `npm.cmd run self:check`, `npm.cmd run self:clean:dry-run`, and `npm.cmd run self:clean`.
+- Self-audit source of truth: `scripts/project_self_audit.mjs`; it reports Git state, repository size, tracked-file size, default cleanup candidates, code/text line counts, top-level size, and largest tracked files.
+- Verified self-audit after project slimming: full directory about `381.42 MB`, without `.git` about `244.93 MB`, without `.git` and dependencies about `215.74 MB`, tracked files about `17.73 MB`, default cleanup reclaim `0 MB`.
+- Verified code-line scope: tracked project code only, about `344` code files, `185171` total code lines, and `169563` nonblank code lines at the time of this audit.
+- Existing unrelated/unowned local changes were present during this self-cleaning pass in auto-fetch scheduling files; do not revert or include them in a self-cleaning-only save unless explicitly requested.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
