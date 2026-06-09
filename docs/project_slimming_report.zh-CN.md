@@ -109,10 +109,10 @@
 
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
-| `public/index.html` | 43,322 | 3.11 MB | 有 | 当前前端 SPA 主入口，后续应按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
-| `app/controller/OnlineData.php` | 31,140 | 1.43 MB | 有 | OTA 采集、字段配置、展示和诊断职责过重，后续应迁移到聚焦 service，但不改变现有路由。 |
+| `public/index.html` | 43,322 | 3.11 MB | 否 | 当前前端 SPA 主入口，后续应按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
+| `app/controller/OnlineData.php` | 29,519 | 1.33 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据，后续继续迁移到聚焦 service，不改变现有路由。 |
 
-当前两个剩余拆分候选均有未提交业务改动；拆分前应先保存或隔离这些业务改动，避免把业务修复和自净化拆分混在同一个提交中。
+前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分只改动 `app/controller/OnlineData.php` 和新增 `app/service/CtripProfileFieldMetaService.php`。
 
 ## 已接受拆分候选
 
@@ -131,7 +131,16 @@
 | 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
 |---|---:|---|---|
 | `public/index.html` | 1,162 个函数级块；44 个 `currentPage` 引用 | `resetSystemConfig` 421 行、`printFeasibilityReport` 342 行、`formatOtaMetricValue` 312 行 | `general` 11,061 行、`ctrip` 3,909 行、`hotel_admin` 1,571 行、`ai` 1,543 行 |
-| `app/controller/OnlineData.php` | 877 个方法 | `defaultCtripProfileFieldMeta` 1,664 行、`summarizeCtripOverviewRows` 281 行、`captureMeituanBrowserData` 274 行 | `ctrip` 14,719 行、`meituan` 5,307 行、`general` 4,486 行、`auto_fetch` 1,838 行 |
+| `app/controller/OnlineData.php` | 877 个方法 | `summarizeCtripOverviewRows` 281 行、`captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行 | `ctrip` 13,097 行、`meituan` 5,307 行、`general` 4,486 行、`auto_fetch` 1,838 行 |
+
+## 2026-06-10 后端第一刀拆分
+
+- 新增 `app/service/CtripProfileFieldMetaService.php`，承载携程字段基础静态元数据。
+- `app/controller/OnlineData.php` 中 `defaultCtripProfileFieldMeta()` 保留流量、周报、竞争画像等已有编排逻辑，基础字段元数据改为调用 service。
+- `OnlineData.php` 从 `31,140` 行降至 `29,519` 行；新增 service 为 `1,641` 行。
+- 路由、接口名、字段口径、OTA 渠道边界不变。
+- 验证通过：PHP 语法检查、`tests\OnlineDataTest.php --filter CtripProfile`、完整 `tests\OnlineDataTest.php`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
 ## 后续处理建议
 

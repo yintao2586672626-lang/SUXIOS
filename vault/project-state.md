@@ -104,9 +104,21 @@ Updated: 2026-06-10 Asia/Shanghai
 - Added read-only split-map command family: `npm.cmd run self:split-map` and `npm.cmd run self:split-map:json`.
 - Split-map target scope is currently limited to the 2 remaining strict split candidates: `public/index.html` and `app/controller/OnlineData.php`.
 - Current verified split map for `public/index.html`: `43322` lines, worktree changed, `1162` function-level blocks, `44` `currentPage` references; largest blocks include `resetSystemConfig` (`421` lines), `printFeasibilityReport` (`342` lines), and `formatOtaMetricValue` (`312` lines).
-- Current verified split map for `app/controller/OnlineData.php`: `31140` lines, worktree changed, `877` methods; largest methods include `defaultCtripProfileFieldMeta` (`1664` lines), `summarizeCtripOverviewRows` (`281` lines), and `captureMeituanBrowserData` (`274` lines).
+- Initial verified split map for `app/controller/OnlineData.php` before the first backend split: `31140` lines, worktree changed, `877` methods; largest methods included `defaultCtripProfileFieldMeta` (`1664` lines), `summarizeCtripOverviewRows` (`281` lines), and `captureMeituanBrowserData` (`274` lines).
 - Current verified self-audit after adding the split-map tool: full directory about `228.52 MB`, without `.git` about `91.89 MB`, without `.git` and dependencies about `62.70 MB`, tracked files about `17.77 MB` / `589` files; code scope `346` files, `186133` total lines, `170454` nonblank lines.
 - Verification passed: `node --check scripts\project_split_map.mjs`, package JSON parse, `npm.cmd run self:split-map`, JSON parse with `targets=2`, `frontendBlocks=1162`, `backendMethods=877`, `git diff --check`, and `npm.cmd run self:check`.
+
+## 2026-06-10 Progress: Backend Ctrip Field Metadata Split
+
+- Previous 10-file business checkpoint was saved separately as commit `5f4e4c6` (`[保存] 同步启动与自动抓取间隔`) and pushed to `origin/codex/save-project-20260531`.
+- PR #2 was verified after that push as open, draft, mergeable, with head `5f4e4c6`; both latest PHP Composer checks completed successfully.
+- First backend split target chosen from split-map evidence: `defaultCtripProfileFieldMeta` in `app/controller/OnlineData.php`.
+- Added `app/service/CtripProfileFieldMetaService.php` for the base Ctrip profile field metadata table; `OnlineData.php` keeps orchestration for flow transform, weekly report, and competition profile metadata before delegating base metadata to the service.
+- `app/controller/OnlineData.php` decreased from `31140` lines to `29519` lines; the new service is `1641` lines.
+- Current split map after the split: `app/controller/OnlineData.php` still has `877` methods; largest methods are now `summarizeCtripOverviewRows` (`281` lines), `captureMeituanBrowserData` (`274` lines), and `captureCtripBrowserData` (`272` lines).
+- Verified after the split: PHP syntax checks for `app/controller/OnlineData.php` and `app/service/CtripProfileFieldMetaService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter CtripProfile` with 29 tests and 576 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `npm.cmd run verify:p0-guards`; `npm.cmd run self:audit`.
+- Current staged self-audit after the split: tracked files about `17.77 MB` / `590` files; code scope `347` files, `186153` total lines, `170471` nonblank lines.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
