@@ -21693,10 +21693,10 @@ JAVASCRIPT;
             $result = match (($task['platform'] ?? '') . ':' . $module) {
                 'ctrip:cookie_api' => $this->executeCtripCookieApiAutoFetchTask($label, $body, $hotelId, $dataDate),
                 'ctrip:traffic' => $this->executeCtripTrafficAutoFetchTask($label, $body, $hotelId),
-                'ctrip:comments' => $this->executeCtripCommentsAutoFetchTask($label, $body, $hotelId, $dataDate),
+                'ctrip:comments',
+                'meituan:comments' => ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'],
                 'meituan:ranking' => $this->executeMeituanRankingAutoFetchTask($label, $body, $hotelId),
                 'meituan:traffic' => $this->executeMeituanTrafficAutoFetchTask($label, $body, $hotelId),
-                'meituan:comments' => $this->executeMeituanCommentsAutoFetchTask($label, $body, $hotelId),
                 default => ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'unsupported task'],
             };
             return $this->withAutoFetchResultMeta($result, $strategy, $label);
@@ -21928,85 +21928,6 @@ JAVASCRIPT;
             'next_action' => $nextAction,
             'warning' => $nextAction,
         ];
-    }
-
-    private function executeCtripCommentsAutoFetchTask(string $label, array $body, int $hotelId, string $dataDate): array
-    {
-        return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
-
-        $requestUrl = trim((string)($body['request_url'] ?? ''));
-        $cookies = trim((string)($body['cookies'] ?? ''));
-        $token = trim((string)($body['spidertoken'] ?? $body['token'] ?? ''));
-        $payload = $this->configValueToArray($body['payload_json'] ?? []);
-        $requestHotelId = trim((string)($body['hotel_id'] ?? $payload['hotelId'] ?? $payload['hotel_id'] ?? ''));
-
-        if ($requestUrl === '' || $cookies === '' || $token === '' || empty($payload)) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'missing ctrip comments config'];
-        }
-        if (!$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com'])) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'invalid ctrip comments url'];
-        }
-
-        $query = [];
-        if (!empty($body['_fxpcqlniredt'])) {
-            $query['_fxpcqlniredt'] = (string)$body['_fxpcqlniredt'];
-        }
-        if (!empty($body['x_trace_id'])) {
-            $query['x-traceID'] = (string)$body['x_trace_id'];
-        }
-        if (!empty($query)) {
-            $requestUrl .= (strpos($requestUrl, '?') === false ? '?' : '&') . http_build_query($query);
-        }
-
-        $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
-        if ($jsonPayload === false) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'payload encode failed'];
-        }
-
-        $headers = [
-            'Accept: application/json, text/plain, */*',
-            'Accept-Encoding: identity',
-            'Content-Type: application/json',
-            'Origin: https://ebooking.ctrip.com',
-            'Referer: https://ebooking.ctrip.com/comment/commentList?microJump=true',
-            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Cookie: ' . $cookies,
-            'spidertoken: ' . $token,
-            'Content-Length: ' . strlen($jsonPayload),
-        ];
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", $headers),
-                'content' => $jsonPayload,
-                'timeout' => 30,
-                'ignore_errors' => true,
-            ],
-            'ssl' => $this->buildStreamSslOptions(),
-        ]);
-        $response = @file_get_contents($requestUrl, false, $context);
-        if ($response === false) {
-            $message = error_get_last()['message'] ?? 'request failed';
-            $this->recordCookieAlert('ctrip', 'auto-fetch-ctrip-comments', $message, $hotelId);
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $message];
-        }
-
-        $decodedResponse = substr($response, 0, 2) === "\x1f\x8b" ? gzdecode($response) : $response;
-        $data = json_decode((string)$decodedResponse, true);
-        if (!is_array($data)) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'invalid json'];
-        }
-        $comments = $data['data']['commentList']
-            ?? $data['data']['list']
-            ?? $data['data']['comments']
-            ?? $data['commentList']
-            ?? $data['comments']
-            ?? $data['data']
-            ?? [];
-        $comments = is_array($comments) ? $comments : [];
-        $savedCount = $this->parseAndSaveCtripComments($comments, $payload, $requestHotelId, $dataDate, $hotelId);
-        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
     }
 
     private function executeCtripBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false, array $periodOptions = []): array
@@ -23146,92 +23067,6 @@ JAVASCRIPT;
         $savedCount = is_array($responseData)
             ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, 'meituan', $hotelId)
             : 0;
-        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
-    }
-
-    private function executeMeituanCommentsAutoFetchTask(string $label, array $body, int $hotelId): array
-    {
-        return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'Comment/review data collection is disabled by policy.'];
-
-        $cookies = trim((string)($body['cookies'] ?? ''));
-        $partnerId = trim((string)($body['partner_id'] ?? ''));
-        $poiId = trim((string)($body['poi_id'] ?? ''));
-        $apiStatus = $this->meituanAutoFetchConfigStatus($body);
-        if (empty($apiStatus['api_configured'])) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '缺少美团 ' . $apiStatus['missing_text']];
-        }
-
-        $requestUrl = trim((string)($body['request_url'] ?? ''));
-        if ($requestUrl !== '' && filter_var($requestUrl, FILTER_VALIDATE_URL)) {
-            $fullUrl = $requestUrl;
-        } else {
-            $params = [
-                'limit' => (int)($body['limit'] ?? 50),
-                'offset' => (int)($body['offset'] ?? 0),
-                'partnerId' => $partnerId,
-                'platform' => 1,
-                'poiId' => $poiId,
-                'prefetchIndex' => 1,
-                'replyType' => (string)($body['reply_type'] ?? '2'),
-                'reportStatus' => '',
-                'tag' => (string)($body['tag'] ?? ''),
-                'yodaReady' => 'h5',
-                'csecplatform' => 4,
-                'csecversion' => '4.2.0',
-            ];
-            if (!empty($body['_mtsi_eb_u'])) {
-                $params['_mtsi_eb_u'] = (string)$body['_mtsi_eb_u'];
-            }
-            if (!empty($body['start_date'])) {
-                $params['startDate'] = (string)$body['start_date'];
-            }
-            if (!empty($body['end_date'])) {
-                $params['endDate'] = (string)$body['end_date'];
-            }
-            $fullUrl = 'https://eb.meituan.com/api/v1/ebooking/comments/commentsInfo?' . http_build_query($params);
-        }
-        if (!$this->isAllowedOtaRequestUrl($fullUrl, ['meituan.com'])) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'invalid meituan comments url'];
-        }
-
-        $traceId = '-' . rand(1000000000, 9999999999) . time();
-        $headers = [
-            'Accept: application/json, text/plain, */*',
-            'Accept-Language: zh-CN,zh;q=0.9',
-            'Cookie: ' . $cookies,
-            'm-appkey: fe_hotel-fe-ebooking',
-            'm-traceid: ' . $traceId,
-            'Origin: https://eb.meituan.com',
-            'Referer: https://eb.meituan.com/ebk/feedback/feedback.html',
-            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        ];
-        if (!empty($body['mtgsig'])) {
-            $headers[] = 'mtgsig: ' . (string)$body['mtgsig'];
-        }
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'header' => implode("\r\n", $headers),
-                'timeout' => 30,
-                'ignore_errors' => true,
-            ],
-            'ssl' => $this->buildStreamSslOptions(),
-        ]);
-        $response = @file_get_contents($fullUrl, false, $context);
-        if ($response === false) {
-            $message = error_get_last()['message'] ?? 'request failed';
-            $this->recordCookieAlert('meituan', 'auto-fetch-meituan-comments', $message, $hotelId);
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => $message];
-        }
-
-        $data = json_decode((string)$response, true);
-        if (!is_array($data)) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'invalid json'];
-        }
-        $comments = $data['data']['commentList'] ?? $data['data']['list'] ?? $data['data'] ?? [];
-        $comments = is_array($comments) ? $comments : [];
-        $savedCount = !empty($comments) ? $this->parseAndSaveMeituanComments($comments, $poiId, $partnerId, $hotelId) : 0;
         return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
     }
 

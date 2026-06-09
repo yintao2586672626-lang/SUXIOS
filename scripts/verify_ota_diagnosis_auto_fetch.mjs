@@ -95,11 +95,15 @@ const checks = [
   {
     name: 'auto-fetch skips Ctrip comments data by default',
     pass: !/label'\s*=>\s*'ctrip-comments'/.test(autoFetchTaskPlanBody)
-      && /executeCtripCommentsAutoFetchTask/.test(controllerSource),
+      && !/private function executeCtripCommentsAutoFetchTask/.test(controllerSource)
+      && controllerSource.includes("'ctrip:comments',")
+      && controllerSource.includes('Comment/review data collection is disabled by policy.'),
   },
   {
     name: 'auto-fetch skips Meituan comments data by default',
     pass: !/label'\s*=>\s*'meituan-comments'/.test(autoFetchTaskPlanBody)
+      && !/private function executeMeituanCommentsAutoFetchTask/.test(controllerSource)
+      && controllerSource.includes("'meituan:comments' =>")
       && !runFetchBody.includes("url: '/online-data/fetch-meituan-comments'"),
   },
   {

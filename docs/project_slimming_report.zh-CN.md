@@ -100,8 +100,8 @@
 | 口径 | 当前值 |
 |---|---:|
 | 代码文件 | 351 |
-| 总代码行 | 约 185,777 |
-| 非空代码行 | 约 170,132 |
+| 总代码行 | 约 185,616 |
+| 非空代码行 | 约 169,985 |
 
 ## 跟踪代码热点
 
@@ -110,7 +110,7 @@
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
 | `public/index.html` | 43,322 | 3.11 MB | 否 | 当前前端 SPA 主入口，后续应按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
-| `app/controller/OnlineData.php` | 27,498 | 1.18 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程/美团点评旧直连、旧浏览器抓取和旧配置读写死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
+| `app/controller/OnlineData.php` | 27,333 | 1.17 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程/美团点评旧直连、旧浏览器抓取、旧配置读写和旧自动抓取执行死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
 
 前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分只改动 `app/controller/OnlineData.php`、新增聚焦 service、对应测试和状态文档。
 
@@ -131,7 +131,7 @@
 | 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
 |---|---:|---|---|
 | `public/index.html` | 1,162 个函数级块；44 个 `currentPage` 引用 | `resetSystemConfig` 421 行、`printFeasibilityReport` 342 行、`formatOtaMetricValue` 312 行 | `general` 11,061 行、`ctrip` 3,909 行、`hotel_admin` 1,571 行、`ai` 1,543 行 |
-| `app/controller/OnlineData.php` | 873 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 11,940 行、`meituan` 5,065 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
+| `app/controller/OnlineData.php` | 871 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 11,861 行、`meituan` 4,979 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
 
 ## 2026-06-10 后端第一刀拆分
 
@@ -193,6 +193,17 @@
 - 路由、接口名、字段口径、OTA 渠道边界不变。
 - 暂存态自审计：跟踪文件约 `17.77 MB` / `594` 个；代码范围 `351` 个文件，`185,777` 行，非空行 `170,132`。
 - 验证通过：PHP 语法检查、`tests\OnlineDataTest.php --filter "Comment|Config|PlatformProfile"`、完整 `tests\OnlineDataTest.php`、`scripts\verify_high_risk_security.php`、`npm.cmd run review:non-security`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
+## 2026-06-10 后端第七刀清理
+
+- 删除旧的 `executeCtripCommentsAutoFetchTask()` 和 `executeMeituanCommentsAutoFetchTask()` 方法；这两个方法已先返回禁用状态，后续直连 OTA 点评请求代码不可达。
+- `executeAutoFetchTask()` 对旧任务标签 `ctrip:comments` 和 `meituan:comments` 统一返回显式禁用结果，保留旧任务记录兼容，不恢复点评/评论采集。
+- 更新 `scripts/verify_ota_diagnosis_auto_fetch.mjs`：要求旧点评自动抓取执行方法不存在，并要求旧任务标签仍返回 `Comment/review data collection is disabled by policy.`。
+- `OnlineData.php` 从 `27,498` 行降至 `27,333` 行；方法数从 `873` 降至 `871`，`ctrip` 领域 span 从 `11,940` 行降至 `11,861` 行，`meituan` 领域 span 从 `5,065` 行降至 `4,979` 行。
+- 当前审计：完整目录约 `232 MB`；不含 `.git` 约 `91.88 MB`；不含 `.git` 和依赖约 `62.69 MB`；Git 跟踪文件约 `17.77 MB` / `594` 个；代码范围 `351` 个文件、`185,616` 行、非空 `169,985` 行。
+- 路由、接口名、字段口径、OTA 渠道边界不变；点评/评论数据仍维持 aggregate-only 和禁用采集边界，不恢复原始评论列表或旧凭据保存。
+- 验证通过：PHP 语法检查、Node 语法检查、`npm.cmd run verify:ota-diagnosis-auto-fetch`、`tests\OnlineDataTest.php --filter "AutoFetch|Comment|PlatformProfile"`、完整 `tests\OnlineDataTest.php`、`node scripts\verify_platform_data_source_contract.mjs`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
 ## 后续处理建议
