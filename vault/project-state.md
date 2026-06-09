@@ -230,6 +230,13 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current staged self-audit after the eleventh frontend split: full directory about `239.29 MB`, without `.git` about `91.92 MB`, without `.git` and dependencies about `62.73 MB`, tracked files about `17.80 MB` / `603` files; code scope `360` files, `185946` total lines, `170305` nonblank lines.
 - Verified after the eleventh frontend split: Node syntax checks for `public/system-static.js` and `scripts/verify_ai_model_config_i18n.mjs`; `node scripts\verify_ai_model_config_i18n.mjs`; residual inline static-definition scan; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+- Twelfth frontend split target chosen from reusable Vue component boundaries: `CompassCardHeader`, `MetricCard`, `SearchInput`, `StatusFilter`, `StatusBadge`, `RoleBadge`, `ActionButtons`, and `DataTable`.
+- Added `public/shared-components.js` for these reusable Vue components.
+- `public/index.html` now loads `shared-components.js` and reads components through `window.SUXI_SHARED_COMPONENTS`; missing script or missing component keys throw explicit configuration errors instead of silently falling back.
+- `public/index.html` decreased from `42101` lines to `41996` lines; current split map reports `1173` frontend function-level blocks and `44` `currentPage` references.
+- Current staged self-audit after the twelfth frontend split: full directory about `240.43 MB`, without `.git` about `91.92 MB`, without `.git` and dependencies about `62.73 MB`, tracked files about `17.80 MB` / `604` files; code scope `361` files, `185977` total lines, `170335` nonblank lines.
+- Verified after the twelfth frontend split: Node syntax check for `public/shared-components.js`; residual inline component-definition scan; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; serial retry of `npm.cmd run self:check` after confirming `.git/index.lock` was absent; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
 
