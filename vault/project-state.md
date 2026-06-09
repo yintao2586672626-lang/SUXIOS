@@ -119,6 +119,12 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current split map after the backend splits: `app/controller/OnlineData.php` has `874` methods; largest methods are now `captureMeituanBrowserData` (`274` lines), `captureCtripBrowserData` (`272` lines), and `parseAndSaveMeituanData` (`237` lines); Ctrip-domain method span is now `12319` lines.
 - Verified after the split: PHP syntax checks for `app/controller/OnlineData.php`, `app/service/CtripProfileFieldMetaService.php`, and `app/service/CtripOverviewSummaryService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter CtripProfile` with 29 tests and 576 assertions; `tests\OnlineDataTest.php --filter CtripOverview` with 4 tests and 97 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `npm.cmd run verify:p0-guards`; `npm.cmd run self:audit`.
 - Current staged self-audit after the split: tracked files about `17.78 MB` / `591` files; code scope `348` files, `186254` total lines, `170560` nonblank lines.
+- Second backend split target chosen from split-map evidence: `generateAnalysisReport` in `app/controller/OnlineData.php`.
+- Added `app/service/OnlineDataAnalysisReportService.php` for online-data analysis report HTML rendering; `OnlineData.php` keeps a thin `generateAnalysisReport()` wrapper for existing internal calls.
+- Added `tests/OnlineDataAnalysisReportServiceTest.php` for report structure, metric rendering, and suggestion block toggle coverage.
+- `app/controller/OnlineData.php` decreased from `28485` lines to `28276` lines; current split map has `873` methods; the `analysis` domain span decreased from `388` to `186` lines.
+- Current staged self-audit after the second backend split: tracked files about `17.78 MB` / `593` files; code scope `350` files, `186325` total lines, `170620` nonblank lines.
+- Verified after the second split: PHP syntax checks for `app/controller/OnlineData.php`, `app/service/OnlineDataAnalysisReportService.php`, and `tests/OnlineDataAnalysisReportServiceTest.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataAnalysisReportServiceTest.php` with 2 tests and 9 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
