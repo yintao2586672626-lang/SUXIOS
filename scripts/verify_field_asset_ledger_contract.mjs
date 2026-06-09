@@ -37,6 +37,11 @@ const profileFieldComputeds = sliceBetween(
   'const ctripProfileForbiddenFieldAssets = [',
   'const filteredCtripProfileFields = computed'
 );
+const profileFieldFilterLogic = sliceBetween(
+  publicSource,
+  'const filteredCtripProfileFields = computed',
+  'const platformAccountBindingStatusRows = computed'
+);
 const publicReturn = sliceBetween(
   publicSource,
   'ctripProfileFieldSampledCount',
@@ -46,6 +51,11 @@ const platformPlaceholder = sliceBetween(
   publicSource,
   'if (platformDataSourceForm.value.platform === \'meituan\'',
   'return \'非敏感配置 JSON'
+);
+const ctripAutoFetchSuccess = sliceBetween(
+  controllerSource,
+  'if ($savedCount > 0) {',
+  'private function executeAutoFetchTask'
 );
 
 const forbiddenFields = ['guest_phone', 'order_phone', 'room_status', 'room_source_mapping'];
@@ -82,7 +92,9 @@ const checks = [
     name: 'Ctrip profile field configuration exposes field asset ledger cards',
     pass: profileFieldPanel.includes('data-testid="ctrip-profile-field-asset-ledger"')
       && profileFieldPanel.includes('ctripProfileFieldAssetLedgerCards')
-      && profileFieldPanel.includes('ctripProfileForbiddenFieldAssets'),
+      && profileFieldPanel.includes('ctripProfileForbiddenFieldAssets')
+      && profileFieldComputeds.includes('未返回获取值')
+      && profileFieldComputeds.includes('启用字段暂无历史获取值，不等于未配置字段'),
   },
   {
     name: 'profile field ledger keeps forbidden privacy fields explicit',
@@ -92,9 +104,22 @@ const checks = [
       && profileFieldComputeds.includes('不进表'),
   },
   {
+    name: 'profile field filters expose missing sample values with the same ledger rule',
+    pass: profileFieldPanel.includes('<option value="not_returned">未返回获取值</option>')
+      && profileFieldFilterLogic.includes("filters.sample === 'not_returned'")
+      && profileFieldFilterLogic.includes('isCtripProfileFieldEnabled(field)')
+      && profileFieldFilterLogic.includes('!sampleText'),
+  },
+  {
     name: 'Meituan Profile placeholder no longer nudges order capture',
     pass: platformPlaceholder.includes('"capture_sections": "traffic"')
       && !platformPlaceholder.includes('traffic,orders'),
+  },
+  {
+    name: 'Ctrip auto-fetch success separates stored rows from field coverage',
+    pass: ctripAutoFetchSuccess.includes('已入库 {$savedCount} 条')
+      && ctripAutoFetchSuccess.includes('字段覆盖按配置表显示')
+      && ctripAutoFetchSuccess.includes('未返回字段保留为缺口'),
   },
   {
     name: 'new field asset ledger bindings are returned from setup',

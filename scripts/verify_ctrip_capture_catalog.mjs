@@ -282,6 +282,7 @@ function verifyCatalog() {
     ['https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/competitor/queryCompetingHotelsV2', 'room_type'],
     ['https://ebooking.ctrip.com/comment/api/getCommentNumV2', 'comment_review'],
     ['https://ebooking.ctrip.com/comment/api/getCommentList', 'comment_review'],
+    ['https://ebooking.ctrip.com/restapi/soa2/26353/getHotelRating?_fxpcqlniredt=demo', 'comment_review'],
     ['https://ebooking.ctrip.com/datacenter/api/getTripartiteOrderLoss', 'loss_analysis'],
     ['https://ebooking.ctrip.com/datacenter/api/getCompetingRank', 'competitor_rank'],
     ['https://ebooking.ctrip.com/userbehavior/getImIndex?hostType=Ebooking&v=0.4544692596916936', 'im_board'],
@@ -324,7 +325,7 @@ function verifyCatalog() {
   assertContract(JSON.stringify(normalizeCtripCaptureSections('business,traffic')) === JSON.stringify(['business_overview', 'traffic_report']), 'legacy business/traffic aliases must work');
   assertContract(!normalizeCtripCaptureSections('default').includes('room_type'), 'default Profile capture must not include room_type');
   assertContract(!normalizeCtripCaptureSections('core').includes('room_type'), 'core Profile capture must not include room_type');
-  for (const section of ['business_overview', 'traffic_report']) {
+  for (const section of ['business_overview', 'business_weekly_overview', 'traffic_report']) {
     assertContract(normalizeCtripCaptureSections('default').includes(section), `default Profile capture must include ${section}`);
   }
   for (const section of ['comment_review', 'competitor_overview', 'loss_analysis', 'competitor_rank', 'quality_psi', 'ads_pyramid', 'market_calendar', 'user_profile']) {
@@ -548,13 +549,14 @@ function verifyCatalog() {
     'booking_days',
     'booking_method',
     'comment_response_rate',
+    'comment_unreply_count',
+    'comment_good_rate',
     'consumption_power',
     'ctrip_comment_count',
-    'ctrip_comment_id',
     'ctrip_rating_rank',
     'distribution_share',
     'elong_comment_count',
-    'elong_comment_id',
+    'zx_comment_count',
     'elong_rating',
     'hotel_star_preference',
     'order_hotel_count',
@@ -562,7 +564,6 @@ function verifyCatalog() {
     'preference_frequency',
     'price_sensitivity',
     'qunar_comment_count',
-    'qunar_comment_id',
     'qunar_rating',
     'qunar_rating_rank',
     'rating_competitor_total',
@@ -622,6 +623,8 @@ function verifyCatalog() {
     'booking_days',
     'booking_method',
     'comment_response_rate',
+    'comment_unreply_count',
+    'comment_good_rate',
     'comment_store_name',
     'comment_date',
     'comment_channel',
@@ -630,11 +633,10 @@ function verifyCatalog() {
     'bad_review_count',
     'consumption_power',
     'ctrip_comment_count',
-    'ctrip_comment_id',
     'ctrip_rating_rank',
     'distribution_share',
     'elong_comment_count',
-    'elong_comment_id',
+    'zx_comment_count',
     'elong_rating',
     'hotel_star_preference',
     'order_hotel_count',
@@ -642,7 +644,6 @@ function verifyCatalog() {
     'preference_frequency',
     'price_sensitivity',
     'qunar_comment_count',
-    'qunar_comment_id',
     'qunar_rating',
     'qunar_rating_rank',
     'rating_competitor_total',

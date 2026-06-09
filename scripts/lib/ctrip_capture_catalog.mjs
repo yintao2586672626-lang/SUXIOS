@@ -343,9 +343,10 @@ const qualityFields = [
   field('hotel_collect', '酒店收藏数', ['hotelCollect', 'favoriteCount', 'collectCount']),
   field('hotel_collect_rank', '酒店收藏排名', ['hotelCollectRank']),
   field('comment_count', '点评数量', ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount'], '只采集点评/评论数量，不保存点评明文'),
-  field('ctrip_comment_count', '携程点评数量', ['ctripCommentCount'], '只采集点评数量，不保存点评明文'),
-  field('qunar_comment_count', '去哪儿点评数量', ['qunarCommentCount'], '只采集点评数量，不保存点评明文'),
-  field('elong_comment_count', '艺龙点评数量', ['elongCommentCount'], '只采集点评数量，不保存点评明文'),
+  field('ctrip_comment_count', '携程点评数量', ['ctripCommentCount', 'ctripCount.commentCount'], '只采集点评数量，不保存点评明文'),
+  field('qunar_comment_count', '去哪儿点评数量', ['qunarCommentCount', 'qunarCount.commentCount'], '只采集点评数量，不保存点评明文'),
+  field('elong_comment_count', '艺龙点评数量', ['elongCommentCount', 'elongCount.commentCount'], '只采集点评数量，不保存点评明文'),
+  field('zx_comment_count', '智行点评数量', ['zxCommentCount', 'zhixingCommentCount', 'zxCount.commentCount', 'zhixingCount.commentCount'], '只采集点评数量，不保存点评明文'),
   field('comment_score_summary', '点评分汇总', ['ctripRatingall', 'qunarRatingall', 'HotelRating', 'ratingall']),
   field('ctrip_rating', '携程评分', ['ctripRatingall']),
   field('qunar_rating', '去哪儿评分', ['qunarRatingall']),
@@ -353,16 +354,15 @@ const qualityFields = [
   field('ctrip_rating_rank', '携程评分排名', ['ctripRatingAllRanking']),
   field('qunar_rating_rank', '去哪儿评分排名', ['qunarRatingAllRanking']),
   field('comment_response_rate', '点评回复率', ['responseRate'], '点评/评论回复率，不等同于 IM 5分钟回复率', { unit: '%' }),
-  field('review_environment_score', '点评环境评分', ['environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
-  field('review_facility_score', '点评设施评分', ['facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
-  field('review_service_score', '点评服务评分', ['reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分，不与 PSI service_score 混用', { unit: '分' }),
-  field('review_cleanliness_score', '点评卫生评分', ['cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
+  field('comment_unreply_count', '未回复点评数', ['unReplyCount', 'unreplyCount', 'unRepliedCount', 'unrepliedCount'], '只保存未回复点评聚合计数，不保存点评明文'),
+  field('comment_good_rate', '点评好评率', ['goodRate'], '点评/评论好评率聚合值，不保存点评明文', { unit: '%' }),
+  field('review_environment_score', '点评环境评分', ['ratingLocation', 'environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文', { unit: '分' }),
+  field('review_facility_score', '点评设施评分', ['ratingFacility', 'facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文', { unit: '分' }),
+  field('review_service_score', '点评服务评分', ['ratingService', 'reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用', { unit: '分' }),
+  field('review_cleanliness_score', '点评卫生评分', ['ratingRoom', 'cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文', { unit: '分' }),
   field('review_photo_count', '带图点评数', ['hasPicCount', 'photoCommentCount', 'pictureCommentCount', 'imageCommentCount'], '带图点评数量；只保存聚合计数，不保存图片或点评明文'),
   field('review_photo_rate', '带图点评率', ['hasPicCount/commentCount'], '按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失', { unit: '%' }),
   field('rating_competitor_total', '点评竞争圈酒店数', ['competitorHotelTotal']),
-  field('ctrip_comment_id', '携程点评主体ID', ['ctripId']),
-  field('qunar_comment_id', '去哪儿点评主体ID', ['qunarId']),
-  field('elong_comment_id', '艺龙点评主体ID', ['elongId']),
   field('bad_review_tag', '差评标签', ['dingPingEntityList', 'tag']),
 ];
 
@@ -482,11 +482,19 @@ const commentAggregateFields = [
   field('comment_channel', '点评渠道', ['channel', 'channelName', 'platform', 'source', 'commentChannel', 'bizType'], '只保留点评渠道维度，不保存用户身份或点评内容'),
   field('comment_score', '点评分', ['score', 'commentScore', 'rating', 'ratingall', 'HotelRating', 'ctripRatingall', 'totalScore', 'overallScore'], '只采集评分聚合值，不保存点评明文', { unit: '分' }),
   field('comment_count', '点评数量', ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount'], '只采集点评/评论数量，不保存点评明文'),
-  field('bad_review_count', '差评数', ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount'], '优先聚合接口差评数；列表评分仅通过显式聚合计算，不保存点评明文'),
-  field('review_environment_score', '点评环境评分', ['environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
-  field('review_facility_score', '点评设施评分', ['facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
-  field('review_service_score', '点评服务评分', ['reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分，不与 PSI service_score 混用', { unit: '分' }),
-  field('review_cleanliness_score', '点评卫生评分', ['cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；只采集评分汇总，不采集点评明文', { unit: '分' }),
+  field('ctrip_comment_count', '携程点评数量', ['ctripCount.commentCount'], '只采集点评数量，不保存点评明文'),
+  field('qunar_comment_count', '去哪儿点评数量', ['qunarCount.commentCount'], '只采集点评数量，不保存点评明文'),
+  field('elong_comment_count', '艺龙点评数量', ['elongCount.commentCount'], '只采集点评数量，不保存点评明文'),
+  field('zx_comment_count', '智行点评数量', ['zxCount.commentCount', 'zhixingCount.commentCount'], '只采集点评数量，不保存点评明文'),
+  field('bad_review_count', '差评数', ['badReviewCount', 'negativeCommentCount', 'negativeCount', 'badCount', 'lowScoreCount', 'noRecommendCount'], '优先聚合接口差评/不推荐计数；列表评分仅通过显式聚合计算，不保存点评明文'),
+  field('comment_unreply_count', '未回复点评数', ['unReplyCount', 'unreplyCount', 'unRepliedCount', 'unrepliedCount'], '只保存未回复点评聚合计数，不保存点评明文'),
+  field('comment_good_rate', '点评好评率', ['goodRate'], '点评/评论好评率聚合值，不保存点评明文', { unit: '%' }),
+  field('comment_response_rate', '点评回复率', ['responseRate'], '点评/评论回复率，不等同于 IM 5分钟回复率', { unit: '%' }),
+  field('target_url', '点评跳转地址', ['jumpUrl'], '只保留平台点评页跳转地址，不保存点评明文'),
+  field('review_environment_score', '点评环境评分', ['ratingLocation', 'environmentScore', 'envScore', 'surroundingScore', 'surroundingsScore', 'ambienceScore'], '点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文', { unit: '分' }),
+  field('review_facility_score', '点评设施评分', ['ratingFacility', 'facilityScore', 'facilitiesScore', 'equipmentScore'], '点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文', { unit: '分' }),
+  field('review_service_score', '点评服务评分', ['ratingService', 'reviewServiceScore', 'commentServiceScore', 'serviceRating', 'serviceCommentScore'], '点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用', { unit: '分' }),
+  field('review_cleanliness_score', '点评卫生评分', ['ratingRoom', 'cleanlinessScore', 'cleanScore', 'hygieneScore', 'sanitationScore'], '点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文', { unit: '分' }),
   field('review_photo_count', '带图点评数', ['hasPicCount', 'photoCommentCount', 'pictureCommentCount', 'imageCommentCount'], '带图点评数量；只保存聚合计数，不保存图片或点评明文'),
   field('review_photo_rate', '带图点评率', ['hasPicCount/commentCount'], '按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失', { unit: '%' }),
 ];
@@ -505,8 +513,6 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'benefit_status',
   'benefit_text',
   'comment_channel',
-  'ctrip_comment_id',
-  'elong_comment_id',
   'hot_spot_name',
   'hotel_label',
   'notice_title',
@@ -532,7 +538,6 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'order_hotel_count',
   'order_preference',
   'preference_frequency',
-  'qunar_comment_id',
   'user_age',
   'booking_days',
   'price_band',
@@ -558,6 +563,8 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'psi_basic_item_start_date',
   'psi_basic_item_end_date',
   'psi_basic_item_tips',
+  'top_hot_words',
+  'top_hot_hotels',
   'psi_basic_item_activity_name',
   'psi_basic_item_activity_url',
 ]);
@@ -773,6 +780,11 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
   endpoint('traffic_hotel_min_price', 'traffic_report', ['queryHotelMinPriceV1'], [field('min_price', '实时起价', ['minPrice']), field('min_price_rank', '起价排名', ['minPriceRank'])]),
   endpoint('traffic_picture_quality', 'traffic_report', ['getPictureQualityScore'], [...qualityFields]),
   endpoint('traffic_comment_score_summary', 'traffic_report', ['getCommentsScoreV2'], [...qualityFields], { notes: '只采集评分汇总，不采集点评明文。' }),
+  endpoint('comment_hotel_rating', 'comment_review', ['getHotelRating'], [...commentAggregateFields], {
+    dataType: 'quality',
+    status: 'aggregate_only',
+    notes: '携程酒店评分汇总接口，只采集总评分和环境/设施/服务/卫生子评分；标签列表不进入默认经营指标。',
+  }),
   endpoint('comment_review_aggregate', 'comment_review', ['getCommentNumV2', 'getCommentList'], [...commentAggregateFields], {
     dataType: 'quality',
     status: 'aggregate_only',
@@ -916,6 +928,7 @@ const SECTION_ALIAS_MAP = Object.fromEntries(
 
 export const DEFAULT_CTRIP_CAPTURE_SECTIONS = [
   'business_overview',
+  'business_weekly_overview',
   'traffic_report',
 ];
 export const CTRIP_CAPTURE_SECTION_PRESETS = {
@@ -1473,6 +1486,21 @@ function filterCtripCatalogFieldsBySourceContext(fields, sourceKey, path = []) {
     result = result.filter((item) => !['comment_score', 'bad_review_count'].includes(String(item.id || '')));
   }
 
+  if (parentSegments.includes('subscores') && ['score', 'scoresimple'].includes(key)) {
+    result = result.filter((item) => !['comment_score', 'bad_review_count'].includes(String(item.id || '')));
+  }
+
+  const inHotelRatingAggregate = parentSegments.includes('ratinginfo') || parentSegments.includes('ctripratings');
+  if (inHotelRatingAggregate && ['ratingall', 'ratinglocation', 'ratingfacility', 'ratingservice', 'ratingroom'].includes(key)) {
+    return result.filter((item) => ![
+      'comment_score',
+      'review_environment_score',
+      'review_facility_score',
+      'review_service_score',
+      'review_cleanliness_score',
+    ].includes(String(item.id || '')));
+  }
+
   const inLossOrderVo = parentSegments.includes('lossordervo');
   if (!inLossOrderVo || !['ordernum', 'ordquantity', 'ordamount'].includes(key)) {
     return result;
@@ -1498,14 +1526,75 @@ const COMPETITOR_INDEX_FIELD_IDS = new Map([
 
 const REVIEW_PHOTO_COUNT_KEYS = ['hasPicCount', 'photoCommentCount', 'pictureCommentCount', 'imageCommentCount'];
 const REVIEW_COMMENT_COUNT_KEYS = ['commentCount', 'commentsCount', 'reviewCount', 'totalCommentCount', 'totalCount', 'allCount'];
+const COMMENT_CHANNEL_CONTAINERS = new Map([
+  ['ctripCount', { channel: '携程', commentCountMetric: 'ctrip_comment_count' }],
+  ['qunarCount', { channel: '去哪儿', commentCountMetric: 'qunar_comment_count' }],
+  ['elongCount', { channel: '艺龙', commentCountMetric: 'elong_comment_count' }],
+  ['zxCount', { channel: '智行', commentCountMetric: 'zx_comment_count' }],
+  ['zhixingCount', { channel: '智行', commentCountMetric: 'zx_comment_count' }],
+]);
+
+const WEEKLY_REPORT_FIELD_DEFS = new Map([
+  ['last_week_checkout_room_nights', field('last_week_checkout_room_nights', '周报离店间夜量', [], '', { unit: '间夜' })],
+  ['last_week_checkout_sales', field('last_week_checkout_sales', '周报离店销售额', [], '', { unit: '元' })],
+  ['last_week_checkout_room_price', field('last_week_checkout_room_price', '周报离店平均房价', [], '', { unit: '元' })],
+  ['last_week_book_quantity', field('last_week_book_quantity', '周报预订订单', [], '', { unit: '单' })],
+  ['last_week_book_room_nights', field('last_week_book_room_nights', '周报预订间夜量', [], '', { unit: '间夜' })],
+  ['last_week_book_sales', field('last_week_book_sales', '周报预订销售额', [], '', { unit: '元' })],
+  ['weekly_self_list_exposure', field('weekly_self_list_exposure', '周报本店列表页曝光', [], '', { unit: '次' })],
+  ['weekly_self_detail_exposure', field('weekly_self_detail_exposure', '周报本店详情页访客', [], '', { unit: '人' })],
+  ['weekly_self_order_filling_num', field('weekly_self_order_filling_num', '周报本店订单填写页访客', [], '', { unit: '人' })],
+  ['weekly_self_order_submit_num', field('weekly_self_order_submit_num', '周报本店订单提交人数', [], '', { unit: '人' })],
+  ['weekly_self_flow_rate', field('weekly_self_flow_rate', '周报本店曝光转化率', [], '', { unit: '%' })],
+  ['weekly_self_order_fill_rate', field('weekly_self_order_fill_rate', '周报本店下单转化率', [], '', { unit: '%' })],
+  ['weekly_self_deal_rate', field('weekly_self_deal_rate', '周报本店成交转化率', [], '', { unit: '%' })],
+  ['weekly_competitor_list_exposure', field('weekly_competitor_list_exposure', '周报竞争圈列表页曝光', [], '', { unit: '次' })],
+  ['weekly_competitor_detail_exposure', field('weekly_competitor_detail_exposure', '周报竞争圈详情页访客', [], '', { unit: '人' })],
+  ['weekly_competitor_order_filling_num', field('weekly_competitor_order_filling_num', '周报竞争圈订单填写页访客', [], '', { unit: '人' })],
+  ['weekly_competitor_order_submit_num', field('weekly_competitor_order_submit_num', '周报竞争圈订单提交人数', [], '', { unit: '人' })],
+  ['weekly_competitor_flow_rate', field('weekly_competitor_flow_rate', '周报竞争圈曝光转化率', [], '', { unit: '%' })],
+  ['weekly_competitor_order_fill_rate', field('weekly_competitor_order_fill_rate', '周报竞争圈下单转化率', [], '', { unit: '%' })],
+  ['weekly_competitor_deal_rate', field('weekly_competitor_deal_rate', '周报竞争圈成交转化率', [], '', { unit: '%' })],
+  ['top_competitor_list_exposure', field('top_competitor_list_exposure', '周报同城标杆列表页曝光', [], '', { unit: '次' })],
+  ['top_competitor_detail_exposure', field('top_competitor_detail_exposure', '周报同城标杆详情页访客', [], '', { unit: '人' })],
+  ['top_competitor_order_filling_num', field('top_competitor_order_filling_num', '周报同城标杆订单填写页访客', [], '', { unit: '人' })],
+  ['top_competitor_order_submit_num', field('top_competitor_order_submit_num', '周报同城标杆订单提交人数', [], '', { unit: '人' })],
+  ['top_competitor_flow_rate', field('top_competitor_flow_rate', '周报同城标杆曝光转化率', [], '', { unit: '%' })],
+  ['top_competitor_order_fill_rate', field('top_competitor_order_fill_rate', '周报同城标杆下单转化率', [], '', { unit: '%' })],
+  ['top_competitor_deal_rate', field('top_competitor_deal_rate', '周报同城标杆成交转化率', [], '', { unit: '%' })],
+  ['last_week_comment_score', field('last_week_comment_score', '周报点评分', [], '', { unit: '分' })],
+  ['last_week_good_add', field('last_week_good_add', '周报新增好评数', [], '', { unit: '条' })],
+  ['last_week_bad_add', field('last_week_bad_add', '周报新增差评数', [], '', { unit: '条' })],
+  ['last_week_price_score', field('last_week_price_score', '周报起价竞争分', [], '', { unit: '分' })],
+  ['flow_lost_order_num', field('flow_lost_order_num', '周报流失订单量', [], '', { unit: '单' })],
+  ['flow_lost_room_nights', field('flow_lost_room_nights', '周报流失间夜量', [], '', { unit: '间夜' })],
+  ['flow_lost_amount', field('flow_lost_amount', '周报流失订单金额', [], '', { unit: '元' })],
+  ['top_flow_hotel', field('top_flow_hotel', '周报流失访客榜首酒店', [])],
+  ['top_flow_hotel_browse_rate', field('top_flow_hotel_browse_rate', '周报榜首酒店同时浏览率', [], '', { unit: '%' })],
+  ['top_flow_hotel_order_rate', field('top_flow_hotel_order_rate', '周报榜首酒店下单转化率', [], '', { unit: '%' })],
+  ['top_hot_room', field('top_hot_room', '周报热售房型TOP1', [])],
+  ['top_hot_room_nights', field('top_hot_room_nights', '周报热售房型TOP1间夜', [], '', { unit: '间夜' })],
+  ['top_hot_room_sale_percent', field('top_hot_room_sale_percent', '周报热售房型TOP1销售占比', [], '', { unit: '%' })],
+  ['hot_words_count', field('hot_words_count', '周报同城热门关键词数量', [], '', { unit: '个' })],
+  ['top_hot_words', field('top_hot_words', '周报同城热门关键词TOP10', [])],
+  ['hot_hotels_count', field('hot_hotels_count', '周报同城热门酒店数量', [], '', { unit: '家' })],
+  ['top_hot_hotels', field('top_hot_hotels', '周报同城热门酒店TOP10', [])],
+]);
 
 function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo) {
   const endpointId = endpointInfo?.id || '';
+  if (endpointId === 'weekly_report') {
+    return extractWeeklyReportFacts(node, path, context, endpointInfo);
+  }
   if (endpointId === 'comment_review_aggregate') {
     return [
+      ...extractCommentChannelContainerFacts(node, path, fields, context, endpointInfo),
       ...extractCommentReviewAggregateFacts(node, path, fields, context, endpointInfo),
       ...extractReviewPhotoRateFacts(node, path, fields, context, endpointInfo),
     ];
+  }
+  if (endpointId === 'comment_hotel_rating') {
+    return extractHotelRatingFacts(node, path, fields, context, endpointInfo);
   }
   if (endpointId === 'psi_overview') {
     return extractPsiBasicScoreItemFacts(node, path, fields, context, endpointInfo);
@@ -1516,10 +1605,133 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
   if (endpointId === 'traffic_comment_score_summary') {
     return extractReviewPhotoRateFacts(node, path, fields, context, endpointInfo);
   }
-  if (!['competitor_management', 'competitor_flow', 'competitor_service'].includes(endpointId)) {
+  if (['competitor_management', 'competitor_flow', 'competitor_service'].includes(endpointId)) {
+    return extractCompetitorIndexFacts(node, path, fields, context, endpointInfo);
+  }
+  return [];
+}
+
+function extractWeeklyReportFacts(node, path, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
     return [];
   }
-  if (!Object.prototype.hasOwnProperty.call(node, 'indexType') || !Object.prototype.hasOwnProperty.call(node, 'val')) {
+
+  const facts = [];
+  const url = String(context.url || '').toLowerCase();
+  const parentPath = path.map((item) => String(item));
+  const pathKey = parentPath.join('.');
+  const push = (metricKey, sourceKey, sourcePath, value, sourceParentPath = sourcePath.slice(0, -1)) => {
+    if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+      return;
+    }
+    const fieldInfo = WEEKLY_REPORT_FIELD_DEFS.get(metricKey);
+    if (!fieldInfo) {
+      return;
+    }
+    facts.push(buildEndpointSpecificFact({
+      context,
+      endpointInfo,
+      fieldInfo,
+      sourceKey,
+      sourcePath,
+      sourceParentPath,
+      value,
+    }));
+  };
+
+  if (url.includes('getlastweekreportv1') && pathKey === 'data') {
+    for (const [metricKey, sourceKey] of [
+      ['last_week_checkout_room_nights', 'lastWeekCheckoutRoomNights'],
+      ['last_week_checkout_sales', 'lastWeekCheckoutSales'],
+      ['last_week_checkout_room_price', 'lastWeekCheckoutRoomPrice'],
+      ['last_week_book_quantity', 'lastWeekBookQuantity'],
+      ['last_week_book_room_nights', 'lastWeekBookRoomNights'],
+      ['last_week_book_sales', 'lastWeekBookSales'],
+    ]) {
+      push(metricKey, sourceKey, [...parentPath, sourceKey], node[sourceKey], parentPath);
+    }
+  }
+
+  if (url.includes('gettrafficreportv1')) {
+    const trafficGroups = {
+      'data.myHotel': 'weekly_self',
+      'data.competeHotelAvg': 'weekly_competitor',
+      'data.topCompeteHotel': 'top_competitor',
+    };
+    const prefix = trafficGroups[pathKey];
+    if (prefix) {
+      for (const [suffix, sourceKey] of [
+        ['list_exposure', 'totalListExposure'],
+        ['detail_exposure', 'totalDetailExposure'],
+        ['order_filling_num', 'orderFillingNum'],
+        ['order_submit_num', 'orderSubmitNum'],
+        ['flow_rate', 'listTransforDetailRate'],
+        ['order_fill_rate', 'detailTransforOrderFillRate'],
+        ['deal_rate', 'orderFillTransforOrderSubmitRate'],
+      ]) {
+        push(`${prefix}_${suffix}`, sourceKey, [...parentPath, sourceKey], node[sourceKey], parentPath);
+      }
+    }
+  }
+
+  if ((url.includes('getuserbehaviorv1') || url.includes('getuserbehavorv1')) && pathKey === 'data') {
+    for (const [metricKey, sourceKey] of [
+      ['last_week_comment_score', 'lastWeekCommentScore'],
+      ['last_week_good_add', 'lastWeekGoodAdd'],
+      ['last_week_bad_add', 'lastWeekBadAdd'],
+      ['last_week_price_score', 'lastWeekPriceScore'],
+    ]) {
+      push(metricKey, sourceKey, [...parentPath, sourceKey], node[sourceKey], parentPath);
+    }
+  }
+
+  if (url.includes('getflowhotelsv1')) {
+    if (pathKey === 'data.lossOrderVo') {
+      for (const [metricKey, sourceKey] of [
+        ['flow_lost_order_num', 'ordernum'],
+        ['flow_lost_room_nights', 'ordquantity'],
+        ['flow_lost_amount', 'ordamount'],
+      ]) {
+        push(metricKey, sourceKey, [...parentPath, sourceKey], node[sourceKey], parentPath);
+      }
+    }
+    if (pathKey === 'data.flowHotelItemVos.0') {
+      for (const [metricKey, sourceKey] of [
+        ['top_flow_hotel', 'hotelName'],
+        ['top_flow_hotel_browse_rate', 'proportion'],
+        ['top_flow_hotel_order_rate', 'orderPro'],
+      ]) {
+        push(metricKey, sourceKey, [...parentPath, sourceKey], node[sourceKey], parentPath);
+      }
+    }
+  }
+
+  if (url.includes('gethotroomsv1') && pathKey === 'data.hotRooms.0') {
+    const roomName = node.roomShortName ?? node.roomName;
+    push('top_hot_room', node.roomShortName !== undefined ? 'roomShortName' : 'roomName', [...parentPath, node.roomShortName !== undefined ? 'roomShortName' : 'roomName'], roomName, parentPath);
+    push('top_hot_room_nights', 'saleRoomNights', [...parentPath, 'saleRoomNights'], node.saleRoomNights, parentPath);
+    push('top_hot_room_sale_percent', 'salePercent', [...parentPath, 'salePercent'], node.salePercent, parentPath);
+  }
+
+  if (url.includes('gethotwordsv1') && pathKey === '' && Array.isArray(node.data)) {
+    const items = node.data.filter((item) => item !== null && item !== undefined && String(item).trim() !== '');
+    push('hot_words_count', 'data[]', ['data'], items.length, []);
+    push('top_hot_words', 'data[0:10]', ['data'], items.slice(0, 10), []);
+  }
+
+  if (url.includes('gethothotelsv1') && pathKey === '' && Array.isArray(node.data)) {
+    const items = node.data.filter((item) => item !== null && item !== undefined && String(item).trim() !== '');
+    push('hot_hotels_count', 'data[]', ['data'], items.length, []);
+    push('top_hot_hotels', 'data[0:10]', ['data'], items.slice(0, 10), []);
+  }
+
+  return facts;
+}
+
+function extractCompetitorIndexFacts(node, path, fields, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)
+    || !Object.prototype.hasOwnProperty.call(node, 'indexType')
+    || !Object.prototype.hasOwnProperty.call(node, 'val')) {
     return [];
   }
 
@@ -1558,6 +1770,151 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
     sourceKey: 'rankComp',
   });
   return facts;
+}
+
+const HOTEL_RATING_FIELD_PATHS = [
+  ['comment_score', 'ratingAll', ['ratingAll']],
+  ['review_environment_score', 'ratingLocation', ['ratingLocation']],
+  ['review_facility_score', 'ratingFacility', ['ratingFacility']],
+  ['review_service_score', 'ratingService', ['ratingService']],
+  ['review_cleanliness_score', 'ratingRoom', ['ratingRoom']],
+];
+
+const HOTEL_RATING_SUB_SCORE_TYPES = new Map([
+  ['ratinglocation', 'review_environment_score'],
+  ['环境', 'review_environment_score'],
+  ['ratingfacility', 'review_facility_score'],
+  ['设施', 'review_facility_score'],
+  ['ratingservice', 'review_service_score'],
+  ['服务', 'review_service_score'],
+  ['ratingroom', 'review_cleanliness_score'],
+  ['卫生', 'review_cleanliness_score'],
+]);
+
+function extractHotelRatingFacts(node, path, fields, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node) || path.length > 0) {
+    return [];
+  }
+
+  const roots = [
+    ['ratingInfo', node.ratingInfo],
+    ['ctripRatings', node.ctripRatings],
+    ['data', node.data],
+    ['', node],
+  ].filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value));
+  const facts = [];
+  const seen = new Set();
+  const aggregateParentPath = ['getHotelRating'];
+  const push = (metricFieldId, sourceKey, sourcePath, value, sourceParentPath = aggregateParentPath) => {
+    const fieldInfo = fields.find((item) => item.id === metricFieldId);
+    if (!fieldInfo || !isScalar(value) || value === '') {
+      return;
+    }
+    const dedupeKey = `${metricFieldId}:${sourcePath.join('.')}:${String(value)}`;
+    if (seen.has(dedupeKey)) {
+      return;
+    }
+    seen.add(dedupeKey);
+    facts.push(buildEndpointSpecificFact({
+      context,
+      endpointInfo,
+      fieldInfo,
+      sourceKey,
+      sourcePath,
+      sourceParentPath,
+      value,
+      derived_from: 'getHotelRating',
+    }));
+  };
+
+  for (const [rootName, root] of roots) {
+    const rootPath = rootName ? [rootName] : [];
+    for (const [metricFieldId, sourceKey, relativePath] of HOTEL_RATING_FIELD_PATHS) {
+      const value = getNestedValue(root, relativePath);
+      if (value !== undefined && value !== null) {
+        push(metricFieldId, sourceKey, [...rootPath, ...relativePath], value);
+      }
+    }
+
+    const scoreInfo = root.scoreInfo && typeof root.scoreInfo === 'object' ? root.scoreInfo : null;
+    const subScores = Array.isArray(scoreInfo?.subScores) ? scoreInfo.subScores : [];
+    subScores.forEach((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return;
+      }
+      const typeKey = String(item.type || item.name || '').trim();
+      const metricFieldId = HOTEL_RATING_SUB_SCORE_TYPES.get(typeKey.toLowerCase()) || HOTEL_RATING_SUB_SCORE_TYPES.get(typeKey);
+      if (!metricFieldId) {
+        return;
+      }
+      const valueKey = item.scoreSimple !== undefined && item.scoreSimple !== null ? 'scoreSimple' : 'score';
+      push(
+        metricFieldId,
+        `${typeKey}.${valueKey}`,
+        [...rootPath, 'scoreInfo', 'subScores', String(index), valueKey],
+        item[valueKey],
+        aggregateParentPath,
+      );
+    });
+  }
+
+  return facts;
+}
+
+function getNestedValue(root, path) {
+  let value = root;
+  for (const segment of path) {
+    if (!value || typeof value !== 'object' || !Object.prototype.hasOwnProperty.call(value, segment)) {
+      return undefined;
+    }
+    value = value[segment];
+  }
+  return value;
+}
+
+function extractCommentChannelContainerFacts(node, path, fields, context, endpointInfo) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    return [];
+  }
+
+  const facts = [];
+  for (const [containerKey, meta] of COMMENT_CHANNEL_CONTAINERS.entries()) {
+    const container = node[containerKey];
+    if (!container || typeof container !== 'object' || Array.isArray(container)) {
+      continue;
+    }
+
+    const parentPath = [...path, containerKey];
+    pushCommentContainerFact(facts, fields, context, endpointInfo, 'comment_channel', containerKey, parentPath, meta.channel);
+    pushCommentContainerFact(facts, fields, context, endpointInfo, 'comment_count', 'commentCount', [...parentPath, 'commentCount'], container.commentCount, parentPath);
+    pushCommentContainerFact(facts, fields, context, endpointInfo, meta.commentCountMetric, 'commentCount', [...parentPath, 'commentCount'], container.commentCount, parentPath);
+    pushCommentContainerFact(facts, fields, context, endpointInfo, 'bad_review_count', 'noRecommendCount', [...parentPath, 'noRecommendCount'], container.noRecommendCount, parentPath);
+    pushCommentContainerFact(facts, fields, context, endpointInfo, 'comment_unreply_count', 'unReplyCount', [...parentPath, 'unReplyCount'], container.unReplyCount, parentPath);
+    pushCommentContainerFact(facts, fields, context, endpointInfo, 'review_photo_count', 'hasPicCount', [...parentPath, 'hasPicCount'], container.hasPicCount, parentPath);
+    pushCommentContainerFact(facts, fields, context, endpointInfo, 'comment_good_rate', 'goodRate', [...parentPath, 'goodRate'], container.goodRate, parentPath);
+    pushCommentContainerFact(facts, fields, context, endpointInfo, 'comment_response_rate', 'responseRate', [...parentPath, 'responseRate'], container.responseRate, parentPath);
+    pushCommentContainerFact(facts, fields, context, endpointInfo, 'target_url', 'jumpUrl', [...parentPath, 'jumpUrl'], container.jumpUrl, parentPath);
+  }
+
+  return facts;
+}
+
+function pushCommentContainerFact(target, fields, context, endpointInfo, metricFieldId, sourceKey, sourcePath, value, sourceParentPath = sourcePath) {
+  const fieldInfo = fields.find((item) => item.id === metricFieldId);
+  if (!fieldInfo || !isScalar(value) || value === '') {
+    return;
+  }
+
+  target.push(buildEndpointSpecificFact({
+    context,
+    endpointInfo,
+    fieldInfo,
+    sourceKey,
+    sourcePath,
+    sourceParentPath,
+    value,
+    derived_from: 'comment_channel_container',
+  }));
 }
 
 function extractReviewPhotoRateFacts(node, path, fields, context, endpointInfo) {
@@ -2757,9 +3114,10 @@ function standardDataTypeForFacts(facts) {
     'psi_score', 'service_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score',
     'reply_rate', 'reply_rank', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_rating',
     'comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count',
-    'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
+    'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'zx_comment_count', 'comment_score_summary',
     'ctrip_rating', 'qunar_rating', 'elong_rating',
     'ctrip_rating_rank', 'qunar_rating_rank', 'comment_response_rate', 'rating_competitor_total',
+    'comment_unreply_count', 'comment_good_rate',
     'review_environment_score', 'review_facility_score', 'review_service_score', 'review_cleanliness_score',
     'review_photo_count', 'review_photo_rate',
     'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
@@ -2819,9 +3177,10 @@ function standardDataTypeForField(fieldId) {
     'psi_score', 'service_score', 'service_score_rank', 'base_score', 'reward_score', 'deduct_score',
     'reply_rate', 'reply_rank', 'im_score', 'hotel_collect', 'hotel_collect_rank', 'ctrip_rating',
     'comment_store_name', 'comment_date', 'comment_channel', 'comment_score', 'comment_count', 'bad_review_count',
-    'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'comment_score_summary',
+    'ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'zx_comment_count', 'comment_score_summary',
     'ctrip_rating', 'qunar_rating', 'elong_rating',
     'ctrip_rating_rank', 'qunar_rating_rank', 'comment_response_rate', 'rating_competitor_total',
+    'comment_unreply_count', 'comment_good_rate',
     'review_environment_score', 'review_facility_score', 'review_service_score', 'review_cleanliness_score',
     'review_photo_count', 'review_photo_rate',
     'five_min_reply_rate', 'manual_reply_rate', 'robot_resolution_rate', 'im_rank',
@@ -2852,7 +3211,6 @@ function applyFactToStandardRow(row, fact) {
     }
     return;
   }
-  rawMetrics[id] = number === null ? fact.value : number;
   if (id === 'hotel_name' || id === 'comment_store_name') {
     row.hotel_name = String(fact.value || row.hotel_name || '').trim();
     row.raw_data.metric_hotel_name = row.hotel_name;
@@ -2869,6 +3227,7 @@ function applyFactToStandardRow(row, fact) {
     appendDimensionValue(row, 'comment_channel', fact.value);
     return;
   }
+  rawMetrics[id] = number === null ? fact.value : number;
   if (FACT_ONLY_FIELD_IDS.has(id)) {
     appendDimensionValue(row, id, fact.value);
     return;
@@ -2985,6 +3344,12 @@ function applyFactToStandardRow(row, fact) {
     case 'comment_response_rate':
       row.flow_rate = normalizeCommentResponseRate(number);
       break;
+    case 'comment_good_rate':
+      rawMetrics[id] = normalizeFactPercent(number);
+      if (row.data_value === 0) {
+        row.data_value = rawMetrics[id];
+      }
+      break;
     case 'review_photo_rate':
       rawMetrics[id] = normalizeFactPercent(number);
       if (row.data_value === 0) {
@@ -2995,6 +3360,7 @@ function applyFactToStandardRow(row, fact) {
       row.data_value = Math.round(number);
       break;
     case 'bad_review_count':
+    case 'comment_unreply_count':
       if (row.data_value === 0) {
         row.data_value = Math.round(number);
       }
@@ -3002,6 +3368,7 @@ function applyFactToStandardRow(row, fact) {
     case 'ctrip_comment_count':
     case 'qunar_comment_count':
     case 'elong_comment_count':
+    case 'zx_comment_count':
       if (row.data_value === 0) {
         row.data_value = Math.round(number);
       }

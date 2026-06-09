@@ -961,7 +961,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $presetSections = match ($preset) {
             'all', 'wide' => $allowedSections,
             'core' => ['homepage', 'business_overview', 'business_weekly_overview', 'sales_report', 'traffic_report'],
-            default => ['business_overview', 'traffic_report'],
+            default => ['business_overview', 'business_weekly_overview', 'traffic_report'],
         };
         $allowedMap = array_fill_keys($allowedSections, true);
         $selected = array_values(array_filter(

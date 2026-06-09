@@ -27,6 +27,7 @@ test('normalizes Ctrip capture presets for core and wide collection', () => {
 
   assert.deepEqual(normalizeCtripCaptureSections('default'), [
     'business_overview',
+    'business_weekly_overview',
     'traffic_report',
   ]);
 
@@ -197,6 +198,14 @@ test('covers additional observed Ctrip screenshot endpoints outside review conte
     'comment_review',
   );
   assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/restapi/soa2/26353/getCommentNumV2?_fxpcqlniredt=demo')?.section,
+    'comment_review',
+  );
+  assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/restapi/soa2/26353/getHotelRating?_fxpcqlniredt=demo')?.id,
+    'comment_hotel_rating',
+  );
+  assert.equal(
     findCtripEndpointByUrl('https://ebooking.ctrip.com/datacenter/api/getMasterHotelLabel')?.id,
     'competitor_hotel_label',
   );
@@ -297,6 +306,76 @@ test('maps Ctrip comment aggregate response without review text fields', () => {
   assert.equal(rows[0].raw_data.metrics.review_photo_rate, 49.9);
 });
 
+test('maps Ctrip getHotelRating response to rating aggregate fields only', () => {
+  const url = 'https://ebooking.ctrip.com/restapi/soa2/26353/getHotelRating?_fxpcqlniredt=09031057118856912388';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'comment_hotel_rating');
+  assert.equal(endpoint?.section, 'comment_review');
+
+  const payload = {
+    ResponseStatus: { Ack: 'Success' },
+    ratingInfo: {
+      scoreInfo: {
+        avgScoreSimple: 4.83,
+        commentLevel: '超棒',
+        subScores: [
+          { type: 'ratingLocation', name: '环境', score: 4.8, scoreSimple: 4.82 },
+          { type: 'ratingFacility', name: '设施', score: 4.7, scoreSimple: 4.77 },
+          { type: 'ratingService', name: '服务', score: 4.8, scoreSimple: 4.87 },
+          { type: 'ratingRoom', name: '卫生', score: 4.8, scoreSimple: 4.86 },
+        ],
+      },
+      ratingAll: 4.83,
+      ratingLocation: 4.82,
+      ratingFacility: 4.77,
+      ratingService: 4.87,
+      ratingRoom: 4.86,
+      goodCommentTags: [
+        { tagCount: 188, tagName: '提供接送' },
+      ],
+      poorCommentTags: [
+        { tagCount: 2, tagName: '服务一般' },
+      ],
+      channelSource: 'trip',
+    },
+  };
+
+  const facts = extractCtripCatalogFacts(payload, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-09',
+    capturedAt: '2026-06-09T00:00:00.000Z',
+    url,
+  });
+
+  const factKeys = new Set(facts.map((fact) => fact.metric_key));
+  for (const key of ['comment_score', 'review_environment_score', 'review_facility_score', 'review_service_score', 'review_cleanliness_score']) {
+    assert.equal(factKeys.has(key), true, key);
+  }
+  assert.equal(factKeys.has('bad_review_tag'), false);
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'fallback hotel',
+    profileId: '6866634',
+    dataDate: '2026-06-09',
+  });
+  const metricRows = rows.filter((row) => row.raw_data.metrics?.comment_score !== undefined);
+  assert.equal(metricRows.length, 1);
+  assert.equal(metricRows[0].comment_score, 4.83);
+  assert.equal(metricRows[0].data_value, 4.83);
+  assert.equal(metricRows[0].raw_data.metrics.review_environment_score, 4.82);
+  assert.equal(metricRows[0].raw_data.metrics.review_facility_score, 4.77);
+  assert.equal(metricRows[0].raw_data.metrics.review_service_score, 4.87);
+  assert.equal(metricRows[0].raw_data.metrics.review_cleanliness_score, 4.86);
+
+  const encodedRaw = JSON.stringify(rows.map((row) => row.raw_data));
+  assert.equal(encodedRaw.includes('提供接送'), false);
+  assert.equal(encodedRaw.includes('服务一般'), false);
+});
+
 test('keeps Ctrip review photo rate missing when comment count denominator is unavailable', () => {
   const url = 'https://ebooking.ctrip.com/comment/api/getCommentNumV2';
   const endpoint = findCtripEndpointByUrl(url);
@@ -319,6 +398,88 @@ test('keeps Ctrip review photo rate missing when comment count denominator is un
   const factKeys = new Set(facts.map((fact) => fact.metric_key));
   assert.equal(factKeys.has('review_photo_count'), true);
   assert.equal(factKeys.has('review_photo_rate'), false);
+});
+
+test('maps Ctrip getCommentNumV2 channel containers to aggregate-only rows', () => {
+  const url = 'https://ebooking.ctrip.com/restapi/soa2/26353/getCommentNumV2?_fxpcqlniredt=09031057118856912388&x-traceID=09031057118856912388-1780945769523-863965';
+  const endpoint = findCtripEndpointByUrl(url);
+  assert.equal(endpoint?.id, 'comment_review_aggregate');
+
+  const facts = extractCtripCatalogFacts({
+    ResponseStatus: {
+      Ack: 'Success',
+      Errors: [],
+    },
+    hasCtripMapping: true,
+    hasQunarMapping: true,
+    hasElongMapping: true,
+    hasZxMapping: true,
+    ctripCount: {
+      commentCount: 571,
+      noRecommendCount: 6,
+      unReplyCount: 0,
+      hasPicCount: 122,
+      goodRate: 0.989,
+      responseRate: 1,
+      jumpUrl: 'https://hotels.ctrip.com/hotels/detail/?hotelId=6866634#review',
+    },
+    qunarCount: {
+      commentCount: 649,
+      noRecommendCount: 3,
+      unReplyCount: 0,
+      hasPicCount: 41,
+    },
+    elongCount: {
+      commentCount: 517,
+      noRecommendCount: 2,
+      unReplyCount: 0,
+      hasPicCount: 2,
+      jumpUrl: 'http://hotel.elong.com/92220123/',
+    },
+    zxCount: {
+      commentCount: 450,
+      noRecommendCount: 7,
+      unReplyCount: 0,
+      hasPicCount: 26,
+    },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-06-08',
+    capturedAt: '2026-06-08T10:00:00.000Z',
+    url,
+  });
+
+  const factKeys = new Set(facts.map((fact) => fact.metric_key));
+  for (const key of ['ctrip_comment_count', 'qunar_comment_count', 'elong_comment_count', 'zx_comment_count', 'comment_count', 'bad_review_count', 'comment_unreply_count', 'review_photo_count', 'review_photo_rate', 'comment_good_rate', 'comment_response_rate']) {
+    assert.equal(factKeys.has(key), true, key);
+  }
+  assert.equal(factKeys.has('comment_rows'), false);
+  assert.equal(factKeys.has('good_review_count'), false);
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: '西安空港城天诚商务宾馆',
+    profileId: '6866634',
+    dataDate: '2026-06-08',
+  });
+  assert.equal(rows.length, 4);
+
+  const byChannel = new Map(rows.map((row) => [row.raw_data.dimension_values.comment_channel, row]));
+  assert.equal(byChannel.get('携程')?.raw_data.metrics.comment_count, 571);
+  assert.equal(byChannel.get('携程')?.raw_data.metrics.bad_review_count, 6);
+  assert.equal(byChannel.get('携程')?.raw_data.metrics.comment_unreply_count, 0);
+  assert.equal(byChannel.get('携程')?.raw_data.metrics.review_photo_count, 122);
+  assert.equal(byChannel.get('携程')?.raw_data.metrics.review_photo_rate, 21.4);
+  assert.equal(byChannel.get('携程')?.raw_data.metrics.comment_good_rate, 98.9);
+  assert.equal(byChannel.get('携程')?.flow_rate, 100);
+  assert.equal(byChannel.get('携程')?.raw_data.dimension_values.target_url, 'https://hotels.ctrip.com/hotels/detail/?hotelId=6866634#review');
+  assert.equal(byChannel.get('去哪儿')?.raw_data.metrics.comment_count, 649);
+  assert.equal(byChannel.get('艺龙')?.raw_data.metrics.comment_count, 517);
+  assert.equal(byChannel.get('智行')?.raw_data.metrics.comment_count, 450);
+  assert.equal(byChannel.get('智行')?.raw_data.metrics.bad_review_count, 7);
 });
 
 test('maps Ctrip comment list response to aggregate fields only', () => {
@@ -619,9 +780,9 @@ test('maps Ctrip user behavior user-analysis distribution responses', () => {
       qunarRatingAllRanking: 8,
       competitorHotelTotal: 26,
       responseRate: 1.0019999742507935,
-      ctripId: null,
-      qunarId: null,
-      elongId: null,
+      ctripId: 'fake-ctrip-id',
+      qunarId: 'fake-qunar-id',
+      elongId: 'fake-elong-id',
     },
   }, 'traffic_comment_score_summary');
   const commentRow = commentRows[0];
@@ -643,9 +804,9 @@ test('maps Ctrip user behavior user-analysis distribution responses', () => {
   assert.equal(commentRow.flow_rate, 100.2);
   assert.equal(commentRow.raw_data.metrics.elong_comment_count, null);
   assert.equal(commentRow.raw_data.metrics.elong_rating, null);
-  assert.equal(commentRow.raw_data.metrics.ctrip_comment_id, null);
-  assert.equal(commentRow.raw_data.metrics.qunar_comment_id, null);
-  assert.equal(commentRow.raw_data.metrics.elong_comment_id, null);
+  assert.equal('ctrip_comment_id' in commentRow.raw_data.metrics, false);
+  assert.equal('qunar_comment_id' in commentRow.raw_data.metrics, false);
+  assert.equal('elong_comment_id' in commentRow.raw_data.metrics, false);
 });
 
 test('maps Ctrip business overview visitor title daily fields', () => {
@@ -1224,6 +1385,125 @@ test('keeps Ctrip weekly lossOrderVo fields as loss metrics', () => {
   assert.equal(row.raw_data.metrics.loss_order_amount, 18578.8);
   assert.equal(row.raw_data.metrics.order_count, undefined);
   assert.equal(row.raw_data.metrics.order_amount, undefined);
+});
+
+test('maps Ctrip weekly report responses to exact Profile field keys', () => {
+  const baseContext = {
+    section: 'business_weekly_overview',
+    dataType: 'business',
+    hotelId: '58',
+    dataDate: '2026-06-08',
+    capturedAt: '2026-06-08T10:00:00.000Z',
+  };
+  const samples = [
+    {
+      url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getLastWeekReportV1',
+      data: {
+        data: {
+          lastWeekCheckoutRoomNights: 30,
+          lastWeekCheckoutSales: 3086,
+          lastWeekCheckoutRoomPrice: 96.44,
+          lastWeekBookQuantity: 26,
+          lastWeekBookRoomNights: 29,
+          lastWeekBookSales: 2827,
+        },
+      },
+      expected: ['last_week_checkout_room_nights', 'last_week_checkout_sales', 'last_week_book_sales'],
+    },
+    {
+      url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getTrafficReportV1',
+      data: {
+        data: {
+          myHotel: {
+            totalListExposure: 1397,
+            totalDetailExposure: 118,
+            orderFillingNum: 16,
+            orderSubmitNum: 15,
+            listTransforDetailRate: '8.45%',
+            detailTransforOrderFillRate: '13.56%',
+            orderFillTransforOrderSubmitRate: '93.75%',
+          },
+          competeHotelAvg: {
+            totalListExposure: 10568,
+            totalDetailExposure: 1901,
+            orderFillingNum: 153,
+            orderSubmitNum: 84,
+            listTransforDetailRate: '17.99%',
+            detailTransforOrderFillRate: '8.04%',
+            orderFillTransforOrderSubmitRate: '54.9%',
+          },
+          topCompeteHotel: {
+            totalListExposure: 25561,
+            totalDetailExposure: 4238,
+            orderFillingNum: 366,
+            orderSubmitNum: 232,
+            listTransforDetailRate: '16.58%',
+            detailTransforOrderFillRate: '8.64%',
+            orderFillTransforOrderSubmitRate: '63.39%',
+          },
+        },
+      },
+      expected: ['weekly_self_list_exposure', 'weekly_competitor_detail_exposure', 'top_competitor_deal_rate'],
+    },
+    {
+      url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getUserBehaviorV1',
+      data: { data: { lastWeekCommentScore: 4.7, lastWeekGoodAdd: 3, lastWeekBadAdd: 1, lastWeekPriceScore: 80 } },
+      expected: ['last_week_comment_score', 'last_week_good_add', 'last_week_price_score'],
+    },
+    {
+      url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getFlowHotelsV1',
+      data: {
+        data: {
+          lossOrderVo: { ordernum: 49, ordquantity: 76, ordamount: 18578.8 },
+          flowHotelItemVos: [{ hotelName: 'Competitor A', proportion: '31.78%', orderPro: '24.39%' }],
+        },
+      },
+      expected: ['flow_lost_order_num', 'top_flow_hotel', 'top_flow_hotel_order_rate'],
+    },
+    {
+      url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getHotRoomsV1',
+      data: { data: { hotRooms: [{ roomShortName: '精选大床房', saleRoomNights: 12, salePercent: '28.5%' }] } },
+      expected: ['top_hot_room', 'top_hot_room_nights', 'top_hot_room_sale_percent'],
+    },
+    {
+      url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getHotWordsV1',
+      data: { data: ['钟楼', '地铁'] },
+      expected: ['hot_words_count', 'top_hot_words'],
+    },
+    {
+      url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getHotHotelsV1',
+      data: { data: ['竞品酒店A', '竞品酒店B'] },
+      expected: ['hot_hotels_count', 'top_hot_hotels'],
+    },
+  ];
+
+  const facts = samples.flatMap((sample) => {
+    const endpoint = findCtripEndpointByUrl(sample.url, { preferredSection: 'business_weekly_overview' });
+    assert.equal(endpoint?.id, 'weekly_report');
+    return extractCtripCatalogFacts(sample.data, {
+      ...baseContext,
+      endpoint,
+      url: sample.url,
+    });
+  });
+  const ids = new Set(facts.map((fact) => fact.metric_key));
+  for (const sample of samples) {
+    for (const expected of sample.expected) {
+      assert.equal(ids.has(expected), true, expected);
+    }
+  }
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: 'Xian Tiancheng',
+    profileId: '58',
+    dataDate: '2026-06-08',
+  });
+  const metricRows = rows.filter((row) => row.capture_section === 'business_weekly_overview');
+  assert.equal(metricRows.some((row) => row.raw_data.metrics.last_week_book_sales === 2827), true);
+  assert.equal(metricRows.some((row) => row.raw_data.metrics.weekly_self_list_exposure === 1397), true);
+  assert.equal(metricRows.some((row) => Array.isArray(row.raw_data.metrics.top_hot_words) && row.raw_data.metrics.top_hot_words[0] === '钟楼'), true);
+  assert.equal(metricRows.some((row) => Array.isArray(row.raw_data.metrics.top_hot_hotels) && row.raw_data.metrics.top_hot_hotels[1] === '竞品酒店B'), true);
 });
 
 test('maps Ctrip loss-analysis hotel rows into per-hotel loss metrics', () => {

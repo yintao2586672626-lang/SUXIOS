@@ -19,6 +19,64 @@ final class OnlineDataTest extends TestCase
         return $reflection->newInstanceWithoutConstructor();
     }
 
+    public function testPublicEndpointSecuritySummaryUsesSanitizedAuditRows(): void
+    {
+        $controller = $this->controller();
+        $logs = [
+            [
+                'id' => 10,
+                'action' => 'receive_cookies_public_failure',
+                'create_time' => '2026-06-08 10:00:00',
+                'error_info' => 'HTTP 429',
+                'extra_data' => json_encode([
+                    'endpoint' => 'receive_cookies',
+                    'reason' => 'rate_limited',
+                    'status' => 429,
+                    'method' => 'POST',
+                    'origin' => 'https://ebooking.ctrip.com',
+                    'ip_hash' => 'abc123',
+                    'extra' => ['token' => 'plain-token-value', 'cookies' => 'plain-cookie-value'],
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 11,
+                'action' => 'cron_trigger_public_failure',
+                'create_time' => '2026-06-08 10:01:00',
+                'error_info' => 'HTTP 401',
+                'extra_data' => json_encode([
+                    'endpoint' => 'cron_trigger',
+                    'reason' => 'invalid_cron_token',
+                    'status' => 401,
+                    'method' => 'GET',
+                    'origin' => '',
+                    'ip_hash' => 'def456',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+
+        $row = $this->invokeNonPublic($controller, 'buildPublicEndpointSecurityRow', [
+            'receive_cookies',
+            $logs,
+            [
+                'method' => 'POST|OPTIONS',
+                'path' => '/api/online-data/receive-cookies',
+                'auth' => 'Authorization Bearer token from current login session',
+                'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
+                'token_configured' => null,
+            ],
+        ]);
+
+        self::assertSame('receive_cookies', $row['endpoint']);
+        self::assertFalse($row['normal_auth_middleware']);
+        self::assertSame(1, $row['recent_failure_count']);
+        self::assertSame(1, $row['rate_limited_count']);
+        self::assertSame('rate_limited', $row['last_failure']['reason']);
+        self::assertSame('abc123', $row['last_failure']['ip_hash']);
+        $encoded = json_encode($row, JSON_UNESCAPED_UNICODE);
+        self::assertStringNotContainsString('plain-token-value', $encoded);
+        self::assertStringNotContainsString('plain-cookie-value', $encoded);
+    }
+
     public function testCollectionReliabilityDefinitionsAndQualitySnapshot(): void
     {
         $controller = $this->controller();
@@ -775,6 +833,56 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ok', $rows[0]['displayMetricStatus']['absoluteConversion']);
     }
 
+    public function testBackendDerivesMeituanPercentOnlyRankValuesFromSelfMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => '销售间夜榜',
+                        'aiMetricName' => 'P_XS_NIGHT_COUNT',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => null, 'percent' => 80, 'rank' => 2],
+                        ],
+                    ],
+                    [
+                        'dimName' => '销售额榜',
+                        'aiMetricName' => 'P_XS_AMT',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => null, 'percent' => 70.5, 'rank' => 2],
+                        ],
+                    ],
+                ],
+            ],
+        ], [
+            'target_poi_id' => 'SELF',
+            'self_metric_values' => [
+                'salesRoomNights' => 20,
+                'sales' => 3000,
+            ],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(20.0, $rowsByPoi['SELF']['salesRoomNights']);
+        self::assertSame(16.0, $rowsByPoi['RIVAL']['salesRoomNights']);
+        self::assertSame(2115.0, $rowsByPoi['RIVAL']['sales']);
+        self::assertSame(80.0, $rowsByPoi['RIVAL']['metricRankPercent']['salesRoomNights']);
+        self::assertSame('按本店值和美团百分比推导', $rowsByPoi['RIVAL']['metricSourceStatus']['sales']);
+        self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['sales']['method']);
+
+        $summary = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplaySummary', [$rows, []]);
+        self::assertSame(4, $summary['metrics']['derivedMetricCount']);
+        self::assertStringContainsString('推导', $summary['source_notice']);
+    }
+
     public function testBackendBuildsMeituanBusinessDisplaySummaryForFrontend(): void
     {
         $controller = $this->controller();
@@ -997,6 +1105,56 @@ final class OnlineDataTest extends TestCase
         self::assertSame(['ok', 'ok', 'ok', 'ok'], array_column($payload['rank_health_rows'], 'status'));
         self::assertSame('returned_empty', $payload['display_summary']['platform_tag_summary']['status']);
         self::assertSame(0, $payload['display_summary']['platform_tag_summary']['vip_count']);
+    }
+
+    public function testStoredMeituanSummaryDerivesPercentOnlyRowsFromSelfMetrics(): void
+    {
+        $controller = $this->controller();
+
+        $rows = [];
+        foreach ([
+            ['poi' => 'SELF', 'name' => 'Self Hotel', 'percent' => 100, 'rank' => 1],
+            ['poi' => 'RIVAL', 'name' => 'Rival Hotel', 'percent' => 80, 'rank' => 2],
+        ] as $hotel) {
+            $rows[] = [
+                'system_hotel_id' => 100,
+                'hotel_id' => $hotel['poi'],
+                'hotel_name' => $hotel['name'],
+                'data_date' => '2026-06-07',
+                'data_value' => 0,
+                'quantity' => 0,
+                'amount' => 0,
+                'dimension' => '销售间夜榜',
+                'raw_data' => json_encode([
+                    'poiName' => $hotel['name'],
+                    'dataValue' => null,
+                    'percent' => $hotel['percent'],
+                    'metricStatus' => 'platform_percent_only',
+                    'rank' => $hotel['rank'],
+                    'dimension' => '销售间夜榜',
+                    'aiMetricName' => 'P_XS_NIGHT_COUNT',
+                    'platformTagStatus' => 'returned_empty',
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        }
+
+        $payload = $this->invokeNonPublic($controller, 'buildMeituanCompetitorSummaryFromStoredRows', [$rows, [
+            'system_hotel_id' => 100,
+            'target_poi_id' => 'SELF',
+            'self_metric_values' => ['salesRoomNights' => 25],
+        ]]);
+        $rowsByPoi = [];
+        foreach ($payload['display_hotels'] as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(25.0, $rowsByPoi['SELF']['salesRoomNights']);
+        self::assertSame(20.0, $rowsByPoi['RIVAL']['salesRoomNights']);
+        self::assertSame(80.0, $rowsByPoi['RIVAL']['metricRankPercent']['salesRoomNights']);
+        self::assertSame('按本店值和美团百分比推导', $rowsByPoi['RIVAL']['metricSourceStatus']['salesRoomNights']);
+        self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['salesRoomNights']['method']);
+        self::assertSame(2, $payload['display_summary']['metrics']['derivedMetricCount']);
+        self::assertStringContainsString('推导', $payload['source_notice']);
     }
 
     public function testCtripTrafficDateRangeCoversPresetsCustomAndInvalidInput(): void
@@ -1499,10 +1657,10 @@ final class OnlineDataTest extends TestCase
             'platform' => 'ctrip',
             'section_count' => 18,
             'endpoint_count' => 69,
-            'field_count' => 110,
-            'default_sections' => ['business_overview', 'traffic_report'],
+            'field_count' => 107,
+            'default_sections' => ['business_overview', 'business_weekly_overview', 'traffic_report'],
             'presets' => [
-                'default' => ['sections' => ['business_overview', 'traffic_report']],
+                'default' => ['sections' => ['business_overview', 'business_weekly_overview', 'traffic_report']],
                 'wide' => ['sections' => ['homepage', 'biztravel_bpi']],
             ],
             'interaction_plan_section_count' => 16,
@@ -1557,8 +1715,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ctrip', $health['platform']);
         self::assertSame(18, $health['section_count']);
         self::assertSame(69, $health['endpoint_count']);
-        self::assertSame(110, $health['field_count']);
-        self::assertSame(['business_overview', 'traffic_report'], $health['default_sections']);
+        self::assertSame(107, $health['field_count']);
+        self::assertSame(['business_overview', 'business_weekly_overview', 'traffic_report'], $health['default_sections']);
         self::assertSame(['homepage', 'biztravel_bpi'], $health['wide_sections']);
         self::assertSame(16, $health['interaction_plan_section_count']);
         self::assertSame(64, $health['interaction_plan_step_count']);
@@ -1590,7 +1748,7 @@ final class OnlineDataTest extends TestCase
             'platform' => 'ctrip',
             'section_count' => 18,
             'endpoint_count' => 69,
-            'field_count' => 110,
+            'field_count' => 107,
         ], [
             'auth_status' => ['status' => 'login_required'],
             'summary' => ['response_count' => 0, 'standard_row_count' => 0],
@@ -1669,7 +1827,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ctrip', $health['platform']);
         self::assertGreaterThanOrEqual(16, $health['section_count']);
         self::assertGreaterThanOrEqual(69, $health['endpoint_count']);
-        self::assertGreaterThanOrEqual(110, $health['field_count']);
+        self::assertGreaterThanOrEqual(107, $health['field_count']);
         self::assertArrayHasKey('audit_evidence', $health);
         self::assertSame('login_required', $health['audit_evidence']['auth_status']);
         self::assertSame('blocked_auth', $health['audit_evidence']['capture_gap_status']);
@@ -2459,8 +2617,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame(1, $metrics['comment_score_rank']);
         self::assertSame(7, $metrics['visitor_rank']);
         self::assertSame(11, $metrics['conversion_rank']);
-        self::assertSame('敦煌夜市', $metrics['top_hot_word']);
-        self::assertSame('敦煌中洲国际酒店(敦煌夜市店)', $metrics['top_hot_hotel']);
+        self::assertSame(['敦煌夜市', '5钻/星|豪华'], $metrics['top_hot_words']);
+        self::assertSame(['敦煌中洲国际酒店(敦煌夜市店)', '敦煌福朋喜来登酒店'], $metrics['top_hot_hotels']);
         self::assertSame(535, $metrics['flow_lost_order_num']);
         self::assertSame(1035, $metrics['flow_lost_room_nights']);
         self::assertSame(784911.01, $metrics['flow_lost_amount']);
@@ -2918,6 +3076,71 @@ final class OnlineDataTest extends TestCase
         self::assertSame('补齐美团 Partner ID / POI ID / Cookies', $meituanMissingResult['next_action']);
     }
 
+    public function testPlatformProfileStatusUsesLatestLoginFailureOverLoggedInCache(): void
+    {
+        $controller = $this->controller();
+
+        $status = $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
+            '6866634',
+            true,
+            [
+                'last_sync_status' => 'failed',
+                'last_error' => 'Ctrip browser Profile section capture failed: Ctrip login timeout after 30 seconds',
+            ],
+            [
+                'status_code' => 'logged_in',
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+            ],
+        ]);
+
+        self::assertSame('login_expired', $status);
+
+        $nonAuthFailure = $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
+            '6866634',
+            true,
+            [
+                'last_sync_status' => 'failed',
+                'last_error' => 'field coverage failed',
+            ],
+            [
+                'status_code' => 'logged_in',
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+            ],
+        ]);
+
+        self::assertSame('logged_in', $nonAuthFailure);
+    }
+
+    public function testPlatformProfileLoginExpiredPromotesReloginAction(): void
+    {
+        $controller = $this->controller();
+
+        $checks = $this->invokeNonPublic($controller, 'buildPlatformProfileBindingChecks', [
+            'ctrip',
+            7,
+            ['profile_id' => '6866634', 'ota_hotel_id' => '6866634'],
+            [
+                'system_hotel_id' => 7,
+                'last_sync_status' => 'failed',
+                'last_error' => 'browser_profile needs relogin Ctrip login timeout after 30 seconds',
+            ],
+            'login_expired',
+            true,
+            '6866634',
+        ]);
+        $byKey = [];
+        foreach ($checks as $check) {
+            $byKey[$check['key']] = $check;
+        }
+
+        self::assertSame('error', $byKey['profile_login']['status']);
+        self::assertSame('login_platform_profile', $byKey['profile_login']['action_key']);
+
+        $primary = $this->invokeNonPublic($controller, 'firstPlatformProfileBindingAction', [$checks]);
+        self::assertSame('profile_login', $primary['check_key']);
+        self::assertSame('login_platform_profile', $primary['action_key']);
+    }
+
     public function testPlatformProfileBindingChecksExposeDirectP0Actions(): void
     {
         $controller = $this->controller();
@@ -3314,11 +3537,15 @@ final class OnlineDataTest extends TestCase
             'top_hot_room_nights',
             'top_hot_room_sale_percent',
             'hot_words_count',
-            'top_hot_word',
+            'top_hot_words',
             'hot_hotels_count',
-            'top_hot_hotel',
+            'top_hot_hotels',
             'psi_score',
             'service_score_rank',
+            'ctrip_comment_count',
+            'qunar_comment_count',
+            'elong_comment_count',
+            'zx_comment_count',
             'ctrip_rating',
             'review_environment_score',
             'review_facility_score',
@@ -3327,6 +3554,8 @@ final class OnlineDataTest extends TestCase
             'review_photo_count',
             'review_photo_rate',
             'comment_score_summary',
+            'comment_unreply_count',
+            'comment_good_rate',
             'reply_rate',
             'reply_rank',
             'five_min_reply_rate',
@@ -3427,6 +3656,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame('data.lossOrderVo.ordernum', $byKey['flow_lost_order_num']['json_path']);
         self::assertSame('getHotRoomsV1', $byKey['top_hot_room']['source_interface']);
         self::assertSame('count(data[])', $byKey['hot_words_count']['json_path']);
+        self::assertSame('data[0:10]', $byKey['top_hot_words']['json_path']);
+        self::assertSame('data[0:10]', $byKey['top_hot_hotels']['json_path']);
         self::assertSame('queryUserSex', $byKey['user_sex']['source_interface']);
         self::assertSame('data[].name', $byKey['user_sex']['json_path']);
         self::assertSame('queryUserPriceInfo', $byKey['price_sensitivity']['source_interface']);
@@ -3464,43 +3695,54 @@ final class OnlineDataTest extends TestCase
         self::assertSame('data.userColumnBos[].titleList[]', $byKey['preference_frequency']['json_path']);
         self::assertSame('percent', $byKey['distribution_share']['value_type']);
         self::assertStringContainsString('data.valueList[]', $byKey['distribution_share']['json_path']);
-        self::assertSame('getCommentsScoreV2', $byKey['ctrip_comment_count']['source_interface']);
-        self::assertSame('data.ctripCommentCount', $byKey['ctrip_comment_count']['json_path']);
-        self::assertSame('getCommentsScoreV2', $byKey['qunar_comment_count']['source_interface']);
-        self::assertSame('data.qunarCommentCount', $byKey['qunar_comment_count']['json_path']);
-        self::assertSame('getCommentsScoreV2', $byKey['elong_comment_count']['source_interface']);
-        self::assertSame('data.elongCommentCount', $byKey['elong_comment_count']['json_path']);
+        self::assertSame('getCommentsScoreV2 / getCommentNumV2', $byKey['ctrip_comment_count']['source_interface']);
+        self::assertSame('data.ctripCommentCount / ctripCount.commentCount', $byKey['ctrip_comment_count']['json_path']);
+        self::assertSame('getCommentsScoreV2 / getCommentNumV2', $byKey['qunar_comment_count']['source_interface']);
+        self::assertSame('data.qunarCommentCount / qunarCount.commentCount', $byKey['qunar_comment_count']['json_path']);
+        self::assertSame('getCommentsScoreV2 / getCommentNumV2', $byKey['elong_comment_count']['source_interface']);
+        self::assertSame('data.elongCommentCount / elongCount.commentCount', $byKey['elong_comment_count']['json_path']);
         self::assertSame('getDayReportServerQuantity / getCommentsScoreV2', $byKey['ctrip_rating']['source_interface']);
         self::assertSame('data.ctripRatingall', $byKey['ctrip_rating']['json_path']);
         self::assertSame('getCommentsScoreV2', $byKey['qunar_rating']['source_interface']);
         self::assertSame('data.qunarRatingall', $byKey['qunar_rating']['json_path']);
         self::assertSame('getCommentsScoreV2', $byKey['elong_rating']['source_interface']);
         self::assertSame('data.elongRatingall', $byKey['elong_rating']['json_path']);
-        self::assertSame('getCommentsScoreV2', $byKey['ctrip_comment_id']['source_interface']);
-        self::assertSame('data.ctripId', $byKey['ctrip_comment_id']['json_path']);
-        self::assertSame('getCommentsScoreV2', $byKey['qunar_comment_id']['source_interface']);
-        self::assertSame('data.qunarId', $byKey['qunar_comment_id']['json_path']);
-        self::assertSame('getCommentsScoreV2', $byKey['elong_comment_id']['source_interface']);
-        self::assertSame('data.elongId', $byKey['elong_comment_id']['json_path']);
-        self::assertSame('getCommentsScoreV2', $byKey['comment_response_rate']['source_interface']);
-        self::assertSame('data.responseRate', $byKey['comment_response_rate']['json_path']);
-        self::assertSame('quality_psi', $byKey['review_environment_score']['section']);
-        self::assertSame('needs_parser', $byKey['review_environment_score']['status']);
-        self::assertStringContainsString('environmentScore', $byKey['review_environment_score']['source_keys']);
-        self::assertSame('quality_psi', $byKey['review_facility_score']['section']);
-        self::assertSame('needs_parser', $byKey['review_facility_score']['status']);
-        self::assertStringContainsString('facilityScore', $byKey['review_facility_score']['source_keys']);
-        self::assertSame('quality_psi', $byKey['review_service_score']['section']);
-        self::assertSame('needs_parser', $byKey['review_service_score']['status']);
-        self::assertStringContainsString('reviewServiceScore', $byKey['review_service_score']['source_keys']);
-        self::assertSame('quality_psi', $byKey['review_cleanliness_score']['section']);
-        self::assertSame('needs_parser', $byKey['review_cleanliness_score']['status']);
-        self::assertStringContainsString('hygieneScore', $byKey['review_cleanliness_score']['source_keys']);
+        self::assertArrayNotHasKey('ctrip_comment_id', $byKey);
+        self::assertArrayNotHasKey('qunar_comment_id', $byKey);
+        self::assertArrayNotHasKey('elong_comment_id', $byKey);
+        self::assertSame('getCommentNumV2', $byKey['zx_comment_count']['source_interface']);
+        self::assertSame('zxCount.commentCount', $byKey['zx_comment_count']['json_path']);
+        self::assertSame('getCommentsScoreV2 / getCommentNumV2', $byKey['comment_response_rate']['source_interface']);
+        self::assertSame('data.responseRate / {channel}Count.responseRate', $byKey['comment_response_rate']['json_path']);
+        self::assertSame('getCommentNumV2', $byKey['comment_unreply_count']['source_interface']);
+        self::assertSame('{channel}Count.unReplyCount', $byKey['comment_unreply_count']['json_path']);
+        self::assertSame('getCommentNumV2', $byKey['comment_good_rate']['source_interface']);
+        self::assertSame('{channel}Count.goodRate', $byKey['comment_good_rate']['json_path']);
+        self::assertSame('comment_review', $byKey['review_environment_score']['section']);
+        self::assertSame('getHotelRating', $byKey['review_environment_score']['source_interface']);
+        self::assertSame('confirmed', $byKey['review_environment_score']['status']);
+        self::assertSame('ratingInfo.ratingLocation / ctripRatings.ratingLocation / ratingInfo.scoreInfo.subScores[type=ratingLocation].scoreSimple', $byKey['review_environment_score']['json_path']);
+        self::assertStringContainsString('ratingLocation', $byKey['review_environment_score']['source_keys']);
+        self::assertSame('comment_review', $byKey['review_facility_score']['section']);
+        self::assertSame('getHotelRating', $byKey['review_facility_score']['source_interface']);
+        self::assertSame('confirmed', $byKey['review_facility_score']['status']);
+        self::assertSame('ratingInfo.ratingFacility / ctripRatings.ratingFacility / ratingInfo.scoreInfo.subScores[type=ratingFacility].scoreSimple', $byKey['review_facility_score']['json_path']);
+        self::assertStringContainsString('ratingFacility', $byKey['review_facility_score']['source_keys']);
+        self::assertSame('comment_review', $byKey['review_service_score']['section']);
+        self::assertSame('getHotelRating', $byKey['review_service_score']['source_interface']);
+        self::assertSame('confirmed', $byKey['review_service_score']['status']);
+        self::assertSame('ratingInfo.ratingService / ctripRatings.ratingService / ratingInfo.scoreInfo.subScores[type=ratingService].scoreSimple', $byKey['review_service_score']['json_path']);
+        self::assertStringContainsString('ratingService', $byKey['review_service_score']['source_keys']);
+        self::assertSame('comment_review', $byKey['review_cleanliness_score']['section']);
+        self::assertSame('getHotelRating', $byKey['review_cleanliness_score']['source_interface']);
+        self::assertSame('confirmed', $byKey['review_cleanliness_score']['status']);
+        self::assertSame('ratingInfo.ratingRoom / ctripRatings.ratingRoom / ratingInfo.scoreInfo.subScores[type=ratingRoom].scoreSimple', $byKey['review_cleanliness_score']['json_path']);
+        self::assertStringContainsString('ratingRoom', $byKey['review_cleanliness_score']['source_keys']);
         self::assertSame('confirmed', $byKey['review_photo_count']['status']);
-        self::assertSame('data.hasPicCount', $byKey['review_photo_count']['json_path']);
+        self::assertSame('data.hasPicCount / {channel}Count.hasPicCount', $byKey['review_photo_count']['json_path']);
         self::assertStringContainsString('raw_data.metrics.review_photo_count', $byKey['review_photo_count']['storage_field']);
         self::assertSame('confirmed', $byKey['review_photo_rate']['status']);
-        self::assertSame('derived:data.hasPicCount / data.commentCount', $byKey['review_photo_rate']['json_path']);
+        self::assertSame('derived:data.hasPicCount / data.commentCount / {channel}Count.hasPicCount / {channel}Count.commentCount', $byKey['review_photo_rate']['json_path']);
         self::assertStringContainsString('hasPicCount / commentCount * 100', $byKey['review_photo_rate']['notes']);
         self::assertStringContainsString('raw_data.metrics.review_photo_rate', $byKey['review_photo_rate']['storage_field']);
         self::assertSame('im_board', $byKey['five_min_reply_rate']['section']);
@@ -4235,6 +4477,18 @@ final class OnlineDataTest extends TestCase
             ],
         ];
 
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldSkipCtripProfileOnlineDailySampleSection', [
+            'ctrip_comment_count',
+            'business_overview',
+            'traffic_report',
+            ['ctrip_comment_count' => 1],
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'shouldSkipCtripProfileOnlineDailySampleSection', [
+            'order_amount',
+            'business_overview',
+            'sales_report',
+            ['order_amount' => 2],
+        ]));
         self::assertSame(
             'sales_report:order_amount',
             $this->invokeNonPublic($controller, 'ctripProfileSampleBucketKeyForRow', ['order_amount', 'sales_report', $scopes])

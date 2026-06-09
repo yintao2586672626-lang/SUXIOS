@@ -421,6 +421,26 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.match(profileLoginKeyResolver, /return \$existingProfileKey/);
 });
 
+test('Platform account badge treats browser profile login timeout as login expired', () => {
+  const loginExpiredDetector = sliceBetween(
+    html,
+    'const isPlatformSourceLoginExpired',
+    'const hasPlatformHotelMismatch'
+  );
+  const accountRowBuilder = sliceBetween(
+    html,
+    'const buildHotelPlatformAccountRow',
+    'const hotelPlatformBindingRows'
+  );
+
+  assert.match(loginExpiredDetector, /browser_profile/);
+  assert.match(loginExpiredDetector, /需重新登录/);
+  assert.match(loginExpiredDetector, /login\\s\*timeout/);
+  assert.match(accountRowBuilder, /const loginExpired = isPlatformSourceLoginExpired\(source, config\)/);
+  assert.match(accountRowBuilder, /loginExpired \? 'login_expired'/);
+  assert.match(accountRowBuilder, /effectiveReady \? 'logged_in'/);
+});
+
 test('Ctrip collection quality rows overfetch before identity filtering', () => {
   const qualityRowsLoader = sliceBetween(
     backend,

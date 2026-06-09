@@ -1,15 +1,17 @@
 {
   "platform": "ctrip",
   "section_count": 18,
-  "endpoint_count": 77,
+  "endpoint_count": 78,
   "field_count": 252,
   "default_sections": [
     "business_overview",
+    "business_weekly_overview",
     "traffic_report"
   ],
   "presets": {
     "default": [
       "business_overview",
+      "business_weekly_overview",
       "traffic_report"
     ],
     "core": [
@@ -1841,7 +1843,8 @@
           "id": "ctrip_comment_count",
           "label": "携程点评数量",
           "sourceKeys": [
-            "ctripCommentCount"
+            "ctripCommentCount",
+            "ctripCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -1860,7 +1863,8 @@
           "id": "qunar_comment_count",
           "label": "去哪儿点评数量",
           "sourceKeys": [
-            "qunarCommentCount"
+            "qunarCommentCount",
+            "qunarCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -1879,7 +1883,30 @@
           "id": "elong_comment_count",
           "label": "艺龙点评数量",
           "sourceKeys": [
-            "elongCommentCount"
+            "elongCommentCount",
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCommentCount",
+            "zhixingCommentCount",
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -2031,16 +2058,58 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "review_environment_score",
           "label": "点评环境评分",
           "sourceKeys": [
+            "ratingLocation",
             "environmentScore",
             "envScore",
             "surroundingScore",
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -2057,11 +2126,12 @@
           "id": "review_facility_score",
           "label": "点评设施评分",
           "sourceKeys": [
+            "ratingFacility",
             "facilityScore",
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -2078,12 +2148,13 @@
           "id": "review_service_score",
           "label": "点评服务评分",
           "sourceKeys": [
+            "ratingService",
             "reviewServiceScore",
             "commentServiceScore",
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -2100,12 +2171,13 @@
           "id": "review_cleanliness_score",
           "label": "点评卫生评分",
           "sourceKeys": [
+            "ratingRoom",
             "cleanlinessScore",
             "cleanScore",
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -2164,63 +2236,6 @@
           "label": "点评竞争圈酒店数",
           "sourceKeys": [
             "competitorHotelTotal"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "ctrip_comment_id",
-          "label": "携程点评主体ID",
-          "sourceKeys": [
-            "ctripId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_comment_id",
-          "label": "去哪儿点评主体ID",
-          "sourceKeys": [
-            "qunarId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "elong_comment_id",
-          "label": "艺龙点评主体ID",
-          "sourceKeys": [
-            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -20831,7 +20846,8 @@
           "id": "ctrip_comment_count",
           "label": "携程点评数量",
           "sourceKeys": [
-            "ctripCommentCount"
+            "ctripCommentCount",
+            "ctripCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -20850,7 +20866,8 @@
           "id": "qunar_comment_count",
           "label": "去哪儿点评数量",
           "sourceKeys": [
-            "qunarCommentCount"
+            "qunarCommentCount",
+            "qunarCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -20869,7 +20886,30 @@
           "id": "elong_comment_count",
           "label": "艺龙点评数量",
           "sourceKeys": [
-            "elongCommentCount"
+            "elongCommentCount",
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCommentCount",
+            "zhixingCommentCount",
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -21021,16 +21061,58 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "review_environment_score",
           "label": "点评环境评分",
           "sourceKeys": [
+            "ratingLocation",
             "environmentScore",
             "envScore",
             "surroundingScore",
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21047,11 +21129,12 @@
           "id": "review_facility_score",
           "label": "点评设施评分",
           "sourceKeys": [
+            "ratingFacility",
             "facilityScore",
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21068,12 +21151,13 @@
           "id": "review_service_score",
           "label": "点评服务评分",
           "sourceKeys": [
+            "ratingService",
             "reviewServiceScore",
             "commentServiceScore",
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21090,12 +21174,13 @@
           "id": "review_cleanliness_score",
           "label": "点评卫生评分",
           "sourceKeys": [
+            "ratingRoom",
             "cleanlinessScore",
             "cleanScore",
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21154,63 +21239,6 @@
           "label": "点评竞争圈酒店数",
           "sourceKeys": [
             "competitorHotelTotal"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "ctrip_comment_id",
-          "label": "携程点评主体ID",
-          "sourceKeys": [
-            "ctripId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_comment_id",
-          "label": "去哪儿点评主体ID",
-          "sourceKeys": [
-            "qunarId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "elong_comment_id",
-          "label": "艺龙点评主体ID",
-          "sourceKeys": [
-            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -21578,7 +21606,8 @@
           "id": "ctrip_comment_count",
           "label": "携程点评数量",
           "sourceKeys": [
-            "ctripCommentCount"
+            "ctripCommentCount",
+            "ctripCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -21597,7 +21626,8 @@
           "id": "qunar_comment_count",
           "label": "去哪儿点评数量",
           "sourceKeys": [
-            "qunarCommentCount"
+            "qunarCommentCount",
+            "qunarCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -21616,7 +21646,30 @@
           "id": "elong_comment_count",
           "label": "艺龙点评数量",
           "sourceKeys": [
-            "elongCommentCount"
+            "elongCommentCount",
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCommentCount",
+            "zhixingCommentCount",
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -21768,16 +21821,58 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "review_environment_score",
           "label": "点评环境评分",
           "sourceKeys": [
+            "ratingLocation",
             "environmentScore",
             "envScore",
             "surroundingScore",
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21794,11 +21889,12 @@
           "id": "review_facility_score",
           "label": "点评设施评分",
           "sourceKeys": [
+            "ratingFacility",
             "facilityScore",
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21815,12 +21911,13 @@
           "id": "review_service_score",
           "label": "点评服务评分",
           "sourceKeys": [
+            "ratingService",
             "reviewServiceScore",
             "commentServiceScore",
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21837,12 +21934,13 @@
           "id": "review_cleanliness_score",
           "label": "点评卫生评分",
           "sourceKeys": [
+            "ratingRoom",
             "cleanlinessScore",
             "cleanScore",
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -21916,63 +22014,6 @@
           "confidenceStatus": ""
         },
         {
-          "id": "ctrip_comment_id",
-          "label": "携程点评主体ID",
-          "sourceKeys": [
-            "ctripId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_comment_id",
-          "label": "去哪儿点评主体ID",
-          "sourceKeys": [
-            "qunarId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "elong_comment_id",
-          "label": "艺龙点评主体ID",
-          "sourceKeys": [
-            "elongId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
           "id": "bad_review_tag",
           "label": "差评标签",
           "sourceKeys": [
@@ -21995,6 +22036,523 @@
       ],
       "status": "observed",
       "notes": "只采集评分汇总，不采集点评明文。"
+    },
+    {
+      "id": "comment_hotel_rating",
+      "section": "comment_review",
+      "label": "订单点评-点评聚合",
+      "dataType": "quality",
+      "keywords": [
+        "getHotelRating"
+      ],
+      "fields": [
+        {
+          "id": "hotel_id",
+          "label": "酒店ID",
+          "sourceKeys": [
+            "masterHotelId",
+            "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
+            "hotelID"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_name",
+          "label": "酒店名称",
+          "sourceKeys": [
+            "hotelName",
+            "hotel_name",
+            "hotelname",
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "date",
+          "label": "日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "effectDate",
+            "effectTime",
+            "statDate",
+            "startDate",
+            "endDate",
+            "updateTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_store_name",
+          "label": "点评门店",
+          "sourceKeys": [
+            "hotelName",
+            "masterHotelName",
+            "storeName",
+            "hotel_name"
+          ],
+          "description": "点评数据所属门店；不从点评正文推断",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_date",
+          "label": "点评日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "statDate",
+            "commentTime",
+            "createTime",
+            "submitTime"
+          ],
+          "description": "点评统计或评论发生日期；不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_channel",
+          "label": "点评渠道",
+          "sourceKeys": [
+            "channel",
+            "channelName",
+            "platform",
+            "source",
+            "commentChannel",
+            "bizType"
+          ],
+          "description": "只保留点评渠道维度，不保存用户身份或点评内容",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_score",
+          "label": "点评分",
+          "sourceKeys": [
+            "score",
+            "commentScore",
+            "rating",
+            "ratingall",
+            "HotelRating",
+            "ctripRatingall",
+            "totalScore",
+            "overallScore"
+          ],
+          "description": "只采集评分聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "分",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_count",
+          "label": "点评数量",
+          "sourceKeys": [
+            "commentCount",
+            "commentsCount",
+            "reviewCount",
+            "totalCommentCount",
+            "totalCount"
+          ],
+          "description": "只采集点评/评论数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "bad_review_count",
+          "label": "差评数",
+          "sourceKeys": [
+            "badReviewCount",
+            "negativeCommentCount",
+            "negativeCount",
+            "badCount",
+            "lowScoreCount",
+            "noRecommendCount"
+          ],
+          "description": "优先聚合接口差评/不推荐计数；列表评分仅通过显式聚合计算，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "target_url",
+          "label": "点评跳转地址",
+          "sourceKeys": [
+            "jumpUrl"
+          ],
+          "description": "只保留平台点评页跳转地址，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "review_environment_score",
+          "label": "点评环境评分",
+          "sourceKeys": [
+            "ratingLocation",
+            "environmentScore",
+            "envScore",
+            "surroundingScore",
+            "surroundingsScore",
+            "ambienceScore"
+          ],
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
+          "scope": "ota_channel",
+          "unit": "分",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "review_facility_score",
+          "label": "点评设施评分",
+          "sourceKeys": [
+            "ratingFacility",
+            "facilityScore",
+            "facilitiesScore",
+            "equipmentScore"
+          ],
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
+          "scope": "ota_channel",
+          "unit": "分",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "review_service_score",
+          "label": "点评服务评分",
+          "sourceKeys": [
+            "ratingService",
+            "reviewServiceScore",
+            "commentServiceScore",
+            "serviceRating",
+            "serviceCommentScore"
+          ],
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
+          "scope": "ota_channel",
+          "unit": "分",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "review_cleanliness_score",
+          "label": "点评卫生评分",
+          "sourceKeys": [
+            "ratingRoom",
+            "cleanlinessScore",
+            "cleanScore",
+            "hygieneScore",
+            "sanitationScore"
+          ],
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
+          "scope": "ota_channel",
+          "unit": "分",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "review_photo_count",
+          "label": "带图点评数",
+          "sourceKeys": [
+            "hasPicCount",
+            "photoCommentCount",
+            "pictureCommentCount",
+            "imageCommentCount"
+          ],
+          "description": "带图点评数量；只保存聚合计数，不保存图片或点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "review_photo_rate",
+          "label": "带图点评率",
+          "sourceKeys": [
+            "hasPicCount/commentCount"
+          ],
+          "description": "按 hasPicCount / commentCount * 100 派生；缺少分子或分母时保持缺失",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        }
+      ],
+      "status": "aggregate_only",
+      "notes": "携程酒店评分汇总接口，只采集总评分和环境/设施/服务/卫生子评分；标签列表不进入默认经营指标。"
     },
     {
       "id": "comment_review_aggregate",
@@ -22198,6 +22756,83 @@
           "confidenceStatus": ""
         },
         {
+          "id": "ctrip_comment_count",
+          "label": "携程点评数量",
+          "sourceKeys": [
+            "ctripCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "qunar_comment_count",
+          "label": "去哪儿点评数量",
+          "sourceKeys": [
+            "qunarCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "elong_comment_count",
+          "label": "艺龙点评数量",
+          "sourceKeys": [
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "bad_review_count",
           "label": "差评数",
           "sourceKeys": [
@@ -22205,9 +22840,89 @@
             "negativeCommentCount",
             "negativeCount",
             "badCount",
-            "lowScoreCount"
+            "lowScoreCount",
+            "noRecommendCount"
           ],
-          "description": "优先聚合接口差评数；列表评分仅通过显式聚合计算，不保存点评明文",
+          "description": "优先聚合接口差评/不推荐计数；列表评分仅通过显式聚合计算，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_response_rate",
+          "label": "点评回复率",
+          "sourceKeys": [
+            "responseRate"
+          ],
+          "description": "点评/评论回复率，不等同于 IM 5分钟回复率",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "target_url",
+          "label": "点评跳转地址",
+          "sourceKeys": [
+            "jumpUrl"
+          ],
+          "description": "只保留平台点评页跳转地址，不保存点评明文",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -22224,13 +22939,14 @@
           "id": "review_environment_score",
           "label": "点评环境评分",
           "sourceKeys": [
+            "ratingLocation",
             "environmentScore",
             "envScore",
             "surroundingScore",
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22247,11 +22963,12 @@
           "id": "review_facility_score",
           "label": "点评设施评分",
           "sourceKeys": [
+            "ratingFacility",
             "facilityScore",
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22268,12 +22985,13 @@
           "id": "review_service_score",
           "label": "点评服务评分",
           "sourceKeys": [
+            "ratingService",
             "reviewServiceScore",
             "commentServiceScore",
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -22290,12 +23008,13 @@
           "id": "review_cleanliness_score",
           "label": "点评卫生评分",
           "sourceKeys": [
+            "ratingRoom",
             "cleanlinessScore",
             "cleanScore",
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -24019,7 +24738,8 @@
           "id": "ctrip_comment_count",
           "label": "携程点评数量",
           "sourceKeys": [
-            "ctripCommentCount"
+            "ctripCommentCount",
+            "ctripCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -24038,7 +24758,8 @@
           "id": "qunar_comment_count",
           "label": "去哪儿点评数量",
           "sourceKeys": [
-            "qunarCommentCount"
+            "qunarCommentCount",
+            "qunarCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -24057,7 +24778,30 @@
           "id": "elong_comment_count",
           "label": "艺龙点评数量",
           "sourceKeys": [
-            "elongCommentCount"
+            "elongCommentCount",
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCommentCount",
+            "zhixingCommentCount",
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -24209,16 +24953,58 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "review_environment_score",
           "label": "点评环境评分",
           "sourceKeys": [
+            "ratingLocation",
             "environmentScore",
             "envScore",
             "surroundingScore",
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -24235,11 +25021,12 @@
           "id": "review_facility_score",
           "label": "点评设施评分",
           "sourceKeys": [
+            "ratingFacility",
             "facilityScore",
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -24256,12 +25043,13 @@
           "id": "review_service_score",
           "label": "点评服务评分",
           "sourceKeys": [
+            "ratingService",
             "reviewServiceScore",
             "commentServiceScore",
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -24278,12 +25066,13 @@
           "id": "review_cleanliness_score",
           "label": "点评卫生评分",
           "sourceKeys": [
+            "ratingRoom",
             "cleanlinessScore",
             "cleanScore",
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -24342,63 +25131,6 @@
           "label": "点评竞争圈酒店数",
           "sourceKeys": [
             "competitorHotelTotal"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "ctrip_comment_id",
-          "label": "携程点评主体ID",
-          "sourceKeys": [
-            "ctripId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_comment_id",
-          "label": "去哪儿点评主体ID",
-          "sourceKeys": [
-            "qunarId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "elong_comment_id",
-          "label": "艺龙点评主体ID",
-          "sourceKeys": [
-            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -31564,7 +32296,8 @@
           "id": "ctrip_comment_count",
           "label": "携程点评数量",
           "sourceKeys": [
-            "ctripCommentCount"
+            "ctripCommentCount",
+            "ctripCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -31583,7 +32316,8 @@
           "id": "qunar_comment_count",
           "label": "去哪儿点评数量",
           "sourceKeys": [
-            "qunarCommentCount"
+            "qunarCommentCount",
+            "qunarCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -31602,7 +32336,30 @@
           "id": "elong_comment_count",
           "label": "艺龙点评数量",
           "sourceKeys": [
-            "elongCommentCount"
+            "elongCommentCount",
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCommentCount",
+            "zhixingCommentCount",
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -31754,16 +32511,58 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "review_environment_score",
           "label": "点评环境评分",
           "sourceKeys": [
+            "ratingLocation",
             "environmentScore",
             "envScore",
             "surroundingScore",
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -31780,11 +32579,12 @@
           "id": "review_facility_score",
           "label": "点评设施评分",
           "sourceKeys": [
+            "ratingFacility",
             "facilityScore",
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -31801,12 +32601,13 @@
           "id": "review_service_score",
           "label": "点评服务评分",
           "sourceKeys": [
+            "ratingService",
             "reviewServiceScore",
             "commentServiceScore",
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -31823,12 +32624,13 @@
           "id": "review_cleanliness_score",
           "label": "点评卫生评分",
           "sourceKeys": [
+            "ratingRoom",
             "cleanlinessScore",
             "cleanScore",
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -31887,63 +32689,6 @@
           "label": "点评竞争圈酒店数",
           "sourceKeys": [
             "competitorHotelTotal"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "ctrip_comment_id",
-          "label": "携程点评主体ID",
-          "sourceKeys": [
-            "ctripId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_comment_id",
-          "label": "去哪儿点评主体ID",
-          "sourceKeys": [
-            "qunarId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "elong_comment_id",
-          "label": "艺龙点评主体ID",
-          "sourceKeys": [
-            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -32578,7 +33323,8 @@
           "id": "ctrip_comment_count",
           "label": "携程点评数量",
           "sourceKeys": [
-            "ctripCommentCount"
+            "ctripCommentCount",
+            "ctripCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -32597,7 +33343,8 @@
           "id": "qunar_comment_count",
           "label": "去哪儿点评数量",
           "sourceKeys": [
-            "qunarCommentCount"
+            "qunarCommentCount",
+            "qunarCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -32616,7 +33363,30 @@
           "id": "elong_comment_count",
           "label": "艺龙点评数量",
           "sourceKeys": [
-            "elongCommentCount"
+            "elongCommentCount",
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCommentCount",
+            "zhixingCommentCount",
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -32768,16 +33538,58 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "review_environment_score",
           "label": "点评环境评分",
           "sourceKeys": [
+            "ratingLocation",
             "environmentScore",
             "envScore",
             "surroundingScore",
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -32794,11 +33606,12 @@
           "id": "review_facility_score",
           "label": "点评设施评分",
           "sourceKeys": [
+            "ratingFacility",
             "facilityScore",
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -32815,12 +33628,13 @@
           "id": "review_service_score",
           "label": "点评服务评分",
           "sourceKeys": [
+            "ratingService",
             "reviewServiceScore",
             "commentServiceScore",
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -32837,12 +33651,13 @@
           "id": "review_cleanliness_score",
           "label": "点评卫生评分",
           "sourceKeys": [
+            "ratingRoom",
             "cleanlinessScore",
             "cleanScore",
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -32901,63 +33716,6 @@
           "label": "点评竞争圈酒店数",
           "sourceKeys": [
             "competitorHotelTotal"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "ctrip_comment_id",
-          "label": "携程点评主体ID",
-          "sourceKeys": [
-            "ctripId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_comment_id",
-          "label": "去哪儿点评主体ID",
-          "sourceKeys": [
-            "qunarId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "elong_comment_id",
-          "label": "艺龙点评主体ID",
-          "sourceKeys": [
-            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",
@@ -33368,7 +34126,8 @@
           "id": "ctrip_comment_count",
           "label": "携程点评数量",
           "sourceKeys": [
-            "ctripCommentCount"
+            "ctripCommentCount",
+            "ctripCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -33387,7 +34146,8 @@
           "id": "qunar_comment_count",
           "label": "去哪儿点评数量",
           "sourceKeys": [
-            "qunarCommentCount"
+            "qunarCommentCount",
+            "qunarCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -33406,7 +34166,30 @@
           "id": "elong_comment_count",
           "label": "艺龙点评数量",
           "sourceKeys": [
-            "elongCommentCount"
+            "elongCommentCount",
+            "elongCount.commentCount"
+          ],
+          "description": "只采集点评数量，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "zx_comment_count",
+          "label": "智行点评数量",
+          "sourceKeys": [
+            "zxCommentCount",
+            "zhixingCommentCount",
+            "zxCount.commentCount",
+            "zhixingCount.commentCount"
           ],
           "description": "只采集点评数量，不保存点评明文",
           "scope": "ota_channel",
@@ -33558,16 +34341,58 @@
           "confidenceStatus": ""
         },
         {
+          "id": "comment_unreply_count",
+          "label": "未回复点评数",
+          "sourceKeys": [
+            "unReplyCount",
+            "unreplyCount",
+            "unRepliedCount",
+            "unrepliedCount"
+          ],
+          "description": "只保存未回复点评聚合计数，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "comment_good_rate",
+          "label": "点评好评率",
+          "sourceKeys": [
+            "goodRate"
+          ],
+          "description": "点评/评论好评率聚合值，不保存点评明文",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
           "id": "review_environment_score",
           "label": "点评环境评分",
           "sourceKeys": [
+            "ratingLocation",
             "environmentScore",
             "envScore",
             "surroundingScore",
             "surroundingsScore",
             "ambienceScore"
           ],
-          "description": "点评环境子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评环境子评分；getHotelRating 取 ratingInfo.ratingLocation，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -33584,11 +34409,12 @@
           "id": "review_facility_score",
           "label": "点评设施评分",
           "sourceKeys": [
+            "ratingFacility",
             "facilityScore",
             "facilitiesScore",
             "equipmentScore"
           ],
-          "description": "点评设施子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评设施子评分；getHotelRating 取 ratingInfo.ratingFacility，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -33605,12 +34431,13 @@
           "id": "review_service_score",
           "label": "点评服务评分",
           "sourceKeys": [
+            "ratingService",
             "reviewServiceScore",
             "commentServiceScore",
             "serviceRating",
             "serviceCommentScore"
           ],
-          "description": "点评服务子评分，不与 PSI service_score 混用",
+          "description": "点评服务子评分；getHotelRating 取 ratingInfo.ratingService，不与 PSI service_score 混用",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -33627,12 +34454,13 @@
           "id": "review_cleanliness_score",
           "label": "点评卫生评分",
           "sourceKeys": [
+            "ratingRoom",
             "cleanlinessScore",
             "cleanScore",
             "hygieneScore",
             "sanitationScore"
           ],
-          "description": "点评卫生子评分；只采集评分汇总，不采集点评明文",
+          "description": "点评卫生子评分；getHotelRating 取 ratingInfo.ratingRoom，不采集点评明文",
           "scope": "ota_channel",
           "unit": "分",
           "required": false,
@@ -33691,63 +34519,6 @@
           "label": "点评竞争圈酒店数",
           "sourceKeys": [
             "competitorHotelTotal"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "ctrip_comment_id",
-          "label": "携程点评主体ID",
-          "sourceKeys": [
-            "ctripId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_comment_id",
-          "label": "去哪儿点评主体ID",
-          "sourceKeys": [
-            "qunarId"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "elong_comment_id",
-          "label": "艺龙点评主体ID",
-          "sourceKeys": [
-            "elongId"
           ],
           "description": "",
           "scope": "ota_channel",

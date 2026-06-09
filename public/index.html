@@ -6767,6 +6767,33 @@
                                                     </div>
                                                 </div>
                                             </div>
+                                            <div v-if="ctripOverviewTopRankTables.length" class="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
+                                                <div v-for="table in ctripOverviewTopRankTables" :key="table.key" class="bg-white border border-green-100 rounded overflow-hidden">
+                                                    <div class="px-3 py-2 border-b bg-white flex items-center justify-between gap-2">
+                                                        <div class="text-sm font-semibold text-slate-900">
+                                                            {{ table.title }}
+                                                            <i class="fas fa-question-circle text-slate-400 ml-1" title="来自携程经营周报接口返回的 OTA 同城榜单"></i>
+                                                        </div>
+                                                        <span v-if="table.period" class="text-xs text-slate-500">{{ table.period }}</span>
+                                                    </div>
+                                                    <div class="overflow-x-auto">
+                                                        <table class="min-w-full text-sm">
+                                                            <thead class="bg-gray-50 text-slate-700">
+                                                                <tr>
+                                                                    <th class="px-3 py-2 text-center border-b w-20">排名</th>
+                                                                    <th class="px-3 py-2 text-left border-b">{{ table.valueLabel }}</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                <tr v-for="(item, index) in table.items" :key="`${table.key}-${index}-${item}`" class="border-b last:border-b-0">
+                                                                    <td class="px-3 py-2 text-center text-slate-700">{{ index + 1 }}</td>
+                                                                    <td class="px-3 py-2 font-medium text-slate-900 break-words">{{ item }}</td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            </div>
                                             <div v-if="user?.is_super_admin && ctripOverviewResult.payload_counts" class="text-xs text-green-700 mt-3">
                                                 高级排障响应：请求记录 {{ ctripOverviewResult.payload_counts.xhr_urls || 0 }} 条，业务响应 {{ ctripOverviewResult.payload_counts.responses || 0 }} 条。
                                             </div>
@@ -12623,11 +12650,62 @@
                                                     </div>
                                                 </div>
                                                 <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无需要重点复核的高风险动作</div>
+                                                <div v-if="dataHealthOperationLogScope" class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                                                    当前为摘要口径：近 {{ dataHealthOperationLogScope.scanned_count || 0 }} 条操作日志中命中 {{ dataHealthOperationLogScope.matched_count || 0 }} 条，高风险摘要最多扫描 {{ dataHealthOperationLogScope.scan_limit || 100 }} 条，不等同完整审计导出。
+                                                </div>
                                                 <div class="mt-3 flex justify-end">
                                                     <button type="button" @click="currentPage = 'operation-logs'; reloadOperationLogs()" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
                                                         查看操作日志
                                                     </button>
                                                 </div>
+                                            </div>
+
+                                            <div data-testid="public-ota-endpoint-security" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
+                                                <div class="flex items-start justify-between gap-3 mb-3">
+                                                    <div>
+                                                        <h4 class="text-base font-semibold text-gray-900">公开 OTA 入口安全证据</h4>
+                                                        <div class="text-xs text-gray-500 mt-1">receive-cookies 与 cron-trigger 不走常规登录中间件，仅展示脱敏审计、限流和令牌配置状态。</div>
+                                                    </div>
+                                                    <span :class="['rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap', dataHealthPriorityClass(publicEndpointSecuritySummary.status)]">
+                                                        {{ dataHealthPriorityText(publicEndpointSecuritySummary.status) }}
+                                                    </span>
+                                                </div>
+                                                <div v-if="publicEndpointSecurityLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">公开入口安全状态加载中...</div>
+                                                <div v-else-if="publicEndpointSecurityError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ publicEndpointSecurityError }}</div>
+                                                <div v-else-if="publicEndpointSecurityRows.length" class="space-y-3">
+                                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="text-xs text-gray-500">近 7 天失败</div>
+                                                            <div class="mt-1 text-xl font-semibold text-gray-900">{{ publicEndpointSecuritySummary.failureCount }}</div>
+                                                        </div>
+                                                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="text-xs text-gray-500">限流命中</div>
+                                                            <div class="mt-1 text-xl font-semibold text-gray-900">{{ publicEndpointSecuritySummary.rateLimitedCount }}</div>
+                                                        </div>
+                                                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="text-xs text-gray-500">扫描范围</div>
+                                                            <div class="mt-1 text-sm font-semibold text-gray-900">最近 {{ publicEndpointSecuritySummary.scanScope.scanned_count || 0 }} 条</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="space-y-2">
+                                                        <div v-for="row in publicEndpointSecurityRows" :key="row.endpoint" class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                            <div class="flex items-start justify-between gap-3">
+                                                                <div class="min-w-0">
+                                                                    <div class="text-sm font-medium text-gray-900">{{ row.endpoint }}</div>
+                                                                    <div class="mt-1 text-xs text-gray-500 truncate" :title="publicEndpointPathText(row)">{{ publicEndpointPathText(row) }}</div>
+                                                                    <div class="mt-1 text-xs text-gray-600">认证：{{ row.auth }}；令牌：{{ publicEndpointTokenText(row.token_configured) }}</div>
+                                                                </div>
+                                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', dataHealthPriorityClass(row.recent_failure_count ? 'medium' : 'ok')]">
+                                                                    {{ row.recent_failure_count || 0 }} 次失败
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                                                        证据来自 operation_logs 中的公开入口失败审计；Cookie、token、Authorization、spidertoken、mtgsig 等敏感值只保留遮罩状态，不展示原文。
+                                                    </div>
+                                                </div>
+                                                <div v-else class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无公开入口安全审计数据</div>
                                             </div>
                                         </div>
 
@@ -13226,7 +13304,7 @@
                                         <div class="px-4 py-3 border-b flex items-center justify-between gap-3">
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
-                                                <div class="text-xs text-gray-500">来自平台自动获取写入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前展示 {{ onlineAnalysisRows.length }} 条。</div>
+                                                <div class="text-xs text-gray-500">来自平台自动获取写入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前最多展示前 {{ onlineAnalysisPagination.page_size || 200 }} 条；收益分析不再拉取全量明细。</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
                                                 <i :class="onlineAnalysisRowsLoading ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>刷新
@@ -15586,7 +15664,7 @@
                                                         <span :class="['rounded-full px-2 py-0.5 text-[11px]', card.className]">{{ card.badge }}</span>
                                                     </div>
                                                     <div class="mt-1 text-lg font-semibold text-slate-900">{{ card.value }}</div>
-                                                    <div class="mt-1 text-xs text-slate-500 truncate" :title="card.detail">{{ card.detail }}</div>
+                                                    <div class="mt-1 min-h-[2rem] text-xs leading-4 text-slate-500" :title="card.detail">{{ card.detail }}</div>
                                                 </div>
                                             </div>
                                             <div class="mt-3 rounded-md border border-red-100 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">
@@ -15644,6 +15722,7 @@
                                                 <select v-model="ctripProfileFieldFilters.sample" class="w-full px-3 py-2 border rounded-lg text-sm">
                                                     <option value="">全部获取值</option>
                                                     <option value="with_sample">有获取值</option>
+                                                    <option value="not_returned">未返回获取值</option>
                                                     <option value="without_sample">无获取值</option>
                                                 </select>
                                                 <button type="button" @click="resetCtripProfileFieldFilters" class="px-3 py-2 border rounded-lg text-sm hover:bg-white whitespace-nowrap">清空</button>
@@ -18874,9 +18953,10 @@
                 String(field.status || '').trim() === 'confirmed'
                 || normalizeCtripProfileFieldVerificationStatus(field.sample_verification_status) === 'matched'
             )).length);
+            const isCtripProfileFieldEnabled = (field) => field?.enabled !== false && Number(field?.enabled ?? 1) !== 0 && String(field?.enabled ?? '').toLowerCase() !== 'false';
             const ctripProfileNotReturnedFieldCount = computed(() => {
                 if (!ctripProfileFieldSamplesLoaded.value) return null;
-                return ctripProfileFields.value.filter(field => field.enabled !== false && !ctripProfileFieldSampleText(field)).length;
+                return ctripProfileFields.value.filter(field => isCtripProfileFieldEnabled(field) && !ctripProfileFieldSampleText(field)).length;
             });
             const ctripProfileFieldAssetLedgerCards = computed(() => ([
                 {
@@ -18897,11 +18977,11 @@
                 },
                 {
                     key: 'not_returned',
-                    label: '未返回字段',
+                    label: '未返回获取值',
                     value: ctripProfileFieldSampleLoading.value ? '加载中' : (ctripProfileFieldSamplesLoaded.value ? ctripProfileNotReturnedFieldCount.value : '未加载'),
-                    badge: ctripProfileFieldSamplesLoaded.value ? '显式保留' : '待加载',
+                    badge: ctripProfileFieldSamplesLoaded.value ? '保留缺口' : '待加载',
                     className: ctripProfileFieldSamplesLoaded.value ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600',
-                    detail: '无获取值时保持未返回状态',
+                    detail: '启用字段暂无历史获取值，不等于未配置字段',
                 },
                 {
                     key: 'forbidden',
@@ -18918,10 +18998,11 @@
                 return ctripProfileFields.value.filter(field => {
                     if (filters.section && String(field.section || '') !== filters.section) return false;
                     if (filters.status && String(field.status || '') !== filters.status) return false;
-                    if (filters.enabled === 'enabled' && !field.enabled) return false;
-                    if (filters.enabled === 'disabled' && field.enabled) return false;
+                    if (filters.enabled === 'enabled' && !isCtripProfileFieldEnabled(field)) return false;
+                    if (filters.enabled === 'disabled' && isCtripProfileFieldEnabled(field)) return false;
                     const sampleText = ctripProfileFieldSampleText(field);
                     if (filters.sample === 'with_sample' && !sampleText) return false;
+                    if (filters.sample === 'not_returned' && (!isCtripProfileFieldEnabled(field) || sampleText)) return false;
                     if (filters.sample === 'without_sample' && sampleText) return false;
                     if (!keyword) return true;
                     return [
@@ -19454,8 +19535,6 @@
                     { key: 'book_order_num_rank', label: '预订订单排名', value: metrics.book_order_num_rank },
                     { key: 'comment_score_rank', label: '点评排名', value: metrics.comment_score_rank },
                     { key: 'conversion_rank', label: 'APP转化排名', value: metrics.conversion_rank },
-                    { key: 'top_hot_word', label: '热门关键词TOP1', value: metrics.top_hot_word, type: 'text' },
-                    { key: 'top_hot_hotel', label: '热门酒店TOP1', value: metrics.top_hot_hotel, type: 'text' },
                     { key: 'flow_lost_order_num', label: '流失订单', value: metrics.flow_lost_order_num },
                     { key: 'flow_lost_room_nights', label: '流失间夜', value: metrics.flow_lost_room_nights },
                     { key: 'flow_lost_amount', label: '流失收入', value: metrics.flow_lost_amount, type: 'currency2' },
@@ -19490,6 +19569,37 @@
                     { key: 'top_competitor_order_fill_rate', label: '标杆下单转化率', value: metrics.top_competitor_order_fill_rate, type: 'percent' },
                     { key: 'top_competitor_deal_rate', label: '标杆成交转化率', value: metrics.top_competitor_deal_rate, type: 'percent' },
                 ].filter(card => card.value !== undefined && card.value !== null && card.value !== '');
+            });
+            const normalizeCtripTopRankItems = (value) => {
+                const list = Array.isArray(value) ? value : (value ? [value] : []);
+                return list.map((item) => {
+                    if (item && typeof item === 'object') {
+                        return String(item.hotelName || item.hotel_name || item.name || item.title || item.keyword || item.word || '').trim();
+                    }
+                    return String(item || '').trim();
+                }).filter(Boolean).slice(0, 10);
+            };
+            const ctripOverviewTopRankTables = computed(() => {
+                const metrics = ctripOverviewResult.value?.metrics || {};
+                const period = metrics.week_period || metrics.period || metrics.date_range || '';
+                const hotels = normalizeCtripTopRankItems(metrics.top_hot_hotels);
+                const words = normalizeCtripTopRankItems(metrics.top_hot_words);
+                return [
+                    {
+                        key: 'hot-hotels',
+                        title: '同城热门酒店TOP榜',
+                        valueLabel: '酒店名称',
+                        period,
+                        items: hotels,
+                    },
+                    {
+                        key: 'hot-words',
+                        title: '同城热门关键词',
+                        valueLabel: '关键词',
+                        period,
+                        items: words,
+                    },
+                ].filter(table => table.items.length > 0);
             });
             const ctripFlowOverviewMetricCards = computed(() => {
                 const metrics = ctripFlowOverviewResult.value?.metrics || {};
@@ -20128,6 +20238,10 @@
             const dataHealthOperationLogs = ref([]);
             const dataHealthOperationLogLoading = ref(false);
             const dataHealthOperationLogError = ref('');
+            const dataHealthOperationLogScope = ref(null);
+            const publicEndpointSecurity = ref(null);
+            const publicEndpointSecurityLoading = ref(false);
+            const publicEndpointSecurityError = ref('');
             const dashboardAccountOverview = ref(null);
             const dashboardHotelPortrait = ref(null);
             const dashboardDataSources = ref(null);
@@ -20347,6 +20461,27 @@
                 })
                 .filter(row => row.priority !== 'low')
                 .slice(0, 8));
+            const publicEndpointSecurityRows = computed(() => Array.isArray(publicEndpointSecurity.value?.endpoints) ? publicEndpointSecurity.value.endpoints : []);
+            const publicEndpointSecuritySummary = computed(() => {
+                const rows = publicEndpointSecurityRows.value;
+                const failureCount = rows.reduce((sum, row) => sum + Number(row?.recent_failure_count || 0), 0);
+                const rateLimitedCount = rows.reduce((sum, row) => sum + Number(row?.rate_limited_count || 0), 0);
+                const cron = rows.find(row => row?.endpoint === 'cron_trigger') || {};
+                const status = cron.token_configured === false ? 'high' : (failureCount > 0 ? 'medium' : 'ok');
+                return {
+                    status,
+                    failureCount,
+                    rateLimitedCount,
+                    period: publicEndpointSecurity.value?.period || {},
+                    scanScope: publicEndpointSecurity.value?.scan_scope || {},
+                };
+            });
+            const publicEndpointTokenText = (value) => {
+                if (value === true) return '已配置';
+                if (value === false) return '未配置';
+                return '登录令牌';
+            };
+            const publicEndpointPathText = (row = {}) => `${row.method || '-'} ${row.path || '-'}`;
             const dataHealthTodayWorkOrders = computed(() => {
                 const priorityWeight = { high: 0, medium: 1, low: 2, ok: 3 };
                 const rows = [];
@@ -24286,7 +24421,7 @@
                 try {
                     const params = new URLSearchParams({
                         page: '1',
-                        page_size: 'all',
+                        page_size: String(onlineAnalysisPageSize),
                     });
                     if (onlineDataFilter.value.start_date) {
                         params.append('start_date', onlineDataFilter.value.start_date);
@@ -24306,7 +24441,7 @@
                     const res = await request(`/online-data/daily-data-list?${params}`);
                     if (res.code === 200) {
                         onlineAnalysisRows.value = res.data?.list || [];
-                        onlineAnalysisPagination.value = res.data?.pagination || { total: onlineAnalysisRows.value.length, page: 1, page_size: 'all' };
+                        onlineAnalysisPagination.value = res.data?.pagination || { total: onlineAnalysisRows.value.length, page: 1, page_size: onlineAnalysisPageSize };
                         onlineAnalysisError.value = '';
                     } else {
                         onlineAnalysisRows.value = [];
@@ -24949,6 +25084,7 @@
                 dataHealthOperationLogError.value = '';
                 if (!user.value?.is_super_admin) {
                     dataHealthOperationLogs.value = [];
+                    dataHealthOperationLogScope.value = null;
                     return;
                 }
                 dataHealthOperationLogLoading.value = true;
@@ -24960,15 +25096,42 @@
                     const res = await request(`/operation-logs/high-risk-summary?${params.toString()}`);
                     if (res.code === 200) {
                         dataHealthOperationLogs.value = Array.isArray(res.data?.list) ? res.data.list : [];
+                        dataHealthOperationLogScope.value = res.data?.scan_scope || null;
                     } else {
                         dataHealthOperationLogs.value = [];
+                        dataHealthOperationLogScope.value = null;
                         dataHealthOperationLogError.value = res.message || '高风险动作摘要加载失败';
                     }
                 } catch (error) {
                     dataHealthOperationLogs.value = [];
+                    dataHealthOperationLogScope.value = null;
                     dataHealthOperationLogError.value = error.message || '高风险动作摘要加载失败';
                 } finally {
                     dataHealthOperationLogLoading.value = false;
+                }
+            };
+
+            const loadPublicEndpointSecurity = async () => {
+                publicEndpointSecurityError.value = '';
+                if (!user.value?.is_super_admin) {
+                    publicEndpointSecurity.value = null;
+                    return;
+                }
+                publicEndpointSecurityLoading.value = true;
+                try {
+                    const params = new URLSearchParams({ days: '7', limit: '8' });
+                    const res = await request(`/online-data/public-endpoint-security?${params.toString()}`);
+                    if (res.code === 200) {
+                        publicEndpointSecurity.value = res.data || {};
+                    } else {
+                        publicEndpointSecurity.value = null;
+                        publicEndpointSecurityError.value = res.message || '公开入口安全状态加载失败';
+                    }
+                } catch (error) {
+                    publicEndpointSecurity.value = null;
+                    publicEndpointSecurityError.value = error.message || '公开入口安全状态加载失败';
+                } finally {
+                    publicEndpointSecurityLoading.value = false;
                 }
             };
 
@@ -25035,6 +25198,7 @@
                     loadCookieStatus(),
                     loadCollectionReliability(),
                     loadDataHealthOperationLogs(),
+                    loadPublicEndpointSecurity(),
                 ];
                 if (mode === 'full') {
                     jobs.push(loadHotelDataDashboard(), loadPlatformCollectionResources());
@@ -26984,7 +27148,14 @@
                 pending: '配置状态：待确认，存疑待修正',
                 paused: '配置状态：停用，存疑待修正',
             }[String(status || '')] || '配置状态：待确认，存疑待修正');
-            const ctripProfileFieldStatusText = (status) => String(status || '') === 'confirmed' ? '已确认' : '存疑待修正';
+            const ctripProfileFieldStatusText = (status) => ({
+                confirmed: '已确认',
+                needs_section: '需采集范围',
+                needs_parser: '待补解析',
+                not_captured: '未采集',
+                pending: '待确认',
+                paused: '停用',
+            }[String(status || '')] || '待确认');
 
             const ctripProfileFieldStatusClass = (status) => {
                 if (status === 'confirmed') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
@@ -30827,7 +30998,7 @@
                     config?.error,
                     config?.status,
                 ].map(item => String(item || '').toLowerCase()).join(' ');
-                return /login_expired|expired|unauthorized|forbidden|401|403|登录失效|授权失效|未登录|登录过期|cookie.*失效/.test(text);
+                return /browser_profile\s*需重新登录|需重新登录|重新登录|login\s*timeout|login_required|login_expired|login\s*expired|login\s*page|expired|unauthorized|forbidden|401|403|登录失效|授权失效|未登录|登录过期|cookie.*失效/.test(text);
             };
 
             const hasPlatformHotelMismatch = (source = {}, config = {}) => {
@@ -35839,7 +36010,11 @@
                             };
                         }
                         if (!silent) {
-                            showToast(res.message || (loginOnly ? 'Profile 登录已保存' : `携程 Profile 采集完成，已入库 ${res.data?.saved_count || 0} 条`));
+                            const savedCount = Number(res.data?.saved_count || 0);
+                            const profileCaptureMessage = loginOnly
+                                ? 'Profile 登录已保存'
+                                : `${res.message || '携程 Profile 采集完成'}：已入库 ${savedCount} 条；字段覆盖按配置表显示，未返回字段保留为缺口`;
+                            showToast(profileCaptureMessage);
                         }
                         if (!loginOnly) {
                             await loadLatestCtripData({ silent: true });
@@ -42704,7 +42879,7 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileStrategyText, platformProfilePrimaryActionText, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileStrategyText, platformProfilePrimaryActionText, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
@@ -42721,7 +42896,8 @@
                 dataHealthDiagnosticBoundary, collectionHealthFailureReasonRanking,
                 dataHealthDrilldownRows, openDataHealthDrilldown,
                 dataHealthCookieAlertRows, dataHealthCookieAlertSummary, dataHealthQualityTaskRows, dataHealthHighRiskActionRows, dataHealthTodayWorkOrders,
-                dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthPriorityClass, dataHealthPriorityText,
+                dataHealthOperationLogLoading, dataHealthOperationLogError, dataHealthOperationLogScope, dataHealthPriorityClass, dataHealthPriorityText,
+                publicEndpointSecurity, publicEndpointSecurityLoading, publicEndpointSecurityError, publicEndpointSecurityRows, publicEndpointSecuritySummary, publicEndpointTokenText, publicEndpointPathText,
                 collectionHealthCtripCatalogGateText, collectionHealthCtripCatalogCards, collectionHealthCtripCatalogDiagnosticScope,
                 collectionHealthCtripCatalogAuthText, collectionHealthCtripCatalogPendingFetchText, collectionHealthCtripCatalogPendingFieldText,
                 collectionHealthCtripCatalogVisibleNotes,

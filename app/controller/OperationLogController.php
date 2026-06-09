@@ -13,6 +13,7 @@ class OperationLogController extends Base
 {
     private const MAX_PAGE_SIZE = 100;
     private const HIGH_RISK_SUMMARY_LIMIT = 20;
+    private const HIGH_RISK_SUMMARY_SCAN_LIMIT = 100;
 
     private const DATA_ACQUISITION_ACTIONS = [
         'view_data',
@@ -133,7 +134,7 @@ class OperationLogController extends Base
         $rows = OperationLog::with(['user', 'hotel'])
             ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->order('create_time', 'desc')
-            ->limit(100)
+            ->limit(self::HIGH_RISK_SUMMARY_SCAN_LIMIT)
             ->select()
             ->toArray();
 
@@ -160,6 +161,13 @@ class OperationLogController extends Base
                 'days' => $days,
             ],
             'limit' => $limit,
+            'scan_scope' => [
+                'type' => 'recent_operation_logs',
+                'scan_limit' => self::HIGH_RISK_SUMMARY_SCAN_LIMIT,
+                'scanned_count' => count($rows),
+                'matched_count' => count($list),
+                'note' => 'Only the latest operation logs in the selected period are scanned; this is a risk summary, not a full audit export.',
+            ],
         ]);
     }
 

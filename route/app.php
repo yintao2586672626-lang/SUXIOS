@@ -202,6 +202,7 @@ Route::group('api/online-data', function () {
     Route::post('/delete-data', 'OnlineData/deleteData');
     Route::delete('/delete-data', 'OnlineData/deleteData');
     Route::get('/cookie-status', 'OnlineData/cookieStatus');
+    Route::get('/public-endpoint-security', 'OnlineData/publicEndpointSecurity');
     Route::get('/collection-reliability', 'OnlineData/collectionReliability');
     Route::get('/history/:id', 'OnlineData/historyDetail');
     Route::get('/history', 'OnlineData/history');
