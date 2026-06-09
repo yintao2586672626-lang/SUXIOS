@@ -25,6 +25,26 @@ function requireNoText(file, needle, label) {
   });
 }
 
+function requireTextInFiles(files, needle, label) {
+  const source = files.map(read).join('\n');
+  checks.push({
+    file: files.join(' + '),
+    label,
+    ok: source.includes(needle),
+    detail: needle,
+  });
+}
+
+function requireNoTextInFiles(files, needle, label) {
+  const source = files.map(read).join('\n');
+  checks.push({
+    file: files.join(' + '),
+    label,
+    ok: !source.includes(needle),
+    detail: needle,
+  });
+}
+
 requireText('public/index.html', 'data-testid="login-username"', 'login username has stable selector');
 requireText('public/index.html', 'data-testid="login-password"', 'login password has stable selector');
 requireText('public/index.html', 'data-testid="login-submit"', 'login submit has stable selector');
@@ -55,8 +75,8 @@ requireNoText('public/index.html', "openDataConfigModal('meituan-comments')", 'M
 requireNoText('public/index.html', '<option value="comment">评价</option>', 'platform data source form does not offer comment data type');
 requireNoText('public/index.html', '<option value="review">点评数据</option>', 'online data history filter does not offer review data type');
 requireNoText('public/index.html', "title: '点评问题'", 'OTA diagnosis UI does not render the deprecated comment section');
-requireText('public/index.html', "key: 'service-quality'", 'revenue research exposes service-quality product instead of review-topic');
-requireNoText('public/index.html', "key: 'review-topic'", 'revenue research does not expose review-topic product');
+requireTextInFiles(['public/index.html', 'public/revenue-research-static.js'], "key: 'service-quality'", 'revenue research exposes service-quality product instead of review-topic');
+requireNoTextInFiles(['public/index.html', 'public/revenue-research-static.js'], "key: 'review-topic'", 'revenue research does not expose review-topic product');
 requireText('app/service/RevenueResearchService.php', "'service-quality' =>", 'revenue research backend supports service-quality product');
 requireNoText('app/service/RevenueResearchService.php', "'review-topic' =>", 'revenue research backend does not support review-topic product');
 requireText('public/index.html', 'operationFullData.service_quality', 'operation dashboard renders service quality data');

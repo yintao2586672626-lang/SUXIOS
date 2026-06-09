@@ -165,6 +165,13 @@ Updated: 2026-06-10 Asia/Shanghai
 - `public/index.html` decreased from `43132` lines to `42907` lines; the frontend `ota` span decreased from `1010` to `754` lines.
 - Current staged self-audit after the second frontend split: full directory about `234 MB`, without `.git` about `91.89 MB`, without `.git` and dependencies about `62.7 MB`, tracked files about `17.77 MB` / `596` files; code scope `353` files, `185700` total lines, `170066` nonblank lines.
 - Verified after the second frontend split: Node syntax check for `public/hotel-image-optimizer-static.js`; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Third frontend split target chosen from static-data boundaries: revenue research center product and step configuration embedded in `public/index.html`.
+- Added `public/revenue-research-static.js` for revenue research product cards and run-step labels.
+- `public/index.html` now loads `revenue-research-static.js` and binds `revenueResearchProducts` plus `revenueResearchSteps` from `window.SUXI_REVENUE_RESEARCH_STATIC`; missing script or missing keys throw explicit configuration errors instead of silently falling back.
+- Updated `scripts/verify_e2e_contracts.mjs` so the revenue research frontend contract checks `public/index.html` plus `public/revenue-research-static.js` for the `service-quality` product and absence of `review-topic`; backend checks remain on `RevenueResearchService.php`.
+- `public/index.html` decreased from `42907` lines to `42830` lines; the frontend `hotel_admin` span decreased from `1601` to `1515` lines.
+- Current staged self-audit after the third frontend split: full directory about `235 MB`, without `.git` about `91.89 MB`, without `.git` and dependencies about `62.7 MB`, tracked files about `17.78 MB` / `597` files; code scope `354` files, `185741` total lines, `170104` nonblank lines.
+- Verified after the third frontend split: Node syntax checks for `public/revenue-research-static.js` and `scripts/verify_e2e_contracts.mjs`; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule
