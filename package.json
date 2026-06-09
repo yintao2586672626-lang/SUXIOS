@@ -65,6 +65,7 @@
     "self:audit": "node scripts/project_self_audit.mjs",
     "self:audit:json": "node scripts/project_self_audit.mjs --json",
     "self:check": "node scripts/project_self_audit.mjs --fail-on-artifacts --max-reclaim-mb=100 && npm run verify:p0-guards",
+    "self:check:strict": "node scripts/project_self_audit.mjs --fail-on-artifacts --max-reclaim-mb=100 --fail-on-split-candidates && npm run verify:p0-guards",
     "self:clean:dry-run": "npm run slim:local:dry-run",
     "self:clean": "npm run slim:local",
     "slim:local:dry-run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean_project_local_artifacts.ps1",

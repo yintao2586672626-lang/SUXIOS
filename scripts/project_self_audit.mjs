@@ -36,6 +36,19 @@ const audit = {
   generated_at: new Date().toISOString(),
   repo_root: repoRoot,
   status,
+  policy: {
+    cleanup: {
+      fail_on_artifacts: failOnArtifacts,
+      max_reclaim_mb: maxReclaimMb,
+      include_dependencies: includeDependencies,
+      include_sensitive_backups: includeSensitiveBackups,
+    },
+    split_candidates: {
+      fail_on_split_candidates: failOnSplitCandidates,
+      lines_threshold: splitLinesThreshold,
+      mb_threshold: splitMbThreshold,
+    },
+  },
   git,
   size: {
     full_mb: roundMb(topLevelSizes.totalBytes),
@@ -481,6 +494,14 @@ function renderText(audit) {
   console.log(`- without .git: ${audit.size.without_git_mb} MB`);
   console.log(`- without .git and dependencies: ${audit.size.without_git_and_dependencies_mb} MB`);
   console.log(`- tracked: ${audit.size.tracked_mb} MB / ${audit.size.tracked_files} files`);
+  console.log('');
+
+  console.log('Policy');
+  console.log(`- cleanup fail threshold: ${audit.policy.cleanup.fail_on_artifacts ? `${audit.policy.cleanup.max_reclaim_mb} MB` : 'warning only'}`);
+  console.log(`- include dependencies: ${audit.policy.cleanup.include_dependencies ? 'yes' : 'no'}`);
+  console.log(`- include sensitive backups: ${audit.policy.cleanup.include_sensitive_backups ? 'yes' : 'no'}`);
+  console.log(`- split candidate thresholds: lines>=${audit.policy.split_candidates.lines_threshold}, mb>=${audit.policy.split_candidates.mb_threshold}`);
+  console.log(`- fail on split candidates: ${audit.policy.split_candidates.fail_on_split_candidates ? 'yes' : 'no'}`);
   console.log('');
 
   console.log('Cleanup candidates');

@@ -75,6 +75,14 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current split candidates are `public/index.html`, `app/controller/OnlineData.php`, and `public/tailwind.min.css`; these are monitoring/refactor-priority signals, not automatic cleanup targets.
 - Verification passed for the hotspot audit change: `npm.cmd run self:audit`.
 
+## 2026-06-10 Progress: Strict Self-Cleaning Gate
+
+- Added a visible audit policy section to `scripts/project_self_audit.mjs` so cleanup thresholds and split-candidate thresholds are explicit in text and JSON output.
+- Added optional strict command `npm.cmd run self:check:strict`; it keeps the same cleanup threshold as `self:check` and also fails when tracked split candidates are present.
+- `self:check:strict` is a refactor-stage gate, not the daily guard; current known split candidates mean it is expected to fail until `public/index.html`, `app/controller/OnlineData.php`, and `public/tailwind.min.css` are dispositioned.
+- Verified after adding the strict gate: full directory about `228.42 MB`, without `.git` about `91.87 MB`, without `.git` and dependencies about `62.68 MB`, tracked files about `17.76 MB`; code scope `345` files, `185779` total lines, `170123` nonblank lines.
+- Verification passed: `node --check scripts\project_self_audit.mjs`, package JSON parse, `npm.cmd run self:audit`, `git diff --check`, and `npm.cmd run self:check`; strict gate failure was confirmed as expected on the 3 known split candidates.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
