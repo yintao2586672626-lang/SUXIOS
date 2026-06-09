@@ -135,6 +135,11 @@ Updated: 2026-06-10 Asia/Shanghai
 - `app/controller/OnlineData.php` decreased from `28119` lines to `27942` lines; the `ctrip` domain span decreased from `12319` to `12142` lines, and `fetchCtripComments` no longer appears in the largest-block list.
 - Current staged self-audit after the fourth backend cleanup: tracked files about `17.78 MB` / `594` files; code scope `351` files, `186217` total lines, `170527` nonblank lines.
 - Verified after the fourth cleanup: PHP syntax check for `app/controller/OnlineData.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "CtripComment|Comment|PlatformProfile"` with 8 tests and 40 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Fifth backend cleanup target chosen from disabled comment-collection evidence: unreachable legacy code inside `fetchMeituanComments` and `captureCtripCommentsBrowserData`.
+- Removed the old Meituan comment direct-request branch and the old Ctrip comment browser-capture branch after `commentCollectionDisabledResponse()`; retained `parseAndSaveMeituanComments()`, `parseAndSaveCtripComments()`, and Browser Profile aggregate-only call sites.
+- `app/controller/OnlineData.php` decreased from `27942` lines to `27615` lines; the `ctrip` domain span decreased from `12142` to `11998` lines and the `meituan` domain span decreased from `5307` to `5124` lines.
+- Current staged self-audit after the fifth backend cleanup: tracked files about `17.77 MB` / `594` files; code scope `351` files, `185890` total lines, `170228` nonblank lines.
+- Verified after the fifth cleanup: PHP syntax check for `app/controller/OnlineData.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "CtripComment|MeituanComment|Comment|PlatformProfile"` with 8 tests and 40 assertions; full `tests\OnlineDataTest.php` with 139 tests and 1649 assertions; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
 ## Maintenance Rule

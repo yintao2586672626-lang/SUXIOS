@@ -10,10 +10,10 @@
 
 | 项目 | 体积 | 处理策略 |
 |---|---:|---|
-| 完整 `HOTEL/` 目录 | 约 228.52 MB | 包含 `.git`、依赖、本地报告和项目代码。 |
-| 不含 `.git` | 约 91.89 MB | 更接近工作副本体积。 |
-| 不含 `.git`、`node_modules/`、`vendor/` | 约 62.70 MB | 更接近业务与资料体积。 |
-| Git 跟踪文件 | 约 17.77 MB / 589 个文件 | 这是代码提交体积口径。 |
+| 完整 `HOTEL/` 目录 | 约 231.72 MB | 包含 `.git`、依赖、本地报告和项目代码。 |
+| 不含 `.git` | 约 91.88 MB | 更接近工作副本体积。 |
+| 不含 `.git`、`node_modules/`、`vendor/` | 约 62.69 MB | 更接近业务与资料体积。 |
+| Git 跟踪文件 | 约 17.77 MB / 594 个文件 | 这是代码提交体积口径。 |
 | `reports/` | 约 1.14 MB | 大型可再生成采集产物已清理；剩余报告文件默认保留。 |
 | `node_modules/`、`vendor/` | 约 29.19 MB | 默认不清理；需要重新安装依赖时可显式清理。 |
 
@@ -99,9 +99,9 @@
 
 | 口径 | 当前值 |
 |---|---:|
-| 代码文件 | 346 |
-| 总代码行 | 约 186,133 |
-| 非空代码行 | 约 170,454 |
+| 代码文件 | 351 |
+| 总代码行 | 约 185,890 |
+| 非空代码行 | 约 170,228 |
 
 ## 跟踪代码热点
 
@@ -110,7 +110,7 @@
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
 | `public/index.html` | 43,322 | 3.11 MB | 否 | 当前前端 SPA 主入口，后续应按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
-| `app/controller/OnlineData.php` | 27,942 | 1.20 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程点评旧直连请求死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
+| `app/controller/OnlineData.php` | 27,615 | 1.19 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程/美团点评旧直连和旧浏览器抓取死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
 
 前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分只改动 `app/controller/OnlineData.php`、新增聚焦 service、对应测试和状态文档。
 
@@ -131,7 +131,7 @@
 | 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
 |---|---:|---|---|
 | `public/index.html` | 1,162 个函数级块；44 个 `currentPage` 引用 | `resetSystemConfig` 421 行、`printFeasibilityReport` 342 行、`formatOtaMetricValue` 312 行 | `general` 11,061 行、`ctrip` 3,909 行、`hotel_admin` 1,571 行、`ai` 1,543 行 |
-| `app/controller/OnlineData.php` | 873 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 12,142 行、`meituan` 5,307 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
+| `app/controller/OnlineData.php` | 873 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 11,998 行、`meituan` 5,124 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
 
 ## 2026-06-10 后端第一刀拆分
 
@@ -171,6 +171,17 @@
 - 路由、接口名、字段口径、OTA 渠道边界不变。
 - 暂存态自审计：跟踪文件约 `17.78 MB` / `594` 个；代码范围 `351` 个文件，`186,217` 行，非空行 `170,527`。
 - 验证通过：PHP 语法检查、`tests\OnlineDataTest.php --filter "CtripComment|Comment|PlatformProfile"`、完整 `tests\OnlineDataTest.php`、`git diff --check`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
+## 2026-06-10 后端第五刀清理
+
+- 删除 `fetchMeituanComments()` 中已被 `commentCollectionDisabledResponse()` 短路的旧美团点评直连请求代码。
+- 删除 `captureCtripCommentsBrowserData()` 中已被 `commentCollectionDisabledResponse()` 短路的旧携程点评浏览器抓取代码。
+- 保留 `parseAndSaveMeituanComments()`、`parseAndSaveCtripComments()` 及仍在 Browser Profile 聚合路径使用的调用点；评论数据仍维持 aggregate-only 存储边界，不恢复原始评论列表返回。
+- `OnlineData.php` 从 `27,942` 行降至 `27,615` 行；拆分地图显示 `ctrip` 领域 span 从 `12,142` 行降至 `11,998` 行，`meituan` 领域 span 从 `5,307` 行降至 `5,124` 行。
+- 路由、接口名、字段口径、OTA 渠道边界不变。
+- 暂存态自审计：跟踪文件约 `17.77 MB` / `594` 个；代码范围 `351` 个文件，`185,890` 行，非空行 `170,228`。
+- 验证通过：PHP 语法检查、`tests\OnlineDataTest.php --filter "CtripComment|MeituanComment|Comment|PlatformProfile"`、完整 `tests\OnlineDataTest.php`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
 ## 后续处理建议
