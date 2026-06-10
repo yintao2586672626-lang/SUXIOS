@@ -151,6 +151,7 @@ requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSumma
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan')", 'entry uses extracted AI analysis run plan builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaGroupOutcome')", 'entry uses extracted AI analysis group outcome builder');
 requireText('public/index.html', "requireAiAnalysisStatic('resolveAiSelectedData')", 'entry uses extracted AI selected data resolver');
+requireText('public/index.html', "requireAiAnalysisStatic('validateCapturedOtaAiAnalysisStart')", 'entry uses extracted AI analysis start validator');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
 requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
 requireText('public/index.html', "requireAiAnalysisStatic('aiReportHtmlToText')", 'entry uses extracted AI report text converter');
@@ -165,6 +166,7 @@ requireText('public/ai-analysis-static.js', 'const buildCapturedOtaGroupOutcome'
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryRequestBody', 'AI analysis static builds captured OTA summary requests');
 requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
 requireText('public/ai-analysis-static.js', 'const resolveAiSelectedData', 'AI analysis static resolves selected hotel rows');
+requireText('public/ai-analysis-static.js', 'const validateCapturedOtaAiAnalysisStart', 'AI analysis static validates analysis start inputs');
 requireText('public/ai-analysis-static.js', 'const sanitizeAiReportHtml', 'AI analysis static sanitizes report HTML');
 requireText('public/ai-analysis-static.js', 'const aiReportHtmlToText', 'AI analysis static converts report HTML to text');
 requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisHotelList', 'AI analysis static builds Meituan hotel selections');
@@ -182,6 +184,9 @@ requireNoText('public/index.html', 'existing.amountRank = existing.amountRank ==
 requireNoText('public/index.html', 'const hotelsPayload = selectedData.map(buildCapturedOtaHotelPayload)', 'AI analysis run plan is not re-inlined');
 requireNoText('public/index.html', 'const groupSize = isDeepSeekProAnalysisModel() ? 3 : 5;', 'AI analysis group sizing is not re-inlined');
 requireNoText('public/index.html', 'aiSelectedHotels.value.map(key => {', 'AI selected hotel lookup is not re-inlined');
+requireNoText('public/index.html', 'if (aiSelectedHotels.value.length === 0) {', 'AI selected hotel start validation is not re-inlined');
+requireNoText('public/index.html', 'if (!onlineDataFilter.value.start_date || !onlineDataFilter.value.end_date) {', 'AI date range start validation is not re-inlined');
+requireNoText('public/index.html', 'if (onlineDataFilter.value.start_date > onlineDataFilter.value.end_date) {', 'AI date order start validation is not re-inlined');
 requireNoText('public/index.html', "item.status === 'success' && item.result", 'AI group success filtering is not re-inlined');
 requireNoText('public/index.html', "item.status === 'failed' || item.error", 'AI group failure filtering is not re-inlined');
 requireNoText('public/index.html', 'failedGroups.map(item => `第 ${item.group_index} 组：', 'AI group failure reason is not re-inlined');
@@ -515,6 +520,7 @@ try {
     'maskAiAnalysisError',
     'chunkArray',
     'resolveAiSelectedData',
+    'validateCapturedOtaAiAnalysisStart',
     'buildCapturedOtaHotelPayload',
     'buildCtripAiAnalysisHotelSelection',
     'buildAiAnalysisProgress',
@@ -625,6 +631,36 @@ try {
         { poiId: 'r2', hotelName: 'Run Two' },
       ],
     );
+    const missingSelectedValidation = aiAnalysisStatic.validateCapturedOtaAiAnalysisStart({
+      selectedKeys: [],
+      selectedData: [],
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+    });
+    const missingDataValidation = aiAnalysisStatic.validateCapturedOtaAiAnalysisStart({
+      selectedKeys: ['r1_Run One'],
+      selectedData: [],
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+    });
+    const missingDateValidation = aiAnalysisStatic.validateCapturedOtaAiAnalysisStart({
+      selectedKeys: ['r1_Run One'],
+      selectedData: [{ poiId: 'r1', hotelName: 'Run One' }],
+      startDate: '',
+      endDate: '',
+    });
+    const invalidDateValidation = aiAnalysisStatic.validateCapturedOtaAiAnalysisStart({
+      selectedKeys: ['r1_Run One'],
+      selectedData: [{ poiId: 'r1', hotelName: 'Run One' }],
+      startDate: '2026-06-10',
+      endDate: '2026-06-01',
+    });
+    const validStartValidation = aiAnalysisStatic.validateCapturedOtaAiAnalysisStart({
+      selectedKeys: ['r1_Run One'],
+      selectedData: [{ poiId: 'r1', hotelName: 'Run One' }],
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+    });
     const successGroup = {
       ...batchResults[0],
       status: 'success',
@@ -724,6 +760,21 @@ try {
         && groupOutcome.failedReason.includes('第 2 组：model failed')
         && groupOutcome.failedReason.includes('第 3 组：timeout'),
       detail: 'selected data and group outcome sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static validates captured OTA start inputs',
+      ok: missingSelectedValidation.ok === false
+        && missingSelectedValidation.message === '请先选择要分析的酒店'
+        && missingDataValidation.ok === false
+        && missingDataValidation.message === '未找到选中的酒店数据'
+        && missingDateValidation.ok === false
+        && missingDateValidation.message === '请选择分析日期范围'
+        && invalidDateValidation.ok === false
+        && invalidDateValidation.message === '开始日期不能晚于结束日期'
+        && validStartValidation.ok === true
+        && validStartValidation.level === 'success',
+      detail: 'captured OTA start validation sample',
     });
     checks.push({
       file: 'public/ai-analysis-static.js',

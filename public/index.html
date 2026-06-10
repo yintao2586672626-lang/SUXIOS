@@ -34952,6 +34952,7 @@
             const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
             const buildAiAnalysisHistoryRecord = requireAiAnalysisStatic('buildAiAnalysisHistoryRecord');
             const resolveAiSelectedData = requireAiAnalysisStatic('resolveAiSelectedData');
+            const validateCapturedOtaAiAnalysisStart = requireAiAnalysisStatic('validateCapturedOtaAiAnalysisStart');
             const sanitizeAiReportHtml = requireAiAnalysisStatic('sanitizeAiReportHtml');
             const aiReportHtmlToText = requireAiAnalysisStatic('aiReportHtmlToText');
             const buildMeituanAiAnalysisHotelList = requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList');
@@ -35066,23 +35067,15 @@
 
             // 开始AI分析
             const startAiAnalysis = async () => {
-                if (aiSelectedHotels.value.length === 0) {
-                    showToast('请先选择要分析的酒店', 'error');
-                    return;
-                }
-
                 const selectedData = resolveAiSelectedData(aiSelectedHotels.value, aiAnalysisHotelList.value);
-
-                if (selectedData.length === 0) {
-                    showToast('未找到选中的酒店数据', 'error');
-                    return;
-                }
-                if (!onlineDataFilter.value.start_date || !onlineDataFilter.value.end_date) {
-                    showToast('请选择分析日期范围', 'error');
-                    return;
-                }
-                if (onlineDataFilter.value.start_date > onlineDataFilter.value.end_date) {
-                    showToast('开始日期不能晚于结束日期', 'error');
+                const startValidation = validateCapturedOtaAiAnalysisStart({
+                    selectedKeys: aiSelectedHotels.value,
+                    selectedData,
+                    startDate: onlineDataFilter.value.start_date,
+                    endDate: onlineDataFilter.value.end_date,
+                });
+                if (!startValidation.ok) {
+                    showToast(startValidation.message, startValidation.level);
                     return;
                 }
 

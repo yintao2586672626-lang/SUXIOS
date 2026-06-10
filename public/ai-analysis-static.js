@@ -75,6 +75,27 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
             .filter(Boolean);
     };
 
+    const validateCapturedOtaAiAnalysisStart = ({
+        selectedKeys = [],
+        selectedData = [],
+        startDate = '',
+        endDate = '',
+    } = {}) => {
+        if (!Array.isArray(selectedKeys) || selectedKeys.length === 0) {
+            return { ok: false, level: 'error', message: '请先选择要分析的酒店' };
+        }
+        if (!Array.isArray(selectedData) || selectedData.length === 0) {
+            return { ok: false, level: 'error', message: '未找到选中的酒店数据' };
+        }
+        if (!startDate || !endDate) {
+            return { ok: false, level: 'error', message: '请选择分析日期范围' };
+        }
+        if (startDate > endDate) {
+            return { ok: false, level: 'error', message: '开始日期不能晚于结束日期' };
+        }
+        return { ok: true, level: 'success', message: '' };
+    };
+
     const aiAnalysisStatusText = (status) => {
         const map = {
             pending: '等待中',
@@ -596,6 +617,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         maxNullableNumber,
         getAiAnalysisHotelKey,
         resolveAiSelectedData,
+        validateCapturedOtaAiAnalysisStart,
         aiAnalysisStatusText,
         aiAnalysisStatusClass,
         aiAnalysisPriorityClass,
