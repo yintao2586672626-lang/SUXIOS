@@ -21003,6 +21003,21 @@
                 }
                 return value;
             };
+            const homeStatic = window.SUXI_HOME_STATIC;
+            if (!homeStatic) {
+                throw new Error('缺少首页静态展示工具：home-static.js 未加载');
+            }
+            const requireHomeStatic = (key) => {
+                if (!homeStatic[key]) {
+                    throw new Error(`缺少首页静态展示工具项：${key}`);
+                }
+                return homeStatic[key];
+            };
+            const buildHomeClosedLoopStages = requireHomeStatic('buildHomeClosedLoopStages');
+            const buildHomeAiTraceRows = requireHomeStatic('buildHomeAiTraceRows');
+            const buildHomeBoardActionRows = requireHomeStatic('buildHomeBoardActionRows');
+            const buildCompassDataReadiness = requireHomeStatic('buildCompassDataReadiness');
+            const buildHomeDecisionSummaryRows = requireHomeStatic('buildHomeDecisionSummaryRows');
             const defaultHomeQuickEntryOrder = requireCompassStatic('defaultHomeQuickEntryOrder');
             const defaultHomeQuickEntryHidden = requireCompassStatic('defaultHomeQuickEntryHidden');
             const compassLayout = ref({
@@ -21691,110 +21706,32 @@
                 limit: 5,
             }));
             const homeBoardActionRows = computed(() => {
-                const readiness = compassDataReadiness.value || {};
                 const channelSignal = findMacroSignal('channel');
-                const competitorReady = homeCompetitorSummaryCards.value.some(card => !['待同步', '未返回', '待补'].includes(String(card.value || '')));
-                const competitorNotice = homeCompetitorSourceNotice.value;
-                return [
-                    {
-                        key: 'data',
-                        title: Number(readiness.percent || 0) >= 100 ? '复核经营结果' : '先补核心数据',
-                        detail: readiness.missingText || homeMarketForecastAction.value,
-                        badge: readiness.summaryText || '待同步',
-                        className: Number(readiness.percent || 0) >= 100 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
-                        entry: { page: 'online-data', tab: 'data-health' },
-                    },
-                    {
-                        key: 'funnel',
-                        title: '检查曝光到收入链路',
-                        detail: channelSignal?.summary || '同步 OTA 流量后判断曝光、浏览、转化和订单承接。',
-                        badge: channelSignal?.status_text || '待同步',
-                        className: channelSignal ? macroSignalLevelClass(channelSignal) : 'bg-gray-50 text-gray-500 border-gray-200',
-                        entry: { page: 'ctrip-ebooking', tab: 'ctrip-traffic' },
-                    },
-                    {
-                        key: 'competition',
-                        title: competitorReady ? '查看竞对摘要' : '同步竞对榜单',
-                        detail: competitorReady ? competitorNotice : '先同步美团竞对榜单，再查看本店位置、TOP1、VIP标签和榜单健康。',
-                        badge: competitorReady ? '可复核' : '待同步',
-                        className: competitorReady ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                        entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' },
-                    },
-                ];
+                return buildHomeBoardActionRows({
+                    readiness: compassDataReadiness.value,
+                    channelSignal,
+                    channelSignalClassName: channelSignal ? macroSignalLevelClass(channelSignal) : '',
+                    competitorCards: homeCompetitorSummaryCards.value,
+                    competitorNotice: homeCompetitorSourceNotice.value,
+                    homeMarketForecastAction: homeMarketForecastAction.value,
+                });
             });
-            const compassDataReadiness = computed(() => {
-                const sources = homeDataSources.value;
-                const coreSources = sources.filter(source => source.role === 'core');
-                const supportSources = sources.filter(source => source.role !== 'core');
-                const readyCoreCount = coreSources.filter(source => source.ready).length;
-                const readySupportCount = supportSources.filter(source => source.ready).length;
-                const percent = coreSources.length ? Math.round(readyCoreCount / coreSources.length * 100) : 0;
-                const missingCore = coreSources.filter(source => !source.ready).map(source => source.name);
-                const missingSupport = supportSources.filter(source => !source.ready).map(source => source.name);
-                return {
-                    percent,
-                    summaryText: `核心数据 ${readyCoreCount}/${coreSources.length}`,
-                    progressText: `核心数据就绪度 ${readyCoreCount}/${coreSources.length}`,
-                    missingText: missingCore.length
-                        ? `待补全 ${missingCore.join(' / ')}`
-                        : (missingSupport.length ? `辅助信号待补 ${missingSupport.join(' / ')}` : '核心数据与辅助信号已就绪'),
-                    signalDensity: readyCoreCount === coreSources.length && readySupportCount === supportSources.length ? '高' : (readyCoreCount >= Math.ceil(coreSources.length / 2) ? '中' : '低'),
-                    nextAction: missingCore.length ? '先补核心数据' : (missingSupport.length ? '补辅助信号' : '可分析'),
-                };
-            });
+            const compassDataReadiness = computed(() => buildCompassDataReadiness(homeDataSources.value));
             const homeDecisionSummaryRows = computed(() => {
-                const readiness = compassDataReadiness.value || {};
-                const percent = Number(readiness.percent || 0);
-                const trendReady = !!homeTrendHasSamples.value;
-                const sampleText = homeObservation.value?.sampleDaysText || '--';
                 const competitorReadiness = homeCompetitorReadiness.value || {};
                 const action = homeBoardActionRows.value[0] || {};
-                return [
-                    {
-                        key: 'data-readiness',
-                        label: '数据就绪',
-                        value: readiness.summaryText || '待同步',
-                        note: readiness.missingText || readiness.nextAction || '等待核心数据',
-                        badge: `${percent}%`,
-                        badgeClass: percent >= 100 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (percent > 0 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-500 border-gray-200'),
-                        icon: 'fas fa-database',
-                        iconClass: 'border-emerald-100 bg-emerald-50 text-emerald-700',
-                        entry: { page: 'online-data', tab: 'data-health' },
-                    },
-                    {
-                        key: 'trend-sample',
-                        label: '趋势样本',
-                        value: sampleText,
-                        note: homeMarketForecastStatus.value || '等待趋势样本',
-                        badge: trendReady ? '可判断' : '待形成',
-                        badgeClass: trendReady ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                        icon: 'fas fa-chart-line',
-                        iconClass: 'border-blue-100 bg-blue-50 text-blue-700',
-                        entry: { page: 'online-data', tab: 'data-health' },
-                    },
-                    {
-                        key: 'competitor',
-                        label: '竞对可信',
-                        value: competitorReadiness.label || '待同步',
-                        note: homeCompetitorPlatformTagText.value || homeCompetitorSourceNotice.value || '不推断VIP',
-                        badge: competitorReadiness.status === 'ok' ? '可复核' : '待核对',
-                        badgeClass: competitorSummaryReadinessClass(competitorReadiness),
-                        icon: 'fas fa-trophy',
-                        iconClass: 'border-indigo-100 bg-indigo-50 text-indigo-700',
-                        entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' },
-                    },
-                    {
-                        key: 'next-action',
-                        label: '下一步',
-                        value: action.title || readiness.nextAction || '复核数据',
-                        note: action.detail || readiness.missingText || homeMarketForecastAction.value,
-                        badge: action.badge || '待处理',
-                        badgeClass: action.className || 'bg-gray-50 text-gray-500 border-gray-200',
-                        icon: 'fas fa-arrow-right',
-                        iconClass: 'border-amber-100 bg-amber-50 text-amber-700',
-                        entry: action.entry || { page: 'online-data', tab: 'data-health' },
-                    },
-                ];
+                return buildHomeDecisionSummaryRows({
+                    readiness: compassDataReadiness.value,
+                    trendReady: homeTrendHasSamples.value,
+                    sampleText: homeObservation.value?.sampleDaysText,
+                    homeMarketForecastStatus: homeMarketForecastStatus.value,
+                    competitorReadiness,
+                    competitorReadinessClassName: competitorSummaryReadinessClass(competitorReadiness),
+                    competitorTagText: homeCompetitorPlatformTagText.value,
+                    competitorSourceNotice: homeCompetitorSourceNotice.value,
+                    action,
+                    homeMarketForecastAction: homeMarketForecastAction.value,
+                });
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
             const autoFetchStatic = window.SUXI_AUTO_FETCH_STATIC;
@@ -40245,19 +40182,6 @@
                 if (!aiFeasibilityResult.value) return;
                 window.print();
             };
-
-            const homeStatic = window.SUXI_HOME_STATIC;
-            if (!homeStatic) {
-                throw new Error('缺少首页静态展示工具：home-static.js 未加载');
-            }
-            const requireHomeStatic = (key) => {
-                if (!homeStatic[key]) {
-                    throw new Error(`缺少首页静态展示工具项：${key}`);
-                }
-                return homeStatic[key];
-            };
-            const buildHomeClosedLoopStages = requireHomeStatic('buildHomeClosedLoopStages');
-            const buildHomeAiTraceRows = requireHomeStatic('buildHomeAiTraceRows');
 
             const homeClosedLoopStages = computed(() => {
                 const executionSummary = operationExecutionFlow.value?.summary || {};

@@ -23,19 +23,24 @@ const checks = [
   {
     name: 'decision strip reuses current dashboard state instead of new fallback data',
     pass: publicSource.includes('const homeDecisionSummaryRows = computed')
-      && publicSource.includes('const readiness = compassDataReadiness.value || {}')
-      && publicSource.includes('const trendReady = !!homeTrendHasSamples.value')
+      && publicSource.includes("requireHomeStatic('buildHomeDecisionSummaryRows')")
+      && publicSource.includes("requireHomeStatic('buildHomeBoardActionRows')")
+      && publicSource.includes("requireHomeStatic('buildCompassDataReadiness')")
+      && publicSource.includes('buildHomeDecisionSummaryRows({')
+      && publicSource.includes('trendReady: homeTrendHasSamples.value')
       && publicSource.includes('const competitorReadiness = homeCompetitorReadiness.value || {}')
       && publicSource.includes('const action = homeBoardActionRows.value[0] || {}'),
   },
   {
     name: 'decision strip covers data readiness, trend samples, competitor trust and next action',
-    pass: ['data-readiness', 'trend-sample', 'competitor', 'next-action'].every((key) => publicSource.includes(`key: '${key}'`)),
+    pass: ['data-readiness', 'trend-sample', 'competitor', 'next-action'].every((key) => homeStaticSource.includes(`key: '${key}'`)),
   },
   {
     name: 'competitor summary keeps VIP no-inference wording on the home decision strip',
-    pass: publicSource.includes("note: homeCompetitorPlatformTagText.value || homeCompetitorSourceNotice.value || '不推断VIP'")
-      && publicSource.includes("entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' }"),
+    pass: publicSource.includes('competitorTagText: homeCompetitorPlatformTagText.value')
+      && publicSource.includes('competitorSourceNotice: homeCompetitorSourceNotice.value')
+      && homeStaticSource.includes("competitorTagText || competitorSourceNotice || '不推断VIP'")
+      && homeStaticSource.includes("entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' }"),
   },
   {
     name: 'home competitor summary uses dense evidence-first five-card grid',
@@ -56,12 +61,18 @@ const checks = [
     pass: publicSource.includes('<script src="home-static.js"></script>')
       && publicSource.includes("requireHomeStatic('buildHomeClosedLoopStages')")
       && publicSource.includes("requireHomeStatic('buildHomeAiTraceRows')")
+      && publicSource.includes("requireHomeStatic('buildHomeBoardActionRows')")
+      && publicSource.includes("requireHomeStatic('buildCompassDataReadiness')")
+      && publicSource.includes("requireHomeStatic('buildHomeDecisionSummaryRows')")
       && homeStaticSource.includes('window.SUXI_HOME_STATIC')
       && homeStaticSource.includes('OTA数据可信度')
       && homeStaticSource.includes('收益分析')
       && homeStaticSource.includes('AI决策')
       && homeStaticSource.includes('运营执行')
       && homeStaticSource.includes('投资决策')
+      && homeStaticSource.includes('buildHomeBoardActionRows')
+      && homeStaticSource.includes('buildCompassDataReadiness')
+      && homeStaticSource.includes('buildHomeDecisionSummaryRows')
       && homeStaticSource.includes('不把模型输出当作事实')
       && homeStaticSource.includes('不用 OTA 渠道数据替代全酒店口径'),
   },

@@ -117,8 +117,135 @@ window.SUXI_HOME_STATIC = (() => {
         ];
     };
 
+    const buildHomeBoardActionRows = ({
+        readiness = {},
+        channelSignal = null,
+        channelSignalClassName = '',
+        competitorCards = [],
+        competitorNotice = '',
+        homeMarketForecastAction = '',
+    } = {}) => {
+        const safeReadiness = readiness && typeof readiness === 'object' ? readiness : {};
+        const safeCards = Array.isArray(competitorCards) ? competitorCards : [];
+        const competitorReady = safeCards.some(card => !['待同步', '未返回', '待补'].includes(String(card?.value || '')));
+        return [
+            {
+                key: 'data',
+                title: Number(safeReadiness.percent || 0) >= 100 ? '复核经营结果' : '先补核心数据',
+                detail: safeReadiness.missingText || homeMarketForecastAction,
+                badge: safeReadiness.summaryText || '待同步',
+                className: Number(safeReadiness.percent || 0) >= 100 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
+                entry: { page: 'online-data', tab: 'data-health' },
+            },
+            {
+                key: 'funnel',
+                title: '检查曝光到收入链路',
+                detail: channelSignal?.summary || '同步 OTA 流量后判断曝光、浏览、转化和订单承接。',
+                badge: channelSignal?.status_text || '待同步',
+                className: channelSignal ? channelSignalClassName : 'bg-gray-50 text-gray-500 border-gray-200',
+                entry: { page: 'ctrip-ebooking', tab: 'ctrip-traffic' },
+            },
+            {
+                key: 'competition',
+                title: competitorReady ? '查看竞对摘要' : '同步竞对榜单',
+                detail: competitorReady ? competitorNotice : '先同步美团竞对榜单，再查看本店位置、TOP1、VIP标签和榜单健康。',
+                badge: competitorReady ? '可复核' : '待同步',
+                className: competitorReady ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' },
+            },
+        ];
+    };
+
+    const buildCompassDataReadiness = (sources = []) => {
+        const safeSources = Array.isArray(sources) ? sources : [];
+        const coreSources = safeSources.filter(source => source?.role === 'core');
+        const supportSources = safeSources.filter(source => source?.role !== 'core');
+        const readyCoreCount = coreSources.filter(source => source?.ready).length;
+        const readySupportCount = supportSources.filter(source => source?.ready).length;
+        const percent = coreSources.length ? Math.round(readyCoreCount / coreSources.length * 100) : 0;
+        const missingCore = coreSources.filter(source => !source?.ready).map(source => source?.name);
+        const missingSupport = supportSources.filter(source => !source?.ready).map(source => source?.name);
+        return {
+            percent,
+            summaryText: `核心数据 ${readyCoreCount}/${coreSources.length}`,
+            progressText: `核心数据就绪度 ${readyCoreCount}/${coreSources.length}`,
+            missingText: missingCore.length
+                ? `待补全 ${missingCore.join(' / ')}`
+                : (missingSupport.length ? `辅助信号待补 ${missingSupport.join(' / ')}` : '核心数据与辅助信号已就绪'),
+            signalDensity: readyCoreCount === coreSources.length && readySupportCount === supportSources.length ? '高' : (readyCoreCount >= Math.ceil(coreSources.length / 2) ? '中' : '低'),
+            nextAction: missingCore.length ? '先补核心数据' : (missingSupport.length ? '补辅助信号' : '可分析'),
+        };
+    };
+
+    const buildHomeDecisionSummaryRows = ({
+        readiness = {},
+        trendReady = false,
+        sampleText = '--',
+        homeMarketForecastStatus = '',
+        competitorReadiness = {},
+        competitorReadinessClassName = '',
+        competitorTagText = '',
+        competitorSourceNotice = '',
+        action = {},
+        homeMarketForecastAction = '',
+    } = {}) => {
+        const safeReadiness = readiness && typeof readiness === 'object' ? readiness : {};
+        const safeCompetitorReadiness = competitorReadiness && typeof competitorReadiness === 'object' ? competitorReadiness : {};
+        const safeAction = action && typeof action === 'object' ? action : {};
+        const percent = Number(safeReadiness.percent || 0);
+        return [
+            {
+                key: 'data-readiness',
+                label: '数据就绪',
+                value: safeReadiness.summaryText || '待同步',
+                note: safeReadiness.missingText || safeReadiness.nextAction || '等待核心数据',
+                badge: `${percent}%`,
+                badgeClass: percent >= 100 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (percent > 0 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-500 border-gray-200'),
+                icon: 'fas fa-database',
+                iconClass: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+                entry: { page: 'online-data', tab: 'data-health' },
+            },
+            {
+                key: 'trend-sample',
+                label: '趋势样本',
+                value: sampleText || '--',
+                note: homeMarketForecastStatus || '等待趋势样本',
+                badge: trendReady ? '可判断' : '待形成',
+                badgeClass: trendReady ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                icon: 'fas fa-chart-line',
+                iconClass: 'border-blue-100 bg-blue-50 text-blue-700',
+                entry: { page: 'online-data', tab: 'data-health' },
+            },
+            {
+                key: 'competitor',
+                label: '竞对可信',
+                value: safeCompetitorReadiness.label || '待同步',
+                note: competitorTagText || competitorSourceNotice || '不推断VIP',
+                badge: safeCompetitorReadiness.status === 'ok' ? '可复核' : '待核对',
+                badgeClass: competitorReadinessClassName,
+                icon: 'fas fa-trophy',
+                iconClass: 'border-indigo-100 bg-indigo-50 text-indigo-700',
+                entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' },
+            },
+            {
+                key: 'next-action',
+                label: '下一步',
+                value: safeAction.title || safeReadiness.nextAction || '复核数据',
+                note: safeAction.detail || safeReadiness.missingText || homeMarketForecastAction,
+                badge: safeAction.badge || '待处理',
+                badgeClass: safeAction.className || 'bg-gray-50 text-gray-500 border-gray-200',
+                icon: 'fas fa-arrow-right',
+                iconClass: 'border-amber-100 bg-amber-50 text-amber-700',
+                entry: safeAction.entry || { page: 'online-data', tab: 'data-health' },
+            },
+        ];
+    };
+
     return {
         buildHomeClosedLoopStages,
         buildHomeAiTraceRows,
+        buildHomeBoardActionRows,
+        buildCompassDataReadiness,
+        buildHomeDecisionSummaryRows,
     };
 })();

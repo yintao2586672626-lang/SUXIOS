@@ -514,6 +514,17 @@
 - 验证通过：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\service\CtripCaptureDiagnosisService.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "CtripCaptureDiagnosisSummary|CtripCaptureCounts|CtripCaptureGate"`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\ServiceInventoryTest.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php`、`node scripts\verify_ota_diagnosis_auto_fetch.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍未宣称完成，原因仍是 `public/index.html` 与 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十刀拆分
+
+- 扩展 `public/home-static.js`，承载首页首屏决策条、动作行和数据就绪度构建器：`buildHomeBoardActionRows`、`buildCompassDataReadiness`、`buildHomeDecisionSummaryRows`。
+- `public/index.html` 仅保留现有 Vue computed 输入绑定和运行态状态读取；不移动首页趋势加载、罗盘数据源、竞对摘要、宏观信号、快捷入口拖拽、接口请求或 OTA 数据链路。
+- 更新 `scripts/verify_home_visual_hierarchy_contract.mjs`，首页首屏层级契约改为检查入口显式读取 `home-static.js` builder，文案和结构证据留在 `public/home-static.js`。
+- `public/index.html` 从 `40,525` 行降至 `40,449` 行；split-map 中 `general` 域 span 从 `9,411` 行降至 `9,335` 行。
+- 当前 `public/home-static.js` 为 `246` 行；总代码行数为 `186,698` 行，非空行 `170,971` 行。
+- 当前审计：完整目录约 `251.19 MB`；不含 `.git` 约 `92.01 MB`；不含 `.git` 和依赖约 `62.82 MB`；Git 跟踪文件约 `17.9 MB` / `611` 个；代码范围 `368` 个文件。
+- 验证通过：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍未宣称完成，原因仍是 `public/index.html` 与 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

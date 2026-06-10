@@ -451,6 +451,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the backend Ctrip capture diagnosis split: `C:\xampp\php\php.exe -l app\controller\OnlineData.php`; `C:\xampp\php\php.exe -l app\service\CtripCaptureDiagnosisService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "CtripCaptureDiagnosisSummary|CtripCaptureCounts|CtripCaptureGate"`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\ServiceInventoryTest.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php`; `node scripts\verify_ota_diagnosis_auto_fetch.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Home Decision Builder Split
+
+- Thirtieth frontend split target chosen from pure home first-screen decision strip, action-row, and data-readiness builders in `public/index.html`.
+- Extended `public/home-static.js` with `buildHomeBoardActionRows`, `buildCompassDataReadiness`, and `buildHomeDecisionSummaryRows`.
+- `public/index.html` now keeps only Vue computed bindings and runtime state reads for those home displays; home trend loading, compass data sources, competitor summary, macro signal lookup, quick-entry drag/save behavior, request execution, and OTA data paths remain unchanged.
+- Updated `scripts/verify_home_visual_hierarchy_contract.mjs` so the home hierarchy contract requires the new helpers from `public/home-static.js`, while the entry file must explicitly load them through `requireHomeStatic()`.
+- `public/index.html` decreased from `40525` lines to `40449` lines; split-map general-domain span decreased from `9411` to `9335` lines.
+- Current `public/home-static.js` is `246` lines. Total code lines are `186698` and nonblank lines are `170971`.
+- Current self-audit: full directory about `251.19 MB`, without `.git` about `92.01 MB`, without `.git` and dependencies about `62.82 MB`, tracked files about `17.9 MB` / `611` files; code scope `368` files.
+- Verified after the frontend home decision split: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `npm.cmd run verify:home-visual-hierarchy`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
