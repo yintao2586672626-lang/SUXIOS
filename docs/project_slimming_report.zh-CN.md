@@ -547,6 +547,17 @@
 - 验证通过：`node --check public\simulation-static.js`、`node --check scripts\verify_simulation_p2.mjs`、`node scripts\verify_simulation_p2.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check -- public\index.html public\simulation-static.js scripts\verify_simulation_p2.mjs`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十三刀拆分
+
+- 扩展 `public/auto-fetch-static.js`，承载数据源配置表单解析、字段别名归一化、请求体压缩和采集请求体构建器：`parseDataConfigValue`、`normalizeDataConfigForForm`、`compactDataConfigBody`、`buildDataConfigRequestBody`。
+- `public/index.html` 仅保留数据配置表单状态、保存/测试动作、请求执行和运行态校验；本轮不移动配置保存、接口测试、OTA 抓取调用、系统配置持久化、toast 校验或凭据处理。
+- 更新 `scripts/verify_platform_data_source_contract.mjs`，要求入口通过 `requireAutoFetchStatic()` 读取数据配置 normalizer/request builder，且要求 `public/auto-fetch-static.js` 保留 `ctrip-cookie-api` 和 `meituan-ads` 请求映射。
+- `public/index.html` 从 `40,319` 行降至 `40,113` 行；split-map 前端函数级块从 `1,110` 降至 `1,107`，`config` 域 span 从 `897` 行降至 `687` 行。
+- 当前 `public/auto-fetch-static.js` 为 `284` 行；本轮代码改动后总代码行数为 `186,806`，非空行 `171,075`。
+- 本轮代码改动后自审计：完整目录约 `252.94 MB`；不含 `.git` 约 `92.02 MB`；不含 `.git` 和依赖约 `62.83 MB`；Git 跟踪文件约 `17.91 MB` / `611` 个；代码范围 `368` 个文件。
+- 已验证：`node --check public\auto-fetch-static.js`、`node --check scripts\verify_platform_data_source_contract.mjs`、`node scripts\verify_platform_data_source_contract.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`npm.cmd run self:check`。
+- 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

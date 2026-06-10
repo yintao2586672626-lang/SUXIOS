@@ -121,8 +121,19 @@ for (const [needle, label] of [
   ["request('/online-data/data-import'", 'frontend can import rows'],
   ["`/online-data/data-sources/${source.id}/sync`", 'frontend can trigger immediate sync'],
   ['platformSyncLogs', 'frontend renders sync logs'],
+  ["requireAutoFetchStatic('normalizeDataConfigForForm')", 'frontend reads data-config normalizer from auto-fetch static module'],
+  ["requireAutoFetchStatic('buildDataConfigRequestBody')", 'frontend reads data-config request builder from auto-fetch static module'],
 ]) {
   check('public/index.html', label, (source) => source.includes(needle), needle);
+}
+
+for (const [needle, label] of [
+  ['const normalizeDataConfigForForm', 'auto-fetch static module owns data-config form normalization'],
+  ['const buildDataConfigRequestBody', 'auto-fetch static module owns data-config request body mapping'],
+  ['case \'ctrip-cookie-api\'', 'data-config request builder preserves Ctrip Cookie API payload mapping'],
+  ['case \'meituan-ads\'', 'data-config request builder preserves Meituan ads payload mapping'],
+]) {
+  check('public/auto-fetch-static.js', label, (source) => source.includes(needle), needle);
 }
 
 check(

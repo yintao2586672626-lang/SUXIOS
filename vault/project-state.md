@@ -487,6 +487,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the frontend simulation display split: `node --check public\simulation-static.js`; `node --check scripts\verify_simulation_p2.mjs`; `node scripts\verify_simulation_p2.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check -- public\index.html public\simulation-static.js scripts\verify_simulation_p2.mjs`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Data Config Request Builder Split
+
+- Thirty-third frontend split target chosen from pure platform data-source config parsing, alias normalization, compacting, and request-body mapping in `public/index.html`.
+- Extended `public/auto-fetch-static.js` with `parseDataConfigValue`, `normalizeDataConfigForForm`, `compactDataConfigBody`, and `buildDataConfigRequestBody`.
+- `public/index.html` now keeps only config form state, save/test actions, request execution, and runtime validation for this flow; config persistence, endpoint testing, OTA fetch calls, system-config storage, toast validation, and credential handling remain unchanged.
+- Updated `scripts/verify_platform_data_source_contract.mjs` so the platform data-source contract requires the data-config normalizer and request builder from `public/auto-fetch-static.js`, and preserves `ctrip-cookie-api` plus `meituan-ads` request mappings.
+- `public/index.html` decreased from `40319` lines to `40113` lines; split-map frontend function-level blocks decreased from `1110` to `1107`; the config-domain span decreased from `897` to `687` lines.
+- Current `public/auto-fetch-static.js` is `284` lines. Total code lines are `186806` and nonblank lines are `171075` after the code move.
+- Current self-audit after the code move: full directory about `252.94 MB`, without `.git` about `92.02 MB`, without `.git` and dependencies about `62.83 MB`, tracked files about `17.91 MB` / `611` files; code scope `368` files.
+- Verified after the data-config request builder split: `node --check public\auto-fetch-static.js`; `node --check scripts\verify_platform_data_source_contract.mjs`; `node scripts\verify_platform_data_source_contract.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`; `npm.cmd run self:check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
