@@ -69,6 +69,37 @@ window.SUXI_CTRIP_STATIC = (() => {
 
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
+    const ctripSortMetricValue = (row = {}, field = '') => {
+        if (field === 'amount') return row.amount || 0;
+        if (field === 'quantity') return row.quantity || 0;
+        if (field === 'adr') return row.adr || 0;
+        if (field === 'ari') return row.ari || 0;
+        if (field === 'sci') return row.sci || 0;
+        if (field === 'bookOrderNum') return row.bookOrderNum || 0;
+        if (field === 'totalOrderNum') return row.totalOrderNum || 0;
+        if (field === 'commentScore') return row.commentScore || 0;
+        if (field === 'qunarCommentScore') return row.qunarCommentScore || 0;
+        if (field === 'totalDetailNum') return row.totalDetailNum || 0;
+        if (field === 'convertionRate') return row.convertionRate || 0;
+        if (field === 'qunarDetailVisitors') return row.qunarDetailVisitors || 0;
+        if (field === 'qunarDetailCR') return row.qunarDetailCR || 0;
+        if (field === 'bookRate') return row.bookingRate || 0;
+        if (field === 'amountRank' || field === 'quantityRank' || field === 'commentScoreRank' || field === 'qunarDetailCRRank') {
+            return row[field] || 99999;
+        }
+        return row[field] || 0;
+    };
+
+    const buildCtripSortedHotelRows = (rows = [], field = '', order = 'desc') => {
+        const list = Array.isArray(rows) ? rows : [];
+        if (!field) return list;
+        return [...list].sort((a, b) => {
+            const aVal = ctripSortMetricValue(a, field);
+            const bVal = ctripSortMetricValue(b, field);
+            return order === 'asc' ? aVal - bVal : bVal - aVal;
+        });
+    };
+
     const buildCtripOverviewMetricCards = (result = {}) => {
         const metrics = result?.metrics || {};
         return [
@@ -309,6 +340,8 @@ window.SUXI_CTRIP_STATIC = (() => {
         ctripOverviewApiKeywords,
         ctripFlowOverviewApiGroups,
         ctripFlowOverviewDefaultRequestUrls,
+        ctripSortMetricValue,
+        buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,
         buildCtripOverviewTopRankTables,
         buildCtripFlowOverviewMetricCards,

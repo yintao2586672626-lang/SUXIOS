@@ -380,6 +380,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the twenty-fifth frontend split: `node --check public\ctrip-static.js`; Ctrip static export smoke check; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Table Sort Builder Split
+
+- Twenty-sixth frontend split target chosen from pure Ctrip ranking-table sort value mapping in `public/index.html`.
+- Extended `public/ctrip-static.js` with `ctripSortMetricValue` and `buildCtripSortedHotelRows`.
+- `public/index.html` now keeps only `ctripSortedHotelsList` computed binding plus sort/page state; Ctrip ranking data fetch, persistence, overview fetch, Cookie/Profile checks, and OTA channel data paths remain unchanged.
+- Updated `tests/automation/ctrip_store_data_overview.test.mjs` so the Ctrip table sort builder is required from `public/ctrip-static.js`, while the entry file must explicitly load it through `requireCtripStatic()`.
+- `public/index.html` decreased from `40757` lines to `40703` lines; the Ctrip-domain span decreased from `3840` to `3786` lines.
+- Current `public/ctrip-static.js` is `350` lines. Total code lines are `186373` and nonblank lines are `170684`.
+- Current self-audit: full directory about `248.17 MB`, without `.git` about `91.98 MB`, without `.git` and dependencies about `62.79 MB`, tracked files about `17.86 MB` / `609` files; code scope `366` files.
+- Verified after the twenty-sixth frontend split: `node --check public\ctrip-static.js`; Ctrip static export smoke check; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

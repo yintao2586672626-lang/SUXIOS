@@ -19155,62 +19155,7 @@
             };
             // 排序后的列表（computed，不修改原始数据，卡片仍基于原始列表计算）
             const ctripSortedHotelsList = computed(() => {
-                const field = ctripSortField.value;
-                if (!field) return ctripHotelsList.value;
-                const order = ctripSortOrder.value;
-                return [...ctripHotelsList.value].sort((a, b) => {
-                    let aVal, bVal;
-                    if (field === 'amount') {
-                        aVal = a.amount || 0;
-                        bVal = b.amount || 0;
-                    } else if (field === 'quantity') {
-                        aVal = a.quantity || 0;
-                        bVal = b.quantity || 0;
-                    } else if (field === 'adr') {
-                        aVal = a.adr || 0;
-                        bVal = b.adr || 0;
-                    } else if (field === 'ari') {
-                        aVal = a.ari || 0;
-                        bVal = b.ari || 0;
-                    } else if (field === 'sci') {
-                        aVal = a.sci || 0;
-                        bVal = b.sci || 0;
-                    } else if (field === 'bookOrderNum') {
-                        aVal = a.bookOrderNum || 0;
-                        bVal = b.bookOrderNum || 0;
-                    } else if (field === 'totalOrderNum') {
-                        aVal = a.totalOrderNum || 0;
-                        bVal = b.totalOrderNum || 0;
-                    } else if (field === 'commentScore') {
-                        aVal = a.commentScore || 0;
-                        bVal = b.commentScore || 0;
-                    } else if (field === 'qunarCommentScore') {
-                        aVal = a.qunarCommentScore || 0;
-                        bVal = b.qunarCommentScore || 0;
-                    } else if (field === 'totalDetailNum') {
-                        aVal = a.totalDetailNum || 0;
-                        bVal = b.totalDetailNum || 0;
-                    } else if (field === 'convertionRate') {
-                        aVal = a.convertionRate || 0;
-                        bVal = b.convertionRate || 0;
-                    } else if (field === 'qunarDetailVisitors') {
-                        aVal = a.qunarDetailVisitors || 0;
-                        bVal = b.qunarDetailVisitors || 0;
-                    } else if (field === 'qunarDetailCR') {
-                        aVal = a.qunarDetailCR || 0;
-                        bVal = b.qunarDetailCR || 0;
-                    } else if (field === 'bookRate') {
-                        aVal = a.bookingRate || 0;
-                        bVal = b.bookingRate || 0;
-                    } else if (field === 'amountRank' || field === 'quantityRank' || field === 'commentScoreRank' || field === 'qunarDetailCRRank') {
-                        aVal = a[field] || 99999;
-                        bVal = b[field] || 99999;
-                    } else {
-                        aVal = a[field] || 0;
-                        bVal = b[field] || 0;
-                    }
-                    return order === 'asc' ? aVal - bVal : bVal - aVal;
-                });
+                return buildCtripSortedHotelRows(ctripHotelsList.value, ctripSortField.value, ctripSortOrder.value);
             });
             const ctripTablePage = ref(1);
             const ctripTablePageSize = ref(50);
@@ -19259,6 +19204,7 @@
             const ctripFlowOverviewApiGroups = requireCtripStatic('ctripFlowOverviewApiGroups');
             const ctripFlowOverviewDefaultRequestUrls = requireCtripStatic('ctripFlowOverviewDefaultRequestUrls');
             const ctripFlowOverviewApiKeywords = ctripFlowOverviewApiGroups.map(item => item.keyword);
+            const buildCtripSortedHotelRows = requireCtripStatic('buildCtripSortedHotelRows');
             const buildCtripOverviewMetricCards = requireCtripStatic('buildCtripOverviewMetricCards');
             const buildCtripOverviewTopRankTables = requireCtripStatic('buildCtripOverviewTopRankTables');
             const buildCtripFlowOverviewMetricCards = requireCtripStatic('buildCtripFlowOverviewMetricCards');

@@ -448,6 +448,17 @@
 - 验证通过：`node --check public\ctrip-static.js`、Ctrip static export smoke check、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第二十六刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程榜单表格排序值映射和排序构建器：`ctripSortMetricValue`、`buildCtripSortedHotelRows`。
+- `public/index.html` 仅保留 `ctripSortedHotelsList` computed 绑定、排序状态和分页状态；不移动携程榜单数据获取、入库、概览抓取、Cookie/Profile 检查或 OTA 数据链路。
+- 更新 `tests/automation/ctrip_store_data_overview.test.mjs`，要求携程榜单排序构建器留在 `public/ctrip-static.js`，入口通过 `requireCtripStatic()` 显式读取，且入口不再保留 `const field = ctripSortField.value;` 排序映射主体。
+- `public/index.html` 从 `40,757` 行降至 `40,703` 行；拆分地图中 `ctrip` 领域 span 从 `3,840` 行降至 `3,786` 行。
+- 当前 `public/ctrip-static.js` 为 `350` 行；总代码行数为 `186,373` 行，非空行 `170,684` 行。
+- 当前审计：完整目录约 `248.17 MB`；不含 `.git` 约 `91.98 MB`；不含 `.git` 和依赖约 `62.79 MB`；Git 跟踪文件约 `17.86 MB` / `609` 个；代码范围 `366` 个文件。
+- 验证通过：`node --check public\ctrip-static.js`、Ctrip static export smoke check、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

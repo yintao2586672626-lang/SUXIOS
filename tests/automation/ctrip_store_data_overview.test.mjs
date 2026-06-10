@@ -550,6 +550,7 @@ test('Ctrip flow overview interface misses show actionable reasons', () => {
   assert.match(ctripStatic, /const buildCtripOverviewMetricCards = /);
   assert.match(ctripStatic, /const buildCtripOverviewTopRankTables = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewMetricCards = /);
+  assert.match(ctripStatic, /const buildCtripSortedHotelRows = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewInterfaceRows = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewInterfaceReason = \(context\) =>/);
   assert.match(ctripStatic, /未在本次 Request URL 列表中配置/);
@@ -559,9 +560,11 @@ test('Ctrip flow overview interface misses show actionable reasons', () => {
   assert.match(html, /requireCtripStatic\('buildCtripOverviewMetricCards'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripOverviewTopRankTables'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewMetricCards'\)/);
+  assert.match(html, /requireCtripStatic\('buildCtripSortedHotelRows'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewInterfaceRows'\)/);
   assert.match(html, /row\.reasonText/);
   assert.doesNotMatch(html, /const normalizeCtripTopRankItems = /);
+  assert.doesNotMatch(html, /const field = ctripSortField\.value;/);
   assert.doesNotMatch(html, /本次未从响应 URL 中命中该接口/);
 });
 
