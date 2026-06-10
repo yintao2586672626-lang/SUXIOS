@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -70,9 +71,14 @@ requireText('public/index.html', '<script src="testid-static.js"></script>', 'fr
 requireText('public/index.html', 'createPageTestIdController', 'entry wires extracted page test id controller');
 requireText('public/testid-static.js', 'assignPageControlTestIds', 'page controls receive generated stable test ids');
 requireText('public/testid-static.js', 'normalizeTestIdSegment', 'test id helper keeps stable segment normalization');
+requireText('public/index.html', 'buildGlobalNotifications({', 'entry uses extracted global notification builder');
+requireText('public/notification-static.js', 'const buildGlobalNotifications', 'notification static builds global notification rows');
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
+requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
+requireNoText('public/index.html', 'autoFetchRecentRuns.value.slice(0, 3).forEach', 'global notification recent-run loop is not re-inlined');
+requireNoText('public/index.html', 'const readSet = new Set(globalNotificationReadIds.value);', 'global notification read-set mapping is not re-inlined');
 requireText('public/index.html', 'history-strategy-reuse', 'strategy history reuse button has stable selector');
 requireText('public/index.html', 'history-simulation-reuse', 'simulation history reuse button has stable selector');
 requireText('public/index.html', 'history-expansion-reuse', 'expansion history reuse button has stable selector');
@@ -181,6 +187,64 @@ requireText('package.json', 'test:e2e:business', 'package exposes business chain
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
 requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(read('public/notification-static.js'), context, {
+    filename: 'public/notification-static.js',
+  });
+  const buildGlobalNotifications = context.window.SUXI_NOTIFICATION_STATIC?.buildGlobalNotifications;
+  if (typeof buildGlobalNotifications !== 'function') {
+    checks.push({
+      file: 'public/notification-static.js',
+      label: 'notification static exports global notification builder',
+      ok: false,
+      detail: 'buildGlobalNotifications',
+    });
+  } else {
+    const rows = buildGlobalNotifications({
+      backendItems: [{ id: 'backend-1', backend_id: 1, source: 'backend', is_read: false }],
+      autoFetchRunState: { active: true, message: 'token=abc123 13800138000' },
+      autoFetchRunElapsedLabel: '10秒',
+      autoFetchStatus: {
+        last_run_time: '2026-06-10 10:00:00',
+        last_result: { success: true, saved_count: 3 },
+      },
+      autoFetchRecentRuns: [
+        { success: false, run_at: '2026-06-09 08:00:00', data_date: '2026-06-09', message: 'cookie=expired' },
+      ],
+      dataHealthTodayWorkOrders: [
+        { priority: 'high', action_type: 'cookie', key: 'auth', title: '授权过期', detail: 'spidertoken=secret', source_label: '携程', platform_label: 'Ctrip' },
+      ],
+      readIds: ['auto-fetch-running'],
+    });
+    checks.push({
+      file: 'public/notification-static.js',
+      label: 'notification builder keeps active auto-fetch notification readable',
+      ok: rows.some(row => row.id === 'auto-fetch-running' && row.is_read === true && /token=\*\*\*\*/.test(row.detail) && row.detail.includes('138****8000')),
+      detail: 'auto-fetch-running',
+    });
+    checks.push({
+      file: 'public/notification-static.js',
+      label: 'notification builder keeps data-health action target',
+      ok: rows.some(row => row.category === 'cookie_alert' && row.severity === 'error' && row.target_page === 'online-data' && row.target_tab === 'data-health'),
+      detail: 'cookie_alert',
+    });
+    checks.push({
+      file: 'public/notification-static.js',
+      label: 'notification builder deduplicates rows',
+      ok: rows.length === new Set(rows.map(row => row.id)).size,
+      detail: 'unique ids',
+    });
+  }
+} catch (error) {
+  checks.push({
+    file: 'public/notification-static.js',
+    label: 'notification static runtime validation',
+    ok: false,
+    detail: error.message,
+  });
+}
 
 const failures = checks.filter((check) => !check.ok);
 if (failures.length) {

@@ -679,6 +679,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the transfer timing data-check split: `node --check public\simulation-static.js`; `node --check scripts\verify_simulation_p2.mjs`; `npm.cmd run verify:simulation-p2`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Global Notification Builder Split
+
+- Forty-ninth frontend split target chosen from pure global-notification row aggregation logic in `public/index.html`.
+- Extended `public/notification-static.js` with `buildGlobalNotifications`, covering backend notification rows, active OTA auto-fetch status, last auto-fetch result, recent auto-fetch runs, and data-health work orders.
+- `public/index.html` keeps the original `globalNotifications` computed name and passes only current runtime state snapshots; notification loading, missing-table handling, read-state writes, hidden-state filtering, poll timers, and OTA capture state sources remain unchanged.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted notification builder, prevent the long inline aggregation loop from returning to `public/index.html`, and validate active auto-fetch, data-health targeting, and duplicate-id behavior in a VM context.
+- `public/index.html` decreased from `38797` lines to `38732` lines; the split-map `general` domain span decreased from `7498` to `7433` lines; `globalNotifications` no longer appears in the largest frontend blocks.
+- Current self-audit after the code move: full directory about `262.32 MB`, without `.git` about `92.13 MB`, without `.git` and dependencies about `62.94 MB`, tracked files about `18 MB` / `612` files; code scope `369` files, `187604` total lines, and `171849` nonblank lines.
+- Verified after the global notification builder split: `node --check public\notification-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

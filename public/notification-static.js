@@ -83,6 +83,95 @@ window.SUXI_NOTIFICATION_STATIC = (() => {
         };
     };
 
+    const buildGlobalNotifications = ({
+        backendItems = [],
+        autoFetchRunState = null,
+        autoFetchRunningHint = '',
+        autoFetchRunElapsedLabel = '',
+        autoFetchStatus = null,
+        autoFetchRecentRuns = [],
+        dataHealthTodayWorkOrders = [],
+        readIds = [],
+    } = {}) => {
+        const rows = Array.isArray(backendItems) ? [...backendItems] : [];
+        if (autoFetchRunState?.active) {
+            rows.push({
+                id: 'auto-fetch-running',
+                severity: 'info',
+                category: 'capture_running',
+                category_label: '采集中',
+                title: 'OTA 自动采集正在运行',
+                detail: sanitizeGlobalNotificationText(autoFetchRunState.message || autoFetchRunningHint || '后台正在采集授权 OTA 数据'),
+                time_label: autoFetchRunElapsedLabel || '',
+                action_label: '查看进度',
+                target_page: 'online-data',
+                target_tab: 'platform-auto',
+            });
+        }
+
+        const lastResult = autoFetchStatus?.last_result;
+        if (lastResult && (lastResult.message || autoFetchStatus?.last_run_time)) {
+            const success = lastResult.success === true;
+            const savedCount = Number(lastResult.saved_count || 0);
+            const message = lastResult.message || (success ? `自动采集完成，保存 ${savedCount} 条数据` : '自动采集失败');
+            rows.push({
+                id: buildGlobalNotificationId(['auto-fetch-last', autoFetchStatus?.last_run_time, success ? 'success' : 'failed', message]),
+                severity: success ? 'success' : 'error',
+                category: success ? 'capture_success' : 'capture_failed',
+                category_label: success ? '采集完成' : '采集失败',
+                title: success ? 'OTA 自动采集完成' : 'OTA 自动采集失败',
+                detail: sanitizeGlobalNotificationText(message),
+                time_label: autoFetchStatus?.last_run_time || '',
+                action_label: success ? '查看数据' : '查看原因',
+                target_page: 'online-data',
+                target_tab: 'data-health',
+            });
+        }
+
+        (Array.isArray(autoFetchRecentRuns) ? autoFetchRecentRuns : []).slice(0, 3).forEach((run, index) => {
+            const success = run?.success === true;
+            rows.push({
+                id: buildGlobalNotificationId(['auto-fetch-run', index, run?.run_at, run?.data_date, success ? 'success' : 'failed']),
+                severity: success ? 'success' : 'error',
+                category: success ? 'capture_success' : 'capture_failed',
+                category_label: success ? '采集完成' : '采集失败',
+                title: `${run?.data_date || '最近'} OTA 采集${success ? '完成' : '失败'}`,
+                detail: sanitizeGlobalNotificationText(run?.message || (success ? '已形成 OTA 采集记录' : '最近自动采集未成功')),
+                time_label: run?.run_at || '',
+                action_label: success ? '查看记录' : '查看原因',
+                target_page: 'online-data',
+                target_tab: 'data-health',
+            });
+        });
+
+        (Array.isArray(dataHealthTodayWorkOrders) ? dataHealthTodayWorkOrders : []).forEach((row, index) => {
+            const target = globalNotificationTargetFromAction(row);
+            const severity = globalNotificationSeverityFromPriority(row.priority);
+            rows.push({
+                id: buildGlobalNotificationId(['data-health', index, row.key, row.title, row.detail]),
+                severity,
+                category: row.action_type === 'cookie' ? 'cookie_alert' : (row.action_type === 'log' ? 'risk_action' : 'data_quality'),
+                category_label: row.source_label || '数据健康',
+                title: sanitizeGlobalNotificationText(row.title, '数据健康待处理'),
+                detail: sanitizeGlobalNotificationText(row.detail, '请进入数据健康中心查看处理'),
+                time_label: row.platform_label || '',
+                action_label: target.actionLabel,
+                target_page: target.page,
+                target_tab: target.tab,
+            });
+        });
+
+        const readSet = new Set(Array.isArray(readIds) ? readIds : []);
+        const seen = new Set();
+        return rows
+            .filter(row => {
+                if (!row.id || seen.has(row.id)) return false;
+                seen.add(row.id);
+                return true;
+            })
+            .map(row => row.source === 'backend' ? row : ({ ...row, is_read: readSet.has(row.id) }));
+    };
+
     return {
         sanitizeGlobalNotificationText,
         globalNotificationSeverityFromPriority,
@@ -92,5 +181,6 @@ window.SUXI_NOTIFICATION_STATIC = (() => {
         formatGlobalNotificationTime,
         buildGlobalNotificationId,
         normalizeBackendGlobalNotification,
+        buildGlobalNotifications,
     };
 })();

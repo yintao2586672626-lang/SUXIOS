@@ -720,6 +720,16 @@
 - 已验证：`node --check public\simulation-static.js`、`node --check scripts\verify_simulation_p2.mjs`、`npm.cmd run verify:simulation-p2`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十九刀拆分
+
+- 扩展 `public/notification-static.js`，承载全局通知展示聚合构建器 `buildGlobalNotifications`，覆盖后端通知、OTA 自动采集中、最近采集结果、最近采集记录和数据健康工单提醒。
+- `public/index.html` 只保留 `globalNotifications` computed 名称及运行态状态输入；通知接口加载、缺表提示、已读回写、隐藏状态、轮询计时器和 OTA 采集状态来源均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `buildGlobalNotifications({ ... })` 显式读取构建器，禁止通知行聚合循环重新内联，并在 VM 中校验采集中通知、数据健康目标和去重行为。
+- `public/index.html` 从 `38,797` 行降至 `38,732` 行；split-map 中 `general` 域 span 从 `7,498` 行降至 `7,433` 行，`globalNotifications` 不再进入最大前端块列表。
+- 当前自审计：完整目录约 `262.32 MB`，不含 `.git` 约 `92.13 MB`，不含 `.git` 和依赖约 `62.94 MB`；Git 跟踪文件约 `18 MB` / `612` 个；代码范围 `369` 个文件，`187,604` 行，非空 `171,849` 行。
+- 已验证：`node --check public\notification-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
