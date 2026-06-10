@@ -19082,7 +19082,8 @@
             const createCtripEndpointEvidenceForm = requireCtripStatic('createCtripEndpointEvidenceForm');
             const createCtripCommentForm = requireCtripStatic('createCtripCommentForm');
             const createCtripCommentBrowserCaptureForm = requireCtripStatic('createCtripCommentBrowserCaptureForm');
-            const buildCtripBrowserCapturePayload = requireCtripStatic('buildCtripBrowserCapturePayload');
+            const buildCtripBrowserCaptureTargetContext = requireCtripStatic('buildCtripBrowserCaptureTargetContext');
+            const buildCtripBrowserCaptureRequestContext = requireCtripStatic('buildCtripBrowserCaptureRequestContext');
             const normalizeCtripBrowserCaptureErrorResult = requireCtripStatic('normalizeCtripBrowserCaptureErrorResult');
             const buildCtripFetchDateRange = requireCtripStatic('buildCtripFetchDateRange');
             const buildCtripFetchRequestBody = requireCtripStatic('buildCtripFetchRequestBody');
@@ -32708,11 +32709,16 @@
             const runCtripBrowserCapture = async (options = {}) => {
                 const loginOnly = Boolean(options.loginOnly);
                 const silent = Boolean(options.silent);
-                const systemHotelId = selectedCtripHotelId.value || autoFetchHotelId.value || user.value?.hotel_id || null;
-                if (!systemHotelId) {
-                    if (!silent) showToast('请选择目标酒店', 'error');
-                    return { code: 400, message: '请选择目标酒店' };
+                const targetContext = buildCtripBrowserCaptureTargetContext({
+                    selectedCtripHotelId: selectedCtripHotelId.value,
+                    autoFetchHotelId: autoFetchHotelId.value,
+                    userHotelId: user.value?.hotel_id,
+                });
+                if (!targetContext.ok) {
+                    if (!silent) showToast(targetContext.result.message, 'error');
+                    return targetContext.result;
                 }
+                const { systemHotelId } = targetContext;
 
                 if (!selectedCtripHotelId.value) {
                     selectedCtripHotelId.value = String(systemHotelId);
@@ -32729,30 +32735,20 @@
                     applyCtripConfigObject(activeConfig, false);
                 }
 
-                const form = ctripBrowserCaptureForm.value;
-                const hotelId = String(
-                    form.hotelId
-                    || activeConfig?.ota_hotel_id
-                    || activeConfig?.ctrip_hotel_id
-                    || activeConfig?.ctripHotelId
-                    || ctripOverviewForm.value.hotelId
-                    || ''
-                ).trim();
-                const profileId = resolveCtripBrowserProfileId({ activeConfig });
-                if (!profileId) {
-                    if (!silent) showToast('请填写携程登录会话标识，或先绑定携程登录会话数据源', 'error');
-                    return { code: 400, message: '请填写携程登录会话标识，或先绑定携程登录会话数据源' };
-                }
-                const capturePayload = buildCtripBrowserCapturePayload({
+                const requestContext = buildCtripBrowserCaptureRequestContext({
                     systemHotelId,
-                    hotelId,
+                    activeConfig,
+                    form: ctripBrowserCaptureForm.value,
+                    overviewForm: ctripOverviewForm.value,
                     hotelName: getHotelNameById(systemHotelId),
-                    profileId,
-                    cookies: activeConfig?.cookies || activeConfig?.cookie || '',
-                    dataDate: ctripOverviewForm.value.dataDate,
-                    form,
+                    profileId: resolveCtripBrowserProfileId({ activeConfig }),
                     options,
                 });
+                if (!requestContext.ok) {
+                    if (!silent) showToast(requestContext.result.message, 'error');
+                    return requestContext.result;
+                }
+                const { capturePayload, profileId } = requestContext;
 
                 ctripBrowserCaptureRunning.value = true;
                 fetchingData.value = true;

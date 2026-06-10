@@ -982,6 +982,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Ctrip Browser Capture Request Context Split
+
+- Seventy-fourth frontend split target chosen from Ctrip browser capture target and request payload construction inside `runCtripBrowserCapture()` in `public/index.html`.
+- Extended `public/ctrip-static.js` with `buildCtripBrowserCaptureTargetContext` and `buildCtripBrowserCaptureRequestContext` for target hotel fallback, missing-target result, Profile missing result, hotel id resolution, Cookie/DataDate fields, and capture payload construction.
+- `public/index.html` keeps runtime orchestration in place: Ctrip config loading, secret hydration, active config application, `/online-data/capture-ctrip-browser` execution, Profile status writes, latest snapshot/history/data-health refresh, and error display.
+- This split did not change the Ctrip browser capture endpoint, Profile login persistence, data-source binding, storage behavior, refresh behavior, missing/failed-state visibility, or OTA channel scope.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted target/request context helpers, prevent hotel id and Cookie payload logic from being re-inlined, and validate missing target, target fallback, missing Profile, payload fields, and sections samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37940` lines to `37936` lines; `ctrip` domain span decreased from `3459` to `3454`; `runCtripBrowserCapture` decreased from `105` to `100` lines.
+- Current self-audit: full directory about `277.79 MB`, without `.git` about `92.32 MB`, without `.git` and dependencies about `63.13 MB`, tracked files about `18.20 MB` / `613` files; code scope `370` files, `189984` total lines, and `174197` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

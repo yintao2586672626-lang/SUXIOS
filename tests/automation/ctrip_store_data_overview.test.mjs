@@ -259,7 +259,7 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.match(html, /'ctrip-traffic': \(\) => runCtripOverviewCookieApiCapture\(\['traffic_report'\]/);
   assert.match(html, /'ctrip-quality': \(\) => runCtripOverviewCookieApiCapture\(\['quality_psi'\]/);
   assert.match(html, /'ctrip-ads': \(\) => runCtripOverviewCookieApiCapture\(\['ads_pyramid'\]/);
-  assert.match(html, /const optionSections = options\.sections \|\| options\.captureSections \|\| ''/);
+  assert.match(ctripStatic, /const optionSections = options\.sections \|\| options\.captureSections \|\| ''/);
 
   const quickActionRunner = sliceBetween(
     html,
@@ -292,7 +292,7 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   const profileRunner = sliceBetween(
     html,
     'const runCtripBrowserCapture = async (options = {}) =>',
-    'const normalizeCtripBrowserCaptureErrorResult = (error) =>'
+    'const loadCtripDiagnosisSnapshot'
   );
   assert.match(cookieApiRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
   assert.match(profileRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
@@ -374,7 +374,7 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   const profileCapture = sliceBetween(
     html,
     'const runCtripBrowserCapture',
-    'const normalizeCtripBrowserCaptureErrorResult'
+    'const loadCtripDiagnosisSnapshot'
   );
   const cookieApiResolver = sliceBetween(
     html,
@@ -412,7 +412,7 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.match(profileLoginTrigger, /buildPlatformProfileLoginPayload\(platform, item\)/);
   assert.match(profileLoginTrigger, /platform === 'ctrip' && !payload\.profile_id/);
   assert.doesNotMatch(profileLoginPayload, /form\.profileId \|\| hotelIdValue \|\| hotelId/);
-  assert.match(profileCapture, /const profileId = resolveCtripBrowserProfileId\(\{ activeConfig \}\)/);
+  assert.match(profileCapture, /profileId:\s*resolveCtripBrowserProfileId\(\{\s*activeConfig\s*\}\)/);
   assert.doesNotMatch(profileCapture, /form\.profileId \|\| hotelId \|\| systemHotelId/);
   assert.match(cookieApiProfileResolver, /resolveCtripBrowserProfileId\(\{\s*activeConfig,\s*includeCookieForm: true,\s*\}\)/);
   assert.doesNotMatch(cookieApiProfileResolver, /nodeId|systemHotelId\s*\|\|/);

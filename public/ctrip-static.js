@@ -171,6 +171,22 @@ window.SUXI_CTRIP_STATIC = (() => {
             .filter(Boolean);
         return normalized.length ? normalized : ['default'];
     };
+    const ctripBrowserProfileMissingMessage = '请填写携程登录会话标识，或先绑定携程登录会话数据源';
+    const buildCtripBrowserCaptureTargetContext = ({
+        selectedCtripHotelId = '',
+        autoFetchHotelId = '',
+        userHotelId = '',
+    } = {}) => {
+        const systemHotelId = selectedCtripHotelId || autoFetchHotelId || userHotelId || null;
+        if (!systemHotelId) {
+            return {
+                ok: false,
+                systemHotelId: null,
+                result: { code: 400, message: '请选择目标酒店' },
+            };
+        }
+        return { ok: true, systemHotelId };
+    };
     const buildCtripBrowserCapturePayload = ({
         systemHotelId = '',
         hotelId = '',
@@ -193,6 +209,50 @@ window.SUXI_CTRIP_STATIC = (() => {
             login_only: Boolean(options.loginOnly),
             bind_data_source: options.bindDataSource !== false,
             approved_mappings_path: String(form.approvedMappingsPath || '').trim(),
+        };
+    };
+    const buildCtripBrowserCaptureRequestContext = ({
+        systemHotelId = '',
+        activeConfig = null,
+        form = {},
+        overviewForm = {},
+        hotelName = '',
+        profileId = '',
+        options = {},
+    } = {}) => {
+        const hotelId = String(
+            form.hotelId
+            || activeConfig?.ota_hotel_id
+            || activeConfig?.ctrip_hotel_id
+            || activeConfig?.ctripHotelId
+            || overviewForm.hotelId
+            || ''
+        ).trim();
+        if (!profileId) {
+            return {
+                ok: false,
+                systemHotelId,
+                hotelId,
+                profileId: '',
+                result: { code: 400, message: ctripBrowserProfileMissingMessage },
+            };
+        }
+        const capturePayload = buildCtripBrowserCapturePayload({
+            systemHotelId,
+            hotelId,
+            hotelName,
+            profileId,
+            cookies: activeConfig?.cookies || activeConfig?.cookie || '',
+            dataDate: overviewForm.dataDate,
+            form,
+            options,
+        });
+        return {
+            ok: true,
+            systemHotelId,
+            hotelId,
+            profileId,
+            capturePayload,
         };
     };
     const normalizeCtripBrowserCaptureErrorResult = (error) => {
@@ -978,7 +1038,9 @@ window.SUXI_CTRIP_STATIC = (() => {
         createCtripCommentForm,
         createCtripCommentBrowserCaptureForm,
         normalizeCtripBrowserCaptureSections,
+        buildCtripBrowserCaptureTargetContext,
         buildCtripBrowserCapturePayload,
+        buildCtripBrowserCaptureRequestContext,
         normalizeCtripBrowserCaptureErrorResult,
         buildCtripFetchDateRange,
         buildCtripFetchRequestBody,

@@ -66,8 +66,11 @@ requireText('public/index.html', 'buildHotelPlatformAccountRowStatic', 'entry us
 requireText('public/system-static.js', 'const buildHotelPlatformAccountRow', 'system static builds hotel platform account rows');
 requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
 requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
-requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCapturePayload')", 'entry uses extracted Ctrip browser capture payload builder');
+requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCaptureTargetContext')", 'entry uses extracted Ctrip browser capture target context builder');
+requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCaptureRequestContext')", 'entry uses extracted Ctrip browser capture request context builder');
+requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureTargetContext', 'Ctrip static builds browser capture target context');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
+requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureRequestContext', 'Ctrip static builds browser capture request context');
 requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorResult', 'Ctrip static normalizes browser capture errors');
 requireText('public/index.html', "requireCtripStatic('buildCtripFetchRequestBody')", 'entry uses extracted Ctrip fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripFetchDateRange', 'Ctrip static builds fetch date ranges');
@@ -104,6 +107,8 @@ requireText('public/notification-static.js', 'const buildGlobalNotifications', '
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
+requireNoText('public/index.html', 'const hotelId = String(\n                    form.hotelId', 'Ctrip browser capture hotel id resolution is not re-inlined');
+requireNoText('public/index.html', "cookies: activeConfig?.cookies || activeConfig?.cookie || '',", 'Ctrip browser capture cookie payload is not re-inlined');
 requireNoText('public/index.html', 'const optionSections = options.sections || options.captureSections ||', 'Ctrip browser capture section normalization is not re-inlined');
 requireNoText('public/index.html', 'const normalizeCtripBrowserCaptureErrorResult = (error) => {', 'Ctrip browser capture error normalization is not re-inlined');
 requireNoText('public/index.html', 'const yesterday = new Date();', 'Ctrip fetch default date calculation is not re-inlined');
@@ -966,7 +971,9 @@ try {
     filename: 'public/ctrip-static.js',
   });
   const ctripStatic = context.window.SUXI_CTRIP_STATIC || {};
+  const buildCtripBrowserCaptureTargetContext = ctripStatic.buildCtripBrowserCaptureTargetContext;
   const buildCtripBrowserCapturePayload = ctripStatic.buildCtripBrowserCapturePayload;
+  const buildCtripBrowserCaptureRequestContext = ctripStatic.buildCtripBrowserCaptureRequestContext;
   const normalizeCtripBrowserCaptureErrorResult = ctripStatic.normalizeCtripBrowserCaptureErrorResult;
   const buildCtripFetchDateRange = ctripStatic.buildCtripFetchDateRange;
   const buildCtripFetchRequestBody = ctripStatic.buildCtripFetchRequestBody;
@@ -988,14 +995,22 @@ try {
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
   const buildCtripProfileRecheckErrorResult = ctripStatic.buildCtripProfileRecheckErrorResult;
   const buildCtripProfileRecheckInterruptedState = ctripStatic.buildCtripProfileRecheckInterruptedState;
-  if (typeof buildCtripBrowserCapturePayload !== 'function') {
+  if (typeof buildCtripBrowserCaptureTargetContext !== 'function'
+    || typeof buildCtripBrowserCapturePayload !== 'function'
+    || typeof buildCtripBrowserCaptureRequestContext !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
-      label: 'Ctrip static exports browser capture payload builder',
+      label: 'Ctrip static exports browser capture context builders',
       ok: false,
-      detail: 'buildCtripBrowserCapturePayload',
+      detail: 'buildCtripBrowserCaptureTargetContext/buildCtripBrowserCapturePayload/buildCtripBrowserCaptureRequestContext',
     });
   } else {
+    const missingTarget = buildCtripBrowserCaptureTargetContext({});
+    const selectedTarget = buildCtripBrowserCaptureTargetContext({
+      selectedCtripHotelId: '',
+      autoFetchHotelId: '58',
+      userHotelId: '99',
+    });
     const payload = buildCtripBrowserCapturePayload({
       systemHotelId: '10',
       hotelId: '24588',
@@ -1010,10 +1025,43 @@ try {
       form: { sections: '' },
       options: {},
     });
+    const requestContext = buildCtripBrowserCaptureRequestContext({
+      systemHotelId: '58',
+      activeConfig: {
+        ota_hotel_id: 'ota-58',
+        ctrip_hotel_id: 'ctrip-ignored',
+        cookies: 'sid=request-context',
+      },
+      form: { hotelId: '', sections: 'business_overview', approvedMappingsPath: ' approved.json ' },
+      overviewForm: { hotelId: 'overview-58', dataDate: '2026-06-10' },
+      hotelName: 'Tiancheng Hotel',
+      profileId: 'profile-58',
+      options: { loginOnly: false, bindDataSource: true },
+    });
+    const missingProfileContext = buildCtripBrowserCaptureRequestContext({
+      systemHotelId: '58',
+      activeConfig: { ota_hotel_id: 'ota-58' },
+      form: {},
+      profileId: '',
+    });
     checks.push({
       file: 'public/ctrip-static.js',
-      label: 'Ctrip browser capture payload keeps request fields and normalized sections',
-      ok: payload.system_hotel_id === '10'
+      label: 'Ctrip browser capture context keeps target and request fields explicit',
+      ok: missingTarget.ok === false
+        && missingTarget.result.message === '请选择目标酒店'
+        && selectedTarget.ok === true
+        && selectedTarget.systemHotelId === '58'
+        && requestContext.ok === true
+        && requestContext.capturePayload.system_hotel_id === '58'
+        && requestContext.capturePayload.hotel_id === 'ota-58'
+        && requestContext.capturePayload.hotel_name === 'Tiancheng Hotel'
+        && requestContext.capturePayload.profile_id === 'profile-58'
+        && requestContext.capturePayload.cookies === 'sid=request-context'
+        && requestContext.capturePayload.data_date === '2026-06-10'
+        && requestContext.capturePayload.sections[0] === 'business_overview'
+        && missingProfileContext.ok === false
+        && missingProfileContext.result.message.includes('携程登录会话标识')
+        && payload.system_hotel_id === '10'
         && payload.hotel_id === '24588'
         && payload.hotel_name === 'Demo Hotel'
         && payload.profile_id === 'profile-1'
