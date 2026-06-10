@@ -204,6 +204,98 @@ window.SUXI_SIMULATION_STATIC = (() => {
         { key: 'order_count', label: '订单量', hint: '近30天有效订单', min: 0 },
         { key: 'room_nights', label: '间夜', hint: '近30天已售间夜', min: 0 },
     ];
+    const roundTransferMetric = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
+    const buildTransferTimingDataCheck = (form = {}) => {
+        const exposure = Math.max(0, toNumberValue(form.exposure));
+        const visitors = Math.max(0, toNumberValue(form.visitors));
+        const conversionRate = Math.max(0, toNumberValue(form.conversion_rate));
+        const orderCount = Math.max(0, toNumberValue(form.order_count));
+        const roomNights = Math.max(0, toNumberValue(form.room_nights));
+        const derivedConversion = visitors > 0 ? roundTransferMetric((orderCount / visitors) * 100, 1) : null;
+        const roomNightPerOrder = orderCount > 0 ? roundTransferMetric(roomNights / orderCount, 2) : null;
+        const issues = [];
+        let hasDataAnomaly = false;
+        let hasDataGap = false;
+
+        const hasAnyMetric = [exposure, visitors, conversionRate, orderCount, roomNights].some(value => value > 0);
+        const suspectedCollectionAnomaly = exposure === 0 && visitors === 0 && conversionRate === 0 && (orderCount > 0 || roomNights > 0);
+
+        if (!hasAnyMetric) {
+            hasDataGap = true;
+            issues.push('流量、转化、订单与间夜均为空，无法判断真实经营趋势');
+        } else if (suspectedCollectionAnomaly) {
+            hasDataAnomaly = true;
+            issues.push('曝光、访客、转化率为0，但订单或间夜大于0');
+        } else {
+            if (exposure > 0 && visitors === 0) {
+                hasDataGap = true;
+                issues.push('有曝光但访客为0，需确认访客口径是否缺失');
+            }
+            if (visitors > exposure && exposure > 0) {
+                hasDataAnomaly = true;
+                issues.push('访客大于曝光，存在口径冲突');
+            }
+            if (conversionRate > 100) {
+                hasDataAnomaly = true;
+                issues.push('转化率超过100%，需复核百分比填写口径');
+            }
+            if (orderCount > 0 && roomNights === 0) {
+                hasDataGap = true;
+                issues.push('有订单但间夜为0，需补齐间夜数据');
+            }
+            if (roomNights > 0 && orderCount === 0) {
+                hasDataGap = true;
+                issues.push('有间夜但订单为0，需补齐订单数据');
+            }
+        }
+
+        if (suspectedCollectionAnomaly) {
+            return {
+                status: '疑似采集异常',
+                message: issues.join('；'),
+                suggestion: '本次推演会自动纳入异常标记，建议先复核OTA采集口径再解读下滑原因。',
+                panelClass: 'bg-amber-50 border-amber-200',
+                badgeClass: 'bg-amber-100 text-amber-700 border-amber-200',
+                iconClass: 'fas fa-exclamation-triangle text-amber-500',
+                suggestionClass: 'text-amber-700',
+                derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
+                roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
+                hasDataAnomaly,
+                hasDataGap,
+            };
+        }
+
+        if (hasDataAnomaly || hasDataGap) {
+            const status = hasDataAnomaly ? '口径冲突' : '数据断档';
+            return {
+                status,
+                message: issues.join('；'),
+                suggestion: hasDataAnomaly ? '本次推演会自动纳入异常标记，建议先校正冲突字段。' : '本次推演会自动纳入断档标记，建议补齐缺失字段后再判断挂牌窗口。',
+                panelClass: hasDataAnomaly ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200',
+                badgeClass: hasDataAnomaly ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-700 border-amber-200',
+                iconClass: hasDataAnomaly ? 'fas fa-exclamation-circle text-rose-500' : 'fas fa-exclamation-triangle text-amber-500',
+                suggestionClass: hasDataAnomaly ? 'text-rose-700' : 'text-amber-700',
+                derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
+                roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
+                hasDataAnomaly,
+                hasDataGap,
+            };
+        }
+
+        return {
+            status: '数据口径正常',
+            message: '曝光、访客、转化、订单与间夜关系未发现明显冲突。',
+            suggestion: '可直接参与时机推演；如数据来自手工录入，仍建议保留原始报表备查。',
+            panelClass: 'bg-emerald-50 border-emerald-100',
+            badgeClass: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+            iconClass: 'fas fa-check-circle text-emerald-500',
+            suggestionClass: 'text-emerald-700',
+            derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
+            roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
+            hasDataAnomaly: false,
+            hasDataGap: false,
+        };
+    };
     const simulationCostFields = [
         { key: 'monthlyRent', label: '月租金' },
         { key: 'laborCost', label: '人工成本' },
@@ -577,6 +669,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         transferTimingCompareFields,
         transferTimingNumberFields,
         transferTimingDataFields,
+        buildTransferTimingDataCheck,
         simulationCostFields,
         simulationCostFieldGroups,
         simulationOtaCommissionChannelDefinitions,

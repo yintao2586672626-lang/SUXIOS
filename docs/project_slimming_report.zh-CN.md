@@ -709,6 +709,17 @@
 - 已验证：`node --check public\expansion-static-options.js`、`node --check scripts\verify_expansion_p2.mjs`、`node scripts\verify_expansion_p2.mjs`、`npm.cmd run verify:expansion-p2`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十八刀拆分
+
+- 扩展 `public/simulation-static.js`，承载转让时机数据口径检查构建器 `buildTransferTimingDataCheck`，覆盖数据断档、口径冲突、疑似采集异常和正常状态。
+- `public/index.html` 只保留 `transferTimingDataCheck` computed 名称及 `transferTimingForm` 运行态输入；转让时机请求、结果保存、历史记录、复用、归档、AI 判断和 OTA 原始数据路径均未迁移。
+- 更新 `scripts/verify_simulation_p2.mjs`，要求入口通过 `requireSimulationStatic('buildTransferTimingDataCheck')` 显式读取构建器，禁止口径检查长逻辑重新内联，并在 VM 中校验正常、断档、疑似采集异常三种样例输出。
+- 补齐 `package.json` 的 `verify:simulation-p2` 脚本别名，指向既有 `scripts/verify_simulation_p2.mjs`。
+- `public/index.html` 从 `38,887` 行降至 `38,797` 行；split-map 中 `transfer` 域 span 从 `364` 行降至 `274` 行，当前最大前端块仍为 `runOtaDiagnosisHotelFetch`（`265` 行）。
+- 当前自审计：完整目录约 `261.74 MB`，不含 `.git` 约 `92.12 MB`，不含 `.git` 和依赖约 `62.93 MB`；Git 跟踪文件约 `18 MB` / `612` 个；代码范围 `369` 个文件，`187,515` 行，非空 `171,766` 行。
+- 已验证：`node --check public\simulation-static.js`、`node --check scripts\verify_simulation_p2.mjs`、`npm.cmd run verify:simulation-p2`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

@@ -667,6 +667,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the market-evaluation risk builder split: `node --check public\expansion-static-options.js`; `node --check scripts\verify_expansion_p2.mjs`; `node scripts\verify_expansion_p2.mjs`; `npm.cmd run verify:expansion-p2`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Transfer Timing Data Check Split
+
+- Forty-eighth frontend split target chosen from pure transfer-timing data-quality display logic in `public/index.html`.
+- Extended `public/simulation-static.js` with `buildTransferTimingDataCheck`, covering data gaps, metric conflicts, suspected collection anomalies, and normal transfer-timing data status.
+- `public/index.html` keeps the original `transferTimingDataCheck` computed name and passes only `transferTimingForm`; transfer-timing requests, result save/display, record history, reuse/archive behavior, AI judgement, and OTA raw data paths remain unchanged.
+- Updated `scripts/verify_simulation_p2.mjs` so Simulation P2 requires the extracted transfer-timing data-check builder, prevents the long inline metric-check block from returning to `public/index.html`, and validates normal, gap, and suspected collection anomaly samples in a VM context.
+- Added the `verify:simulation-p2` npm script alias for the existing simulation P2 verifier.
+- `public/index.html` decreased from `38887` lines to `38797` lines; the split-map `transfer` domain span decreased from `364` to `274` lines; the real largest frontend block remains `runOtaDiagnosisHotelFetch` at `265` lines.
+- Current self-audit after the code move: full directory about `261.74 MB`, without `.git` about `92.12 MB`, without `.git` and dependencies about `62.93 MB`, tracked files about `18 MB` / `612` files; code scope `369` files, `187515` total lines, and `171766` nonblank lines.
+- Verified after the transfer timing data-check split: `node --check public\simulation-static.js`; `node --check scripts\verify_simulation_p2.mjs`; `npm.cmd run verify:simulation-p2`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
