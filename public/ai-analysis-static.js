@@ -416,6 +416,27 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         retried: false,
     }));
 
+    const buildCapturedOtaAnalysisRunPlan = ({
+        selectedData = [],
+        isDeepSeekPro = false,
+        timestamp = Date.now(),
+    } = {}) => {
+        const hotelsPayload = selectedData
+            .map(buildCapturedOtaHotelPayload)
+            .filter(item => item.hotel_id || item.hotel_name);
+        const groupSize = isDeepSeekPro ? 3 : 5;
+        const groups = chunkArray(hotelsPayload, groupSize);
+        return {
+            hotelsPayload,
+            groups,
+            progress: buildAiAnalysisProgress({
+                hotelCount: hotelsPayload.length,
+                groupCount: groups.length,
+            }),
+            batchResults: buildAiAnalysisBatchResults(groups, timestamp),
+        };
+    };
+
     const buildCapturedOtaSummaryRequestBody = ({
         platform = 'ctrip',
         modelKey = '',
@@ -486,6 +507,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildCapturedFallbackSummaryReport,
         buildAiAnalysisProgress,
         buildAiAnalysisBatchResults,
+        buildCapturedOtaAnalysisRunPlan,
         buildCapturedOtaSummaryRequestBody,
         buildAiAnalysisHistoryRecord,
     };
