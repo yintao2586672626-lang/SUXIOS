@@ -309,6 +309,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the nineteenth frontend split: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `npm.cmd run verify:home-visual-hierarchy`; `npm.cmd run verify:public-entry`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
+## 2026-06-10 Progress: Frontend OTA Diagnosis Display Utility Split
+
+- Twentieth frontend split target chosen from pure OTA diagnosis result display builders in `public/index.html`.
+- Added `public/ota-diagnosis-static.js` with `normalizeOtaDiagnosisList`, priority text/classes, date-range text, metric cards, and diagnosis section builders.
+- `public/index.html` now keeps only computed bindings and runtime inputs for OTA diagnosis display; result labels, icons, section mapping, and empty-state copy are handled by `window.SUXI_OTA_DIAGNOSIS_STATIC`.
+- This split intentionally does not move `runOtaDiagnosisHotelFetch`; OTA capture, Cookie/Profile checks, request calls, and persistence behavior remain in the existing entry flow.
+- Updated `scripts/verify_e2e_contracts.mjs` so OTA diagnosis UI section evidence reads both `public/index.html` and `public/ota-diagnosis-static.js`; updated `scripts/verify_ota_diagnosis_auto_fetch.mjs` so Ctrip overview static endpoint evidence reads `public/ctrip-static.js` after the earlier static split.
+- `public/index.html` decreased from `41527` lines to `41467` lines; current `public/ota-diagnosis-static.js` is `94` lines; current split map reports `1151` frontend function-level blocks, `44` `currentPage` references, and OTA-domain span `693` lines.
+- Current self-audit after the twentieth frontend split: full directory about `244.65 MB`, without `.git` about `91.96 MB`, without `.git` and dependencies about `62.77 MB`, tracked files about `17.84 MB` / `609` files; code scope `366` files, `186288` total lines, `170608` nonblank lines.
+- Verified after the twentieth frontend split: `node --check public\ota-diagnosis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check scripts\verify_ota_diagnosis_auto_fetch.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:ota-diagnosis-auto-fetch`; `npm.cmd run verify:public-entry`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

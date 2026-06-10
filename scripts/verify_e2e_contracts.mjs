@@ -68,7 +68,7 @@ requireText('public/index.html', 'field-strategy-city', 'strategy city field has
 requireText('public/index.html', 'field-simulation-adr', 'simulation ADR field has stable selector');
 requireText('public/index.html', 'field-market-business-area', 'market business area field has stable selector');
 requireText('public/index.html', 'field-transfer-pricing-', 'transfer pricing fields have stable selectors');
-requireText('public/index.html', 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
+requireTextInFiles(['public/index.html', 'public/ota-diagnosis-static.js'], 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
 requireNoText('public/index.html', "title: '点评问题'", 'OTA diagnosis UI does not render the deprecated comment section');
 requireNoText('public/index.html', "openDataConfigModal('ctrip-comments')", 'Ctrip comment capture card is not exposed in UI');
 requireNoText('public/index.html', "openDataConfigModal('meituan-comments')", 'Meituan comment capture card is not exposed in UI');

@@ -99,9 +99,9 @@
 
 | 口径 | 当前值 |
 |---|---:|
-| 代码文件 | 365 |
-| 总代码行 | 约 186,245 |
-| 非空代码行 | 约 170,572 |
+| 代码文件 | 366 |
+| 总代码行 | 约 186,288 |
+| 非空代码行 | 约 170,608 |
 
 ## 跟踪代码热点
 
@@ -109,7 +109,7 @@
 
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
-| `public/index.html` | 41,527 | 2.98 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，抽出自动采集静态配置到 `public/auto-fetch-static.js`，抽出门店罗盘静态配置到 `public/compass-static.js`，抽出模拟测算/转让字段静态配置到 `public/simulation-static.js`，抽出运营/开业静态选项到 `public/operation-static.js`，继续把门店罗盘宏观信号文案归入 `public/compass-static.js`，抽出携程字段/Profile/概览接口静态配置到 `public/ctrip-static.js`，抽出系统/AI/知识库静态配置、AI 模型配置 I18N、语言选项和导航菜单定义到 `public/system-static.js`，抽出前端复用 Vue 组件到 `public/shared-components.js`，抽出全局通知展示工具到 `public/notification-static.js`，抽出美团榜单展示工具和美团竞对摘要卡片构建器到 `public/meituan-static.js`，扩展 `public/data-health-static.js` 承载数据健康展示、失败原因排名和今日待办构建工具，并新增 `public/home-static.js` 承载首页闭环与 AI 轨迹展示构建器；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
+| `public/index.html` | 41,467 | 2.98 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，抽出自动采集静态配置到 `public/auto-fetch-static.js`，抽出门店罗盘静态配置到 `public/compass-static.js`，抽出模拟测算/转让字段静态配置到 `public/simulation-static.js`，抽出运营/开业静态选项到 `public/operation-static.js`，继续把门店罗盘宏观信号文案归入 `public/compass-static.js`，抽出携程字段/Profile/概览接口静态配置到 `public/ctrip-static.js`，抽出系统/AI/知识库静态配置、AI 模型配置 I18N、语言选项和导航菜单定义到 `public/system-static.js`，抽出前端复用 Vue 组件到 `public/shared-components.js`，抽出全局通知展示工具到 `public/notification-static.js`，抽出美团榜单展示工具和美团竞对摘要卡片构建器到 `public/meituan-static.js`，扩展 `public/data-health-static.js` 承载数据健康展示、失败原因排名和今日待办构建工具，新增 `public/home-static.js` 承载首页闭环与 AI 轨迹展示构建器，并新增 `public/ota-diagnosis-static.js` 承载 OTA 诊断结果展示构建器；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
 | `app/controller/OnlineData.php` | 27,333 | 1.17 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程/美团点评旧直连、旧浏览器抓取、旧配置读写和旧自动抓取执行死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
 
 前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分集中在 `app/controller/OnlineData.php` 后端瘦身与 `public/index.html` 前端静态配置拆分，均保持现有路由、接口和 Vue CDN 运行契约。
@@ -130,7 +130,7 @@
 
 | 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
 |---|---:|---|---|
-| `public/index.html` | 1,152 个函数级块；44 个 `currentPage` 引用 | `requireHomeStatic` 273 行、`runOtaDiagnosisHotelFetch` 265 行、`requireDataHealthStatic` 231 行 | `general` 10,126 行、`ctrip` 3,877 行、`ai` 1,516 行、`hotel_admin` 1,516 行、`meituan` 1,371 行 |
+| `public/index.html` | 1,151 个函数级块；44 个 `currentPage` 引用 | `requireHomeStatic` 273 行、`runOtaDiagnosisHotelFetch` 265 行、`requireDataHealthStatic` 231 行 | `general` 10,126 行、`ctrip` 3,877 行、`ai` 1,516 行、`hotel_admin` 1,516 行、`meituan` 1,371 行、`ota` 693 行 |
 | `app/controller/OnlineData.php` | 871 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 11,861 行、`meituan` 4,979 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
 
 ## 2026-06-10 后端第一刀拆分
@@ -382,6 +382,16 @@
 - `public/index.html` 从 `41,586` 行降至 `41,527` 行；当前 `public/home-static.js` 为 `122` 行；当前拆分地图报告 `1,152` 个前端函数级块和 `44` 个 `currentPage` 引用，`general` 领域 span 降至 `10,126` 行。
 - 当前审计：完整目录约 `244.06 MB`；不含 `.git` 约 `91.95 MB`；不含 `.git` 和依赖约 `62.76 MB`；Git 跟踪文件约 `17.83 MB` / `608` 个；代码范围 `365` 个文件、`186,245` 行、非空 `170,572` 行。
 - 验证通过：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`、`npm.cmd run verify:public-entry`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
+## 2026-06-10 前端第二十刀拆分
+
+- 新增 `public/ota-diagnosis-static.js`，承载 `normalizeOtaDiagnosisList`、OTA 诊断优先级、日期范围、指标卡和诊断分组展示构建器。
+- `public/index.html` 只保留 computed 绑定和运行态输入；OTA 诊断结果展示文案、图标、分组映射和空状态文案转移到 `window.SUXI_OTA_DIAGNOSIS_STATIC`。本轮不移动 `runOtaDiagnosisHotelFetch`，不改采集、Cookie/Profile 检查、接口调用或入库链路。
+- 更新 `scripts/verify_e2e_contracts.mjs`，让 OTA 诊断 UI 合同读取 `public/index.html` 和 `public/ota-diagnosis-static.js`；更新 `scripts/verify_ota_diagnosis_auto_fetch.mjs`，让携程 overview 静态接口名证据读取 `public/ctrip-static.js`，避免前序静态拆分后误报。
+- `public/index.html` 从 `41,527` 行降至 `41,467` 行；当前 `public/ota-diagnosis-static.js` 为 `94` 行；当前拆分地图报告 `1,151` 个前端函数级块和 `44` 个 `currentPage` 引用，`ota` 领域 span 降至 `693` 行。
+- 当前审计：完整目录约 `244.65 MB`；不含 `.git` 约 `91.96 MB`；不含 `.git` 和依赖约 `62.77 MB`；Git 跟踪文件约 `17.84 MB` / `609` 个；代码范围 `366` 个文件、`186,288` 行、非空 `170,608` 行。
+- 验证通过：`node --check public\ota-diagnosis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_ota_diagnosis_auto_fetch.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:ota-diagnosis-auto-fetch`、`npm.cmd run verify:public-entry`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
 ## 后续处理建议

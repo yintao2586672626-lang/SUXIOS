@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 
 const source = readFileSync('public/index.html', 'utf8');
+const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const controllerSource = readFileSync('app/controller/OnlineData.php', 'utf8');
 const routeSource = readFileSync('route/app.php', 'utf8');
 const ctripBrowserScriptPath = 'scripts/ctrip_browser_capture.mjs';
@@ -279,8 +280,8 @@ const checks = [
       && controllerSource.includes('getLastWeekReportV1')
       && source.includes('ctripOverviewForm.requestUrls')
       && source.includes('ctripOverviewForm.cookies')
-      && source.includes('queryFlowTransforNewV1')
-      && source.includes('getTrafficReportV1')
+      && (source + ctripStaticSource).includes('queryFlowTransforNewV1')
+      && (source + ctripStaticSource).includes('getTrafficReportV1')
       && !source.includes("request('/online-data/capture-ctrip-overview-browser'")
       && !controllerSource.includes('captureCtripOverviewBrowserData'),
   },
