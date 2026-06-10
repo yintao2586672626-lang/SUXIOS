@@ -371,6 +371,26 @@ window.SUXI_CTRIP_STATIC = (() => {
         };
     };
 
+    const buildCtripOverviewFetchRequestBody = ({
+        systemHotelId = null,
+        hotelId = '',
+        hotelName = '',
+        cookies = '',
+        requestUrls = '',
+        form = {},
+        defaultMethod = 'POST',
+    } = {}) => ({
+        system_hotel_id: systemHotelId,
+        hotel_id: hotelId,
+        hotel_name: hotelName,
+        cookies,
+        request_urls: requestUrls,
+        payload_json: form.payloadJson,
+        spidertoken: form.spidertoken,
+        method: form.method || defaultMethod,
+        data_date: form.dataDate,
+    });
+
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
     const ctripSortMetricValue = (row = {}, field = '') => {
@@ -874,6 +894,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildLatestCtripSnapshotModel,
         buildCtripTrafficFetchRequestBody,
         buildCtripTrafficResponseModel,
+        buildCtripOverviewFetchRequestBody,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,

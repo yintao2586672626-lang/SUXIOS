@@ -820,6 +820,16 @@
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:clean:dry-run`、`npm.cmd run self:clean`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第五十九刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程今日概况和流量概要直连共用的请求体构建器 `buildCtripOverviewFetchRequestBody`。
+- `public/index.html` 只保留 `fetchCtripOverviewData()` / `fetchCtripFlowOverviewData()` 的运行时职责：酒店/配置/Cookie/Request URL 校验、调用 `/online-data/fetch-ctrip-overview`、写入结果、刷新最新快照和历史；携程概况接口、入库行为、展示字段、失败提示和 OTA 渠道范围均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `requireCtripStatic('buildCtripOverviewFetchRequestBody')` 显式读取构建器，禁止概况/流量概要请求体和 method fallback 重新内联，并在 VM 中校验表单 method 优先级、默认 GET 方法、请求 URL、payload、spidertoken 和 data_date。
+- `public/index.html` 从 `38,038` 行降至 `38,037` 行；`public/ctrip-static.js` 当前约 `910` 行；`ctrip` 领域 span 从 `3,490` 行降至 `3,488` 行。
+- 当前自审计：完整目录约 `268.19 MB`，不含 `.git` 约 `92.21 MB`，不含 `.git` 和依赖约 `63.02 MB`，Git 跟踪文件约 `18.09 MB` / `613` 个；代码范围 `370` 个文件，`188,925` 行，非空 `173,150` 行；`self:clean` 已清理 `runtime` 约 `0.04 MB`，当前默认可回收量为 `0 MB`。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:clean`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`；提交前仍需跑完整门禁。
+- 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

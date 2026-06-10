@@ -19089,6 +19089,7 @@
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
             const buildCtripTrafficFetchRequestBody = requireCtripStatic('buildCtripTrafficFetchRequestBody');
             const buildCtripTrafficResponseModel = requireCtripStatic('buildCtripTrafficResponseModel');
+            const buildCtripOverviewFetchRequestBody = requireCtripStatic('buildCtripOverviewFetchRequestBody');
             const buildCtripProfileRecheckInitialState = requireCtripStatic('buildCtripProfileRecheckInitialState');
             const buildCtripProfileRecheckCaptureRefreshState = requireCtripStatic('buildCtripProfileRecheckCaptureRefreshState');
             const buildCtripProfileRecheckSuccessResult = requireCtripStatic('buildCtripProfileRecheckSuccessResult');
@@ -32589,19 +32590,18 @@
                 fetchingData.value = true;
                 ctripOverviewResult.value = null;
                 try {
+                    const ctripOverviewFetchBody = buildCtripOverviewFetchRequestBody({
+                        systemHotelId,
+                        hotelId: form.hotelId,
+                        hotelName: getHotelNameById(systemHotelId),
+                        cookies: form.cookies,
+                        requestUrls: form.requestUrls,
+                        form,
+                        defaultMethod: 'POST',
+                    });
                     const res = await request('/online-data/fetch-ctrip-overview', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            hotel_id: form.hotelId,
-                            hotel_name: getHotelNameById(systemHotelId),
-                            cookies: form.cookies,
-                            request_urls: form.requestUrls,
-                            payload_json: form.payloadJson,
-                            spidertoken: form.spidertoken,
-                            method: form.method || 'POST',
-                            data_date: form.dataDate,
-                        }),
+                        body: JSON.stringify(ctripOverviewFetchBody),
                     });
                     if (res.code === 200) {
                         ctripOverviewResult.value = res.data || {};
@@ -32662,19 +32662,18 @@
                 fetchingData.value = true;
                 ctripFlowOverviewResult.value = null;
                 try {
+                    const ctripFlowOverviewFetchBody = buildCtripOverviewFetchRequestBody({
+                        systemHotelId,
+                        hotelId: form.hotelId,
+                        hotelName: getHotelNameById(systemHotelId),
+                        cookies: form.cookies,
+                        requestUrls,
+                        form,
+                        defaultMethod: 'GET',
+                    });
                     const res = await request('/online-data/fetch-ctrip-overview', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            hotel_id: form.hotelId,
-                            hotel_name: getHotelNameById(systemHotelId),
-                            cookies: form.cookies,
-                            request_urls: requestUrls,
-                            payload_json: form.payloadJson,
-                            spidertoken: form.spidertoken,
-                            method: form.method || 'GET',
-                            data_date: form.dataDate,
-                        }),
+                        body: JSON.stringify(ctripFlowOverviewFetchBody),
                     });
                     if (res.code === 200) {
                         ctripFlowOverviewResult.value = res.data || {};

@@ -794,6 +794,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the traffic builder split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:clean:dry-run`; `npm.cmd run self:clean`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Overview Request Builder Split
+
+- Fifty-ninth frontend split target chosen from pure Ctrip today-overview and flow-overview request-body construction inside `public/index.html`.
+- Extended `public/ctrip-static.js` with `buildCtripOverviewFetchRequestBody`, shared by `fetchCtripOverviewData()` and `fetchCtripFlowOverviewData()`.
+- `public/index.html` keeps the two overview fetch functions responsible for runtime validation and execution only: hotel/config/Cookie/Request URL checks, `/online-data/fetch-ctrip-overview` request execution, result writes, latest snapshot refresh, history refresh, and toast status.
+- This split did not change the Ctrip overview endpoint, storage behavior, display fields, failure handling, method fallback semantics, or OTA channel scope.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted overview request builder, prevent request body and method fallback logic from being re-inlined, and validate form-method precedence plus GET default behavior in a VM context.
+- `public/index.html` decreased from `38038` lines to `38037` lines; the split-map `ctrip` domain span decreased from `3490` to `3488` lines; `fetchCtripOverviewData` is now `71` lines and `fetchCtripFlowOverviewData` is now `72` lines.
+- Current self-audit after the code move and local runtime cleanup: full directory about `268.19 MB`, without `.git` about `92.21 MB`, without `.git` and dependencies about `63.02 MB`, tracked files about `18.09 MB` / `613` files; code scope `370` files, `188925` total lines, and `173150` nonblank lines. `self:clean` removed about `0.04 MB` from `runtime`; current default reclaim is `0 MB`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:clean`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

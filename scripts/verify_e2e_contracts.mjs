@@ -76,6 +76,8 @@ requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotMo
 requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
 requireText('public/index.html', "requireCtripStatic('buildCtripTrafficFetchRequestBody')", 'entry uses extracted Ctrip traffic fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripTrafficFetchRequestBody', 'Ctrip static builds traffic fetch request bodies');
+requireText('public/index.html', "requireCtripStatic('buildCtripOverviewFetchRequestBody')", 'entry uses extracted Ctrip overview fetch request builder');
+requireText('public/ctrip-static.js', 'const buildCtripOverviewFetchRequestBody', 'Ctrip static builds overview fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckInitialState')", 'entry uses extracted Ctrip Profile recheck state builders');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
@@ -103,6 +105,10 @@ requireNoText('public/index.html', 'const rankRows = payload?.rank?.rows || [];'
 requireNoText('public/index.html', 'const trafficUrl = String(form.url || \'\').trim();', 'Ctrip traffic request URL trimming is not re-inlined');
 requireNoText('public/index.html', 'const ctripTrafficFetchBody = {', 'Ctrip traffic request body is not re-inlined');
 requireNoText('public/index.html', 'decoded_data: decoded,', 'Ctrip traffic response model is not re-inlined');
+requireNoText('public/index.html', 'request_urls: form.requestUrls,', 'Ctrip overview request body is not re-inlined');
+requireNoText('public/index.html', 'request_urls: requestUrls,', 'Ctrip flow overview request body is not re-inlined');
+requireNoText('public/index.html', "method: form.method || 'POST',", 'Ctrip overview request method fallback is not re-inlined');
+requireNoText('public/index.html', "method: form.method || 'GET',", 'Ctrip flow overview request method fallback is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -553,6 +559,7 @@ try {
   const buildLatestCtripSnapshotModel = ctripStatic.buildLatestCtripSnapshotModel;
   const buildCtripTrafficFetchRequestBody = ctripStatic.buildCtripTrafficFetchRequestBody;
   const buildCtripTrafficResponseModel = ctripStatic.buildCtripTrafficResponseModel;
+  const buildCtripOverviewFetchRequestBody = ctripStatic.buildCtripOverviewFetchRequestBody;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
@@ -640,12 +647,13 @@ try {
     || typeof buildCtripFetchRawFailureResult !== 'function'
     || typeof buildLatestCtripSnapshotModel !== 'function'
     || typeof buildCtripTrafficFetchRequestBody !== 'function'
+    || typeof buildCtripOverviewFetchRequestBody !== 'function'
     || typeof buildCtripTrafficResponseModel !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch, latest snapshot, and traffic builders',
+      detail: 'Ctrip fetch, latest snapshot, traffic, and overview builders',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -724,6 +732,33 @@ try {
     const trafficBodyWithoutUrl = buildCtripTrafficFetchRequestBody({
       form: { platform: 'qunar', dateRange: 'yesterday', url: '   ' },
       cookies: 'sid=traffic',
+    });
+    const overviewBody = buildCtripOverviewFetchRequestBody({
+      systemHotelId: '58',
+      hotelId: 'ctrip-hotel-1',
+      hotelName: 'Tiancheng Hotel',
+      cookies: 'sid=overview',
+      requestUrls: 'https://ebooking.ctrip.test/overview',
+      form: {
+        payloadJson: '{"page":1}',
+        spidertoken: 'spider',
+        method: 'POST',
+        dataDate: '2026-06-09',
+      },
+      defaultMethod: 'GET',
+    });
+    const flowOverviewBody = buildCtripOverviewFetchRequestBody({
+      systemHotelId: '58',
+      hotelId: 'ctrip-hotel-1',
+      hotelName: 'Tiancheng Hotel',
+      cookies: 'sid=flow',
+      requestUrls: 'https://ebooking.ctrip.test/flow',
+      form: {
+        payloadJson: '',
+        spidertoken: '',
+        dataDate: '2026-06-10',
+      },
+      defaultMethod: 'GET',
     });
     const trafficModel = buildCtripTrafficResponseModel({
       http_code: 200,
@@ -815,6 +850,26 @@ try {
         && trafficFallbackModel.trafficRows[0].decoded === 'fallback'
         && trafficFallbackModel.onlineResult.display_traffic_rows.length === 0,
       detail: 'Ctrip traffic builder sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip overview builder keeps request fields and method defaults',
+      ok: overviewBody.system_hotel_id === '58'
+        && overviewBody.hotel_id === 'ctrip-hotel-1'
+        && overviewBody.hotel_name === 'Tiancheng Hotel'
+        && overviewBody.cookies === 'sid=overview'
+        && overviewBody.request_urls === 'https://ebooking.ctrip.test/overview'
+        && overviewBody.payload_json === '{"page":1}'
+        && overviewBody.spidertoken === 'spider'
+        && overviewBody.method === 'POST'
+        && overviewBody.data_date === '2026-06-09'
+        && flowOverviewBody.cookies === 'sid=flow'
+        && flowOverviewBody.request_urls === 'https://ebooking.ctrip.test/flow'
+        && flowOverviewBody.payload_json === ''
+        && flowOverviewBody.spidertoken === ''
+        && flowOverviewBody.method === 'GET'
+        && flowOverviewBody.data_date === '2026-06-10',
+      detail: 'Ctrip overview request sample',
     });
   }
   if (typeof buildCtripProfileRecheckInitialState !== 'function'
