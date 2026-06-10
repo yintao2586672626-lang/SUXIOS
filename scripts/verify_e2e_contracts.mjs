@@ -59,7 +59,10 @@ requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level m
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
-requireText('public/index.html', 'assignPageControlTestIds', 'page controls receive generated stable test ids');
+requireText('public/index.html', '<script src="testid-static.js"></script>', 'frontend loads extracted test id helper');
+requireText('public/index.html', 'createPageTestIdController', 'entry wires extracted page test id controller');
+requireText('public/testid-static.js', 'assignPageControlTestIds', 'page controls receive generated stable test ids');
+requireText('public/testid-static.js', 'normalizeTestIdSegment', 'test id helper keeps stable segment normalization');
 requireText('public/index.html', 'history-strategy-reuse', 'strategy history reuse button has stable selector');
 requireText('public/index.html', 'history-simulation-reuse', 'simulation history reuse button has stable selector');
 requireText('public/index.html', 'history-expansion-reuse', 'expansion history reuse button has stable selector');

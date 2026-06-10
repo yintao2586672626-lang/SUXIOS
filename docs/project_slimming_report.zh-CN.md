@@ -590,6 +590,16 @@
 - 已验证：`node --check public\simulation-static.js`、`node --check scripts\verify_simulation_p2.mjs`、`node scripts\verify_simulation_p2.mjs`、`node scripts\verify_expansion_p2.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`node --check scripts\project_split_map.mjs`、`npm.cmd run self:split-map`、`npm.cmd run self:check`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十七刀拆分
+
+- 新增 `public/testid-static.js`，承载前端稳定测试 ID 的段名归一化、菜单/页面 testid 生成、页面控件自动补 `data-testid`、当前页根节点观察器和刷新调度逻辑。
+- `public/index.html` 仅保留 `testIdNameMap` 读取、`createPageTestIdController(...)` 装配和原有 `pageTestId` / `menuTestId` / watcher 接口名；导航、页面容器和当前页切换逻辑不变。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式加载 `testid-static.js`，并要求 `assignPageControlTestIds` 与 `normalizeTestIdSegment` 留在新静态模块中。
+- `public/index.html` 从 `39,930` 行降至 `39,801` 行；split-map 前端函数级块从 `1,470` 降至 `1,457`，`general` 域 span 从 `8,747` 行降至 `8,617` 行。
+- 当前自审：完整目录约 `255.8 MB`；不含 `.git` 约 `92.05 MB`；不含 `.git` 和依赖约 `62.86 MB`；Git 跟踪文件约 `17.93 MB` / `612` 个；代码范围 `369` 个文件、`186,970` 行、非空 `171,230` 行。
+- 已验证：`node --check public\testid-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
+- 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

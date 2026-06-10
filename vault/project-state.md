@@ -534,6 +534,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the simulation default forms split: `node --check public\simulation-static.js`; `node --check scripts\verify_simulation_p2.mjs`; `node scripts\verify_simulation_p2.mjs`; `node scripts\verify_expansion_p2.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `node --check scripts\project_split_map.mjs`; `npm.cmd run self:split-map`; `npm.cmd run self:check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Test ID Helper Split
+
+- Thirty-seventh frontend split target chosen from pure navigation/page-control stable test-id helper logic in `public/index.html`.
+- Added `public/testid-static.js` with stable segment normalization, menu/page test-id generation, page-control `data-testid` assignment, active-page root detection, mutation observer wiring, and refresh scheduling.
+- `public/index.html` now keeps only system static config reads and `createPageTestIdController(...)` wiring, while preserving the original `pageTestId`, `menuTestId`, `startPageControlTestIdObserver`, `stopPageControlTestIdObserver`, `assignPageControlTestIds`, and `scheduleTestIdRefresh` setup names for template/watch compatibility.
+- Updated `scripts/verify_e2e_contracts.mjs` so the e2e contract requires `testid-static.js` to be loaded and checks the extracted module for `assignPageControlTestIds` plus `normalizeTestIdSegment`.
+- `public/index.html` decreased from `39930` lines to `39801` lines; split-map frontend function-level blocks decreased from `1470` to `1457`; the `general` domain span decreased from `8747` to `8617` lines.
+- Current self-audit after staging the code move: full directory about `255.8 MB`, without `.git` about `92.05 MB`, without `.git` and dependencies about `62.86 MB`, tracked files about `17.93 MB` / `612` files; code scope `369` files, `186970` total lines, and `171230` nonblank lines.
+- Verified after the frontend test-id helper split: `node --check public\testid-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
