@@ -6,6 +6,42 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 
+    const sanitizeAiReportHtml = (value) => {
+        const raw = typeof value === 'string'
+            ? value
+            : (value == null ? '' : JSON.stringify(value, null, 2));
+        if (!raw) return '';
+        const template = document.createElement('template');
+        template.innerHTML = raw;
+        const allowedTags = new Set(['SECTION', 'P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'UL', 'OL', 'LI', 'H3', 'H4', 'PRE', 'CODE', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
+        const allowedAttrs = new Set(['colspan', 'rowspan']);
+        const walk = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
+        const nodes = [];
+        while (walk.nextNode()) nodes.push(walk.currentNode);
+        nodes.forEach((node) => {
+            if (node.nodeType === Node.COMMENT_NODE) {
+                node.remove();
+                return;
+            }
+            if (!allowedTags.has(node.tagName)) {
+                node.replaceWith(document.createTextNode(node.textContent || ''));
+                return;
+            }
+            Array.from(node.attributes).forEach((attr) => {
+                if (!allowedAttrs.has(attr.name.toLowerCase())) {
+                    node.removeAttribute(attr.name);
+                }
+            });
+        });
+        return template.innerHTML;
+    };
+
+    const aiReportHtmlToText = (value) => {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = sanitizeAiReportHtml(value);
+        return tempDiv.innerText || tempDiv.textContent || '';
+    };
+
     const toNumber = (value, fallback = 0) => {
         const num = Number(value);
         return Number.isFinite(num) ? num : fallback;
@@ -479,6 +515,8 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
 
     return {
         htmlEscape,
+        sanitizeAiReportHtml,
+        aiReportHtmlToText,
         toNullableNumber,
         pickNullableNumber,
         maxNullableNumber,

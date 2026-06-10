@@ -146,11 +146,15 @@ requireText('public/index.html', '<script src="ai-analysis-static.js"></script>'
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan')", 'entry uses extracted AI analysis run plan builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
+requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
+requireText('public/index.html', "requireAiAnalysisStatic('aiReportHtmlToText')", 'entry uses extracted AI report text converter');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaHotelPayload', 'AI analysis static builds captured OTA hotel payloads');
 requireText('public/ai-analysis-static.js', 'const buildCtripAiAnalysisHotelSelection', 'AI analysis static builds Ctrip hotel selections');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisRunPlan', 'AI analysis static builds captured OTA run plans');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryRequestBody', 'AI analysis static builds captured OTA summary requests');
 requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
+requireText('public/ai-analysis-static.js', 'const sanitizeAiReportHtml', 'AI analysis static sanitizes report HTML');
+requireText('public/ai-analysis-static.js', 'const aiReportHtmlToText', 'AI analysis static converts report HTML to text');
 requireNoText('public/index.html', 'const pushOtaDiagnosisFetchTask = (tasks, task) => {', 'OTA diagnosis task push helper is not re-inlined');
 requireNoText('public/index.html', "['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(rankType => {", 'OTA diagnosis Meituan task list is not re-inlined');
 requireNoText('public/index.html', 'const aiAnalysisStatusText = (status) => {', 'AI analysis status text helper is not re-inlined');
@@ -162,6 +166,8 @@ requireNoText('public/index.html', 'const hotelsPayload = selectedData.map(build
 requireNoText('public/index.html', 'const groupSize = isDeepSeekProAnalysisModel() ? 3 : 5;', 'AI analysis group sizing is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedOtaSummaryRequestBody = ({', 'AI analysis summary request builder is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedFallbackSummaryReport = ({', 'AI analysis fallback summary builder is not re-inlined');
+requireNoText('public/index.html', 'const sanitizeAiReportHtml = (value) => {', 'AI report sanitizer is not re-inlined');
+requireNoText('public/index.html', 'const aiReportHtmlToText = (value) => {', 'AI report text converter is not re-inlined');
 requireNoText('public/index.html', "title: '点评问题'", 'OTA diagnosis UI does not render the deprecated comment section');
 requireNoText('public/index.html', "openDataConfigModal('ctrip-comments')", 'Ctrip comment capture card is not exposed in UI');
 requireNoText('public/index.html', "openDataConfigModal('meituan-comments')", 'Meituan comment capture card is not exposed in UI');
@@ -434,6 +440,8 @@ try {
   const aiAnalysisStatic = context.window.SUXI_AI_ANALYSIS_STATIC || {};
   const requiredKeys = [
     'getAiAnalysisHotelKey',
+    'sanitizeAiReportHtml',
+    'aiReportHtmlToText',
     'aiAnalysisStatusText',
     'aiAnalysisPriorityText',
     'normalizeAiAnalysisList',

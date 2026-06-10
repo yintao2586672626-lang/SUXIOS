@@ -875,6 +875,17 @@
 - 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:e2e-contracts`、`node --test tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第六十四刀拆分
+
+- 扩展 `public/ai-analysis-static.js`，承载 AI 报告 HTML 清洗与转文本工具：`sanitizeAiReportHtml` 和 `aiReportHtmlToText`。
+- `public/index.html` 仅通过 `requireAiAnalysisStatic(...)` 显式读取上述工具；美团 AI 报告展示、复制与历史回显路径保持原入口函数名和状态写入不变。
+- 本轮不移动 AI 分析请求、汇总报告、历史记录、日期校验、模型选择、OTA 入库链路或缺失/失败状态展示。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口读取提取后的 sanitizer/text converter，要求静态模块导出这两个函数，并禁止对应实现重新内联回 `public/index.html`。
+- 当前 split-map：`public/index.html` 从 `38043` 行降至 `38009` 行；前端函数级块从 `1408` 降至 `1406`；`ai` 领域 span 从 `1272` 行降至 `1238` 行；`startAiAnalysis` 仍为 `144` 行。
+- 当前自审计：完整目录约 `271.76 MB`；不含 `.git` 约 `92.25 MB`；不含 `.git` 和依赖约 `63.06 MB`；Git 跟踪文件约 `18.13 MB` / `613` 个；代码范围 `370` 个文件，`189325` 行，非空 `173549` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
