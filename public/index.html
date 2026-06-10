@@ -34934,9 +34934,8 @@
             const maskAiAnalysisError = requireAiAnalysisStatic('maskAiAnalysisError');
             const formatAiAnalysisError = requireAiAnalysisStatic('formatAiAnalysisError');
             const chunkArray = requireAiAnalysisStatic('chunkArray');
-            const pickNullableNumber = requireAiAnalysisStatic('pickNullableNumber');
-            const maxNullableNumber = requireAiAnalysisStatic('maxNullableNumber');
             const buildCapturedOtaHotelPayload = requireAiAnalysisStatic('buildCapturedOtaHotelPayload');
+            const buildCtripAiAnalysisHotelSelection = requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection');
             const mergeCapturedGroupReports = requireAiAnalysisStatic('mergeCapturedGroupReports');
             const buildCapturedOtaReportCopyHtml = requireAiAnalysisStatic('buildCapturedOtaReportCopyHtml');
             const buildCapturedFallbackSummaryReport = requireAiAnalysisStatic('buildCapturedFallbackSummaryReport');
@@ -35066,72 +35065,12 @@
 
             // 更新AI分析酒店列表（只从携程数据中提取，并合并同一酒店的不同榜单数据）
             const updateAiAnalysisHotelList = () => {
-                const hotelMap = new Map();
-
-                // 只从携程数据中提取（携程ebooking下载中心）
-                if (ctripHotelsList.value && ctripHotelsList.value.length > 0) {
-                    ctripHotelsList.value.forEach(h => {
-                        const key = (h.hotelId || h.id) + '_' + (h.hotelName || h.name);
-
-                        if (!hotelMap.has(key)) {
-                            // 首次遇到该酒店，创建新记录
-                            hotelMap.set(key, {
-                                poiId: h.hotelId || h.id || '',
-                                hotelName: h.hotelName || h.name || '',
-                                // 入住榜数据
-                                roomNights: h.quantity || h.roomNights || 0,
-                                roomRevenue: h.amount || h.roomRevenue || 0,
-                                // 销售榜数据
-                                salesRoomNights: h.salesRoomNights || 0,
-                                sales: h.sales || h.amount || 0,
-                                // 转化榜数据
-                                viewConversion: pickNullableNumber(h.viewConversion, h.convertionRate),
-                                payConversion: pickNullableNumber(h.payConversion),
-                                // 流量榜数据
-                                exposure: pickNullableNumber(h.exposure),
-                                views: pickNullableNumber(h.views, h.totalDetailNum, h.qunarDetailVisitors),
-                                commentScore: h.commentScore || 0,
-                                qunarCommentScore: h.qunarCommentScore || 0,
-                                convertionRate: pickNullableNumber(h.convertionRate),
-                                qunarDetailCR: pickNullableNumber(h.qunarDetailCR),
-                                totalOrderNum: h.totalOrderNum || 0,
-                                bookOrderNum: h.bookOrderNum || 0,
-                                amountRank: h.amountRank || 0,
-                                quantityRank: h.quantityRank || 0,
-                                commentScoreRank: h.commentScoreRank || 0,
-                                qunarDetailCRRank: h.qunarDetailCRRank || 0
-                            });
-                        } else {
-                            // 已存在该酒店，合并数据（累加或取最大值）
-                            const existing = hotelMap.get(key);
-                            // 入住榜数据（取最大值，因为是同一酒店的同一指标）
-                            existing.roomNights = Math.max(existing.roomNights, h.quantity || h.roomNights || 0);
-                            existing.roomRevenue = Math.max(existing.roomRevenue, h.amount || h.roomRevenue || 0);
-                            // 销售榜数据
-                            existing.salesRoomNights = Math.max(existing.salesRoomNights, h.salesRoomNights || 0);
-                            existing.sales = Math.max(existing.sales, h.sales || h.amount || 0);
-                            // 转化榜数据
-                            existing.viewConversion = maxNullableNumber(existing.viewConversion, h.viewConversion, h.convertionRate);
-                            existing.payConversion = maxNullableNumber(existing.payConversion, h.payConversion);
-                            // 流量榜数据
-                            existing.exposure = maxNullableNumber(existing.exposure, h.exposure);
-                            existing.views = maxNullableNumber(existing.views, h.views, h.totalDetailNum, h.qunarDetailVisitors);
-                            existing.commentScore = Math.max(existing.commentScore || 0, h.commentScore || 0);
-                            existing.qunarCommentScore = Math.max(existing.qunarCommentScore || 0, h.qunarCommentScore || 0);
-                            existing.convertionRate = maxNullableNumber(existing.convertionRate, h.convertionRate);
-                            existing.qunarDetailCR = maxNullableNumber(existing.qunarDetailCR, h.qunarDetailCR);
-                            existing.totalOrderNum = Math.max(existing.totalOrderNum || 0, h.totalOrderNum || 0);
-                            existing.bookOrderNum = Math.max(existing.bookOrderNum || 0, h.bookOrderNum || 0);
-                            existing.amountRank = existing.amountRank === 0 ? (h.amountRank || 0) : Math.min(existing.amountRank, h.amountRank || existing.amountRank);
-                            existing.quantityRank = existing.quantityRank === 0 ? (h.quantityRank || 0) : Math.min(existing.quantityRank, h.quantityRank || existing.quantityRank);
-                            existing.commentScoreRank = existing.commentScoreRank === 0 ? (h.commentScoreRank || 0) : Math.min(existing.commentScoreRank, h.commentScoreRank || existing.commentScoreRank);
-                            existing.qunarDetailCRRank = existing.qunarDetailCRRank === 0 ? (h.qunarDetailCRRank || 0) : Math.min(existing.qunarDetailCRRank, h.qunarDetailCRRank || existing.qunarDetailCRRank);
-                        }
-                    });
-                }
-
-                aiAnalysisHotelList.value = Array.from(hotelMap.values());
-                aiSelectedHotels.value = aiSelectedHotels.value.filter(key => aiAnalysisHotelList.value.some(h => getAiAnalysisHotelKey(h) === key));
+                const selection = buildCtripAiAnalysisHotelSelection({
+                    ctripHotels: ctripHotelsList.value || [],
+                    selectedKeys: aiSelectedHotels.value,
+                });
+                aiAnalysisHotelList.value = selection.hotels;
+                aiSelectedHotels.value = selection.selectedKeys;
             };
 
             // 全选AI分析酒店

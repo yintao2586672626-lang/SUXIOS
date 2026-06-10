@@ -145,7 +145,9 @@ requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchTasks
 requireText('public/index.html', '<script src="ai-analysis-static.js"></script>', 'frontend loads extracted AI analysis static helper');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildAiAnalysisBatchResults')", 'entry uses extracted AI analysis batch result builder');
+requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaHotelPayload', 'AI analysis static builds captured OTA hotel payloads');
+requireText('public/ai-analysis-static.js', 'const buildCtripAiAnalysisHotelSelection', 'AI analysis static builds Ctrip hotel selections');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryRequestBody', 'AI analysis static builds captured OTA summary requests');
 requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
 requireNoText('public/index.html', 'const pushOtaDiagnosisFetchTask = (tasks, task) => {', 'OTA diagnosis task push helper is not re-inlined');
@@ -153,6 +155,8 @@ requireNoText('public/index.html', "['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(ran
 requireNoText('public/index.html', 'const aiAnalysisStatusText = (status) => {', 'AI analysis status text helper is not re-inlined');
 requireNoText('public/index.html', 'const chunkArray = (items, size) => {', 'AI analysis chunk helper is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedOtaHotelPayload = (hotel) => {', 'AI analysis captured payload builder is not re-inlined');
+requireNoText('public/index.html', "const key = (h.hotelId || h.id) + '_' + (h.hotelName || h.name);", 'Ctrip AI analysis hotel selection is not re-inlined');
+requireNoText('public/index.html', 'existing.amountRank = existing.amountRank === 0 ?', 'Ctrip AI analysis rank merge is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedOtaSummaryRequestBody = ({', 'AI analysis summary request builder is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedFallbackSummaryReport = ({', 'AI analysis fallback summary builder is not re-inlined');
 requireNoText('public/index.html', "title: '点评问题'", 'OTA diagnosis UI does not render the deprecated comment section');
@@ -434,6 +438,7 @@ try {
     'maskAiAnalysisError',
     'chunkArray',
     'buildCapturedOtaHotelPayload',
+    'buildCtripAiAnalysisHotelSelection',
     'buildAiAnalysisProgress',
     'buildAiAnalysisBatchResults',
     'buildCapturedOtaSummaryRequestBody',
@@ -464,6 +469,38 @@ try {
       commentScore: '4.8',
     });
     const groups = aiAnalysisStatic.chunkArray([hotelPayload, { hotel_name: 'B' }, { hotel_name: 'C' }], 2);
+    const hotelSelection = aiAnalysisStatic.buildCtripAiAnalysisHotelSelection({
+      ctripHotels: [
+        {
+          hotelId: 'h1',
+          hotelName: 'Alpha',
+          quantity: 2,
+          amount: 300,
+          views: 10,
+          exposure: 100,
+          amountRank: 5,
+        },
+        {
+          hotelId: 'h1',
+          hotelName: 'Alpha',
+          roomNights: 3,
+          roomRevenue: 480,
+          salesRoomNights: 4,
+          sales: 620,
+          totalDetailNum: 20,
+          exposure: 200,
+          amountRank: 2,
+          quantityRank: 4,
+        },
+        {
+          id: 'h2',
+          name: 'Beta',
+          convertionRate: '6.5',
+          qunarDetailCRRank: 3,
+        },
+      ],
+      selectedKeys: ['h1_Alpha', 'missing_Key'],
+    });
     const progress = aiAnalysisStatic.buildAiAnalysisProgress({ hotelCount: 3, groupCount: groups.length });
     const batchResults = aiAnalysisStatic.buildAiAnalysisBatchResults(groups, 12345);
     const successGroup = {
@@ -520,6 +557,26 @@ try {
         && batchResults[0].key === 'group_12345_0'
         && batchResults[0].hotelNames.includes('示例酒店'),
       detail: 'captured payload batch sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static builds Ctrip hotel selections without losing merged metrics',
+      ok: hotelSelection.hotels.length === 2
+        && hotelSelection.selectedKeys.length === 1
+        && hotelSelection.selectedKeys[0] === 'h1_Alpha'
+        && hotelSelection.hotels[0].poiId === 'h1'
+        && hotelSelection.hotels[0].hotelName === 'Alpha'
+        && hotelSelection.hotels[0].roomNights === 3
+        && hotelSelection.hotels[0].roomRevenue === 480
+        && hotelSelection.hotels[0].salesRoomNights === 4
+        && hotelSelection.hotels[0].sales === 620
+        && hotelSelection.hotels[0].views === 20
+        && hotelSelection.hotels[0].exposure === 200
+        && hotelSelection.hotels[0].amountRank === 2
+        && hotelSelection.hotels[0].quantityRank === 4
+        && hotelSelection.hotels[1].poiId === 'h2'
+        && hotelSelection.hotels[1].convertionRate === 6.5,
+      detail: 'Ctrip AI hotel selection sample',
     });
     checks.push({
       file: 'public/ai-analysis-static.js',

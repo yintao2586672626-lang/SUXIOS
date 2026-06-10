@@ -852,6 +852,17 @@
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:clean`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第六十二刀拆分
+
+- 扩展 `public/ai-analysis-static.js`，承载携程 OTA AI 分析酒店列表聚合与选中项过滤构建器 `buildCtripAiAnalysisHotelSelection`。
+- `public/index.html` 只保留 `updateAiAnalysisHotelList()` 的 Vue 状态写入：读取当前携程酒店列表、写入 `aiAnalysisHotelList`、过滤 `aiSelectedHotels`；同店多榜单指标合并、曝光/访客取最大、排名取更优等纯数据整形已移入静态模块。
+- 本轮未改 AI 分析接口、日期校验、`/agent/analyze-captured-ota-data` 调用、汇总报告、历史记录、OTA 入库链路或缺失/失败状态展示。
+- 更新 `scripts/verify_e2e_contracts.mjs`：要求入口通过 `requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')` 显式读取 builder，禁止携程 AI 酒店聚合细节重新内联，并在 VM 中校验同店多榜单合并和无效选中项清除。
+- 当前 split-map：`public/index.html` 为 `38043` 行；前端函数级块 `1408` 个；`general` 领域 span 为 `7165` 行；`ai` 领域 span 为 `1275` 行；`startAiAnalysis` 仍为 `145` 行。
+- 当前自审计：完整目录约 `270 MB`；不含 `.git` 约 `92.23 MB`；不含 `.git` 和依赖约 `63.04 MB`；Git 跟踪文件约 `18.12 MB` / `613` 个；代码范围 `370` 个文件，`189235` 行，非空 `173460` 行；默认可清理目标为 `0`。
+- 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
+- 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

@@ -263,6 +263,66 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         };
     };
 
+    const buildCtripAiAnalysisHotelSelection = ({
+        ctripHotels = [],
+        selectedKeys = [],
+    } = {}) => {
+        const hotelMap = new Map();
+        ctripHotels.forEach(h => {
+            const key = `${h.hotelId || h.id}_${h.hotelName || h.name}`;
+            if (!hotelMap.has(key)) {
+                hotelMap.set(key, {
+                    poiId: h.hotelId || h.id || '',
+                    hotelName: h.hotelName || h.name || '',
+                    roomNights: h.quantity || h.roomNights || 0,
+                    roomRevenue: h.amount || h.roomRevenue || 0,
+                    salesRoomNights: h.salesRoomNights || 0,
+                    sales: h.sales || h.amount || 0,
+                    viewConversion: pickNullableNumber(h.viewConversion, h.convertionRate),
+                    payConversion: pickNullableNumber(h.payConversion),
+                    exposure: pickNullableNumber(h.exposure),
+                    views: pickNullableNumber(h.views, h.totalDetailNum, h.qunarDetailVisitors),
+                    commentScore: h.commentScore || 0,
+                    qunarCommentScore: h.qunarCommentScore || 0,
+                    convertionRate: pickNullableNumber(h.convertionRate),
+                    qunarDetailCR: pickNullableNumber(h.qunarDetailCR),
+                    totalOrderNum: h.totalOrderNum || 0,
+                    bookOrderNum: h.bookOrderNum || 0,
+                    amountRank: h.amountRank || 0,
+                    quantityRank: h.quantityRank || 0,
+                    commentScoreRank: h.commentScoreRank || 0,
+                    qunarDetailCRRank: h.qunarDetailCRRank || 0,
+                });
+                return;
+            }
+            const existing = hotelMap.get(key);
+            existing.roomNights = Math.max(existing.roomNights, h.quantity || h.roomNights || 0);
+            existing.roomRevenue = Math.max(existing.roomRevenue, h.amount || h.roomRevenue || 0);
+            existing.salesRoomNights = Math.max(existing.salesRoomNights, h.salesRoomNights || 0);
+            existing.sales = Math.max(existing.sales, h.sales || h.amount || 0);
+            existing.viewConversion = maxNullableNumber(existing.viewConversion, h.viewConversion, h.convertionRate);
+            existing.payConversion = maxNullableNumber(existing.payConversion, h.payConversion);
+            existing.exposure = maxNullableNumber(existing.exposure, h.exposure);
+            existing.views = maxNullableNumber(existing.views, h.views, h.totalDetailNum, h.qunarDetailVisitors);
+            existing.commentScore = Math.max(existing.commentScore || 0, h.commentScore || 0);
+            existing.qunarCommentScore = Math.max(existing.qunarCommentScore || 0, h.qunarCommentScore || 0);
+            existing.convertionRate = maxNullableNumber(existing.convertionRate, h.convertionRate);
+            existing.qunarDetailCR = maxNullableNumber(existing.qunarDetailCR, h.qunarDetailCR);
+            existing.totalOrderNum = Math.max(existing.totalOrderNum || 0, h.totalOrderNum || 0);
+            existing.bookOrderNum = Math.max(existing.bookOrderNum || 0, h.bookOrderNum || 0);
+            existing.amountRank = existing.amountRank === 0 ? (h.amountRank || 0) : Math.min(existing.amountRank, h.amountRank || existing.amountRank);
+            existing.quantityRank = existing.quantityRank === 0 ? (h.quantityRank || 0) : Math.min(existing.quantityRank, h.quantityRank || existing.quantityRank);
+            existing.commentScoreRank = existing.commentScoreRank === 0 ? (h.commentScoreRank || 0) : Math.min(existing.commentScoreRank, h.commentScoreRank || existing.commentScoreRank);
+            existing.qunarDetailCRRank = existing.qunarDetailCRRank === 0 ? (h.qunarDetailCRRank || 0) : Math.min(existing.qunarDetailCRRank, h.qunarDetailCRRank || existing.qunarDetailCRRank);
+        });
+        const hotels = Array.from(hotelMap.values());
+        const visibleKeys = new Set(hotels.map(getAiAnalysisHotelKey));
+        return {
+            hotels,
+            selectedKeys: selectedKeys.filter(key => visibleKeys.has(key)),
+        };
+    };
+
     const buildCapturedGroupSummary = (item) => ({
         group_index: item.groupIndex,
         hotel_count: item.hotelCount,
@@ -419,6 +479,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         formatAiAnalysisError,
         chunkArray,
         buildCapturedOtaHotelPayload,
+        buildCtripAiAnalysisHotelSelection,
         buildCapturedGroupSummary,
         mergeCapturedGroupReports,
         buildCapturedOtaReportCopyHtml,

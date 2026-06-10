@@ -833,6 +833,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:clean`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip AI Hotel Selection Builder Split
+
+- Sixty-second frontend split target chosen from pure Ctrip OTA AI analysis hotel-list aggregation and selection filtering inside `updateAiAnalysisHotelList()` in `public/index.html`.
+- Extended `public/ai-analysis-static.js` with `buildCtripAiAnalysisHotelSelection`.
+- `public/index.html` keeps `updateAiAnalysisHotelList()` responsible for Vue state writes only: reading current Ctrip hotel rows, writing `aiAnalysisHotelList`, and pruning `aiSelectedHotels`.
+- This split did not change AI analysis endpoint calls, date validation, summary generation, history records, Ctrip OTA storage, or missing/failed-state visibility.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted Ctrip AI hotel selection builder, prevent the aggregation details from being re-inlined, and validate same-hotel multi-rank metric merging plus invalid selected-key pruning in a VM context.
+- Current split-map: `public/index.html` is `38043` lines; frontend function-level blocks are `1408`; `general` domain span is `7165`; `ai` domain span is `1275`; `startAiAnalysis` remains `145` lines.
+- Current self-audit: full directory about `270 MB`, without `.git` about `92.23 MB`, without `.git` and dependencies about `63.04 MB`, tracked files about `18.12 MB` / `613` files; code scope `370` files, `189235` total lines, and `173460` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
