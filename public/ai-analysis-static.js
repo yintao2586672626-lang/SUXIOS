@@ -500,6 +500,49 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
             batchResults: buildAiAnalysisBatchResults(groups, timestamp),
         };
     };
+    const buildCapturedOtaAnalysisStartContext = ({
+        selectedKeys = [],
+        hotels = [],
+        startDate = '',
+        endDate = '',
+    } = {}) => {
+        const selectedData = resolveAiSelectedData(selectedKeys, hotels);
+        const validation = validateCapturedOtaAiAnalysisStart({
+            selectedKeys,
+            selectedData,
+            startDate,
+            endDate,
+        });
+        return {
+            ok: validation.ok,
+            selectedData,
+            message: validation.message,
+            level: validation.level,
+            validation,
+        };
+    };
+    const buildCapturedOtaAnalysisRunContext = ({
+        selectedData = [],
+        isDeepSeekPro = false,
+        timestamp = Date.now(),
+    } = {}) => {
+        const runPlan = buildCapturedOtaAnalysisRunPlan({ selectedData, isDeepSeekPro, timestamp });
+        const { hotelsPayload, groups } = runPlan;
+        if (hotelsPayload.length === 0) {
+            return {
+                ok: false,
+                message: '暂无抓取数据',
+                level: 'error',
+                ...runPlan,
+            };
+        }
+        return {
+            ok: true,
+            message: `开始分析 ${hotelsPayload.length} 家酒店，共 ${groups.length} 组`,
+            level: 'success',
+            ...runPlan,
+        };
+    };
 
     const buildCapturedOtaGroupOutcome = (batchResults = []) => {
         const rows = Array.isArray(batchResults) ? batchResults : [];
@@ -749,6 +792,8 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildAiAnalysisProgress,
         buildAiAnalysisBatchResults,
         buildCapturedOtaAnalysisRunPlan,
+        buildCapturedOtaAnalysisStartContext,
+        buildCapturedOtaAnalysisRunContext,
         buildCapturedOtaGroupOutcome,
         applyCapturedOtaGroupRunState,
         buildCapturedOtaSummaryRequestBody,

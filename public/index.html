@@ -34920,15 +34920,14 @@
             const chunkArray = requireAiAnalysisStatic('chunkArray');
             const buildCtripAiAnalysisHotelSelection = requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection');
             const mergeCapturedGroupReports = requireAiAnalysisStatic('mergeCapturedGroupReports');
-            const buildCapturedOtaAnalysisRunPlan = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan');
+            const buildCapturedOtaAnalysisStartContext = requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext');
+            const buildCapturedOtaAnalysisRunContext = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunContext');
             const buildCapturedOtaGroupOutcome = requireAiAnalysisStatic('buildCapturedOtaGroupOutcome');
             const applyCapturedOtaGroupRunState = requireAiAnalysisStatic('applyCapturedOtaGroupRunState');
             const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
             const buildCapturedOtaSummaryContext = requireAiAnalysisStatic('buildCapturedOtaSummaryContext');
             const buildCapturedOtaSummaryResponseResult = requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult');
             const buildCapturedOtaAnalysisCompletion = requireAiAnalysisStatic('buildCapturedOtaAnalysisCompletion');
-            const resolveAiSelectedData = requireAiAnalysisStatic('resolveAiSelectedData');
-            const validateCapturedOtaAiAnalysisStart = requireAiAnalysisStatic('validateCapturedOtaAiAnalysisStart');
             const sanitizeAiReportHtml = requireAiAnalysisStatic('sanitizeAiReportHtml');
             const aiReportHtmlToText = requireAiAnalysisStatic('aiReportHtmlToText');
             const buildMeituanAiAnalysisHotelList = requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList');
@@ -35019,6 +35018,33 @@
                 return { successCount: 0, failedCount: group.length };
             };
 
+            const requestCapturedOtaSummaryResult = async (summaryContext) => {
+                aiAnalysisProgress.value.summarizing = true;
+                try {
+                    const summaryRes = await request('/agent/summarize-captured-ota-analysis', {
+                        method: 'POST',
+                        body: JSON.stringify(buildCapturedOtaSummaryRequestBody({
+                            platform: 'ctrip',
+                            modelKey: getSafeAiAnalysisModelKey(),
+                            startDate: onlineDataFilter.value.start_date,
+                            endDate: onlineDataFilter.value.end_date,
+                            ...summaryContext,
+                        })),
+                    });
+                    return buildCapturedOtaSummaryResponseResult({
+                        response: summaryRes,
+                        ...summaryContext,
+                    });
+                } catch (e) {
+                    return buildCapturedOtaSummaryResponseResult({
+                        response: { message: e.message || '网络错误' },
+                        ...summaryContext,
+                    });
+                } finally {
+                    aiAnalysisProgress.value.summarizing = false;
+                }
+            };
+
             // 更新AI分析酒店列表（只从携程数据中提取，并合并同一酒店的不同榜单数据）
             const updateAiAnalysisHotelList = () => {
                 const selection = buildCtripAiAnalysisHotelSelection({
@@ -35043,17 +35069,17 @@
 
             // 开始AI分析
             const startAiAnalysis = async () => {
-                const selectedData = resolveAiSelectedData(aiSelectedHotels.value, aiAnalysisHotelList.value);
-                const startValidation = validateCapturedOtaAiAnalysisStart({
+                const startContext = buildCapturedOtaAnalysisStartContext({
                     selectedKeys: aiSelectedHotels.value,
-                    selectedData,
+                    hotels: aiAnalysisHotelList.value,
                     startDate: onlineDataFilter.value.start_date,
                     endDate: onlineDataFilter.value.end_date,
                 });
-                if (!startValidation.ok) {
-                    showToast(startValidation.message, startValidation.level);
+                if (!startContext.ok) {
+                    showToast(startContext.message, startContext.level);
                     return;
                 }
+                const { selectedData } = startContext;
 
                 aiAnalyzing.value = true;
                 aiAnalysisResult.value = '';
@@ -35061,19 +35087,19 @@
                 aiAnalysisCapturedError.value = '';
                 aiAnalysisProcess.value = null;
                 aiAnalysisGroupDetailsOpen.value = false;
-                const runPlan = buildCapturedOtaAnalysisRunPlan({
+                const runContext = buildCapturedOtaAnalysisRunContext({
                     selectedData,
                     isDeepSeekPro: isDeepSeekProAnalysisModel(),
                 });
-                const { hotelsPayload, groups } = runPlan;
-                if (hotelsPayload.length === 0) {
+                if (!runContext.ok) {
                     aiAnalyzing.value = false;
-                    showToast('暂无抓取数据', 'error');
+                    showToast(runContext.message, runContext.level);
                     return;
                 }
-                aiAnalysisProgress.value = runPlan.progress;
-                aiAnalysisBatchResults.value = runPlan.batchResults;
-                showToast(`开始分析 ${hotelsPayload.length} 家酒店，共 ${groups.length} 组`);
+                const { hotelsPayload, groups } = runContext;
+                aiAnalysisProgress.value = runContext.progress;
+                aiAnalysisBatchResults.value = runContext.batchResults;
+                showToast(runContext.message);
 
                 try {
                     for (let index = 0; index < groups.length; index++) {
@@ -35101,34 +35127,9 @@
                     });
 
                     if (successGroups.length > 0) {
-                        aiAnalysisProgress.value.summarizing = true;
-                        try {
-                            const summaryRes = await request('/agent/summarize-captured-ota-analysis', {
-                                method: 'POST',
-                                body: JSON.stringify(buildCapturedOtaSummaryRequestBody({
-                                    platform: 'ctrip',
-                                    modelKey: getSafeAiAnalysisModelKey(),
-                                    startDate: onlineDataFilter.value.start_date,
-                                    endDate: onlineDataFilter.value.end_date,
-                                    ...summaryContext,
-                                })),
-                            });
-                            const summaryResult = buildCapturedOtaSummaryResponseResult({
-                                response: summaryRes,
-                                ...summaryContext,
-                            });
-                            aiAnalysisCapturedReport.value = summaryResult.report;
-                            aiAnalysisProcess.value = summaryResult.process;
-                        } catch (e) {
-                            const summaryResult = buildCapturedOtaSummaryResponseResult({
-                                response: { message: e.message || '网络错误' },
-                                ...summaryContext,
-                            });
-                            aiAnalysisCapturedReport.value = summaryResult.report;
-                            aiAnalysisProcess.value = summaryResult.process;
-                        } finally {
-                            aiAnalysisProgress.value.summarizing = false;
-                        }
+                        const summaryResult = await requestCapturedOtaSummaryResult(summaryContext);
+                        aiAnalysisCapturedReport.value = summaryResult.report;
+                        aiAnalysisProcess.value = summaryResult.process;
                     } else {
                         aiAnalysisCapturedError.value = '全部分析失败，无法生成综合报告。\n' + maskAiAnalysisError(failedReason);
                     }

@@ -162,13 +162,12 @@ requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchConte
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchTasks', 'OTA diagnosis static builds fetch tasks');
 requireText('public/index.html', '<script src="ai-analysis-static.js"></script>', 'frontend loads extracted AI analysis static helper');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
-requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan')", 'entry uses extracted AI analysis run plan builder');
+requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext')", 'entry uses extracted AI analysis start context builder');
+requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunContext')", 'entry uses extracted AI analysis run context builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaGroupOutcome')", 'entry uses extracted AI analysis group outcome builder');
 requireText('public/index.html', "requireAiAnalysisStatic('applyCapturedOtaGroupRunState')", 'entry uses extracted AI analysis group state updater');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryContext')", 'entry uses extracted AI analysis summary context builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult')", 'entry uses extracted AI analysis summary response builder');
-requireText('public/index.html', "requireAiAnalysisStatic('resolveAiSelectedData')", 'entry uses extracted AI selected data resolver');
-requireText('public/index.html', "requireAiAnalysisStatic('validateCapturedOtaAiAnalysisStart')", 'entry uses extracted AI analysis start validator');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisCompletion')", 'entry uses extracted AI analysis completion builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
 requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
@@ -180,6 +179,8 @@ requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysi
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaHotelPayload', 'AI analysis static builds captured OTA hotel payloads');
 requireText('public/ai-analysis-static.js', 'const buildCtripAiAnalysisHotelSelection', 'AI analysis static builds Ctrip hotel selections');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisRunPlan', 'AI analysis static builds captured OTA run plans');
+requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisStartContext', 'AI analysis static builds captured OTA start context');
+requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisRunContext', 'AI analysis static builds captured OTA run context');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaGroupOutcome', 'AI analysis static builds captured OTA group outcomes');
 requireText('public/ai-analysis-static.js', 'const applyCapturedOtaGroupRunState', 'AI analysis static applies captured OTA group state updates');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryRequestBody', 'AI analysis static builds captured OTA summary requests');
@@ -205,6 +206,9 @@ requireNoText('public/index.html', "const key = h.poiId + '_' + h.hotelName;", '
 requireNoText('public/index.html', 'existing.amountRank = existing.amountRank === 0 ?', 'Ctrip AI analysis rank merge is not re-inlined');
 requireNoText('public/index.html', 'const hotelsPayload = selectedData.map(buildCapturedOtaHotelPayload)', 'AI analysis run plan is not re-inlined');
 requireNoText('public/index.html', 'const groupSize = isDeepSeekProAnalysisModel() ? 3 : 5;', 'AI analysis group sizing is not re-inlined');
+requireNoText('public/index.html', 'const selectedData = resolveAiSelectedData(aiSelectedHotels.value, aiAnalysisHotelList.value);', 'AI analysis selected data resolution is not re-inlined');
+requireNoText('public/index.html', 'const startValidation = validateCapturedOtaAiAnalysisStart({', 'AI analysis start validation context is not re-inlined');
+requireNoText('public/index.html', 'const runPlan = buildCapturedOtaAnalysisRunPlan({', 'AI analysis run plan context is not re-inlined');
 requireNoText('public/index.html', 'aiSelectedHotels.value.map(key => {', 'AI selected hotel lookup is not re-inlined');
 requireNoText('public/index.html', 'if (aiSelectedHotels.value.length === 0) {', 'AI selected hotel start validation is not re-inlined');
 requireNoText('public/index.html', 'if (!onlineDataFilter.value.start_date || !onlineDataFilter.value.end_date) {', 'AI date range start validation is not re-inlined');
@@ -560,6 +564,8 @@ try {
     'buildAiAnalysisProgress',
     'buildAiAnalysisBatchResults',
     'buildCapturedOtaAnalysisRunPlan',
+    'buildCapturedOtaAnalysisStartContext',
+    'buildCapturedOtaAnalysisRunContext',
     'buildCapturedOtaGroupOutcome',
     'applyCapturedOtaGroupRunState',
     'buildCapturedOtaSummaryRequestBody',
@@ -661,6 +667,31 @@ try {
       ],
       isDeepSeekPro: true,
       timestamp: 67890,
+    });
+    const startContext = aiAnalysisStatic.buildCapturedOtaAnalysisStartContext({
+      selectedKeys: ['r1_Run One'],
+      hotels: [
+        { poiId: 'r1', hotelName: 'Run One', roomNights: 2, roomRevenue: 500 },
+        { poiId: 'r2', hotelName: 'Run Two', roomNights: 1, sales: 260 },
+      ],
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+    });
+    const missingStartContext = aiAnalysisStatic.buildCapturedOtaAnalysisStartContext({
+      selectedKeys: [],
+      hotels: [],
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+    });
+    const runContext = aiAnalysisStatic.buildCapturedOtaAnalysisRunContext({
+      selectedData: startContext.selectedData,
+      isDeepSeekPro: false,
+      timestamp: 24680,
+    });
+    const emptyRunContext = aiAnalysisStatic.buildCapturedOtaAnalysisRunContext({
+      selectedData: [],
+      isDeepSeekPro: false,
+      timestamp: 13579,
     });
     const selectedRows = aiAnalysisStatic.resolveAiSelectedData(
       ['r1_Run One', 'missing_Key'],
@@ -842,7 +873,16 @@ try {
         && runPlan.progress.totalGroups === 2
         && runPlan.batchResults[0].key === 'group_67890_0'
         && runPlan.batchResults[0].hotelNames.includes('Run One')
-        && runPlan.batchResults[1].hotelCount === 1,
+        && runPlan.batchResults[1].hotelCount === 1
+        && startContext.ok === true
+        && startContext.selectedData.length === 1
+        && startContext.selectedData[0].hotelName === 'Run One'
+        && missingStartContext.ok === false
+        && runContext.ok === true
+        && runContext.message.includes('开始分析 1 家酒店')
+        && runContext.batchResults[0].key === 'group_24680_0'
+        && emptyRunContext.ok === false
+        && emptyRunContext.message === '暂无抓取数据',
       detail: 'captured OTA run plan sample',
     });
     checks.push({
