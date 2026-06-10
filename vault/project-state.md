@@ -255,6 +255,16 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the fourteenth frontend split: `node --check public\notification-static.js`; residual notification-helper definition scan; `git diff --check`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
+## 2026-06-10 Progress: Frontend Meituan Display Utility Split
+
+- Fifteenth frontend split target chosen from low-risk Meituan ranking display helpers in `public/index.html`.
+- Added `public/meituan-static.js` for Meituan metric labels, sort metric values, sort-gap formatting, row keys, and ranked display-row generation.
+- `public/index.html` now loads `meituan-static.js` and binds the needed Meituan display helpers from `window.SUXI_MEITUAN_STATIC`; missing script or function keys throw explicit configuration errors instead of silently falling back.
+- `public/index.html` decreased from `41837` lines to `41781` lines; current split map reports `1162` frontend function-level blocks, `44` `currentPage` references, and Meituan-domain span `1369` lines.
+- Current staged self-audit after the fifteenth frontend split: full directory about `242.26 MB`, without `.git` about `91.93 MB`, without `.git` and dependencies about `62.74 MB`, tracked files about `17.82 MB` / `606` files; code scope `363` files, `186052` total lines, `170397` nonblank lines.
+- Verified after the fifteenth frontend split: `node --check public\meituan-static.js`; residual Meituan helper definition scan; `git diff --check`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
