@@ -428,6 +428,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the twenty-ninth frontend split: `node --check public\data-health-static.js`; `node --check tests\automation\ctrip_store_data_overview.test.mjs`; data-health Ctrip display builder smoke check; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Backend Ctrip Traffic Display Service Split
+
+- First backend split target chosen from pure Ctrip traffic display-row, display-summary, and APP traffic derived-analysis helpers in `app/controller/OnlineData.php`.
+- Added `app/service/CtripTrafficDisplayService.php` with traffic display rows, display summaries, derived APP traffic analysis, traffic number coercion, percent normalization, rate calculation, stage diagnosis, and recommendation builders.
+- `app/controller/OnlineData.php` now keeps same private helper names as thin wrappers so reflection-based tests and static display-boundary contracts still find the controller methods; Ctrip traffic requests, Cookie checks, date-range parsing, response extraction, persistence, ads capture, Meituan capture, auto-fetch, and routes remain unchanged.
+- `app/controller/OnlineData.php` decreased from `27333` lines to `27052` lines; split-map `traffic` domain span decreased from `547` to `335` lines.
+- Current `app/service/CtripTrafficDisplayService.php` is `368` lines. Total code lines are `186584` and nonblank lines are `170868`.
+- Current self-audit after staging the new service: full directory about `250.83 MB`, without `.git` about `92 MB`, without `.git` and dependencies about `62.81 MB`, tracked files about `17.89 MB` / `610` files; code scope `367` files.
+- Verified after the backend Ctrip traffic display split: `C:\xampp\php\php.exe -l app\controller\OnlineData.php`; `C:\xampp\php\php.exe -l app\service\CtripTrafficDisplayService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php`; `npm.cmd run verify:e2e-contracts`; `node scripts\verify_frontend_display_boundary.mjs`; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

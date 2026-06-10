@@ -492,6 +492,17 @@
 - 验证通过：`node --check public\data-health-static.js`、`node --check tests\automation\ctrip_store_data_overview.test.mjs`、携程数据健康展示 builder smoke check、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍未宣称完成，原因仍是 `public/index.html` 与 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 后端第一刀拆分
+
+- 新增 `app/service/CtripTrafficDisplayService.php`，承载携程流量展示行、展示汇总、APP 流量派生分析、流量数值读取、百分比归一化和转化率计算等纯计算逻辑。
+- `app/controller/OnlineData.php` 保留原私有方法名作为薄 wrapper，继续兼容 `OnlineDataTest` 的反射覆盖和 `verify_frontend_display_boundary.mjs` 的方法名契约。
+- 本轮不移动携程流量请求、Cookie 校验、日期范围解析、采集结果入库、`extractCtripTrafficRows` 递归解析、广告/美团/自动采集链路或路由。
+- `app/controller/OnlineData.php` 从 `27,333` 行降至 `27,052` 行；split-map 中 `traffic` 域 span 从 `547` 行降至 `335` 行。
+- 当前 `app/service/CtripTrafficDisplayService.php` 为 `368` 行；总代码行数为 `186,584` 行，非空行 `170,868` 行。
+- 当前审计：完整目录约 `250.83 MB`；不含 `.git` 约 `92 MB`；不含 `.git` 和依赖约 `62.81 MB`；Git 跟踪文件约 `17.89 MB` / `610` 个；代码范围 `367` 个文件。
+- 验证通过：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\service\CtripTrafficDisplayService.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php`、`npm.cmd run verify:e2e-contracts`、`node scripts\verify_frontend_display_boundary.mjs`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍未宣称完成，原因仍是 `public/index.html` 与 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
