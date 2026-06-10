@@ -868,10 +868,10 @@
 - 扩展 `public/ai-analysis-static.js`，承载携程 OTA AI 分析运行计划构建器 `buildCapturedOtaAnalysisRunPlan`。
 - `public/index.html` 中 `startAiAnalysis()` 不再直接拼接 `hotelsPayload`、group size、progress 和 batch results；入口只读取 run plan 后继续执行分组请求、重试、汇总报告和 UI 状态写入。
 - 本轮未改 `/agent/analyze-captured-ota-data`、`/agent/summarize-captured-ota-analysis`、日期校验、AI 模型选择、汇总 fallback、历史记录或 OTA 入库链路。
-- 同一保存点保留美团目标酒店切换时的配置同步保护：排名页目标酒店下拉直接应用当前配置、hotelId watcher 触发配置刷新、配置详情请求返回前后校验目标酒店是否已变化，并补充手工凭据 UI 契约断言。
+- 同一保存点保留美团目标酒店切换时的配置同步保护：排名页目标酒店切换由 hotelId watcher 统一应用当前配置、配置详情请求返回前后校验目标酒店是否已变化，并补充手工凭据 UI 契约断言。
 - 更新 `scripts/verify_e2e_contracts.mjs`：要求入口通过 `requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan')` 显式读取 builder，禁止运行计划细节重新内联，并在 VM 中校验 DeepSeek Pro 3 家一组的分组、进度对象和批次 key。
-- 当前 split-map：`public/index.html` 为 `38046` 行；前端函数级块 `1408` 个；`ai` 领域 span 为 `1272` 行；`meituan` 领域 span 为 `1249` 行；`startAiAnalysis` 当前为 `144` 行。
-- 当前自审计：完整目录约 `270.59 MB`；不含 `.git` 约 `92.24 MB`；不含 `.git` 和依赖约 `63.05 MB`；Git 跟踪文件约 `18.13 MB` / `613` 个；代码范围 `370` 个文件，`189316` 行，非空 `173540` 行；默认可清理目标为 `0`。
+- 当前 split-map：`public/index.html` 为 `38043` 行；前端函数级块 `1408` 个；`ai` 领域 span 为 `1272` 行；`meituan` 领域 span 为 `1246` 行；`startAiAnalysis` 当前为 `144` 行。
+- 当前自审计：完整目录约 `271.19 MB`；不含 `.git` 约 `92.24 MB`；不含 `.git` 和依赖约 `63.05 MB`；Git 跟踪文件约 `18.13 MB` / `613` 个；代码范围 `370` 个文件，`189313` 行，非空 `173537` 行；默认可清理目标为 `0`。
 - 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:e2e-contracts`、`node --test tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
