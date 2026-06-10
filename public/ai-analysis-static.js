@@ -513,6 +513,61 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         create_time: now.toLocaleString('zh-CN'),
     });
 
+    const getMeituanAiAnalysisHotelKey = (hotel = {}) => `${hotel.poiId}_${hotel.hotelName}`;
+
+    const buildMeituanAiAnalysisHotelList = (rows = []) => {
+        const hotelMap = new Map();
+        if (Array.isArray(rows)) {
+            rows.forEach(hotel => {
+                const key = getMeituanAiAnalysisHotelKey(hotel);
+                if (!hotelMap.has(key)) {
+                    hotelMap.set(key, {
+                        poiId: hotel.poiId,
+                        hotelName: hotel.hotelName,
+                        roomNights: hotel.roomNights || 0,
+                        roomRevenue: hotel.roomRevenue || 0,
+                        salesRoomNights: hotel.salesRoomNights || 0,
+                        sales: hotel.sales || 0,
+                        viewConversion: hotel.viewConversion || 0,
+                        payConversion: hotel.payConversion || 0,
+                        exposure: hotel.exposure || 0,
+                        views: hotel.views || 0,
+                    });
+                }
+            });
+        }
+        return Array.from(hotelMap.values());
+    };
+
+    const resolveMeituanAiSelectedData = (selectedKeys = [], hotels = []) => {
+        if (!Array.isArray(selectedKeys) || !Array.isArray(hotels)) return [];
+        return selectedKeys
+            .map(key => hotels.find(hotel => getMeituanAiAnalysisHotelKey(hotel) === key))
+            .filter(Boolean);
+    };
+
+    const buildMeituanAiAnalysisRequestBody = (selectedData = []) => ({
+        hotels: selectedData,
+        total_hotels: selectedData.length,
+        analysis_type: 'business_overview',
+        source: 'meituan',
+        include_suggestions: true,
+    });
+
+    const buildMeituanAiAnalysisHistoryRecord = ({
+        selectedData = [],
+        summary = '',
+        report = '',
+        now = new Date(),
+    } = {}) => ({
+        id: now.getTime(),
+        hotel_names: selectedData.slice(0, 3).map(h => h.hotelName).join('、') + (selectedData.length > 3 ? '等' : ''),
+        hotel_count: selectedData.length,
+        summary: summary || 'AI分析报告',
+        report,
+        create_time: now.toLocaleString('zh-CN'),
+    });
+
     return {
         htmlEscape,
         sanitizeAiReportHtml,
@@ -548,5 +603,10 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildCapturedOtaAnalysisRunPlan,
         buildCapturedOtaSummaryRequestBody,
         buildAiAnalysisHistoryRecord,
+        getMeituanAiAnalysisHotelKey,
+        buildMeituanAiAnalysisHotelList,
+        resolveMeituanAiSelectedData,
+        buildMeituanAiAnalysisRequestBody,
+        buildMeituanAiAnalysisHistoryRecord,
     };
 })();

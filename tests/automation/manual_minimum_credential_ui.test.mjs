@@ -52,6 +52,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   const applyMeituanHotelConfig = sliceFrom('const applyMeituanHotelConfig = async (showMessage = true, options = {}) => {', '\n            const syncMeituanTrafficConfigFromSelectedConfig');
   const loadMeituanConfigDetail = sliceFrom('const meituanConfigDetailCache = new Map();', '\n            const applyCtripConfigObject');
   const loadMeituanConfigList = sliceFrom('const loadMeituanConfigList = async () => {', '\n            const saveMeituanConfigItem');
+  const findMeituanConfigByHotelId = sliceFrom('const findMeituanConfigByHotelId = (hotelId) => {', '\n\n            const selectedCtripHotelConfig');
   const openHomeQuickEntry = sliceFrom('const openHomeQuickEntry = (entry) => {', '\n\n            // 竞对价格监控');
   const meituanHotelSelectPanel = sliceFrom('<div v-if="onlineDataTab === \'meituan-ranking\'">', '<!-- 获取结果显示 -->');
   const meituanHotelWatcher = sliceFrom('watch(() => meituanForm.value.hotelId, () => {', '\n\n            watch(competitorTab');
@@ -66,6 +67,12 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(scheduleMeituanRankingSummaryRefresh, /await loadCompetitorSummary\(\{ includeByHotel: false \}\);/);
   assert.doesNotMatch(openHomeQuickEntry, /await loadCompetitorSummary\(\)/);
   assert.match(openHomeQuickEntry, /scheduleMeituanRankingSummaryRefresh\(\)/);
+  assert.match(findMeituanConfigByHotelId, /const idMatched = meituanConfigList\.value\.find/);
+  assert.match(findMeituanConfigByHotelId, /normalizeOtaConfigHotelName\(getHotelNameById\(hotelId\)\)/);
+  assert.match(findMeituanConfigByHotelId, /configHotelName === hotelName \|\| configName === hotelName/);
+  assert.match(meituanHotelSelectPanel, /meituanConfigListLoading/);
+  assert.match(meituanHotelSelectPanel, /正在匹配美团数据源/);
+  assert.match(meituanHotelSelectPanel, /!meituanConfigListLoading && !selectedMeituanHotelConfig/);
   assert.doesNotMatch(meituanHotelSelectPanel, /@change="applyMeituanHotelConfig/);
   assert.match(meituanHotelWatcher, /if \(onlineDataTab\.value === 'meituan-ranking'\) \{/);
   assert.match(meituanHotelWatcher, /applyMeituanHotelConfig\(false\);/);
@@ -91,6 +98,9 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(html, /clearMeituanConfigDetailCache\(id\);/);
   assert.match(loadMeituanConfigList, /if \(meituanConfigListLoadingPromise\) \{/);
   assert.match(loadMeituanConfigList, /return meituanConfigListLoadingPromise;/);
+  assert.match(html, /const meituanConfigListLoading = ref\(false\);/);
+  assert.match(loadMeituanConfigList, /meituanConfigListLoading\.value = true;/);
+  assert.match(loadMeituanConfigList, /meituanConfigListLoading\.value = false;/);
   assert.match(loadMeituanConfigList, /applyMeituanHotelConfig\(false, \{ refreshList: false \}\);/);
 });
 

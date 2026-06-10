@@ -870,6 +870,20 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `node scripts\verify_frontend_display_boundary.mjs`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Meituan AI Analysis Builder Split
+
+- Sixty-fifth frontend split target chosen from pure Meituan AI analysis data shaping inside `public/index.html`.
+- Extended `public/ai-analysis-static.js` with `getMeituanAiAnalysisHotelKey`, `buildMeituanAiAnalysisHotelList`, `resolveMeituanAiSelectedData`, `buildMeituanAiAnalysisRequestBody`, and `buildMeituanAiAnalysisHistoryRecord`.
+- `public/index.html` keeps Meituan AI analysis runtime responsibilities only: selected-hotel validation, `/online-data/ai-analysis` request execution, toast state, result writes, history trimming, view, and copy behavior.
+- This split did not change AI endpoints, OTA capture or storage, model selection, missing/failed-state display, or OTA channel scope.
+- The same save point preserves the current Meituan data-source matching guard: config-list loading state is visible before the “not configured” warning, and matching falls back from system hotel id to normalized hotel/config names.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted Meituan AI builders, prevent key/request/history details from being re-inlined, and validate Meituan hotel list, selected data, request body, and history records in a VM context.
+- Updated `tests/automation/manual_minimum_credential_ui.test.mjs` to cover Meituan config loading state, normalized hotel-name matching, and the delayed unconfigured warning boundary.
+- Current split-map: `public/index.html` is `37997` lines; frontend function-level blocks are `1407`; `ai` domain span is `1242`; `meituan` domain span is `1221`; `startAiAnalysis` remains `144` lines.
+- Current self-audit after local runtime cleanup: full directory about `272.36 MB`, without `.git` about `92.25 MB`, without `.git` and dependencies about `63.06 MB`, tracked files about `18.14 MB` / `613` files; code scope `370` files, `189427` total lines, and `173646` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\manual_minimum_credential_ui.test.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `node scripts\verify_frontend_display_boundary.mjs`; `node --test tests\automation\manual_minimum_credential_ui.test.mjs`; `git diff --check`; `npm.cmd run self:clean`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

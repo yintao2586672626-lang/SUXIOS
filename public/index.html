@@ -8291,7 +8291,10 @@
                                             <span v-if="(meituanForm.partnerId || selectedMeituanHotelConfig.partner_id || selectedMeituanHotelConfig.partnerId) && (meituanForm.poiId || selectedMeituanHotelConfig.poi_id || selectedMeituanHotelConfig.poiId || selectedMeituanHotelConfig.store_id || selectedMeituanHotelConfig.storeId)">已配置平台接口标识和门店标识，可获取榜单。</span>
                                             <span v-else>缺门店标识，请在酒店管理中补充美团平台标识。</span>
                                         </div>
-                                        <div v-if="meituanForm.hotelId && !selectedMeituanHotelConfig" class="mt-2 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm flex items-center justify-between gap-3">
+                                        <div v-if="meituanForm.hotelId && meituanConfigListLoading" class="mt-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 text-sm">
+                                            正在匹配美团数据源...
+                                        </div>
+                                        <div v-if="meituanForm.hotelId && !meituanConfigListLoading && !selectedMeituanHotelConfig" class="mt-2 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm flex items-center justify-between gap-3">
                                             <span>当前酒店未配置美团数据源</span>
                                             <button type="button" @click="goConfigureMeituanForSelectedHotel"
                                                 class="px-3 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600 whitespace-nowrap">
@@ -28657,9 +28660,24 @@
                 return ctripConfigList.value.find(item => String(item.hotel_id || item.system_hotel_id || '') === String(hotelId)) || null;
             };
 
+            const normalizeOtaConfigHotelName = (value = '') => String(value || '')
+                .trim()
+                .replace(/\s+/g, '')
+                .replace(/(美团|携程)?数据源$/u, '');
+
             const findMeituanConfigByHotelId = (hotelId) => {
                 if (!hotelId) return null;
-                return meituanConfigList.value.find(item => String(item.hotel_id || item.system_hotel_id || '') === String(hotelId)) || null;
+                const idText = String(hotelId);
+                const idMatched = meituanConfigList.value.find(item => String(item.system_hotel_id || item.hotel_id || '') === idText);
+                if (idMatched) return idMatched;
+
+                const hotelName = normalizeOtaConfigHotelName(getHotelNameById(hotelId));
+                if (!hotelName) return null;
+                return meituanConfigList.value.find(item => {
+                    const configHotelName = normalizeOtaConfigHotelName(item.hotel_name || item.hotelName || '');
+                    const configName = normalizeOtaConfigHotelName(item.name || '');
+                    return configHotelName === hotelName || configName === hotelName;
+                }) || null;
             };
 
             const selectedCtripHotelConfig = computed(() => findCtripConfigByHotelId(selectedCtripHotelId.value));
@@ -34637,10 +34655,12 @@
 
             // 美团配置管理方法
             let meituanConfigListLoadingPromise = null;
+            const meituanConfigListLoading = ref(false);
             const loadMeituanConfigList = async () => {
                 if (meituanConfigListLoadingPromise) {
                     return meituanConfigListLoadingPromise;
                 }
+                meituanConfigListLoading.value = true;
                 meituanConfigListLoadingPromise = (async () => {
                     try {
                         const res = await request('/online-data/get-meituan-config-list');
@@ -34657,6 +34677,7 @@
                         console.error('[Debug] 加载美团配置列表失败:', e);
                     } finally {
                         meituanConfigListLoadingPromise = null;
+                        meituanConfigListLoading.value = false;
                     }
                     return [];
                 })();
@@ -34946,6 +34967,10 @@
             const buildAiAnalysisHistoryRecord = requireAiAnalysisStatic('buildAiAnalysisHistoryRecord');
             const sanitizeAiReportHtml = requireAiAnalysisStatic('sanitizeAiReportHtml');
             const aiReportHtmlToText = requireAiAnalysisStatic('aiReportHtmlToText');
+            const buildMeituanAiAnalysisHotelList = requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList');
+            const resolveMeituanAiSelectedData = requireAiAnalysisStatic('resolveMeituanAiSelectedData');
+            const buildMeituanAiAnalysisRequestBody = requireAiAnalysisStatic('buildMeituanAiAnalysisRequestBody');
+            const buildMeituanAiAnalysisHistoryRecord = requireAiAnalysisStatic('buildMeituanAiAnalysisHistoryRecord');
 
             const extractAiAnalysisErrorDetails = (source, fallback = '分析失败') => {
                 const data = source?.data?.data || source?.data || {};
@@ -35224,30 +35249,7 @@
             // ==================== 美团AI智能分析相关函数 ====================
             // 更新美团AI分析酒店列表（只从美团数据中提取）
             const updateMeituanAiAnalysisHotelList = () => {
-                const hotelMap = new Map();
-
-                // 只从美团数据中提取
-                if (meituanHotelsList.value && meituanHotelsList.value.length > 0) {
-                    meituanHotelsList.value.forEach(h => {
-                        const key = h.poiId + '_' + h.hotelName;
-                        if (!hotelMap.has(key)) {
-                            hotelMap.set(key, {
-                                poiId: h.poiId,
-                                hotelName: h.hotelName,
-                                roomNights: h.roomNights || 0,
-                                roomRevenue: h.roomRevenue || 0,
-                                salesRoomNights: h.salesRoomNights || 0,
-                                sales: h.sales || 0,
-                                viewConversion: h.viewConversion || 0,
-                                payConversion: h.payConversion || 0,
-                                exposure: h.exposure || 0,
-                                views: h.views || 0
-                            });
-                        }
-                    });
-                }
-
-                meituanAiAnalysisHotelList.value = Array.from(hotelMap.values());
+                meituanAiAnalysisHotelList.value = buildMeituanAiAnalysisHotelList(meituanHotelsList.value);
                 debugLog('美团AI分析酒店列表更新:', meituanAiAnalysisHotelList.value.length, '家酒店');
             };
 
@@ -35270,10 +35272,7 @@
                     return;
                 }
 
-                // 获取选中酒店的详细数据
-                const selectedData = meituanAiSelectedHotels.value.map(key => {
-                    return meituanAiAnalysisHotelList.value.find(h => h.poiId + '_' + h.hotelName === key);
-                }).filter(Boolean);
+                const selectedData = resolveMeituanAiSelectedData(meituanAiSelectedHotels.value, meituanAiAnalysisHotelList.value);
 
                 if (selectedData.length === 0) {
                     showToast('未找到选中的酒店数据', 'error');
@@ -35284,14 +35283,7 @@
                 meituanAiAnalysisResult.value = '';
 
                 try {
-                    // 准备分析数据
-                    const analysisData = {
-                        hotels: selectedData,
-                        total_hotels: selectedData.length,
-                        analysis_type: 'business_overview',
-                        source: 'meituan',
-                        include_suggestions: true
-                    };
+                    const analysisData = buildMeituanAiAnalysisRequestBody(selectedData);
 
                     showToast('AI正在分析数据，请稍候...');
 
@@ -35304,15 +35296,11 @@
                     if (res.code === 200 && res.data) {
                         meituanAiAnalysisResult.value = sanitizeAiReportHtml(res.data.report || res.data.analysis || res.data);
 
-                        // 添加到历史记录
-                        meituanAiAnalysisHistory.value.unshift({
-                            id: Date.now(),
-                            hotel_names: selectedData.slice(0, 3).map(h => h.hotelName).join('、') + (selectedData.length > 3 ? '等' : ''),
-                            hotel_count: selectedData.length,
-                            summary: res.data.summary || 'AI分析报告',
+                        meituanAiAnalysisHistory.value.unshift(buildMeituanAiAnalysisHistoryRecord({
+                            selectedData,
+                            summary: res.data.summary,
                             report: meituanAiAnalysisResult.value,
-                            create_time: new Date().toLocaleString('zh-CN')
-                        });
+                        }));
 
                         // 只保留最近10条记录
                         if (meituanAiAnalysisHistory.value.length > 10) {
@@ -37928,7 +37916,7 @@
                 ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass,
                 loadCtripConfigList, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
-                meituanConfigForm, meituanConfigList, meituanBookmarklet, selectedMeituanHotelConfig,
+                meituanConfigForm, meituanConfigList, meituanConfigListLoading, meituanBookmarklet, selectedMeituanHotelConfig,
                 meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanSavedCount, meituanDataFetchTime,
                 meituanSortField, meituanSortOrder, sortMeituanTable,
                 loadMeituanConfigList, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, goConfigureMeituanForSelectedHotel,

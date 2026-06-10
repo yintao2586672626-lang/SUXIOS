@@ -886,6 +886,18 @@
 - 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第六十五刀拆分
+
+- 扩展 `public/ai-analysis-static.js`，承载美团 AI 分析酒店 key、酒店列表去重、选中酒店解析、请求体构建和历史记录构建：`getMeituanAiAnalysisHotelKey`、`buildMeituanAiAnalysisHotelList`、`resolveMeituanAiSelectedData`、`buildMeituanAiAnalysisRequestBody`、`buildMeituanAiAnalysisHistoryRecord`。
+- `public/index.html` 只保留美团 AI 分析的运行时职责：选择校验、`/online-data/ai-analysis` 请求、toast、结果写入、历史数组裁剪、查看和复制行为；本轮不迁移接口、存储路径、OTA 数据范围或缺失/失败状态展示。
+- 同一保存点也保留并验证当前美团数据源匹配修正：配置列表加载中显示“正在匹配美团数据源...”，未加载完成前不误报未配置；`findMeituanConfigByHotelId()` 先按系统酒店 ID 匹配，再按规范化酒店名/配置名匹配。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式读取新美团 AI helper，要求静态模块导出对应函数，禁止请求体/历史命名/key 构建重新内联，并在 VM 中验证美团酒店去重、选中数据、请求体和历史记录样本。
+- 更新 `tests/automation/manual_minimum_credential_ui.test.mjs`，覆盖美团配置列表 loading 状态、酒店名兜底匹配和未配置提示的加载边界。
+- 当前 split-map：`public/index.html` 为 `37997` 行，前端函数级块 `1407` 个；`ai` 领域 span 为 `1242` 行，`meituan` 领域 span 为 `1221` 行；`startAiAnalysis` 仍为 `144` 行。
+- 当前自审计：完整目录约 `272.36 MB`；不含 `.git` 约 `92.25 MB`；不含 `.git` 和依赖约 `63.06 MB`；Git 跟踪文件约 `18.14 MB` / `613` 个；代码范围 `370` 个文件，`189427` 行，非空 `173646` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`node --test tests\automation\manual_minimum_credential_ui.test.mjs`、`git diff --check`、`npm.cmd run self:clean`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

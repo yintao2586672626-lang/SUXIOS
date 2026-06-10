@@ -148,6 +148,10 @@ requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnaly
 requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
 requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
 requireText('public/index.html', "requireAiAnalysisStatic('aiReportHtmlToText')", 'entry uses extracted AI report text converter');
+requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList')", 'entry uses extracted Meituan AI hotel list builder');
+requireText('public/index.html', "requireAiAnalysisStatic('resolveMeituanAiSelectedData')", 'entry uses extracted Meituan AI selection resolver');
+requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysisRequestBody')", 'entry uses extracted Meituan AI request builder');
+requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysisHistoryRecord')", 'entry uses extracted Meituan AI history builder');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaHotelPayload', 'AI analysis static builds captured OTA hotel payloads');
 requireText('public/ai-analysis-static.js', 'const buildCtripAiAnalysisHotelSelection', 'AI analysis static builds Ctrip hotel selections');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisRunPlan', 'AI analysis static builds captured OTA run plans');
@@ -155,16 +159,23 @@ requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryReques
 requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
 requireText('public/ai-analysis-static.js', 'const sanitizeAiReportHtml', 'AI analysis static sanitizes report HTML');
 requireText('public/ai-analysis-static.js', 'const aiReportHtmlToText', 'AI analysis static converts report HTML to text');
+requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisHotelList', 'AI analysis static builds Meituan hotel selections');
+requireText('public/ai-analysis-static.js', 'const resolveMeituanAiSelectedData', 'AI analysis static resolves Meituan selected hotels');
+requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisRequestBody', 'AI analysis static builds Meituan AI request bodies');
+requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisHistoryRecord', 'AI analysis static builds Meituan AI history records');
 requireNoText('public/index.html', 'const pushOtaDiagnosisFetchTask = (tasks, task) => {', 'OTA diagnosis task push helper is not re-inlined');
 requireNoText('public/index.html', "['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(rankType => {", 'OTA diagnosis Meituan task list is not re-inlined');
 requireNoText('public/index.html', 'const aiAnalysisStatusText = (status) => {', 'AI analysis status text helper is not re-inlined');
 requireNoText('public/index.html', 'const chunkArray = (items, size) => {', 'AI analysis chunk helper is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedOtaHotelPayload = (hotel) => {', 'AI analysis captured payload builder is not re-inlined');
 requireNoText('public/index.html', "const key = (h.hotelId || h.id) + '_' + (h.hotelName || h.name);", 'Ctrip AI analysis hotel selection is not re-inlined');
+requireNoText('public/index.html', "const key = h.poiId + '_' + h.hotelName;", 'Meituan AI analysis hotel key building is not re-inlined');
 requireNoText('public/index.html', 'existing.amountRank = existing.amountRank === 0 ?', 'Ctrip AI analysis rank merge is not re-inlined');
 requireNoText('public/index.html', 'const hotelsPayload = selectedData.map(buildCapturedOtaHotelPayload)', 'AI analysis run plan is not re-inlined');
 requireNoText('public/index.html', 'const groupSize = isDeepSeekProAnalysisModel() ? 3 : 5;', 'AI analysis group sizing is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedOtaSummaryRequestBody = ({', 'AI analysis summary request builder is not re-inlined');
+requireNoText('public/index.html', 'total_hotels: selectedData.length,', 'Meituan AI analysis request body is not re-inlined');
+requireNoText('public/index.html', 'selectedData.slice(0, 3).map(h => h.hotelName)', 'Meituan AI analysis history naming is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedFallbackSummaryReport = ({', 'AI analysis fallback summary builder is not re-inlined');
 requireNoText('public/index.html', 'const sanitizeAiReportHtml = (value) => {', 'AI report sanitizer is not re-inlined');
 requireNoText('public/index.html', 'const aiReportHtmlToText = (value) => {', 'AI report text converter is not re-inlined');
@@ -456,6 +467,11 @@ try {
     'buildCapturedOtaSummaryRequestBody',
     'buildCapturedFallbackSummaryReport',
     'buildAiAnalysisHistoryRecord',
+    'getMeituanAiAnalysisHotelKey',
+    'buildMeituanAiAnalysisHotelList',
+    'resolveMeituanAiSelectedData',
+    'buildMeituanAiAnalysisRequestBody',
+    'buildMeituanAiAnalysisHistoryRecord',
   ];
   const missingKeys = requiredKeys.filter(key => typeof aiAnalysisStatic[key] !== 'function');
   if (missingKeys.length > 0) {
@@ -586,6 +602,19 @@ try {
       reportHtml: '<section>ok</section>',
       now: new Date('2026-06-10T00:00:00+08:00'),
     });
+    const meituanHotels = aiAnalysisStatic.buildMeituanAiAnalysisHotelList([
+      { poiId: 'm1', hotelName: 'Meituan One', roomNights: '2', roomRevenue: '300', views: '40' },
+      { poiId: 'm1', hotelName: 'Meituan One', roomNights: '5', roomRevenue: '800', views: '80' },
+      { poiId: 'm2', hotelName: 'Meituan Two', sales: '260', exposure: '900' },
+    ]);
+    const meituanSelectedData = aiAnalysisStatic.resolveMeituanAiSelectedData(['m1_Meituan One', 'missing_Key'], meituanHotels);
+    const meituanRequestBody = aiAnalysisStatic.buildMeituanAiAnalysisRequestBody(meituanSelectedData);
+    const meituanHistory = aiAnalysisStatic.buildMeituanAiAnalysisHistoryRecord({
+      selectedData: [...meituanSelectedData, { hotelName: 'Meituan Extra A' }, { hotelName: 'Meituan Extra B' }],
+      summary: 'Meituan summary',
+      report: '<section>meituan</section>',
+      now: new Date('2026-06-10T00:00:00+08:00'),
+    });
     checks.push({
       file: 'public/ai-analysis-static.js',
       label: 'AI analysis static builds captured OTA payload and batch state',
@@ -633,6 +662,21 @@ try {
         && hotelSelection.hotels[1].poiId === 'h2'
         && hotelSelection.hotels[1].convertionRate === 6.5,
       detail: 'Ctrip AI hotel selection sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static builds Meituan hotel selections and request bodies',
+      ok: meituanHotels.length === 2
+        && meituanHotels[0].poiId === 'm1'
+        && meituanHotels[0].roomNights === '2'
+        && meituanSelectedData.length === 1
+        && meituanRequestBody.total_hotels === 1
+        && meituanRequestBody.source === 'meituan'
+        && meituanRequestBody.include_suggestions === true
+        && meituanHistory.hotel_count === 3
+        && meituanHistory.hotel_names === 'Meituan One、Meituan Extra A、Meituan Extra B'
+        && meituanHistory.summary === 'Meituan summary',
+      detail: 'Meituan AI selection request history sample',
     });
     checks.push({
       file: 'public/ai-analysis-static.js',
