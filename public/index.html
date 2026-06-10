@@ -19830,6 +19830,8 @@
             };
             const meituanSortMetricValue = requireMeituanStatic('meituanSortMetricValue');
             const buildMeituanRankDisplayRows = requireMeituanStatic('buildMeituanRankDisplayRows');
+            const buildCompetitorSummaryCoreCards = requireMeituanStatic('buildCompetitorSummaryCoreCards');
+            const buildHomeCompetitorSummaryCards = requireMeituanStatic('buildHomeCompetitorSummaryCards');
             const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
             const meituanDynamicSelfRankRow = computed(() => meituanRankedHotelsList.value.find(row => row?.isSelf) || null);
             const meituanDisplayedHotelsList = computed(() => [...meituanRankedHotelsList.value].sort((a, b) => {
@@ -22141,63 +22143,12 @@
                 }
                 return '平台标签未返回，不推断VIP · 待同步美团榜单字段';
             };
-            const competitorSummaryCoreCards = (summary, limit = 5) => {
-                const rows = competitorDisplayRows(summary);
-                const selfRow = rows.find(row => row?.isSelf);
-                const topRow = rows[0] || null;
-                const selfInsight = competitorInsightByKey(summary, 'self-position');
-                const topInsight = competitorInsightByKey(summary, 'top-summary');
-                const healthInsight = competitorInsightByKey(summary, 'rank-health');
-                const rankGapInsight = competitorInsightByKey(summary, 'rank-gap');
-                const tagInsight = competitorInsightByKey(summary, 'platform-tags');
-                const tagMetricInsight = competitorInsightByKey(summary, 'tag-metric-link');
-                const missing = !summary || summary.data_status === 'missing';
-                const baseEntry = { page: 'meituan-ebooking', tab: 'meituan-ranking' };
-                return [
-                    {
-                        key: 'self-position',
-                        label: '本店第几',
-                        value: selfRow?.circlePositionText || selfInsight?.value || (missing ? '待同步' : '未返回'),
-                        note: selfRow?.gapToLeaderText || selfInsight?.note || '目标 POI 未配置或未出现在本次榜单',
-                        className: selfRow ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                        entry: baseEntry,
-                    },
-                    {
-                        key: 'top-summary',
-                        label: 'TOP1 是谁',
-                        value: topRow?.hotelName || topInsight?.value || (missing ? '待同步' : '-'),
-                        note: topRow ? `${topRow.circlePositionText || '榜首'} · ${topRow.gapToNextText || topRow.rankTrendText || '暂无差距'}` : (topInsight?.note || '暂无可展示榜首'),
-                        className: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-                        entry: baseEntry,
-                    },
-                    {
-                        key: 'gap-to-prev',
-                        label: '与前一名差多少',
-                        value: rankGapInsight?.value || selfRow?.gapToPrevText || selfRow?.gapToLeaderText || (missing ? '待同步' : '未返回'),
-                        note: rankGapInsight?.note || (selfRow?.gapMetricLabel ? `按${selfRow.gapMetricLabel}口径计算` : '缺少本店行时不计算差距'),
-                        className: selfRow ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                        entry: baseEntry,
-                    },
-                    {
-                        key: 'platform-tags',
-                        label: 'VIP/平台标签',
-                        value: tagInsight?.value || (missing ? '待同步' : '未返回'),
-                        note: tagMetricInsight?.value && tagMetricInsight.value !== '未返回'
-                            ? `${tagInsight?.note || '平台标签已返回'}；${tagMetricInsight.value}`
-                            : (tagInsight?.note || '平台未返回标签时不判断权益差距'),
-                        className: tagInsight?.className || 'bg-gray-50 text-gray-500 border-gray-200',
-                        entry: baseEntry,
-                    },
-                    {
-                        key: 'rank-trend',
-                        label: '榜单升降',
-                        value: selfRow?.rankTrendText || healthInsight?.value || (missing ? '待同步' : '暂无变化'),
-                        note: selfRow?.rankSummaryText || healthInsight?.note || '旧数据缺少时间维度时不倒推升降',
-                        className: selfRow?.rankTrendClass ? `bg-white border-gray-200 ${selfRow.rankTrendClass}` : (healthInsight?.className || 'bg-gray-50 text-gray-500 border-gray-200'),
-                        entry: baseEntry,
-                    },
-                ].slice(0, limit);
-            };
+            const competitorSummaryCoreCards = (summary, limit = 5) => buildCompetitorSummaryCoreCards({
+                summary,
+                rows: competitorDisplayRows(summary),
+                insightByKey: (key) => competitorInsightByKey(summary, key),
+                limit,
+            });
             const homeCompetitorSourceNotice = computed(() => competitorSummarySourceNotice(competitorSummary.value || { display_summary: meituanBusinessSummary.value }));
             const homeCompetitorHotel = computed(() => {
                 const hotelId = String(filterReportHotel.value || competitorSummary.value?.system_hotel_id || '');
@@ -22210,37 +22161,15 @@
             const homeCompetitorPlatformTagSummarySource = computed(() => competitorSummary.value || { display_summary: meituanBusinessSummary.value });
             const homeCompetitorPlatformTagText = computed(() => competitorPlatformTagText(homeCompetitorPlatformTagSummarySource.value));
             const homeCompetitorPlatformTagClass = computed(() => competitorPlatformTagClass(homeCompetitorPlatformTagSummarySource.value));
-            const homeCompetitorSummaryCards = computed(() => {
-                if (competitorSummary.value) {
-                    return competitorSummaryCoreCards(competitorSummary.value, 5);
-                }
-                const insightCards = Array.isArray(meituanVisibleRankInsightCards.value) ? meituanVisibleRankInsightCards.value : [];
-                if (insightCards.length) {
-                    return insightCards.slice(0, 5).map(card => ({
-                        key: card.key,
-                        label: card.key === 'platform-tags' ? 'VIP/平台标签' : card.label,
-                        value: card.value || '-',
-                        note: card.note || meituanRankSourceNotice.value,
-                        className: card.className || 'bg-white text-gray-700 border-gray-200',
-                        entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' },
-                    }));
-                }
-                const healthRows = Array.isArray(meituanRankHealthRows.value) ? meituanRankHealthRows.value : [];
-                return [
-                    ...defaultMeituanRankTypes.map(item => {
-                        const row = healthRows.find(health => health.key === item.key);
-                        const returned = row?.status === 'ok';
-                        return {
-                            key: item.key,
-                            label: item.label,
-                            value: row?.statusText || '待同步',
-                            note: row?.sourceLabel || '进入美团排名采集后返回榜单状态',
-                            className: returned ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                            entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' },
-                        };
-                    }),
-                ];
-            });
+            const homeCompetitorSummaryCards = computed(() => buildHomeCompetitorSummaryCards({
+                competitorSummary: competitorSummary.value,
+                coreCards: competitorSummary.value ? competitorSummaryCoreCards(competitorSummary.value, 5) : [],
+                insightCards: meituanVisibleRankInsightCards.value,
+                healthRows: meituanRankHealthRows.value,
+                defaultRankTypes: defaultMeituanRankTypes,
+                sourceNotice: meituanRankSourceNotice.value,
+                limit: 5,
+            }));
             const homeBoardActionRows = computed(() => {
                 const readiness = compassDataReadiness.value || {};
                 const channelSignal = findMacroSignal('channel');

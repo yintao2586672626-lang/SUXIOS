@@ -5,7 +5,9 @@ const root = existsSync('app/controller/OnlineData.php') ? '.' : 'HOTEL';
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 const controllerSource = read('app/controller/OnlineData.php');
+const platformProfileBindingReadinessSource = read('app/service/PlatformProfileBindingReadinessService.php');
 const publicSource = read('public/index.html');
+const meituanStaticSource = read('public/meituan-static.js');
 const packageSource = read('package.json');
 const backfillSource = read('scripts/backfill_meituan_vip_tags.php');
 const openHotelModalStart = publicSource.indexOf('const openHotelModal = async (hotel = null, options = {})');
@@ -18,8 +20,10 @@ const meituanVisibleRankInsightEnd = publicSource.indexOf('const meituanRankHeal
 const meituanVisibleRankInsightSource = meituanVisibleRankInsightStart >= 0 && meituanVisibleRankInsightEnd > meituanVisibleRankInsightStart
   ? publicSource.slice(meituanVisibleRankInsightStart, meituanVisibleRankInsightEnd)
   : '';
-const hasBindingCheckKey = (key) => controllerSource.includes(`'key' => '${key}'`)
-  || new RegExp(`buildPlatformProfileBindingCheck\\(\\s*'${key}'`).test(controllerSource);
+const platformProfileBindingSource = controllerSource + platformProfileBindingReadinessSource;
+const hasBindingCheckKey = (key) => platformProfileBindingSource.includes(`'key' => '${key}'`)
+  || new RegExp(`buildPlatformProfileBindingCheck\\(\\s*'${key}'`).test(platformProfileBindingSource)
+  || new RegExp(`buildCheck\\(\\s*'${key}'`).test(platformProfileBindingSource);
 
 const checks = [
   {
@@ -162,7 +166,9 @@ const checks = [
   },
   {
     name: 'competitor summary remains available for quick judgment',
-    pass: ['本店第几', 'TOP1 是谁', '与前一名差多少', 'VIP/平台标签', '榜单升降'].every((text) => publicSource.includes(text)),
+    pass: ['本店第几', 'TOP1 是谁', '与前一名差多少', 'VIP/平台标签', '榜单升降'].every((text) => (publicSource + meituanStaticSource).includes(text))
+      && publicSource.includes("requireMeituanStatic('buildCompetitorSummaryCoreCards')")
+      && publicSource.includes("requireMeituanStatic('buildHomeCompetitorSummaryCards')"),
   },
   {
     name: 'privacy boundary remains visible for high-risk order and room-state data',

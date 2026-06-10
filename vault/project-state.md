@@ -287,6 +287,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the seventeenth frontend split: `node --check public\data-health-static.js`; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; residual data-health builder scan; `git diff --check`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
+## 2026-06-10 Progress: Frontend Meituan Competitor Card Utility Split
+
+- Eighteenth frontend split target chosen from Meituan competitor summary card builders in `public/index.html`.
+- Extended `public/meituan-static.js` with `buildCompetitorSummaryCoreCards` and `buildHomeCompetitorSummaryCards`.
+- `public/index.html` now keeps a thin `competitorSummaryCoreCards` wrapper and the `homeCompetitorSummaryCards` computed binding; card labels, explicit missing-state copy, classes, and entry payload shaping are handled by `window.SUXI_MEITUAN_STATIC`.
+- Updated `scripts/verify_p0_learning_contract.mjs` so Meituan competitor summary evidence reads both `public/index.html` and `public/meituan-static.js`, while platform Profile binding evidence also reads `app/service/PlatformProfileBindingReadinessService.php` after the earlier service split.
+- `public/index.html` decreased from `41657` lines to `41586` lines; current `public/meituan-static.js` is `181` lines; current split map reports `1151` frontend function-level blocks, `44` `currentPage` references, general-domain span `10186` lines, and Meituan-domain span `1371` lines.
+- Current self-audit after the eighteenth frontend split: full directory about `243.47 MB`, without `.git` about `91.94 MB`, without `.git` and dependencies about `62.75 MB`, tracked files about `17.83 MB` / `607` files; code scope `364` files, `186165` total lines, `170495` nonblank lines.
+- Verified after the eighteenth frontend split: `node --check public\meituan-static.js`; `node --check scripts\verify_p0_learning_contract.mjs`; `npm.cmd run verify:p0-learning`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
