@@ -91,11 +91,29 @@ const checks = [
       "requireExpansionStaticOption('buildFeasibilityAiEmpowerment')",
       "requireExpansionStaticOption('feasibilityDecisionClassForGrade')",
       "requireExpansionStaticOption('stringifyFeasibilityReport')",
+      "requireExpansionStaticOption('buildStrategyScoreCards')",
+      "requireExpansionStaticOption('strategyFreshnessLabelForSnapshot')",
+      "requireExpansionStaticOption('strategyAiSourceLabelForResult')",
+      "requireExpansionStaticOption('strategyAiModelDisplayLabelForSnapshot')",
+      "requireExpansionStaticOption('strategyPoiDataSourceLabelForSnapshot')",
+      "requireExpansionStaticOption('strategyDataNoticeForSnapshot')",
+      "requireExpansionStaticOption('buildStrategyDataSourceRows')",
+      "requireExpansionStaticOption('buildStrategyAiEmpowermentCards')",
       'buildFeasibilityInputCards',
       'buildFeasibilityReportCards',
       'buildFeasibilityAiEmpowerment',
       'feasibilityDecisionClassForGrade',
       'stringifyFeasibilityReportText',
+      'buildStrategyScoreCards',
+      'strategyFreshnessLabelForSnapshot',
+      'strategyAiSourceLabelForResult',
+      'buildStrategyDataSourceRows',
+      'buildStrategyAiEmpowermentCards',
+    ],
+    absent: [
+      'const scores = r.scores || {}',
+      'snapshot.ai_search_used && uniqueMissing.some',
+      'const evidenceCount = strategyDataSourceRows.value.filter',
     ],
   },
 ];
@@ -115,6 +133,12 @@ for (const check of checks) {
   for (const needle of check.contains) {
     if (!content.includes(needle)) {
       failures.push(`${check.file} missing contract: ${needle}`);
+    }
+  }
+  for (const needle of check.absent || []) {
+    const targetContent = readFileSync(path, 'utf8');
+    if (targetContent.includes(needle)) {
+      failures.push(`${check.file} should not inline contract: ${needle}`);
     }
   }
 }

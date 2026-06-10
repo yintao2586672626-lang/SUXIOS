@@ -37,7 +37,7 @@ function analyzePublicIndex(relativePath) {
     /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/,
     /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*async\s*\(/,
     /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*computed\s*\(/,
-  ]).map((row) => ({
+  ], { boundaryPatterns: [/^\s{12}return\s+\{\s*$/] }).map((row) => ({
     ...row,
     domain: classifyFrontendDomain(row.name),
   }));
@@ -84,8 +84,12 @@ function readLines(relativePath) {
 
 function spansFromMatches(lines, patterns, options = {}) {
   const matches = [];
+  const boundaryLines = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
+    if ((options.boundaryPatterns || []).some((pattern) => pattern.test(line))) {
+      boundaryLines.push(index + 1);
+    }
     for (const pattern of patterns) {
       const match = pattern.exec(line);
       if (!match) {
@@ -101,7 +105,9 @@ function spansFromMatches(lines, patterns, options = {}) {
   }
 
   return matches.map((row, index) => {
-    const next = matches[index + 1]?.start_line ?? (lines.length + 1);
+    const nextMatch = matches[index + 1]?.start_line ?? (lines.length + 1);
+    const nextBoundary = boundaryLines.find((line) => line > row.start_line) ?? (lines.length + 1);
+    const next = Math.min(nextMatch, nextBoundary);
     return {
       ...row,
       end_line: next - 1,

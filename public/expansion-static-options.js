@@ -421,6 +421,132 @@ window.SUXI_EXPANSION_STATIC = (() => {
         ].join('\n\n');
     };
 
+    const buildStrategyScoreCards = (result = null) => {
+        if (!result) return [];
+        const scores = result.scores || {};
+        return [
+            { label: '市场需求', value: result.market_score, level: scores.market_demand?.level || '-', reason: scores.market_demand?.reasons?.[0] || '等待数据解释' },
+            { label: '竞争环境', value: result.competition_score, level: scores.competition?.level || '-', reason: scores.competition?.reasons?.[0] || '等待数据解释' },
+            { label: '物业适配', value: result.property_score, level: scores.property_fit?.level || '-', reason: scores.property_fit?.reasons?.[0] || '等待数据解释' },
+            { label: '成本压力', value: result.cost_score, level: scores.cost_pressure?.level || '-', reason: scores.cost_pressure?.reasons?.[0] || '等待数据解释' },
+            { label: '退出安全', value: result.exit_score, level: scores.exit_safety?.level || '-', reason: scores.exit_safety?.reasons?.[0] || '等待数据解释' }
+        ];
+    };
+    const strategyFreshnessLabelForSnapshot = (snapshot = null) => {
+        if (!snapshot) return '本地数据';
+        if (snapshot.ai_data_used) return 'AI已接入';
+        if (!snapshot.external_data_available) return '外部数据未接入';
+        if (snapshot.freshness === 'realtime') return '实时数据';
+        if (snapshot.freshness === 'today_cache') return '今日缓存';
+        return '本地数据';
+    };
+    const strategyAiSourceLabelForResult = (result = null) => {
+        const source = result?.ai_evaluation?.source;
+        if (source === 'llm') return 'AI模型评估';
+        if (source === 'fallback') return '本地兜底';
+        return 'AI状态';
+    };
+    const strategyAiModelDisplayLabelForSnapshot = (snapshot = {}) => {
+        if (snapshot.ai_model_label) return snapshot.ai_model_label;
+        const modelKey = String(snapshot.ai_model_key || '').trim();
+        if (!modelKey) return 'DeepSeek + MIMO';
+        if (modelKey.includes('deepseek')) return 'DeepSeek + MIMO';
+        if (modelKey.includes('mimo')) return 'MIMO';
+        return modelKey;
+    };
+    const strategyPoiDataSourceLabelForSnapshot = (snapshot = {}, modelLabel = 'DeepSeek + MIMO') => {
+        if (snapshot.external_data_used) return '已接入';
+        if (snapshot.ai_search_used) {
+            return `AI搜索（${snapshot.ai_search_provider || modelLabel || 'DeepSeek + MIMO'}）`;
+        }
+        if (snapshot.ai_search_available) return 'AI搜索未完成';
+        return '未接入';
+    };
+    const strategyDataNoticeForSnapshot = (snapshot = null, modelLabel = 'DeepSeek + MIMO') => {
+        if (!snapshot) return '';
+        if (snapshot.ai_data_used && snapshot.ai_search_used && !snapshot.external_data_used) {
+            return `${modelLabel} 已用于AI搜索补位；外部地图/POI接口未接入，周边客流和竞品仍需地图或实地复核。`;
+        }
+        if (snapshot.ai_data_used && !snapshot.external_data_used) {
+            return 'AI模型已接入；外部地图/POI未接入，周边客流和竞品仍需补充验证。';
+        }
+        if (!snapshot.ai_data_used && !snapshot.external_data_used) {
+            return 'AI模型未生成且外部地图/POI未接入，当前为本地数据推演。';
+        }
+        if (!snapshot.ai_data_used) {
+            return 'AI模型未生成，当前保留本地规则推演。';
+        }
+        return '';
+    };
+    const buildStrategyDataSourceRows = (snapshot = {}, {
+        modelLabel = 'DeepSeek + MIMO',
+        poiDataSourceLabel = '未接入',
+    } = {}) => {
+        const localData = snapshot.local_data || {};
+        const externalData = snapshot.external_data || {};
+        const localSources = Array.isArray(localData.data_sources) ? localData.data_sources.filter(Boolean) : [];
+        const missing = [
+            ...((Array.isArray(localData.missing_data) ? localData.missing_data : [])),
+            ...((Array.isArray(externalData.missing_data) ? externalData.missing_data : []))
+        ].filter(Boolean);
+        const uniqueMissing = Array.from(new Set(missing));
+        const missingValue = snapshot.ai_search_used && uniqueMissing.some(item => ['AMAP_KEY', 'BAIDU_MAP_KEY'].includes(item))
+            ? '地图API未配置；AI搜索已补位，需地图/实地复核'
+            : (uniqueMissing.join('、') || '无');
+        return [
+            { label: '本地数据', value: snapshot.local_data_used ? (localSources.join('、') || '已使用项目输入') : '未命中' },
+            { label: 'AI模型', value: snapshot.ai_data_used ? `已接入（${modelLabel}）` : '未生成' },
+            { label: '地图/POI', value: poiDataSourceLabel },
+            { label: '缺失项', value: missingValue }
+        ];
+    };
+    const buildStrategyAiEmpowermentCards = (result = null, {
+        dataSourceRows = [],
+        freshnessLabel = '本地数据',
+        poiDataSourceLabel = '未接入',
+        dataNotice = '',
+    } = {}) => {
+        if (!result) return [];
+        const evaluation = result.ai_evaluation || {};
+        const actions = Array.isArray(evaluation.key_actions) ? evaluation.key_actions : [];
+        const risks = Array.isArray(evaluation.main_risks) ? evaluation.main_risks : [];
+        const verifyItems = Array.isArray(evaluation.next_data_to_verify) ? evaluation.next_data_to_verify : [];
+        const snapshot = result.data_snapshot || {};
+        const evidenceCount = dataSourceRows.filter(row => {
+            const value = String(row.value || '').trim();
+            return value && !['未命中', '未生成', '未接入', '无'].includes(value);
+        }).length;
+        const firstAction = actions[0] || result.decision_direction || '先完成项目参数复核';
+        const firstRisk = risks[0] || result.risk_level || result.competition_pressure || '等待风险复核';
+        const firstVerify = verifyItems[0] || (snapshot.external_data_used ? '复核真实 OTA 转化与竞品点评' : '补充真实竞品、客流和 OTA 数据');
+        return [
+            {
+                label: '执行动作',
+                value: firstAction,
+                hint: actions.length > 1 ? `另有 ${actions.length - 1} 项动作待推进` : '承接 AI 判断进入下一步执行',
+                icon: 'fas fa-list-check'
+            },
+            {
+                label: '主要风险',
+                value: firstRisk,
+                hint: risks.length > 1 ? `另有 ${risks.length - 1} 项风险需跟踪` : (result.competition_pressure || '结合评分项持续观察'),
+                icon: 'fas fa-triangle-exclamation'
+            },
+            {
+                label: '证据覆盖',
+                value: `${evidenceCount}/4`,
+                hint: `${freshnessLabel} · ${poiDataSourceLabel}`,
+                icon: 'fas fa-database'
+            },
+            {
+                label: '复核要求',
+                value: firstVerify,
+                hint: verifyItems.length > 1 ? `另需复核 ${verifyItems.length - 1} 项数据` : (dataNotice || '进入可研报告前复核关键假设'),
+                icon: 'fas fa-clipboard-check'
+            }
+        ];
+    };
+
     return {
         marketEvaluationCityTierOptions,
         marketEvaluationCityOptions,
@@ -450,5 +576,13 @@ window.SUXI_EXPANSION_STATIC = (() => {
         buildFeasibilityAiEmpowerment,
         feasibilityDecisionClassForGrade,
         stringifyFeasibilityReport,
+        buildStrategyScoreCards,
+        strategyFreshnessLabelForSnapshot,
+        strategyAiSourceLabelForResult,
+        strategyAiModelDisplayLabelForSnapshot,
+        strategyPoiDataSourceLabelForSnapshot,
+        strategyDataNoticeForSnapshot,
+        buildStrategyDataSourceRows,
+        buildStrategyAiEmpowermentCards,
     };
 })();

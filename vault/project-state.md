@@ -570,6 +570,19 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the hotel platform account row split: `node --check public\system-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check scripts\verify_platform_account_guide_contract.mjs`; `node --check tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:platform-account-guide`; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Strategy Display Builder Split
+
+- Fortieth frontend split target chosen from pure strategy-result display computed logic in `public/index.html`.
+- Extended `public/expansion-static-options.js` with `buildStrategyScoreCards`, `strategyFreshnessLabelForSnapshot`, `strategyAiSourceLabelForResult`, `strategyAiModelDisplayLabelForSnapshot`, `strategyPoiDataSourceLabelForSnapshot`, `strategyDataNoticeForSnapshot`, `buildStrategyDataSourceRows`, and `buildStrategyAiEmpowermentCards`.
+- `public/index.html` keeps the original computed names and runtime state inputs only; strategy requests, record loading, history reuse, archiving, feasibility report generation, localStorage, and OTA data paths remain unchanged.
+- Updated `scripts/verify_expansion_p2.mjs` so expansion P2 requires the strategy display builders from `public/expansion-static-options.js`, while the entry file must explicitly read them through `requireExpansionStaticOption(...)` and must not re-inline key long logic fragments.
+- Updated `scripts/project_split_map.mjs` so the Vue setup top-level `return {` is treated as a block boundary. This removes the stale false-positive where `homeAiTraceRows` inherited the giant setup return span; the real largest frontend block remains `runOtaDiagnosisHotelFetch`, which was not moved in this round.
+- `public/index.html` decreased from `39607` lines to `39513` lines; the split-map `ai` domain span decreased from `1918` to `1637` lines.
+- Current `public/expansion-static-options.js` is about `588` lines. Total code lines are `187092` and nonblank lines are `171360` after the code move. Total code lines increased because the static builders plus contract guards add more explicit code than the entry file removes.
+- Current self-audit after the code move: full directory about `257.05 MB`, without `.git` about `92.07 MB`, without `.git` and dependencies about `62.88 MB`, tracked files about `17.95 MB` / `612` files; code scope `369` files.
+- Verified after the strategy display split: `node --check public\expansion-static-options.js`; `node --check scripts\verify_expansion_p2.mjs`; `node --check scripts\project_split_map.mjs`; `node scripts\verify_expansion_p2.mjs`; `node scripts\verify_strategy_location_ui_contract.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

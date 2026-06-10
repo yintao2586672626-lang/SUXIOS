@@ -37606,6 +37606,14 @@
             const buildFeasibilityAiEmpowerment = requireExpansionStaticOption('buildFeasibilityAiEmpowerment');
             const feasibilityDecisionClassForGrade = requireExpansionStaticOption('feasibilityDecisionClassForGrade');
             const stringifyFeasibilityReportText = requireExpansionStaticOption('stringifyFeasibilityReport');
+            const buildStrategyScoreCards = requireExpansionStaticOption('buildStrategyScoreCards');
+            const strategyFreshnessLabelForSnapshot = requireExpansionStaticOption('strategyFreshnessLabelForSnapshot');
+            const strategyAiSourceLabelForResult = requireExpansionStaticOption('strategyAiSourceLabelForResult');
+            const strategyAiModelDisplayLabelForSnapshot = requireExpansionStaticOption('strategyAiModelDisplayLabelForSnapshot');
+            const strategyPoiDataSourceLabelForSnapshot = requireExpansionStaticOption('strategyPoiDataSourceLabelForSnapshot');
+            const strategyDataNoticeForSnapshot = requireExpansionStaticOption('strategyDataNoticeForSnapshot');
+            const buildStrategyDataSourceRows = requireExpansionStaticOption('buildStrategyDataSourceRows');
+            const buildStrategyAiEmpowermentCards = requireExpansionStaticOption('buildStrategyAiEmpowermentCards');
             const marketEvaluationForm = ref({ ...marketEvaluationDefaults });
             const marketEvaluationResult = ref(null);
             const marketEvaluationLoading = ref(false);
@@ -39066,130 +39074,28 @@
             const simulationOtaCommissionChannels = computed(() => buildSimulationOtaCommissionChannels(aiSimulationParams.value));
             const simulationModelAnalysisVisible = computed(() => isSimulationModelAnalysisVisible(simulationModelAnalysis.value));
             const simulationModelSourceLabel = computed(() => simulationModelSourceLabelForAnalysis(simulationModelAnalysis.value));
-            const strategyScoreCards = computed(() => {
-                const r = aiStrategyResult.value;
-                if (!r) return [];
-                const scores = r.scores || {};
-                return [
-                    { label: '市场需求', value: r.market_score, level: scores.market_demand?.level || '-', reason: scores.market_demand?.reasons?.[0] || '等待数据解释' },
-                    { label: '竞争环境', value: r.competition_score, level: scores.competition?.level || '-', reason: scores.competition?.reasons?.[0] || '等待数据解释' },
-                    { label: '物业适配', value: r.property_score, level: scores.property_fit?.level || '-', reason: scores.property_fit?.reasons?.[0] || '等待数据解释' },
-                    { label: '成本压力', value: r.cost_score, level: scores.cost_pressure?.level || '-', reason: scores.cost_pressure?.reasons?.[0] || '等待数据解释' },
-                    { label: '退出安全', value: r.exit_score, level: scores.exit_safety?.level || '-', reason: scores.exit_safety?.reasons?.[0] || '等待数据解释' }
-                ];
-            });
-            const strategyFreshnessLabel = computed(() => {
-                const snapshot = aiStrategyResult.value?.data_snapshot;
-                if (!snapshot) return '本地数据';
-                if (snapshot.ai_data_used) return 'AI已接入';
-                if (!snapshot.external_data_available) return '外部数据未接入';
-                if (snapshot.freshness === 'realtime') return '实时数据';
-                if (snapshot.freshness === 'today_cache') return '今日缓存';
-                return '本地数据';
-            });
-            const strategyAiSourceLabel = computed(() => {
-                const source = aiStrategyResult.value?.ai_evaluation?.source;
-                if (source === 'llm') return 'AI模型评估';
-                if (source === 'fallback') return '本地兜底';
-                return 'AI状态';
-            });
-            const strategyDataNotice = computed(() => {
-                const snapshot = aiStrategyResult.value?.data_snapshot;
-                if (!snapshot) return '';
-                if (snapshot.ai_data_used && snapshot.ai_search_used && !snapshot.external_data_used) {
-                    return `${strategyAiModelDisplayLabel.value} 已用于AI搜索补位；外部地图/POI接口未接入，周边客流和竞品仍需地图或实地复核。`;
-                }
-                if (snapshot.ai_data_used && !snapshot.external_data_used) {
-                    return 'AI模型已接入；外部地图/POI未接入，周边客流和竞品仍需补充验证。';
-                }
-                if (!snapshot.ai_data_used && !snapshot.external_data_used) {
-                    return 'AI模型未生成且外部地图/POI未接入，当前为本地数据推演。';
-                }
-                if (!snapshot.ai_data_used) {
-                    return 'AI模型未生成，当前保留本地规则推演。';
-                }
-                return '';
-            });
-            const strategyAiModelDisplayLabel = computed(() => {
-                const snapshot = aiStrategyResult.value?.data_snapshot || {};
-                if (snapshot.ai_model_label) return snapshot.ai_model_label;
-                const modelKey = String(snapshot.ai_model_key || '').trim();
-                if (!modelKey) return 'DeepSeek + MIMO';
-                if (modelKey.includes('deepseek')) return 'DeepSeek + MIMO';
-                if (modelKey.includes('mimo')) return 'MIMO';
-                return modelKey;
-            });
-            const strategyPoiDataSourceLabel = computed(() => {
-                const snapshot = aiStrategyResult.value?.data_snapshot || {};
-                if (snapshot.external_data_used) return '已接入';
-                if (snapshot.ai_search_used) {
-                    return `AI搜索（${snapshot.ai_search_provider || strategyAiModelDisplayLabel.value || 'DeepSeek + MIMO'}）`;
-                }
-                if (snapshot.ai_search_available) return 'AI搜索未完成';
-                return '未接入';
-            });
-            const strategyDataSourceRows = computed(() => {
-                const snapshot = aiStrategyResult.value?.data_snapshot || {};
-                const localData = snapshot.local_data || {};
-                const externalData = snapshot.external_data || {};
-                const localSources = Array.isArray(localData.data_sources) ? localData.data_sources.filter(Boolean) : [];
-                const missing = [
-                    ...((Array.isArray(localData.missing_data) ? localData.missing_data : [])),
-                    ...((Array.isArray(externalData.missing_data) ? externalData.missing_data : []))
-                ].filter(Boolean);
-                const uniqueMissing = Array.from(new Set(missing));
-                const missingValue = snapshot.ai_search_used && uniqueMissing.some(item => ['AMAP_KEY', 'BAIDU_MAP_KEY'].includes(item))
-                    ? '地图API未配置；AI搜索已补位，需地图/实地复核'
-                    : (uniqueMissing.join('、') || '无');
-                return [
-                    { label: '本地数据', value: snapshot.local_data_used ? (localSources.join('、') || '已使用项目输入') : '未命中' },
-                    { label: 'AI模型', value: snapshot.ai_data_used ? `已接入（${strategyAiModelDisplayLabel.value}）` : '未生成' },
-                    { label: '地图/POI', value: strategyPoiDataSourceLabel.value },
-                    { label: '缺失项', value: missingValue }
-                ];
-            });
-            const strategyAiEmpowermentCards = computed(() => {
-                const result = aiStrategyResult.value;
-                if (!result) return [];
-                const evaluation = result.ai_evaluation || {};
-                const actions = Array.isArray(evaluation.key_actions) ? evaluation.key_actions : [];
-                const risks = Array.isArray(evaluation.main_risks) ? evaluation.main_risks : [];
-                const verifyItems = Array.isArray(evaluation.next_data_to_verify) ? evaluation.next_data_to_verify : [];
-                const snapshot = result.data_snapshot || {};
-                const evidenceCount = strategyDataSourceRows.value.filter(row => {
-                    const value = String(row.value || '').trim();
-                    return value && !['未命中', '未生成', '未接入', '无'].includes(value);
-                }).length;
-                const firstAction = actions[0] || result.decision_direction || '先完成项目参数复核';
-                const firstRisk = risks[0] || result.risk_level || result.competition_pressure || '等待风险复核';
-                const firstVerify = verifyItems[0] || (snapshot.external_data_used ? '复核真实 OTA 转化与竞品点评' : '补充真实竞品、客流和 OTA 数据');
-                return [
-                    {
-                        label: '执行动作',
-                        value: firstAction,
-                        hint: actions.length > 1 ? `另有 ${actions.length - 1} 项动作待推进` : '承接 AI 判断进入下一步执行',
-                        icon: 'fas fa-list-check'
-                    },
-                    {
-                        label: '主要风险',
-                        value: firstRisk,
-                        hint: risks.length > 1 ? `另有 ${risks.length - 1} 项风险需跟踪` : (result.competition_pressure || '结合评分项持续观察'),
-                        icon: 'fas fa-triangle-exclamation'
-                    },
-                    {
-                        label: '证据覆盖',
-                        value: `${evidenceCount}/4`,
-                        hint: `${strategyFreshnessLabel.value} · ${strategyPoiDataSourceLabel.value}`,
-                        icon: 'fas fa-database'
-                    },
-                    {
-                        label: '复核要求',
-                        value: firstVerify,
-                        hint: verifyItems.length > 1 ? `另需复核 ${verifyItems.length - 1} 项数据` : (strategyDataNotice.value || '进入可研报告前复核关键假设'),
-                        icon: 'fas fa-clipboard-check'
-                    }
-                ];
-            });
+            const strategyScoreCards = computed(() => buildStrategyScoreCards(aiStrategyResult.value));
+            const strategyFreshnessLabel = computed(() => strategyFreshnessLabelForSnapshot(aiStrategyResult.value?.data_snapshot));
+            const strategyAiSourceLabel = computed(() => strategyAiSourceLabelForResult(aiStrategyResult.value));
+            const strategyAiModelDisplayLabel = computed(() => strategyAiModelDisplayLabelForSnapshot(aiStrategyResult.value?.data_snapshot || {}));
+            const strategyPoiDataSourceLabel = computed(() => strategyPoiDataSourceLabelForSnapshot(
+                aiStrategyResult.value?.data_snapshot || {},
+                strategyAiModelDisplayLabel.value
+            ));
+            const strategyDataNotice = computed(() => strategyDataNoticeForSnapshot(
+                aiStrategyResult.value?.data_snapshot,
+                strategyAiModelDisplayLabel.value
+            ));
+            const strategyDataSourceRows = computed(() => buildStrategyDataSourceRows(aiStrategyResult.value?.data_snapshot || {}, {
+                modelLabel: strategyAiModelDisplayLabel.value,
+                poiDataSourceLabel: strategyPoiDataSourceLabel.value,
+            }));
+            const strategyAiEmpowermentCards = computed(() => buildStrategyAiEmpowermentCards(aiStrategyResult.value, {
+                dataSourceRows: strategyDataSourceRows.value,
+                freshnessLabel: strategyFreshnessLabel.value,
+                poiDataSourceLabel: strategyPoiDataSourceLabel.value,
+                dataNotice: strategyDataNotice.value,
+            }));
             const simulationMetricCards = computed(() => {
                 const b = baseSimulation.value;
                 if (!b) return [

@@ -623,6 +623,17 @@
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_platform_account_guide_contract.mjs`、`node --check tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:platform-account-guide`、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十刀拆分
+
+- 扩展 `public/expansion-static-options.js`，承载战略测算结果展示构建器：`buildStrategyScoreCards`、`strategyFreshnessLabelForSnapshot`、`strategyAiSourceLabelForResult`、`strategyAiModelDisplayLabelForSnapshot`、`strategyPoiDataSourceLabelForSnapshot`、`strategyDataNoticeForSnapshot`、`buildStrategyDataSourceRows`、`buildStrategyAiEmpowermentCards`。
+- `public/index.html` 仅保留原有 computed 名称和运行态输入绑定；战略测算请求、历史加载、复用、归档、可研报告生成、localStorage 和 OTA 数据链路均未移动。
+- 更新 `scripts/verify_expansion_p2.mjs`，要求入口通过 `requireExpansionStaticOption(...)` 显式读取上述构建器，并禁止关键长逻辑片段重新内联回 `public/index.html`。
+- 更新 `scripts/project_split_map.mjs`，把 Vue setup 顶层 `return {` 识别为块边界，修正 `homeAiTraceRows` 被尾部 return 误报为 245 行大块的问题；修正后最大前端块仍是 `runOtaDiagnosisHotelFetch`，本轮未移动 OTA 采集执行链路。
+- `public/index.html` 从 `39,607` 行降至 `39,513` 行；`public/expansion-static-options.js` 当前约 `588` 行；split-map 中 `ai` 域 span 从 `1,918` 行降至 `1,637` 行。
+- 当前自审计：完整目录约 `257.05 MB`，不含 `.git` 约 `92.07 MB`，不含 `.git` 和依赖约 `62.88 MB`，Git 跟踪文件约 `17.95 MB` / `612` 个；代码范围 `369` 个文件，`187,092` 行，非空行 `171,360`。总代码行数较上轮增加，原因是静态模块和守卫脚本新增的显式契约多于入口减少行数。
+- 已验证：`node --check public\expansion-static-options.js`、`node --check scripts\verify_expansion_p2.mjs`、`node --check scripts\project_split_map.mjs`、`node scripts\verify_expansion_p2.mjs`、`node scripts\verify_strategy_location_ui_contract.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
