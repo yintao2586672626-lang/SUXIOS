@@ -19166,38 +19166,24 @@
                 ctripTablePage.value = Math.min(Math.max(1, Number(page) || 1), ctripTablePagination.value.totalPages);
             };
             const showRawData = ref(false); // 是否展开原始数据
-            const ctripForm = ref({
-                url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                nodeId: '24588',
-                startDate: '',
-                endDate: '',
-                cookies: '',
-                auth_data: {}, // 认证数据
-            });
-            const ctripTrafficForm = ref({
-                url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
-                platform: 'Ctrip',
-                dateRange: 'last_30_days',
-                startDate: '',
-                endDate: '',
-                cookies: '',
-                extraParams: '',
-            });
+            const createCtripFetchForm = requireCtripStatic('createCtripFetchForm');
+            const createCtripTrafficForm = requireCtripStatic('createCtripTrafficForm');
+            const createCtripAdsBrowserCaptureForm = requireCtripStatic('createCtripAdsBrowserCaptureForm');
+            const createCtripOverviewForm = requireCtripStatic('createCtripOverviewForm');
+            const createCtripFlowOverviewForm = requireCtripStatic('createCtripFlowOverviewForm');
+            const createCtripBrowserCaptureForm = requireCtripStatic('createCtripBrowserCaptureForm');
+            const createCtripCookieApiForm = requireCtripStatic('createCtripCookieApiForm');
+            const createCtripEndpointEvidenceForm = requireCtripStatic('createCtripEndpointEvidenceForm');
+            const createCtripCommentForm = requireCtripStatic('createCtripCommentForm');
+            const createCtripCommentBrowserCaptureForm = requireCtripStatic('createCtripCommentBrowserCaptureForm');
+            const ctripForm = ref(createCtripFetchForm());
+            const ctripTrafficForm = ref(createCtripTrafficForm());
             const ctripTrafficSummary = ref(null);
             const ctripTrafficRows = ref([]);
             const ctripTrafficAnalysis = ref(null);
             const ctripTrafficSortField = ref('date');
             const ctripTrafficSortOrder = ref('asc');
-            const ctripAdsBrowserCaptureForm = ref({
-                url: '',
-                cookies: '',
-                payloadJson: '',
-                apiType: 'effect_report',
-                dateRange: 'yesterday',
-                startDate: '',
-                endDate: '',
-                campaignId: '',
-            });
+            const ctripAdsBrowserCaptureForm = ref(createCtripAdsBrowserCaptureForm());
             const ctripAdsBrowserCaptureResult = ref(null);
             const ctripAdsBrowserCaptureRunning = ref(false);
             const ctripOverviewApiKeywords = requireCtripStatic('ctripOverviewApiKeywords');
@@ -19209,24 +19195,8 @@
             const buildCtripOverviewTopRankTables = requireCtripStatic('buildCtripOverviewTopRankTables');
             const buildCtripFlowOverviewMetricCards = requireCtripStatic('buildCtripFlowOverviewMetricCards');
             const buildCtripFlowOverviewInterfaceRows = requireCtripStatic('buildCtripFlowOverviewInterfaceRows');
-            const ctripOverviewForm = ref({
-                requestUrls: '',
-                cookies: '',
-                spidertoken: '',
-                payloadJson: '',
-                hotelId: '',
-                method: 'GET',
-                dataDate: '',
-            });
-            const ctripFlowOverviewForm = ref({
-                requestUrls: '',
-                cookies: '',
-                spidertoken: '',
-                payloadJson: '',
-                hotelId: '',
-                method: 'POST',
-                dataDate: '',
-            });
+            const ctripOverviewForm = ref(createCtripOverviewForm());
+            const ctripFlowOverviewForm = ref(createCtripFlowOverviewForm());
             const ctripOverviewResult = ref(null);
             const ctripOverviewFetching = ref(false);
             const ctripFlowOverviewResult = ref(null);
@@ -19235,23 +19205,11 @@
             const ctripOverviewTopRankTables = computed(() => buildCtripOverviewTopRankTables(ctripOverviewResult.value));
             const ctripFlowOverviewMetricCards = computed(() => buildCtripFlowOverviewMetricCards(ctripFlowOverviewResult.value));
             const ctripFlowOverviewInterfaceRows = computed(() => buildCtripFlowOverviewInterfaceRows(ctripFlowOverviewResult.value, ctripFlowOverviewApiGroups));
-            const ctripBrowserCaptureForm = ref({
-                profileId: '',
-                hotelId: '',
-                approvedMappingsPath: '',
-                sections: 'default',
-            });
+            const ctripBrowserCaptureForm = ref(createCtripBrowserCaptureForm());
             const ctripBrowserCaptureResult = ref(null);
             const ctripBrowserCaptureRunning = ref(false);
             const ctripDiagnosisSnapshotLoading = ref(false);
-            const ctripCookieApiForm = ref({
-                profileId: '',
-                requestUrl: '',
-                method: 'GET',
-                payloadJson: '',
-                endpointsJson: '',
-                cookies: '',
-            });
+            const ctripCookieApiForm = ref(createCtripCookieApiForm());
             const ctripCookieApiRunning = ref(false);
             const ctripProfileStatus = ref(null);
             const ctripProfileStatusChecking = ref(false);
@@ -19269,33 +19227,12 @@
                 if (status.exists) return 'bg-amber-50 border-amber-200 text-amber-700';
                 return 'bg-red-50 border-red-200 text-red-700';
             });
-            const ctripEndpointEvidenceForm = ref({
-                requestUrl: '',
-                method: 'POST',
-                headersText: '',
-                payloadJson: '',
-                responseJson: '',
-                pageContextJson: '',
-                paramsJson: '',
-                saveStandardRows: false,
-            });
+            const ctripEndpointEvidenceForm = ref(createCtripEndpointEvidenceForm());
             const ctripEndpointEvidenceResult = ref(null);
             const ctripEndpointEvidenceValidating = ref(false);
-            const ctripCommentForm = ref({
-                requestUrl: '',
-                hotelId: '',
-                spidertoken: '',
-                cookies: '',
-                pageIndex: 1,
-                pageSize: 50,
-                payloadJson: '',
-            });
+            const ctripCommentForm = ref(createCtripCommentForm());
             const ctripCommentResult = ref(null);
-            const ctripCommentBrowserCaptureForm = ref({
-                profileId: '',
-                pageUrl: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
-                apiKeyword: 'getCommentList',
-            });
+            const ctripCommentBrowserCaptureForm = ref(createCtripCommentBrowserCaptureForm());
             const ctripCommentBrowserCaptureResult = ref(null);
             const ctripCommentBrowserCaptureRunning = ref(false);
             const showCtripCommentManualCapture = ref(false);

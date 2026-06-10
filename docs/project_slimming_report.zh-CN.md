@@ -569,6 +569,16 @@
 - 已验证：`node --check public\meituan-static.js`、`node --check scripts\verify_p0_learning_contract.mjs`、`npm.cmd run verify:p0-learning`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`npm.cmd run self:check`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十五刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程默认采集表单工厂：`createCtripFetchForm`、`createCtripTrafficForm`、`createCtripAdsBrowserCaptureForm`、`createCtripOverviewForm`、`createCtripFlowOverviewForm`、`createCtripBrowserCaptureForm`、`createCtripCookieApiForm`、`createCtripEndpointEvidenceForm`、`createCtripCommentForm`、`createCtripCommentBrowserCaptureForm`。
+- `public/index.html` 仅保留 `ref(create...)` 状态绑定、采集运行态、Profile/Cookie/API 请求执行和 UI 回显；本轮不移动携程采集接口、Cookie/Profile 检查、Endpoint evidence 校验、评论聚合边界、数据源绑定或 OTA 入库链路。
+- 更新 `scripts/verify_p0_learning_contract.mjs`，要求携程默认采集表单留在 `public/ctrip-static.js`，入口通过 `requireCtripStatic()` 读取，并禁止关键表单对象重新内联。
+- `public/index.html` 从 `40,049` 行降至 `39,986` 行；split-map 前端函数级块保持 `1,106`，`ctrip` 域 span 从 `3,802` 行降至 `3,739` 行。
+- 当前自审计：完整目录约 `254.1 MB`；不含 `.git` 约 `92.04 MB`；不含 `.git` 和依赖约 `62.85 MB`；Git 跟踪文件约 `17.92 MB` / `611` 个；代码范围 `368` 个文件、`186,886` 行、非空行 `171,148`。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_p0_learning_contract.mjs`、`npm.cmd run verify:p0-learning`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:check`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

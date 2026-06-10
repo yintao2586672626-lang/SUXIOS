@@ -66,6 +66,89 @@ window.SUXI_CTRIP_STATIC = (() => {
         'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
         'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
     ];
+    const createCtripFetchForm = () => ({
+        url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+        nodeId: '24588',
+        startDate: '',
+        endDate: '',
+        cookies: '',
+        auth_data: {},
+    });
+    const createCtripTrafficForm = () => ({
+        url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+        platform: 'Ctrip',
+        dateRange: 'last_30_days',
+        startDate: '',
+        endDate: '',
+        cookies: '',
+        extraParams: '',
+    });
+    const createCtripAdsBrowserCaptureForm = () => ({
+        url: '',
+        cookies: '',
+        payloadJson: '',
+        apiType: 'effect_report',
+        dateRange: 'yesterday',
+        startDate: '',
+        endDate: '',
+        campaignId: '',
+    });
+    const createCtripOverviewForm = () => ({
+        requestUrls: '',
+        cookies: '',
+        spidertoken: '',
+        payloadJson: '',
+        hotelId: '',
+        method: 'GET',
+        dataDate: '',
+    });
+    const createCtripFlowOverviewForm = () => ({
+        requestUrls: '',
+        cookies: '',
+        spidertoken: '',
+        payloadJson: '',
+        hotelId: '',
+        method: 'POST',
+        dataDate: '',
+    });
+    const createCtripBrowserCaptureForm = () => ({
+        profileId: '',
+        hotelId: '',
+        approvedMappingsPath: '',
+        sections: 'default',
+    });
+    const createCtripCookieApiForm = () => ({
+        profileId: '',
+        requestUrl: '',
+        method: 'GET',
+        payloadJson: '',
+        endpointsJson: '',
+        cookies: '',
+    });
+    const createCtripEndpointEvidenceForm = () => ({
+        requestUrl: '',
+        method: 'POST',
+        headersText: '',
+        payloadJson: '',
+        responseJson: '',
+        pageContextJson: '',
+        paramsJson: '',
+        saveStandardRows: false,
+    });
+    const createCtripCommentForm = () => ({
+        requestUrl: '',
+        hotelId: '',
+        spidertoken: '',
+        cookies: '',
+        pageIndex: 1,
+        pageSize: 50,
+        payloadJson: '',
+    });
+    const createCtripCommentBrowserCaptureForm = () => ({
+        profileId: '',
+        pageUrl: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
+        apiKeyword: 'getCommentList',
+    });
 
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
@@ -340,6 +423,16 @@ window.SUXI_CTRIP_STATIC = (() => {
         ctripOverviewApiKeywords,
         ctripFlowOverviewApiGroups,
         ctripFlowOverviewDefaultRequestUrls,
+        createCtripFetchForm,
+        createCtripTrafficForm,
+        createCtripAdsBrowserCaptureForm,
+        createCtripOverviewForm,
+        createCtripFlowOverviewForm,
+        createCtripBrowserCaptureForm,
+        createCtripCookieApiForm,
+        createCtripEndpointEvidenceForm,
+        createCtripCommentForm,
+        createCtripCommentBrowserCaptureForm,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,

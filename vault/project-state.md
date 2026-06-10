@@ -511,6 +511,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the Meituan capture defaults split: `node --check public\meituan-static.js`; `node --check scripts\verify_p0_learning_contract.mjs`; `npm.cmd run verify:p0-learning`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`; `npm.cmd run self:check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Capture Defaults Split
+
+- Thirty-fifth frontend split target chosen from Ctrip default capture form objects in `public/index.html`.
+- Extended `public/ctrip-static.js` with `createCtripFetchForm`, `createCtripTrafficForm`, `createCtripAdsBrowserCaptureForm`, `createCtripOverviewForm`, `createCtripFlowOverviewForm`, `createCtripBrowserCaptureForm`, `createCtripCookieApiForm`, `createCtripEndpointEvidenceForm`, `createCtripCommentForm`, and `createCtripCommentBrowserCaptureForm`.
+- `public/index.html` now keeps only `ref(create...)` bindings, capture runtime state, Profile/Cookie/API request execution, and UI display bindings for this flow; Ctrip capture endpoints, Cookie/Profile checks, endpoint evidence validation, aggregate-only review boundary, data-source binding, and OTA storage paths remain unchanged.
+- Updated `scripts/verify_p0_learning_contract.mjs` so Ctrip form defaults are required from `public/ctrip-static.js`, while the entry file must explicitly read them through `requireCtripStatic()` and must not re-inline key form objects.
+- `public/index.html` decreased from `40049` lines to `39986` lines; split-map frontend function-level blocks stayed at `1106`; the Ctrip-domain span decreased from `3802` to `3739` lines.
+- Current self-audit after the code move: full directory about `254.1 MB`, without `.git` about `92.04 MB`, without `.git` and dependencies about `62.85 MB`, tracked files about `17.92 MB` / `611` files; code scope `368` files, `186886` total lines, and `171148` nonblank lines.
+- Verified after the Ctrip capture defaults split: `node --check public\ctrip-static.js`; `node --check scripts\verify_p0_learning_contract.mjs`; `npm.cmd run verify:p0-learning`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

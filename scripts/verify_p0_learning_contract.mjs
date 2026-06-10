@@ -7,6 +7,7 @@ const read = (path) => readFileSync(join(root, path), 'utf8');
 const controllerSource = read('app/controller/OnlineData.php');
 const platformProfileBindingReadinessSource = read('app/service/PlatformProfileBindingReadinessService.php');
 const publicSource = read('public/index.html');
+const ctripStaticSource = read('public/ctrip-static.js');
 const meituanStaticSource = read('public/meituan-static.js');
 const packageSource = read('package.json');
 const backfillSource = read('scripts/backfill_meituan_vip_tags.php');
@@ -179,6 +180,19 @@ const checks = [
       && publicSource.includes("requireMeituanStatic('createMeituanBrowserCaptureForm')")
       && publicSource.includes("requireMeituanStatic('normalizeMeituanCaptureSections')")
       && !publicSource.includes('const normalizeMeituanCaptureSections = (sections)'),
+  },
+  {
+    name: 'Ctrip default capture forms live in static module',
+    pass: ctripStaticSource.includes('const createCtripFetchForm')
+      && ctripStaticSource.includes('const createCtripBrowserCaptureForm')
+      && ctripStaticSource.includes('const createCtripCookieApiForm')
+      && ctripStaticSource.includes('const createCtripEndpointEvidenceForm')
+      && publicSource.includes("requireCtripStatic('createCtripFetchForm')")
+      && publicSource.includes("requireCtripStatic('createCtripBrowserCaptureForm')")
+      && publicSource.includes("requireCtripStatic('createCtripCookieApiForm')")
+      && publicSource.includes("requireCtripStatic('createCtripEndpointEvidenceForm')")
+      && !publicSource.includes('const ctripOverviewForm = ref({')
+      && !publicSource.includes('const ctripCommentForm = ref({'),
   },
   {
     name: 'privacy boundary remains visible for high-risk order and room-state data',
