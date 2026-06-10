@@ -513,6 +513,33 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         return { successGroups, failedGroups, failedReason };
     };
 
+    const applyCapturedOtaGroupRunState = ({
+        groupState = null,
+        progressState = null,
+        group = [],
+        result = {},
+        retryResult = null,
+    } = {}) => {
+        if (result?.ok) {
+            if (groupState) {
+                groupState.status = 'success';
+                groupState.result = result.result;
+            }
+            if (progressState) {
+                progressState.completedHotels += Array.isArray(group) ? group.length : 0;
+            }
+            return;
+        }
+        if (groupState) {
+            groupState.error = result?.error || '';
+            groupState.errorDetails = result?.errorDetails || null;
+        }
+        if (retryResult && progressState) {
+            progressState.completedHotels += toNumber(retryResult.successCount);
+            progressState.failedHotels += toNumber(retryResult.failedCount);
+        }
+    };
+
     const buildCapturedOtaSummaryRequestBody = ({
         platform = 'ctrip',
         modelKey = '',
@@ -723,6 +750,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildAiAnalysisBatchResults,
         buildCapturedOtaAnalysisRunPlan,
         buildCapturedOtaGroupOutcome,
+        applyCapturedOtaGroupRunState,
         buildCapturedOtaSummaryRequestBody,
         buildCapturedOtaSummaryContext,
         buildCapturedOtaSummaryResponseResult,

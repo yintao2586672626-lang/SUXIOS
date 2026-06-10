@@ -150,6 +150,7 @@ requireText('public/index.html', '<script src="ai-analysis-static.js"></script>'
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan')", 'entry uses extracted AI analysis run plan builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaGroupOutcome')", 'entry uses extracted AI analysis group outcome builder');
+requireText('public/index.html', "requireAiAnalysisStatic('applyCapturedOtaGroupRunState')", 'entry uses extracted AI analysis group state updater');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryContext')", 'entry uses extracted AI analysis summary context builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult')", 'entry uses extracted AI analysis summary response builder');
 requireText('public/index.html', "requireAiAnalysisStatic('resolveAiSelectedData')", 'entry uses extracted AI selected data resolver');
@@ -166,6 +167,7 @@ requireText('public/ai-analysis-static.js', 'const buildCapturedOtaHotelPayload'
 requireText('public/ai-analysis-static.js', 'const buildCtripAiAnalysisHotelSelection', 'AI analysis static builds Ctrip hotel selections');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisRunPlan', 'AI analysis static builds captured OTA run plans');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaGroupOutcome', 'AI analysis static builds captured OTA group outcomes');
+requireText('public/ai-analysis-static.js', 'const applyCapturedOtaGroupRunState', 'AI analysis static applies captured OTA group state updates');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryRequestBody', 'AI analysis static builds captured OTA summary requests');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryContext', 'AI analysis static builds captured OTA summary context');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryResponseResult', 'AI analysis static builds captured OTA summary response results');
@@ -198,6 +200,10 @@ requireNoText('public/index.html', 'if (aiAnalysisHistory.value.length > 10) {',
 requireNoText('public/index.html', "item.status === 'success' && item.result", 'AI group success filtering is not re-inlined');
 requireNoText('public/index.html', "item.status === 'failed' || item.error", 'AI group failure filtering is not re-inlined');
 requireNoText('public/index.html', 'failedGroups.map(item => `第 ${item.group_index} 组：', 'AI group failure reason is not re-inlined');
+requireNoText('public/index.html', 'groupState.result = result.result;', 'AI group success result update is not re-inlined');
+requireNoText('public/index.html', 'aiAnalysisProgress.value.completedHotels += group.length;', 'AI group success count update is not re-inlined');
+requireNoText('public/index.html', 'groupState.error = result.error;', 'AI group failure state update is not re-inlined');
+requireNoText('public/index.html', 'aiAnalysisProgress.value.completedHotels += retryResult.successCount;', 'AI retry completed count update is not re-inlined');
 requireNoText('public/index.html', 'if (summaryRes.code === 200) {', 'AI summary success response handling is not re-inlined');
 requireNoText('public/index.html', 'const summaryData = summaryRes.data || {};', 'AI summary data extraction is not re-inlined');
 requireNoText('public/index.html', "reason: summaryRes.message || '汇总失败'", 'AI summary fallback response handling is not re-inlined');
@@ -541,6 +547,7 @@ try {
     'buildAiAnalysisBatchResults',
     'buildCapturedOtaAnalysisRunPlan',
     'buildCapturedOtaGroupOutcome',
+    'applyCapturedOtaGroupRunState',
     'buildCapturedOtaSummaryRequestBody',
     'buildCapturedOtaSummaryContext',
     'buildCapturedOtaSummaryResponseResult',
@@ -764,6 +771,25 @@ try {
       { groupIndex: 2, hotelCount: 1, status: 'failed', error: 'model failed' },
       { groupIndex: 3, hotelCount: 1, status: 'pending', error: 'timeout' },
     ]);
+    const groupStateSuccess = { status: 'running', result: null };
+    const progressStateSuccess = { completedHotels: 0, failedHotels: 0 };
+    aiAnalysisStatic.applyCapturedOtaGroupRunState({
+      groupState: groupStateSuccess,
+      progressState: progressStateSuccess,
+      group: [{ hotel_name: 'A' }, { hotel_name: 'B' }],
+      result: { ok: true, result: { overall_conclusion: '成功' } },
+    });
+    const groupStateFailure = { status: 'running', error: '', errorDetails: null };
+    const progressStateFailure = { completedHotels: 0, failedHotels: 0 };
+    aiAnalysisStatic.applyCapturedOtaGroupRunState({
+      groupState: groupStateFailure,
+      result: { ok: false, error: 'failed', errorDetails: { error_type: 'model_error' } },
+    });
+    aiAnalysisStatic.applyCapturedOtaGroupRunState({
+      progressState: progressStateFailure,
+      result: { ok: false },
+      retryResult: { successCount: '1', failedCount: '2' },
+    });
     const meituanHotels = aiAnalysisStatic.buildMeituanAiAnalysisHotelList([
       { poiId: 'm1', hotelName: 'Meituan One', roomNights: '2', roomRevenue: '300', views: '40' },
       { poiId: 'm1', hotelName: 'Meituan One', roomNights: '5', roomRevenue: '800', views: '80' },
@@ -815,7 +841,14 @@ try {
         && groupOutcome.failedGroups[0].group_index === 2
         && groupOutcome.failedGroups[1].hotel_count === 1
         && groupOutcome.failedReason.includes('第 2 组：model failed')
-        && groupOutcome.failedReason.includes('第 3 组：timeout'),
+        && groupOutcome.failedReason.includes('第 3 组：timeout')
+        && groupStateSuccess.status === 'success'
+        && groupStateSuccess.result.overall_conclusion === '成功'
+        && progressStateSuccess.completedHotels === 2
+        && groupStateFailure.error === 'failed'
+        && groupStateFailure.errorDetails.error_type === 'model_error'
+        && progressStateFailure.completedHotels === 1
+        && progressStateFailure.failedHotels === 2,
       detail: 'selected data and group outcome sample',
     });
     checks.push({

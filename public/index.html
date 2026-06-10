@@ -34947,6 +34947,7 @@
             const mergeCapturedGroupReports = requireAiAnalysisStatic('mergeCapturedGroupReports');
             const buildCapturedOtaAnalysisRunPlan = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan');
             const buildCapturedOtaGroupOutcome = requireAiAnalysisStatic('buildCapturedOtaGroupOutcome');
+            const applyCapturedOtaGroupRunState = requireAiAnalysisStatic('applyCapturedOtaGroupRunState');
             const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
             const buildCapturedOtaSummaryContext = requireAiAnalysisStatic('buildCapturedOtaSummaryContext');
             const buildCapturedOtaSummaryResponseResult = requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult');
@@ -35107,15 +35108,11 @@
                         groupState.status = 'running';
                         const result = await requestCapturedOtaGroup(group);
                         if (result.ok) {
-                            groupState.status = 'success';
-                            groupState.result = result.result;
-                            aiAnalysisProgress.value.completedHotels += group.length;
+                            applyCapturedOtaGroupRunState({ groupState, progressState: aiAnalysisProgress.value, group, result });
                         } else {
-                            groupState.error = result.error;
-                            groupState.errorDetails = result.errorDetails;
+                            applyCapturedOtaGroupRunState({ groupState, result });
                             const retryResult = await retryCapturedOtaGroup(group, groupState);
-                            aiAnalysisProgress.value.completedHotels += retryResult.successCount;
-                            aiAnalysisProgress.value.failedHotels += retryResult.failedCount;
+                            applyCapturedOtaGroupRunState({ progressState: aiAnalysisProgress.value, result, retryResult });
                         }
                     }
 
