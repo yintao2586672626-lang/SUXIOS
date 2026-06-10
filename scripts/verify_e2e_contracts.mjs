@@ -69,6 +69,9 @@ requireText('public/system-static.js', "target: 'sync-logs'", 'system static kee
 requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCapturePayload')", 'entry uses extracted Ctrip browser capture payload builder');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
 requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorResult', 'Ctrip static normalizes browser capture errors');
+requireText('public/index.html', "requireCtripStatic('buildCtripFetchRequestBody')", 'entry uses extracted Ctrip fetch request builder');
+requireText('public/ctrip-static.js', 'const buildCtripFetchDateRange', 'Ctrip static builds fetch date ranges');
+requireText('public/ctrip-static.js', 'const buildCtripFetchRequestBody', 'Ctrip static builds fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckInitialState')", 'entry uses extracted Ctrip Profile recheck state builders');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
@@ -89,6 +92,9 @@ requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform n
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
 requireNoText('public/index.html', 'const optionSections = options.sections || options.captureSections ||', 'Ctrip browser capture section normalization is not re-inlined');
 requireNoText('public/index.html', 'const normalizeCtripBrowserCaptureErrorResult = (error) => {', 'Ctrip browser capture error normalization is not re-inlined');
+requireNoText('public/index.html', 'const yesterday = new Date();', 'Ctrip fetch default date calculation is not re-inlined');
+requireNoText('public/index.html', 'const ctripFetchBody = {', 'Ctrip fetch request body is not re-inlined');
+requireNoText('public/index.html', 'raw: rawResponse.substring(0, 1000)', 'Ctrip fetch raw failure result is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -531,6 +537,11 @@ try {
   const ctripStatic = context.window.SUXI_CTRIP_STATIC || {};
   const buildCtripBrowserCapturePayload = ctripStatic.buildCtripBrowserCapturePayload;
   const normalizeCtripBrowserCaptureErrorResult = ctripStatic.normalizeCtripBrowserCaptureErrorResult;
+  const buildCtripFetchDateRange = ctripStatic.buildCtripFetchDateRange;
+  const buildCtripFetchRequestBody = ctripStatic.buildCtripFetchRequestBody;
+  const selectCtripFetchResponsePayload = ctripStatic.selectCtripFetchResponsePayload;
+  const buildCtripFetchMeta = ctripStatic.buildCtripFetchMeta;
+  const buildCtripFetchRawFailureResult = ctripStatic.buildCtripFetchRawFailureResult;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
@@ -609,6 +620,85 @@ try {
         && errorResult.stderr === 'err'
         && errorResult.partial_capture?.available === true,
       detail: 'partial_capture',
+    });
+  }
+  if (typeof buildCtripFetchDateRange !== 'function'
+    || typeof buildCtripFetchRequestBody !== 'function'
+    || typeof selectCtripFetchResponsePayload !== 'function'
+    || typeof buildCtripFetchMeta !== 'function'
+    || typeof buildCtripFetchRawFailureResult !== 'function') {
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip static exports fetch request builders',
+      ok: false,
+      detail: 'Ctrip fetch builders',
+    });
+  } else {
+    const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
+    const explicitRange = buildCtripFetchDateRange({ startDate: '2026-06-01', endDate: '2026-06-10' });
+    const fetchBody = buildCtripFetchRequestBody({
+      form: { url: ' https://ebooking.ctrip.test/api ', auth_data: { token: 'demo' } },
+      cookies: 'sid=abc',
+      nodeId: '24588',
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+      systemHotelId: '58',
+    });
+    const fallbackBody = buildCtripFetchRequestBody({
+      form: { url: '   ' },
+      cookies: 'sid=abc',
+      startDate: '2026-06-09',
+      endDate: '2026-06-09',
+    });
+    const multiDatePayload = selectCtripFetchResponsePayload({
+      date_results: [{ date: '2026-06-09' }, { date: '2026-06-10' }],
+      data: [{ ignored: true }],
+    });
+    const singleDatePayload = selectCtripFetchResponsePayload({
+      date_results: [{ date: '2026-06-09' }],
+      data: [{ kept: true }],
+    });
+    const fetchMeta = buildCtripFetchMeta({
+      hotelId: '58',
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+      fetchedAt: '2026-06-10 14:00:00',
+      savedCount: 0,
+      displayHotelCount: 7,
+    });
+    const rawFailure = buildCtripFetchRawFailureResult({
+      errorMsg: '授权过期',
+      rawResponse: 'x'.repeat(1200),
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip fetch builders keep request fields and date defaults',
+      ok: defaultRange.startDate === '2026-06-09'
+        && defaultRange.endDate === '2026-06-09'
+        && explicitRange.startDate === '2026-06-01'
+        && explicitRange.endDate === '2026-06-10'
+        && fetchBody.url === 'https://ebooking.ctrip.test/api'
+        && fetchBody.node_id === '24588'
+        && fetchBody.system_hotel_id === '58'
+        && fetchBody.cookies === 'sid=abc'
+        && fallbackBody.url === undefined
+        && fallbackBody.node_id === undefined
+        && fallbackBody.system_hotel_id === null,
+      detail: 'Ctrip fetch request sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip fetch builders keep response and failure evidence explicit',
+      ok: Array.isArray(multiDatePayload.date_results)
+        && multiDatePayload.date_results.length === 2
+        && Array.isArray(singleDatePayload)
+        && singleDatePayload[0].kept === true
+        && fetchMeta.data_date === '2026-06-01 至 2026-06-10'
+        && fetchMeta.total_records === 7
+        && rawFailure.error === '授权过期'
+        && rawFailure.raw.length === 1000
+        && rawFailure.hint.includes('Cookie是否过期'),
+      detail: 'Ctrip fetch response sample',
     });
   }
   if (typeof buildCtripProfileRecheckInitialState !== 'function'

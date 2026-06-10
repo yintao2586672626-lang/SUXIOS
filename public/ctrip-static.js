@@ -199,6 +199,82 @@ window.SUXI_CTRIP_STATIC = (() => {
         return data && Object.keys(data).length ? { ...data, error: error.message } : { error: error.message };
     };
 
+    const formatCtripFetchDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+    const buildCtripFetchDateRange = (form = {}, now = new Date()) => {
+        let startDate = form.startDate;
+        let endDate = form.endDate;
+        if (!startDate || !endDate) {
+            const yesterday = new Date(now.getTime());
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = formatCtripFetchDate(yesterday);
+            startDate = yesterdayStr;
+            endDate = yesterdayStr;
+        }
+        return { startDate, endDate };
+    };
+
+    const buildCtripFetchRequestBody = ({
+        form = {},
+        cookies = '',
+        nodeId = '',
+        startDate = '',
+        endDate = '',
+        systemHotelId = null,
+    } = {}) => {
+        const requestUrl = String(form.url || '').trim();
+        const body = {
+            cookies,
+            auth_data: form.auth_data || {},
+            start_date: startDate,
+            end_date: endDate,
+            auto_save: true,
+            system_hotel_id: systemHotelId || null,
+        };
+        if (requestUrl) {
+            body.url = requestUrl;
+        }
+        if (nodeId) {
+            body.node_id = nodeId;
+        }
+        return body;
+    };
+
+    const selectCtripFetchResponsePayload = (data = {}) => {
+        if (Array.isArray(data.date_results) && data.date_results.length > 1) {
+            return { date_results: data.date_results };
+        }
+        return data.data;
+    };
+
+    const buildCtripFetchMeta = ({
+        hotelId = '',
+        startDate = '',
+        endDate = '',
+        fetchedAt = '',
+        savedCount = 0,
+        displayHotelCount = 0,
+    } = {}) => ({
+        hotel_id: hotelId || '',
+        platform: 'ctrip',
+        data_source: '携程 ebooking',
+        status: 'success',
+        status_label: '成功',
+        data_date: startDate === endDate ? startDate : `${startDate} 至 ${endDate}`,
+        fetched_at: fetchedAt || '',
+        total_records: savedCount || displayHotelCount,
+    });
+
+    const buildCtripFetchRawFailureResult = ({
+        errorMsg = '获取失败',
+        rawResponse = '',
+        limit = 1000,
+    } = {}) => ({
+        error: errorMsg,
+        raw: String(rawResponse || '').substring(0, limit),
+        hint: '请检查: 1.Cookie是否过期 2.API地址是否正确',
+    });
+
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
     const ctripSortMetricValue = (row = {}, field = '') => {
@@ -694,6 +770,11 @@ window.SUXI_CTRIP_STATIC = (() => {
         normalizeCtripBrowserCaptureSections,
         buildCtripBrowserCapturePayload,
         normalizeCtripBrowserCaptureErrorResult,
+        buildCtripFetchDateRange,
+        buildCtripFetchRequestBody,
+        selectCtripFetchResponsePayload,
+        buildCtripFetchMeta,
+        buildCtripFetchRawFailureResult,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,

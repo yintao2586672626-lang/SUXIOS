@@ -758,6 +758,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the Profile recheck state split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Fetch Builder Split
+
+- Fifty-sixth frontend split target chosen from pure Ctrip business-data fetch request, response, and evidence-display construction inside `public/index.html`.
+- Extended `public/ctrip-static.js` with `buildCtripFetchDateRange`, `buildCtripFetchRequestBody`, `selectCtripFetchResponsePayload`, `buildCtripFetchMeta`, and `buildCtripFetchRawFailureResult`.
+- `public/index.html` keeps `fetchCtripData()` responsible for runtime execution only: login/hotel/config/auth validation, `/online-data/fetch-ctrip`, display-model update, latest meta refresh, AI hotel-list update, history refresh, and visible raw-failure state.
+- This split did not change the Ctrip fetch endpoint, auto-save behavior, storage path, display rows, latest snapshot refresh, online-history refresh, or missing/failure-state visibility.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted Ctrip fetch builders, prevent date/request/raw-failure bodies from being re-inlined, and validate default date, explicit date, request fields, multi-date payload, latest meta, and raw failure evidence in a VM context.
+- `public/index.html` decreased from `38088` lines to `38070` lines; `public/ctrip-static.js` is now about `791` lines; `fetchCtripData` decreased from `126` to `103` lines; the split-map `ctrip` domain span decreased from `3548` to `3525` lines.
+- Current self-audit after the code move: full directory about `266.42 MB`, without `.git` about `92.18 MB`, without `.git` and dependencies about `62.99 MB`, tracked files about `18.07 MB` / `613` files; code scope `370` files, `188667` total lines, and `172897` nonblank lines.
+- Verified after the Ctrip fetch builder split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

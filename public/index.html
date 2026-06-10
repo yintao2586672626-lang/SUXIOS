@@ -19081,6 +19081,11 @@
             const createCtripCommentBrowserCaptureForm = requireCtripStatic('createCtripCommentBrowserCaptureForm');
             const buildCtripBrowserCapturePayload = requireCtripStatic('buildCtripBrowserCapturePayload');
             const normalizeCtripBrowserCaptureErrorResult = requireCtripStatic('normalizeCtripBrowserCaptureErrorResult');
+            const buildCtripFetchDateRange = requireCtripStatic('buildCtripFetchDateRange');
+            const buildCtripFetchRequestBody = requireCtripStatic('buildCtripFetchRequestBody');
+            const selectCtripFetchResponsePayload = requireCtripStatic('selectCtripFetchResponsePayload');
+            const buildCtripFetchMeta = requireCtripStatic('buildCtripFetchMeta');
+            const buildCtripFetchRawFailureResult = requireCtripStatic('buildCtripFetchRawFailureResult');
             const buildCtripProfileRecheckInitialState = requireCtripStatic('buildCtripProfileRecheckInitialState');
             const buildCtripProfileRecheckCaptureRefreshState = requireCtripStatic('buildCtripProfileRecheckCaptureRefreshState');
             const buildCtripProfileRecheckSuccessResult = requireCtripStatic('buildCtripProfileRecheckSuccessResult');
@@ -32128,17 +32133,7 @@
                     return;
                 }
                 const nodeId = String(ctripForm.value.nodeId || '').trim();
-
-                // 设置默认日期（昨天）
-                let startDate = ctripForm.value.startDate;
-                let endDate = ctripForm.value.endDate;
-                if (!startDate || !endDate) {
-                    const yesterday = new Date();
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-                    startDate = yesterdayStr;
-                    endDate = yesterdayStr;
-                }
+                const { startDate, endDate } = buildCtripFetchDateRange(ctripForm.value);
 
                 fetchingData.value = true;
                 showRawData.value = false;
@@ -32146,21 +32141,14 @@
                 ctripSavedCount.value = 0;
 
                 try {
-                    const requestUrl = String(ctripForm.value.url || '').trim();
-                    const ctripFetchBody = {
-                        cookies: cookies,
-                        auth_data: ctripForm.value.auth_data || {},
-                        start_date: startDate,
-                        end_date: endDate,
-                        auto_save: true,
-                        system_hotel_id: selectedCtripHotelId.value || null,
-                    };
-                    if (requestUrl) {
-                        ctripFetchBody.url = requestUrl;
-                    }
-                    if (nodeId) {
-                        ctripFetchBody.node_id = nodeId;
-                    }
+                    const ctripFetchBody = buildCtripFetchRequestBody({
+                        form: ctripForm.value,
+                        cookies,
+                        nodeId,
+                        startDate,
+                        endDate,
+                        systemHotelId: selectedCtripHotelId.value || null,
+                    });
                     debugLog('发送携程数据请求...', { node_id: nodeId || 'backend_default', start_date: startDate, end_date: endDate });
                     const res = await request('/online-data/fetch-ctrip', {
                         method: 'POST',
@@ -32169,26 +32157,21 @@
                     debugLog('携程数据响应:', res);
 
                     if (res.code === 200) {
-                        const responsePayload = Array.isArray(res.data.date_results) && res.data.date_results.length > 1
-                            ? { date_results: res.data.date_results }
-                            : res.data.data;
-                        onlineDataResult.value = responsePayload;
+                        onlineDataResult.value = selectCtripFetchResponsePayload(res.data || {});
                         const allHotels = useCtripDisplayHotels(res.data.display_hotels || [], res.data.display_summary || null);
                         onlineDataFilter.value.start_date = startDate;
                         onlineDataFilter.value.end_date = endDate;
                         const savedCount = res.data.saved_count || 0;
                         ctripSavedCount.value = savedCount;
                         ctripFetchSuccess.value = true;
-                        const currentFetchMeta = {
-                            hotel_id: selectedCtripHotelId.value || '',
-                            platform: 'ctrip',
-                            data_source: '携程 ebooking',
-                            status: 'success',
-                            status_label: '成功',
-                            data_date: startDate === endDate ? startDate : `${startDate} 至 ${endDate}`,
-                            fetched_at: res.data.fetched_at || '',
-                            total_records: savedCount || allHotels.length,
-                        };
+                        const currentFetchMeta = buildCtripFetchMeta({
+                            hotelId: selectedCtripHotelId.value || '',
+                            startDate,
+                            endDate,
+                            fetchedAt: res.data.fetched_at || '',
+                            savedCount,
+                            displayHotelCount: allHotels.length,
+                        });
                         ctripLatestMeta.value = { ...(ctripLatestMeta.value || {}), ...currentFetchMeta };
                         // 重置表格Tab
                         ctripTableTab.value = 'sales';
@@ -32212,11 +32195,10 @@
                         await handleCtripFetchFailure(errorMsg);
                         // 如果有原始响应，显示在结果区域
                         if (rawResponse && !hasVisibleCtripSnapshot()) {
-                            onlineDataResult.value = {
-                                error: errorMsg,
-                                raw: rawResponse.substring(0, 1000),
-                                hint: '请检查: 1.Cookie是否过期 2.API地址是否正确'
-                            };
+                            onlineDataResult.value = buildCtripFetchRawFailureResult({
+                                errorMsg,
+                                rawResponse,
+                            });
                             showRawData.value = true;
                         }
                     }
