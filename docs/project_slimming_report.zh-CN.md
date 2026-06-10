@@ -579,6 +579,17 @@
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_p0_learning_contract.mjs`、`npm.cmd run verify:p0-learning`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:check`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十六刀拆分
+
+- 扩展 `public/simulation-static.js`，承载投资/扩张/转让相关默认表单工厂：`createBenchmarkModelForm`、`createCollaborationProject`、`createTransferPricingForm`、`createTransferTimingForm`。
+- `public/index.html` 仅保留 `ref(create...)` 状态绑定、计算结果、历史记录复用、接口请求和运行态校验；本轮不移动量化模拟、扩张协同、资产定价、转让时机请求、历史加载、复用归档或 OTA 数据路径。
+- 更新 `scripts/verify_simulation_p2.mjs`，要求默认表单工厂留在 `public/simulation-static.js`，入口通过 `requireSimulationStatic()` 读取，并禁止关键表单对象重新内联。
+- 修正 `scripts/project_split_map.mjs`，将 Vue `computed(...)` 识别为前端块边界，避免把 4 行 `printFeasibilityReport` 误报为 269 行；修正后真实最大前端块为 `runOtaDiagnosisHotelFetch`。
+- `public/index.html` 从 `39,986` 行降至 `39,930` 行；修正后的 split-map 前端块计数为 `1,470`，`strategy` 域 span 从 `307` 行降至 `231` 行。
+- 当前自审计：完整目录约 `254.69 MB`；不含 `.git` 约 `92.04 MB`；不含 `.git` 和依赖约 `62.85 MB`；Git 跟踪文件约 `17.93 MB` / `611` 个；代码范围 `368` 个文件、`186,917` 行、非空行 `171,179`。
+- 已验证：`node --check public\simulation-static.js`、`node --check scripts\verify_simulation_p2.mjs`、`node scripts\verify_simulation_p2.mjs`、`node scripts\verify_expansion_p2.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`node --check scripts\project_split_map.mjs`、`npm.cmd run self:split-map`、`npm.cmd run self:check`。
+- 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

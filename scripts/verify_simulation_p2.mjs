@@ -68,11 +68,24 @@ const checks = [
       "requireSimulationStatic('buildSimulationOtaCommissionChannels')",
       "requireSimulationStatic('isSimulationModelAnalysisVisible')",
       "requireSimulationStatic('simulationModelSourceLabel')",
+      "requireSimulationStatic('createBenchmarkModelForm')",
+      "requireSimulationStatic('createCollaborationProject')",
+      "requireSimulationStatic('createTransferPricingForm')",
+      "requireSimulationStatic('createTransferTimingForm')",
+    ],
+    absent: [
+      'const benchmarkModelForm = ref({',
+      'const transferPricingForm = ref({',
+      'const transferTimingForm = ref({',
     ],
   },
   {
     file: 'public/simulation-static.js',
     contains: [
+      'const createBenchmarkModelForm',
+      'const createCollaborationProject',
+      'const createTransferPricingForm',
+      'const createTransferTimingForm',
       'function buildSimulationInvestmentGroups',
       'function simulationInvestmentTotalFromGroups',
       'function simulationInvestmentPerRoom',
@@ -97,6 +110,11 @@ for (const check of checks) {
   for (const needle of check.contains) {
     if (!content.includes(needle)) {
       failures.push(`${check.file} missing contract: ${needle}`);
+    }
+  }
+  for (const needle of check.absent || []) {
+    if (content.includes(needle)) {
+      failures.push(`${check.file} should not contain: ${needle}`);
     }
   }
 }

@@ -36,6 +36,7 @@ function analyzePublicIndex(relativePath) {
     /^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/,
     /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/,
     /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*async\s*\(/,
+    /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*computed\s*\(/,
   ]).map((row) => ({
     ...row,
     domain: classifyFrontendDomain(row.name),

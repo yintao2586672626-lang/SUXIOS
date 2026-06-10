@@ -522,6 +522,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the Ctrip capture defaults split: `node --check public\ctrip-static.js`; `node --check scripts\verify_p0_learning_contract.mjs`; `npm.cmd run verify:p0-learning`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Simulation Default Forms Split
+
+- Thirty-sixth frontend split target chosen from investment, expansion collaboration, transfer pricing, and transfer timing default form objects in `public/index.html`.
+- Extended `public/simulation-static.js` with `createBenchmarkModelForm`, `createCollaborationProject`, `createTransferPricingForm`, and `createTransferTimingForm`.
+- `public/index.html` now keeps only `ref(create...)` bindings, calculated results, history reuse, request execution, and runtime validation for those flows; simulation, collaboration, transfer pricing, transfer timing, history loading, archive/reuse, and OTA data paths remain unchanged.
+- Updated `scripts/verify_simulation_p2.mjs` so the default form factories are required from `public/simulation-static.js`, while the entry file must explicitly read them through `requireSimulationStatic()` and must not re-inline key form objects.
+- Updated `scripts/project_split_map.mjs` so Vue `computed(...)` declarations count as frontend block boundaries; this removes the stale false-positive where the 4-line `printFeasibilityReport` appeared as a 269-line block.
+- `public/index.html` decreased from `39986` lines to `39930` lines. After the split-map boundary fix, frontend function-level blocks report as `1470`, and the real largest frontend block is `runOtaDiagnosisHotelFetch` at `265` lines.
+- Current self-audit after the code move: full directory about `254.69 MB`, without `.git` about `92.04 MB`, without `.git` and dependencies about `62.85 MB`, tracked files about `17.93 MB` / `611` files; code scope `368` files, `186917` total lines, and `171179` nonblank lines.
+- Verified after the simulation default forms split: `node --check public\simulation-static.js`; `node --check scripts\verify_simulation_p2.mjs`; `node scripts\verify_simulation_p2.mjs`; `node scripts\verify_expansion_p2.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `node --check scripts\project_split_map.mjs`; `npm.cmd run self:split-map`; `npm.cmd run self:check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
