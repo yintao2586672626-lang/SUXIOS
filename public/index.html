@@ -34950,7 +34950,7 @@
             const buildCapturedOtaAnalysisRunPlan = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan');
             const buildCapturedOtaGroupOutcome = requireAiAnalysisStatic('buildCapturedOtaGroupOutcome');
             const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
-            const buildAiAnalysisHistoryRecord = requireAiAnalysisStatic('buildAiAnalysisHistoryRecord');
+            const buildCapturedOtaAnalysisCompletion = requireAiAnalysisStatic('buildCapturedOtaAnalysisCompletion');
             const resolveAiSelectedData = requireAiAnalysisStatic('resolveAiSelectedData');
             const validateCapturedOtaAiAnalysisStart = requireAiAnalysisStatic('validateCapturedOtaAiAnalysisStart');
             const sanitizeAiReportHtml = requireAiAnalysisStatic('sanitizeAiReportHtml');
@@ -35170,19 +35170,16 @@
                         aiAnalysisCapturedError.value = '全部分析失败，无法生成综合报告。\n' + maskAiAnalysisError(failedReason);
                     }
 
-                    aiAnalysisResult.value = aiAnalysisCapturedReport.value
-                        ? buildCapturedOtaReportCopyHtml(aiAnalysisCapturedReport.value)
-                        : successGroups.map(item => buildCapturedOtaReportCopyHtml(item.result)).join('<hr>');
-                    aiAnalysisHistory.value.unshift(buildAiAnalysisHistoryRecord({
+                    const completion = buildCapturedOtaAnalysisCompletion({
                         selectedData,
                         capturedReport: aiAnalysisCapturedReport.value,
                         completedHotels: aiAnalysisProgress.value.completedHotels,
                         failedHotels: aiAnalysisProgress.value.failedHotels,
-                        reportHtml: aiAnalysisResult.value,
-                    }));
-                    if (aiAnalysisHistory.value.length > 10) {
-                        aiAnalysisHistory.value = aiAnalysisHistory.value.slice(0, 10);
-                    }
+                        successGroups,
+                        existingHistory: aiAnalysisHistory.value,
+                    });
+                    aiAnalysisResult.value = completion.reportHtml;
+                    aiAnalysisHistory.value = completion.history;
                     showToast('AI分析完成');
                 } catch (e) {
                     aiAnalysisCapturedError.value = e.message || '网络错误';

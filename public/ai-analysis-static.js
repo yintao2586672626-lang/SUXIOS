@@ -553,6 +553,35 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         create_time: now.toLocaleString('zh-CN'),
     });
 
+    const buildCapturedOtaAnalysisCompletion = ({
+        selectedData = [],
+        capturedReport = null,
+        successGroups = [],
+        completedHotels = 0,
+        failedHotels = 0,
+        existingHistory = [],
+        historyLimit = 10,
+        now = new Date(),
+    } = {}) => {
+        const reportHtml = capturedReport
+            ? buildCapturedOtaReportCopyHtml(capturedReport)
+            : (Array.isArray(successGroups) ? successGroups : [])
+                .map(item => buildCapturedOtaReportCopyHtml(item.result))
+                .join('<hr>');
+        const history = [
+            buildAiAnalysisHistoryRecord({
+                selectedData,
+                capturedReport,
+                completedHotels,
+                failedHotels,
+                reportHtml,
+                now,
+            }),
+            ...(Array.isArray(existingHistory) ? existingHistory : []),
+        ].slice(0, historyLimit);
+        return { reportHtml, history };
+    };
+
     const getMeituanAiAnalysisHotelKey = (hotel = {}) => `${hotel.poiId}_${hotel.hotelName}`;
 
     const buildMeituanAiAnalysisHotelList = (rows = []) => {
@@ -646,6 +675,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildCapturedOtaGroupOutcome,
         buildCapturedOtaSummaryRequestBody,
         buildAiAnalysisHistoryRecord,
+        buildCapturedOtaAnalysisCompletion,
         getMeituanAiAnalysisHotelKey,
         buildMeituanAiAnalysisHotelList,
         resolveMeituanAiSelectedData,

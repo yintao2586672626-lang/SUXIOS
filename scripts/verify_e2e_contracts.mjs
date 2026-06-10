@@ -152,6 +152,7 @@ requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnaly
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaGroupOutcome')", 'entry uses extracted AI analysis group outcome builder');
 requireText('public/index.html', "requireAiAnalysisStatic('resolveAiSelectedData')", 'entry uses extracted AI selected data resolver');
 requireText('public/index.html', "requireAiAnalysisStatic('validateCapturedOtaAiAnalysisStart')", 'entry uses extracted AI analysis start validator');
+requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisCompletion')", 'entry uses extracted AI analysis completion builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')", 'entry uses extracted Ctrip AI analysis hotel selection builder');
 requireText('public/index.html', "requireAiAnalysisStatic('sanitizeAiReportHtml')", 'entry uses extracted AI report sanitizer');
 requireText('public/index.html', "requireAiAnalysisStatic('aiReportHtmlToText')", 'entry uses extracted AI report text converter');
@@ -167,6 +168,7 @@ requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryReques
 requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
 requireText('public/ai-analysis-static.js', 'const resolveAiSelectedData', 'AI analysis static resolves selected hotel rows');
 requireText('public/ai-analysis-static.js', 'const validateCapturedOtaAiAnalysisStart', 'AI analysis static validates analysis start inputs');
+requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisCompletion', 'AI analysis static builds captured OTA completion state');
 requireText('public/ai-analysis-static.js', 'const sanitizeAiReportHtml', 'AI analysis static sanitizes report HTML');
 requireText('public/ai-analysis-static.js', 'const aiReportHtmlToText', 'AI analysis static converts report HTML to text');
 requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisHotelList', 'AI analysis static builds Meituan hotel selections');
@@ -187,6 +189,8 @@ requireNoText('public/index.html', 'aiSelectedHotels.value.map(key => {', 'AI se
 requireNoText('public/index.html', 'if (aiSelectedHotels.value.length === 0) {', 'AI selected hotel start validation is not re-inlined');
 requireNoText('public/index.html', 'if (!onlineDataFilter.value.start_date || !onlineDataFilter.value.end_date) {', 'AI date range start validation is not re-inlined');
 requireNoText('public/index.html', 'if (onlineDataFilter.value.start_date > onlineDataFilter.value.end_date) {', 'AI date order start validation is not re-inlined');
+requireNoText('public/index.html', 'aiAnalysisHistory.value.unshift(buildAiAnalysisHistoryRecord({', 'AI analysis completion history is not re-inlined');
+requireNoText('public/index.html', 'if (aiAnalysisHistory.value.length > 10) {', 'AI analysis history trim is not re-inlined');
 requireNoText('public/index.html', "item.status === 'success' && item.result", 'AI group success filtering is not re-inlined');
 requireNoText('public/index.html', "item.status === 'failed' || item.error", 'AI group failure filtering is not re-inlined');
 requireNoText('public/index.html', 'failedGroups.map(item => `第 ${item.group_index} 组：', 'AI group failure reason is not re-inlined');
@@ -530,6 +534,7 @@ try {
     'buildCapturedOtaSummaryRequestBody',
     'buildCapturedFallbackSummaryReport',
     'buildAiAnalysisHistoryRecord',
+    'buildCapturedOtaAnalysisCompletion',
     'getMeituanAiAnalysisHotelKey',
     'buildMeituanAiAnalysisHotelList',
     'resolveMeituanAiSelectedData',
@@ -702,6 +707,15 @@ try {
       reportHtml: '<section>ok</section>',
       now: new Date('2026-06-10T00:00:00+08:00'),
     });
+    const completion = aiAnalysisStatic.buildCapturedOtaAnalysisCompletion({
+      selectedData: [{ hotelName: 'A' }, { hotelName: 'B' }, { hotelName: 'C' }, { hotelName: 'D' }],
+      capturedReport: { overall_conclusion: '已完成', key_findings: ['曝光充足'] },
+      completedHotels: 2,
+      failedHotels: 1,
+      existingHistory: [{ id: 1 }, { id: 2 }, { id: 3 }],
+      historyLimit: 3,
+      now: new Date('2026-06-10T00:00:00+08:00'),
+    });
     const groupOutcome = aiAnalysisStatic.buildCapturedOtaGroupOutcome([
       { groupIndex: 1, hotelCount: 2, status: 'success', result: { priority: 'medium' } },
       { groupIndex: 2, hotelCount: 1, status: 'failed', error: 'model failed' },
@@ -822,6 +836,17 @@ try {
         && fallback.summary.failed_hotel_count === 1
         && fallback.fallback_reason === 'Bearer ****',
       detail: 'summary fallback sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static builds captured OTA completion state',
+      ok: completion.reportHtml.includes('已完成')
+        && completion.reportHtml.includes('曝光充足')
+        && completion.history.length === 3
+        && completion.history[0].hotel_names === 'A、B、C等'
+        && completion.history[0].summary === '已完成'
+        && completion.history[1].id === 1,
+      detail: 'captured OTA completion state sample',
     });
     checks.push({
       file: 'public/ai-analysis-static.js',
