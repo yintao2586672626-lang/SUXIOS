@@ -1109,6 +1109,103 @@ window.SUXI_CTRIP_STATIC = (() => {
         message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。',
         finished_at: finishedAt,
     });
+    const runCtripProfileRecheckFlow = async ({
+        recheckRun = {},
+        requestSeq = 0,
+        getCurrentRequestSeq = () => requestSeq,
+        getCurrentState = () => ({}),
+        setState = () => {},
+        notify = () => {},
+        runBrowserCapture = async () => ({}),
+        requestRecheck = async () => ({}),
+        applyResponse = () => {},
+        getDurationText = () => '',
+        getFinishedAt = () => new Date().toLocaleString('zh-CN', { hour12: false }),
+        shouldFinalize = () => true,
+        onStop = () => {},
+    } = {}) => {
+        const sections = Array.isArray(recheckRun.sections) ? recheckRun.sections : [];
+        const canRecapture = Boolean(recheckRun.canRecapture);
+        const requestOptions = recheckRun.requestOptions || {};
+        let captureSucceeded = false;
+        let captureSkipped = false;
+
+        setState(recheckRun.initialState || {});
+        notify(recheckRun.startMessage || '', 'info');
+        try {
+            if (canRecapture) {
+                const captureRes = await runBrowserCapture({
+                    sections,
+                    bindDataSource: true,
+                    silent: true,
+                });
+                captureSucceeded = Number(captureRes?.code || 0) === 200;
+                const captureMessage = captureRes?.message || captureRes?.data?.message || '';
+                setState(buildCtripProfileRecheckCaptureRefreshState({
+                    previousState: getCurrentState(),
+                    captureSucceeded,
+                    captureMessage,
+                }));
+            } else {
+                captureSkipped = true;
+            }
+
+            const res = await requestRecheck(requestOptions);
+            if (requestSeq !== getCurrentRequestSeq()) {
+                return { status: 'stale' };
+            }
+            if (Number(res?.code || 0) === 200) {
+                const data = res.data || {};
+                applyResponse(data);
+                const recheckResult = buildCtripProfileRecheckSuccessResult({
+                    previousState: getCurrentState(),
+                    captureSucceeded,
+                    captureSkipped,
+                    result: data.recheck_result || {},
+                    durationText: getDurationText(),
+                    finishedAt: getFinishedAt(),
+                });
+                setState(recheckResult.state);
+                notify(recheckResult.message, recheckResult.toastType);
+                return { status: 'success', ...recheckResult };
+            }
+
+            const recheckResult = buildCtripProfileRecheckErrorResult({
+                previousState: getCurrentState(),
+                message: res?.message || '不符字段重跑失败',
+                durationText: getDurationText(),
+                finishedAt: getFinishedAt(),
+            });
+            setState(recheckResult.state);
+            notify(recheckResult.message, 'error');
+            return { status: 'failed', ...recheckResult };
+        } catch (error) {
+            if (requestSeq === getCurrentRequestSeq()) {
+                const recheckResult = buildCtripProfileRecheckErrorResult({
+                    previousState: getCurrentState(),
+                    message: error?.message || '不符字段重跑失败',
+                    durationText: getDurationText(),
+                    finishedAt: getFinishedAt(),
+                    prefix: '不符字段重跑失败: ',
+                });
+                setState(recheckResult.state);
+                notify(recheckResult.message, 'error');
+                return { status: 'error', ...recheckResult };
+            }
+            return { status: 'stale_error', message: error?.message || '' };
+        } finally {
+            if (shouldFinalize()) {
+                const currentState = getCurrentState() || {};
+                if (currentState.active) {
+                    setState(buildCtripProfileRecheckInterruptedState({
+                        previousState: currentState,
+                        finishedAt: getFinishedAt(),
+                    }));
+                }
+            }
+            onStop();
+        }
+    };
 
     const getCtripCookieApiCorePresetEndpoints = () => ([
         {
@@ -1282,6 +1379,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripProfileRecheckSuccessResult,
         buildCtripProfileRecheckErrorResult,
         buildCtripProfileRecheckInterruptedState,
+        runCtripProfileRecheckFlow,
         getCtripCookieApiCorePresetEndpoints,
     };
 })();

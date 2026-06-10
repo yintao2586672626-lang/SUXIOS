@@ -94,9 +94,11 @@ requireText('public/ctrip-static.js', 'const createCtripProfileFieldForm', 'Ctri
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSmartDefaults', 'Ctrip static builds Profile field smart defaults');
 requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSavePayload', 'Ctrip static builds Profile field save payloads');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckRunContext')", 'entry uses extracted Ctrip Profile recheck run context builder');
+requireText('public/index.html', "requireCtripStatic('runCtripProfileRecheckFlow')", 'entry uses extracted Ctrip Profile recheck flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckRunContext', 'Ctrip static builds Profile recheck run context');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
+requireText('public/ctrip-static.js', 'const runCtripProfileRecheckFlow', 'Ctrip static runs Profile recheck flow');
 requireText('public/index.html', "requireMeituanStatic('buildMeituanBatchFetchTasks')", 'entry uses extracted Meituan batch fetch task builder');
 requireText('public/index.html', "requireMeituanStatic('validateMeituanBatchFetchInput')", 'entry uses extracted Meituan batch fetch input validator');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
@@ -147,6 +149,11 @@ requireNoText('public/index.html', "payload_json: String(ctripCookieApiForm.valu
 requireNoText('public/index.html', 'const ctripProfileFieldRecheckSections = (fields = []) => {', 'Ctrip Profile recheck section builder is not re-inlined');
 requireNoText('public/index.html', 'const canRecapture = Boolean(selectedCtripHotelId.value || autoFetchHotelId.value || user.value?.hotel_id);', 'Ctrip Profile recheck recapture guard is not re-inlined');
 requireNoText('public/index.html', 'body: JSON.stringify({\n                            sections,', 'Ctrip Profile recheck request options are not re-inlined');
+requireNoText('public/index.html', 'const captureRes = await runCtripBrowserCapture({', 'Ctrip Profile recheck browser capture flow is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/recheck-ctrip-profile-mismatched-fields', requestOptions);", 'Ctrip Profile recheck request flow is not re-inlined');
+requireNoText('public/index.html', 'const recheckResult = buildCtripProfileRecheckSuccessResult({', 'Ctrip Profile recheck success handling is not re-inlined');
+requireNoText('public/index.html', 'const recheckResult = buildCtripProfileRecheckErrorResult({', 'Ctrip Profile recheck error handling is not re-inlined');
+requireNoText('public/index.html', 'buildCtripProfileRecheckInterruptedState({', 'Ctrip Profile recheck interrupted handling is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -1055,6 +1062,7 @@ try {
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
   const buildCtripProfileRecheckErrorResult = ctripStatic.buildCtripProfileRecheckErrorResult;
   const buildCtripProfileRecheckInterruptedState = ctripStatic.buildCtripProfileRecheckInterruptedState;
+  const runCtripProfileRecheckFlow = ctripStatic.runCtripProfileRecheckFlow;
   if (typeof createCtripProfileFieldForm !== 'function'
     || typeof buildCtripProfileFieldSmartDefaults !== 'function'
     || typeof buildCtripProfileFieldSavePayload !== 'function') {
@@ -1543,7 +1551,8 @@ try {
     || typeof buildCtripProfileRecheckCaptureRefreshState !== 'function'
     || typeof buildCtripProfileRecheckSuccessResult !== 'function'
     || typeof buildCtripProfileRecheckErrorResult !== 'function'
-    || typeof buildCtripProfileRecheckInterruptedState !== 'function') {
+    || typeof buildCtripProfileRecheckInterruptedState !== 'function'
+    || typeof runCtripProfileRecheckFlow !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports Profile recheck state builders',
@@ -1621,6 +1630,60 @@ try {
         && successResult.message.includes('仅刷新历史获取值')
         && successResult.message.includes('待补解析 1 个'),
       detail: 'Profile recheck state sample',
+    });
+    const flowStates = [];
+    const flowToasts = [];
+    const flowEvents = [];
+    const flowResponses = [];
+    const flowResult = await runCtripProfileRecheckFlow({
+      recheckRun: runContext,
+      requestSeq: 7,
+      getCurrentRequestSeq: () => 7,
+      getCurrentState: () => flowStates[flowStates.length - 1] || {},
+      setState: state => flowStates.push(state),
+      notify: (message, type) => flowToasts.push({ message, type }),
+      runBrowserCapture: async options => {
+        flowEvents.push({ type: 'capture', options });
+        return { code: 200, message: 'capture ok' };
+      },
+      requestRecheck: async options => {
+        flowEvents.push({ type: 'request', options });
+        return {
+          code: 200,
+          data: {
+            recheck_result: {
+              second_confirmation_count: 4,
+              unresolved_count: 1,
+            },
+            fields: [{ id: 1 }],
+          },
+        };
+      },
+      applyResponse: data => flowResponses.push(data),
+      getDurationText: () => '5s',
+      getFinishedAt: () => '2026-06-10 14:03:00',
+      shouldFinalize: () => true,
+      onStop: () => flowEvents.push({ type: 'stop' }),
+    });
+    const flowCaptureEvent = flowEvents.find(event => event.type === 'capture') || {};
+    const flowRequestEvent = flowEvents.find(event => event.type === 'request') || {};
+    const flowRequestBody = JSON.parse(flowRequestEvent.options?.body || '{}');
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Profile recheck flow runs capture, request, response, and stop callbacks',
+      ok: flowResult.status === 'success'
+        && flowStates[0]?.stage === 'capture'
+        && flowStates.some(state => state.stage === 'refresh_samples')
+        && flowStates[flowStates.length - 1]?.stage === 'done'
+        && flowStates[flowStates.length - 1]?.type === 'success'
+        && flowToasts[0]?.type === 'info'
+        && flowToasts[flowToasts.length - 1]?.type === 'success'
+        && flowCaptureEvent.options?.bindDataSource === true
+        && flowCaptureEvent.options?.silent === true
+        && flowRequestBody.sections?.join(',') === 'business_overview,traffic_report'
+        && flowEvents[flowEvents.length - 1]?.type === 'stop'
+        && flowResponses[0]?.recheck_result?.second_confirmation_count === 4,
+      detail: 'Profile recheck flow sample',
     });
     checks.push({
       file: 'public/ctrip-static.js',

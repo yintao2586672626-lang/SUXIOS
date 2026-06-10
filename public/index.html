@@ -19061,10 +19061,7 @@
             const buildCtripTrafficResponseModel = requireCtripStatic('buildCtripTrafficResponseModel');
             const buildCtripOverviewFetchRequestBody = requireCtripStatic('buildCtripOverviewFetchRequestBody');
             const buildCtripProfileRecheckRunContext = requireCtripStatic('buildCtripProfileRecheckRunContext');
-            const buildCtripProfileRecheckCaptureRefreshState = requireCtripStatic('buildCtripProfileRecheckCaptureRefreshState');
-            const buildCtripProfileRecheckSuccessResult = requireCtripStatic('buildCtripProfileRecheckSuccessResult');
-            const buildCtripProfileRecheckErrorResult = requireCtripStatic('buildCtripProfileRecheckErrorResult');
-            const buildCtripProfileRecheckInterruptedState = requireCtripStatic('buildCtripProfileRecheckInterruptedState');
+            const runCtripProfileRecheckFlow = requireCtripStatic('runCtripProfileRecheckFlow');
             const ctripForm = ref(createCtripFetchForm());
             const ctripTrafficForm = ref(createCtripTrafficForm());
             const ctripTrafficSummary = ref(null);
@@ -25703,87 +25700,29 @@
                     autoFetchHotelId: autoFetchHotelId.value,
                     userHotelId: user.value?.hotel_id,
                 });
-                const { sections, canRecapture, requestOptions } = recheckRun;
                 ctripProfileFieldRechecking.value = true;
                 ctripProfileFieldSampleLoading.value = true;
-                let captureSucceeded = false;
-                let captureSkipped = false;
-                let captureMessage = '';
-                ctripProfileFieldRecheckState.value = recheckRun.initialState;
-                showToast(recheckRun.startMessage, 'info');
-                try {
-                    if (canRecapture) {
-                        const captureRes = await runCtripBrowserCapture({
-                            sections,
-                            bindDataSource: true,
-                            silent: true,
-                        });
-                        captureSucceeded = Number(captureRes?.code || 0) === 200;
-                        captureMessage = captureRes?.message || captureRes?.data?.message || '';
-                        ctripProfileFieldRecheckState.value = buildCtripProfileRecheckCaptureRefreshState({
-                            previousState: ctripProfileFieldRecheckState.value,
-                            captureSucceeded,
-                            captureMessage,
-                        });
-                    } else {
-                        captureSkipped = true;
-                    }
-                    const res = await request('/online-data/recheck-ctrip-profile-mismatched-fields', requestOptions);
-                    if (requestSeq !== ctripProfileFieldRequestSeq) return;
-                    if (res.code === 200) {
-                        const data = res.data || {};
-                        applyCtripProfileFieldResponse(data, { includeSamples: true });
-                        const result = data.recheck_result || {};
-                        const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                        const recheckResult = buildCtripProfileRecheckSuccessResult({
-                            previousState: ctripProfileFieldRecheckState.value,
-                            captureSucceeded,
-                            captureSkipped,
-                            result,
-                            durationText,
-                            finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
-                        });
-                        ctripProfileFieldRecheckState.value = recheckResult.state;
-                        showToast(recheckResult.message, recheckResult.toastType);
-                    } else {
-                        const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                        const recheckResult = buildCtripProfileRecheckErrorResult({
-                            previousState: ctripProfileFieldRecheckState.value,
-                            message: res.message || '不符字段重跑失败',
-                            durationText,
-                            finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
-                        });
-                        ctripProfileFieldRecheckState.value = recheckResult.state;
-                        showToast(recheckResult.message, 'error');
-                    }
-                } catch (error) {
-                    if (requestSeq === ctripProfileFieldRequestSeq) {
-                        const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                        const recheckResult = buildCtripProfileRecheckErrorResult({
-                            previousState: ctripProfileFieldRecheckState.value,
-                            message: error.message,
-                            durationText,
-                            finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
-                            prefix: '不符字段重跑失败: ',
-                        });
-                        ctripProfileFieldRecheckState.value = recheckResult.state;
-                        showToast(recheckResult.message, 'error');
-                    }
-                } finally {
-                    if (requestSeq === ctripProfileFieldRequestSeq || ctripProfileFieldRechecking.value) {
-                        if (ctripProfileFieldRecheckState.value.active) {
-                            ctripProfileFieldRecheckState.value = buildCtripProfileRecheckInterruptedState({
-                                previousState: ctripProfileFieldRecheckState.value,
-                                finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
-                            });
+                await runCtripProfileRecheckFlow({
+                    recheckRun,
+                    requestSeq,
+                    getCurrentRequestSeq: () => ctripProfileFieldRequestSeq,
+                    getCurrentState: () => ctripProfileFieldRecheckState.value,
+                    setState: state => { ctripProfileFieldRecheckState.value = state; },
+                    notify: showToast,
+                    runBrowserCapture: options => runCtripBrowserCapture(options),
+                    requestRecheck: options => request('/online-data/recheck-ctrip-profile-mismatched-fields', options),
+                    applyResponse: data => applyCtripProfileFieldResponse(data, { includeSamples: true }),
+                    getDurationText: () => formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value),
+                    getFinishedAt: () => new Date().toLocaleString('zh-CN', { hour12: false }),
+                    shouldFinalize: () => requestSeq === ctripProfileFieldRequestSeq || ctripProfileFieldRechecking.value,
+                    onStop: () => {
+                        if (ctripProfileFieldRechecking.value) {
+                            ctripProfileFieldRechecking.value = false;
+                            ctripProfileFieldSampleLoading.value = false;
                         }
-                    }
-                    if (ctripProfileFieldRechecking.value) {
-                        ctripProfileFieldRechecking.value = false;
-                        ctripProfileFieldSampleLoading.value = false;
-                    }
-                    stopAutoFetchRunTimer();
-                }
+                        stopAutoFetchRunTimer();
+                    },
+                });
             };
 
             const editCtripProfileField = (field) => {
