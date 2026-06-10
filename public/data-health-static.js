@@ -174,6 +174,222 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             .slice(0, 8);
     };
 
+    const buildDataHealthDiagnosticBoundary = (fullDiagnosticsLoaded = false) => {
+        if (fullDiagnosticsLoaded) {
+            return {
+                title: '完整诊断已加载',
+                detail: '当前已包含账号级驾驶舱、单店画像、数据源诊断、授权、采集失败、字段缺口和后台高风险动作；仍仅代表 OTA 渠道数据质量，不代表全酒店经营口径。',
+                badges: ['账号级驾驶舱', '单店画像', '数据源诊断', 'OTA渠道口径'],
+                className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+            };
+        }
+
+        return {
+            title: '当前为轻量刷新',
+            detail: '只展示平台授权、采集失败、字段缺口和高风险动作摘要；未拉取账号级驾驶舱、单店画像和数据源完整诊断，缺证据项保持未知状态。',
+            badges: ['授权状态', '失败原因', '字段缺口', '高风险动作'],
+            className: 'border-amber-200 bg-amber-50 text-amber-800',
+        };
+    };
+
+    const buildDataHealthCookieAlertRows = (
+        authorizationRows = [],
+        normalizeStatus = dataHealthNormalizeStatus,
+        platformText = dataHealthPlatformText,
+    ) => (Array.isArray(authorizationRows) ? authorizationRows : [])
+        .filter(row => normalizeStatus(row?.status) !== 'ok')
+        .map(row => {
+            const status = normalizeStatus(row?.status);
+            return {
+                ...row,
+                priority: status === 'failed' ? 'high' : 'medium',
+                status,
+                platform_label: platformText(row?.platform),
+                title: `${platformText(row?.platform)} / ${row?.name || row?.config_id || '未命名授权'}`,
+                message: row?.message || row?.action_hint || '授权状态待复核',
+                action_text: row?.next_action || row?.action_hint || '重新授权后刷新数据健康',
+            };
+        });
+
+    const summarizeDataHealthCookieAlerts = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        return {
+            total: safeRows.length,
+            high: safeRows.filter(row => row.priority === 'high').length,
+            warning: safeRows.filter(row => row.priority !== 'high').length,
+        };
+    };
+
+    const buildDataHealthQualityTaskRows = ({
+        pendingActions = [],
+        failureReasons = [],
+        dashboardDiagnostics = [],
+        ctripMissingActionRows = [],
+        normalizeStatus = dataHealthNormalizeStatus,
+        platformText = dataHealthPlatformText,
+    } = {}) => {
+        const rows = [];
+        (Array.isArray(pendingActions) ? pendingActions : []).forEach((item, index) => {
+            const status = normalizeStatus(item?.status);
+            rows.push({
+                key: `pending-${index}-${item?.type || ''}-${item?.platform || ''}`,
+                priority: status === 'failed' ? 'high' : 'medium',
+                type: item?.type || 'pending',
+                platform: item?.platform || '',
+                platform_label: platformText(item?.platform),
+                title: item?.reason || item?.type || '待处理数据质量任务',
+                action: item?.action || '复核授权、字段映射和平台返回',
+                status,
+                actionTab: item?.actionTab || '',
+            });
+        });
+        (Array.isArray(failureReasons) ? failureReasons : []).slice(0, 6).forEach((item, index) => {
+            rows.push({
+                key: `failure-${index}-${item?.type || ''}-${item?.platform || ''}`,
+                priority: 'high',
+                type: item?.type || 'failure',
+                platform: item?.platform || '',
+                platform_label: platformText(item?.platform),
+                title: item?.reason || '采集失败原因待处理',
+                action: item?.next_action || '先处理失败原因，再重新采集对应模块',
+                status: 'failed',
+                actionTab: '',
+            });
+        });
+        (Array.isArray(dashboardDiagnostics) ? dashboardDiagnostics : []).slice(0, 6).forEach((item, index) => {
+            rows.push({
+                key: `dashboard-${index}-${item?.problem || ''}`,
+                priority: item?.risk === 'high' || item?.status === 'auth_failed' || item?.status === 'request_failed' ? 'high' : 'medium',
+                type: 'dashboard',
+                platform: 'ota',
+                platform_label: 'OTA',
+                title: item?.problem || '数据源诊断',
+                action: item?.action || '复核数据源状态',
+                status: normalizeStatus(item?.status),
+                actionTab: '',
+            });
+        });
+        (Array.isArray(ctripMissingActionRows) ? ctripMissingActionRows : []).slice(0, 8).forEach((item, index) => {
+            rows.push({
+                key: `ctrip-missing-${index}-${item?.diagnosisType || ''}-${item?.actionTab || ''}`,
+                priority: item?.diagnosisType === 'request_failed' || item?.diagnosisType === 'config' ? 'high' : 'medium',
+                type: item?.diagnosisType || 'field_missing',
+                platform: 'ctrip',
+                platform_label: '携程',
+                title: `${item?.module || '携程模块'}：${item?.count || 0}项未抓到`,
+                action: item?.reasonText || item?.actionLabel || '补抓或复核字段映射',
+                status: item?.diagnosisType === 'ok' ? 'ok' : 'warning',
+                actionTab: item?.actionTab || '',
+            });
+        });
+        const seen = new Set();
+        return rows.filter(row => {
+            const key = `${row.type}|${row.platform}|${row.title}|${row.action}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        }).slice(0, 12);
+    };
+
+    const buildDataHealthHighRiskActionRows = (operationLogs = []) => (Array.isArray(operationLogs) ? operationLogs : [])
+        .map((log) => {
+            const action = String(log?.action || '').toLowerCase();
+            const module = String(log?.module || '').toLowerCase();
+            const backendPriority = String(log?.risk_priority || '').trim();
+            const hasError = !!String(log?.error_info || '').trim();
+            const isDelete = action.includes('delete') || action.includes('clear') || action.includes('archive');
+            const isExecution = action.includes('auto_fetch') || action.includes('sync') || action.includes('execute') || action.includes('approve') || action.includes('apply');
+            const isConfig = action.includes('config') || action.includes('save_cookies') || action.includes('save_data_source');
+            const isAgent = module === 'agent' || action.includes('analysis') || action.includes('analyze');
+            const priority = backendPriority || (hasError || isDelete ? 'high' : (isExecution || isConfig || isAgent ? 'medium' : 'low'));
+            return {
+                id: log?.id,
+                priority,
+                module: log?.module || '-',
+                action: log?.action || '-',
+                title: log?.risk_title || log?.description || `${log?.module || '-'} / ${log?.action || '-'}`,
+                user: log?.user?.realname || log?.user?.username || log?.user_name || '-',
+                hotel: log?.hotel?.name || log?.hotel_name || '-',
+                time: log?.create_time || '-',
+                error: log?.error_info || '',
+            };
+        })
+        .filter(row => row.priority !== 'low')
+        .slice(0, 8);
+
+    const summarizeDataHealthHighRiskActions = ({
+        isSuperAdmin = false,
+        loading = false,
+        error = '',
+        rows = [],
+    } = {}) => {
+        if (!isSuperAdmin) {
+            return {
+                status: 'unknown',
+                text: '无权限',
+                detail: '当前账号无权查看后台高风险动作摘要；未展示不代表暂无风险。',
+            };
+        }
+        if (loading) {
+            return { status: 'unknown', text: '加载中', detail: '高风险动作摘要正在加载。' };
+        }
+        if (error) {
+            return { status: 'high', text: '加载失败', detail: error };
+        }
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const hasHigh = safeRows.some(row => row.priority === 'high');
+        return {
+            status: hasHigh ? 'high' : (safeRows.length ? 'medium' : 'ok'),
+            text: safeRows.length ? `${safeRows.length} 项` : '暂无风险',
+            detail: safeRows.length ? `${safeRows.length} 项高风险后台动作待复核` : '已加载近 7 天摘要，暂无需要重点复核的高风险动作。',
+        };
+    };
+
+    const summarizePublicEndpointSecurity = ({
+        isSuperAdmin = false,
+        loading = false,
+        error = '',
+        payload = null,
+        rows = null,
+    } = {}) => {
+        if (!isSuperAdmin) {
+            return { status: 'unknown', text: '无权限', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+        }
+        if (loading) {
+            return { status: 'unknown', text: '加载中', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+        }
+        if (error) {
+            return { status: 'high', text: '加载失败', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+        }
+        if (!payload) {
+            return { status: 'unknown', text: '未加载', failureCount: 0, rateLimitedCount: 0, period: {}, scanScope: {} };
+        }
+        const safeRows = Array.isArray(rows) ? rows : (Array.isArray(payload?.endpoints) ? payload.endpoints : []);
+        if (!safeRows.length) {
+            return { status: 'unknown', text: '未加载', failureCount: 0, rateLimitedCount: 0, period: payload?.period || {}, scanScope: payload?.scan_scope || {} };
+        }
+        const failureCount = safeRows.reduce((sum, row) => sum + Number(row?.recent_failure_count || 0), 0);
+        const rateLimitedCount = safeRows.reduce((sum, row) => sum + Number(row?.rate_limited_count || 0), 0);
+        const cron = safeRows.find(row => row?.endpoint === 'cron_trigger') || {};
+        const status = cron.token_configured === false ? 'high' : (failureCount > 0 ? 'medium' : 'ok');
+        return {
+            status,
+            text: status === 'high' ? '需处理' : (status === 'medium' ? '有失败' : '暂无风险'),
+            failureCount,
+            rateLimitedCount,
+            period: payload?.period || {},
+            scanScope: payload?.scan_scope || {},
+        };
+    };
+
+    const publicEndpointTokenText = (value) => {
+        if (value === true) return '已配置';
+        if (value === false) return '未配置';
+        return '登录令牌';
+    };
+
+    const publicEndpointPathText = (row = {}) => `${row.method || '-'} ${row.path || '-'}`;
+
     return {
         onlineDataQualityStatusText,
         onlineDataQualityStatusClass,
@@ -188,5 +404,14 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         dataHealthPlatformText,
         buildCollectionHealthFailureReasonRanking,
         buildDataHealthTodayWorkOrders,
+        buildDataHealthDiagnosticBoundary,
+        buildDataHealthCookieAlertRows,
+        summarizeDataHealthCookieAlerts,
+        buildDataHealthQualityTaskRows,
+        buildDataHealthHighRiskActionRows,
+        summarizeDataHealthHighRiskActions,
+        summarizePublicEndpointSecurity,
+        publicEndpointTokenText,
+        publicEndpointPathText,
     };
 })();

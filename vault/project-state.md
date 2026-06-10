@@ -344,6 +344,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the twenty-second frontend split: `node --check public\expansion-static-options.js`; `node --check public\simulation-static.js`; expansion-static and simulation-static export smoke checks; `npm.cmd run verify:public-entry`; `node scripts\verify_expansion_p2.mjs`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Data Health Builder Split
+
+- Twenty-third frontend split target chosen from pure data-health display builders in `public/index.html`.
+- Extended `public/data-health-static.js` with diagnostic-boundary, cookie-alert, quality-task, high-risk-action, public-endpoint summary, and public-endpoint text helpers.
+- `public/index.html` now keeps only computed bindings and runtime inputs for those data-health displays; OTA capture, Cookie/Profile checks, persistence, data-source diagnostics loading, and high-risk operation-log fetching remain in the entry/runtime flow.
+- Updated `tests/automation/ctrip_store_data_overview.test.mjs` so the new data-health builders are required from `public/data-health-static.js`, while the entry file must explicitly load them through `requireDataHealthStatic()`.
+- `public/index.html` decreased from `41127` lines to `40976` lines; split-map frontend function-level blocks decreased from `1126` to `1124`; the `general` domain span decreased from `9866` to `9715` lines.
+- Current `public/data-health-static.js` is `418` lines. Total code lines increased to `186363` and nonblank lines to `170682` because helper logic and the verification contract moved out of the entry file instead of being deleted.
+- Current self-audit: full directory about `246.41 MB`, without `.git` about `91.97 MB`, without `.git` and dependencies about `62.78 MB`, tracked files about `17.85 MB` / `609` files; code scope `366` files.
+- Verified after the twenty-third frontend split: `node --check public\data-health-static.js`; data-health static export smoke check; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

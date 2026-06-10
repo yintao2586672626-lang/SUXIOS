@@ -415,6 +415,17 @@
 - 验证通过：`node --check public\expansion-static-options.js`、`node --check public\simulation-static.js`、两个静态导出 smoke 检查、`npm.cmd run verify:public-entry`、`node scripts\verify_expansion_p2.mjs`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第二十三刀拆分
+
+- 扩展 `public/data-health-static.js`，承载数据健康诊断边界、授权提醒行、质量任务行、后台高风险动作行、公共端点安全摘要和公共端点文本格式化等纯展示 builder。
+- `public/index.html` 仅保留 computed 绑定和运行态输入，不移动 OTA 采集、Cookie/Profile 检查、接口调用、入库、数据源诊断加载或高风险动作拉取。
+- 更新 `tests/automation/ctrip_store_data_overview.test.mjs`，要求新增数据健康 builder 留在 `public/data-health-static.js`，并要求入口通过 `requireDataHealthStatic()` 显式读取。
+- `public/index.html` 从 `41,127` 行降至 `40,976` 行；拆分地图中前端函数级块从 `1,126` 降至 `1,124`，`general` 领域 span 从 `9,866` 行降至 `9,715` 行。
+- 当前 `public/data-health-static.js` 为 `418` 行；总代码行数因静态模块和测试契约扩展增加到 `186,363` 行，非空 `170,682` 行。
+- 当前审计：完整目录约 `246.41 MB`；不含 `.git` 约 `91.97 MB`；不含 `.git` 和依赖约 `62.78 MB`；Git 跟踪文件约 `17.85 MB` / `609` 个；代码范围 `366` 个文件。
+- 验证通过：`node --check public\data-health-static.js`、数据健康静态导出 smoke 检查、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

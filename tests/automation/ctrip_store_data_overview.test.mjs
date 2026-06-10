@@ -515,7 +515,12 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(dataHealthStatic, /red:\s*'bg-red-500'/);
   assert.match(dataHealthStatic, /const buildCollectionHealthFailureReasonRanking = /);
   assert.match(dataHealthStatic, /const buildDataHealthTodayWorkOrders = /);
+  assert.match(dataHealthStatic, /const buildDataHealthDiagnosticBoundary = /);
+  assert.match(dataHealthStatic, /const buildDataHealthQualityTaskRows = /);
+  assert.match(dataHealthStatic, /const summarizePublicEndpointSecurity = /);
   assert.match(html, /requireDataHealthStatic\('buildCollectionHealthFailureReasonRanking'\)/);
+  assert.match(html, /requireDataHealthStatic\('buildDataHealthQualityTaskRows'\)/);
+  assert.match(html, /requireDataHealthStatic\('summarizePublicEndpointSecurity'\)/);
   assert.match(html, /buildDataHealthTodayWorkOrders\(\{/);
 });
 
