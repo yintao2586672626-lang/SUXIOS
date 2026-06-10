@@ -655,6 +655,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the home trend chart config split: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `npm.cmd run verify:home-visual-hierarchy`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Market Evaluation Risk Builder Split
+
+- Forty-seventh frontend split target chosen from pure market-evaluation AI risk-suggestion display logic in `public/index.html`.
+- Extended `public/expansion-static-options.js` with `buildMarketEvaluationAiRiskSuggestions`, including risk severity normalization and inferred evidence, impact, validation, owner, and deadline copy.
+- `public/index.html` keeps the original `marketEvaluationAiRiskSuggestions` computed name and passes only `marketEvaluationResult` plus `marketEvaluationForm`; market-evaluation requests, scoring, record history, save/display/edit behavior, OTA data paths, and template markup remain unchanged.
+- Updated `scripts/verify_expansion_p2.mjs` so expansion P2 requires the extracted risk builder, prevents the risk inference helpers from being re-inlined into `public/index.html`, and validates one sample output in a VM context.
+- Added the `verify:expansion-p2` npm script alias for the existing expansion P2 verifier.
+- `public/index.html` decreased from `38984` lines to `38887` lines; split-map frontend function-level blocks decreased from `1443` to `1441`; the real largest frontend block remains `runOtaDiagnosisHotelFetch` at `265` lines.
+- Current self-audit after the code move: full directory about `261.14 MB`, without `.git` about `92.12 MB`, without `.git` and dependencies about `62.93 MB`, tracked files about `17.99 MB` / `612` files; code scope `369` files, `187470` total lines, and `171724` nonblank lines.
+- Verified after the market-evaluation risk builder split: `node --check public\expansion-static-options.js`; `node --check scripts\verify_expansion_p2.mjs`; `node scripts\verify_expansion_p2.mjs`; `npm.cmd run verify:expansion-p2`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

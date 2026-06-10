@@ -698,6 +698,17 @@
 - 已验证：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十七刀拆分
+
+- 扩展 `public/expansion-static-options.js`，承载市场评估 AI 风险建议构建器 `buildMarketEvaluationAiRiskSuggestions`，并内聚风险等级归一化和风险详情推断。
+- `public/index.html` 只保留 `marketEvaluationAiRiskSuggestions` computed 名称及 `marketEvaluationResult` / `marketEvaluationForm` 运行态输入；市场评估请求、评分、历史记录、保存、回显、编辑、OTA 数据路径和投决 UI 模板均未迁移。
+- 更新 `scripts/verify_expansion_p2.mjs`，要求入口通过 `requireExpansionStaticOption('buildMarketEvaluationAiRiskSuggestions')` 显式读取构建器，禁止风险详情推断函数重新内联，并运行一次样例输出校验。
+- 补齐 `package.json` 的 `verify:expansion-p2` 脚本别名，指向既有 `scripts/verify_expansion_p2.mjs`，便于后续复跑扩张 P2 契约。
+- `public/index.html` 从 `38,984` 行降至 `38,887` 行；split-map 前端函数级块从 `1,443` 降至 `1,441`，当前最大前端块仍为 `runOtaDiagnosisHotelFetch`（`265` 行）。
+- 当前自审计：完整目录约 `261.14 MB`，不含 `.git` 约 `92.12 MB`，不含 `.git` 和依赖约 `62.93 MB`；Git 跟踪文件约 `17.99 MB` / `612` 个；代码范围 `369` 个文件，`187,470` 行，非空 `171,724` 行。
+- 已验证：`node --check public\expansion-static-options.js`、`node --check scripts\verify_expansion_p2.mjs`、`node scripts\verify_expansion_p2.mjs`、`npm.cmd run verify:expansion-p2`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

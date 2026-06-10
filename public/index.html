@@ -37077,6 +37077,7 @@
             const buildFeasibilityAiEmpowerment = requireExpansionStaticOption('buildFeasibilityAiEmpowerment');
             const feasibilityDecisionClassForGrade = requireExpansionStaticOption('feasibilityDecisionClassForGrade');
             const stringifyFeasibilityReportText = requireExpansionStaticOption('stringifyFeasibilityReport');
+            const buildMarketEvaluationAiRiskSuggestions = requireExpansionStaticOption('buildMarketEvaluationAiRiskSuggestions');
             const buildStrategyScoreCards = requireExpansionStaticOption('buildStrategyScoreCards');
             const strategyFreshnessLabelForSnapshot = requireExpansionStaticOption('strategyFreshnessLabelForSnapshot');
             const strategyAiSourceLabelForResult = requireExpansionStaticOption('strategyAiSourceLabelForResult');
@@ -37130,109 +37131,11 @@
                 const source = aiRecommendations.length ? aiRecommendations : (Array.isArray(result.ai_operation_suggestions) ? result.ai_operation_suggestions : []);
                 return source.map(normalizeAiRecommendationDisplay).filter(item => item.detail);
             });
-            const normalizeMarketRiskSeverity = (value, index = 0) => {
-                const severity = String(value || '').trim().toUpperCase();
-                if (['P0', 'P1', 'P2'].includes(severity)) return severity;
-                return index === 0 ? 'P0' : 'P1';
-            };
-            const inferMarketEvaluationRiskDetail = (item, result, index = 0) => {
-                const form = marketEvaluationForm.value || {};
-                const metric = String(item.metric || '风险指标').trim() || '风险指标';
-                const threshold = String(item.threshold || '').trim();
-                const action = String(item.action || '').trim() || '补充数据后复核。';
-                const metricText = `${metric}${threshold}`;
-                const expectedAdr = Number(form.expected_adr || 0);
-                const expectedOcc = Number(form.expected_occupancy_rate || 0);
-                const competitorCount = Number(form.competitor_count || 0);
-                const otaRate = Number(form.ota_market_penetration_rate || 0);
-                const rentPerRoom = Number(result.metrics?.rent_per_room || 0);
-                const rentPerSquare = Number(result.metrics?.rent_per_square || 0);
-
-                let evidence = String(item.evidence || item.reason || '').trim();
-                let impact = String(item.impact || '').trim();
-                let validation = String(item.validation || item.verification || item.check_method || '').trim();
-                let owner = String(item.owner || '').trim();
-                let deadline = String(item.deadline || item.timing || '').trim();
-
-                if (!evidence) {
-                    if (/ADR|价格|价带/.test(metricText)) {
-                        evidence = `当前目标ADR为${expectedAdr || '-'}元，需要用3公里同档竞品可订价、评分和点评量复核。`;
-                    } else if (/入住|出租/.test(metricText)) {
-                        evidence = `当前目标入住率为${expectedOcc || '-'}%，需验证商圈工作日、周末和淡旺季需求是否支撑。`;
-                    } else if (/租金|坪效|现金流/.test(metricText)) {
-                        evidence = `当前单房月租约${rentPerRoom || '-'}元、租金坪效约${rentPerSquare || '-'}元/㎡，会直接影响回本周期。`;
-                    } else if (/OTA|转化|流量/.test(metricText)) {
-                        evidence = `当前OTA平台市场渗透率为${otaRate || '-'}%，仍需拆分曝光、访客、转化和客单价验证。`;
-                    } else if (/竞品|供给/.test(metricText)) {
-                        evidence = `当前录入3公里竞品数为${competitorCount || '-'}家，需核对同档、同价带和同客群样本。`;
-                    } else {
-                        evidence = '当前输入仍缺少真实市场、竞品或OTA复核数据，该项需要在投决前补齐证据。';
-                    }
-                }
-                if (!impact) {
-                    if (/ADR|价格|价带/.test(metricText)) {
-                        impact = '若目标价带高于真实竞品承接能力，开业期会出现降价换量，收入预测和回本周期偏乐观。';
-                    } else if (/入住|出租/.test(metricText)) {
-                        impact = '若入住率假设偏高，现金流安全边际会被放大，淡季或爬坡期容易低于预算。';
-                    } else if (/租金|坪效|现金流/.test(metricText)) {
-                        impact = '若租金条款没有调整空间，免租期和装修投入稍有偏差就会拉长投资回收周期。';
-                    } else if (/OTA|转化|流量/.test(metricText)) {
-                        impact = '若线上获客基础不足，后续需要依赖促销和投流补量，利润率会被压缩。';
-                    } else {
-                        impact = '该风险会影响价格带、收入爬坡、现金流或最终投决结论，不能只按当前初筛结果推进。';
-                    }
-                }
-                if (!validation) {
-                    if (/ADR|价格|价带/.test(metricText)) {
-                        validation = '采集不少于8家同档竞品近30天可订价、满房日、评分、点评量，并重算保守/基准/乐观ADR。';
-                    } else if (/入住|出租/.test(metricText)) {
-                        validation = '按工作日、周末、节假日分别复核竞品入住率和商圈客源，更新三情景现金流。';
-                    } else if (/租金|坪效|现金流/.test(metricText)) {
-                        validation = '把租金、免租期、押金、装修投入拆成敏感性测算，明确最低可接受租金条款。';
-                    } else if (/OTA|转化|流量/.test(metricText)) {
-                        validation = '补齐OTA曝光、访客、转化率、间夜和评价质量，判断自然流量能否支撑开业爬坡。';
-                    } else {
-                        validation = '补齐真实样本、复算关键指标，并在投决会前形成可追溯的数据附件。';
-                    }
-                }
-                if (!owner) {
-                    if (/ADR|价格|价带/.test(metricText)) owner = '收益管理/投资拓展';
-                    else if (/OTA|转化|流量/.test(metricText)) owner = '渠道运营/收益管理';
-                    else if (/租金|坪效|现金流/.test(metricText)) owner = '投资测算/拓展谈判';
-                    else owner = '投资拓展/运营负责人';
-                }
-                if (!deadline) {
-                    deadline = index === 0 ? '投决会前' : '合同条款锁定前';
-                }
-
-                return {
-                    metric,
-                    threshold,
-                    action,
-                    severity: normalizeMarketRiskSeverity(item.severity || item.priority, index),
-                    evidence,
-                    impact,
-                    validation,
-                    owner,
-                    deadline
-                };
-            };
             const marketEvaluationAiRiskSuggestions = computed(() => {
-                const result = marketEvaluationResult.value || {};
-                const watchPoints = Array.isArray(result.ai_evaluation?.watch_points)
-                    ? result.ai_evaluation.watch_points
-                    : [];
-                if (watchPoints.length) {
-                    return watchPoints
-                        .map((item, index) => inferMarketEvaluationRiskDetail(item, result, index))
-                        .filter(item => item.metric || item.threshold || item.action);
-                }
-                const risks = Array.isArray(result.not_recommended_risks) ? result.not_recommended_risks : [];
-                return risks.map((item, index) => inferMarketEvaluationRiskDetail({
-                    metric: '风险点',
-                    threshold: String(item || '').trim(),
-                    action: '补充真实竞品、客流和 OTA 数据后复核。'
-                }, result, index)).filter(item => item.threshold);
+                return buildMarketEvaluationAiRiskSuggestions({
+                    result: marketEvaluationResult.value || {},
+                    form: marketEvaluationForm.value || {},
+                });
             });
             const marketEvaluationRiskSeverityClass = (severity) => {
                 if (severity === 'P0') return 'bg-red-50 text-red-700 border-red-100';

@@ -1,8 +1,10 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const expansionStaticSource = readFileSync(join(root, 'public/expansion-static-options.js'), 'utf8');
 
 const checks = [
   {
@@ -91,6 +93,7 @@ const checks = [
       "requireExpansionStaticOption('buildFeasibilityAiEmpowerment')",
       "requireExpansionStaticOption('feasibilityDecisionClassForGrade')",
       "requireExpansionStaticOption('stringifyFeasibilityReport')",
+      "requireExpansionStaticOption('buildMarketEvaluationAiRiskSuggestions')",
       "requireExpansionStaticOption('buildStrategyScoreCards')",
       "requireExpansionStaticOption('strategyFreshnessLabelForSnapshot')",
       "requireExpansionStaticOption('strategyAiSourceLabelForResult')",
@@ -104,6 +107,7 @@ const checks = [
       'buildFeasibilityAiEmpowerment',
       'feasibilityDecisionClassForGrade',
       'stringifyFeasibilityReportText',
+      'buildMarketEvaluationAiRiskSuggestions',
       'buildStrategyScoreCards',
       'strategyFreshnessLabelForSnapshot',
       'strategyAiSourceLabelForResult',
@@ -114,6 +118,8 @@ const checks = [
       'const scores = r.scores || {}',
       'snapshot.ai_search_used && uniqueMissing.some',
       'const evidenceCount = strategyDataSourceRows.value.filter',
+      'const normalizeMarketRiskSeverity = (value, index = 0) =>',
+      'const inferMarketEvaluationRiskDetail = (item, result, index = 0) =>',
     ],
   },
 ];
@@ -128,7 +134,7 @@ for (const check of checks) {
 
   let content = readFileSync(path, 'utf8');
   if (check.file === 'public/index.html') {
-    content += '\n' + readFileSync(join(root, 'public/expansion-static-options.js'), 'utf8');
+    content += '\n' + expansionStaticSource;
   }
   for (const needle of check.contains) {
     if (!content.includes(needle)) {
@@ -141,6 +147,61 @@ for (const check of checks) {
       failures.push(`${check.file} should not inline contract: ${needle}`);
     }
   }
+}
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(expansionStaticSource, context, {
+    filename: 'public/expansion-static-options.js',
+  });
+  const riskBuilder = context.window.SUXI_EXPANSION_STATIC?.buildMarketEvaluationAiRiskSuggestions;
+  if (typeof riskBuilder !== 'function') {
+    failures.push('public/expansion-static-options.js missing buildMarketEvaluationAiRiskSuggestions function');
+  } else {
+    const watchPointSample = riskBuilder({
+      result: {
+        metrics: { rent_per_room: 2200, rent_per_square: 68 },
+        ai_evaluation: {
+          watch_points: [
+            { metric: 'ADR价格带', threshold: '偏高' },
+          ],
+        },
+      },
+      form: {
+        expected_adr: 280,
+        expected_occupancy_rate: 76,
+        competitor_count: 8,
+        ota_market_penetration_rate: 61,
+      },
+    });
+    const firstRisk = watchPointSample[0] || {};
+    if (!Array.isArray(watchPointSample) || watchPointSample.length !== 1) {
+      failures.push('buildMarketEvaluationAiRiskSuggestions should return one watch-point risk');
+    }
+    if (firstRisk.severity !== 'P0') {
+      failures.push('buildMarketEvaluationAiRiskSuggestions should normalize first risk severity to P0');
+    }
+    if (firstRisk.owner !== '收益管理/投资拓展') {
+      failures.push('buildMarketEvaluationAiRiskSuggestions should infer ADR risk owner');
+    }
+    if (!String(firstRisk.evidence || '').includes('280')) {
+      failures.push('buildMarketEvaluationAiRiskSuggestions should keep form evidence in inferred copy');
+    }
+
+    const fallbackSample = riskBuilder({
+      result: {
+        not_recommended_risks: ['租金压力偏高'],
+        metrics: { rent_per_room: 2200, rent_per_square: 68 },
+      },
+      form: {},
+    });
+    const fallbackRisk = fallbackSample[0] || {};
+    if (fallbackRisk.metric !== '风险点' || !fallbackRisk.threshold) {
+      failures.push('buildMarketEvaluationAiRiskSuggestions should map not_recommended_risks fallback items');
+    }
+  }
+} catch (error) {
+  failures.push(`public/expansion-static-options.js failed runtime validation: ${error.message}`);
 }
 
 if (failures.length > 0) {
