@@ -160,6 +160,183 @@ window.SUXI_CTRIP_STATIC = (() => {
         pageUrl: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
         apiKeyword: 'getCommentList',
     });
+    const createCtripProfileFieldForm = () => ({
+        id: '',
+        field_key: '',
+        field_name: '',
+        section: 'business_overview',
+        data_type: 'business',
+        page_location: '',
+        target_field: '',
+        target_value: '',
+        value_meaning: '',
+        source_interface: '',
+        source_keys: '',
+        page_url: '',
+        request_url: '',
+        json_path: '',
+        ownership_rule: '',
+        storage_field: '',
+        value_type: '',
+        unit: '',
+        transform_rule: '',
+        status: 'pending',
+        enabled: true,
+        sample_verification_status: 'unverified',
+        sample_verified_at: '',
+        sample_verified_by: null,
+        verified_sample_value: '',
+        verified_sample_unit: '',
+        verified_sample_source_key: '',
+        verified_sample_source_path: '',
+        verified_sample_endpoint_id: '',
+        verified_sample_data_date: '',
+        verified_sample_hotel_name: '',
+        verified_sample_captured_at: '',
+        notes: '',
+        sort_order: 0,
+    });
+    const ctripProfileSimpleHash = (value) => {
+        const text = String(value || '');
+        let hash = 0;
+        for (let i = 0; i < text.length; i += 1) {
+            hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+        }
+        return Math.abs(hash).toString(36).padStart(6, '0').slice(0, 8);
+    };
+    const ctripProfileFieldKeyFromText = (value) => {
+        const text = String(value || '').trim().toLowerCase();
+        const slug = text.replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+        return slug || `custom_${ctripProfileSimpleHash(text || Date.now())}`;
+    };
+    const inferCtripProfileSectionByPageUrl = (pageUrl, fallback = 'business_overview') => {
+        const url = String(pageUrl || '').trim().toLowerCase();
+        if (!url) return fallback || 'business_overview';
+        if (url.includes('/datacenter/inland/businessreport/outline')) return 'business_overview';
+        if (url.includes('/datacenter/inland/businessreport/weekreport')) return 'business_weekly_overview';
+        if (url.includes('/datacenter/inland/businessreport/beneficialdata')) return 'sales_report';
+        if (url.includes('/datacenter/inland/businessreport/flowdata')) return 'traffic_report';
+        if (url.includes('/toolcenter/cpc/') || url.includes('/advertise/cpc/') || url.includes('/pyramidad/')) return 'ads_pyramid';
+        if (url.includes('/toolcenter/psi/index') || url.includes('/psi/index')) return 'quality_psi';
+        return fallback || 'business_overview';
+    };
+    const ctripProfileEndpointFromUrl = (url) => {
+        const text = String(url || '').trim();
+        if (!text) return '';
+        return text.split('?')[0].split('#')[0].split('/').filter(Boolean).pop() || '';
+    };
+    const ctripProfileSourceKeyFromPath = (value) => {
+        const text = String(value || '').trim();
+        if (!text) return '';
+        const cleaned = text
+            .replace(/\[['"]?([^'"\]]+)['"]?\]/g, '.$1')
+            .replace(/\[\d+\]/g, '')
+            .replace(/^\$?\.+/, '');
+        return cleaned.split(/[.\s,;/|]+/).filter(Boolean).pop() || cleaned;
+    };
+    const inferCtripProfileValueType = (form, sourceKey) => {
+        const text = [
+            sourceKey,
+            form.field_key,
+            form.field_name,
+            form.value_meaning,
+            form.target_value,
+        ].join(' ').toLowerCase();
+        if (/(rank|排名)/i.test(text)) return 'rank';
+        if (/(rate|ratio|percent|转化率|回复率|成交率|入住率)/i.test(text)) return 'percent';
+        if (/(amount|price|cost|fee|收入|销售额|金额|房价|卖价|花费|成本)/i.test(text)) return 'amount';
+        if (/(score|评分|分数)/i.test(text)) return 'number';
+        if (/(count|num|quantity|visitor|uv|pv|订单|间夜|访客|曝光|收藏|人数|数量)/i.test(text)) return 'integer';
+        return '';
+    };
+    const ctripProfileUnitForValueType = (valueType, form = {}) => {
+        const text = [form.unit, form.field_name, form.value_meaning, form.target_value].join(' ');
+        if (String(form.unit || '').trim()) return String(form.unit || '').trim();
+        if (valueType === 'rank') return '名';
+        if (valueType === 'percent') return '%';
+        if (valueType === 'amount') return '元';
+        if (/访客|人数/.test(text)) return '人';
+        if (/订单/.test(text)) return '单';
+        if (/间夜/.test(text)) return '间夜';
+        if (/曝光|浏览/.test(text)) return '次';
+        return '';
+    };
+    const ctripProfileStorageFieldForKey = (fieldKey, section = '') => {
+        const key = String(fieldKey || '').trim();
+        if (!key) return '';
+        const known = {
+            order_amount: 'online_daily_data.amount',
+            room_nights: 'online_daily_data.quantity',
+            order_count: 'online_daily_data.book_order_num',
+            avg_price: 'online_daily_data.data_value',
+            close_rate: 'online_daily_data.raw_data.flow_rate',
+            visitor_count: 'ota_ctrip_metric_facts.metric_key=visitor_count',
+            flow_rate: 'ota_ctrip_metric_facts.metric_key=flow_rate',
+            list_exposure: 'ota_ctrip_metric_facts.metric_key=list_exposure',
+            detail_visitor: 'ota_ctrip_metric_facts.metric_key=detail_visitor',
+        };
+        if (known[key]) return known[key];
+        if (String(section || '').includes('traffic')) return `ota_ctrip_metric_facts.metric_key=${key}`;
+        return `ota_ctrip_metric_facts.metric_key=${key}`;
+    };
+    const buildCtripProfileFieldSmartDefaults = (source = {}) => {
+        const form = { ...(source || {}) };
+        const sourceKey = String(form.target_value || form.target_field || form.source_keys || ctripProfileSourceKeyFromPath(form.json_path)).trim();
+        const section = inferCtripProfileSectionByPageUrl(form.page_url, form.section || 'business_overview');
+        const fieldKey = String(form.field_key || ctripProfileFieldKeyFromText(sourceKey || form.value_meaning || form.page_url)).trim();
+        const endpoint = String(form.source_interface || ctripProfileEndpointFromUrl(form.request_url)).trim();
+        const valueType = String(form.value_type || inferCtripProfileValueType({ ...form, field_key: fieldKey }, sourceKey)).trim();
+        return {
+            section,
+            sourceKey,
+            fieldKey,
+            endpoint,
+            valueType,
+            unit: ctripProfileUnitForValueType(valueType, form),
+            storageField: String(form.storage_field || ctripProfileStorageFieldForKey(fieldKey, section)).trim(),
+        };
+    };
+    const buildCtripProfileFieldSavePayload = (source = {}) => {
+        const form = { ...(source || {}) };
+        const inferred = buildCtripProfileFieldSmartDefaults(form);
+        form.section = inferred.section || form.section || 'business_overview';
+        const targetValue = String(form.target_value || form.target_field || form.source_keys || '').trim();
+        const valueMeaning = String(form.value_meaning || form.field_name || '').trim();
+        const pageUrl = String(form.page_url || '').trim();
+        const sourceKey = String(targetValue || inferred.sourceKey || '').trim();
+
+        if (!String(form.field_key || '').trim()) {
+            form.field_key = inferred.fieldKey || ctripProfileFieldKeyFromText(sourceKey || valueMeaning || pageUrl);
+        }
+        if (!String(form.field_name || '').trim()) {
+            form.field_name = valueMeaning || sourceKey;
+        }
+        if (!String(form.source_interface || '').trim() && inferred.endpoint) {
+            form.source_interface = inferred.endpoint;
+        }
+        if (!String(form.source_keys || '').trim() && sourceKey) {
+            form.source_keys = sourceKey;
+        }
+        if (!String(form.target_value || '').trim() && sourceKey) {
+            form.target_value = sourceKey;
+        }
+        if (!String(form.target_field || '').trim() && sourceKey) {
+            form.target_field = sourceKey;
+        }
+        if (!String(form.value_type || '').trim() && inferred.valueType) {
+            form.value_type = inferred.valueType;
+        }
+        if (!String(form.unit || '').trim() && inferred.unit) {
+            form.unit = inferred.unit;
+        }
+        if (!String(form.storage_field || '').trim() && inferred.storageField) {
+            form.storage_field = inferred.storageField;
+        }
+        if (!String(form.status || '').trim() || form.status === 'pending') {
+            form.status = form.id ? form.status : 'needs_parser';
+        }
+        return form;
+    };
     const normalizeCtripBrowserCaptureSections = (sections, fallbackSections = 'default') => {
         const sectionSource = Array.isArray(sections)
             ? sections
@@ -1073,6 +1250,9 @@ window.SUXI_CTRIP_STATIC = (() => {
         createCtripEndpointEvidenceForm,
         createCtripCommentForm,
         createCtripCommentBrowserCaptureForm,
+        createCtripProfileFieldForm,
+        buildCtripProfileFieldSmartDefaults,
+        buildCtripProfileFieldSavePayload,
         normalizeCtripBrowserCaptureSections,
         buildCtripBrowserCaptureTargetContext,
         buildCtripBrowserCapturePayload,

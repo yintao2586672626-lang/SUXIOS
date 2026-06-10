@@ -87,6 +87,12 @@ requireText('public/ctrip-static.js', 'const buildCtripAdsFetchRequestBody', 'Ct
 requireText('public/index.html', "requireCtripStatic('buildCtripCookieApiFetchRequestBody')", 'entry uses extracted Ctrip Cookie API fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripCookieApiFetchRequestBody', 'Ctrip static builds Cookie API fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
+requireText('public/index.html', "requireCtripStatic('createCtripProfileFieldForm')", 'entry uses extracted Ctrip Profile field default form builder');
+requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSmartDefaults')", 'entry uses extracted Ctrip Profile field smart defaults builder');
+requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSavePayload')", 'entry uses extracted Ctrip Profile field save payload builder');
+requireText('public/ctrip-static.js', 'const createCtripProfileFieldForm', 'Ctrip static builds Profile field default forms');
+requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSmartDefaults', 'Ctrip static builds Profile field smart defaults');
+requireText('public/ctrip-static.js', 'const buildCtripProfileFieldSavePayload', 'Ctrip static builds Profile field save payloads');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckRunContext')", 'entry uses extracted Ctrip Profile recheck run context builder');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckRunContext', 'Ctrip static builds Profile recheck run context');
@@ -122,6 +128,11 @@ requireNoText('public/index.html', 'raw: rawResponse.substring(0, 1000)', 'Ctrip
 requireNoText('public/index.html', 'const rankRows = payload?.rank?.rows || [];', 'Ctrip latest snapshot row slicing is not re-inlined');
 requireNoText('public/index.html', 'const trafficUrl = String(form.url || \'\').trim();', 'Ctrip traffic request URL trimming is not re-inlined');
 requireNoText('public/index.html', 'const ctripTrafficFetchBody = {', 'Ctrip traffic request body is not re-inlined');
+requireNoText('public/index.html', 'const createCtripProfileFieldForm = () => ({', 'Ctrip Profile field default form is not re-inlined');
+requireNoText('public/index.html', 'const ctripProfileSimpleHash = (value) => {', 'Ctrip Profile field key hashing is not re-inlined');
+requireNoText('public/index.html', 'const ctripProfileEndpointFromUrl = (url) => {', 'Ctrip Profile endpoint parsing is not re-inlined');
+requireNoText('public/index.html', 'const buildCtripProfileFieldSmartDefaults = (source =', 'Ctrip Profile smart defaults are not re-inlined');
+requireNoText('public/index.html', 'const buildCtripProfileFieldSavePayload = () => {', 'Ctrip Profile save payload builder is not re-inlined');
 requireNoText('public/index.html', 'decoded_data: decoded,', 'Ctrip traffic response model is not re-inlined');
 requireNoText('public/index.html', 'request_urls: form.requestUrls,', 'Ctrip overview request body is not re-inlined');
 requireNoText('public/index.html', 'request_urls: requestUrls,', 'Ctrip flow overview request body is not re-inlined');
@@ -1035,12 +1046,62 @@ try {
   const defaultCtripAdsEffectReportUrl = ctripStatic.defaultCtripAdsEffectReportUrl;
   const isCtripAdsApiUrl = ctripStatic.isCtripAdsApiUrl;
   const normalizeCtripAdsApiType = ctripStatic.normalizeCtripAdsApiType;
+  const createCtripProfileFieldForm = ctripStatic.createCtripProfileFieldForm;
+  const buildCtripProfileFieldSmartDefaults = ctripStatic.buildCtripProfileFieldSmartDefaults;
+  const buildCtripProfileFieldSavePayload = ctripStatic.buildCtripProfileFieldSavePayload;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckRunContext = ctripStatic.buildCtripProfileRecheckRunContext;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
   const buildCtripProfileRecheckErrorResult = ctripStatic.buildCtripProfileRecheckErrorResult;
   const buildCtripProfileRecheckInterruptedState = ctripStatic.buildCtripProfileRecheckInterruptedState;
+  if (typeof createCtripProfileFieldForm !== 'function'
+    || typeof buildCtripProfileFieldSmartDefaults !== 'function'
+    || typeof buildCtripProfileFieldSavePayload !== 'function') {
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip static exports Profile field form builders',
+      ok: false,
+      detail: 'Profile field form builders',
+    });
+  } else {
+    const profileFieldForm = createCtripProfileFieldForm();
+    const smartDefaults = buildCtripProfileFieldSmartDefaults({
+      page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true',
+      request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryFlowTransforNewV1?hostType=Ebooking',
+      json_path: "$.data.metrics[0].visitor_count",
+      value_meaning: '访客人数',
+    });
+    const savePayload = buildCtripProfileFieldSavePayload({
+      page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true',
+      request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryOrderTrendV1?hostType=Ebooking',
+      json_path: "$.data.rows[0].order_amount",
+      value_meaning: '收入金额',
+      status: 'pending',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Profile field builders infer defaults and save payloads',
+      ok: profileFieldForm.section === 'business_overview'
+        && profileFieldForm.notes === ''
+        && profileFieldForm.sample_verification_status === 'unverified'
+        && smartDefaults.section === 'traffic_report'
+        && smartDefaults.sourceKey === 'visitor_count'
+        && smartDefaults.endpoint === 'queryFlowTransforNewV1'
+        && smartDefaults.valueType === 'integer'
+        && smartDefaults.unit === '人'
+        && smartDefaults.storageField === 'ota_ctrip_metric_facts.metric_key=visitor_count'
+        && savePayload.section === 'sales_report'
+        && savePayload.field_key === 'order_amount'
+        && savePayload.field_name === '收入金额'
+        && savePayload.source_interface === 'queryOrderTrendV1'
+        && savePayload.value_type === 'amount'
+        && savePayload.unit === '元'
+        && savePayload.storage_field === 'online_daily_data.amount'
+        && savePayload.status === 'needs_parser',
+      detail: 'Profile field builder sample',
+    });
+  }
   if (typeof buildCtripBrowserCaptureTargetContext !== 'function'
     || typeof buildCtripBrowserCapturePayload !== 'function'
     || typeof buildCtripBrowserCaptureRequestContext !== 'function') {
