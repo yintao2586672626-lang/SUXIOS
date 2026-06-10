@@ -67,6 +67,100 @@ window.SUXI_CTRIP_STATIC = (() => {
         'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
     ];
 
+    const normalizeCtripFlowOverviewUrlText = (item) => {
+        if (!item) return '';
+        if (typeof item === 'string') return item;
+        return String(item.url || item.request_url || item.requestUrl || '');
+    };
+
+    const trimCtripFlowOverviewReasonText = (text) => {
+        const value = String(text || '').replace(/\s+/g, ' ').trim();
+        return value.length > 120 ? `${value.slice(0, 120)}...` : value;
+    };
+
+    const buildCtripFlowOverviewInterfaceReason = (context) => {
+        if (context.responseRowCount > 0) {
+            return `${context.note}，解析 ${context.responseRowCount} 行`;
+        }
+        if (context.responseHitCount > 0) {
+            if (context.hasExplicitParsedRowCount) {
+                return `${context.note}；接口有响应但未解析到可入库行，检查字段映射或响应结构`;
+            }
+            return context.note;
+        }
+        if (context.errorText) {
+            return `接口请求失败：${trimCtripFlowOverviewReasonText(context.errorText)}`;
+        }
+        if (context.requestHitCount > 0 || context.configuredCount > 0) {
+            return '已配置但未收到接口响应，检查 Cookie 状态、请求方式、状态码或接口是否被拦截';
+        }
+        return '未在本次 Request URL 列表中配置；如需该类指标，请从 Network 补充该接口 URL 或执行 Profile 核心抓取';
+    };
+
+    const buildCtripFlowOverviewInterfaceRows = (result = {}, groups = ctripFlowOverviewApiGroups) => {
+        const safeResult = result && typeof result === 'object' ? result : {};
+        const requestRows = Array.isArray(safeResult.xhr_urls) ? safeResult.xhr_urls : [];
+        const configuredUrls = Array.isArray(safeResult.request_urls) ? safeResult.request_urls.map(normalizeCtripFlowOverviewUrlText) : [];
+        const responseRows = Array.isArray(safeResult.responses) ? safeResult.responses : [];
+        const errorTexts = Array.isArray(safeResult.errors) ? safeResult.errors.map(item => String(item || '')) : [];
+        return (Array.isArray(groups) ? groups : []).map((item) => {
+            const aliases = Array.isArray(item.aliases) && item.aliases.length ? item.aliases : [item.keyword];
+            const aliasLowers = aliases.map(alias => String(alias).toLowerCase());
+            const hasKeyword = (url) => aliasLowers.some(keyword => String(url).toLowerCase().includes(keyword));
+            const matchedConfiguredUrls = configuredUrls.filter(hasKeyword);
+            const matchedRequestRows = requestRows.filter(row => hasKeyword(normalizeCtripFlowOverviewUrlText(row)));
+            const matchedResponses = responseRows.filter(row => hasKeyword(normalizeCtripFlowOverviewUrlText(row)));
+            const matchedErrors = errorTexts.filter(hasKeyword);
+            const failedRequestRows = matchedRequestRows.filter(row => Number(row.status || row.http_code || 0) >= 400);
+            const responseRowCount = matchedResponses.reduce((sum, row) => sum + Number(row.row_count || row.rowCount || row.standard_row_count || row.standardRowCount || 0), 0);
+            const hasExplicitParsedRowCount = matchedResponses.some(row =>
+                row.row_count !== undefined
+                || row.rowCount !== undefined
+                || row.standard_row_count !== undefined
+                || row.standardRowCount !== undefined
+            );
+            const requestHitCount = matchedRequestRows.length || matchedConfiguredUrls.length;
+            const responseHitCount = matchedResponses.length;
+            const errorText = matchedErrors[0] || (failedRequestRows[0] ? `HTTP ${failedRequestRows[0].status || failedRequestRows[0].http_code}` : '');
+            let status = 'not_configured';
+            let statusText = '未配置';
+            let statusClass = 'bg-gray-100 text-gray-500';
+            if (responseHitCount > 0 || responseRowCount > 0) {
+                status = 'hit';
+                statusText = '已命中';
+                statusClass = 'bg-green-100 text-green-700';
+            } else if (errorText) {
+                status = 'request_failed';
+                statusText = '请求失败';
+                statusClass = 'bg-red-100 text-red-700';
+            } else if (requestHitCount > 0) {
+                status = 'no_response';
+                statusText = '无响应';
+                statusClass = 'bg-orange-100 text-orange-700';
+            }
+            const reasonText = buildCtripFlowOverviewInterfaceReason({
+                ...item,
+                configuredCount: matchedConfiguredUrls.length,
+                requestHitCount,
+                responseHitCount,
+                responseRowCount,
+                hasExplicitParsedRowCount,
+                errorText,
+            });
+            return {
+                ...item,
+                hit: status === 'hit',
+                status,
+                statusClass,
+                requestHitCount,
+                responseHitCount,
+                rowCount: responseRowCount,
+                statusText,
+                reasonText,
+            };
+        });
+    };
+
     return {
         ctripProfilePrimaryCategoryOptions,
         ctripProfileDefaultModuleOptions,
@@ -75,5 +169,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         ctripOverviewApiKeywords,
         ctripFlowOverviewApiGroups,
         ctripFlowOverviewDefaultRequestUrls,
+        buildCtripFlowOverviewInterfaceRows,
     };
 })();

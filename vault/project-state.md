@@ -356,6 +356,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the twenty-third frontend split: `node --check public\data-health-static.js`; data-health static export smoke check; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Flow Interface Builder Split
+
+- Twenty-fourth frontend split target chosen from pure Ctrip flow-overview interface diagnosis display logic in `public/index.html`.
+- Extended `public/ctrip-static.js` with `buildCtripFlowOverviewInterfaceRows`, including request-hit, response-hit, parsed-row, failed-request, and actionable missing-reason text handling.
+- `public/index.html` now keeps only the `ctripFlowOverviewInterfaceRows` computed binding and runtime result input; Ctrip overview fetch, supplemental capture, Cookie/Profile checks, API calls, and persistence remain in the entry/runtime flow.
+- Updated `tests/automation/ctrip_store_data_overview.test.mjs` so the Ctrip flow interface builder and missing-reason copy are required from `public/ctrip-static.js`, while the entry file must explicitly load the builder through `requireCtripStatic()`.
+- `public/index.html` decreased from `40976` lines to `40885` lines; split-map frontend function-level blocks decreased from `1124` to `1120`; the `general` domain span decreased from `9715` to `9533` lines.
+- Current `public/ctrip-static.js` is `175` lines. Total code lines increased to `186369` and nonblank lines to `170687` because helper logic and the verification contract moved out of the entry file instead of being deleted.
+- Current self-audit: full directory about `247 MB`, without `.git` about `91.97 MB`, without `.git` and dependencies about `62.78 MB`, tracked files about `17.86 MB` / `609` files; code scope `366` files.
+- Verified after the twenty-fourth frontend split: `node --check public\ctrip-static.js`; Ctrip static export smoke check; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

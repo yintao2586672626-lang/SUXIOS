@@ -426,6 +426,17 @@
 - 验证通过：`node --check public\data-health-static.js`、数据健康静态导出 smoke 检查、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第二十四刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程流量概览接口诊断行构建器 `buildCtripFlowOverviewInterfaceRows`，包括接口命中、未响应、请求失败、已响应但未入库等原因文案。
+- `public/index.html` 仅保留 `ctripFlowOverviewInterfaceRows` computed 绑定，不移动携程概览抓取、补抓、Cookie/Profile 检查、接口请求或持久化链路。
+- 更新 `tests/automation/ctrip_store_data_overview.test.mjs`，要求携程流量接口诊断 builder 和原因文案留在 `public/ctrip-static.js`，入口通过 `requireCtripStatic()` 显式读取。
+- `public/index.html` 从 `40,976` 行降至 `40,885` 行；拆分地图中前端函数级块从 `1,124` 降至 `1,120`，`general` 领域 span 从 `9,715` 行降至 `9,533` 行。
+- 当前 `public/ctrip-static.js` 为 `175` 行；总代码行数因静态模块和测试契约扩展增加到 `186,369` 行，非空 `170,687` 行。
+- 当前审计：完整目录约 `247 MB`；不含 `.git` 约 `91.97 MB`；不含 `.git` 和依赖约 `62.78 MB`；Git 跟踪文件约 `17.86 MB` / `609` 个；代码范围 `366` 个文件。
+- 验证通过：`node --check public\ctrip-static.js`、携程静态导出 smoke 检查、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
