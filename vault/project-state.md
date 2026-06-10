@@ -583,6 +583,19 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the strategy display split: `node --check public\expansion-static-options.js`; `node --check scripts\verify_expansion_p2.mjs`; `node --check scripts\project_split_map.mjs`; `node scripts\verify_expansion_p2.mjs`; `node scripts\verify_strategy_location_ui_contract.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Home Operating Result Builder Split
+
+- Forty-first frontend split target chosen from pure home operating-result card and causal-chain display computed logic in `public/index.html`.
+- Extended `public/home-static.js` with `buildHomeOperatingResultCards` and `buildHomeCausalChainNodes`.
+- `public/index.html` keeps the original `homeOperatingResultCards` / `homeCausalChainNodes` computed names and runtime input collection only; home trend loading, macro signals, competitor summary, quick entries, API requests, and OTA data paths remain unchanged.
+- Preserved scope wording such as `OTA/经营日报样本口径，不替代全酒店总营收` and `优先展示采集字段，不用收入/间夜倒推`; missing fields remain visible instead of being hidden by fallback success states.
+- Updated `scripts/verify_home_visual_hierarchy_contract.mjs` so the home visual contract requires the two builders from `public/home-static.js` and prevents `cardVisual` / `homeOperatingResultCards.value.find(...)` long logic from being re-inlined.
+- `public/index.html` decreased from `39513` lines to `39432` lines; the split-map `general` domain span decreased from `8518` to `8444` lines.
+- Current `public/home-static.js` is about `382` lines. Total code lines are `187155` and nonblank lines are `171422` after the code move. Total code lines increased because the static builders plus contract guards add more explicit code than the entry file removes.
+- Current self-audit after the code move: full directory about `257.64 MB`, without `.git` about `92.07 MB`, without `.git` and dependencies about `62.88 MB`, tracked files about `17.96 MB` / `612` files; code scope `369` files.
+- Verified after the home operating-result split: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `npm.cmd run verify:home-visual-hierarchy`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -117,6 +117,135 @@ window.SUXI_HOME_STATIC = (() => {
         ];
     };
 
+    const requireHomeHelper = (helpers, key) => {
+        const helper = helpers?.[key];
+        if (typeof helper !== 'function') {
+            throw new Error(`Missing home static helper: ${key}`);
+        }
+        return helper;
+    };
+    const buildHomeOperatingResultCards = ({
+        revenueCard = null,
+        demandCard = null,
+        priceCard = null,
+        roomNights = 0,
+        revenueSum = 0,
+        adrAvg = 0,
+        rangeLabel = '',
+        helpers = {},
+    } = {}) => {
+        const formatNumber = requireHomeHelper(helpers, 'formatNumber');
+        const homeTextHasValue = requireHomeHelper(helpers, 'homeTextHasValue');
+        const homeMetricToneClass = requireHomeHelper(helpers, 'homeMetricToneClass');
+        const revenueValue = homeTextHasValue(revenueCard?.value)
+            ? revenueCard.value
+            : (revenueSum > 0 ? `¥${formatNumber(Math.round(revenueSum))}` : '待同步');
+        const orderValue = homeTextHasValue(demandCard?.value) ? demandCard.value : '待同步';
+        const roomNightValue = roomNights > 0 ? `${formatNumber(Math.round(roomNights))}间夜` : '未返回';
+        const adrValue = adrAvg > 0
+            ? `¥${formatNumber(Math.round(adrAvg))}`
+            : (homeTextHasValue(priceCard?.value) ? priceCard.value : '待同步');
+        const orderReady = homeTextHasValue(orderValue);
+        const roomNightReady = roomNights > 0;
+        const adrReady = homeTextHasValue(adrValue);
+        const revenueReady = homeTextHasValue(revenueValue);
+        const cardVisual = {
+            orders: {
+                accentClass: orderReady ? 'bg-blue-500' : 'bg-slate-300',
+                iconClass: orderReady ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-slate-200 bg-slate-50 text-slate-500',
+            },
+            roomNights: {
+                accentClass: roomNightReady ? 'bg-emerald-500' : 'bg-slate-300',
+                iconClass: roomNightReady ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500',
+            },
+            adr: {
+                accentClass: adrReady ? 'bg-amber-500' : 'bg-slate-300',
+                iconClass: adrReady ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-500',
+            },
+            revenue: {
+                accentClass: revenueReady ? 'bg-rose-500' : 'bg-slate-300',
+                iconClass: revenueReady ? 'border-rose-100 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-50 text-slate-500',
+            },
+        };
+        return [
+            {
+                key: 'orders',
+                label: 'OTA订单',
+                value: orderValue,
+                sub: demandCard?.note || '来源：OTA 订单数；未返回时保留缺口',
+                status: demandCard?.direction || '待同步',
+                icon: 'fas fa-receipt',
+                ready: orderReady,
+                accentClass: cardVisual.orders.accentClass,
+                iconClass: cardVisual.orders.iconClass,
+                toneClass: homeMetricToneClass(orderReady, demandCard?.level),
+                entry: { page: 'online-data', tab: 'history' },
+            },
+            {
+                key: 'room-nights',
+                label: 'OTA间夜',
+                value: roomNightValue,
+                sub: roomNights > 0 ? `来源：${rangeLabel}趋势样本` : '趋势接口未返回稳定间夜字段',
+                status: roomNights > 0 ? '已返回' : '未返回',
+                icon: 'fas fa-bed',
+                ready: roomNightReady,
+                accentClass: cardVisual.roomNights.accentClass,
+                iconClass: cardVisual.roomNights.iconClass,
+                toneClass: homeMetricToneClass(roomNightReady, 'blue'),
+                entry: { page: 'online-data', tab: 'history' },
+            },
+            {
+                key: 'adr',
+                label: 'ADR',
+                value: adrValue,
+                sub: priceCard?.note || '优先展示采集字段，不用收入/间夜倒推',
+                status: priceCard?.direction || '待同步',
+                icon: 'fas fa-tag',
+                ready: adrReady,
+                accentClass: cardVisual.adr.accentClass,
+                iconClass: cardVisual.adr.iconClass,
+                toneClass: homeMetricToneClass(adrReady, priceCard?.level),
+                entry: { page: 'revenue-research-center' },
+            },
+            {
+                key: 'revenue',
+                label: '收入样本',
+                value: revenueValue,
+                sub: revenueCard?.source || 'OTA/经营日报样本口径，不替代全酒店总营收',
+                status: revenueCard?.direction || '待同步',
+                icon: 'fas fa-yen-sign',
+                ready: revenueReady,
+                accentClass: cardVisual.revenue.accentClass,
+                iconClass: cardVisual.revenue.iconClass,
+                toneClass: homeMetricToneClass(revenueReady, revenueCard?.level),
+                entry: { page: 'revenue-research-center' },
+            },
+        ];
+    };
+    const buildHomeCausalChainNodes = ({
+        exposure = {},
+        visitors = {},
+        conversion = {},
+        fallbackOrders = {},
+        operatingCards = [],
+        helpers = {},
+    } = {}) => {
+        const homeTextHasValue = requireHomeHelper(helpers, 'homeTextHasValue');
+        const safeCards = Array.isArray(operatingCards) ? operatingCards : [];
+        const operatingOrders = safeCards.find(card => card.key === 'orders');
+        const orders = homeTextHasValue(operatingOrders?.value)
+            ? { value: operatingOrders.value, ready: true }
+            : fallbackOrders;
+        const revenue = safeCards.find(card => card.key === 'revenue');
+        return [
+            { key: 'exposure', label: '曝光', value: exposure.value, ready: exposure.ready, icon: 'fas fa-eye' },
+            { key: 'visitors', label: '浏览/访客', value: visitors.value, ready: visitors.ready, icon: 'fas fa-mouse-pointer' },
+            { key: 'conversion', label: '转化率', value: conversion.value, ready: conversion.ready, icon: 'fas fa-filter' },
+            { key: 'orders', label: '订单承接', value: orders.value, ready: orders.ready, icon: 'fas fa-receipt' },
+            { key: 'revenue', label: '收入结果', value: revenue?.value || '待同步', ready: homeTextHasValue(revenue?.value), icon: 'fas fa-chart-line' },
+        ];
+    };
+
     const buildHomeBoardActionRows = ({
         readiness = {},
         channelSignal = null,
@@ -244,6 +373,8 @@ window.SUXI_HOME_STATIC = (() => {
     return {
         buildHomeClosedLoopStages,
         buildHomeAiTraceRows,
+        buildHomeOperatingResultCards,
+        buildHomeCausalChainNodes,
         buildHomeBoardActionRows,
         buildCompassDataReadiness,
         buildHomeDecisionSummaryRows,

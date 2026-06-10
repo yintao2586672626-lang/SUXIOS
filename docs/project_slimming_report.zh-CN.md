@@ -634,6 +634,17 @@
 - 已验证：`node --check public\expansion-static-options.js`、`node --check scripts\verify_expansion_p2.mjs`、`node --check scripts\project_split_map.mjs`、`node scripts\verify_expansion_p2.mjs`、`node scripts\verify_strategy_location_ui_contract.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十一刀拆分
+
+- 扩展 `public/home-static.js`，承载首页经营结果卡片和因果链展示构建器：`buildHomeOperatingResultCards`、`buildHomeCausalChainNodes`。
+- `public/index.html` 仅保留原有 `homeOperatingResultCards` / `homeCausalChainNodes` computed 名称和运行态输入采集；首页趋势加载、宏观信号、竞品摘要、快捷入口、接口请求和 OTA 数据链路均未移动。
+- 保留“OTA/经营日报样本口径，不替代全酒店总营收”“优先展示采集字段，不用收入/间夜倒推”等口径边界，不用兜底逻辑掩盖缺失字段。
+- 更新 `scripts/verify_home_visual_hierarchy_contract.mjs`，要求入口显式读取上述两个 builder，并禁止 `cardVisual` 与 `homeOperatingResultCards.value.find(...)` 等长逻辑重新内联回 `public/index.html`。
+- `public/index.html` 从 `39,513` 行降至 `39,432` 行；`public/home-static.js` 当前约 `382` 行；split-map 中 `general` 域 span 从 `8,518` 行降至 `8,444` 行。
+- 当前自审计：完整目录约 `257.64 MB`，不含 `.git` 约 `92.07 MB`，不含 `.git` 和依赖约 `62.88 MB`，Git 跟踪文件约 `17.96 MB` / `612` 个；代码范围 `369` 个文件，`187,155` 行，非空行 `171,422`。总代码行数较上轮增加，原因是静态模块和首页契约新增显式 builder/守卫多于入口减少行数。
+- 已验证：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

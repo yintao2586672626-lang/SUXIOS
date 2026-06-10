@@ -61,6 +61,8 @@ const checks = [
     pass: publicSource.includes('<script src="home-static.js"></script>')
       && publicSource.includes("requireHomeStatic('buildHomeClosedLoopStages')")
       && publicSource.includes("requireHomeStatic('buildHomeAiTraceRows')")
+      && publicSource.includes("requireHomeStatic('buildHomeOperatingResultCards')")
+      && publicSource.includes("requireHomeStatic('buildHomeCausalChainNodes')")
       && publicSource.includes("requireHomeStatic('buildHomeBoardActionRows')")
       && publicSource.includes("requireHomeStatic('buildCompassDataReadiness')")
       && publicSource.includes("requireHomeStatic('buildHomeDecisionSummaryRows')")
@@ -75,6 +77,17 @@ const checks = [
       && homeStaticSource.includes('buildHomeDecisionSummaryRows')
       && homeStaticSource.includes('不把模型输出当作事实')
       && homeStaticSource.includes('不用 OTA 渠道数据替代全酒店口径'),
+  },
+  {
+    name: 'home operating result cards and causal chain live in explicit static helper',
+    pass: publicSource.includes('buildHomeOperatingResultCards({')
+      && publicSource.includes('buildHomeCausalChainNodes({')
+      && homeStaticSource.includes('buildHomeOperatingResultCards')
+      && homeStaticSource.includes('buildHomeCausalChainNodes')
+      && homeStaticSource.includes('OTA订单')
+      && homeStaticSource.includes('OTA/经营日报样本口径，不替代全酒店总营收')
+      && !publicSource.includes('const cardVisual = {')
+      && !publicSource.includes('const operatingOrders = homeOperatingResultCards.value.find'),
   },
   {
     name: 'home visual hierarchy verifier is exposed through npm',
