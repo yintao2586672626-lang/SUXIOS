@@ -69,6 +69,9 @@ requireText('public/system-static.js', "target: 'sync-logs'", 'system static kee
 requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCapturePayload')", 'entry uses extracted Ctrip browser capture payload builder');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
 requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorResult', 'Ctrip static normalizes browser capture errors');
+requireText('public/index.html', "requireMeituanStatic('buildMeituanBatchFetchTasks')", 'entry uses extracted Meituan batch fetch task builder');
+requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
+requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
@@ -83,6 +86,9 @@ requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform n
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
 requireNoText('public/index.html', 'const optionSections = options.sections || options.captureSections ||', 'Ctrip browser capture section normalization is not re-inlined');
 requireNoText('public/index.html', 'const normalizeCtripBrowserCaptureErrorResult = (error) => {', 'Ctrip browser capture error normalization is not re-inlined');
+requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
+requireNoText('public/index.html', 'const rankTypeNames = {', 'Meituan batch rank labels are not re-inlined');
+requireNoText('public/index.html', 'display_hotels: results.flatMap', 'Meituan display model payload is not re-inlined');
 requireNoText('public/index.html', 'const getDefaultDataConfigForm = () => ({', 'data config default form is not re-inlined');
 requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
 requireNoText('public/index.html', 'autoFetchRecentRuns.value.slice(0, 3).forEach', 'global notification recent-run loop is not re-inlined');
@@ -201,6 +207,96 @@ requireText('package.json', 'test:e2e:business', 'package exposes business chain
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
 requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(read('public/meituan-static.js'), context, {
+    filename: 'public/meituan-static.js',
+  });
+  const meituanStatic = context.window.SUXI_MEITUAN_STATIC || {};
+  const buildMeituanBatchFetchTasks = meituanStatic.buildMeituanBatchFetchTasks;
+  const buildMeituanBatchFetchResultEntry = meituanStatic.buildMeituanBatchFetchResultEntry;
+  const buildMeituanDisplayModelPayload = meituanStatic.buildMeituanDisplayModelPayload;
+  if (typeof buildMeituanBatchFetchTasks !== 'function'
+    || typeof buildMeituanBatchFetchResultEntry !== 'function'
+    || typeof buildMeituanDisplayModelPayload !== 'function') {
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan static exports batch fetch builders',
+      ok: false,
+      detail: 'batch fetch builders',
+    });
+  } else {
+    const tasks = buildMeituanBatchFetchTasks({
+      form: {
+        url: 'https://example.test/rank',
+        hotelId: '10',
+        dateRanges: ['1', 'custom'],
+        startDate: '2026-06-01',
+        endDate: '2026-06-10',
+        auth_data: { token: 'demo' },
+      },
+      partnerId: 'partner-1',
+      poiId: 'poi-1',
+      cookies: 'mt-cookie',
+    });
+    const customTask = tasks.find(task => task.rankType === 'P_LL' && task.dateRange === 'custom');
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan batch fetch task builder covers four rank types and custom dates',
+      ok: tasks.length === 8
+        && tasks.some(task => task.rankType === 'P_RZ' && task.dateRange === '1')
+        && tasks.some(task => task.rankType === 'P_ZH' && task.dateRange === 'custom')
+        && customTask?.body?.start_date === '2026-06-01'
+        && customTask?.body?.end_date === '2026-06-10'
+        && customTask?.body?.partner_id === 'partner-1'
+        && customTask?.body?.poi_id === 'poi-1'
+        && customTask?.body?.cookies === 'mt-cookie'
+        && customTask?.body?.system_hotel_id === '10',
+      detail: 'buildMeituanBatchFetchTasks sample',
+    });
+    const successEntry = buildMeituanBatchFetchResultEntry(tasks[0], {
+      code: 200,
+      data: {
+        data: [{ rank: 1 }],
+        saved_count: 3,
+        display_hotels: [{ poiId: 'poi-1', hotelName: 'Demo' }],
+        display_summary: { total: 1 },
+        display_hotel_count: 1,
+      },
+    });
+    const failedEntry = buildMeituanBatchFetchResultEntry(tasks[1], { code: 500, message: 'upstream failed' });
+    const modelPayload = buildMeituanDisplayModelPayload({
+      results: [successEntry, failedEntry],
+      form: {
+        competitorRoomCount: '20',
+        poiId: 'poi-1',
+        dateRanges: ['1', 'custom'],
+        startDate: '2026-06-01',
+        endDate: '2026-06-10',
+      },
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan batch fetch result and display payload builders preserve response evidence',
+      ok: successEntry.savedCount === 3
+        && successEntry.displayCount === 1
+        && failedEntry.error === 'upstream failed'
+        && Array.isArray(modelPayload.display_hotels)
+        && modelPayload.display_hotels.length === 1
+        && modelPayload.target_poi_id === 'poi-1'
+        && modelPayload.competitor_room_count === '20',
+      detail: 'Meituan batch result sample',
+    });
+  }
+} catch (error) {
+  checks.push({
+    file: 'public/meituan-static.js',
+    label: 'Meituan static runtime validation',
+    ok: false,
+    detail: error.message,
+  });
+}
 
 try {
   const context = { window: {} };

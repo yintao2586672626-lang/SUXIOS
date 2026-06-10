@@ -760,6 +760,16 @@
 - 已验证：`node --check public\ota-diagnosis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第五十三刀拆分
+
+- 扩展 `public/meituan-static.js`，承载美团批量榜单采集的纯构建逻辑：`buildMeituanBatchFetchTasks`、`buildMeituanBatchFetchResultEntry` 和 `buildMeituanDisplayModelPayload`。
+- `public/index.html` 只保留 `fetchMeituanData()` 的运行态职责：校验酒店与授权、应用美团配置、逐个请求 `/online-data/fetch-meituan`、更新保存数量、调用展示模型、刷新历史和展示状态；美团采集接口、入库、展示模型接口和失败提示链路均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `requireMeituanStatic('buildMeituanBatchFetchTasks')` 显式读取构建器，禁止榜单类型、榜单标签和展示模型 payload 重新内联，并在 VM 中校验自定义日期、四榜单任务、成功/失败结果和展示模型 payload。
+- `public/index.html` 从 `38,438` 行降至 `38,381` 行；split-map 中 `meituan` 域 span 从 `1,257` 行降至 `1,197` 行；`fetchMeituanData` 从 `164` 行降至 `104` 行。
+- 当前自审计：完整目录约 `264.66 MB`，不含 `.git` 约 `92.16 MB`，不含 `.git` 和依赖约 `62.97 MB`；Git 跟踪文件约 `18.04 MB` / `612` 个；代码范围 `369` 个文件，`188,055` 行，非空 `172,304` 行。
+- 已验证：`node --check public\meituan-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

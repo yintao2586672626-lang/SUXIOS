@@ -114,6 +114,89 @@ window.SUXI_MEITUAN_STATIC = (() => {
             .filter(Boolean);
         return Array.from(new Set(normalized));
     };
+    const meituanBatchRankTypes = ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'];
+    const meituanBatchRankTypeNames = {
+        P_RZ: '入住榜（入住间夜+房费收入）',
+        P_XS: '销售榜（销售间夜+销售额）',
+        P_ZH: '转化榜（浏览转化+支付转化）',
+        P_LL: '流量榜（曝光+浏览）',
+    };
+    const meituanBatchDateRangeNames = {
+        0: '今日实时',
+        1: '昨日',
+        7: '近7天',
+        30: '近30天',
+        custom: '自定义时间',
+    };
+    const buildMeituanBatchFetchTasks = ({
+        form = {},
+        partnerId = '',
+        poiId = '',
+        cookies = '',
+    } = {}) => {
+        const dateRanges = Array.isArray(form.dateRanges) ? form.dateRanges : [];
+        const tasks = [];
+        dateRanges.forEach(dateRange => {
+            meituanBatchRankTypes.forEach(rankType => {
+                const rangeName = meituanBatchDateRangeNames[dateRange] || dateRange;
+                const rankName = meituanBatchRankTypeNames[rankType] || rankType;
+                const body = {
+                    url: form.url,
+                    partner_id: partnerId,
+                    poi_id: poiId,
+                    rank_type: rankType,
+                    date_range: dateRange,
+                    cookies,
+                    auth_data: form.auth_data,
+                    auto_save: true,
+                    system_hotel_id: form.hotelId,
+                };
+                if (dateRange === 'custom') {
+                    body.start_date = form.startDate;
+                    body.end_date = form.endDate;
+                }
+                tasks.push({
+                    rankType,
+                    rankName,
+                    dateRange,
+                    dateRangeName: rangeName,
+                    toastText: `正在获取 ${rangeName} - ${rankName}...`,
+                    body,
+                });
+            });
+        });
+        return tasks;
+    };
+    const buildMeituanBatchFetchResultEntry = (task, response = {}) => {
+        const base = {
+            rankType: task.rankType,
+            rankName: task.rankName,
+            dateRange: task.dateRange,
+            dateRangeName: task.dateRangeName,
+        };
+        if (response.code === 200) {
+            return {
+                ...base,
+                data: response.data.data,
+                savedCount: response.data.saved_count || 0,
+                displayHotels: response.data.display_hotels || [],
+                displaySummary: response.data.display_summary || null,
+                displayCount: response.data.display_hotel_count || (response.data.display_hotels || []).length,
+            };
+        }
+        return {
+            ...base,
+            error: response.message || '获取失败',
+        };
+    };
+    const buildMeituanDisplayModelPayload = ({ results = [], form = {} } = {}) => ({
+        display_hotels: (Array.isArray(results) ? results : []).flatMap(result => Array.isArray(result.displayHotels) ? result.displayHotels : []),
+        competitor_room_count: form.competitorRoomCount,
+        target_poi_id: form.poiId,
+        date_ranges: form.dateRanges,
+        start_date: form.startDate,
+        end_date: form.endDate,
+    });
 
     const buildMeituanRankDisplayRows = (rows, field) => {
         const sourceRows = Array.isArray(rows) ? rows : [];
@@ -271,6 +354,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         createMeituanAdsForm,
         createMeituanBrowserCaptureForm,
         normalizeMeituanCaptureSections,
+        buildMeituanBatchFetchTasks,
+        buildMeituanBatchFetchResultEntry,
+        buildMeituanDisplayModelPayload,
         buildMeituanRankDisplayRows,
         buildCompetitorSummaryCoreCards,
         buildHomeCompetitorSummaryCards,

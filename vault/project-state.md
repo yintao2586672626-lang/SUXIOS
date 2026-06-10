@@ -723,6 +723,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the OTA diagnosis fetch task split: `node --check public\ota-diagnosis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Meituan Batch Fetch Builder Split
+
+- Fifty-third frontend split target chosen from pure Meituan batch rank-fetch task, result-entry, and display-model payload construction logic in `public/index.html`.
+- Extended `public/meituan-static.js` with `buildMeituanBatchFetchTasks`, `buildMeituanBatchFetchResultEntry`, and `buildMeituanDisplayModelPayload`.
+- `public/index.html` keeps `fetchMeituanData()` responsible for hotel/auth validation, current config application, `/online-data/fetch-meituan` request execution, saved-count updates, display-model request execution, history refresh, and UI status updates; Meituan capture endpoints, storage behavior, display-model endpoint, and failure toasts remain unchanged.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted Meituan batch fetch builders, prevent rank lists/labels and display payload from being re-inlined, and validate custom-date tasks, four-rank coverage, success/failure result entries, and display-model payloads in a VM context.
+- `public/index.html` decreased from `38438` lines to `38381` lines; the split-map `meituan` domain span decreased from `1257` to `1197` lines; `fetchMeituanData` decreased from `164` to `104` lines.
+- Current self-audit after the code move: full directory about `264.66 MB`, without `.git` about `92.16 MB`, without `.git` and dependencies about `62.97 MB`, tracked files about `18.04 MB` / `612` files; code scope `369` files, `188055` total lines, and `172304` nonblank lines.
+- Verified after the Meituan batch fetch builder split: `node --check public\meituan-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
