@@ -38257,6 +38257,11 @@
             const strategyNextAddressForProject = requireExpansionStaticOption('strategyNextAddressForProject');
             const estimateStrategyCompetitorCountForProject = requireExpansionStaticOption('estimateStrategyCompetitorCount');
             const normalizeMarketEvaluationForm = requireExpansionStaticOption('normalizeMarketEvaluationForm');
+            const buildFeasibilityInputCards = requireExpansionStaticOption('buildFeasibilityInputCards');
+            const buildFeasibilityReportCards = requireExpansionStaticOption('buildFeasibilityReportCards');
+            const buildFeasibilityAiEmpowerment = requireExpansionStaticOption('buildFeasibilityAiEmpowerment');
+            const feasibilityDecisionClassForGrade = requireExpansionStaticOption('feasibilityDecisionClassForGrade');
+            const stringifyFeasibilityReportText = requireExpansionStaticOption('stringifyFeasibilityReport');
             const marketEvaluationForm = ref({ ...marketEvaluationDefaults });
             const marketEvaluationResult = ref(null);
             const marketEvaluationLoading = ref(false);
@@ -38711,10 +38716,6 @@
             const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
             const formatWan = (value) => value === null || value === undefined ? '--' : `${aiRound(toNumber(value), 2)}万元`;
             const formatPaybackMonth = (value) => value === null || value === undefined ? '不可回收' : `${aiRound(value, 1)}个月`;
-            const formatFeasibilityPayback = (value) => value === null || value === undefined || value === ''
-                ? '不可回本'
-                : `${aiRound(value, 1)}个月`;
-
             const riskBadgeClass = (risk) => {
                 if (['高风险', 'D', 'E'].includes(risk)) return 'bg-red-50 text-red-700 border-red-200';
                 if (['中高风险', 'C'].includes(risk)) return 'bg-orange-50 text-orange-700 border-orange-200';
@@ -38722,93 +38723,16 @@
                 return 'bg-green-50 text-green-700 border-green-200';
             };
 
-            const feasibilityInputCards = computed(() => {
-                const p = aiProject.value || {};
-                const rooms = toNumber(p.room_count);
-                const area = toNumber(p.property_area);
-                const rent = toNumber(p.monthly_rent);
-                const decoration = toNumber(p.decoration_budget);
-                const transfer = toNumber(p.transfer_fee);
-                const perRoomArea = rooms > 0 && area > 0 ? `${aiRound(area / rooms, 1)}㎡/间` : '面积待补全';
-                const rentPerRoom = rooms > 0 && rent > 0 ? `${formatCurrency(rent / rooms)}/间/月` : '租金待补全';
-                const investmentPerRoom = rooms > 0 && (decoration + transfer) > 0
-                    ? `${formatCurrency((decoration + transfer) / rooms)}/间`
-                    : '预算待补全';
+            const feasibilityInputCards = computed(() => buildFeasibilityInputCards({
+                project: aiProject.value,
+                simulationParams: aiSimulationParams.value,
+            }));
 
-                return [
-                    { label: '项目规模', value: rooms > 0 ? `${rooms}间` : '--', meta: perRoomArea },
-                    { label: '月租金', value: rent > 0 ? formatCurrency(rent) : '--', meta: rentPerRoom },
-                    { label: '装转预算', value: decoration + transfer > 0 ? formatCurrency(decoration + transfer) : '--', meta: investmentPerRoom },
-                    { label: '智算参数', value: `${formatCurrency(aiSimulationParams.value.adr)} / ${aiRound(aiSimulationParams.value.occupancyRate, 1)}%`, meta: 'ADR / OCC' }
-                ];
-            });
+            const feasibilityReportCards = computed(() => buildFeasibilityReportCards(aiFeasibilityResult.value));
 
-            const feasibilityReportCards = computed(() => {
-                const report = aiFeasibilityResult.value || {};
-                const summary = report.summary || {};
-                const market = report.market_judgement || {};
-                if (!aiFeasibilityResult.value) return [];
+            const feasibilityAiEmpowerment = computed(() => buildFeasibilityAiEmpowerment(aiFeasibilityResult.value));
 
-                return [
-                    { label: '总投资', value: formatCurrency(summary.total_investment), meta: '含装修与筹开投入' },
-                    { label: '回本周期', value: formatFeasibilityPayback(summary.payback_months), meta: '模型现金流测算' },
-                    { label: '市场评分', value: market.market_score ?? '--', meta: '智略市场判断' },
-                    { label: '竞争强度', value: market.competition_level || '--', meta: market.recommended_model || '定位待判断' }
-                ];
-            });
-
-            const feasibilityAiEmpowerment = computed(() => {
-                const report = aiFeasibilityResult.value || {};
-                const market = report.market_judgement || {};
-                const actions = Array.isArray(report.action_plan) ? report.action_plan : [];
-                const risks = Array.isArray(report.risk_list) ? report.risk_list : [];
-                const evidence = Array.isArray(report.evidence) ? report.evidence : [];
-                const assumptions = Array.isArray(report.assumptions) ? report.assumptions : [];
-                const isFallback = assumptions.some(item => String(item || '').includes('LLM报告生成失败') || String(item || '').includes('本地测算兜底'));
-                const firstAction = actions[0] || {};
-                const firstRisk = risks[0] || {};
-                const sourceText = evidence.map(item => item.source || item.title).filter(Boolean).slice(0, 3).join('、');
-
-                return {
-                    isFallback,
-                    sourceLabel: isFallback ? '本地测算兜底' : 'AI模型已生成',
-                    headline: `${report.conclusion_grade || '-'}级 · ${report.conclusion_text || '等待生成结论'}`,
-                    conclusion: report.core_reason || '生成后将汇总项目输入、智略判断、智算结果和风险动作。',
-                    nextAction: firstAction.title ? `${firstAction.title}：${firstAction.detail || '-'}` : '生成后输出首要执行动作',
-                    evidenceText: sourceText || '用户输入、本地测算与系统数据快照',
-                    cards: [
-                        {
-                            label: '产品定位',
-                            value: market.recommended_model || '--',
-                            meta: market.target_customer || '目标客群待确认'
-                        },
-                        {
-                            label: '市场判断',
-                            value: market.market_score !== undefined && market.market_score !== null ? `${market.market_score}分` : '--',
-                            meta: market.competition_level || '竞争强度待判断'
-                        },
-                        {
-                            label: '首要动作',
-                            value: firstAction.priority || 'P0',
-                            meta: firstAction.title || '复核核心假设'
-                        },
-                        {
-                            label: '主要风险',
-                            value: firstRisk.level ? `${firstRisk.level}风险` : '--',
-                            meta: firstRisk.risk || '风险清单待生成'
-                        }
-                    ]
-                };
-            });
-
-            const feasibilityDecisionClass = computed(() => {
-                const grade = String(aiFeasibilityResult.value?.conclusion_grade || '').toUpperCase();
-                if (grade === 'A') return 'feasibility-grade-a';
-                if (grade === 'B') return 'feasibility-grade-b';
-                if (grade === 'C') return 'feasibility-grade-c';
-                if (grade === 'D') return 'feasibility-grade-d';
-                return 'feasibility-grade-neutral';
-            });
+            const feasibilityDecisionClass = computed(() => feasibilityDecisionClassForGrade(aiFeasibilityResult.value?.conclusion_grade));
 
             const transferRiskTextClass = (risk) => {
                 if (risk === '高风险') return 'text-red-600';
@@ -40148,24 +40072,7 @@
             };
 
             const stringifyFeasibilityReport = () => {
-                const r = aiFeasibilityResult.value;
-                if (!r) return '';
-                const scenarios = (r.financial_scenarios || []).map(row =>
-                    `${row.name}: ADR ${formatMoney(row.adr)}, OCC ${formatPercent(row.occ)}, 月收入 ${formatMoney(row.monthly_revenue)}, 月净现金流 ${formatMoney(row.monthly_net_cashflow)}, 回本 ${row.payback_months ?? '不可回本'}个月`
-                ).join('\n');
-                const risks = (r.risk_list || []).map(item => `${item.level}风险｜${item.risk}: ${item.reason}；应对：${item.action}`).join('\n');
-                const actions = (r.action_plan || []).map(item => `${item.priority} ${item.title}: ${item.detail}`).join('\n');
-                return [
-                    `${r.summary?.project_name || aiProject.value.project_name}可行性报告`,
-                    `结论: ${r.conclusion_grade}级｜${r.conclusion_text}`,
-                    `核心理由: ${r.core_reason}`,
-                    `项目摘要: ${r.summary?.location || ''}，${r.summary?.room_count || 0}间，总投资${formatMoney(r.summary?.total_investment || 0)}，回本${r.summary?.payback_months || '不可回本'}个月`,
-                    `市场判断: ${r.market_judgement?.reasoning || ''}`,
-                    `三情景模拟:\n${scenarios}`,
-                    `风险清单:\n${risks}`,
-                    `行动计划:\n${actions}`,
-                    `假设:\n${(r.assumptions || []).join('\n')}`
-                ].join('\n\n');
+                return stringifyFeasibilityReportText(aiFeasibilityResult.value, aiProject.value?.project_name || '');
             };
 
             const copyFeasibilityReport = async () => {

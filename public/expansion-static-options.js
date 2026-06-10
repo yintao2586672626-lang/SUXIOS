@@ -310,6 +310,116 @@ window.SUXI_EXPANSION_STATIC = (() => {
         }
         return form;
     };
+    const toNumber = (value, fallback = 0) => {
+        const num = Number(value);
+        return Number.isFinite(num) ? num : fallback;
+    };
+    const aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
+    const formatCurrency = (value) => `¥${Math.round(toNumber(value)).toLocaleString()}`;
+    const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
+    const formatFeasibilityPayback = (value) => value === null || value === undefined || value === ''
+        ? '不可回本'
+        : `${aiRound(value, 1)}个月`;
+    const buildFeasibilityInputCards = ({ project = {}, simulationParams = {} } = {}) => {
+        const rooms = toNumber(project.room_count);
+        const area = toNumber(project.property_area);
+        const rent = toNumber(project.monthly_rent);
+        const decoration = toNumber(project.decoration_budget);
+        const transfer = toNumber(project.transfer_fee);
+        const perRoomArea = rooms > 0 && area > 0 ? `${aiRound(area / rooms, 1)}㎡/间` : '面积待补全';
+        const rentPerRoom = rooms > 0 && rent > 0 ? `${formatCurrency(rent / rooms)}/间/月` : '租金待补全';
+        const investmentPerRoom = rooms > 0 && (decoration + transfer) > 0
+            ? `${formatCurrency((decoration + transfer) / rooms)}/间`
+            : '预算待补全';
+
+        return [
+            { label: '项目规模', value: rooms > 0 ? `${rooms}间` : '--', meta: perRoomArea },
+            { label: '月租金', value: rent > 0 ? formatCurrency(rent) : '--', meta: rentPerRoom },
+            { label: '装转预算', value: decoration + transfer > 0 ? formatCurrency(decoration + transfer) : '--', meta: investmentPerRoom },
+            { label: '智算参数', value: `${formatCurrency(simulationParams.adr)} / ${aiRound(simulationParams.occupancyRate, 1)}%`, meta: 'ADR / OCC' },
+        ];
+    };
+    const buildFeasibilityReportCards = (report = null) => {
+        if (!report) return [];
+        const summary = report.summary || {};
+        const market = report.market_judgement || {};
+        return [
+            { label: '总投资', value: formatCurrency(summary.total_investment), meta: '含装修与筹开投入' },
+            { label: '回本周期', value: formatFeasibilityPayback(summary.payback_months), meta: '模型现金流测算' },
+            { label: '市场评分', value: market.market_score ?? '--', meta: '智略市场判断' },
+            { label: '竞争强度', value: market.competition_level || '--', meta: market.recommended_model || '定位待判断' },
+        ];
+    };
+    const buildFeasibilityAiEmpowerment = (report = null) => {
+        const safeReport = report || {};
+        const market = safeReport.market_judgement || {};
+        const actions = Array.isArray(safeReport.action_plan) ? safeReport.action_plan : [];
+        const risks = Array.isArray(safeReport.risk_list) ? safeReport.risk_list : [];
+        const evidence = Array.isArray(safeReport.evidence) ? safeReport.evidence : [];
+        const assumptions = Array.isArray(safeReport.assumptions) ? safeReport.assumptions : [];
+        const isFallback = assumptions.some(item => String(item || '').includes('LLM报告生成失败') || String(item || '').includes('本地测算兜底'));
+        const firstAction = actions[0] || {};
+        const firstRisk = risks[0] || {};
+        const sourceText = evidence.map(item => item.source || item.title).filter(Boolean).slice(0, 3).join('、');
+
+        return {
+            isFallback,
+            sourceLabel: isFallback ? '本地测算兜底' : 'AI模型已生成',
+            headline: `${safeReport.conclusion_grade || '-'}级 · ${safeReport.conclusion_text || '等待生成结论'}`,
+            conclusion: safeReport.core_reason || '生成后将汇总项目输入、智略判断、智算结果和风险动作。',
+            nextAction: firstAction.title ? `${firstAction.title}：${firstAction.detail || '-'}` : '生成后输出首要执行动作',
+            evidenceText: sourceText || '用户输入、本地测算与系统数据快照',
+            cards: [
+                {
+                    label: '产品定位',
+                    value: market.recommended_model || '--',
+                    meta: market.target_customer || '目标客群待确认',
+                },
+                {
+                    label: '市场判断',
+                    value: market.market_score !== undefined && market.market_score !== null ? `${market.market_score}分` : '--',
+                    meta: market.competition_level || '竞争强度待判断',
+                },
+                {
+                    label: '首要动作',
+                    value: firstAction.priority || 'P0',
+                    meta: firstAction.title || '复核核心假设',
+                },
+                {
+                    label: '主要风险',
+                    value: firstRisk.level ? `${firstRisk.level}风险` : '--',
+                    meta: firstRisk.risk || '风险清单待生成',
+                },
+            ],
+        };
+    };
+    const feasibilityDecisionClassForGrade = (grade) => {
+        const normalized = String(grade || '').toUpperCase();
+        if (normalized === 'A') return 'feasibility-grade-a';
+        if (normalized === 'B') return 'feasibility-grade-b';
+        if (normalized === 'C') return 'feasibility-grade-c';
+        if (normalized === 'D') return 'feasibility-grade-d';
+        return 'feasibility-grade-neutral';
+    };
+    const stringifyFeasibilityReport = (report = null, projectName = '') => {
+        if (!report) return '';
+        const scenarios = (report.financial_scenarios || []).map(row =>
+            `${row.name}: ADR ${formatCurrency(row.adr)}, OCC ${formatPercent(row.occ)}, 月收入 ${formatCurrency(row.monthly_revenue)}, 月净现金流 ${formatCurrency(row.monthly_net_cashflow)}, 回本 ${row.payback_months ?? '不可回本'}个月`
+        ).join('\n');
+        const risks = (report.risk_list || []).map(item => `${item.level}风险｜${item.risk}: ${item.reason}；应对：${item.action}`).join('\n');
+        const actions = (report.action_plan || []).map(item => `${item.priority} ${item.title}: ${item.detail}`).join('\n');
+        return [
+            `${report.summary?.project_name || projectName}可行性报告`,
+            `结论: ${report.conclusion_grade}级｜${report.conclusion_text}`,
+            `核心理由: ${report.core_reason}`,
+            `项目摘要: ${report.summary?.location || ''}，${report.summary?.room_count || 0}间，总投资${formatCurrency(report.summary?.total_investment || 0)}，回本${report.summary?.payback_months || '不可回本'}个月`,
+            `市场判断: ${report.market_judgement?.reasoning || ''}`,
+            `三情景模拟:\n${scenarios}`,
+            `风险清单:\n${risks}`,
+            `行动计划:\n${actions}`,
+            `假设:\n${(report.assumptions || []).join('\n')}`,
+        ].join('\n\n');
+    };
 
     return {
         marketEvaluationCityTierOptions,
@@ -335,5 +445,10 @@ window.SUXI_EXPANSION_STATIC = (() => {
         strategyNextAddressForProject,
         estimateStrategyCompetitorCount,
         normalizeMarketEvaluationForm,
+        buildFeasibilityInputCards,
+        buildFeasibilityReportCards,
+        buildFeasibilityAiEmpowerment,
+        feasibilityDecisionClassForGrade,
+        stringifyFeasibilityReport,
     };
 })();

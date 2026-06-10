@@ -463,6 +463,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the frontend home decision split: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `npm.cmd run verify:home-visual-hierarchy`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Feasibility Display Builder Split
+
+- Thirty-first frontend split target chosen from pure feasibility-report display builders in `public/index.html`.
+- Extended `public/expansion-static-options.js` with builders for feasibility input cards, report cards, AI empowerment summary, decision-grade class, and report text serialization.
+- `public/index.html` now keeps only computed bindings, runtime inputs, and copy/print actions for the feasibility report flow; report generation requests, history reuse, archive handling, localStorage state, API calls, and OTA data paths remain unchanged.
+- Updated `scripts/verify_expansion_p2.mjs` so expansion P2 requires the feasibility display builders from `public/expansion-static-options.js`, while the entry file must explicitly load them through `requireExpansionStaticOption()`.
+- `public/index.html` decreased from `40449` lines to `40356` lines; split-map frontend function-level blocks decreased from `1117` to `1113`; the `general` domain span decreased from `9335` to `9237` lines.
+- Current `public/expansion-static-options.js` is `451` lines. Total code lines are `186730` and nonblank lines are `171005` after the code move.
+- Current self-audit after the code move: full directory about `251.77 MB`, without `.git` about `92.01 MB`, without `.git` and dependencies about `62.82 MB`, tracked files about `17.9 MB` / `611` files; code scope `368` files.
+- Verified after the frontend feasibility display split: `node --check public\expansion-static-options.js`; `node --check scripts\verify_expansion_p2.mjs`; `node scripts\verify_expansion_p2.mjs`; `node scripts\verify_strategy_location_ui_contract.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check -- public\index.html public\expansion-static-options.js scripts\verify_expansion_p2.mjs`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

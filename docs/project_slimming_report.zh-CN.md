@@ -525,6 +525,17 @@
 - 验证通过：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍未宣称完成，原因仍是 `public/index.html` 与 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十一刀拆分
+
+- 扩展 `public/expansion-static-options.js`，承载可行性报告展示构建器：`buildFeasibilityInputCards`、`buildFeasibilityReportCards`、`buildFeasibilityAiEmpowerment`、`feasibilityDecisionClassForGrade`、`stringifyFeasibilityReport`。
+- `public/index.html` 仅保留 Vue computed 绑定、运行态输入和复制/打印动作；本轮不移动可行性报告生成请求、历史复用、归档、接口调用、localStorage 状态或 OTA 数据链路。
+- 更新 `scripts/verify_expansion_p2.mjs`，要求入口显式通过 `requireExpansionStaticOption()` 读取上述构建器，同时要求构建器留在 `public/expansion-static-options.js`。
+- `public/index.html` 从 `40,449` 行降至 `40,356` 行；split-map 中前端函数级块从 `1,117` 降至 `1,113`，`general` 域 span 从 `9,335` 行降至 `9,237` 行。
+- 当前 `public/expansion-static-options.js` 为 `451` 行；本轮代码改动后总代码行数为 `186,730`，非空行 `171,005`。
+- 本轮代码改动后自审计：完整目录约 `251.77 MB`；不含 `.git` 约 `92.01 MB`；不含 `.git` 和依赖约 `62.82 MB`；Git 跟踪文件约 `17.9 MB` / `611` 个；代码范围 `368` 个文件。
+- 验证通过：`node --check public\expansion-static-options.js`、`node --check scripts\verify_expansion_p2.mjs`、`node scripts\verify_expansion_p2.mjs`、`node scripts\verify_strategy_location_ui_contract.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check -- public\index.html public\expansion-static-options.js scripts\verify_expansion_p2.mjs`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
