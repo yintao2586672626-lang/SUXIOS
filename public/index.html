@@ -19087,6 +19087,8 @@
             const buildCtripFetchMeta = requireCtripStatic('buildCtripFetchMeta');
             const buildCtripFetchRawFailureResult = requireCtripStatic('buildCtripFetchRawFailureResult');
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
+            const buildCtripTrafficFetchRequestBody = requireCtripStatic('buildCtripTrafficFetchRequestBody');
+            const buildCtripTrafficResponseModel = requireCtripStatic('buildCtripTrafficResponseModel');
             const buildCtripProfileRecheckInitialState = requireCtripStatic('buildCtripProfileRecheckInitialState');
             const buildCtripProfileRecheckCaptureRefreshState = requireCtripStatic('buildCtripProfileRecheckCaptureRefreshState');
             const buildCtripProfileRecheckSuccessResult = requireCtripStatic('buildCtripProfileRecheckSuccessResult');
@@ -32504,47 +32506,25 @@
 
                 fetchingData.value = true;
                 try {
-                    const trafficUrl = String(form.url || '').trim();
-                    const ctripTrafficFetchBody = {
-                        platform: form.platform,
-                        date_range: form.dateRange,
-                        start_date: form.startDate,
-                        end_date: form.endDate,
+                    const ctripTrafficFetchBody = buildCtripTrafficFetchRequestBody({
+                        form,
                         cookies,
-                        auto_save: true,
-                        system_hotel_id: selectedCtripHotelId.value || null,
-                        extra_params: form.extraParams,
-                    };
-                    if (trafficUrl) {
-                        ctripTrafficFetchBody.url = trafficUrl;
-                    }
+                        systemHotelId: selectedCtripHotelId.value || null,
+                    });
                     const res = await request('/online-data/ctrip/traffic', {
                         method: 'POST',
                         body: JSON.stringify(ctripTrafficFetchBody),
                     });
                     if (res.code === 200) {
-                        const decoded = res.data.decoded_data || res.data.data || [];
-                        const trafficRowsPayload = res.data.traffic_rows || decoded;
+                        const trafficModel = buildCtripTrafficResponseModel(res.data || {});
                         const rows = useCtripTrafficDisplayRows(
-                            res.data.display_traffic_rows || [],
-                            res.data.display_traffic_summary || null,
-                            trafficRowsPayload,
-                            res.data.derived_analysis || null
+                            trafficModel.displayTrafficRows,
+                            trafficModel.displayTrafficSummary,
+                            trafficModel.trafficRows,
+                            trafficModel.derivedAnalysis
                         );
-                        onlineDataResult.value = {
-                            http_code: res.data.http_code,
-                            saved_count: res.data.saved_count || 0,
-                            platform: res.data.platform,
-                            request_start_date: res.data.request_start_date,
-                            request_end_date: res.data.request_end_date,
-                            decoded_data: decoded,
-                            traffic_rows: trafficRowsPayload,
-                            display_traffic_rows: res.data.display_traffic_rows || [],
-                            display_traffic_summary: res.data.display_traffic_summary || null,
-                            raw_response: res.data.raw_response || '',
-                            derived_analysis: res.data.derived_analysis || null,
-                        };
-                        const savedCount = res.data.saved_count || 0;
+                        onlineDataResult.value = trafficModel.onlineResult;
+                        const savedCount = trafficModel.savedCount;
                         if (rows.length === 0) {
                             showToast('当前日期范围暂无流量数据', 'warning');
                         } else {

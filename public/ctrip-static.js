@@ -319,6 +319,58 @@ window.SUXI_CTRIP_STATIC = (() => {
         };
     };
 
+    const buildCtripTrafficFetchRequestBody = ({
+        form = {},
+        cookies = '',
+        systemHotelId = null,
+    } = {}) => {
+        const trafficUrl = String(form.url || '').trim();
+        const body = {
+            platform: form.platform,
+            date_range: form.dateRange,
+            start_date: form.startDate,
+            end_date: form.endDate,
+            cookies,
+            auto_save: true,
+            system_hotel_id: systemHotelId || null,
+            extra_params: form.extraParams,
+        };
+        if (trafficUrl) {
+            body.url = trafficUrl;
+        }
+        return body;
+    };
+
+    const buildCtripTrafficResponseModel = (data = {}) => {
+        const decoded = data.decoded_data || data.data || [];
+        const trafficRows = data.traffic_rows || decoded;
+        const displayTrafficRows = Array.isArray(data.display_traffic_rows) ? data.display_traffic_rows : [];
+        const displayTrafficSummary = data.display_traffic_summary || null;
+        const derivedAnalysis = data.derived_analysis || null;
+        const savedCount = data.saved_count || 0;
+        return {
+            decoded,
+            trafficRows,
+            displayTrafficRows,
+            displayTrafficSummary,
+            derivedAnalysis,
+            savedCount,
+            onlineResult: {
+                http_code: data.http_code,
+                saved_count: savedCount,
+                platform: data.platform,
+                request_start_date: data.request_start_date,
+                request_end_date: data.request_end_date,
+                decoded_data: decoded,
+                traffic_rows: trafficRows,
+                display_traffic_rows: displayTrafficRows,
+                display_traffic_summary: displayTrafficSummary,
+                raw_response: data.raw_response || '',
+                derived_analysis: derivedAnalysis,
+            },
+        };
+    };
+
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
     const ctripSortMetricValue = (row = {}, field = '') => {
@@ -820,6 +872,8 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripFetchMeta,
         buildCtripFetchRawFailureResult,
         buildLatestCtripSnapshotModel,
+        buildCtripTrafficFetchRequestBody,
+        buildCtripTrafficResponseModel,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,

@@ -74,6 +74,8 @@ requireText('public/ctrip-static.js', 'const buildCtripFetchDateRange', 'Ctrip s
 requireText('public/ctrip-static.js', 'const buildCtripFetchRequestBody', 'Ctrip static builds fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotModel')", 'entry uses extracted Ctrip latest snapshot model builder');
 requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
+requireText('public/index.html', "requireCtripStatic('buildCtripTrafficFetchRequestBody')", 'entry uses extracted Ctrip traffic fetch request builder');
+requireText('public/ctrip-static.js', 'const buildCtripTrafficFetchRequestBody', 'Ctrip static builds traffic fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckInitialState')", 'entry uses extracted Ctrip Profile recheck state builders');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
@@ -98,6 +100,9 @@ requireNoText('public/index.html', 'const yesterday = new Date();', 'Ctrip fetch
 requireNoText('public/index.html', 'const ctripFetchBody = {', 'Ctrip fetch request body is not re-inlined');
 requireNoText('public/index.html', 'raw: rawResponse.substring(0, 1000)', 'Ctrip fetch raw failure result is not re-inlined');
 requireNoText('public/index.html', 'const rankRows = payload?.rank?.rows || [];', 'Ctrip latest snapshot row slicing is not re-inlined');
+requireNoText('public/index.html', 'const trafficUrl = String(form.url || \'\').trim();', 'Ctrip traffic request URL trimming is not re-inlined');
+requireNoText('public/index.html', 'const ctripTrafficFetchBody = {', 'Ctrip traffic request body is not re-inlined');
+requireNoText('public/index.html', 'decoded_data: decoded,', 'Ctrip traffic response model is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -546,6 +551,8 @@ try {
   const buildCtripFetchMeta = ctripStatic.buildCtripFetchMeta;
   const buildCtripFetchRawFailureResult = ctripStatic.buildCtripFetchRawFailureResult;
   const buildLatestCtripSnapshotModel = ctripStatic.buildLatestCtripSnapshotModel;
+  const buildCtripTrafficFetchRequestBody = ctripStatic.buildCtripTrafficFetchRequestBody;
+  const buildCtripTrafficResponseModel = ctripStatic.buildCtripTrafficResponseModel;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
@@ -631,12 +638,14 @@ try {
     || typeof selectCtripFetchResponsePayload !== 'function'
     || typeof buildCtripFetchMeta !== 'function'
     || typeof buildCtripFetchRawFailureResult !== 'function'
-    || typeof buildLatestCtripSnapshotModel !== 'function') {
+    || typeof buildLatestCtripSnapshotModel !== 'function'
+    || typeof buildCtripTrafficFetchRequestBody !== 'function'
+    || typeof buildCtripTrafficResponseModel !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch builders and latest snapshot model',
+      detail: 'Ctrip fetch, latest snapshot, and traffic builders',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -700,6 +709,38 @@ try {
       traffic: { rows: [], display_traffic_rows: [] },
       review: { rows: [] },
     });
+    const trafficBody = buildCtripTrafficFetchRequestBody({
+      form: {
+        platform: 'ctrip',
+        dateRange: 'custom',
+        startDate: '2026-06-01',
+        endDate: '2026-06-10',
+        url: ' https://ebooking.ctrip.test/traffic ',
+        extraParams: '{"scope":"self"}',
+      },
+      cookies: 'sid=traffic',
+      systemHotelId: '58',
+    });
+    const trafficBodyWithoutUrl = buildCtripTrafficFetchRequestBody({
+      form: { platform: 'qunar', dateRange: 'yesterday', url: '   ' },
+      cookies: 'sid=traffic',
+    });
+    const trafficModel = buildCtripTrafficResponseModel({
+      http_code: 200,
+      saved_count: 4,
+      platform: 'ctrip',
+      request_start_date: '2026-06-01',
+      request_end_date: '2026-06-10',
+      decoded_data: [{ decoded: true }],
+      traffic_rows: [{ row_id: 'traffic-1' }],
+      display_traffic_rows: [{ date: '2026-06-01', compareType: 'self' }],
+      display_traffic_summary: { status: 'ok' },
+      raw_response: '{"ok":true}',
+      derived_analysis: { conversion: 'stable' },
+    });
+    const trafficFallbackModel = buildCtripTrafficResponseModel({
+      data: [{ decoded: 'fallback' }],
+    });
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip fetch builders keep request fields and date defaults',
@@ -751,6 +792,29 @@ try {
         && emptyLatestModel.hasAnySnapshot === false
         && emptyLatestModel.onlineResult === null,
       detail: 'Ctrip latest snapshot sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip traffic builders keep request and display model fields',
+      ok: trafficBody.url === 'https://ebooking.ctrip.test/traffic'
+        && trafficBody.platform === 'ctrip'
+        && trafficBody.date_range === 'custom'
+        && trafficBody.start_date === '2026-06-01'
+        && trafficBody.end_date === '2026-06-10'
+        && trafficBody.cookies === 'sid=traffic'
+        && trafficBody.system_hotel_id === '58'
+        && trafficBody.extra_params === '{"scope":"self"}'
+        && trafficBodyWithoutUrl.url === undefined
+        && trafficBodyWithoutUrl.system_hotel_id === null
+        && trafficModel.savedCount === 4
+        && trafficModel.trafficRows[0].row_id === 'traffic-1'
+        && trafficModel.displayTrafficRows[0].compareType === 'self'
+        && trafficModel.onlineResult.decoded_data[0].decoded === true
+        && trafficModel.onlineResult.raw_response === '{"ok":true}'
+        && trafficModel.onlineResult.derived_analysis.conversion === 'stable'
+        && trafficFallbackModel.trafficRows[0].decoded === 'fallback'
+        && trafficFallbackModel.onlineResult.display_traffic_rows.length === 0,
+      detail: 'Ctrip traffic builder sample',
     });
   }
   if (typeof buildCtripProfileRecheckInitialState !== 'function'
