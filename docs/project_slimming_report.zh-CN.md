@@ -750,6 +750,16 @@
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第五十二刀拆分
+
+- 扩展 `public/ota-diagnosis-static.js`，承载 OTA 诊断采集前的纯任务构建逻辑：`buildOtaDiagnosisFetchContext` 和 `buildOtaDiagnosisFetchTasks`，覆盖携程经营、携程流量、携程 Cookie API、美团排名和美团流量任务。
+- `public/index.html` 只保留 `runOtaDiagnosisHotelFetch()` 的运行态职责：读取保存配置、补充通用 Cookie、探测携程 Profile、执行各采集任务、保留失败结果和返回同步摘要；OTA 诊断接口、采集接口、入库、失败提示和后续 AI 诊断链路均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `requireOtaDiagnosisStatic('buildOtaDiagnosisFetchContext')` 和 `requireOtaDiagnosisStatic('buildOtaDiagnosisFetchTasks')` 显式读取构建器，禁止任务推入 helper 和美团任务列表重新内联，并在 VM 中校验保存配置任务覆盖、核心预设来源和通用 Cookie 证据。
+- `public/index.html` 从 `38,632` 行降至 `38,438` 行；split-map 前端函数级块从 `1,438` 降至 `1,435`；`ota` 域 span 从 `679` 行降至 `515` 行；`runOtaDiagnosisHotelFetch` 从 `265` 行降至 `100` 行。
+- 当前自审计：完整目录约 `264.08 MB`，不含 `.git` 约 `92.15 MB`，不含 `.git` 和依赖约 `62.96 MB`；Git 跟踪文件约 `18.03 MB` / `612` 个；代码范围 `369` 个文件，`187,930` 行，非空 `172,175` 行。
+- 已验证：`node --check public\ota-diagnosis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

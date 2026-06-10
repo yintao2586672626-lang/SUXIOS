@@ -96,6 +96,12 @@ requireText('public/index.html', 'field-simulation-adr', 'simulation ADR field h
 requireText('public/index.html', 'field-market-business-area', 'market business area field has stable selector');
 requireText('public/index.html', 'field-transfer-pricing-', 'transfer pricing fields have stable selectors');
 requireTextInFiles(['public/index.html', 'public/ota-diagnosis-static.js'], 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
+requireText('public/index.html', "requireOtaDiagnosisStatic('buildOtaDiagnosisFetchContext')", 'entry uses extracted OTA diagnosis fetch context builder');
+requireText('public/index.html', "requireOtaDiagnosisStatic('buildOtaDiagnosisFetchTasks')", 'entry uses extracted OTA diagnosis fetch task builder');
+requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchContext', 'OTA diagnosis static builds fetch context');
+requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchTasks', 'OTA diagnosis static builds fetch tasks');
+requireNoText('public/index.html', 'const pushOtaDiagnosisFetchTask = (tasks, task) => {', 'OTA diagnosis task push helper is not re-inlined');
+requireNoText('public/index.html', "['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(rankType => {", 'OTA diagnosis Meituan task list is not re-inlined');
 requireNoText('public/index.html', "title: '点评问题'", 'OTA diagnosis UI does not render the deprecated comment section');
 requireNoText('public/index.html', "openDataConfigModal('ctrip-comments')", 'Ctrip comment capture card is not exposed in UI');
 requireNoText('public/index.html', "openDataConfigModal('meituan-comments')", 'Meituan comment capture card is not exposed in UI');
@@ -195,6 +201,80 @@ requireText('package.json', 'test:e2e:business', 'package exposes business chain
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
 requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(read('public/ota-diagnosis-static.js'), context, {
+    filename: 'public/ota-diagnosis-static.js',
+  });
+  const otaDiagnosisStatic = context.window.SUXI_OTA_DIAGNOSIS_STATIC || {};
+  const buildOtaDiagnosisFetchContext = otaDiagnosisStatic.buildOtaDiagnosisFetchContext;
+  const buildOtaDiagnosisFetchTasks = otaDiagnosisStatic.buildOtaDiagnosisFetchTasks;
+  if (typeof buildOtaDiagnosisFetchContext !== 'function' || typeof buildOtaDiagnosisFetchTasks !== 'function') {
+    checks.push({
+      file: 'public/ota-diagnosis-static.js',
+      label: 'OTA diagnosis static exports fetch task builders',
+      ok: false,
+      detail: 'buildOtaDiagnosisFetchContext/buildOtaDiagnosisFetchTasks',
+    });
+  } else {
+    const fetchContext = buildOtaDiagnosisFetchContext({
+      selectedHotel: { system_hotel_id: '10', hotel_id: '10' },
+      form: { hotel_id: '10', start_date: '2026-06-01', end_date: '2026-06-10' },
+      ctripConfig: { url: 'ctrip-url', node_id: '24588', cookies: 'ctrip-cookie', auth_data: { ok: true }, ctrip_hotel_id: 'ctrip-10', name: 'Ctrip Demo' },
+      ctripTrafficConfig: { url: 'traffic-url', cookies: 'traffic-cookie', platform: 'Ctrip', extra_params: 'foo=1' },
+      ctripCookieApiConfig: { endpoints_json: '[{"request_url":"u"}]', headers_json: 'Cookie: header-cookie', profile_id: 'profile-10', method: 'POST', system_hotel_id: '10', ctrip_hotel_id: 'hotel-10' },
+      meituanConfig: { url: 'meituan-url', partner_id: 'partner-1', poi_id: 'poi-1', cookies: 'meituan-cookie', data_scope: 'vpoi' },
+      meituanTrafficConfig: { url: 'meituan-traffic-url', partner_id: 'partner-1', poi_id: 'poi-1', cookies: 'mt-cookie', system_hotel_id: '10' },
+    });
+    const tasks = buildOtaDiagnosisFetchTasks({ context: fetchContext });
+    const taskLabels = tasks.map(task => task.label);
+    const cookieApiTask = tasks.find(task => task.label === 'ctrip-cookie-api');
+    checks.push({
+      file: 'public/ota-diagnosis-static.js',
+      label: 'OTA diagnosis fetch task builder keeps Ctrip and Meituan task coverage',
+      ok: fetchContext.systemHotelId === '10'
+        && fetchContext.ctripCookieApiCookies === 'header-cookie'
+        && fetchContext.hasCtripCookieApiRequests === true
+        && taskLabels.includes('ctrip-business')
+        && taskLabels.includes('ctrip-traffic')
+        && taskLabels.includes('ctrip-cookie-api')
+        && taskLabels.includes('meituan-P_RZ')
+        && taskLabels.includes('meituan-P_LL')
+        && taskLabels.includes('meituan-traffic')
+        && cookieApiTask?.body?.request_source === 'saved_config',
+      detail: 'buildOtaDiagnosisFetchTasks saved config sample',
+    });
+    const coreContext = buildOtaDiagnosisFetchContext({
+      selectedHotel: { system_hotel_id: '20' },
+      form: { hotel_id: '20', start_date: '2026-06-02', end_date: '2026-06-02' },
+      ctripCookieApiConfig: { profile_id: 'profile-20' },
+    });
+    const coreTasks = buildOtaDiagnosisFetchTasks({
+      context: coreContext,
+      genericCtripCookie: { cookies: 'generic-cookie' },
+      useCtripCorePresetForDiagnosis: true,
+      ctripCorePresetReason: 'generic_cookie',
+      ctripCorePresetJson: '[{"request_url":"core"}]',
+    });
+    const coreTask = coreTasks.find(task => task.label === 'ctrip-cookie-api');
+    checks.push({
+      file: 'public/ota-diagnosis-static.js',
+      label: 'OTA diagnosis fetch task builder keeps core preset source explicit',
+      ok: coreTask?.body?.request_source === 'core_preset:generic_cookie'
+        && coreTask?.body?.cookies === 'generic-cookie'
+        && coreTask?.body?.endpoints_json === '[{"request_url":"core"}]',
+      detail: 'core_preset',
+    });
+  }
+} catch (error) {
+  checks.push({
+    file: 'public/ota-diagnosis-static.js',
+    label: 'OTA diagnosis static runtime validation',
+    ok: false,
+    detail: error.message,
+  });
+}
 
 try {
   const context = { window: {} };

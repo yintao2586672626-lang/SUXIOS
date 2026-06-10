@@ -30266,6 +30266,8 @@
                 formatNumber,
             }));
             const otaDiagnosisResultSections = computed(() => requireOtaDiagnosisStatic('buildOtaDiagnosisResultSections')(otaDiagnosisResult.value || {}));
+            const buildOtaDiagnosisFetchContext = requireOtaDiagnosisStatic('buildOtaDiagnosisFetchContext');
+            const buildOtaDiagnosisFetchTasks = requireOtaDiagnosisStatic('buildOtaDiagnosisFetchTasks');
             const hotelImageOptimizerStatic = window.SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC;
             if (!hotelImageOptimizerStatic || typeof hotelImageOptimizerStatic !== 'object') {
                 throw new Error('缺少酒店图片优化静态配置：hotel-image-optimizer-static.js 未加载');
@@ -30805,27 +30807,12 @@
                 }
             };
 
-            const pushOtaDiagnosisFetchTask = (tasks, task) => {
-                const missing = (task.required || []).some(key => !String(task.body?.[key] || '').trim());
-                if (missing) return;
-                tasks.push({
-                    label: task.label,
-                    url: task.url,
-                    body: compactDataConfigBody(task.body || {}),
-                });
-            };
-
             const runOtaDiagnosisHotelFetch = async (selectedHotel, form) => {
-                const systemHotelId = String(selectedHotel?.system_hotel_id || selectedHotel?.hotel_id || form.hotel_id || '').trim();
-                if (!systemHotelId) {
-                    return { attempted: 0, success: 0, failed: 0, results: [] };
-                }
-
-                const startDate = form.start_date;
-                const endDate = form.end_date;
+                const initialSystemHotelId = String(selectedHotel?.system_hotel_id || selectedHotel?.hotel_id || form.hotel_id || '').trim();
+                if (!initialSystemHotelId) return { attempted: 0, success: 0, failed: 0, results: [] };
                 const tasks = [];
-                const ctripConfig = findCtripConfigByHotelId(systemHotelId);
-                const meituanConfig = findMeituanConfigByHotelId(systemHotelId);
+                const ctripConfig = findCtripConfigByHotelId(initialSystemHotelId);
+                const meituanConfig = findMeituanConfigByHotelId(initialSystemHotelId);
                 const [
                     ctripTrafficConfig,
                     ctripCookieApiConfig,
@@ -30835,112 +30822,31 @@
                     readSavedOtaDataConfig('ctrip-cookie-api'),
                     readSavedOtaDataConfig('meituan-traffic'),
                 ]);
-
-                if (ctripConfig && String(ctripConfig.cookies || '').trim()) {
-                    pushOtaDiagnosisFetchTask(tasks, {
-                        label: 'ctrip-business',
-                        url: '/online-data/fetch-ctrip',
-                        required: ['cookies', 'node_id'],
-                        body: {
-                            url: ctripConfig.url,
-                            node_id: firstDataConfigValue(ctripConfig.node_id, ctripConfig.nodeId, '24588'),
-                            cookies: ctripConfig.cookies,
-                            auth_data: ctripConfig.auth_data || {},
-                            start_date: startDate,
-                            end_date: endDate,
-                            auto_save: true,
-                            system_hotel_id: systemHotelId,
-                        },
-                    });
-                }
-
-                const ctripTrafficCookies = firstDataConfigValue(ctripTrafficConfig.cookies, ctripTrafficConfig.cookie, ctripConfig?.cookies);
-                if (ctripTrafficCookies && (isSavedOtaDataConfigUsable(ctripTrafficConfig, systemHotelId) || ctripConfig)) {
-                    pushOtaDiagnosisFetchTask(tasks, {
-                        label: 'ctrip-traffic',
-                        url: '/online-data/ctrip/traffic',
-                        required: ['cookies'],
-                        body: {
-                            url: ctripTrafficConfig.url,
-                            platform: ctripTrafficConfig.platform || 'Ctrip',
-                            date_range: 'custom',
-                            start_date: startDate,
-                            end_date: endDate,
-                            spiderkey: ctripTrafficConfig.spiderkey,
-                            cookies: ctripTrafficCookies,
-                            extra_params: firstDataConfigValue(ctripTrafficConfig.extra_params, ctripTrafficConfig.extraParams),
-                            auto_save: true,
-                            system_hotel_id: systemHotelId,
-                        },
-                    });
-                }
-
-                const ctripCookieApiProfileId = firstDataConfigValue(
-                    ctripCookieApiConfig.profile_id,
-                    ctripCookieApiConfig.profileId,
-                    ctripCookieApiConfig.browser_profile_id,
-                    ctripCookieApiConfig.browserProfileId,
-                    ctripCookieApiConfig.ota_hotel_id,
-                    ctripCookieApiConfig.ctrip_hotel_id,
-                    ctripCookieApiConfig.ctripHotelId,
-                    ctripCookieApiConfig.node_id,
-                    ctripCookieApiConfig.nodeId,
-                    ctripCookieApiConfig.hotel_id,
-                    ctripConfig?.profile_id,
-                    ctripConfig?.profileId,
-                    ctripConfig?.browser_profile_id,
-                    ctripConfig?.browserProfileId,
-                    ctripConfig?.ota_hotel_id,
-                    ctripConfig?.ctrip_hotel_id,
-                    ctripConfig?.ctripHotelId,
-                    ctripConfig?.node_id,
-                    ctripConfig?.nodeId,
-                    ctripConfig?.hotel_id,
-                    systemHotelId
-                );
-                const ctripCookieApiHeaderCookie = firstDataConfigValue(
-                    readHeaderValue(ctripCookieApiConfig.headers_json, 'cookie'),
-                    readHeaderValue(ctripCookieApiConfig.headersJson, 'cookie'),
-                    readHeaderValue(ctripCookieApiConfig.request_headers, 'cookie'),
-                    readHeaderValue(ctripCookieApiConfig.requestHeaders, 'cookie'),
-                    readHeaderValue(ctripCookieApiConfig.request_headers_json, 'cookie'),
-                    readHeaderValue(ctripCookieApiConfig.requestHeadersJson, 'cookie')
-                );
-                const ctripCookieApiCookies = firstDataConfigValue(
-                    ctripCookieApiConfig.cookies,
-                    ctripCookieApiConfig.cookie,
-                    ctripCookieApiHeaderCookie,
-                    ctripConfig?.cookies,
-                    ctripConfig?.cookie
-                );
-                const genericCtripCookie = String(ctripCookieApiCookies || '').trim()
+                const fetchContext = buildOtaDiagnosisFetchContext({
+                    selectedHotel,
+                    form,
+                    ctripConfig,
+                    meituanConfig,
+                    ctripTrafficConfig,
+                    ctripCookieApiConfig,
+                    meituanTrafficConfig,
+                });
+                const systemHotelId = fetchContext.systemHotelId;
+                if (!systemHotelId) return { attempted: 0, success: 0, failed: 0, results: [] };
+                const genericCtripCookie = String(fetchContext.ctripCookieApiCookies || '').trim()
                     ? null
                     : await readSavedGenericCookieForDiagnosis(systemHotelId);
-                const diagnosisCtripCookie = firstDataConfigValue(ctripCookieApiCookies, genericCtripCookie?.cookies);
-                const hasCtripCookieApiRequests = isSavedOtaDataConfigUsable(ctripCookieApiConfig, systemHotelId) && (
-                    String(firstDataConfigValue(
-                        ctripCookieApiConfig.request_urls,
-                        ctripCookieApiConfig.requestUrls,
-                        ctripCookieApiConfig.endpoints_json,
-                        ctripCookieApiConfig.endpointsJson,
-                        ctripCookieApiConfig.request_url,
-                        ctripCookieApiConfig.requestUrl,
-                        ctripCookieApiConfig.url
-                    ) || '').trim() !== ''
-                    || (Array.isArray(ctripCookieApiConfig.endpoints) && ctripCookieApiConfig.endpoints.length > 0)
-                    || (Array.isArray(ctripCookieApiConfig.requests) && ctripCookieApiConfig.requests.length > 0)
-                );
                 let useCtripCorePresetForDiagnosis = false;
                 let ctripCorePresetReason = '';
-                if (!hasCtripCookieApiRequests) {
-                    if (String(diagnosisCtripCookie || '').trim()) {
+                if (!fetchContext.hasCtripCookieApiRequests) {
+                    if (String(fetchContext.ctripCookieApiCookies || genericCtripCookie?.cookies || '').trim()) {
                         useCtripCorePresetForDiagnosis = true;
                         ctripCorePresetReason = genericCtripCookie ? 'generic_cookie' : 'cookie';
-                    } else if (String(ctripCookieApiProfileId || '').trim()) {
+                    } else if (String(fetchContext.ctripCookieApiProfileId || '').trim()) {
                         try {
                             const params = new URLSearchParams();
                             params.set('system_hotel_id', systemHotelId);
-                            params.set('profile_id', String(ctripCookieApiProfileId).trim());
+                            params.set('profile_id', String(fetchContext.ctripCookieApiProfileId).trim());
                             params.set('probe_cookie', '0');
                             const statusRes = await request(`/online-data/ctrip-profile-status?${params.toString()}`);
                             const profileStatus = statusRes.code === 200 ? (statusRes.data || {}) : {};
@@ -30954,92 +30860,13 @@
                         }
                     }
                 }
-                if (hasCtripCookieApiRequests || useCtripCorePresetForDiagnosis) {
-                    const endpointsJson = hasCtripCookieApiRequests
-                        ? firstDataConfigValue(ctripCookieApiConfig.endpoints_json, ctripCookieApiConfig.endpointsJson)
-                        : getCtripCookieApiCorePresetJson();
-                    pushOtaDiagnosisFetchTask(tasks, {
-                        label: 'ctrip-cookie-api',
-                        url: '/online-data/fetch-ctrip-cookie-api',
-                        required: [],
-                        body: {
-                            request_urls: firstDataConfigValue(ctripCookieApiConfig.request_urls, ctripCookieApiConfig.requestUrls),
-                            endpoints: firstDataConfigValue(ctripCookieApiConfig.endpoints, ctripCookieApiConfig.requests, []),
-                            endpoints_json: endpointsJson,
-                            request_url: firstDataConfigValue(ctripCookieApiConfig.request_url, ctripCookieApiConfig.requestUrl, ctripCookieApiConfig.url),
-                            method: String(ctripCookieApiConfig.method || 'GET').toUpperCase(),
-                            payload_json: firstDataConfigValue(ctripCookieApiConfig.payload_json, ctripCookieApiConfig.payloadJson),
-                            headers_json: firstDataConfigValue(ctripCookieApiConfig.headers_json, ctripCookieApiConfig.headersJson),
-                            cookies: diagnosisCtripCookie,
-                            profile_id: ctripCookieApiProfileId,
-                            hotel_id: firstDataConfigValue(
-                                ctripCookieApiConfig.hotel_id,
-                                ctripCookieApiConfig.ctrip_hotel_id,
-                                ctripCookieApiConfig.ctripHotelId,
-                                ctripCookieApiConfig.node_id,
-                                ctripCookieApiConfig.nodeId,
-                                ctripConfig?.ota_hotel_id,
-                                ctripConfig?.ctrip_hotel_id,
-                                ctripConfig?.hotel_id,
-                                ctripConfig?.node_id,
-                                ctripConfig?.nodeId
-                            ),
-                            node_id: firstDataConfigValue(ctripCookieApiConfig.node_id, ctripCookieApiConfig.nodeId),
-                            hotel_name: firstDataConfigValue(ctripCookieApiConfig.hotel_name, ctripCookieApiConfig.hotelName, ctripConfig?.name),
-                            data_date: startDate,
-                            start_date: startDate,
-                            end_date: endDate,
-                            auto_save: true,
-                            system_hotel_id: systemHotelId,
-                            request_source: hasCtripCookieApiRequests ? 'saved_config' : `core_preset:${ctripCorePresetReason || 'unknown'}`,
-                        },
-                    });
-                }
-
-                if (meituanConfig && String(meituanConfig.cookies || '').trim()) {
-                    ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(rankType => {
-                        pushOtaDiagnosisFetchTask(tasks, {
-                            label: `meituan-${rankType}`,
-                            url: '/online-data/fetch-meituan',
-                            required: ['cookies', 'partner_id', 'poi_id'],
-                            body: {
-                                url: meituanConfig.url,
-                                partner_id: firstDataConfigValue(meituanConfig.partner_id, meituanConfig.partnerId),
-                                poi_id: firstDataConfigValue(meituanConfig.poi_id, meituanConfig.poiId),
-                                rank_type: rankType,
-                                data_scope: meituanConfig.data_scope,
-                                date_range: 'custom',
-                                cookies: meituanConfig.cookies,
-                                auth_data: meituanConfig.auth_data || {},
-                                start_date: startDate,
-                                end_date: endDate,
-                                auto_save: true,
-                                system_hotel_id: systemHotelId,
-                            },
-                        });
-                    });
-                }
-
-                if (isSavedOtaDataConfigUsable(meituanTrafficConfig, systemHotelId)) {
-                    const meituanTrafficPartnerId = firstDataConfigValue(meituanTrafficConfig.partner_id, meituanTrafficConfig.partnerId, meituanConfig?.partner_id, meituanConfig?.partnerId);
-                    const meituanTrafficPoiId = firstDataConfigValue(meituanTrafficConfig.poi_id, meituanTrafficConfig.poiId, meituanConfig?.poi_id, meituanConfig?.poiId);
-                    pushOtaDiagnosisFetchTask(tasks, {
-                        label: 'meituan-traffic',
-                        url: '/online-data/fetch-meituan-traffic',
-                        required: ['url', 'cookies', 'partner_id', 'poi_id'],
-                        body: {
-                            url: meituanTrafficConfig.url,
-                            partner_id: meituanTrafficPartnerId,
-                            poi_id: meituanTrafficPoiId,
-                            cookies: firstDataConfigValue(meituanTrafficConfig.cookies, meituanTrafficConfig.cookie),
-                            start_date: startDate,
-                            end_date: endDate,
-                            extra_params: firstDataConfigValue(meituanTrafficConfig.extra_params, meituanTrafficConfig.extraParams),
-                            auto_save: true,
-                            system_hotel_id: systemHotelId,
-                        },
-                    });
-                }
+                tasks.push(...buildOtaDiagnosisFetchTasks({
+                    context: fetchContext,
+                    genericCtripCookie,
+                    useCtripCorePresetForDiagnosis,
+                    ctripCorePresetReason,
+                    ctripCorePresetJson: getCtripCookieApiCorePresetJson(),
+                }));
 
                 if (tasks.length === 0) {
                     return { attempted: 0, success: 0, failed: 0, results: [] };
@@ -31861,26 +31688,6 @@
                 return value === undefined ? '' : value;
             };
 
-            const readHeaderValue = (headers, headerName) => {
-                const target = String(headerName || '').trim().toLowerCase();
-                if (!target || headers === undefined || headers === null || headers === '') return '';
-                if (typeof headers === 'object' && !Array.isArray(headers)) {
-                    const foundKey = Object.keys(headers).find(key => key.toLowerCase() === target);
-                    return foundKey ? String(headers[foundKey] || '').trim() : '';
-                }
-                const raw = String(headers || '').trim();
-                if (!raw) return '';
-                if (raw.startsWith('{')) {
-                    try {
-                        return readHeaderValue(JSON.parse(raw), target);
-                    } catch (e) {
-                        return '';
-                    }
-                }
-                const line = raw.split(/\r?\n/).find(item => item.trim().toLowerCase().startsWith(`${target}:`));
-                return line ? line.split(':').slice(1).join(':').trim() : '';
-            };
-
             const defaultCtripAdsEffectReportUrl = 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE';
 
             const isCtripAdsApiUrl = (url = '') => {
@@ -31897,7 +31704,6 @@
 
             const parseDataConfigValue = requireAutoFetchStatic('parseDataConfigValue');
             const normalizeDataConfigForForm = requireAutoFetchStatic('normalizeDataConfigForForm');
-            const compactDataConfigBody = requireAutoFetchStatic('compactDataConfigBody');
             const buildDataConfigRequestBodyFromForm = requireAutoFetchStatic('buildDataConfigRequestBody');
             const buildDataConfigForSave = () => normalizeDataConfigForForm(dataConfigForm.value || {});
             const buildDataConfigRequestBody = (type) => buildDataConfigRequestBodyFromForm(type, dataConfigForm.value || {});
