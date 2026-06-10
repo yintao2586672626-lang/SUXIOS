@@ -242,6 +242,51 @@ window.SUXI_EXPANSION_STATIC = (() => {
         return Object.values(strategyAddressKeywordOptionsByDistrict).some(items => items.includes(keyword))
             || strategyKnownAddressSuffixes.some(suffix => String(keyword).endsWith(suffix));
     };
+    const strategyCityOptionsForProject = (project = {}) => {
+        const tier = project.city_tier || marketEvaluationTierOfCity(project.city) || marketEvaluationDefaults.city_tier;
+        const options = marketEvaluationCityOptions.filter(item => item.tier === tier);
+        const isKnownCity = marketEvaluationCityOptions.some(item => item.name === project.city);
+        if (project.city && !isKnownCity && !options.some(item => item.name === project.city)) {
+            return [{ name: project.city, tier }, ...options];
+        }
+        return options;
+    };
+    const strategyDistrictOptionsForProject = (project = {}) => {
+        const options = strategyDistrictOptionsForCity(project.city);
+        if (project.district && !options.includes(project.district)) {
+            return [project.district, ...options];
+        }
+        return options;
+    };
+    const strategyAddressKeywordOptionsForProject = (project = {}) => {
+        const options = strategyAddressKeywordOptionsForLocation(project.city, project.district, project.city_tier);
+        if (project.address && !options.includes(project.address)) {
+            return [project.address, ...options];
+        }
+        return options;
+    };
+    const isKnownStrategyDistrict = (district) => Object.values(strategyDistrictOptionsByCity).some(items => items.includes(district));
+    const strategyNextDistrictForProject = (project = {}) => {
+        const options = strategyDistrictOptionsForCity(project.city);
+        const shouldResetDistrict = !project.district
+            || project.district === '市辖区'
+            || (isKnownStrategyDistrict(project.district) && !options.includes(project.district));
+        return options.length > 0 && shouldResetDistrict ? options[0] : project.district;
+    };
+    const strategyNextAddressForProject = (project = {}) => {
+        const options = strategyAddressKeywordOptionsForLocation(project.city, project.district, project.city_tier);
+        const shouldResetAddress = !project.address || isKnownStrategyAddressKeyword(project.address);
+        return options.length > 0 && shouldResetAddress && !options.includes(project.address)
+            ? options[0]
+            : project.address;
+    };
+    const estimateStrategyCompetitorCount = (project = {}) => {
+        const tier = project.city_tier || marketEvaluationTierOfCity(project.city) || marketEvaluationDefaults.city_tier;
+        const grade = project.target_grade || '中端精选';
+        const tierCounts = strategyCompetitorCountByTierGrade[tier] || strategyCompetitorCountByTierGrade[marketEvaluationDefaults.city_tier] || {};
+        const base = tierCounts[grade] ?? tierCounts['中端精选'] ?? 0;
+        return Math.max(0, Math.round(base + (strategyCompetitorCityAdjustment[project.city] || 0)));
+    };
     const normalizeMarketEvaluationForm = (input = {}) => {
         const form = { ...marketEvaluationDefaults, ...input };
         form.city_tier = marketEvaluationCityTierOptions.includes(input.city_tier)
@@ -283,6 +328,12 @@ window.SUXI_EXPANSION_STATIC = (() => {
         strategyDistrictOptionsForCity,
         strategyAddressKeywordOptionsForLocation,
         isKnownStrategyAddressKeyword,
+        strategyCityOptionsForProject,
+        strategyDistrictOptionsForProject,
+        strategyAddressKeywordOptionsForProject,
+        strategyNextDistrictForProject,
+        strategyNextAddressForProject,
+        estimateStrategyCompetitorCount,
         normalizeMarketEvaluationForm,
     };
 })();

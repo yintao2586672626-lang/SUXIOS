@@ -32,9 +32,14 @@ requireText("'湘乡市', '韶山市']", 'Xiangtan county-level city options');
 requireText("安庆: ['迎江区', '大观区', '宜秀区', '怀宁县'", 'Anqing district options start with real districts');
 requireText("'桐城市', '潜山市']", 'Anqing county-level city options');
 requireText("strategyLocationSuffixesByCityTier", 'city-tier address suffix mapping');
-requireIndexText("strategyAddressKeywordOptionsForLocation", 'location-aware address option builder');
-requireIndexText("aiProject.value.city, aiProject.value.district", 'address options use city and district together');
-requireIndexText("aiProject.value.city_tier", 'address options use city tier');
+requireText("strategyAddressKeywordOptionsForLocation", 'location-aware address option builder');
+requireText("strategyAddressKeywordOptionsForLocation(project.city, project.district, project.city_tier)", 'project address options use city, district, and tier together');
+requireText("strategyNextDistrictForProject", 'project district reset helper');
+requireText("strategyNextAddressForProject", 'project address reset helper');
+requireText("strategyCityOptionsForProject", 'project city option helper');
+requireIndexText("strategyAddressKeywordOptionsForProject(aiProject.value)", 'entry uses extracted project address options');
+requireIndexText("strategyNextDistrictForProject(aiProject.value)", 'entry uses extracted project district reset');
+requireIndexText("strategyNextAddressForProject(aiProject.value)", 'entry uses extracted project address reset');
 requireNoText("const strategyDistrictOptionsForCity = (city) => strategyDistrictOptionsByCity[city] || ['市辖区'];", 'generic district fallback for known city flow');
 
 if (failures.length) {

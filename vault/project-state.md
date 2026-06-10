@@ -392,6 +392,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the twenty-sixth frontend split: `node --check public\ctrip-static.js`; Ctrip static export smoke check; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Strategy Location Helper Split
+
+- Twenty-seventh frontend split target chosen from strategy-location computed/watch helper logic in `public/index.html`.
+- Extended `public/expansion-static-options.js` with project-level strategy helpers for city options, district options, address options, district reset, address reset, and competitor-count estimation.
+- `public/index.html` now keeps only Vue computed/watch bindings and runtime assignment for the strategy-location flow; market evaluation, strategy request execution, history reuse, persistence, and OTA data paths remain unchanged.
+- Updated `scripts/verify_strategy_location_ui_contract.mjs` so the strategy-location contract requires the helper logic from `public/expansion-static-options.js`, while the entry file must explicitly pass `aiProject.value`.
+- `public/index.html` decreased from `40703` lines to `40679` lines; the strategy-domain span decreased from `381` to `360` lines.
+- Current `public/expansion-static-options.js` is `338` lines. Total code lines are `186405` and nonblank lines are `170716`.
+- Current self-audit: full directory about `249.34 MB`, without `.git` about `91.98 MB`, without `.git` and dependencies about `62.79 MB`, tracked files about `17.87 MB` / `609` files; code scope `366` files.
+- Verified after the twenty-seventh frontend split: `node --check public\expansion-static-options.js`; `node --check scripts\verify_strategy_location_ui_contract.mjs`; expansion strategy helper smoke check; `node scripts\verify_strategy_location_ui_contract.mjs`; `node scripts\verify_expansion_p2.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

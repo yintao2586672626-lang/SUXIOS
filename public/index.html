@@ -38462,20 +38462,17 @@
             };
             const marketEvaluationCityTierOptions = requireExpansionStaticOption('marketEvaluationCityTierOptions');
             const marketEvaluationCityOptions = requireExpansionStaticOption('marketEvaluationCityOptions');
-            const strategyDistrictOptionsByCity = requireExpansionStaticOption('strategyDistrictOptionsByCity');
-            const strategyAddressKeywordSuffixes = requireExpansionStaticOption('strategyAddressKeywordSuffixes');
-            const strategyLocationSuffixesByCityTier = requireExpansionStaticOption('strategyLocationSuffixesByCityTier');
-            const strategyAddressKeywordOptionsByDistrict = requireExpansionStaticOption('strategyAddressKeywordOptionsByDistrict');
-            const strategyCompetitorCountByTierGrade = requireExpansionStaticOption('strategyCompetitorCountByTierGrade');
-            const strategyCompetitorCityAdjustment = requireExpansionStaticOption('strategyCompetitorCityAdjustment');
             const marketEvaluationDecorationOptions = requireExpansionStaticOption('marketEvaluationDecorationOptions');
             const marketEvaluationCustomerOptions = requireExpansionStaticOption('marketEvaluationCustomerOptions');
             const marketEvaluationConditionFields = requireExpansionStaticOption('marketEvaluationConditionFields');
             const marketEvaluationDefaults = requireExpansionStaticOption('marketEvaluationDefaults');
             const marketEvaluationTierOfCity = requireExpansionStaticOption('marketEvaluationTierOfCity');
-            const strategyDistrictOptionsForCity = requireExpansionStaticOption('strategyDistrictOptionsForCity');
-            const strategyAddressKeywordOptionsForLocation = requireExpansionStaticOption('strategyAddressKeywordOptionsForLocation');
-            const isKnownStrategyAddressKeyword = requireExpansionStaticOption('isKnownStrategyAddressKeyword');
+            const strategyCityOptionsForProject = requireExpansionStaticOption('strategyCityOptionsForProject');
+            const strategyDistrictOptionsForProject = requireExpansionStaticOption('strategyDistrictOptionsForProject');
+            const strategyAddressKeywordOptionsForProject = requireExpansionStaticOption('strategyAddressKeywordOptionsForProject');
+            const strategyNextDistrictForProject = requireExpansionStaticOption('strategyNextDistrictForProject');
+            const strategyNextAddressForProject = requireExpansionStaticOption('strategyNextAddressForProject');
+            const estimateStrategyCompetitorCountForProject = requireExpansionStaticOption('estimateStrategyCompetitorCount');
             const normalizeMarketEvaluationForm = requireExpansionStaticOption('normalizeMarketEvaluationForm');
             const marketEvaluationForm = ref({ ...marketEvaluationDefaults });
             const marketEvaluationResult = ref(null);
@@ -38706,11 +38703,7 @@
                 return String(result.data_status?.notice || '').trim();
             });
             const estimateStrategyCompetitorCount = () => {
-                const tier = aiProject.value.city_tier || marketEvaluationTierOfCity(aiProject.value.city) || '一线';
-                const grade = aiProject.value.target_grade || '中端精选';
-                const tierCounts = strategyCompetitorCountByTierGrade[tier] || strategyCompetitorCountByTierGrade['一线'];
-                const base = tierCounts[grade] ?? tierCounts['中端精选'];
-                return Math.max(0, Math.round(base + (strategyCompetitorCityAdjustment[aiProject.value.city] || 0)));
+                return estimateStrategyCompetitorCountForProject(aiProject.value);
             };
             const syncStrategyCompetitorCount = () => {
                 aiProject.value.competitor_count = estimateStrategyCompetitorCount();
@@ -38720,33 +38713,18 @@
                 return marketEvaluationCityOptions.filter(item => item.tier === tier);
             });
             const filteredStrategyCityOptions = computed(() => {
-                const tier = aiProject.value.city_tier || marketEvaluationTierOfCity(aiProject.value.city) || marketEvaluationDefaults.city_tier;
-                const options = marketEvaluationCityOptions.filter(item => item.tier === tier);
-                const isKnownCity = marketEvaluationCityOptions.some(item => item.name === aiProject.value.city);
-                if (aiProject.value.city && !isKnownCity && !options.some(item => item.name === aiProject.value.city)) {
-                    return [{ name: aiProject.value.city, tier }, ...options];
-                }
-                return options;
+                return strategyCityOptionsForProject(aiProject.value);
             });
             const filteredStrategyDistrictOptions = computed(() => {
-                const options = strategyDistrictOptionsForCity(aiProject.value.city);
-                if (aiProject.value.district && !options.includes(aiProject.value.district)) {
-                    return [aiProject.value.district, ...options];
-                }
-                return options;
+                return strategyDistrictOptionsForProject(aiProject.value);
             });
             const filteredStrategyAddressKeywordOptions = computed(() => {
-                const options = strategyAddressKeywordOptionsForLocation(aiProject.value.city, aiProject.value.district, aiProject.value.city_tier);
-                if (aiProject.value.address && !options.includes(aiProject.value.address)) {
-                    return [aiProject.value.address, ...options];
-                }
-                return options;
+                return strategyAddressKeywordOptionsForProject(aiProject.value);
             });
             const syncStrategyAddressForLocation = () => {
-                const options = strategyAddressKeywordOptionsForLocation(aiProject.value.city, aiProject.value.district, aiProject.value.city_tier);
-                const shouldResetAddress = !aiProject.value.address || isKnownStrategyAddressKeyword(aiProject.value.address);
-                if (options.length > 0 && shouldResetAddress && !options.includes(aiProject.value.address)) {
-                    aiProject.value.address = options[0];
+                const nextAddress = strategyNextAddressForProject(aiProject.value);
+                if (nextAddress !== aiProject.value.address) {
+                    aiProject.value.address = nextAddress;
                 }
             };
             const secondaryMarketEvaluationCustomerOptions = computed(() => marketEvaluationCustomerOptions.filter(option => option !== marketEvaluationForm.value.primary_customer));
@@ -38764,11 +38742,9 @@
                 syncStrategyAddressForLocation();
             });
             watch(() => aiProject.value.city, () => {
-                const options = strategyDistrictOptionsForCity(aiProject.value.city);
-                const knownDistrict = Object.values(strategyDistrictOptionsByCity).some(items => items.includes(aiProject.value.district));
-                const shouldResetDistrict = !aiProject.value.district || aiProject.value.district === '市辖区' || (knownDistrict && !options.includes(aiProject.value.district));
-                if (options.length > 0 && shouldResetDistrict) {
-                    aiProject.value.district = options[0];
+                const nextDistrict = strategyNextDistrictForProject(aiProject.value);
+                if (nextDistrict !== aiProject.value.district) {
+                    aiProject.value.district = nextDistrict;
                 }
                 syncStrategyAddressForLocation();
             });
