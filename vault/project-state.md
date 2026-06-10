@@ -545,6 +545,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the frontend test-id helper split: `node --check public\testid-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Menu Visibility Helper Split
+
+- Thirty-eighth frontend split target chosen from pure menu config-key resolution and visible-menu permission filtering in `public/index.html`.
+- Extended `public/system-static.js` with `resolveMenuItems` and `filterVisibleMenuItems`.
+- `public/index.html` now keeps current-language menu naming and Vue computed wiring only; menu definitions, permission fields, navigation click handling, and page-load behavior remain unchanged.
+- Updated `scripts/verify_e2e_contracts.mjs` so the e2e contract requires `filterVisibleMenuItems(menuItems.value, user.value)` in the entry and requires the helper functions to stay in `public/system-static.js`.
+- `public/index.html` decreased from `39801` lines to `39745` lines; split-map frontend function-level blocks decreased from `1457` to `1455`; the `general` domain span decreased from `8617` to `8561` lines.
+- Current self-audit after the code move: full directory about `255.85 MB`, without `.git` about `92.05 MB`, without `.git` and dependencies about `62.86 MB`, tracked files about `17.93 MB` / `612` files; code scope `369` files, `186960` total lines, and `171227` nonblank lines.
+- Verified after the frontend menu visibility split: `node --check public\system-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

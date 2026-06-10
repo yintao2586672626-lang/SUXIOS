@@ -447,6 +447,46 @@ window.SUXI_SYSTEM_STATIC = (() => {
         { key: 'asset', name: '资产运维', icon: 'fas fa-tools' },
         { key: 'logs', name: '运行日志', icon: 'fas fa-list-alt' },
     ];
+    const resolveMenuItems = (items = [], config = {}) => (Array.isArray(items) ? items : []).map((item) => {
+        const resolved = { ...item };
+        if (resolved.configKey) {
+            resolved.name = config?.[resolved.configKey] || resolved.name;
+        }
+        if (Array.isArray(resolved.children)) {
+            resolved.children = resolveMenuItems(resolved.children, config);
+        }
+        return resolved;
+    });
+    const filterVisibleMenuItems = (items = [], currentUser = null) => {
+        if (!currentUser) return [];
+        if (currentUser.is_super_admin) return Array.isArray(items) ? items : [];
+
+        const isItemVisible = (item) => {
+            if (item.requireSuper) return false;
+            if (item.requireManager && currentUser.role_id !== 2) return false;
+            if (item.permissions && item.permissions.length > 0) {
+                const perms = currentUser.permissions || {};
+                return item.permissions.some(p => perms[p]);
+            }
+            return true;
+        };
+
+        return (Array.isArray(items) ? items : []).filter((item) => {
+            if (item.children) {
+                const visibleChildren = item.children.filter(child => isItemVisible(child));
+                return visibleChildren.length > 0;
+            }
+            return isItemVisible(item);
+        }).map((item) => {
+            if (item.children) {
+                return {
+                    ...item,
+                    children: item.children.filter(child => isItemVisible(child)),
+                };
+            }
+            return item;
+        });
+    };
 
     return {
         aiModelConfigI18n,
@@ -465,5 +505,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         knowledgeDocumentHtmlExtensions,
         knowledgeDocumentSupportedExtensions,
         agentTabs,
+        resolveMenuItems,
+        filterVisibleMenuItems,
     };
 })();

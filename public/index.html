@@ -24403,20 +24403,6 @@
                 }
             });
 
-
-            const resolveMenuItems = (items) => items.map((item) => {
-                const resolved = { ...item };
-                if (resolved.configKey) {
-                    resolved.name = systemConfig.value?.[resolved.configKey] || resolved.name;
-                }
-                if (Array.isArray(resolved.children)) {
-                    resolved.children = resolveMenuItems(resolved.children);
-                }
-                return resolved;
-            });
-            // 菜单配置 - 根据权限控制显示
-            const menuItems = computed(() => resolveMenuItems(menuItemDefinitions));
-
             // 获取菜单项名称
             const getMenuItemName = (item) => {
                 return item.i18nKey ? aiModelConfigText(item.i18nKey) : item.name;
@@ -24433,6 +24419,9 @@
                 return systemStatic[key];
             };
             const testIdNameMap = requireSystemStatic('testIdNameMap');
+            const resolveMenuItems = requireSystemStatic('resolveMenuItems');
+            const filterVisibleMenuItems = requireSystemStatic('filterVisibleMenuItems');
+            const menuItems = computed(() => resolveMenuItems(menuItemDefinitions, systemConfig.value));
 
             const testIdStatic = window.SUXI_TESTID_STATIC;
             if (!testIdStatic || typeof testIdStatic.createPageTestIdController !== 'function') {
@@ -24453,52 +24442,7 @@
             });
 
             // 可见菜单项 - 根据用户权限过滤
-            const visibleMenuItems = computed(() => {
-                if (!user.value) return [];
-
-                // 超级管理员看到所有菜单
-                if (user.value.is_super_admin) return menuItems.value;
-
-                // 辅助函数：检查单个菜单项是否可见
-                const isItemVisible = (item) => {
-                    // 需要超级管理员权限的菜单，普通用户看不到
-                    if (item.requireSuper) return false;
-
-                    // 需要店长及以上权限的菜单
-                    if (item.requireManager && user.value.role_id !== 2) return false;
-
-                    // 检查是否有必需的权限
-                    if (item.permissions && item.permissions.length > 0) {
-                        const perms = user.value.permissions || {};
-                        return item.permissions.some(p => perms[p]);
-                    }
-
-                    return true;
-                };
-
-                // 过滤菜单项
-                return menuItems.value.filter(item => {
-                    // 如果有子菜单，先过滤子菜单
-                    if (item.children) {
-                        // 过滤可见的子菜单项
-                        const visibleChildren = item.children.filter(child => isItemVisible(child));
-                        // 如果有可见的子菜单，则显示父菜单（只显示可见的子菜单）
-                        return visibleChildren.length > 0;
-                    }
-
-                    // 普通菜单项，直接检查权限
-                    return isItemVisible(item);
-                }).map(item => {
-                    // 对于有子菜单的项，只保留可见的子菜单
-                    if (item.children) {
-                        return {
-                            ...item,
-                            children: item.children.filter(child => isItemVisible(child))
-                        };
-                    }
-                    return item;
-                });
-            });
+            const visibleMenuItems = computed(() => filterVisibleMenuItems(menuItems.value, user.value));
 
             // 展开的子菜单
             const expandedMenus = ref(['线上数据手动获取', '运营收益闭环', '运营管理（P0）']);

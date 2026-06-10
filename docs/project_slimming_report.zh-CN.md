@@ -600,6 +600,16 @@
 - 已验证：`node --check public\testid-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十八刀拆分
+
+- 扩展 `public/system-static.js`，承载系统菜单递归解析和可见菜单权限过滤：`resolveMenuItems`、`filterVisibleMenuItems`。
+- `public/index.html` 仅保留当前语言菜单名称、系统配置读取、`menuItems` / `visibleMenuItems` computed 装配；菜单定义、权限字段、导航点击和页面加载逻辑不变。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口使用 `filterVisibleMenuItems(menuItems.value, user.value)`，并要求菜单解析/过滤 helper 留在 `public/system-static.js`，禁止 `isItemVisible` 重新内联。
+- `public/index.html` 从 `39,801` 行降至 `39,745` 行；split-map 前端函数级块从 `1,457` 降至 `1,455`，`general` 域 span 从 `8,617` 行降至 `8,561` 行。
+- 当前自审：完整目录约 `255.85 MB`；不含 `.git` 约 `92.05 MB`；不含 `.git` 和依赖约 `62.86 MB`；Git 跟踪文件约 `17.93 MB` / `612` 个；代码范围 `369` 个文件、`186,960` 行、非空 `171,227` 行。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
+- 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
