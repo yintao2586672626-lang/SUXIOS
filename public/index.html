@@ -20792,6 +20792,7 @@
             const buildHomeAiTraceRows = requireHomeStatic('buildHomeAiTraceRows');
             const buildHomeOperatingResultCards = requireHomeStatic('buildHomeOperatingResultCards');
             const buildHomeCausalChainNodes = requireHomeStatic('buildHomeCausalChainNodes');
+            const buildHomeTrendChartConfig = requireHomeStatic('buildHomeTrendChartConfig');
             const buildHomeBoardActionRows = requireHomeStatic('buildHomeBoardActionRows');
             const buildCompassDataReadiness = requireHomeStatic('buildCompassDataReadiness');
             const buildHomeDecisionSummaryRows = requireHomeStatic('buildHomeDecisionSummaryRows');
@@ -28047,18 +28048,6 @@
                 }
             };
 
-            const formatHomeTrendAxisTick = (value) => {
-                const numeric = Number(value);
-                if (!Number.isFinite(numeric)) return String(value ?? '');
-                const absValue = Math.abs(numeric);
-                if (absValue >= 10000) {
-                    const wanValue = numeric / 10000;
-                    const maxDigits = Math.abs(wanValue) >= 100 || Number.isInteger(wanValue) ? 0 : 1;
-                    return `${wanValue.toLocaleString('zh-CN', { maximumFractionDigits: maxDigits })}万`;
-                }
-                return numeric.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
-            };
-
             const renderHomeTrendChart = (retryCount = 0) => {
                 const ChartLib = window.Chart;
                 if (!ChartLib) {
@@ -28089,59 +28078,11 @@
                     }
                     const ctx = canvas.getContext('2d');
                     if (!ctx) return;
-                    const colors = {
-                        revenue: ['rgb(37, 99, 235)', 'rgba(37, 99, 235, 0.12)'],
-                        adr: ['rgb(217, 119, 6)', 'rgba(217, 119, 6, 0.12)'],
-                        revpar: ['rgb(79, 70, 229)', 'rgba(79, 70, 229, 0.12)'],
-                        room_nights: ['rgb(14, 116, 144)', 'rgba(14, 116, 144, 0.12)'],
-                    };
-                    const [borderColor, backgroundColor] = colors[homeTrendMetric.value] || colors.revenue;
-                    homeTrendChart = new ChartLib(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: homeTrendData.value?.chart?.labels || [],
-                            datasets: [{
-                                label: metric.label || '趋势',
-                                data: metric.data.map(value => value === null || value === undefined ? null : Number(value)),
-                                borderColor,
-                                backgroundColor,
-                                borderWidth: 2,
-                                tension: 0.35,
-                                fill: true,
-                                pointRadius: 2,
-                                pointHoverRadius: 4,
-                                spanGaps: true,
-                            }],
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            interaction: { mode: 'index', intersect: false },
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: {
-                                    callbacks: {
-                                        label: (context) => {
-                                            const unit = metric.unit || '';
-                                            const value = context.parsed.y;
-                                            if (value === null || Number.isNaN(value)) return `${metric.label}: -`;
-                                            return unit === '¥'
-                                                ? `${metric.label}: ¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 1 })}`
-                                                : `${metric.label}: ${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 1 })}${unit}`;
-                                        },
-                                    },
-                                },
-                            },
-                            scales: {
-                                x: { grid: { display: false }, ticks: { color: '#64748b', maxTicksLimit: 8 } },
-                                y: {
-                                    beginAtZero: true,
-                                    grid: { color: 'rgba(148, 163, 184, 0.18)' },
-                                    ticks: { color: '#64748b', callback: formatHomeTrendAxisTick },
-                                },
-                            },
-                        },
-                    });
+                    homeTrendChart = new ChartLib(ctx, buildHomeTrendChartConfig({
+                        labels: homeTrendData.value?.chart?.labels || [],
+                        metric,
+                        metricKey: homeTrendMetric.value,
+                    }));
                 } catch (error) {
                     console.warn('经营趋势图表渲染失败:', error);
                 }

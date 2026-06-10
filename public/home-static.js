@@ -246,6 +246,74 @@ window.SUXI_HOME_STATIC = (() => {
         ];
     };
 
+    const formatHomeTrendAxisTick = (value) => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return String(value ?? '');
+        const absValue = Math.abs(numeric);
+        if (absValue >= 10000) {
+            const wanValue = numeric / 10000;
+            const maxDigits = Math.abs(wanValue) >= 100 || Number.isInteger(wanValue) ? 0 : 1;
+            return `${wanValue.toLocaleString('zh-CN', { maximumFractionDigits: maxDigits })}万`;
+        }
+        return numeric.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+    };
+
+    const buildHomeTrendChartConfig = ({ labels = [], metric = {}, metricKey = 'revenue' } = {}) => {
+        const colors = {
+            revenue: ['rgb(37, 99, 235)', 'rgba(37, 99, 235, 0.12)'],
+            adr: ['rgb(217, 119, 6)', 'rgba(217, 119, 6, 0.12)'],
+            revpar: ['rgb(79, 70, 229)', 'rgba(79, 70, 229, 0.12)'],
+            room_nights: ['rgb(14, 116, 144)', 'rgba(14, 116, 144, 0.12)'],
+        };
+        const [borderColor, backgroundColor] = colors[metricKey] || colors.revenue;
+        return {
+            type: 'line',
+            data: {
+                labels: Array.isArray(labels) ? labels : [],
+                datasets: [{
+                    label: metric.label || '趋势',
+                    data: Array.isArray(metric.data) ? metric.data.map(value => value === null || value === undefined ? null : Number(value)) : [],
+                    borderColor,
+                    backgroundColor,
+                    borderWidth: 2,
+                    tension: 0.35,
+                    fill: true,
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    spanGaps: true,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const unit = metric.unit || '';
+                                const value = context.parsed.y;
+                                if (value === null || Number.isNaN(value)) return `${metric.label}: -`;
+                                return unit === '¥'
+                                    ? `${metric.label}: ¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 1 })}`
+                                    : `${metric.label}: ${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 1 })}${unit}`;
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#64748b', maxTicksLimit: 8 } },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(148, 163, 184, 0.18)' },
+                        ticks: { color: '#64748b', callback: formatHomeTrendAxisTick },
+                    },
+                },
+            },
+        };
+    };
+
     const buildHomeBoardActionRows = ({
         readiness = {},
         channelSignal = null,
@@ -375,6 +443,7 @@ window.SUXI_HOME_STATIC = (() => {
         buildHomeAiTraceRows,
         buildHomeOperatingResultCards,
         buildHomeCausalChainNodes,
+        buildHomeTrendChartConfig,
         buildHomeBoardActionRows,
         buildCompassDataReadiness,
         buildHomeDecisionSummaryRows,

@@ -643,6 +643,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the opening AI output split: `node --check public\operation-static.js`; `node --check scripts\verify_opening_batch_actions.mjs`; `npm.cmd run verify:opening-batch-actions`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Home Trend Chart Config Split
+
+- Forty-sixth frontend split target chosen from pure home trend Chart.js configuration logic in `public/index.html`.
+- Extended `public/home-static.js` with `buildHomeTrendChartConfig`, including trend-axis tick formatting, metric colors, dataset config, tooltip labels, and scale options.
+- `public/index.html` keeps only browser runtime responsibilities in `renderHomeTrendChart()`: Chart.js availability checks, canvas lookup, visible-DOM checks, old chart destruction, new Chart instance creation, and retry scheduling.
+- This split intentionally does not move home-trend data loading, range filters, metric selection, OTA/operation sample sources, canvas lifecycle, or refresh behavior.
+- Updated `scripts/verify_home_visual_hierarchy_contract.mjs` so the home visual contract also requires the extracted trend chart config builder and verifies one sample Chart config output from `public/home-static.js`.
+- `public/index.html` decreased from `39043` lines to `38984` lines; split-map frontend function-level blocks decreased from `1444` to `1443`, and the `general` domain span decreased from `7562` to `7503` lines.
+- Current self-audit after the code move: full directory about `260.56 MB`, without `.git` about `92.11 MB`, without `.git` and dependencies about `62.92 MB`, tracked files about `17.98 MB` / `612` files; code scope `369` files, `187402` total lines, and `171659` nonblank lines.
+- Verified after the home trend chart config split: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `npm.cmd run verify:home-visual-hierarchy`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

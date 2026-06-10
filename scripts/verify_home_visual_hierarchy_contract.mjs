@@ -1,8 +1,20 @@
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 
 const publicSource = readFileSync('public/index.html', 'utf8');
 const homeStaticSource = readFileSync('public/home-static.js', 'utf8');
 const packageSource = readFileSync('package.json', 'utf8');
+
+const homeStaticContext = { window: {} };
+vm.runInNewContext(homeStaticSource, homeStaticContext);
+const buildHomeTrendChartConfig = homeStaticContext.window.SUXI_HOME_STATIC?.buildHomeTrendChartConfig;
+const sampleTrendChartConfig = typeof buildHomeTrendChartConfig === 'function'
+  ? buildHomeTrendChartConfig({
+    labels: ['2026-06-01', '2026-06-02'],
+    metric: { label: '收入', unit: '¥', data: [12345, null] },
+    metricKey: 'revenue',
+  })
+  : null;
 
 const checks = [
   {
@@ -88,6 +100,24 @@ const checks = [
       && homeStaticSource.includes('OTA/经营日报样本口径，不替代全酒店总营收')
       && !publicSource.includes('const cardVisual = {')
       && !publicSource.includes('const operatingOrders = homeOperatingResultCards.value.find'),
+  },
+  {
+    name: 'home trend chart config lives in explicit static helper',
+    pass: publicSource.includes("requireHomeStatic('buildHomeTrendChartConfig')")
+      && publicSource.includes('new ChartLib(ctx, buildHomeTrendChartConfig({')
+      && homeStaticSource.includes('buildHomeTrendChartConfig')
+      && homeStaticSource.includes('formatHomeTrendAxisTick')
+      && !publicSource.includes('const formatHomeTrendAxisTick = (value) =>')
+      && !publicSource.includes('const colors = {'),
+  },
+  {
+    name: 'home trend chart config helper returns expected chart contract',
+    pass: sampleTrendChartConfig?.type === 'line'
+      && sampleTrendChartConfig?.data?.datasets?.[0]?.label === '收入'
+      && sampleTrendChartConfig?.data?.datasets?.[0]?.borderColor === 'rgb(37, 99, 235)'
+      && sampleTrendChartConfig?.data?.datasets?.[0]?.data?.[1] === null
+      && sampleTrendChartConfig?.options?.scales?.y?.ticks?.callback(20000) === '2万'
+      && sampleTrendChartConfig?.options?.plugins?.tooltip?.callbacks?.label({ parsed: { y: 12345 } }) === '收入: ¥12,345',
   },
   {
     name: 'home visual hierarchy verifier is exposed through npm',

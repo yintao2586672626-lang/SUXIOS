@@ -688,6 +688,16 @@
 - 已验证：`node --check public\operation-static.js`、`node --check scripts\verify_opening_batch_actions.mjs`、`npm.cmd run verify:opening-batch-actions`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十六刀拆分
+
+- 扩展 `public/home-static.js`，承载首页经营趋势图 Chart.js 配置构建器 `buildHomeTrendChartConfig`，同时内聚趋势图 Y 轴格式化 `formatHomeTrendAxisTick` 和指标配色。
+- `public/index.html` 只保留 `renderHomeTrendChart()` 的浏览器运行时职责：检测 `window.Chart`、校验 canvas、销毁旧实例、创建 Chart 实例和重试调度；趋势数据加载、刷新、筛选、OTA 样本来源和 canvas 生命周期均未迁移。
+- 更新 `scripts/verify_home_visual_hierarchy_contract.mjs`，同时校验入口显式读取 `buildHomeTrendChartConfig`、图表配置留在 `public/home-static.js`，并运行一次样例 Chart 配置输出检查。
+- `public/index.html` 从 `39,043` 行降至 `38,984` 行；split-map 前端函数级块从 `1,444` 降至 `1,443`，`general` 域 span 从 `7,562` 降至 `7,503`，当前最大前端块仍为 `runOtaDiagnosisHotelFetch`（`265` 行）。
+- 当前自审计：完整目录约 `260.56 MB`，不含 `.git` 约 `92.11 MB`，不含 `.git` 和依赖约 `62.92 MB`；Git 跟踪文件约 `17.98 MB` / `612` 个；代码范围 `369` 个文件，`187,402` 行，非空 `171,659` 行。
+- 已验证：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
