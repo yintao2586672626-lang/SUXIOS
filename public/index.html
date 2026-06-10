@@ -19947,6 +19947,8 @@
             const onlineDataQualityPromptList = requireDataHealthStatic('onlineDataQualityPromptList');
             const onlineDataQualityScopeText = requireDataHealthStatic('onlineDataQualityScopeText');
             const autoFetchRecordStatusClass = requireDataHealthStatic('autoFetchRecordStatusClass');
+            const buildCollectionHealthFailureReasonRanking = requireDataHealthStatic('buildCollectionHealthFailureReasonRanking');
+            const buildDataHealthTodayWorkOrders = requireDataHealthStatic('buildDataHealthTodayWorkOrders');
             const collectionReliability = ref(null);
             const collectionReliabilityLoading = ref(false);
             const collectionReliabilityError = ref('');
@@ -19989,49 +19991,7 @@
                     className: 'border-amber-200 bg-amber-50 text-amber-800',
                 };
             });
-            const collectionHealthFailureReasonRanking = computed(() => {
-                const groups = new Map();
-                collectionHealthFailureReasons.value.forEach((item) => {
-                    const reason = String(item?.reason || '采集失败原因待确认').trim();
-                    const key = reason.toLowerCase();
-                    const platform = dataHealthPlatformText(item?.platform);
-                    const nextAction = String(item?.next_action || '').trim();
-                    const occurredAt = String(item?.occurred_at || '').trim();
-                    if (!groups.has(key)) {
-                        groups.set(key, {
-                            key,
-                            reason,
-                            count: 0,
-                            platforms: new Set(),
-                            latest_at: '',
-                            next_action: '',
-                            priority: 'medium',
-                        });
-                    }
-                    const row = groups.get(key);
-                    row.count += 1;
-                    if (platform) row.platforms.add(platform);
-                    if (nextAction && !row.next_action) row.next_action = nextAction;
-                    if (occurredAt && (!row.latest_at || occurredAt > row.latest_at)) row.latest_at = occurredAt;
-                    if (String(item?.type || '').toLowerCase() === 'authorization' || /cookie|login|auth|401|403|登录|授权|过期|失效/i.test(reason)) {
-                        row.priority = 'high';
-                    }
-                });
-
-                return Array.from(groups.values())
-                    .map(row => ({
-                        ...row,
-                        platformsText: Array.from(row.platforms).join(' / ') || 'OTA',
-                    }))
-                    .sort((left, right) => {
-                        const priorityWeight = { high: 0, medium: 1, low: 2 };
-                        const priorityDiff = (priorityWeight[left.priority] ?? 9) - (priorityWeight[right.priority] ?? 9);
-                        if (priorityDiff !== 0) return priorityDiff;
-                        if (right.count !== left.count) return right.count - left.count;
-                        return String(right.latest_at || '').localeCompare(String(left.latest_at || ''));
-                    })
-                    .slice(0, 5);
-            });
+            const collectionHealthFailureReasonRanking = computed(() => buildCollectionHealthFailureReasonRanking(collectionHealthFailureReasons.value, dataHealthPlatformText));
             const collectionHealthLogs = computed(() => Array.isArray(collectionReliability.value?.collection_logs) ? collectionReliability.value.collection_logs : []);
             const collectionHealthLatestLog = computed(() => collectionHealthLogs.value[0] || null);
             const collectionHealthQuality = computed(() => collectionReliability.value?.data_quality || {});
@@ -20212,55 +20172,12 @@
                 return '登录令牌';
             };
             const publicEndpointPathText = (row = {}) => `${row.method || '-'} ${row.path || '-'}`;
-            const dataHealthTodayWorkOrders = computed(() => {
-                const priorityWeight = { high: 0, medium: 1, low: 2, ok: 3 };
-                const rows = [];
-                dataHealthCookieAlertRows.value.forEach((row, index) => {
-                    rows.push({
-                        key: `cookie-${index}-${row?.platform || ''}-${row?.hotel_id || ''}-${row?.config_id || row?.name || ''}`,
-                        priority: row?.priority || 'medium',
-                        source_label: '授权',
-                        platform_label: row?.platform_label || dataHealthPlatformText(row?.platform),
-                        title: row?.title || 'OTA 授权待处理',
-                        detail: row?.message || row?.action_text || 'Cookie 状态异常，需重新授权后再采集。',
-                        action_type: 'cookie',
-                    });
-                });
-                dataHealthQualityTaskRows.value.forEach((row, index) => {
-                    rows.push({
-                        key: `quality-${index}-${row?.key || row?.title || ''}`,
-                        priority: row?.priority || 'medium',
-                        source_label: '数据质量',
-                        platform_label: row?.platform_label || dataHealthPlatformText(row?.platform),
-                        title: row?.title || '数据质量任务待处理',
-                        detail: row?.action || '复核授权、字段映射和平台返回。',
-                        action_type: row?.actionTab ? 'fetch' : 'history',
-                        action_tab: row?.actionTab || '',
-                        button_text: row?.actionLabel || '补抓数据',
-                    });
-                });
-                dataHealthHighRiskActionRows.value.forEach((row, index) => {
-                    rows.push({
-                        key: `risk-${index}-${row?.id || row?.action || ''}`,
-                        priority: row?.priority || 'medium',
-                        source_label: '后台动作',
-                        platform_label: row?.hotel || '后台',
-                        title: row?.title || '高风险后台动作待复核',
-                        detail: row?.error || `${row?.user || '-'} / ${row?.time || '-'}`,
-                        action_type: 'log',
-                    });
-                });
-                const seen = new Set();
-                return rows
-                    .filter(row => {
-                        const key = `${row.source_label}|${row.platform_label}|${row.title}|${row.detail}`;
-                        if (seen.has(key)) return false;
-                        seen.add(key);
-                        return true;
-                    })
-                    .sort((left, right) => (priorityWeight[left.priority] ?? 9) - (priorityWeight[right.priority] ?? 9))
-                    .slice(0, 8);
-            });
+            const dataHealthTodayWorkOrders = computed(() => buildDataHealthTodayWorkOrders({
+                cookieAlertRows: dataHealthCookieAlertRows.value,
+                qualityTaskRows: dataHealthQualityTaskRows.value,
+                highRiskActionRows: dataHealthHighRiskActionRows.value,
+                platformText: dataHealthPlatformText,
+            }));
             const globalNotificationOpen = ref(false);
             const globalNotificationLoading = ref(false);
             const globalNotificationLastLoadedAt = ref('');

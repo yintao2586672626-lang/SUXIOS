@@ -513,6 +513,10 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(ctripDiagnosticsPanel, /建议删除/);
   assert.match(dataHealthStatic, /green:\s*'bg-green-500'/);
   assert.match(dataHealthStatic, /red:\s*'bg-red-500'/);
+  assert.match(dataHealthStatic, /const buildCollectionHealthFailureReasonRanking = /);
+  assert.match(dataHealthStatic, /const buildDataHealthTodayWorkOrders = /);
+  assert.match(html, /requireDataHealthStatic\('buildCollectionHealthFailureReasonRanking'\)/);
+  assert.match(html, /buildDataHealthTodayWorkOrders\(\{/);
 });
 
 test('Ctrip platform authorization status supports inline view and edit', () => {

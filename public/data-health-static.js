@@ -74,6 +74,106 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         qunar: '去哪儿',
     }[String(platform || '').toLowerCase()] || (platform || 'OTA'));
 
+    const buildCollectionHealthFailureReasonRanking = (failureReasons = [], platformText = dataHealthPlatformText) => {
+        const groups = new Map();
+        const rows = Array.isArray(failureReasons) ? failureReasons : [];
+        rows.forEach((item) => {
+            const reason = String(item?.reason || '采集失败原因待确认').trim();
+            const key = reason.toLowerCase();
+            const platform = platformText(item?.platform);
+            const nextAction = String(item?.next_action || '').trim();
+            const occurredAt = String(item?.occurred_at || '').trim();
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    key,
+                    reason,
+                    count: 0,
+                    platforms: new Set(),
+                    latest_at: '',
+                    next_action: '',
+                    priority: 'medium',
+                });
+            }
+            const row = groups.get(key);
+            row.count += 1;
+            if (platform) row.platforms.add(platform);
+            if (nextAction && !row.next_action) row.next_action = nextAction;
+            if (occurredAt && (!row.latest_at || occurredAt > row.latest_at)) row.latest_at = occurredAt;
+            if (String(item?.type || '').toLowerCase() === 'authorization' || /cookie|login|auth|401|403|登录|授权|过期|失效/i.test(reason)) {
+                row.priority = 'high';
+            }
+        });
+
+        return Array.from(groups.values())
+            .map(row => ({
+                ...row,
+                platformsText: Array.from(row.platforms).join(' / ') || 'OTA',
+            }))
+            .sort((left, right) => {
+                const priorityWeight = { high: 0, medium: 1, low: 2 };
+                const priorityDiff = (priorityWeight[left.priority] ?? 9) - (priorityWeight[right.priority] ?? 9);
+                if (priorityDiff !== 0) return priorityDiff;
+                if (right.count !== left.count) return right.count - left.count;
+                return String(right.latest_at || '').localeCompare(String(left.latest_at || ''));
+            })
+            .slice(0, 5);
+    };
+
+    const buildDataHealthTodayWorkOrders = ({
+        cookieAlertRows = [],
+        qualityTaskRows = [],
+        highRiskActionRows = [],
+        platformText = dataHealthPlatformText,
+    } = {}) => {
+        const priorityWeight = { high: 0, medium: 1, low: 2, ok: 3 };
+        const rows = [];
+        (Array.isArray(cookieAlertRows) ? cookieAlertRows : []).forEach((row, index) => {
+            rows.push({
+                key: `cookie-${index}-${row?.platform || ''}-${row?.hotel_id || ''}-${row?.config_id || row?.name || ''}`,
+                priority: row?.priority || 'medium',
+                source_label: '授权',
+                platform_label: row?.platform_label || platformText(row?.platform),
+                title: row?.title || 'OTA 授权待处理',
+                detail: row?.message || row?.action_text || 'Cookie 状态异常，需重新授权后再采集。',
+                action_type: 'cookie',
+            });
+        });
+        (Array.isArray(qualityTaskRows) ? qualityTaskRows : []).forEach((row, index) => {
+            rows.push({
+                key: `quality-${index}-${row?.key || row?.title || ''}`,
+                priority: row?.priority || 'medium',
+                source_label: '数据质量',
+                platform_label: row?.platform_label || platformText(row?.platform),
+                title: row?.title || '数据质量任务待处理',
+                detail: row?.action || '复核授权、字段映射和平台返回。',
+                action_type: row?.actionTab ? 'fetch' : 'history',
+                action_tab: row?.actionTab || '',
+                button_text: row?.actionLabel || '补抓数据',
+            });
+        });
+        (Array.isArray(highRiskActionRows) ? highRiskActionRows : []).forEach((row, index) => {
+            rows.push({
+                key: `risk-${index}-${row?.id || row?.action || ''}`,
+                priority: row?.priority || 'medium',
+                source_label: '后台动作',
+                platform_label: row?.hotel || '后台',
+                title: row?.title || '高风险后台动作待复核',
+                detail: row?.error || `${row?.user || '-'} / ${row?.time || '-'}`,
+                action_type: 'log',
+            });
+        });
+        const seen = new Set();
+        return rows
+            .filter(row => {
+                const key = `${row.source_label}|${row.platform_label}|${row.title}|${row.detail}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .sort((left, right) => (priorityWeight[left.priority] ?? 9) - (priorityWeight[right.priority] ?? 9))
+            .slice(0, 8);
+    };
+
     return {
         onlineDataQualityStatusText,
         onlineDataQualityStatusClass,
@@ -86,5 +186,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         dataHealthPriorityClass,
         dataHealthPriorityText,
         dataHealthPlatformText,
+        buildCollectionHealthFailureReasonRanking,
+        buildDataHealthTodayWorkOrders,
     };
 })();
