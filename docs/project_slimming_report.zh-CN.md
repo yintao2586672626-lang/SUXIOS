@@ -770,6 +770,16 @@
 - 已验证：`node --check public\meituan-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第五十四刀拆分
+
+- 新增 `public/ai-analysis-static.js`，承载携程 OTA AI 分析的纯展示/构建逻辑：状态/优先级文案、问题酒店归一化、错误脱敏、批次切分、采集酒店 payload、分组汇总、fallback 报告、进度对象、批次状态、综合汇总请求体和历史记录构建器。
+- `public/index.html` 只保留 AI 分析运行态职责：选中酒店校验、日期校验、调用 `/agent/analyze-captured-ota-data`、失败拆分重试、调用 `/agent/summarize-captured-ota-analysis`、UI 状态更新和结果复制；AI 接口、OTA 数据来源、入库链路和缺失/失败展示口径均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口加载 `ai-analysis-static.js` 并通过 `requireAiAnalysisStatic(...)` 显式读取核心构建器，禁止状态文案、chunk、captured payload、summary request 和 fallback report 逻辑重新内联，并在 VM 中校验 payload、批次状态、汇总请求、fallback 脱敏和历史记录样例。
+- `public/index.html` 从 `38,381` 行降至 `38,101` 行；split-map 前端函数级块从 `1,435` 降至 `1,407`；`ai` 域 span 从 `1,516` 行降至 `1,257` 行；`startAiAnalysis` 当前为 `145` 行。
+- 当前自审计：完整目录约 `265.24 MB`，不含 `.git` 约 `92.16 MB`，不含 `.git` 和依赖约 `62.97 MB`；Git 跟踪文件约 `18.03 MB` / `612` 个；代码范围 `369` 个文件，`187,921` 行，非空 `172,193` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:clean`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

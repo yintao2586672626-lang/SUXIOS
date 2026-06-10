@@ -106,8 +106,19 @@ requireText('public/index.html', "requireOtaDiagnosisStatic('buildOtaDiagnosisFe
 requireText('public/index.html', "requireOtaDiagnosisStatic('buildOtaDiagnosisFetchTasks')", 'entry uses extracted OTA diagnosis fetch task builder');
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchContext', 'OTA diagnosis static builds fetch context');
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchTasks', 'OTA diagnosis static builds fetch tasks');
+requireText('public/index.html', '<script src="ai-analysis-static.js"></script>', 'frontend loads extracted AI analysis static helper');
+requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
+requireText('public/index.html', "requireAiAnalysisStatic('buildAiAnalysisBatchResults')", 'entry uses extracted AI analysis batch result builder');
+requireText('public/ai-analysis-static.js', 'const buildCapturedOtaHotelPayload', 'AI analysis static builds captured OTA hotel payloads');
+requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryRequestBody', 'AI analysis static builds captured OTA summary requests');
+requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
 requireNoText('public/index.html', 'const pushOtaDiagnosisFetchTask = (tasks, task) => {', 'OTA diagnosis task push helper is not re-inlined');
 requireNoText('public/index.html', "['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(rankType => {", 'OTA diagnosis Meituan task list is not re-inlined');
+requireNoText('public/index.html', 'const aiAnalysisStatusText = (status) => {', 'AI analysis status text helper is not re-inlined');
+requireNoText('public/index.html', 'const chunkArray = (items, size) => {', 'AI analysis chunk helper is not re-inlined');
+requireNoText('public/index.html', 'const buildCapturedOtaHotelPayload = (hotel) => {', 'AI analysis captured payload builder is not re-inlined');
+requireNoText('public/index.html', 'const buildCapturedOtaSummaryRequestBody = ({', 'AI analysis summary request builder is not re-inlined');
+requireNoText('public/index.html', 'const buildCapturedFallbackSummaryReport = ({', 'AI analysis fallback summary builder is not re-inlined');
 requireNoText('public/index.html', "title: '点评问题'", 'OTA diagnosis UI does not render the deprecated comment section');
 requireNoText('public/index.html', "openDataConfigModal('ctrip-comments')", 'Ctrip comment capture card is not exposed in UI');
 requireNoText('public/index.html', "openDataConfigModal('meituan-comments')", 'Meituan comment capture card is not exposed in UI');
@@ -367,6 +378,141 @@ try {
   checks.push({
     file: 'public/ota-diagnosis-static.js',
     label: 'OTA diagnosis static runtime validation',
+    ok: false,
+    detail: error.message,
+  });
+}
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(read('public/ai-analysis-static.js'), context, {
+    filename: 'public/ai-analysis-static.js',
+  });
+  const aiAnalysisStatic = context.window.SUXI_AI_ANALYSIS_STATIC || {};
+  const requiredKeys = [
+    'getAiAnalysisHotelKey',
+    'aiAnalysisStatusText',
+    'aiAnalysisPriorityText',
+    'normalizeAiAnalysisList',
+    'normalizeAiProblemHotels',
+    'maskAiAnalysisError',
+    'chunkArray',
+    'buildCapturedOtaHotelPayload',
+    'buildAiAnalysisProgress',
+    'buildAiAnalysisBatchResults',
+    'buildCapturedOtaSummaryRequestBody',
+    'buildCapturedFallbackSummaryReport',
+    'buildAiAnalysisHistoryRecord',
+  ];
+  const missingKeys = requiredKeys.filter(key => typeof aiAnalysisStatic[key] !== 'function');
+  if (missingKeys.length > 0) {
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static exports required builders',
+      ok: false,
+      detail: missingKeys.join(', '),
+    });
+  } else {
+    const hotelPayload = aiAnalysisStatic.buildCapturedOtaHotelPayload({
+      poiId: 'ctrip-10',
+      hotelName: '示例酒店',
+      roomNights: '2',
+      roomRevenue: '360',
+      exposure: '1200',
+      views: '88',
+      totalOrderNum: '6',
+      viewConversion: '7.5',
+      payConversion: '3.2',
+      amountRank: '5',
+      quantityRank: '3',
+      commentScore: '4.8',
+    });
+    const groups = aiAnalysisStatic.chunkArray([hotelPayload, { hotel_name: 'B' }, { hotel_name: 'C' }], 2);
+    const progress = aiAnalysisStatic.buildAiAnalysisProgress({ hotelCount: 3, groupCount: groups.length });
+    const batchResults = aiAnalysisStatic.buildAiAnalysisBatchResults(groups, 12345);
+    const successGroup = {
+      ...batchResults[0],
+      status: 'success',
+      result: {
+        overall_conclusion: '订单转化偏弱',
+        key_findings: ['曝光充足'],
+        competitor_insights: ['竞对价格更稳'],
+        problem_hotels: ['酒店：示例酒店；问题：转化偏低；关键指标：曝光、订单；建议：复核价格'],
+        recommended_actions: ['调整促销'],
+        priority: 'high',
+        data_anomalies: [],
+      },
+    };
+    const summaryBody = aiAnalysisStatic.buildCapturedOtaSummaryRequestBody({
+      platform: 'ctrip',
+      modelKey: 'deepseek_chat',
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+      selectedHotelCount: 3,
+      completedHotels: 2,
+      failedHotels: 1,
+      successGroups: [successGroup],
+      failedGroups: [{ group_index: 2, error: 'failed' }],
+    });
+    const fallback = aiAnalysisStatic.buildCapturedFallbackSummaryReport({
+      successGroups: [successGroup],
+      failedGroups: [{ group_index: 2, error: 'sk-secret12345678' }],
+      selectedCount: 3,
+      completedHotels: 2,
+      failedHotels: 1,
+      groupCount: 2,
+      reason: 'Bearer token-secret',
+    });
+    const history = aiAnalysisStatic.buildAiAnalysisHistoryRecord({
+      selectedData: [{ hotelName: 'A' }, { hotelName: 'B' }, { hotelName: 'C' }, { hotelName: 'D' }],
+      capturedReport: { overall_conclusion: '已完成' },
+      completedHotels: 2,
+      failedHotels: 1,
+      reportHtml: '<section>ok</section>',
+      now: new Date('2026-06-10T00:00:00+08:00'),
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static builds captured OTA payload and batch state',
+      ok: hotelPayload.hotel_id === 'ctrip-10'
+        && hotelPayload.price === 180
+        && hotelPayload.exposure === 1200
+        && hotelPayload.tags.includes('最好排名3')
+        && groups.length === 2
+        && progress.totalHotels === 3
+        && progress.totalGroups === 2
+        && batchResults[0].key === 'group_12345_0'
+        && batchResults[0].hotelNames.includes('示例酒店'),
+      detail: 'captured payload batch sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static builds summary and fallback payloads with explicit failures',
+      ok: summaryBody.model_key === 'deepseek_chat'
+        && summaryBody.group_summaries[0].report.priority === 'high'
+        && summaryBody.group_summaries[0].report.problem_hotels[0].problem === '转化偏低'
+        && summaryBody.failed_groups.length === 1
+        && fallback.fallback === true
+        && fallback.summary.failed_hotel_count === 1
+        && fallback.fallback_reason === 'Bearer ****',
+      detail: 'summary fallback sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static keeps display labels and sensitive error masking',
+      ok: aiAnalysisStatic.aiAnalysisStatusText('running') === '分析中'
+        && aiAnalysisStatic.aiAnalysisPriorityText('high') === '高优先级'
+        && aiAnalysisStatic.normalizeAiAnalysisList([{ 指标: '曝光', 结论: '偏低' }])[0] === '指标: 曝光；结论: 偏低'
+        && aiAnalysisStatic.maskAiAnalysisError('api_key=abc123 sk-abcdefghijk').includes('api_key=****')
+        && history.hotel_names === 'A、B、C等'
+        && history.summary === '已完成',
+      detail: 'labels masks history sample',
+    });
+  }
+} catch (error) {
+  checks.push({
+    file: 'public/ai-analysis-static.js',
+    label: 'AI analysis static runtime validation',
     ok: false,
     detail: error.message,
   });

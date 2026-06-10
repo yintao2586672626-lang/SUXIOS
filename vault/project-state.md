@@ -734,6 +734,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the Meituan batch fetch builder split: `node --check public\meituan-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend AI Analysis Static Builder Split
+
+- Fifty-fourth frontend split target chosen from pure Ctrip OTA AI analysis display and request-state construction helpers in `public/index.html`.
+- Added `public/ai-analysis-static.js` for AI analysis status and priority display text/classes, list and problem-hotel normalization, sensitive error masking, chunking, captured OTA hotel payloads, group summaries, merged reports, report copy HTML, fallback summary reports, progress state, batch result rows, summary request bodies, and history records.
+- `public/index.html` now loads `ai-analysis-static.js` and uses `requireAiAnalysisStatic(...)` with explicit missing-key errors. It keeps runtime responsibilities only: hotel/date validation, `/agent/analyze-captured-ota-data` calls, split retry, `/agent/summarize-captured-ota-analysis` calls, UI state updates, and result copy behavior.
+- This split did not change OTA capture, persistence, AI endpoint contracts, date filters, missing/failed-state display, or Ctrip OTA channel scope.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted AI analysis builders, prevent key long helper bodies from being re-inlined, and validate captured payloads, batch state, summary request bodies, fallback failure masking, display labels, and history records in a VM context.
+- `public/index.html` decreased from `38381` lines to `38101` lines; frontend function-level blocks decreased from `1435` to `1407`; the split-map `ai` domain span decreased from `1516` to `1257` lines; `startAiAnalysis` is now `145` lines.
+- Current self-audit after the code move and local artifact cleanup: full directory about `265.24 MB`, without `.git` about `92.16 MB`, without `.git` and dependencies about `62.97 MB`, tracked files about `18.03 MB` / `612` files; code scope `369` files, `187921` total lines, and `172193` nonblank lines; default cleanup reclaim is `0 MB`.
+- Verified after the AI analysis split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:clean`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
