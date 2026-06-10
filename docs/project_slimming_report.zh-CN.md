@@ -109,7 +109,7 @@
 
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
-| `public/index.html` | 37,965 | 2.78 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，抽出自动采集静态配置到 `public/auto-fetch-static.js`，抽出门店罗盘静态配置到 `public/compass-static.js`，抽出模拟测算/转让字段静态配置到 `public/simulation-static.js`，抽出运营/开业静态选项到 `public/operation-static.js`，继续把门店罗盘宏观信号文案归入 `public/compass-static.js`，抽出携程字段/Profile/概览接口静态配置到 `public/ctrip-static.js`，抽出系统/AI/知识库静态配置、AI 模型配置 I18N、语言选项和导航菜单定义到 `public/system-static.js`，抽出前端复用 Vue 组件到 `public/shared-components.js`，抽出全局通知展示工具到 `public/notification-static.js`，抽出美团榜单展示工具和美团竞对摘要卡片构建器到 `public/meituan-static.js`，扩展 `public/data-health-static.js` 承载数据健康展示、失败原因排名和今日待办构建工具，新增 `public/home-static.js` 承载首页闭环与 AI 轨迹展示构建器，新增 `public/ota-diagnosis-static.js` 承载 OTA 诊断结果展示构建器，并持续收口携程、美团、OTA AI 运行态数据整形与校验工具；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
+| `public/index.html` | 37,962 | 2.78 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，抽出自动采集静态配置到 `public/auto-fetch-static.js`，抽出门店罗盘静态配置到 `public/compass-static.js`，抽出模拟测算/转让字段静态配置到 `public/simulation-static.js`，抽出运营/开业静态选项到 `public/operation-static.js`，继续把门店罗盘宏观信号文案归入 `public/compass-static.js`，抽出携程字段/Profile/概览接口静态配置到 `public/ctrip-static.js`，抽出系统/AI/知识库静态配置、AI 模型配置 I18N、语言选项和导航菜单定义到 `public/system-static.js`，抽出前端复用 Vue 组件到 `public/shared-components.js`，抽出全局通知展示工具到 `public/notification-static.js`，抽出美团榜单展示工具和美团竞对摘要卡片构建器到 `public/meituan-static.js`，扩展 `public/data-health-static.js` 承载数据健康展示、失败原因排名和今日待办构建工具，新增 `public/home-static.js` 承载首页闭环与 AI 轨迹展示构建器，新增 `public/ota-diagnosis-static.js` 承载 OTA 诊断结果展示构建器，并持续收口携程、美团、OTA AI 运行态数据整形与校验工具；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
 | `app/controller/OnlineData.php` | 26,725 | 1.14 MB | 本轮拆分中 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程/美团点评旧直连、旧浏览器抓取、旧配置读写和旧自动抓取执行死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
 
 前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分集中在 `app/controller/OnlineData.php` 后端瘦身与 `public/index.html` 前端静态配置拆分，均保持现有路由、接口和 Vue CDN 运行契约。
@@ -130,7 +130,7 @@
 
 | 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
 |---|---:|---|---|
-| `public/index.html` | 1,407 个函数级块；44 个 `currentPage` 引用 | `startAiAnalysis` 124 行、`recheckCtripProfileMismatchedFields` 108 行、`runCtripBrowserCapture` 105 行 | `general` 7,165 行、`ctrip` 3,472 行、`hotel_admin` 1,289 行、`ai` 1,225 行、`meituan` 1,205 行、`ota` 479 行 |
+| `public/index.html` | 1,407 个函数级块；44 个 `currentPage` 引用 | `startAiAnalysis` 122 行、`recheckCtripProfileMismatchedFields` 108 行、`runCtripBrowserCapture` 105 行 | `general` 7,165 行、`ctrip` 3,472 行、`hotel_admin` 1,289 行、`ai` 1,222 行、`meituan` 1,205 行、`ota` 479 行 |
 | `app/controller/OnlineData.php` | 871 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 11,463 行、`meituan` 4,979 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
 
 ## 2026-06-10 后端第一刀拆分
@@ -936,6 +936,16 @@
 - 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式读取 completion helper，要求静态模块导出该 helper，禁止历史记录 unshift 和长度裁剪重新内联，并在 VM 中验证报告 HTML、历史摘要和历史裁剪样例。
 - 当前 split-map：`public/index.html` 从 `37968` 行降至 `37965` 行；`ai` 领域 span 从 `1228` 行降至 `1225` 行；`startAiAnalysis` 从 `127` 行降至 `124` 行。
 - 当前自审计：完整目录约 `274.77 MB`；不含 `.git` 约 `92.28 MB`；不含 `.git` 和依赖约 `63.09 MB`；Git 跟踪文件约 `18.17 MB` / `613` 个；代码范围 `370` 个文件，`189669` 行，非空 `173885` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`git diff --check`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
+## 2026-06-11 前端第七十刀拆分
+
+- 扩展 `public/ai-analysis-static.js`，新增携程 OTA AI 汇总响应构建器 `buildCapturedOtaSummaryResponseResult()`，统一处理汇总接口成功响应、失败响应和网络异常转基础综合报告。
+- `public/index.html` 中 `startAiAnalysis()` 继续负责 `/agent/summarize-captured-ota-analysis` 请求本身，只把响应转换交给静态 helper，并写回 `aiAnalysisCapturedReport` / `aiAnalysisProcess`；本轮不迁移 AI 请求、失败重试、模型选择、OTA 存储或缺失/失败状态展示。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式读取 summary response helper，要求静态模块导出该 helper，禁止 `summaryRes.code === 200`、`summaryData` 提取和汇总失败原因重新内联，并在 VM 中验证成功响应、失败响应和敏感错误脱敏样例。
+- 当前 split-map：`public/index.html` 从 `37965` 行降至 `37962` 行；`ai` 领域 span 从 `1225` 行降至 `1222` 行；`startAiAnalysis` 从 `124` 行降至 `122` 行。
+- 当前自审计：完整目录约 `275.37 MB`；不含 `.git` 约 `92.29 MB`；不含 `.git` 和依赖约 `63.10 MB`；Git 跟踪文件约 `18.18 MB` / `613` 个；代码范围 `370` 个文件，`189733` 行，非空 `173948` 行；默认可清理目标为 `0 MB`。
 - 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`git diff --check`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 

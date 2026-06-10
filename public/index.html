@@ -34945,11 +34945,10 @@
             const chunkArray = requireAiAnalysisStatic('chunkArray');
             const buildCtripAiAnalysisHotelSelection = requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection');
             const mergeCapturedGroupReports = requireAiAnalysisStatic('mergeCapturedGroupReports');
-            const buildCapturedOtaReportCopyHtml = requireAiAnalysisStatic('buildCapturedOtaReportCopyHtml');
-            const buildCapturedFallbackSummaryReport = requireAiAnalysisStatic('buildCapturedFallbackSummaryReport');
             const buildCapturedOtaAnalysisRunPlan = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan');
             const buildCapturedOtaGroupOutcome = requireAiAnalysisStatic('buildCapturedOtaGroupOutcome');
             const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
+            const buildCapturedOtaSummaryResponseResult = requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult');
             const buildCapturedOtaAnalysisCompletion = requireAiAnalysisStatic('buildCapturedOtaAnalysisCompletion');
             const resolveAiSelectedData = requireAiAnalysisStatic('resolveAiSelectedData');
             const validateCapturedOtaAiAnalysisStart = requireAiAnalysisStatic('validateCapturedOtaAiAnalysisStart');
@@ -35138,31 +35137,29 @@
                                     failedGroups,
                                 })),
                             });
-                            if (summaryRes.code === 200) {
-                                const summaryData = summaryRes.data || {};
-                                aiAnalysisCapturedReport.value = summaryData.report || summaryData || {};
-                                aiAnalysisProcess.value = summaryData.process || null;
-                            } else {
-                                aiAnalysisCapturedReport.value = buildCapturedFallbackSummaryReport({
-                                    successGroups,
-                                    failedGroups,
-                                    selectedCount: hotelsPayload.length,
-                                    completedHotels: aiAnalysisProgress.value.completedHotels,
-                                    failedHotels: aiAnalysisProgress.value.failedHotels,
-                                    groupCount: aiAnalysisBatchResults.value.length,
-                                    reason: summaryRes.message || '汇总失败',
-                                });
-                            }
-                        } catch (e) {
-                            aiAnalysisCapturedReport.value = buildCapturedFallbackSummaryReport({
+                            const summaryResult = buildCapturedOtaSummaryResponseResult({
+                                response: summaryRes,
                                 successGroups,
                                 failedGroups,
                                 selectedCount: hotelsPayload.length,
                                 completedHotels: aiAnalysisProgress.value.completedHotels,
                                 failedHotels: aiAnalysisProgress.value.failedHotels,
                                 groupCount: aiAnalysisBatchResults.value.length,
-                                reason: e.message || '网络错误',
                             });
+                            aiAnalysisCapturedReport.value = summaryResult.report;
+                            aiAnalysisProcess.value = summaryResult.process;
+                        } catch (e) {
+                            const summaryResult = buildCapturedOtaSummaryResponseResult({
+                                response: { message: e.message || '网络错误' },
+                                successGroups,
+                                failedGroups,
+                                selectedCount: hotelsPayload.length,
+                                completedHotels: aiAnalysisProgress.value.completedHotels,
+                                failedHotels: aiAnalysisProgress.value.failedHotels,
+                                groupCount: aiAnalysisBatchResults.value.length,
+                            });
+                            aiAnalysisCapturedReport.value = summaryResult.report;
+                            aiAnalysisProcess.value = summaryResult.process;
                         } finally {
                             aiAnalysisProgress.value.summarizing = false;
                         }

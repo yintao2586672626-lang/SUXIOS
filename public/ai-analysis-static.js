@@ -537,6 +537,37 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         failed_groups: failedGroups,
     });
 
+    const buildCapturedOtaSummaryResponseResult = ({
+        response = {},
+        successGroups = [],
+        failedGroups = [],
+        selectedCount = 0,
+        completedHotels = 0,
+        failedHotels = 0,
+        groupCount = 0,
+        fallbackReason = '汇总失败',
+    } = {}) => {
+        if (response?.code === 200) {
+            const summaryData = response.data || {};
+            return {
+                report: summaryData.report || summaryData || {},
+                process: summaryData.process || null,
+            };
+        }
+        return {
+            report: buildCapturedFallbackSummaryReport({
+                successGroups,
+                failedGroups,
+                selectedCount,
+                completedHotels,
+                failedHotels,
+                groupCount,
+                reason: response?.message || fallbackReason,
+            }),
+            process: null,
+        };
+    };
+
     const buildAiAnalysisHistoryRecord = ({
         selectedData = [],
         capturedReport = null,
@@ -674,6 +705,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildCapturedOtaAnalysisRunPlan,
         buildCapturedOtaGroupOutcome,
         buildCapturedOtaSummaryRequestBody,
+        buildCapturedOtaSummaryResponseResult,
         buildAiAnalysisHistoryRecord,
         buildCapturedOtaAnalysisCompletion,
         getMeituanAiAnalysisHotelKey,
