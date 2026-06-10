@@ -27042,6 +27042,11 @@
             const operationAlertFilter = ref('all');
             const operationAlertFilters = requireOperationStatic('operationAlertFilters');
             const operationStrategyTypes = requireOperationStatic('operationStrategyTypes');
+            const buildOperationSummaryCards = requireOperationStatic('buildOperationSummaryCards');
+            const buildOperationOtaCards = requireOperationStatic('buildOperationOtaCards');
+            const buildOperationCompetitorCards = requireOperationStatic('buildOperationCompetitorCards');
+            const buildOperationSourceBrief = requireOperationStatic('buildOperationSourceBrief');
+            const buildOperationDecisionCards = requireOperationStatic('buildOperationDecisionCards');
             const operationStrategyAmountRequired = computed(() => strategyForm.value.strategy_type === 'price_adjust');
             const operationStrategyDiscountRequired = computed(() => strategyForm.value.strategy_type === 'promotion');
             const operationStrategyRequirementText = computed(() => {
@@ -27459,113 +27464,12 @@
                 return null;
             };
 
-            const operationSummaryCards = computed(() => {
-                const summary = operationFullData.value?.summary || {};
-                return [
-                    { label: '收入', value: operationMoney(summary.revenue) },
-                    { label: '订单', value: operationValue(summary.orders) },
-                    { label: '间夜', value: operationValue(summary.room_nights) },
-                    { label: 'ADR', value: operationMoney(summary.adr) },
-                    { label: 'OCC', value: operationValue(summary.occ, '%') },
-                    { label: 'RevPAR', value: operationMoney(summary.revpar) },
-                ];
-            });
-            const operationOtaCards = computed(() => {
-                const ota = operationFullData.value?.ota || {};
-                return [
-                    { label: '曝光', value: operationValue(ota.exposure) },
-                    { label: '访客', value: operationValue(ota.visitors) },
-                    { label: '浏览', value: operationValue(ota.views) },
-                    { label: '订单', value: operationValue(ota.orders) },
-                    { label: '浏览转化率', value: operationValue(ota.view_rate, '%') },
-                    { label: '订单转化率', value: operationValue(ota.order_rate, '%') },
-                ];
-            });
-            const operationCompetitorCards = computed(() => {
-                const item = operationFullData.value?.competitors || {};
-                return [
-                    { label: '竞对均价', value: operationMoney(item.avg_price) },
-                    { label: '本店与竞对价差', value: operationMoney(item.price_gap) },
-                    { label: '竞对评分', value: operationValue(item.avg_score) },
-                    { label: '本店与竞对评分差', value: operationValue(item.score_gap) },
-                    { label: '排名', value: operationValue(item.rank_position) },
-                ];
-            });
-            const operationSourceBrief = computed(() => {
-                const data = operationFullData.value;
-                if (!data) {
-                    return {
-                        status: '待加载',
-                        summary: '选择酒店和日期后，先确认经营结果、渠道漏斗、竞对和口碑数据是否具备判断条件。',
-                        className: 'bg-gray-50 text-gray-500',
-                    };
-                }
-
-                const flags = data.abnormal_flags || [];
-                if (flags.length) {
-                    return {
-                        status: '优先复核',
-                        summary: flags[0],
-                        className: 'bg-amber-50 text-amber-700',
-                    };
-                }
-
-                const missingModules = [
-                    ['经营日报', data.summary],
-                    ['OTA数据', data.ota],
-                    ['竞对数据', data.competitors],
-                    ['服务质量数据', data.service_quality],
-                ]
-                    .filter(([, item]) => (item?.data_status || '') !== 'ok')
-                    .map(([label]) => label);
-
-                if (missingModules.length) {
-                    return {
-                        status: '样本不足',
-                        summary: `先补齐${missingModules.join('、')}，否则只能看到结果，无法判断收入变化的真实原因。`,
-                        className: 'bg-gray-50 text-gray-500',
-                    };
-                }
-
-                return {
-                    status: '可分析',
-                    summary: '数据已覆盖结果、流量、竞对和口碑，可进入根因分析，按优先级拆解流量、转化、价格和评分影响。',
-                    className: 'bg-green-50 text-green-700',
-                };
-            });
-            const operationDecisionCards = computed(() => {
-                const data = operationFullData.value || {};
-                const summary = data.summary || {};
-                const ota = data.ota || {};
-                const competitors = data.competitors || {};
-                const holiday = data.holiday || {};
-                const holidayValue = holiday.next_holiday
-                    ? `${holiday.next_holiday} · ${operationValue(holiday.days_left)}天`
-                    : '暂无节假日窗口';
-
-                return [
-                    {
-                        title: '经营结果',
-                        value: `收入 ${operationMoney(summary.revenue)} / RevPAR ${operationMoney(summary.revpar)}`,
-                        desc: '判断问题是否已反映到收入、房价、入住率和间夜。',
-                    },
-                    {
-                        title: '渠道断点',
-                        value: `曝光 ${operationValue(ota.exposure)} / 订单转化 ${operationValue(ota.order_rate, '%')}`,
-                        desc: '定位流量不足、浏览承接差，还是访客未下单。',
-                    },
-                    {
-                        title: '外部压力',
-                        value: `价差 ${operationMoney(competitors.price_gap)} / 评分差 ${operationValue(competitors.score_gap)}`,
-                        desc: '校准价格和口碑是否弱于同圈层竞对。',
-                    },
-                    {
-                        title: '收益窗口',
-                        value: holidayValue,
-                        desc: holiday.suggestion || '用于决定是否提前处理库存、底价和活动节奏。',
-                    },
-                ];
-            });
+            const operationDisplayFormatters = { value: operationValue, money: operationMoney };
+            const operationSummaryCards = computed(() => buildOperationSummaryCards(operationFullData.value?.summary || {}, operationDisplayFormatters));
+            const operationOtaCards = computed(() => buildOperationOtaCards(operationFullData.value?.ota || {}, operationDisplayFormatters));
+            const operationCompetitorCards = computed(() => buildOperationCompetitorCards(operationFullData.value?.competitors || {}, operationDisplayFormatters));
+            const operationSourceBrief = computed(() => buildOperationSourceBrief(operationFullData.value));
+            const operationDecisionCards = computed(() => buildOperationDecisionCards(operationFullData.value || {}, operationDisplayFormatters));
             const operationUnreadCount = computed(() => operationAlerts.value?.unread_count || (operationAlerts.value?.list || []).filter(item => item.status !== 'read').length);
             const filteredOperationAlerts = computed(() => {
                 const list = operationAlerts.value?.list || [];

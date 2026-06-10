@@ -470,6 +470,17 @@
 - 验证通过：`node --check public\expansion-static-options.js`、`node --check scripts\verify_strategy_location_ui_contract.mjs`、Expansion strategy helper smoke check、`node scripts\verify_strategy_location_ui_contract.mjs`、`node scripts\verify_expansion_p2.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第二十八刀拆分
+
+- 扩展 `public/operation-static.js`，承载运营总览展示构建器：`buildOperationSummaryCards`、`buildOperationOtaCards`、`buildOperationCompetitorCards`、`buildOperationSourceBrief`、`buildOperationDecisionCards`。
+- `public/index.html` 仅保留对应 computed 绑定和运行态格式化函数；不移动酒店权限选择、运营接口请求、执行流、AI 日报、根因分析或 OTA 数据链路。
+- 更新 `scripts/verify_e2e_contracts.mjs`，运营服务质量和决策卡合同改为同时读取入口文件和 `public/operation-static.js`，避免纯展示拆分后误要求文案留在入口。
+- `public/index.html` 从 `40,679` 行降至 `40,583` 行；拆分地图中 `operation` 领域 span 从 `676` 行降至 `575` 行。
+- 当前 `public/operation-static.js` 为 `183` 行；总代码行数为 `186,431` 行，非空行 `170,742` 行。
+- 当前审计：完整目录约 `249.38 MB`；不含 `.git` 约 `91.99 MB`；不含 `.git` 和依赖约 `62.8 MB`；Git 跟踪文件约 `17.87 MB` / `609` 个；代码范围 `366` 个文件。
+- 验证通过：`node --check public\operation-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、Operation display helper smoke check、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

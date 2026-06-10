@@ -404,6 +404,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the twenty-seventh frontend split: `node --check public\expansion-static-options.js`; `node --check scripts\verify_strategy_location_ui_contract.mjs`; expansion strategy helper smoke check; `node scripts\verify_strategy_location_ui_contract.mjs`; `node scripts\verify_expansion_p2.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Operation Display Builder Split
+
+- Twenty-eighth frontend split target chosen from pure operation-dashboard display builders in `public/index.html`.
+- Extended `public/operation-static.js` with builders for operation summary cards, OTA funnel cards, competitor cards, source brief, and decision cards.
+- `public/index.html` now keeps only computed bindings and runtime formatters for those operation dashboard displays; hotel permission selection, operation API requests, execution flow, AI daily report calls, root-cause analysis, and OTA data paths remain unchanged.
+- Updated `scripts/verify_e2e_contracts.mjs` so operation service-quality and decision-card evidence reads both `public/index.html` and `public/operation-static.js` after the display split.
+- `public/index.html` decreased from `40679` lines to `40583` lines; the operation-domain span decreased from `676` to `575` lines.
+- Current `public/operation-static.js` is `183` lines. Total code lines are `186431` and nonblank lines are `170742`.
+- Current self-audit: full directory about `249.38 MB`, without `.git` about `91.99 MB`, without `.git` and dependencies about `62.8 MB`, tracked files about `17.87 MB` / `609` files; code scope `366` files.
+- Verified after the twenty-eighth frontend split: `node --check public\operation-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; operation display helper smoke check; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
