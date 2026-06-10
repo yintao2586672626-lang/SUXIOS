@@ -656,6 +656,17 @@
 - 已验证：`node --check public\data-health-static.js`、`node --check scripts\verify_platform_batch_health_contract.mjs`、`npm.cmd run verify:platform-batch-health`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十三刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程 Cookie/API 核心诊断端点预设 `getCtripCookieApiCorePresetEndpoints`，包含经营、流量、广告、PSI、商旅、用户画像、IM、竞对、流失等 section。
+- `public/index.html` 只保留 `getCtripCookieApiCorePresetJson()`、表单填充和运行态调用；Cookie/API 执行、Profile 复用、数据配置保存、诊断抓取和入库链路均未移动。
+- 更新 `scripts/verify_ota_diagnosis_auto_fetch.mjs`，让核心预设端点覆盖从 `public/ctrip-static.js` 取证，同时要求入口页通过 `requireCtripStatic('getCtripCookieApiCorePresetEndpoints')` 显式读取，防止端点数组重新内联。
+- 更新 `tests/automation/ctrip_endpoint_evidence_ui.test.mjs`，让已拆出的端点证据表单默认值和核心预设端点分别从 `public/ctrip-static.js` 取证，入口页继续验证模板绑定与请求 payload。
+- `public/index.html` 从 `39,333` 行降至 `39,217` 行；split-map 前端函数级块从 `1,449` 降至 `1,448`，`ctrip` 域 span 从 `3,750` 降至 `3,634`。
+- 当前自审：完整目录约 `258.81 MB`，不含 `.git` 约 `92.09 MB`，不含 `.git` 和依赖约 `62.90 MB`，Git 跟踪文件约 `17.97 MB` / `612` 个；代码范围 `369` 个文件，`187,212` 行，非空 `171,474` 行。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_ota_diagnosis_auto_fetch.mjs`、`node --check tests\automation\ctrip_endpoint_evidence_ui.test.mjs`、`npm.cmd run verify:ota-diagnosis-auto-fetch`、`node --test tests\automation\ctrip_endpoint_evidence_ui.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

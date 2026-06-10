@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const html = readFileSync('public/index.html', 'utf8');
+const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 
 test('Ctrip endpoint evidence UI can explicitly save catalog preview standard rows', () => {
-  assert.match(html, /saveStandardRows:\s*false/);
+  assert.match(ctripStatic, /saveStandardRows:\s*false/);
   assert.match(html, /v-model="ctripEndpointEvidenceForm\.saveStandardRows"/);
   assert.match(html, /save_standard_rows:\s*Boolean\(form\.saveStandardRows\)/);
   assert.match(html, /system_hotel_id:\s*autoFetchHotelId\.value \|\| user\.value\?\.hotel_id \|\| null/);
@@ -54,8 +55,9 @@ test('OTA diagnosis fetch can use Ctrip core preset when only Cookie or Profile 
   assert.match(html, /useCtripCorePresetForDiagnosis/);
   assert.match(html, /getCtripCookieApiCorePresetJson\(\)/);
   assert.match(html, /core_preset:\$\{ctripCorePresetReason \|\| 'unknown'\}/);
-  assert.match(html, /queryHotCalendarInfo/);
-  assert.match(html, /queryScanFlowDetailsV2/);
+  assert.match(ctripStatic, /getCtripCookieApiCorePresetEndpoints/);
+  assert.match(ctripStatic, /queryHotCalendarInfo/);
+  assert.match(ctripStatic, /queryScanFlowDetailsV2/);
 });
 
 test('Ctrip Cookie API accepts pasted Cookie headers for diagnosis fetch', () => {

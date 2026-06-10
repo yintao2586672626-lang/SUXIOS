@@ -608,6 +608,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the platform batch-health split: `node --check public\data-health-static.js`; `node --check scripts\verify_platform_batch_health_contract.mjs`; `npm.cmd run verify:platform-batch-health`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Cookie API Core Preset Split
+
+- Forty-third frontend split target chosen from pure Ctrip Cookie/API core diagnosis endpoint preset data in `public/index.html`.
+- Extended `public/ctrip-static.js` with `getCtripCookieApiCorePresetEndpoints` for business, traffic, ads, PSI, biztravel, user profile, IM, competitor, and loss-analysis sections.
+- `public/index.html` keeps `getCtripCookieApiCorePresetJson()`, form-fill behavior, and runtime usage only; Cookie/API execution, Profile reuse, data-config persistence, diagnosis fetch, and storage paths remain unchanged.
+- Updated `scripts/verify_ota_diagnosis_auto_fetch.mjs` so endpoint preset coverage is proven from `public/ctrip-static.js`, while the entry file must explicitly read `requireCtripStatic('getCtripCookieApiCorePresetEndpoints')` and must not re-inline the endpoint array.
+- Updated `tests/automation/ctrip_endpoint_evidence_ui.test.mjs` so extracted endpoint-evidence defaults and Ctrip core preset endpoints are verified from `public/ctrip-static.js`; entry assertions still cover template binding and request payload.
+- `public/index.html` decreased from `39333` lines to `39217` lines; split-map frontend function-level blocks decreased from `1449` to `1448`, and the `ctrip` domain span decreased from `3750` to `3634` lines.
+- Current self-audit after the code move: full directory about `258.81 MB`, without `.git` about `92.09 MB`, without `.git` and dependencies about `62.90 MB`, tracked files about `17.97 MB` / `612` files; code scope `369` files, `187212` total lines, and `171474` nonblank lines.
+- Verified after the Ctrip Cookie/API core preset split: `node --check public\ctrip-static.js`; `node --check scripts\verify_ota_diagnosis_auto_fetch.mjs`; `node --check tests\automation\ctrip_endpoint_evidence_ui.test.mjs`; `npm.cmd run verify:ota-diagnosis-auto-fetch`; `node --test tests\automation\ctrip_endpoint_evidence_ui.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
