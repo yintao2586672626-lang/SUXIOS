@@ -213,6 +213,58 @@ window.SUXI_EXPANSION_STATIC = (() => {
         parking_spaces: 20,
         ota_market_penetration_rate: 62
     };
+    const marketEvaluationTierOfCity = (city) => marketEvaluationCityOptions.find(item => item.name === city)?.tier || '';
+    const splitMarketEvaluationCustomer = (value) => {
+        const parts = String(value || '').split(/[+＋/、,，]/).map(item => item.trim()).filter(Boolean);
+        return {
+            primary: parts[0] || marketEvaluationDefaults.primary_customer,
+            secondary: parts[1] || marketEvaluationDefaults.secondary_customer,
+        };
+    };
+    const strategyDistrictOptionsForCity = (city) => {
+        const options = strategyDistrictOptionsByCity[city];
+        return Array.isArray(options) && options.length > 0 ? options : [city || '当前城市'];
+    };
+    const strategyAddressKeywordOptionsForLocation = (city, district, tier) => {
+        if (strategyAddressKeywordOptionsByDistrict[district]) {
+            return strategyAddressKeywordOptionsByDistrict[district];
+        }
+        const suffixes = strategyLocationSuffixesByCityTier[tier] || strategyAddressKeywordSuffixes;
+        const area = district && district !== '市辖区' ? district : (city || '当前城市');
+        return suffixes.slice(0, 6).map(suffix => `${area}${suffix}`);
+    };
+    const strategyKnownAddressSuffixes = Array.from(new Set([
+        ...strategyAddressKeywordSuffixes,
+        ...Object.values(strategyLocationSuffixesByCityTier).flat(),
+    ]));
+    const isKnownStrategyAddressKeyword = (keyword) => {
+        if (!keyword) return false;
+        return Object.values(strategyAddressKeywordOptionsByDistrict).some(items => items.includes(keyword))
+            || strategyKnownAddressSuffixes.some(suffix => String(keyword).endsWith(suffix));
+    };
+    const normalizeMarketEvaluationForm = (input = {}) => {
+        const form = { ...marketEvaluationDefaults, ...input };
+        form.city_tier = marketEvaluationCityTierOptions.includes(input.city_tier)
+            ? input.city_tier
+            : (marketEvaluationTierOfCity(form.city) || marketEvaluationDefaults.city_tier);
+        const cityOptions = marketEvaluationCityOptions.filter(item => item.tier === form.city_tier);
+        if (!cityOptions.some(item => item.name === form.city)) {
+            form.city = cityOptions[0]?.name || marketEvaluationDefaults.city;
+        }
+        if ((!form.primary_customer || !form.secondary_customer) && form.target_customer) {
+            const customers = splitMarketEvaluationCustomer(form.target_customer);
+            form.primary_customer = form.primary_customer || customers.primary;
+            form.secondary_customer = form.secondary_customer || customers.secondary;
+        }
+        if (form.primary_customer === form.secondary_customer) {
+            form.secondary_customer = marketEvaluationCustomerOptions.find(option => option !== form.primary_customer) || marketEvaluationDefaults.secondary_customer;
+        }
+        form.target_customer = [form.primary_customer, form.secondary_customer].filter(Boolean).join('+');
+        if ((form.ota_market_penetration_rate === undefined || form.ota_market_penetration_rate === null || form.ota_market_penetration_rate === '') && input.ota_platform_market_penetration_rate !== undefined) {
+            form.ota_market_penetration_rate = input.ota_platform_market_penetration_rate;
+        }
+        return form;
+    };
 
     return {
         marketEvaluationCityTierOptions,
@@ -227,5 +279,10 @@ window.SUXI_EXPANSION_STATIC = (() => {
         marketEvaluationCustomerOptions,
         marketEvaluationConditionFields,
         marketEvaluationDefaults,
+        marketEvaluationTierOfCity,
+        strategyDistrictOptionsForCity,
+        strategyAddressKeywordOptionsForLocation,
+        isKnownStrategyAddressKeyword,
+        normalizeMarketEvaluationForm,
     };
 })();

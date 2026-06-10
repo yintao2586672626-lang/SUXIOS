@@ -85,6 +85,22 @@ window.SUXI_SIMULATION_STATIC = (() => {
         'collaboration-efficiency': 'collaboration',
         'sync-efficiency': 'collaboration',
     };
+    const formatDateValue = (date) => {
+        const value = date instanceof Date ? date : new Date(date);
+        const y = value.getFullYear();
+        const m = String(value.getMonth() + 1).padStart(2, '0');
+        const d = String(value.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    };
+    const buildCollaborationTasks = (defaultOnlineDate, now = Date.now()) => [
+        { name: '市场调研', status: '已完成', owner: '投资经理', due_date: formatDateValue(new Date(now - 28 * 24 * 60 * 60 * 1000)), risk_note: '' },
+        { name: '物业评估', status: '已完成', owner: '工程经理', due_date: formatDateValue(new Date(now - 21 * 24 * 60 * 60 * 1000)), risk_note: '' },
+        { name: '合同谈判', status: '已完成', owner: '拓展负责人', due_date: formatDateValue(new Date(now - 14 * 24 * 60 * 60 * 1000)), risk_note: '' },
+        { name: '装修筹建', status: '进行中', owner: '工程经理', due_date: formatDateValue(new Date(now + 14 * 24 * 60 * 60 * 1000)), risk_note: '' },
+        { name: '证照办理', status: '进行中', owner: '行政负责人', due_date: formatDateValue(new Date(now + 21 * 24 * 60 * 60 * 1000)), risk_note: '' },
+        { name: 'OTA上线', status: '未开始', owner: '运营负责人', due_date: formatDateValue(new Date(now + 35 * 24 * 60 * 60 * 1000)), risk_note: '' },
+        { name: '运营交接', status: '未开始', owner: '店长', due_date: defaultOnlineDate, risk_note: '' },
+    ];
     const transferPricingFields = [
         { key: 'hotel_name', label: '酒店名称', type: 'text', full: true },
         { key: 'location', label: '城市/商圈', type: 'text', full: true },
@@ -425,6 +441,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         benchmarkModelDetailFields,
         collaborationStatusOptions,
         expansionRecordPageTypes,
+        buildCollaborationTasks,
         transferPricingFields,
         transferTimingCompareFields,
         transferTimingNumberFields,

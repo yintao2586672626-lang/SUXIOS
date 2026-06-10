@@ -38896,6 +38896,11 @@
             const marketEvaluationCustomerOptions = requireExpansionStaticOption('marketEvaluationCustomerOptions');
             const marketEvaluationConditionFields = requireExpansionStaticOption('marketEvaluationConditionFields');
             const marketEvaluationDefaults = requireExpansionStaticOption('marketEvaluationDefaults');
+            const marketEvaluationTierOfCity = requireExpansionStaticOption('marketEvaluationTierOfCity');
+            const strategyDistrictOptionsForCity = requireExpansionStaticOption('strategyDistrictOptionsForCity');
+            const strategyAddressKeywordOptionsForLocation = requireExpansionStaticOption('strategyAddressKeywordOptionsForLocation');
+            const isKnownStrategyAddressKeyword = requireExpansionStaticOption('isKnownStrategyAddressKeyword');
+            const normalizeMarketEvaluationForm = requireExpansionStaticOption('normalizeMarketEvaluationForm');
             const marketEvaluationForm = ref({ ...marketEvaluationDefaults });
             const marketEvaluationResult = ref(null);
             const marketEvaluationLoading = ref(false);
@@ -39124,7 +39129,6 @@
                 }
                 return String(result.data_status?.notice || '').trim();
             });
-            const marketEvaluationTierOfCity = (city) => marketEvaluationCityOptions.find(item => item.name === city)?.tier || '';
             const estimateStrategyCompetitorCount = () => {
                 const tier = aiProject.value.city_tier || marketEvaluationTierOfCity(aiProject.value.city) || '一线';
                 const grade = aiProject.value.target_grade || '中端精选';
@@ -39134,13 +39138,6 @@
             };
             const syncStrategyCompetitorCount = () => {
                 aiProject.value.competitor_count = estimateStrategyCompetitorCount();
-            };
-            const splitMarketEvaluationCustomer = (value) => {
-                const parts = String(value || '').split(/[+＋/、,，]/).map(item => item.trim()).filter(Boolean);
-                return {
-                    primary: parts[0] || marketEvaluationDefaults.primary_customer,
-                    secondary: parts[1] || marketEvaluationDefaults.secondary_customer
-                };
             };
             const filteredMarketEvaluationCityOptions = computed(() => {
                 const tier = marketEvaluationForm.value.city_tier || marketEvaluationDefaults.city_tier;
@@ -39155,10 +39152,6 @@
                 }
                 return options;
             });
-            const strategyDistrictOptionsForCity = (city) => {
-                const options = strategyDistrictOptionsByCity[city];
-                return Array.isArray(options) && options.length > 0 ? options : [city || '当前城市'];
-            };
             const filteredStrategyDistrictOptions = computed(() => {
                 const options = strategyDistrictOptionsForCity(aiProject.value.city);
                 if (aiProject.value.district && !options.includes(aiProject.value.district)) {
@@ -39166,23 +39159,6 @@
                 }
                 return options;
             });
-            const strategyAddressKeywordOptionsForLocation = (city, district, tier) => {
-                if (strategyAddressKeywordOptionsByDistrict[district]) {
-                    return strategyAddressKeywordOptionsByDistrict[district];
-                }
-                const suffixes = strategyLocationSuffixesByCityTier[tier] || strategyAddressKeywordSuffixes;
-                const area = district && district !== '市辖区' ? district : (city || '当前城市');
-                return suffixes.slice(0, 6).map(suffix => `${area}${suffix}`);
-            };
-            const strategyKnownAddressSuffixes = Array.from(new Set([
-                ...strategyAddressKeywordSuffixes,
-                ...Object.values(strategyLocationSuffixesByCityTier).flat()
-            ]));
-            const isKnownStrategyAddressKeyword = (keyword) => {
-                if (!keyword) return false;
-                return Object.values(strategyAddressKeywordOptionsByDistrict).some(items => items.includes(keyword))
-                    || strategyKnownAddressSuffixes.some(suffix => String(keyword).endsWith(suffix));
-            };
             const filteredStrategyAddressKeywordOptions = computed(() => {
                 const options = strategyAddressKeywordOptionsForLocation(aiProject.value.city, aiProject.value.district, aiProject.value.city_tier);
                 if (aiProject.value.address && !options.includes(aiProject.value.address)) {
@@ -39198,29 +39174,6 @@
                 }
             };
             const secondaryMarketEvaluationCustomerOptions = computed(() => marketEvaluationCustomerOptions.filter(option => option !== marketEvaluationForm.value.primary_customer));
-            const normalizeMarketEvaluationForm = (input = {}) => {
-                const form = { ...marketEvaluationDefaults, ...input };
-                form.city_tier = marketEvaluationCityTierOptions.includes(input.city_tier)
-                    ? input.city_tier
-                    : (marketEvaluationTierOfCity(form.city) || marketEvaluationDefaults.city_tier);
-                const cityOptions = marketEvaluationCityOptions.filter(item => item.tier === form.city_tier);
-                if (!cityOptions.some(item => item.name === form.city)) {
-                    form.city = cityOptions[0]?.name || marketEvaluationDefaults.city;
-                }
-                if ((!form.primary_customer || !form.secondary_customer) && form.target_customer) {
-                    const customers = splitMarketEvaluationCustomer(form.target_customer);
-                    form.primary_customer = form.primary_customer || customers.primary;
-                    form.secondary_customer = form.secondary_customer || customers.secondary;
-                }
-                if (form.primary_customer === form.secondary_customer) {
-                    form.secondary_customer = marketEvaluationCustomerOptions.find(option => option !== form.primary_customer) || marketEvaluationDefaults.secondary_customer;
-                }
-                form.target_customer = [form.primary_customer, form.secondary_customer].filter(Boolean).join('+');
-                if ((form.ota_market_penetration_rate === undefined || form.ota_market_penetration_rate === null || form.ota_market_penetration_rate === '') && input.ota_platform_market_penetration_rate !== undefined) {
-                    form.ota_market_penetration_rate = input.ota_platform_market_penetration_rate;
-                }
-                return form;
-            };
             watch(() => marketEvaluationForm.value.city_tier, () => {
                 const options = filteredMarketEvaluationCityOptions.value;
                 if (options.length > 0 && !options.some(item => item.name === marketEvaluationForm.value.city)) {
@@ -39280,16 +39233,8 @@
                 expected_online_date: expansionDefaultOnlineDate
             });
             const collaborationStatusOptions = requireSimulationStatic('collaborationStatusOptions');
-            const buildCollaborationTasks = () => [
-                { name: '市场调研', status: '已完成', owner: '投资经理', due_date: formatDate(new Date(Date.now() - 28 * 24 * 60 * 60 * 1000)), risk_note: '' },
-                { name: '物业评估', status: '已完成', owner: '工程经理', due_date: formatDate(new Date(Date.now() - 21 * 24 * 60 * 60 * 1000)), risk_note: '' },
-                { name: '合同谈判', status: '已完成', owner: '拓展负责人', due_date: formatDate(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)), risk_note: '' },
-                { name: '装修筹建', status: '进行中', owner: '工程经理', due_date: formatDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)), risk_note: '' },
-                { name: '证照办理', status: '进行中', owner: '行政负责人', due_date: formatDate(new Date(Date.now() + 21 * 24 * 60 * 60 * 1000)), risk_note: '' },
-                { name: 'OTA上线', status: '未开始', owner: '运营负责人', due_date: formatDate(new Date(Date.now() + 35 * 24 * 60 * 60 * 1000)), risk_note: '' },
-                { name: '运营交接', status: '未开始', owner: '店长', due_date: expansionDefaultOnlineDate, risk_note: '' }
-            ];
-            const collaborationTasks = ref(buildCollaborationTasks());
+            const buildCollaborationTasks = requireSimulationStatic('buildCollaborationTasks');
+            const collaborationTasks = ref(buildCollaborationTasks(expansionDefaultOnlineDate));
             const collaborationEfficiencyResult = ref(null);
             const collaborationEfficiencyLoading = ref(false);
             const expansionRecords = ref([]);

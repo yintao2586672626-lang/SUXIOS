@@ -332,6 +332,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the twenty-first frontend split: `node --check public\simulation-static.js`; simulation-static export smoke check; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `node scripts\verify_simulation_p2.mjs`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
+## 2026-06-10 Progress: Frontend Expansion Helper Split
+
+- Twenty-second frontend split target chosen from low-risk collaboration defaults and market-evaluation / strategy-location pure helpers in `public/index.html`.
+- Extended `public/simulation-static.js` with `buildCollaborationTasks`, keeping collaboration API calls, history reuse, runtime result handling, and Vue state in the entry file.
+- Extended `public/expansion-static-options.js` with city-tier lookup, strategy district options, strategy address keyword options, known address keyword detection, and `normalizeMarketEvaluationForm`.
+- `public/index.html` now reads those helpers through `window.SUXI_SIMULATION_STATIC` and `window.SUXI_EXPANSION_STATIC`; missing scripts or missing keys still throw explicit configuration errors instead of silently falling back.
+- This split does not move market-evaluation request execution, strategy runtime data paths, collaboration request execution, history reuse, local state, or OTA channel data paths.
+- `public/index.html` decreased from `41182` lines to `41127` lines; split-map frontend function-level blocks decreased from `1133` to `1126`; the `general` domain span decreased from `10111` to `9866` lines.
+- Current self-audit: full directory about `245.82 MB`, without `.git` about `91.96 MB`, without `.git` and dependencies about `62.77 MB`, tracked files about `17.85 MB` / `609` files; code scope `366` files, `186284` total lines, `170612` nonblank lines.
+- Verified after the twenty-second frontend split: `node --check public\expansion-static-options.js`; `node --check public\simulation-static.js`; expansion-static and simulation-static export smoke checks; `npm.cmd run verify:public-entry`; `node scripts\verify_expansion_p2.mjs`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

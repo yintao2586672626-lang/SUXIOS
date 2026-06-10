@@ -404,6 +404,17 @@
 - 验证通过：`node --check public\simulation-static.js`、静态导出 smoke 检查、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`node scripts\verify_simulation_p2.mjs`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第二十二刀拆分
+
+- 扩展 `public/simulation-static.js`，承载协同提效默认任务构建器 `buildCollaborationTasks`；`public/index.html` 仅保留 `ref()` 绑定和显式读取，不移动协同提效接口调用、历史复用或运行态结果。
+- 扩展 `public/expansion-static-options.js`，承载市场评估/战略选址纯 helper：城市层级识别、城市行政区选项、地址关键词选项、已知地址关键词判断和 `normalizeMarketEvaluationForm`。
+- `public/index.html` 通过 `window.SUXI_EXPANSION_STATIC` 和 `window.SUXI_SIMULATION_STATIC` 显式读取上述函数；缺少脚本或 key 时继续直接抛出明确配置错误，不用空函数、空数组或默认成功掩盖缺失。
+- `public/index.html` 从 `41,182` 行降至 `41,127` 行；拆分地图中前端函数级块从 `1,133` 降至 `1,126`，`general` 领域 span 从 `10,111` 行降至 `9,866` 行。
+- 当前 `public/expansion-static-options.js` 为 `287` 行，`public/simulation-static.js` 为 `452` 行。
+- 当前审计：完整目录约 `245.82 MB`；不含 `.git` 约 `91.96 MB`；不含 `.git` 和依赖约 `62.77 MB`；Git 跟踪文件约 `17.85 MB` / `609` 个；代码范围 `366` 个文件、`186,284` 行、非空 `170,612` 行。
+- 验证通过：`node --check public\expansion-static-options.js`、`node --check public\simulation-static.js`、两个静态导出 smoke 检查、`npm.cmd run verify:public-entry`、`node scripts\verify_expansion_p2.mjs`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
