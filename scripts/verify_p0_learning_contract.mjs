@@ -171,6 +171,16 @@ const checks = [
       && publicSource.includes("requireMeituanStatic('buildHomeCompetitorSummaryCards')"),
   },
   {
+    name: 'Meituan default capture forms and section normalization live in static module',
+    pass: meituanStaticSource.includes('const createMeituanRankingForm')
+      && meituanStaticSource.includes('const createMeituanBrowserCaptureForm')
+      && meituanStaticSource.includes('const normalizeMeituanCaptureSections')
+      && publicSource.includes("requireMeituanStatic('createMeituanRankingForm')")
+      && publicSource.includes("requireMeituanStatic('createMeituanBrowserCaptureForm')")
+      && publicSource.includes("requireMeituanStatic('normalizeMeituanCaptureSections')")
+      && !publicSource.includes('const normalizeMeituanCaptureSections = (sections)'),
+  },
+  {
     name: 'privacy boundary remains visible for high-risk order and room-state data',
     pass: publicSource.includes('不触碰订单手机号、房态或房源映射')
       && publicSource.includes('不展示订单手机号、平台授权或原始敏感数据'),

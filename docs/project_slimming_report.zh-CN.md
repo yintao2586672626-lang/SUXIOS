@@ -558,6 +558,17 @@
 - 已验证：`node --check public\auto-fetch-static.js`、`node --check scripts\verify_platform_data_source_contract.mjs`、`node scripts\verify_platform_data_source_contract.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`npm.cmd run self:check`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十四刀拆分
+
+- 扩展 `public/meituan-static.js`，承载美团默认表单工厂和浏览器采集 section 归一化：`defaultMeituanAdsUrl`、`createMeituanRankingForm`、`createMeituanTrafficForm`、`createMeituanOrderForm`、`createMeituanAdsForm`、`createMeituanBrowserCaptureForm`、`normalizeMeituanCaptureSections`。
+- `public/index.html` 仅保留 `ref(create...)` 状态绑定、采集命令拼接、Profile 登录 payload、切换 tab 和执行请求；本轮不移动美团抓取接口、保存抓取结果、Profile 登录轮询、数据源绑定或 OTA 入库链路。
+- 更新 `scripts/verify_p0_learning_contract.mjs`，要求美团默认采集表单和 section 归一化留在 `public/meituan-static.js`，入口通过 `requireMeituanStatic()` 读取。
+- `public/index.html` 从 `40,113` 行降至 `40,049` 行；split-map 前端函数级块从 `1,107` 降至 `1,106`，`meituan` 域 span 从 `1,371` 行降至 `1,364` 行。
+- 当前 `public/meituan-static.js` 为 `264` 行；本轮代码改动后总代码行数为 `186,842`，非空行 `171,104`。
+- 本轮代码改动后自审计：完整目录约 `253.52 MB`；不含 `.git` 约 `92.03 MB`；不含 `.git` 和依赖约 `62.84 MB`；Git 跟踪文件约 `17.92 MB` / `611` 个；代码范围 `368` 个文件。
+- 已验证：`node --check public\meituan-static.js`、`node --check scripts\verify_p0_learning_contract.mjs`、`npm.cmd run verify:p0-learning`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`npm.cmd run self:check`。
+- 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

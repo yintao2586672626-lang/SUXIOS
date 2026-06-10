@@ -499,6 +499,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the data-config request builder split: `node --check public\auto-fetch-static.js`; `node --check scripts\verify_platform_data_source_contract.mjs`; `node scripts\verify_platform_data_source_contract.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`; `npm.cmd run self:check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Meituan Capture Defaults Split
+
+- Thirty-fourth frontend split target chosen from Meituan default form objects and browser-capture section normalization in `public/index.html`.
+- Extended `public/meituan-static.js` with `defaultMeituanAdsUrl`, `createMeituanRankingForm`, `createMeituanTrafficForm`, `createMeituanOrderForm`, `createMeituanAdsForm`, `createMeituanBrowserCaptureForm`, and `normalizeMeituanCaptureSections`.
+- `public/index.html` now keeps only `ref(create...)` bindings, capture command assembly, Profile login payload, tab switching, and request execution for this flow; Meituan capture endpoints, captured-payload saving, Profile login polling, data-source binding, and OTA storage paths remain unchanged.
+- Updated `scripts/verify_p0_learning_contract.mjs` so the Meituan form defaults and section normalizer are required from `public/meituan-static.js`, while the entry file must explicitly read them through `requireMeituanStatic()`.
+- `public/index.html` decreased from `40113` lines to `40049` lines; split-map frontend function-level blocks decreased from `1107` to `1106`; the Meituan-domain span decreased from `1371` to `1364` lines.
+- Current `public/meituan-static.js` is `264` lines. Total code lines are `186842` and nonblank lines are `171104` after the code move.
+- Current self-audit after the code move: full directory about `253.52 MB`, without `.git` about `92.03 MB`, without `.git` and dependencies about `62.84 MB`, tracked files about `17.92 MB` / `611` files; code scope `368` files.
+- Verified after the Meituan capture defaults split: `node --check public\meituan-static.js`; `node --check scripts\verify_p0_learning_contract.mjs`; `npm.cmd run verify:p0-learning`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`; `npm.cmd run self:check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -32,6 +32,89 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const meituanDisplayRowKey = (row, index) => String(row?.poiId || row?.hotelName || index);
 
+    const defaultMeituanAdsUrl = () => 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
+
+    const createMeituanRankingForm = () => ({
+        url: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
+        hotelId: '',
+        partnerId: '',
+        poiId: '',
+        rankType: 'P_RZ',
+        rankTypes: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL_EXPOSE'],
+        dateRanges: ['1'],
+        startDate: '',
+        endDate: '',
+        cookies: '',
+        auth_data: {},
+        hotelRoomCount: '',
+        competitorRoomCount: '',
+    });
+
+    const createMeituanTrafficForm = () => ({
+        url: '',
+        partnerId: '',
+        poiId: '',
+        startDate: '',
+        endDate: '',
+        cookies: '',
+        extraParams: '',
+    });
+
+    const createMeituanOrderForm = () => ({
+        url: '',
+        method: 'GET',
+        partnerId: '',
+        poiId: '',
+        startDate: '',
+        endDate: '',
+        cookies: '',
+        payloadJson: '',
+        extraParams: '',
+    });
+
+    const createMeituanAdsForm = () => ({
+        url: '',
+        method: 'GET',
+        partnerId: '',
+        poiId: '',
+        shopId: '',
+        startDate: '',
+        endDate: '',
+        cookies: '',
+        payloadJson: '',
+        extraParams: '',
+    });
+
+    const createMeituanBrowserCaptureForm = () => ({
+        storeId: '',
+        poiId: '',
+        poiName: '',
+        adsUrl: defaultMeituanAdsUrl(),
+        captureSections: ['traffic'],
+        payloadJson: '',
+    });
+
+    const normalizeMeituanCaptureSections = (sections) => {
+        const aliases = {
+            review: 'reviews',
+            reviews: 'reviews',
+            comment: 'reviews',
+            comments: 'reviews',
+            traffic: 'traffic',
+            flow: 'traffic',
+            ads: 'ads',
+            ad: 'ads',
+            advertising: 'ads',
+            orders: 'orders',
+            order: 'orders',
+        };
+        const raw = Array.isArray(sections) ? sections : String(sections || '').split(/[,\s]+/);
+        const normalized = raw
+            .map(item => aliases[String(item || '').trim().toLowerCase()] || '')
+            .filter(Boolean);
+        return Array.from(new Set(normalized));
+    };
+
     const buildMeituanRankDisplayRows = (rows, field) => {
         const sourceRows = Array.isArray(rows) ? rows : [];
         const metricLabel = meituanDisplayMetricLabel(field);
@@ -181,6 +264,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
         meituanSortMetricValue,
         formatMeituanSortGapValue,
         meituanDisplayRowKey,
+        defaultMeituanAdsUrl,
+        createMeituanRankingForm,
+        createMeituanTrafficForm,
+        createMeituanOrderForm,
+        createMeituanAdsForm,
+        createMeituanBrowserCaptureForm,
+        normalizeMeituanCaptureSections,
         buildMeituanRankDisplayRows,
         buildCompetitorSummaryCoreCards,
         buildHomeCompetitorSummaryCards,

@@ -19302,87 +19302,34 @@
             const showCtripCommentSpidertoken = ref(false);
             const showCtripCommentCookies = ref(false);
             const showCtripCommentPayload = ref(false);
-            const meituanForm = ref({
-                url: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
-                hotelId: '',
-                partnerId: '',
-                poiId: '',
-                rankType: 'P_RZ',
-                rankTypes: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL_EXPOSE'],  // 默认全选4个榜单
-                dateRanges: ['1'],    // 支持多选时间维度，默认昨日
-                startDate: '',
-                endDate: '',
-                cookies: '',
-                auth_data: {}, // 认证数据
-                hotelRoomCount: '',   // 酒店房量
-                competitorRoomCount: '', // 竞争圈总房量
-            });
-            const meituanTrafficForm = ref({
-                url: '',
-                partnerId: '',
-                poiId: '',
-                startDate: '',
-                endDate: '',
-                cookies: '',
-                extraParams: '',
-            });
-            const meituanOrderForm = ref({
-                url: '',
-                method: 'GET',
-                partnerId: '',
-                poiId: '',
-                startDate: '',
-                endDate: '',
-                cookies: '',
-                payloadJson: '',
-                extraParams: '',
-            });
+            const meituanStatic = window.SUXI_MEITUAN_STATIC;
+            if (!meituanStatic || typeof meituanStatic !== 'object') {
+                throw new Error('缺少美团静态展示工具：meituan-static.js 未加载');
+            }
+            const requireMeituanStatic = (key) => {
+                const value = meituanStatic[key];
+                if (typeof value !== 'function') {
+                    throw new Error(`缺少美团静态展示工具项：${key}`);
+                }
+                return value;
+            };
+            const defaultMeituanAdsUrl = requireMeituanStatic('defaultMeituanAdsUrl')();
+            const createMeituanRankingForm = requireMeituanStatic('createMeituanRankingForm');
+            const createMeituanTrafficForm = requireMeituanStatic('createMeituanTrafficForm');
+            const createMeituanOrderForm = requireMeituanStatic('createMeituanOrderForm');
+            const createMeituanAdsForm = requireMeituanStatic('createMeituanAdsForm');
+            const createMeituanBrowserCaptureForm = requireMeituanStatic('createMeituanBrowserCaptureForm');
+            const normalizeMeituanCaptureSections = requireMeituanStatic('normalizeMeituanCaptureSections');
+            const meituanForm = ref(createMeituanRankingForm());
+            const meituanTrafficForm = ref(createMeituanTrafficForm());
+            const meituanOrderForm = ref(createMeituanOrderForm());
             const meituanOrderResult = ref(null);
-            const meituanAdsForm = ref({
-                url: '',
-                method: 'GET',
-                partnerId: '',
-                poiId: '',
-                shopId: '',
-                startDate: '',
-                endDate: '',
-                cookies: '',
-                payloadJson: '',
-                extraParams: '',
-            });
+            const meituanAdsForm = ref(createMeituanAdsForm());
             const meituanAdsResult = ref(null);
             const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/login/index';
-            const defaultMeituanAdsUrl = 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
-            const meituanBrowserCaptureForm = ref({
-                storeId: '',
-                poiId: '',
-                poiName: '',
-                adsUrl: defaultMeituanAdsUrl,
-                captureSections: ['traffic'],
-                payloadJson: '',
-            });
+            const meituanBrowserCaptureForm = ref(createMeituanBrowserCaptureForm());
             const meituanBrowserCaptureResult = ref(null);
             const meituanBrowserCaptureRunning = ref(false);
-            const normalizeMeituanCaptureSections = (sections) => {
-                const aliases = {
-                    review: 'reviews',
-                    reviews: 'reviews',
-                    comment: 'reviews',
-                    comments: 'reviews',
-                    traffic: 'traffic',
-                    flow: 'traffic',
-                    ads: 'ads',
-                    ad: 'ads',
-                    advertising: 'ads',
-                    orders: 'orders',
-                    order: 'orders',
-                };
-                const raw = Array.isArray(sections) ? sections : String(sections || '').split(/[,\s]+/);
-                const normalized = raw
-                    .map(item => aliases[String(item || '').trim().toLowerCase()] || '')
-                    .filter(Boolean);
-                return Array.from(new Set(normalized));
-            };
             const meituanBrowserCaptureCommand = computed(() => {
                 const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanForm.value.poiId || '').trim();
                 const hotelId = String(meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
@@ -19546,17 +19493,6 @@
             // 表格排序功能
             const meituanSortField = ref('roomNights'); // 当前排序字段
             const meituanSortOrder = ref('desc'); // 排序方式: asc/desc
-            const meituanStatic = window.SUXI_MEITUAN_STATIC;
-            if (!meituanStatic || typeof meituanStatic !== 'object') {
-                throw new Error('缺少美团静态展示工具：meituan-static.js 未加载');
-            }
-            const requireMeituanStatic = (key) => {
-                const value = meituanStatic[key];
-                if (typeof value !== 'function') {
-                    throw new Error(`缺少美团静态展示工具项：${key}`);
-                }
-                return value;
-            };
             const meituanSortMetricValue = requireMeituanStatic('meituanSortMetricValue');
             const buildMeituanRankDisplayRows = requireMeituanStatic('buildMeituanRankDisplayRows');
             const buildCompetitorSummaryCoreCards = requireMeituanStatic('buildCompetitorSummaryCoreCards');
