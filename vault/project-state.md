@@ -321,6 +321,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the twentieth frontend split: `node --check public\ota-diagnosis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check scripts\verify_ota_diagnosis_auto_fetch.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:ota-diagnosis-auto-fetch`; `npm.cmd run verify:public-entry`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
+## 2026-06-10 Progress: Frontend Simulation Pure Utility Split
+
+- Twenty-first frontend split target chosen from pure simulation calculation/display helpers in `public/index.html`.
+- Extended `public/simulation-static.js` with `simulationGroupTotal`, simulation revenue/cost summary builders, risk-hint builder, simulation model-analysis normalization, simulation input normalization, and simulation input validation.
+- `public/index.html` now reads those helpers through `window.SUXI_SIMULATION_STATIC`; missing script or missing function keys continue to throw explicit configuration errors through `requireSimulationStatic()`.
+- This split intentionally does not move `handleSimulation`, request execution, record loading/archiving, localStorage persistence, or Vue ref state handling.
+- `public/index.html` decreased from `41467` lines to `41182` lines; current `public/simulation-static.js` is `444` lines; current split map reports `1133` frontend function-level blocks, `44` `currentPage` references, and simulation-domain span `380` lines.
+- Current self-audit after the twenty-first frontend split: full directory about `245.23 MB`, without `.git` about `91.95 MB`, without `.git` and dependencies about `62.76 MB`, tracked files about `17.84 MB` / `609` files; code scope `366` files, `186265` total lines, `170593` nonblank lines.
+- Verified after the twenty-first frontend split: `node --check public\simulation-static.js`; simulation-static export smoke check; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `node scripts\verify_simulation_p2.mjs`; `git diff --check`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

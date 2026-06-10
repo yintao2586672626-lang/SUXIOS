@@ -165,6 +165,261 @@ window.SUXI_SIMULATION_STATIC = (() => {
         { key: 'otherMiscIncome', label: '其他杂项收入' },
     ];
 
+    const toNumberValue = (value, fallback = 0) => {
+        const num = Number(value);
+        return Number.isFinite(num) ? num : fallback;
+    };
+
+    function simulationGroupTotal(input, group) {
+        const hasDetail = group.fields.some(field => Object.prototype.hasOwnProperty.call(input, field.key));
+        if (!hasDetail) return toNumberValue(input[group.totalKey]);
+        return group.fields.reduce((sum, field) => sum + toNumberValue(input[field.key]), 0);
+    }
+
+    function enrichSimulationTotals(input) {
+        return { ...input };
+    }
+
+    function simulationRevenueSummaryFromInput(input, result = {}) {
+        return {
+            totalDays: null,
+            availableRoomNights: result?.availableRoomNights ?? 0,
+            occupiedRoomNights: result?.occupiedRoomNights ?? null,
+            roomRevenue: result?.roomRevenue ?? 0,
+            otherIncome: input?.otherIncome ?? 0,
+            monthlyRevenue: result?.monthlyRevenue ?? 0,
+            adr: input?.adr ?? 0,
+            occupancyRate: input?.occupancyRate ?? 0,
+        };
+    }
+
+    function simulationCostSummaryFromInput(input, result = {}) {
+        return {
+            fixedMonthlyCost: null,
+            otaCommissionRate: input?.otaCommissionRate ?? 0,
+            otaCommission: result?.otaCommission ?? 0,
+            monthlyCost: result?.monthlyCost ?? 0,
+        };
+    }
+
+    function generateRiskHints() {
+        return [];
+    }
+
+    function normalizeTextList(items) {
+        return Array.isArray(items)
+            ? items.map(item => String(item || '').trim()).filter(Boolean)
+            : [];
+    }
+
+    function normalizeSimulationModelAnalysis(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const recommendations = Array.isArray(raw.recommendations)
+            ? raw.recommendations.map(item => {
+                const title = String(item?.title || '').trim();
+                const detail = String(item?.detail || item?.content || '').trim();
+                if (!title && !detail) return null;
+                return {
+                    priority: String(item?.priority || 'P1').trim() || 'P1',
+                    title: title || '经营建议',
+                    detail,
+                };
+            }).filter(Boolean)
+            : [];
+        const rawWatchPoints = raw.watch_points || raw.watchPoints || [];
+        const watchPoints = Array.isArray(rawWatchPoints)
+            ? rawWatchPoints.map(item => {
+                const metric = String(item?.metric || '').trim();
+                const threshold = String(item?.threshold || '').trim();
+                const action = String(item?.action || '').trim();
+                if (!metric && !threshold && !action) return null;
+                return {
+                    metric: metric || '关键指标',
+                    threshold,
+                    action,
+                };
+            }).filter(Boolean)
+            : [];
+        const assumptions = normalizeTextList(raw.assumptions);
+        const analysis = {
+            source: String(raw.source || '').trim(),
+            model_key: String(raw.model_key || raw.modelKey || '').trim(),
+            generated_at: String(raw.generated_at || raw.generatedAt || '').trim(),
+            summary: String(raw.summary || '').trim(),
+            decision: String(raw.decision || '').trim(),
+            recommendations,
+            watch_points: watchPoints,
+            assumptions,
+            error: String(raw.error || '').trim(),
+        };
+        return (analysis.summary || analysis.decision || recommendations.length || watchPoints.length || assumptions.length) ? analysis : null;
+    }
+
+    function normalizeSimulationInput(raw) {
+        if (!raw) return {};
+        const normalized = {
+            roomCount: raw.roomCount ?? raw.room_count,
+            decorationInvestment: raw.decorationInvestment ?? raw.decoration_investment,
+            decorationHardCost: raw.decorationHardCost ?? raw.decoration_hard_cost,
+            decorationSoftCost: raw.decorationSoftCost ?? raw.decoration_soft_cost,
+            fireSafetyCost: raw.fireSafetyCost ?? raw.fire_safety_cost,
+            signageDesignCost: raw.signageDesignCost ?? raw.signage_design_cost,
+            furnitureInvestment: raw.furnitureInvestment ?? raw.equipment_investment,
+            roomFurnitureCost: raw.roomFurnitureCost ?? raw.room_furniture_cost,
+            applianceEquipmentCost: raw.applianceEquipmentCost ?? raw.appliance_equipment_cost,
+            linenSuppliesCost: raw.linenSuppliesCost ?? raw.linen_supplies_cost,
+            techSystemCost: raw.techSystemCost ?? raw.tech_system_cost,
+            openingCost: raw.openingCost ?? raw.pre_opening_cost,
+            licensePermitCost: raw.licensePermitCost ?? raw.license_permit_cost,
+            openingMarketingCost: raw.openingMarketingCost ?? raw.opening_marketing_cost,
+            recruitmentTrainingCost: raw.recruitmentTrainingCost ?? raw.recruitment_training_cost,
+            openingMaterialCost: raw.openingMaterialCost ?? raw.opening_material_cost,
+            otherInvestment: raw.otherInvestment ?? raw.other_investment,
+            contingencyCost: raw.contingencyCost ?? raw.contingency_cost,
+            rentDepositCost: raw.rentDepositCost ?? raw.rent_deposit_cost,
+            otherProjectCost: raw.otherProjectCost ?? raw.other_project_cost,
+            adr: raw.adr,
+            occupancyRate: raw.occupancyRate ?? raw.occupancy_rate,
+            weekdayDays: raw.weekdayDays ?? raw.weekday_days,
+            weekdayAdr: raw.weekdayAdr ?? raw.weekday_adr,
+            weekdayOccupancyRate: raw.weekdayOccupancyRate ?? raw.weekday_occupancy_rate,
+            weekendDays: raw.weekendDays ?? raw.weekend_days,
+            weekendAdr: raw.weekendAdr ?? raw.weekend_adr,
+            weekendOccupancyRate: raw.weekendOccupancyRate ?? raw.weekend_occupancy_rate,
+            holidayDays: raw.holidayDays ?? raw.holiday_days,
+            holidayAdr: raw.holidayAdr ?? raw.holiday_adr,
+            holidayOccupancyRate: raw.holidayOccupancyRate ?? raw.holiday_occupancy_rate,
+            otherIncome: raw.otherIncome ?? raw.other_income,
+            breakfastIncome: raw.breakfastIncome ?? raw.breakfast_income,
+            meetingIncome: raw.meetingIncome ?? raw.meeting_income,
+            retailIncome: raw.retailIncome ?? raw.retail_income,
+            parkingLaundryIncome: raw.parkingLaundryIncome ?? raw.parking_laundry_income,
+            otherMiscIncome: raw.otherMiscIncome ?? raw.other_misc_income,
+            monthlyRent: raw.monthlyRent ?? raw.monthly_rent,
+            baseRentCost: raw.baseRentCost ?? raw.base_rent_cost,
+            propertyManagementCost: raw.propertyManagementCost ?? raw.property_management_cost,
+            laborCost: raw.laborCost ?? raw.labor_cost,
+            frontDeskLaborCost: raw.frontDeskLaborCost ?? raw.front_desk_labor_cost,
+            housekeepingLaborCost: raw.housekeepingLaborCost ?? raw.housekeeping_labor_cost,
+            managementLaborCost: raw.managementLaborCost ?? raw.management_labor_cost,
+            socialSecurityCost: raw.socialSecurityCost ?? raw.social_security_cost,
+            utilityCost: raw.utilityCost ?? raw.utility_cost,
+            electricityCost: raw.electricityCost ?? raw.electricity_cost,
+            waterGasCost: raw.waterGasCost ?? raw.water_gas_cost,
+            networkEnergyCost: raw.networkEnergyCost ?? raw.network_energy_cost,
+            otaCommissionRate: raw.otaCommissionRate ?? raw.ota_commission_rate,
+            ctripRevenueShare: raw.ctripRevenueShare ?? raw.ctrip_revenue_share,
+            ctripCommissionRate: raw.ctripCommissionRate ?? raw.ctrip_commission_rate,
+            meituanRevenueShare: raw.meituanRevenueShare ?? raw.meituan_revenue_share,
+            meituanCommissionRate: raw.meituanCommissionRate ?? raw.meituan_commission_rate,
+            otherOtaRevenueShare: raw.otherOtaRevenueShare ?? raw.other_ota_revenue_share,
+            otherOtaCommissionRate: raw.otherOtaCommissionRate ?? raw.other_ota_commission_rate,
+            consumableCost: raw.consumableCost ?? raw.consumable_cost,
+            roomConsumableCost: raw.roomConsumableCost ?? raw.room_consumable_cost,
+            cleaningSuppliesCost: raw.cleaningSuppliesCost ?? raw.cleaning_supplies_cost,
+            linenReplacementCost: raw.linenReplacementCost ?? raw.linen_replacement_cost,
+            maintenanceCost: raw.maintenanceCost ?? raw.maintenance_cost,
+            routineRepairCost: raw.routineRepairCost ?? raw.routine_repair_cost,
+            equipmentMaintenanceCost: raw.equipmentMaintenanceCost ?? raw.equipment_maintenance_cost,
+            roomRenovationReserve: raw.roomRenovationReserve ?? raw.room_renovation_reserve,
+            otherFixedCost: raw.otherFixedCost ?? raw.other_fixed_cost,
+            marketingSystemCost: raw.marketingSystemCost ?? raw.marketing_system_cost,
+            insuranceTaxCost: raw.insuranceTaxCost ?? raw.insurance_tax_cost,
+            adminMiscCost: raw.adminMiscCost ?? raw.admin_misc_cost,
+            recommendedModel: raw.recommendedModel,
+            targetCustomer: raw.targetCustomer,
+        };
+        const output = Object.fromEntries(Object.entries(normalized).filter(([, value]) => value !== undefined));
+        const compatibility = [
+            ['decorationInvestment', ['decorationHardCost', 'decorationSoftCost', 'fireSafetyCost', 'signageDesignCost']],
+            ['furnitureInvestment', ['roomFurnitureCost', 'applianceEquipmentCost', 'linenSuppliesCost', 'techSystemCost']],
+            ['openingCost', ['licensePermitCost', 'openingMarketingCost', 'recruitmentTrainingCost', 'openingMaterialCost']],
+            ['otherInvestment', ['contingencyCost', 'rentDepositCost', 'otherProjectCost']],
+        ];
+        compatibility.forEach(([totalKey, detailKeys]) => {
+            const hasDetail = detailKeys.some(key => Object.prototype.hasOwnProperty.call(output, key));
+            if (!hasDetail && Object.prototype.hasOwnProperty.call(output, totalKey)) {
+                detailKeys.forEach((key, index) => {
+                    output[key] = index === 0 ? output[totalKey] : 0;
+                });
+            }
+        });
+        const hasRoomRevenueDetail = simulationRoomRevenueDefinitions.some(segment =>
+            Object.prototype.hasOwnProperty.call(output, segment.daysKey)
+            || Object.prototype.hasOwnProperty.call(output, segment.adrKey)
+            || Object.prototype.hasOwnProperty.call(output, segment.occupancyKey)
+        );
+        if (!hasRoomRevenueDetail && (Object.prototype.hasOwnProperty.call(output, 'adr') || Object.prototype.hasOwnProperty.call(output, 'occupancyRate'))) {
+            output.weekdayDays = 30;
+            output.weekdayAdr = output.adr ?? defaultSimulationInput.adr;
+            output.weekdayOccupancyRate = output.occupancyRate ?? defaultSimulationInput.occupancyRate;
+            output.weekendDays = 0;
+            output.weekendAdr = output.weekdayAdr;
+            output.weekendOccupancyRate = output.weekdayOccupancyRate;
+            output.holidayDays = 0;
+            output.holidayAdr = output.weekdayAdr;
+            output.holidayOccupancyRate = output.weekdayOccupancyRate;
+        }
+        const hasOtherIncomeDetail = simulationOtherIncomeFields.some(field => Object.prototype.hasOwnProperty.call(output, field.key));
+        if (!hasOtherIncomeDetail && Object.prototype.hasOwnProperty.call(output, 'otherIncome')) {
+            simulationOtherIncomeFields.forEach(field => {
+                output[field.key] = field.key === 'otherMiscIncome' ? output.otherIncome : 0;
+            });
+        }
+        simulationCostFieldGroups.forEach(group => {
+            const hasDetail = group.fields.some(field => Object.prototype.hasOwnProperty.call(output, field.key));
+            if (!hasDetail && Object.prototype.hasOwnProperty.call(output, group.totalKey)) {
+                group.fields.forEach((field, index) => {
+                    output[field.key] = index === 0 ? output[group.totalKey] : 0;
+                });
+            }
+        });
+        const hasOtaDetail = simulationOtaCommissionChannelDefinitions.some(channel =>
+            Object.prototype.hasOwnProperty.call(output, channel.shareKey)
+            || Object.prototype.hasOwnProperty.call(output, channel.rateKey)
+        );
+        if (!hasOtaDetail && Object.prototype.hasOwnProperty.call(output, 'otaCommissionRate')) {
+            simulationOtaCommissionChannelDefinitions.forEach(channel => {
+                output[channel.shareKey] = channel.key === 'otherOta' ? 100 : 0;
+                output[channel.rateKey] = output.otaCommissionRate;
+            });
+        }
+        return enrichSimulationTotals(output);
+    }
+
+    function validateSimulationInput(input) {
+        const investmentFields = [
+            'decorationInvestment', 'furnitureInvestment', 'openingCost', 'otherInvestment',
+            ...simulationInvestmentFieldGroups.flatMap(group => group.fields.map(field => field.key)),
+        ];
+        const incomeFields = ['otherIncome', ...simulationOtherIncomeFields.map(field => field.key)];
+        const roomAdrFields = simulationRoomRevenueDefinitions.map(segment => segment.adrKey);
+        const roomDayFields = simulationRoomRevenueDefinitions.map(segment => segment.daysKey);
+        const roomOccupancyFields = simulationRoomRevenueDefinitions.map(segment => segment.occupancyKey);
+        const costFields = [
+            'monthlyRent', 'laborCost', 'utilityCost', 'consumableCost', 'maintenanceCost', 'otherFixedCost',
+            ...simulationCostFieldGroups.flatMap(group => group.fields.map(field => field.key)),
+        ];
+        const otaShareFields = simulationOtaCommissionChannelDefinitions.map(channel => channel.shareKey);
+        const otaRateFields = simulationOtaCommissionChannelDefinitions.map(channel => channel.rateKey);
+        if (toNumberValue(input.roomCount) <= 0) return '房间数必须大于0';
+        if (toNumberValue(input.adr) <= 0) return 'ADR必须大于0';
+        if (toNumberValue(input.occupancyRate) < 0 || toNumberValue(input.occupancyRate) > 100) return '入住率必须在0到100之间';
+        if (roomAdrFields.some(key => toNumberValue(input[key]) < 0)) return '所有客房ADR不能为负数';
+        if (roomDayFields.some(key => toNumberValue(input[key]) < 0)) return '所有客房收入天数不能为负数';
+        if (roomDayFields.reduce((sum, key) => sum + toNumberValue(input[key]), 0) <= 0) return '客房收入天数必须大于0';
+        if (roomDayFields.reduce((sum, key) => sum + toNumberValue(input[key]), 0) > 31) return '客房收入天数不能超过31天';
+        if (roomOccupancyFields.some(key => toNumberValue(input[key]) < 0 || toNumberValue(input[key]) > 100)) return '所有客房入住率必须在0到100之间';
+        if (otaShareFields.some(key => toNumberValue(input[key]) < 0 || toNumberValue(input[key]) > 100)) return '渠道收入占比必须在0到100之间';
+        if (otaShareFields.reduce((sum, key) => sum + toNumberValue(input[key]), 0) > 100) return '渠道收入占比合计不能超过100%';
+        if (otaRateFields.some(key => toNumberValue(input[key]) < 0 || toNumberValue(input[key]) > 100)) return '渠道佣金率必须在0到100之间';
+        if (toNumberValue(input.otaCommissionRate) < 0 || toNumberValue(input.otaCommissionRate) > 100) return 'OTA佣金率必须在0到100之间';
+        if (investmentFields.some(key => toNumberValue(input[key]) < 0)) return '所有投资字段不能为负数';
+        if (incomeFields.some(key => toNumberValue(input[key]) < 0)) return '所有收入字段不能为负数';
+        if (costFields.some(key => toNumberValue(input[key]) < 0)) return '所有成本字段不能为负数';
+        return '';
+    }
+
     return {
         defaultSimulationInput,
         benchmarkModelDetailFields,
@@ -180,5 +435,12 @@ window.SUXI_SIMULATION_STATIC = (() => {
         simulationInvestmentFieldGroups,
         simulationRoomRevenueDefinitions,
         simulationOtherIncomeFields,
+        simulationGroupTotal,
+        simulationRevenueSummaryFromInput,
+        simulationCostSummaryFromInput,
+        generateRiskHints,
+        normalizeSimulationModelAnalysis,
+        normalizeSimulationInput,
+        validateSimulationInput,
     };
 })();

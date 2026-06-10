@@ -394,6 +394,16 @@
 - 验证通过：`node --check public\ota-diagnosis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_ota_diagnosis_auto_fetch.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:ota-diagnosis-auto-fetch`、`npm.cmd run verify:public-entry`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第二十一刀拆分
+
+- 扩展 `public/simulation-static.js`，承载模拟测算的纯函数：`simulationGroupTotal`、收入/成本摘要构建、风险提示构建、模型分析归一化、输入兼容归一化和输入校验。
+- `public/index.html` 通过 `window.SUXI_SIMULATION_STATIC` 显式读取这些函数；缺少脚本或 key 时仍由 `requireSimulationStatic()` 直接抛出明确配置错误，不用空函数或默认成功掩盖缺失。
+- 本轮不移动 `handleSimulation` 的请求、保存、历史加载、localStorage 状态读写和 Vue ref 绑定，避免触碰量化模拟接口与运行态链路。
+- `public/index.html` 从 `41,467` 行降至 `41,182` 行，体积从 `2.98 MB` 降至 `2.96 MB`；`public/simulation-static.js` 扩展为 `444` 行；拆分地图中 `simulation` 领域 span 从 `616` 行降至 `380` 行。
+- 当前审计：完整目录约 `245.23 MB`；不含 `.git` 约 `91.95 MB`；不含 `.git` 和依赖约 `62.76 MB`；Git 跟踪文件约 `17.84 MB` / `609` 个；代码范围 `366` 个文件、`186,265` 行、非空 `170,593` 行。
+- 验证通过：`node --check public\simulation-static.js`、静态导出 smoke 检查、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`node scripts\verify_simulation_p2.mjs`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
