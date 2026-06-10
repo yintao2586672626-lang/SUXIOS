@@ -171,6 +171,103 @@ window.SUXI_OPERATION_STATIC = (() => {
             },
         ];
     };
+    const openingRiskTextFallback = (risk) => ({ high: '高风险', medium: '中风险', low: '低风险' }[risk] || '低风险');
+    const openingRiskTextClassFallback = (risk) => ({ high: 'text-red-600', medium: 'text-yellow-600', low: 'text-green-600' }[risk] || 'text-green-600');
+    const safeOpeningOverviewNumber = (value) => {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : 0;
+    };
+    const clampOpeningOverviewPercent = (value) => Math.max(0, Math.min(100, safeOpeningOverviewNumber(value)));
+    const buildOpeningOverviewCards = (data = null, helpers = {}) => {
+        if (!data) return [];
+        const openingRiskText = typeof helpers.openingRiskText === 'function'
+            ? helpers.openingRiskText
+            : openingRiskTextFallback;
+        const openingRiskTextClass = typeof helpers.openingRiskTextClass === 'function'
+            ? helpers.openingRiskTextClass
+            : openingRiskTextClassFallback;
+        const metrics = data.metrics || {};
+        const project = data.project || {};
+        const daysLeft = safeOpeningOverviewNumber(metrics.days_left);
+        const completionRate = clampOpeningOverviewPercent(metrics.completion_rate);
+        const coreCompletionRate = clampOpeningOverviewPercent(metrics.core_completion_rate);
+        const aiRate = clampOpeningOverviewPercent(metrics.ai_penetration_rate);
+        const completedTasks = safeOpeningOverviewNumber(metrics.completed_tasks);
+        const totalTasks = safeOpeningOverviewNumber(metrics.total_tasks);
+        const coreCompletedTasks = safeOpeningOverviewNumber(metrics.core_completed_tasks);
+        const coreTasks = safeOpeningOverviewNumber(metrics.core_tasks);
+        return [
+            {
+                label: '开业倒计时',
+                value: `${daysLeft}天`,
+                hint: project.opening_date ? `计划开业 ${project.opening_date}` : '未设置开业日期',
+                icon: 'fas fa-calendar-day',
+                iconClass: daysLeft < 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600',
+                valueClass: daysLeft < 0 ? 'text-red-600' : 'text-gray-900',
+            },
+            {
+                label: '总评分',
+                value: project.overall_score ?? 0,
+                hint: '规则引擎评分 / 100',
+                icon: 'fas fa-chart-line',
+                iconClass: 'bg-slate-50 text-slate-600',
+            },
+            {
+                label: '风险等级',
+                value: openingRiskText(project.risk_level),
+                hint: '高风险与逾期自动识别',
+                icon: 'fas fa-exclamation-triangle',
+                iconClass: project.risk_level === 'high' ? 'bg-red-50 text-red-600' : (project.risk_level === 'medium' ? 'bg-yellow-50 text-yellow-600' : 'bg-green-50 text-green-600'),
+                valueClass: openingRiskTextClass(project.risk_level),
+            },
+            {
+                label: '检查项完成率',
+                value: `${completionRate}%`,
+                hint: totalTasks > 0 ? `已完成 ${completedTasks} 项，共 ${totalTasks} 项` : '暂无检查项',
+                icon: 'fas fa-tasks',
+                iconClass: 'bg-blue-50 text-blue-600',
+                progress: completionRate,
+                progressClass: 'bg-blue-600',
+                countLabel: totalTasks > 0 ? `${completedTasks}/${totalTasks} 项` : '暂无检查项',
+            },
+            {
+                label: '核心完成率',
+                value: `${coreCompletionRate}%`,
+                hint: coreTasks > 0 ? `核心项 ${coreCompletedTasks}/${coreTasks} 项` : '暂无核心检查项',
+                icon: 'fas fa-clipboard-check',
+                iconClass: 'bg-green-50 text-green-600',
+                progress: coreCompletionRate,
+                progressClass: 'bg-green-600',
+                countLabel: coreTasks > 0 ? `${coreCompletedTasks}/${coreTasks} 项` : '暂无核心项',
+            },
+            {
+                label: '高风险事项',
+                value: metrics.high_risk_count ?? 0,
+                hint: '核心阻断优先处理',
+                icon: 'fas fa-fire',
+                iconClass: 'bg-red-50 text-red-600',
+                valueClass: Number(metrics.high_risk_count || 0) > 0 ? 'text-red-600' : 'text-gray-900',
+            },
+            {
+                label: '逾期事项',
+                value: metrics.overdue_count ?? 0,
+                hint: '未完成且超过截止时间',
+                icon: 'fas fa-clock',
+                iconClass: 'bg-yellow-50 text-yellow-600',
+                valueClass: Number(metrics.overdue_count || 0) > 0 ? 'text-yellow-600' : 'text-gray-900',
+            },
+            {
+                label: 'AI建议推进率',
+                value: `${aiRate}%`,
+                hint: '带AI建议事项平均进度',
+                icon: 'fas fa-robot',
+                iconClass: 'bg-blue-50 text-blue-600',
+                progress: aiRate,
+                progressClass: 'bg-blue-600',
+                countLabel: totalTasks > 0 ? `${safeOpeningOverviewNumber(metrics.ai_covered_tasks)}/${totalTasks} 项带AI建议` : '暂无检查项',
+            },
+        ];
+    };
 
     return {
         lifecycleMetricLabels,
@@ -182,6 +279,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOperationCompetitorCards,
         buildOperationSourceBrief,
         buildOperationDecisionCards,
+        buildOpeningOverviewCards,
         openingCategories,
         openingStatusOptions,
         openingProgressQuickValues,

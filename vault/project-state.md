@@ -620,6 +620,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the Ctrip Cookie/API core preset split: `node --check public\ctrip-static.js`; `node --check scripts\verify_ota_diagnosis_auto_fetch.mjs`; `node --check tests\automation\ctrip_endpoint_evidence_ui.test.mjs`; `npm.cmd run verify:ota-diagnosis-auto-fetch`; `node --test tests\automation\ctrip_endpoint_evidence_ui.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Opening Overview Card Builder Split
+
+- Forty-fourth frontend split target chosen from pure opening overview card display logic in `public/index.html`.
+- Extended `public/operation-static.js` with `buildOpeningOverviewCards` for opening countdown, overall score, risk level, completion rates, high-risk count, overdue count, and AI suggestion progress cards.
+- `public/index.html` keeps the original `openingOverviewCards` computed name and passes only `openingOverview.value`; opening project/task requests, batch updates, scoring, save/edit behavior, and storage paths remain unchanged.
+- Updated `scripts/project_split_map.mjs` so Vue setup boundaries include `watch(...)`, lifecycle hooks, and top-level `ref(...)` declarations. This removes stale false-positive largest blocks where helpers absorbed later watchers or state declarations.
+- Updated `scripts/verify_opening_batch_actions.mjs` so the opening batch/action contract also requires the extracted overview card builder and verifies one sample builder output from `public/operation-static.js`.
+- `public/index.html` decreased from `39217` lines to `39129` lines; split-map frontend function-level blocks decreased from `1448` to `1446`, and the `general` domain span decreased from `7648` to `7562` lines.
+- Current self-audit after the code move: full directory about `259.4 MB`, without `.git` about `92.1 MB`, without `.git` and dependencies about `62.91 MB`, tracked files about `17.97 MB` / `612` files; code scope `369` files, `187285` total lines, and `171542` nonblank lines.
+- Verified after the opening overview split: `node --check public\operation-static.js`; `node --check scripts\verify_opening_batch_actions.mjs`; `npm.cmd run verify:opening-batch-actions`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

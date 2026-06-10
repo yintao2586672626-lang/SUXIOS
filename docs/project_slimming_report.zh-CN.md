@@ -667,6 +667,17 @@
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_ota_diagnosis_auto_fetch.mjs`、`node --check tests\automation\ctrip_endpoint_evidence_ui.test.mjs`、`npm.cmd run verify:ota-diagnosis-auto-fetch`、`node --test tests\automation\ctrip_endpoint_evidence_ui.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十四刀拆分
+
+- 扩展 `public/operation-static.js`，承载开业总览卡片纯构建器 `buildOpeningOverviewCards`，覆盖开业倒计时、总评分、风险等级、检查项完成率、核心完成率、高风险事项、逾期事项和 AI 建议推进率。
+- `public/index.html` 只保留 `openingOverviewCards` computed 名称和 `openingOverview.value` 运行态输入；开业项目/任务请求、批量更新、评分、保存、回显、编辑和存储链路均未迁移。
+- 修正 `scripts/project_split_map.mjs` 的 Vue setup 边界识别，新增 `watch(...)`、`onMounted(...)`、`onUnmounted(...)` 和顶层 `ref(...)` 边界，避免把后续 watcher、生命周期钩子或状态声明误并入前一个函数块。
+- 更新 `scripts/verify_opening_batch_actions.mjs`，同时校验入口显式读取 `buildOpeningOverviewCards`、构建器留在 `public/operation-static.js`，并运行一次样例输出检查，防止总览卡片逻辑重新内联回入口文件。
+- `public/index.html` 从 `39,217` 行降至 `39,129` 行；split-map 前端函数级块从 `1,448` 降至 `1,446`，`general` 域 span 从 `7,648` 降至 `7,562`，当前最大前端块仍为 `runOtaDiagnosisHotelFetch`（`265` 行）。
+- 当前自审计：完整目录约 `259.4 MB`，不含 `.git` 约 `92.1 MB`，不含 `.git` 和依赖约 `62.91 MB`；Git 跟踪文件约 `17.97 MB` / `612` 个；代码范围 `369` 个文件，`187,285` 行，非空 `171,542` 行。
+- 已验证：`node --check public\operation-static.js`、`node --check scripts\verify_opening_batch_actions.mjs`、`npm.cmd run verify:opening-batch-actions`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

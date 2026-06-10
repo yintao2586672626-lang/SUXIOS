@@ -37,7 +37,15 @@ function analyzePublicIndex(relativePath) {
     /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/,
     /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*async\s*\(/,
     /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*computed\s*\(/,
-  ], { boundaryPatterns: [/^\s{12}return\s+\{\s*$/] }).map((row) => ({
+  ], {
+    boundaryPatterns: [
+      /^\s{12}return\s+\{\s*$/,
+      /^\s{12}watch\s*\(/,
+      /^\s{12}onMounted\s*\(/,
+      /^\s{12}onUnmounted\s*\(/,
+      /^\s{12}const\s+[A-Za-z_$][\w$]*\s*=\s*ref\s*\(/,
+    ],
+  }).map((row) => ({
     ...row,
     domain: classifyFrontendDomain(row.name),
   }));
