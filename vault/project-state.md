@@ -632,6 +632,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the opening overview split: `node --check public\operation-static.js`; `node --check scripts\verify_opening_batch_actions.mjs`; `npm.cmd run verify:opening-batch-actions`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Opening AI Output Builder Split
+
+- Forty-fifth frontend split target chosen from pure opening AI output aggregation logic in `public/index.html`.
+- Extended `public/operation-static.js` with `buildOpeningAiOutputResult`, including the AI task reason, priority score, progress read, overview-output, task-output, badge, and summary-card builders.
+- `public/index.html` keeps the original `openingAiOutputResult` computed name and injects current task-state helpers only; opening project requests, task batch updates, score recalculation, save/edit behavior, and storage paths remain unchanged.
+- Updated `scripts/verify_opening_batch_actions.mjs` so the opening panel contract also requires the extracted AI output builder and verifies one sample builder output from `public/operation-static.js`.
+- `public/index.html` decreased from `39129` lines to `39043` lines; split-map frontend function-level blocks decreased from `1446` to `1444`, and the `ai` domain span decreased from `1569` to `1482` lines.
+- Current self-audit after the code move: full directory about `259.98 MB`, without `.git` about `92.1 MB`, without `.git` and dependencies about `62.91 MB`, tracked files about `17.98 MB` / `612` files; code scope `369` files, `187362` total lines, and `171621` nonblank lines.
+- Verified after the opening AI output split: `node --check public\operation-static.js`; `node --check scripts\verify_opening_batch_actions.mjs`; `npm.cmd run verify:opening-batch-actions`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

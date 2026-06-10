@@ -678,6 +678,16 @@
 - 已验证：`node --check public\operation-static.js`、`node --check scripts\verify_opening_batch_actions.mjs`、`npm.cmd run verify:opening-batch-actions`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十五刀拆分
+
+- 扩展 `public/operation-static.js`，承载开业 AI 输出聚合构建器 `buildOpeningAiOutputResult`，同时内聚 `openingAiTaskReason`、`openingAiTaskPriorityScore` 和进度读取逻辑。
+- `public/index.html` 只保留 `openingAiOutputResult` computed 名称、`openingTasks` / `openingTaskStats` / `openingOverview.ai_suggestions` 输入，以及现有任务状态 helper 注入；开业项目请求、任务批量更新、评分刷新、保存、回显、编辑和存储链路均未迁移。
+- 更新 `scripts/verify_opening_batch_actions.mjs`，同时校验入口显式读取 `buildOpeningAiOutputResult`、构建器留在 `public/operation-static.js`，并运行一次样例 AI 输出聚合检查。
+- `public/index.html` 从 `39,129` 行降至 `39,043` 行；split-map 前端函数级块从 `1,446` 降至 `1,444`，`ai` 域 span 从 `1,569` 降至 `1,482`，当前最大前端块仍为 `runOtaDiagnosisHotelFetch`（`265` 行）。
+- 当前自审计：完整目录约 `259.98 MB`，不含 `.git` 约 `92.1 MB`，不含 `.git` 和依赖约 `62.91 MB`；Git 跟踪文件约 `17.98 MB` / `612` 个；代码范围 `369` 个文件，`187,362` 行，非空 `171,621` 行。
+- 已验证：`node --check public\operation-static.js`、`node --check scripts\verify_opening_batch_actions.mjs`、`npm.cmd run verify:opening-batch-actions`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

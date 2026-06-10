@@ -268,6 +268,117 @@ window.SUXI_OPERATION_STATIC = (() => {
             },
         ];
     };
+    const openingAiTaskProgressPercent = (task, helpers = {}) => {
+        if (typeof helpers.taskProgressPercent === 'function') {
+            return helpers.taskProgressPercent(task);
+        }
+        return clampOpeningOverviewPercent(task?.progress_percent ?? (task?.status === 'done' ? 100 : 0));
+    };
+    const openingAiTaskReason = (task, helpers = {}) => {
+        const taskIsOverdue = typeof helpers.taskIsOverdue === 'function' ? helpers.taskIsOverdue(task) : Number(task?.is_overdue) === 1;
+        const taskIsDueSoon = typeof helpers.taskIsDueSoon === 'function' ? helpers.taskIsDueSoon(task) : false;
+        const taskHasOwner = typeof helpers.taskHasOwner === 'function'
+            ? helpers.taskHasOwner(task)
+            : String(task?.owner_name || '').trim().length > 0;
+        if (taskIsOverdue) return { text: '逾期', className: 'text-red-600' };
+        if ((task?.status || '') === 'blocked') return { text: '受阻', className: 'text-yellow-700' };
+        if ((task?.risk_level || '') === 'high') return { text: '高风险', className: 'text-red-600' };
+        if (taskIsDueSoon) return { text: '临期', className: 'text-yellow-700' };
+        if (!taskHasOwner) return { text: '待分配', className: 'text-gray-700' };
+        return { text: '待推进', className: 'text-blue-600' };
+    };
+    const openingAiTaskPriorityScore = (task, helpers = {}) => {
+        const taskIsOverdue = typeof helpers.taskIsOverdue === 'function' ? helpers.taskIsOverdue(task) : Number(task?.is_overdue) === 1;
+        const taskIsDueSoon = typeof helpers.taskIsDueSoon === 'function' ? helpers.taskIsDueSoon(task) : false;
+        const taskHasOwner = typeof helpers.taskHasOwner === 'function'
+            ? helpers.taskHasOwner(task)
+            : String(task?.owner_name || '').trim().length > 0;
+        let score = 0;
+        if (taskIsOverdue) score += 100;
+        if ((task?.status || '') === 'blocked') score += 80;
+        if ((task?.risk_level || '') === 'high') score += 70;
+        if (taskIsDueSoon) score += 45;
+        if (Number(task?.is_core) === 1) score += 25;
+        if (!taskHasOwner) score += 15;
+        score += Math.max(0, 100 - openingAiTaskProgressPercent(task, helpers)) / 10;
+        return score;
+    };
+    const buildOpeningAiOutputResult = ({ tasks = [], stats = {}, overviewSuggestions = [], helpers = {} } = {}) => {
+        const taskRows = Array.isArray(tasks) ? tasks : [];
+        const overviewOutputs = Array.isArray(overviewSuggestions)
+            ? overviewSuggestions.map(item => String(item || '').trim()).filter(Boolean)
+            : [];
+        const taskOutputs = taskRows
+            .filter(task => String(task.ai_suggestion || '').trim())
+            .map(task => {
+                const reason = openingAiTaskReason(task, helpers);
+                return {
+                    id: task.id,
+                    category: task.category || '未分类',
+                    task_name: task.task_name || '未命名检查项',
+                    owner_name: task.owner_name || '',
+                    suggestion: String(task.ai_suggestion || '').trim(),
+                    progress: openingAiTaskProgressPercent(task, helpers),
+                    reason: reason.text,
+                    className: reason.className,
+                    priorityScore: openingAiTaskPriorityScore(task, helpers),
+                };
+            })
+            .sort((a, b) => b.priorityScore - a.priorityScore)
+            .slice(0, 6);
+        const total = Math.max(0, Number(stats.total || 0));
+        const aiCovered = taskOutputs.length;
+        const aiCoverage = total > 0 ? Math.round(aiCovered / total * 100) : 0;
+        const riskOutputCount = taskRows
+            .filter(task => (task.risk_level === 'high') || (typeof helpers.taskIsOverdue === 'function' ? helpers.taskIsOverdue(task) : Number(task?.is_overdue) === 1) || task.status === 'blocked')
+            .filter(task => String(task.ai_suggestion || '').trim()).length;
+        const missingAi = Math.max(0, total - aiCovered);
+        const hasAiOutput = overviewOutputs.length > 0 || taskOutputs.length > 0;
+        return {
+            badgeText: hasAiOutput ? '已有AI输出' : '暂无AI输出',
+            badgeClass: hasAiOutput ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600',
+            cards: [
+                {
+                    label: '总览输出',
+                    value: overviewOutputs.length,
+                    hint: overviewOutputs.length > 0 ? '来自开业总览AI建议' : '暂无总览AI建议',
+                    icon: 'fas fa-comment-dots',
+                    iconClass: 'text-blue-600',
+                    borderClass: 'border-blue-500',
+                    valueClass: 'text-blue-600',
+                },
+                {
+                    label: '检查项输出',
+                    value: `${aiCoverage}%`,
+                    hint: total > 0 ? `${aiCovered}/${total} 项带AI建议` : '暂无检查项',
+                    icon: 'fas fa-robot',
+                    iconClass: aiCoverage >= 80 ? 'text-green-600' : 'text-yellow-700',
+                    borderClass: aiCoverage >= 80 ? 'border-green-500' : 'border-yellow-500',
+                    valueClass: aiCoverage >= 80 ? 'text-green-600' : 'text-yellow-700',
+                },
+                {
+                    label: '风险项AI输出',
+                    value: riskOutputCount,
+                    hint: `高风险 ${stats.highRisk} · 逾期 ${stats.overdue} · 受阻 ${stats.blocked}`,
+                    icon: 'fas fa-shield-alt',
+                    iconClass: riskOutputCount > 0 ? 'text-red-600' : 'text-gray-500',
+                    borderClass: riskOutputCount > 0 ? 'border-red-500' : 'border-gray-300',
+                    valueClass: riskOutputCount > 0 ? 'text-red-600' : 'text-gray-700',
+                },
+                {
+                    label: '待补齐输出',
+                    value: missingAi,
+                    hint: missingAi > 0 ? '这些检查项还没有AI建议' : '检查项AI建议已覆盖',
+                    icon: 'fas fa-exclamation-circle',
+                    iconClass: missingAi > 0 ? 'text-yellow-700' : 'text-green-600',
+                    borderClass: missingAi > 0 ? 'border-yellow-500' : 'border-green-500',
+                    valueClass: missingAi > 0 ? 'text-yellow-700' : 'text-green-600',
+                },
+            ],
+            overviewOutputs,
+            taskOutputs,
+        };
+    };
 
     return {
         lifecycleMetricLabels,
@@ -280,6 +391,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOperationSourceBrief,
         buildOperationDecisionCards,
         buildOpeningOverviewCards,
+        buildOpeningAiOutputResult,
         openingCategories,
         openingStatusOptions,
         openingProgressQuickValues,
