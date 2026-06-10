@@ -66,6 +66,9 @@ requireText('public/index.html', 'buildHotelPlatformAccountRowStatic', 'entry us
 requireText('public/system-static.js', 'const buildHotelPlatformAccountRow', 'system static builds hotel platform account rows');
 requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
 requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
+requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCapturePayload')", 'entry uses extracted Ctrip browser capture payload builder');
+requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
+requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorResult', 'Ctrip static normalizes browser capture errors');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
@@ -78,6 +81,8 @@ requireText('public/notification-static.js', 'const buildGlobalNotifications', '
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
+requireNoText('public/index.html', 'const optionSections = options.sections || options.captureSections ||', 'Ctrip browser capture section normalization is not re-inlined');
+requireNoText('public/index.html', 'const normalizeCtripBrowserCaptureErrorResult = (error) => {', 'Ctrip browser capture error normalization is not re-inlined');
 requireNoText('public/index.html', 'const getDefaultDataConfigForm = () => ({', 'data config default form is not re-inlined');
 requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
 requireNoText('public/index.html', 'autoFetchRecentRuns.value.slice(0, 3).forEach', 'global notification recent-run loop is not re-inlined');
@@ -190,6 +195,98 @@ requireText('package.json', 'test:e2e:business', 'package exposes business chain
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
 requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(read('public/ctrip-static.js'), context, {
+    filename: 'public/ctrip-static.js',
+  });
+  const ctripStatic = context.window.SUXI_CTRIP_STATIC || {};
+  const buildCtripBrowserCapturePayload = ctripStatic.buildCtripBrowserCapturePayload;
+  const normalizeCtripBrowserCaptureErrorResult = ctripStatic.normalizeCtripBrowserCaptureErrorResult;
+  if (typeof buildCtripBrowserCapturePayload !== 'function') {
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip static exports browser capture payload builder',
+      ok: false,
+      detail: 'buildCtripBrowserCapturePayload',
+    });
+  } else {
+    const payload = buildCtripBrowserCapturePayload({
+      systemHotelId: '10',
+      hotelId: '24588',
+      hotelName: 'Demo Hotel',
+      profileId: 'profile-1',
+      cookies: 'sid=secret',
+      dataDate: '2026-06-10',
+      form: { sections: 'default traffic', approvedMappingsPath: '  approved.json  ' },
+      options: { captureSections: 'ads reviews', loginOnly: true, bindDataSource: false },
+    });
+    const fallbackPayload = buildCtripBrowserCapturePayload({
+      form: { sections: '' },
+      options: {},
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip browser capture payload keeps request fields and normalized sections',
+      ok: payload.system_hotel_id === '10'
+        && payload.hotel_id === '24588'
+        && payload.hotel_name === 'Demo Hotel'
+        && payload.profile_id === 'profile-1'
+        && payload.cookies === 'sid=secret'
+        && payload.data_date === '2026-06-10'
+        && payload.login_only === true
+        && payload.bind_data_source === false
+        && payload.approved_mappings_path === 'approved.json'
+        && Array.isArray(payload.sections)
+        && payload.sections.join(',') === 'ads,reviews',
+      detail: 'buildCtripBrowserCapturePayload sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip browser capture payload defaults to default section',
+      ok: Array.isArray(fallbackPayload.sections) && fallbackPayload.sections.length === 1 && fallbackPayload.sections[0] === 'default',
+      detail: 'sections default',
+    });
+  }
+  if (typeof normalizeCtripBrowserCaptureErrorResult !== 'function') {
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip static exports browser capture error normalizer',
+      ok: false,
+      detail: 'normalizeCtripBrowserCaptureErrorResult',
+    });
+  } else {
+    const errorResult = normalizeCtripBrowserCaptureErrorResult({
+      message: 'capture failed',
+      data: {
+        data: {
+          stdout: 'out',
+          stderr: 'err',
+          partial_capture: { available: true, saved_count: 2 },
+        },
+      },
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip browser capture error normalizer preserves partial capture evidence',
+      ok: errorResult.available === true
+        && errorResult.saved_count === 2
+        && errorResult.error === 'capture failed'
+        && errorResult.stdout === 'out'
+        && errorResult.stderr === 'err'
+        && errorResult.partial_capture?.available === true,
+      detail: 'partial_capture',
+    });
+  }
+} catch (error) {
+  checks.push({
+    file: 'public/ctrip-static.js',
+    label: 'Ctrip static runtime validation',
+    ok: false,
+    detail: error.message,
+  });
+}
 
 try {
   const context = { window: {} };

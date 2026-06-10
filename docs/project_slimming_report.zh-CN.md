@@ -740,6 +740,16 @@
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第五十一刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程 Profile 浏览器采集的请求体构建器 `buildCtripBrowserCapturePayload`、section 归一化 `normalizeCtripBrowserCaptureSections` 和错误结果归一化 `normalizeCtripBrowserCaptureErrorResult`。
+- `public/index.html` 只保留 `runCtripBrowserCapture()` 的运行态职责：选择酒店、读取/补全配置、发起 `/online-data/capture-ctrip-browser` 请求、更新 UI 状态和刷新入库结果；Profile 采集接口、绑定数据源、入库和数据健康刷新链路均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `requireCtripStatic('buildCtripBrowserCapturePayload')` 显式读取构建器，禁止 section 归一化和错误归一化重新内联，并在 VM 中校验请求体默认值、section 归一化和 partial_capture 错误证据保留。
+- `public/index.html` 从 `38,658` 行降至 `38,632` 行；split-map 前端函数级块从 `1,440` 降至 `1,438`；`runCtripBrowserCapture` 当前为 `105` 行。
+- 当前自审计：完整目录约 `263.49 MB`，不含 `.git` 约 `92.14 MB`，不含 `.git` 和依赖约 `62.95 MB`；Git 跟踪文件约 `18.02 MB` / `612` 个；代码范围 `369` 个文件，`187,770` 行，非空 `172,014` 行。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

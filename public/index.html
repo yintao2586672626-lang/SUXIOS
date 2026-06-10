@@ -19078,6 +19078,8 @@
             const createCtripEndpointEvidenceForm = requireCtripStatic('createCtripEndpointEvidenceForm');
             const createCtripCommentForm = requireCtripStatic('createCtripCommentForm');
             const createCtripCommentBrowserCaptureForm = requireCtripStatic('createCtripCommentBrowserCaptureForm');
+            const buildCtripBrowserCapturePayload = requireCtripStatic('buildCtripBrowserCapturePayload');
+            const normalizeCtripBrowserCaptureErrorResult = requireCtripStatic('normalizeCtripBrowserCaptureErrorResult');
             const ctripForm = ref(createCtripFetchForm());
             const ctripTrafficForm = ref(createCtripTrafficForm());
             const ctripTrafficSummary = ref(null);
@@ -33045,18 +33047,16 @@
                     if (!silent) showToast('请填写携程登录会话标识，或先绑定携程登录会话数据源', 'error');
                     return { code: 400, message: '请填写携程登录会话标识，或先绑定携程登录会话数据源' };
                 }
-                const optionSections = options.sections || options.captureSections || '';
-                const sectionSource = Array.isArray(optionSections)
-                    ? optionSections
-                    : (String(optionSections || '').trim()
-                        ? String(optionSections).split(/[,\s]+/)
-                        : (Array.isArray(form.sections) ? form.sections : String(form.sections || 'default').split(/[,\s]+/)));
-                const sections = (sectionSource.length ? sectionSource : ['default'])
-                    .map(item => String(item || '').trim())
-                    .filter(Boolean);
-                if (sections.length === 0) {
-                    sections.push('default');
-                }
+                const capturePayload = buildCtripBrowserCapturePayload({
+                    systemHotelId,
+                    hotelId,
+                    hotelName: getHotelNameById(systemHotelId),
+                    profileId,
+                    cookies: activeConfig?.cookies || activeConfig?.cookie || '',
+                    dataDate: ctripOverviewForm.value.dataDate,
+                    form,
+                    options,
+                });
 
                 ctripBrowserCaptureRunning.value = true;
                 fetchingData.value = true;
@@ -33064,18 +33064,7 @@
                 try {
                     const res = await request('/online-data/capture-ctrip-browser', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            hotel_id: hotelId,
-                            hotel_name: getHotelNameById(systemHotelId),
-                            profile_id: profileId,
-                            cookies: activeConfig?.cookies || activeConfig?.cookie || '',
-                            data_date: ctripOverviewForm.value.dataDate,
-                            sections,
-                            login_only: Boolean(options.loginOnly),
-                            bind_data_source: options.bindDataSource !== false,
-                            approved_mappings_path: String(form.approvedMappingsPath || '').trim(),
-                        }),
+                        body: JSON.stringify(capturePayload),
                     });
                     if (res.code === 200) {
                         ctripBrowserCaptureResult.value = res.data || {};
@@ -33123,21 +33112,6 @@
                     ctripBrowserCaptureRunning.value = false;
                     fetchingData.value = false;
                 }
-            };
-
-            const normalizeCtripBrowserCaptureErrorResult = (error) => {
-                const data = error?.data?.data || {};
-                const partial = data.partial_capture || {};
-                if (partial && partial.available) {
-                    return {
-                        ...partial,
-                        error: error.message,
-                        stdout: data.stdout || '',
-                        stderr: data.stderr || '',
-                        partial_capture: partial,
-                    };
-                }
-                return data && Object.keys(data).length ? { ...data, error: error.message } : { error: error.message };
             };
 
             const loadCtripDiagnosisSnapshot = async () => {

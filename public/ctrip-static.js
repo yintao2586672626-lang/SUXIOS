@@ -149,6 +149,55 @@ window.SUXI_CTRIP_STATIC = (() => {
         pageUrl: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
         apiKeyword: 'getCommentList',
     });
+    const normalizeCtripBrowserCaptureSections = (sections, fallbackSections = 'default') => {
+        const sectionSource = Array.isArray(sections)
+            ? sections
+            : (String(sections || '').trim()
+                ? String(sections).split(/[,\s]+/)
+                : (Array.isArray(fallbackSections) ? fallbackSections : String(fallbackSections || 'default').split(/[,\s]+/)));
+        const normalized = (sectionSource.length ? sectionSource : ['default'])
+            .map(item => String(item || '').trim())
+            .filter(Boolean);
+        return normalized.length ? normalized : ['default'];
+    };
+    const buildCtripBrowserCapturePayload = ({
+        systemHotelId = '',
+        hotelId = '',
+        hotelName = '',
+        profileId = '',
+        cookies = '',
+        dataDate = '',
+        form = {},
+        options = {},
+    } = {}) => {
+        const optionSections = options.sections || options.captureSections || '';
+        return {
+            system_hotel_id: systemHotelId,
+            hotel_id: hotelId,
+            hotel_name: hotelName,
+            profile_id: profileId,
+            cookies,
+            data_date: dataDate,
+            sections: normalizeCtripBrowserCaptureSections(optionSections, form.sections),
+            login_only: Boolean(options.loginOnly),
+            bind_data_source: options.bindDataSource !== false,
+            approved_mappings_path: String(form.approvedMappingsPath || '').trim(),
+        };
+    };
+    const normalizeCtripBrowserCaptureErrorResult = (error) => {
+        const data = error?.data?.data || {};
+        const partial = data.partial_capture || {};
+        if (partial && partial.available) {
+            return {
+                ...partial,
+                error: error.message,
+                stdout: data.stdout || '',
+                stderr: data.stderr || '',
+                partial_capture: partial,
+            };
+        }
+        return data && Object.keys(data).length ? { ...data, error: error.message } : { error: error.message };
+    };
 
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
@@ -551,6 +600,9 @@ window.SUXI_CTRIP_STATIC = (() => {
         createCtripEndpointEvidenceForm,
         createCtripCommentForm,
         createCtripCommentBrowserCaptureForm,
+        normalizeCtripBrowserCaptureSections,
+        buildCtripBrowserCapturePayload,
+        normalizeCtripBrowserCaptureErrorResult,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,
