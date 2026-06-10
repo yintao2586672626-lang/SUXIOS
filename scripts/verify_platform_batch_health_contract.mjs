@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 
 const read = (path) => readFileSync(path, 'utf8');
 const publicSource = read('public/index.html');
+const dataHealthSource = read('public/data-health-static.js');
 const packageSource = read('package.json');
 
 const sliceBetween = (source, startNeedle, endNeedle) => {
@@ -57,22 +58,23 @@ const checks = [
       && batchState.includes('dashboardHotelOptions.value')
       && batchState.includes('platformDataSources.value')
       && batchState.includes('hotelCompetitorSummaries.value')
-      && batchState.includes('competitorSummaryReadiness(competitorSummaryForHotel, hotel)'),
+      && batchState.includes('buildPlatformBatchHealthRows({')
+      && batchState.includes('competitorSummaryReadiness'),
   },
   {
     name: 'batch health keeps missing and failed collection states explicit',
-    pass: batchState.includes("bindingText = '待绑定'")
-      && batchState.includes("collectionText = '未采集'")
-      && batchState.includes("collectionText = '采集失败'")
-      && batchState.includes("collectionText = '待试采'")
-      && batchState.includes('缺少最近采集证据'),
+    pass: dataHealthSource.includes("bindingText = '待绑定'")
+      && dataHealthSource.includes("collectionText = '未采集'")
+      && dataHealthSource.includes("collectionText = '采集失败'")
+      && dataHealthSource.includes("collectionText = '待试采'")
+      && dataHealthSource.includes('缺少最近采集证据'),
   },
   {
     name: 'batch health next actions cover binding, retry, trial capture and competitor review',
-    pass: batchState.includes("nextAction = '配置平台账号绑定'")
-      && batchState.includes("nextAction = '查看同步日志并重试采集'")
-      && batchState.includes("nextAction = '执行一次试采集'")
-      && batchState.includes("nextAction = competitorReadiness.next_action || '复核竞对榜单'"),
+    pass: dataHealthSource.includes("nextAction = '配置平台账号绑定'")
+      && dataHealthSource.includes("nextAction = '查看同步日志并重试采集'")
+      && dataHealthSource.includes("nextAction = '执行一次试采集'")
+      && dataHealthSource.includes("nextAction = competitorReadiness.next_action || '复核竞对榜单'"),
   },
   {
     name: 'platform source panel refresh loads competitor by-hotel summaries for the batch health table',
@@ -85,6 +87,15 @@ const checks = [
     pass: setupReturn.includes('platformBatchHealthRows')
       && setupReturn.includes('platformBatchHealthSummaryCards')
       && setupReturn.includes('platformBatchHealthBadgeClass'),
+  },
+  {
+    name: 'batch health row and summary builders live in data-health static helper',
+    pass: batchState.includes("requirePlatformBatchHealthStatic('buildPlatformBatchHealthRows')")
+      && batchState.includes("requirePlatformBatchHealthStatic('buildPlatformBatchHealthSummaryCards')")
+      && dataHealthSource.includes('const buildPlatformBatchHealthRows = ({')
+      && dataHealthSource.includes('const buildPlatformBatchHealthSummaryCards = (rows = [])')
+      && dataHealthSource.includes('platformBatchHealthBadgeClass')
+      && !batchState.includes('const sourceMap = new Map()'),
   },
   {
     name: 'npm script exposes platform batch health verifier',

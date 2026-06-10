@@ -74,6 +74,140 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         qunar: '去哪儿',
     }[String(platform || '').toLowerCase()] || (platform || 'OTA'));
 
+    const platformBatchHealthBadgeClass = (level) => ({
+        ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        medium: 'bg-amber-50 text-amber-700 border-amber-200',
+        high: 'bg-red-50 text-red-700 border-red-200',
+        unknown: 'bg-gray-50 text-gray-500 border-gray-200',
+    }[level] || 'bg-gray-50 text-gray-500 border-gray-200');
+
+    const platformBatchHealthSourceHotelId = (source) => String(source?.system_hotel_id || source?.hotel_id || '').trim();
+    const platformBatchHealthSourceActive = (source) => source?.enabled !== false && Number(source?.enabled ?? 1) !== 0 && String(source?.status || '') !== 'disabled';
+    const platformBatchHealthSourceTime = (source) => String(source?.last_sync_time || source?.last_capture_time || source?.update_time || '').trim();
+
+    const buildPlatformBatchHealthRows = ({
+        hotelPool = [],
+        platformDataSources = [],
+        hotelCompetitorSummaries = {},
+        getHotelNameById = () => '',
+        competitorSummaryReadiness = () => ({}),
+        hotelCompetitorSummaryMeta = () => '',
+    } = {}) => {
+        const safeHotelName = typeof getHotelNameById === 'function' ? getHotelNameById : () => '';
+        const safeCompetitorReadiness = typeof competitorSummaryReadiness === 'function' ? competitorSummaryReadiness : () => ({});
+        const safeCompetitorMeta = typeof hotelCompetitorSummaryMeta === 'function' ? hotelCompetitorSummaryMeta : () => '';
+        const sources = (Array.isArray(platformDataSources) ? platformDataSources : [])
+            .filter(platformBatchHealthSourceActive);
+        const sourceMap = new Map();
+        for (const source of sources) {
+            const hotelId = platformBatchHealthSourceHotelId(source);
+            if (!hotelId) continue;
+            if (!sourceMap.has(hotelId)) sourceMap.set(hotelId, []);
+            sourceMap.get(hotelId).push(source);
+        }
+
+        return (Array.isArray(hotelPool) ? hotelPool : [])
+            .filter(hotel => hotel && hotel.id)
+            .slice(0, 50)
+            .map((hotel) => {
+                const hotelId = String(hotel.id || '').trim();
+                const hotelName = hotel.name || hotel.hotel_name || safeHotelName(hotelId) || `酒店 ${hotelId}`;
+                const hotelSources = sourceMap.get(hotelId) || [];
+                const failedSource = hotelSources.find(source => String(source.last_sync_status || source.status || '') === 'failed');
+                const partialSource = hotelSources.find(source => String(source.last_sync_status || source.status || '') === 'partial_success');
+                const readySource = hotelSources.find(source => ['success', 'ready'].includes(String(source.last_sync_status || source.status || '')));
+                const profileCount = hotelSources.filter(source => String(source.ingestion_method || '') === 'browser_profile').length;
+                const apiCount = hotelSources.filter(source => String(source.ingestion_method || '') === 'api').length;
+                const latestSyncTime = hotelSources
+                    .map(platformBatchHealthSourceTime)
+                    .filter(Boolean)
+                    .sort()
+                    .pop() || '';
+
+                let bindingLevel = 'unknown';
+                let bindingText = '待绑定';
+                let bindingDetail = '未发现该门店的有效平台数据源';
+                if (hotelSources.length > 0) {
+                    bindingLevel = profileCount > 0 || apiCount > 0 ? 'ok' : 'medium';
+                    bindingText = profileCount > 0 || apiCount > 0 ? '已绑定' : '仅手工/导入';
+                    bindingDetail = `Profile ${profileCount} / API ${apiCount} / 数据源 ${hotelSources.length}`;
+                }
+
+                let collectionLevel = 'unknown';
+                let collectionText = '未采集';
+                let collectionDetail = '暂无最近采集证据';
+                if (failedSource) {
+                    collectionLevel = 'high';
+                    collectionText = '采集失败';
+                    collectionDetail = failedSource.last_error || failedSource.message || '最近同步失败，需查看同步日志';
+                } else if (partialSource) {
+                    collectionLevel = 'medium';
+                    collectionText = '部分成功';
+                    collectionDetail = partialSource.last_error || latestSyncTime || '部分模块缺失，需复核字段和日志';
+                } else if (readySource || latestSyncTime) {
+                    collectionLevel = 'ok';
+                    collectionText = '已采集';
+                    collectionDetail = latestSyncTime || '有成功状态，但未返回采集时间';
+                } else if (hotelSources.length > 0) {
+                    collectionLevel = 'medium';
+                    collectionText = '待试采';
+                    collectionDetail = '已绑定数据源，暂无试采集结果';
+                }
+
+                const competitorSummaryForHotel = hotelCompetitorSummaries?.[hotelId] || null;
+                const competitorReadiness = safeCompetitorReadiness(competitorSummaryForHotel, hotel) || {};
+                const competitorDetail = competitorReadiness.detail || safeCompetitorMeta(hotel);
+                const competitorOk = ['ok', 'success'].includes(String(competitorReadiness.status || ''));
+
+                let actionLevel = 'ok';
+                let nextAction = '暂无处理动作';
+                if (!hotelSources.length) {
+                    actionLevel = 'medium';
+                    nextAction = '配置平台账号绑定';
+                } else if (failedSource) {
+                    actionLevel = 'high';
+                    nextAction = '查看同步日志并重试采集';
+                } else if (collectionLevel === 'medium') {
+                    actionLevel = 'medium';
+                    nextAction = '执行一次试采集';
+                } else if (!competitorOk) {
+                    actionLevel = competitorReadiness.status === 'missing' ? 'medium' : 'high';
+                    nextAction = competitorReadiness.next_action || '复核竞对榜单';
+                }
+
+                return {
+                    key: `platform-batch-health-${hotelId}`,
+                    hotelId,
+                    hotelName,
+                    bindingLevel,
+                    bindingText,
+                    bindingDetail,
+                    collectionLevel,
+                    collectionText,
+                    collectionDetail,
+                    competitorReadiness,
+                    competitorDetail,
+                    nextAction,
+                    actionLevel,
+                    evidenceText: latestSyncTime ? `最近采集 ${latestSyncTime}` : '缺少最近采集证据',
+                };
+            });
+    };
+
+    const buildPlatformBatchHealthSummaryCards = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const unbound = safeRows.filter(row => row.bindingLevel !== 'ok').length;
+        const collectionIssues = safeRows.filter(row => row.collectionLevel !== 'ok').length;
+        const competitorIssues = safeRows.filter(row => !['ok', 'success'].includes(String(row.competitorReadiness?.status || ''))).length;
+        const highActions = safeRows.filter(row => row.actionLevel === 'high').length;
+        return [
+            { key: 'hotels', label: '体检门店', value: safeRows.length, badge: safeRows.length ? '已加载' : '无门店', level: safeRows.length ? 'ok' : 'unknown' },
+            { key: 'binding', label: '绑定待处理', value: unbound, badge: unbound ? '待处理' : '正常', level: unbound ? 'medium' : 'ok' },
+            { key: 'collection', label: '采集待处理', value: collectionIssues, badge: collectionIssues ? '待试采' : '正常', level: collectionIssues ? 'medium' : 'ok' },
+            { key: 'competitor', label: '竞对待复核', value: competitorIssues + highActions, badge: highActions ? '高优先' : (competitorIssues ? '待复核' : '正常'), level: highActions ? 'high' : (competitorIssues ? 'medium' : 'ok') },
+        ];
+    };
+
     const buildCollectionHealthFailureReasonRanking = (failureReasons = [], platformText = dataHealthPlatformText) => {
         const groups = new Map();
         const rows = Array.isArray(failureReasons) ? failureReasons : [];
@@ -510,6 +644,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         dataHealthPriorityClass,
         dataHealthPriorityText,
         dataHealthPlatformText,
+        platformBatchHealthBadgeClass,
+        buildPlatformBatchHealthRows,
+        buildPlatformBatchHealthSummaryCards,
         buildCollectionHealthFailureReasonRanking,
         buildDataHealthTodayWorkOrders,
         buildDataHealthDiagnosticBoundary,

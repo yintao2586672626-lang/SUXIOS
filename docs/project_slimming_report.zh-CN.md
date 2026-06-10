@@ -645,6 +645,17 @@
 - 已验证：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第四十二刀拆分
+
+- 扩展 `public/data-health-static.js`，承载平台批量体检的 badge 样式、门店状态行构建器 `buildPlatformBatchHealthRows` 和摘要卡构建器 `buildPlatformBatchHealthSummaryCards`。
+- `public/index.html` 只保留 `platformBatchHealthRows` / `platformBatchHealthSummaryCards` computed 名称、运行态数据输入和显式静态工具读取；平台数据源保存/同步、竞对摘要加载、OTA 采集、入库链路和 UI 模板均未移动。
+- 保留“待绑定”“未采集”“采集失败”“待试采”“缺少最近采集证据”等缺失/失败状态文案，不用空数据或默认成功掩盖采集缺口。
+- 更新 `scripts/verify_platform_batch_health_contract.mjs`，让批量体检契约同时读取 `public/index.html` 与 `public/data-health-static.js`，并防止 `sourceMap` 等长逻辑重新内联回主入口。
+- `public/index.html` 从 `39,432` 行降至 `39,333` 行；split-map 前端函数级块从 `1,453` 降至 `1,449`，`general` 域 span 从 `8,444` 降至 `8,346`。
+- 当前自审：完整目录约 `258.23 MB`，不含 `.git` 约 `92.09 MB`，不含 `.git` 和依赖约 `62.90 MB`，Git 跟踪文件约 `17.96 MB` / `612` 个；代码范围 `369` 个文件，`187,204` 行，非空 `171,467` 行。
+- 已验证：`node --check public\data-health-static.js`、`node --check scripts\verify_platform_batch_health_contract.mjs`、`npm.cmd run verify:platform-batch-health`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

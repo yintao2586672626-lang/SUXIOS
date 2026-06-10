@@ -596,6 +596,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the home operating-result split: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `npm.cmd run verify:home-visual-hierarchy`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Platform Batch Health Builder Split
+
+- Forty-second frontend split target chosen from pure platform batch-health row and summary-card display logic in `public/index.html`.
+- Extended `public/data-health-static.js` with `platformBatchHealthBadgeClass`, `buildPlatformBatchHealthRows`, and `buildPlatformBatchHealthSummaryCards`.
+- `public/index.html` keeps the original `platformBatchHealthRows` / `platformBatchHealthSummaryCards` computed names and runtime input collection only; platform data-source persistence/sync, competitor-summary loading, OTA capture, storage paths, and template markup remain unchanged.
+- Missing and failed states remain explicit, including `待绑定`, `未采集`, `采集失败`, `待试采`, and `缺少最近采集证据`; no fallback success state was added.
+- Updated `scripts/verify_platform_batch_health_contract.mjs` so the platform batch-health contract reads both `public/index.html` and `public/data-health-static.js`, and prevents `sourceMap`-based long logic from being re-inlined into the entry file.
+- `public/index.html` decreased from `39432` lines to `39333` lines; split-map frontend function-level blocks decreased from `1453` to `1449`, and the `general` domain span decreased from `8444` to `8346` lines.
+- Current self-audit after the code move: full directory about `258.23 MB`, without `.git` about `92.09 MB`, without `.git` and dependencies about `62.90 MB`, tracked files about `17.96 MB` / `612` files; code scope `369` files, `187204` total lines, and `171467` nonblank lines.
+- Verified after the platform batch-health split: `node --check public\data-health-static.js`; `node --check scripts\verify_platform_batch_health_contract.mjs`; `npm.cmd run verify:platform-batch-health`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -19005,129 +19005,30 @@
                     },
                 ];
             });
-            const platformBatchHealthBadgeClass = (level) => ({
-                ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                medium: 'bg-amber-50 text-amber-700 border-amber-200',
-                high: 'bg-red-50 text-red-700 border-red-200',
-                unknown: 'bg-gray-50 text-gray-500 border-gray-200',
-            }[level] || 'bg-gray-50 text-gray-500 border-gray-200');
-            const platformBatchHealthSourceHotelId = (source) => String(source?.system_hotel_id || source?.hotel_id || '').trim();
-            const platformBatchHealthSourceActive = (source) => source?.enabled !== false && Number(source?.enabled ?? 1) !== 0 && String(source?.status || '') !== 'disabled';
-            const platformBatchHealthSourceTime = (source) => String(source?.last_sync_time || source?.last_capture_time || source?.update_time || '').trim();
+            const requirePlatformBatchHealthStatic = (key) => {
+                const value = window.SUXI_DATA_HEALTH_STATIC?.[key];
+                if (typeof value !== 'function') {
+                    throw new Error(`缺少批量体检静态展示工具项：${key}`);
+                }
+                return value;
+            };
+            const platformBatchHealthBadgeClass = requirePlatformBatchHealthStatic('platformBatchHealthBadgeClass');
+            const buildPlatformBatchHealthRows = requirePlatformBatchHealthStatic('buildPlatformBatchHealthRows');
+            const buildPlatformBatchHealthSummaryCards = requirePlatformBatchHealthStatic('buildPlatformBatchHealthSummaryCards');
             const platformBatchHealthRows = computed(() => {
                 const hotelPool = platformDataSourceHotelOptions.value.length
                     ? platformDataSourceHotelOptions.value
                     : dashboardHotelOptions.value;
-                const sources = (Array.isArray(platformDataSources.value) ? platformDataSources.value : [])
-                    .filter(platformBatchHealthSourceActive);
-                const sourceMap = new Map();
-                for (const source of sources) {
-                    const hotelId = platformBatchHealthSourceHotelId(source);
-                    if (!hotelId) continue;
-                    if (!sourceMap.has(hotelId)) sourceMap.set(hotelId, []);
-                    sourceMap.get(hotelId).push(source);
-                }
-
-                return (Array.isArray(hotelPool) ? hotelPool : [])
-                    .filter(hotel => hotel && hotel.id)
-                    .slice(0, 50)
-                    .map((hotel) => {
-                        const hotelId = String(hotel.id || '').trim();
-                        const hotelName = hotel.name || hotel.hotel_name || getHotelNameById(hotelId) || `酒店 ${hotelId}`;
-                        const hotelSources = sourceMap.get(hotelId) || [];
-                        const failedSource = hotelSources.find(source => String(source.last_sync_status || source.status || '') === 'failed');
-                        const partialSource = hotelSources.find(source => String(source.last_sync_status || source.status || '') === 'partial_success');
-                        const readySource = hotelSources.find(source => ['success', 'ready'].includes(String(source.last_sync_status || source.status || '')));
-                        const profileCount = hotelSources.filter(source => String(source.ingestion_method || '') === 'browser_profile').length;
-                        const apiCount = hotelSources.filter(source => String(source.ingestion_method || '') === 'api').length;
-                        const latestSyncTime = hotelSources
-                            .map(platformBatchHealthSourceTime)
-                            .filter(Boolean)
-                            .sort()
-                            .pop() || '';
-
-                        let bindingLevel = 'unknown';
-                        let bindingText = '待绑定';
-                        let bindingDetail = '未发现该门店的有效平台数据源';
-                        if (hotelSources.length > 0) {
-                            bindingLevel = profileCount > 0 || apiCount > 0 ? 'ok' : 'medium';
-                            bindingText = profileCount > 0 || apiCount > 0 ? '已绑定' : '仅手工/导入';
-                            bindingDetail = `Profile ${profileCount} / API ${apiCount} / 数据源 ${hotelSources.length}`;
-                        }
-
-                        let collectionLevel = 'unknown';
-                        let collectionText = '未采集';
-                        let collectionDetail = '暂无最近采集证据';
-                        if (failedSource) {
-                            collectionLevel = 'high';
-                            collectionText = '采集失败';
-                            collectionDetail = failedSource.last_error || failedSource.message || '最近同步失败，需查看同步日志';
-                        } else if (partialSource) {
-                            collectionLevel = 'medium';
-                            collectionText = '部分成功';
-                            collectionDetail = partialSource.last_error || latestSyncTime || '部分模块缺失，需复核字段和日志';
-                        } else if (readySource || latestSyncTime) {
-                            collectionLevel = 'ok';
-                            collectionText = '已采集';
-                            collectionDetail = latestSyncTime || '有成功状态，但未返回采集时间';
-                        } else if (hotelSources.length > 0) {
-                            collectionLevel = 'medium';
-                            collectionText = '待试采';
-                            collectionDetail = '已绑定数据源，暂无试采集结果';
-                        }
-
-                        const competitorSummaryForHotel = hotelCompetitorSummaries.value?.[hotelId] || null;
-                        const competitorReadiness = competitorSummaryReadiness(competitorSummaryForHotel, hotel);
-                        const competitorDetail = competitorReadiness.detail || hotelCompetitorSummaryMeta(hotel);
-                        const competitorOk = ['ok', 'success'].includes(String(competitorReadiness.status || ''));
-
-                        let actionLevel = 'ok';
-                        let nextAction = '暂无处理动作';
-                        if (!hotelSources.length) {
-                            actionLevel = 'medium';
-                            nextAction = '配置平台账号绑定';
-                        } else if (failedSource) {
-                            actionLevel = 'high';
-                            nextAction = '查看同步日志并重试采集';
-                        } else if (collectionLevel === 'medium') {
-                            actionLevel = 'medium';
-                            nextAction = '执行一次试采集';
-                        } else if (!competitorOk) {
-                            actionLevel = competitorReadiness.status === 'missing' ? 'medium' : 'high';
-                            nextAction = competitorReadiness.next_action || '复核竞对榜单';
-                        }
-
-                        return {
-                            key: `platform-batch-health-${hotelId}`,
-                            hotelId,
-                            hotelName,
-                            bindingLevel,
-                            bindingText,
-                            bindingDetail,
-                            collectionLevel,
-                            collectionText,
-                            collectionDetail,
-                            competitorReadiness,
-                            competitorDetail,
-                            nextAction,
-                            actionLevel,
-                            evidenceText: latestSyncTime ? `最近采集 ${latestSyncTime}` : '缺少最近采集证据',
-                        };
-                    });
+                return buildPlatformBatchHealthRows({
+                    hotelPool,
+                    platformDataSources: platformDataSources.value,
+                    hotelCompetitorSummaries: hotelCompetitorSummaries.value,
+                    getHotelNameById,
+                    competitorSummaryReadiness,
+                    hotelCompetitorSummaryMeta,
+                });
             });
-            const platformBatchHealthSummaryCards = computed(() => {
-                const rows = platformBatchHealthRows.value;
-                const unbound = rows.filter(row => row.bindingLevel !== 'ok').length;
-                const collectionIssues = rows.filter(row => row.collectionLevel !== 'ok').length;
-                const competitorIssues = rows.filter(row => !['ok', 'success'].includes(String(row.competitorReadiness?.status || ''))).length;
-                const highActions = rows.filter(row => row.actionLevel === 'high').length;
-                return [
-                    { key: 'hotels', label: '体检门店', value: rows.length, badge: rows.length ? '已加载' : '无门店', level: rows.length ? 'ok' : 'unknown' },
-                    { key: 'binding', label: '绑定待处理', value: unbound, badge: unbound ? '待处理' : '正常', level: unbound ? 'medium' : 'ok' },
-                    { key: 'collection', label: '采集待处理', value: collectionIssues, badge: collectionIssues ? '待试采' : '正常', level: collectionIssues ? 'medium' : 'ok' },
-                    { key: 'competitor', label: '竞对待复核', value: competitorIssues + highActions, badge: highActions ? '高优先' : (competitorIssues ? '待复核' : '正常'), level: highActions ? 'high' : (competitorIssues ? 'medium' : 'ok') },
-                ];
-            });
+            const platformBatchHealthSummaryCards = computed(() => buildPlatformBatchHealthSummaryCards(platformBatchHealthRows.value));
             const platformImportForm = ref({ data_source_id: '', rows_json: '' });
             const downloadCenterTab = ref('overview'); // 下载中心子Tab: overview/ai/fetched；美团下载中心复用 traffic
             const fetchingData = ref(false);
