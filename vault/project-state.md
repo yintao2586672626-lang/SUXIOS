@@ -439,6 +439,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the backend Ctrip traffic display split: `C:\xampp\php\php.exe -l app\controller\OnlineData.php`; `C:\xampp\php\php.exe -l app\service\CtripTrafficDisplayService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php`; `npm.cmd run verify:e2e-contracts`; `node scripts\verify_frontend_display_boundary.mjs`; `git diff --check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Backend Ctrip Capture Diagnosis Service Split
+
+- Second backend split target chosen from pure Ctrip capture diagnosis counts, fact-row payload, metric-key, group, and label helpers in `app/controller/OnlineData.php`.
+- Added `app/service/CtripCaptureDiagnosisService.php` with capture counts, diagnosis summary, metric-key splitting, catalog-dimension key extraction, diagnosis groups, and metric labels.
+- `app/controller/OnlineData.php` keeps the same private helper names as thin wrappers so reflection-based tests and the OTA diagnosis auto-fetch verifier still find the controller methods.
+- This split intentionally does not move Ctrip/Meituan capture execution, Cookie/Profile checks, `extractCtripCapturedSection` dedupe extraction, capture-gate decisions, response parsing, persistence, routes, or UI.
+- `app/controller/OnlineData.php` decreased from `27052` lines to `26725` lines; split-map Ctrip-domain span decreased from `11791` to `11463` lines.
+- Current `app/service/CtripCaptureDiagnosisService.php` is `360` lines. Total code lines are `186636` and nonblank lines are `170911`.
+- Current self-audit after staging the new service: full directory about `251.14 MB`, without `.git` about `92 MB`, without `.git` and dependencies about `62.81 MB`, tracked files about `17.89 MB` / `611` files; code scope `368` files.
+- Verified after the backend Ctrip capture diagnosis split: `C:\xampp\php\php.exe -l app\controller\OnlineData.php`; `C:\xampp\php\php.exe -l app\service\CtripCaptureDiagnosisService.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "CtripCaptureDiagnosisSummary|CtripCaptureCounts|CtripCaptureGate"`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\ServiceInventoryTest.php`; `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php`; `node scripts\verify_ota_diagnosis_auto_fetch.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

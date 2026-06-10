@@ -503,6 +503,17 @@
 - 验证通过：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\service\CtripTrafficDisplayService.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php`、`npm.cmd run verify:e2e-contracts`、`node scripts\verify_frontend_display_boundary.mjs`、`git diff --check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍未宣称完成，原因仍是 `public/index.html` 与 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 后端第二刀拆分
+
+- 新增 `app/service/CtripCaptureDiagnosisService.php`，承载携程采集诊断的计数统计、事实行计数 payload、诊断分组、指标 key 拆分、维度 key 提取和指标中文标签。
+- `app/controller/OnlineData.php` 保留原私有方法名作为薄 wrapper，继续兼容 `OnlineDataTest` 反射覆盖和 `verify_ota_diagnosis_auto_fetch.mjs` 的静态方法名契约。
+- 本轮不移动携程/美团采集执行、Cookie/Profile 检查、`extractCtripCapturedSection` 去重提取、采集 gate 判定、响应解析、入库、路由或 UI。
+- `app/controller/OnlineData.php` 从 `27,052` 行降至 `26,725` 行；split-map 中 `ctrip` 域 span 从 `11,791` 行降至 `11,463` 行。
+- 当前 `app/service/CtripCaptureDiagnosisService.php` 为 `360` 行；总代码行数为 `186,636` 行，非空行 `170,911` 行。
+- 当前审计：完整目录约 `251.14 MB`；不含 `.git` 约 `92 MB`；不含 `.git` 和依赖约 `62.81 MB`；Git 跟踪文件约 `17.89 MB` / `611` 个；代码范围 `368` 个文件。
+- 验证通过：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\service\CtripCaptureDiagnosisService.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "CtripCaptureDiagnosisSummary|CtripCaptureCounts|CtripCaptureGate"`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\ServiceInventoryTest.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php`、`node scripts\verify_ota_diagnosis_auto_fetch.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍未宣称完成，原因仍是 `public/index.html` 与 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
