@@ -1,6 +1,6 @@
 # SUXIOS Project State Vault
 
-Updated: 2026-06-10 Asia/Shanghai
+Updated: 2026-06-11 Asia/Shanghai
 
 ## Current Verified State
 
@@ -992,6 +992,19 @@ Updated: 2026-06-10 Asia/Shanghai
 - Current split-map: `public/index.html` decreased from `37940` lines to `37936` lines; `ctrip` domain span decreased from `3459` to `3454`; `runCtripBrowserCapture` decreased from `105` to `100` lines.
 - Current self-audit: full directory about `277.79 MB`, without `.git` about `92.32 MB`, without `.git` and dependencies about `63.13 MB`, tracked files about `18.20 MB` / `613` files; code scope `370` files, `189984` total lines, and `174197` nonblank lines; cleanup candidates `0`.
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
+## 2026-06-11 Progress: Frontend Ctrip Fetch Request Context Split
+
+- Seventy-fifth frontend split target chosen from regular Ctrip ranking fetch request construction inside `fetchCtripData()` in `public/index.html`.
+- Extended `public/ctrip-static.js` with `buildCtripFetchRequestContext` for credential trimming, nodeId request-resource identity, date range, request body, and debug metadata.
+- `public/index.html` keeps runtime orchestration in place: login/target-hotel checks, Ctrip secret hydration, `/online-data/fetch-ctrip` execution, display model application, history refresh, latest snapshot refresh, and failure-state display.
+- This split did not change `/online-data/fetch-ctrip`, storage behavior, display models, history refresh, latest snapshot refresh, missing/failed-state visibility, or OTA channel scope. nodeId remains only a request resource id, not an OTA hotelId fallback.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted request-context helper, prevent credentials, nodeId, date range, and request body construction from being re-inlined, and validate request fields, missing credential state, and debug metadata in a VM context.
+- Updated `tests/automation/manual_minimum_credential_ui.test.mjs` so assertions follow the current module boundary for Ctrip request context and Meituan static validation messages.
+- Current split-map: `public/index.html` decreased from `37936` lines to `37928` lines; `ctrip` domain span decreased from `3454` to `3447`; `fetchCtripData` decreased from `103` to `96` lines.
+- Current self-audit: full directory about `278.42 MB`, without `.git` about `92.33 MB`, without `.git` and dependencies about `63.14 MB`, tracked files about `18.21 MB` / `613` files; code scope `370` files, `190046` total lines, and `174259` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\manual_minimum_credential_ui.test.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `node --test tests\automation\manual_minimum_credential_ui.test.mjs`; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
 ## Maintenance Rule

@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const html = readFileSync('public/index.html', 'utf8');
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
+const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
 
 const sliceFrom = (needle, endNeedle) => {
   const start = html.indexOf(needle);
@@ -19,8 +20,9 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   const fetchCtripTrafficData = functionSlice('fetchCtripTrafficData');
 
   assert.doesNotMatch(fetchCtripData, /请输入节点ID/);
-  assert.match(fetchCtripData, /const ctripFetchBody = buildCtripFetchRequestBody\(\{/);
-  assert.match(fetchCtripData, /nodeId,/);
+  assert.match(fetchCtripData, /const requestContext = buildCtripFetchRequestContext\(\{/);
+  assert.match(fetchCtripData, /body: JSON\.stringify\(requestContext\.requestBody\)/);
+  assert.match(ctripStatic, /const nodeId = String\(form\.nodeId \|\| ''\)\.trim\(\)/);
   assert.match(fetchCtripTrafficData, /const ctripTrafficFetchBody = buildCtripTrafficFetchRequestBody\(\{/);
   assert.match(html, /只需平台授权/);
 });
@@ -32,7 +34,7 @@ test('Meituan ranking does not expose resource id inputs on the daily fetch pane
   assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.partnerId"/);
   assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.poiId"/);
   assert.match(rankingPanel, /需一次性门店标识/);
-  assert.match(fetchMeituanData, /需补充一次性门店标识/);
+  assert.match(meituanStatic, /需补充一次性门店标识/);
 });
 
 test('Meituan config saves cookie-only and no longer treats room counts as credentials', () => {

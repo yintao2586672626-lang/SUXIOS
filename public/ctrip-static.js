@@ -310,6 +310,42 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
         return body;
     };
+    const buildCtripFetchRequestContext = ({
+        form = {},
+        selectedCtripHotelId = '',
+    } = {}) => {
+        const cookies = String(form.cookies || '').trim();
+        if (!cookies) {
+            return {
+                ok: false,
+                message: '请输入平台授权内容',
+                level: 'error',
+            };
+        }
+        const nodeId = String(form.nodeId || '').trim();
+        const { startDate, endDate } = buildCtripFetchDateRange(form);
+        const requestBody = buildCtripFetchRequestBody({
+            form,
+            cookies,
+            nodeId,
+            startDate,
+            endDate,
+            systemHotelId: selectedCtripHotelId || null,
+        });
+        return {
+            ok: true,
+            cookies,
+            nodeId,
+            startDate,
+            endDate,
+            requestBody,
+            debugMeta: {
+                node_id: nodeId || 'backend_default',
+                start_date: startDate,
+                end_date: endDate,
+            },
+        };
+    };
 
     const selectCtripFetchResponsePayload = (data = {}) => {
         if (Array.isArray(data.date_results) && data.date_results.length > 1) {
@@ -1044,6 +1080,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         normalizeCtripBrowserCaptureErrorResult,
         buildCtripFetchDateRange,
         buildCtripFetchRequestBody,
+        buildCtripFetchRequestContext,
         selectCtripFetchResponsePayload,
         buildCtripFetchMeta,
         buildCtripFetchRawFailureResult,

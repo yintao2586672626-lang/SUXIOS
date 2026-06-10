@@ -72,9 +72,10 @@ requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureTargetConte
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureRequestContext', 'Ctrip static builds browser capture request context');
 requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorResult', 'Ctrip static normalizes browser capture errors');
-requireText('public/index.html', "requireCtripStatic('buildCtripFetchRequestBody')", 'entry uses extracted Ctrip fetch request builder');
+requireText('public/index.html', "requireCtripStatic('buildCtripFetchRequestContext')", 'entry uses extracted Ctrip fetch request context builder');
 requireText('public/ctrip-static.js', 'const buildCtripFetchDateRange', 'Ctrip static builds fetch date ranges');
 requireText('public/ctrip-static.js', 'const buildCtripFetchRequestBody', 'Ctrip static builds fetch request bodies');
+requireText('public/ctrip-static.js', 'const buildCtripFetchRequestContext', 'Ctrip static builds fetch request context');
 requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotModel')", 'entry uses extracted Ctrip latest snapshot model builder');
 requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
 requireText('public/index.html', "requireCtripStatic('buildCtripTrafficFetchRequestBody')", 'entry uses extracted Ctrip traffic fetch request builder');
@@ -111,8 +112,12 @@ requireNoText('public/index.html', 'const hotelId = String(\n                   
 requireNoText('public/index.html', "cookies: activeConfig?.cookies || activeConfig?.cookie || '',", 'Ctrip browser capture cookie payload is not re-inlined');
 requireNoText('public/index.html', 'const optionSections = options.sections || options.captureSections ||', 'Ctrip browser capture section normalization is not re-inlined');
 requireNoText('public/index.html', 'const normalizeCtripBrowserCaptureErrorResult = (error) => {', 'Ctrip browser capture error normalization is not re-inlined');
+requireNoText('public/index.html', 'const cookies = ctripForm.value.cookies.trim();', 'Ctrip fetch credential trim is not re-inlined');
+requireNoText('public/index.html', 'const nodeId = String(ctripForm.value.nodeId || \'\').trim();', 'Ctrip fetch node id normalization is not re-inlined');
+requireNoText('public/index.html', 'const { startDate, endDate } = buildCtripFetchDateRange(ctripForm.value);', 'Ctrip fetch date range construction is not re-inlined');
 requireNoText('public/index.html', 'const yesterday = new Date();', 'Ctrip fetch default date calculation is not re-inlined');
 requireNoText('public/index.html', 'const ctripFetchBody = {', 'Ctrip fetch request body is not re-inlined');
+requireNoText('public/index.html', 'const ctripFetchBody = buildCtripFetchRequestBody({', 'Ctrip fetch request body helper call is not re-inlined');
 requireNoText('public/index.html', 'raw: rawResponse.substring(0, 1000)', 'Ctrip fetch raw failure result is not re-inlined');
 requireNoText('public/index.html', 'const rankRows = payload?.rank?.rows || [];', 'Ctrip latest snapshot row slicing is not re-inlined');
 requireNoText('public/index.html', 'const trafficUrl = String(form.url || \'\').trim();', 'Ctrip traffic request URL trimming is not re-inlined');
@@ -977,6 +982,7 @@ try {
   const normalizeCtripBrowserCaptureErrorResult = ctripStatic.normalizeCtripBrowserCaptureErrorResult;
   const buildCtripFetchDateRange = ctripStatic.buildCtripFetchDateRange;
   const buildCtripFetchRequestBody = ctripStatic.buildCtripFetchRequestBody;
+  const buildCtripFetchRequestContext = ctripStatic.buildCtripFetchRequestContext;
   const selectCtripFetchResponsePayload = ctripStatic.selectCtripFetchResponsePayload;
   const buildCtripFetchMeta = ctripStatic.buildCtripFetchMeta;
   const buildCtripFetchRawFailureResult = ctripStatic.buildCtripFetchRawFailureResult;
@@ -1113,6 +1119,7 @@ try {
   }
   if (typeof buildCtripFetchDateRange !== 'function'
     || typeof buildCtripFetchRequestBody !== 'function'
+    || typeof buildCtripFetchRequestContext !== 'function'
     || typeof selectCtripFetchResponsePayload !== 'function'
     || typeof buildCtripFetchMeta !== 'function'
     || typeof buildCtripFetchRawFailureResult !== 'function'
@@ -1128,7 +1135,7 @@ try {
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch, latest snapshot, traffic, overview, ads, and Cookie API builders',
+      detail: 'Ctrip fetch context, latest snapshot, traffic, overview, ads, and Cookie API builders',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -1146,6 +1153,21 @@ try {
       cookies: 'sid=abc',
       startDate: '2026-06-09',
       endDate: '2026-06-09',
+    });
+    const fetchContext = buildCtripFetchRequestContext({
+      form: {
+        url: ' https://ebooking.ctrip.test/api ',
+        cookies: ' sid=context ',
+        nodeId: '24588',
+        startDate: '2026-06-01',
+        endDate: '2026-06-10',
+        auth_data: { token: 'ctx' },
+      },
+      selectedCtripHotelId: '58',
+    });
+    const missingCredentialContext = buildCtripFetchRequestContext({
+      form: { cookies: '   ' },
+      selectedCtripHotelId: '58',
     });
     const multiDatePayload = selectCtripFetchResponsePayload({
       date_results: [{ date: '2026-06-09' }, { date: '2026-06-10' }],
@@ -1282,6 +1304,15 @@ try {
         && defaultRange.endDate === '2026-06-09'
         && explicitRange.startDate === '2026-06-01'
         && explicitRange.endDate === '2026-06-10'
+        && fetchContext.ok === true
+        && fetchContext.requestBody.cookies === 'sid=context'
+        && fetchContext.requestBody.node_id === '24588'
+        && fetchContext.requestBody.system_hotel_id === '58'
+        && fetchContext.requestBody.start_date === '2026-06-01'
+        && fetchContext.requestBody.end_date === '2026-06-10'
+        && fetchContext.debugMeta.node_id === '24588'
+        && missingCredentialContext.ok === false
+        && missingCredentialContext.message.includes('平台授权内容')
         && fetchBody.url === 'https://ebooking.ctrip.test/api'
         && fetchBody.node_id === '24588'
         && fetchBody.system_hotel_id === '58'

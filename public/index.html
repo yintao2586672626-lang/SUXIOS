@@ -19085,8 +19085,7 @@
             const buildCtripBrowserCaptureTargetContext = requireCtripStatic('buildCtripBrowserCaptureTargetContext');
             const buildCtripBrowserCaptureRequestContext = requireCtripStatic('buildCtripBrowserCaptureRequestContext');
             const normalizeCtripBrowserCaptureErrorResult = requireCtripStatic('normalizeCtripBrowserCaptureErrorResult');
-            const buildCtripFetchDateRange = requireCtripStatic('buildCtripFetchDateRange');
-            const buildCtripFetchRequestBody = requireCtripStatic('buildCtripFetchRequestBody');
+            const buildCtripFetchRequestContext = requireCtripStatic('buildCtripFetchRequestContext');
             const selectCtripFetchResponsePayload = requireCtripStatic('selectCtripFetchResponsePayload');
             const buildCtripFetchMeta = requireCtripStatic('buildCtripFetchMeta');
             const buildCtripFetchRawFailureResult = requireCtripStatic('buildCtripFetchRawFailureResult');
@@ -32157,14 +32156,15 @@
                 }
                 applyCtripConfigObject(selectedConfig, false);
 
-                // 去除cookies首尾空格
-                const cookies = ctripForm.value.cookies.trim();
-                if (!cookies) {
-                    showToast('请输入平台授权内容', 'error');
+                const requestContext = buildCtripFetchRequestContext({
+                    form: ctripForm.value,
+                    selectedCtripHotelId: selectedCtripHotelId.value,
+                });
+                if (!requestContext.ok) {
+                    showToast(requestContext.message, requestContext.level || 'error');
                     return;
                 }
-                const nodeId = String(ctripForm.value.nodeId || '').trim();
-                const { startDate, endDate } = buildCtripFetchDateRange(ctripForm.value);
+                const { startDate, endDate } = requestContext;
 
                 fetchingData.value = true;
                 showRawData.value = false;
@@ -32172,18 +32172,10 @@
                 ctripSavedCount.value = 0;
 
                 try {
-                    const ctripFetchBody = buildCtripFetchRequestBody({
-                        form: ctripForm.value,
-                        cookies,
-                        nodeId,
-                        startDate,
-                        endDate,
-                        systemHotelId: selectedCtripHotelId.value || null,
-                    });
-                    debugLog('发送携程数据请求...', { node_id: nodeId || 'backend_default', start_date: startDate, end_date: endDate });
+                    debugLog('发送携程数据请求...', requestContext.debugMeta);
                     const res = await request('/online-data/fetch-ctrip', {
                         method: 'POST',
-                        body: JSON.stringify(ctripFetchBody),
+                        body: JSON.stringify(requestContext.requestBody),
                     });
                     debugLog('携程数据响应:', res);
 
