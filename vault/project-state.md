@@ -820,6 +820,19 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\manual_minimum_credential_ui.test.mjs`; `npm.cmd run verify:e2e-contracts`; `node --test tests\automation\manual_minimum_credential_ui.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Cookie API Request Builder Split
+
+- Sixty-first frontend split target chosen from pure Ctrip Cookie API request-body construction inside `runCtripCookieApiCapture()` in `public/index.html`.
+- Extended `public/ctrip-static.js` with `buildCtripCookieApiFetchRequestBody`.
+- `public/index.html` keeps `runCtripCookieApiCapture()` responsible for runtime execution only: target hotel validation, Request URL / endpoints JSON validation, active config and Profile resolution, `/online-data/fetch-ctrip-cookie-api` request execution, result writes, history refresh, and toast status.
+- This split did not change the Ctrip Cookie API endpoint, auto-save behavior, storage behavior, UI display path, Profile binding path, or missing/failed-state visibility.
+- The current save point also carries forward the Meituan summary loading guard refinement: `scheduleMeituanRankingSummaryRefresh`, config-detail single-flight loading, config-list single-flight reuse, deferred Meituan ranking-page loads, and matching automation assertions.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted Ctrip Cookie API builder, prevent request-body fields from being re-inlined, and validate method normalization plus payload trimming in a VM context.
+- Current split-map: `public/index.html` is `38104` lines; frontend function-level blocks are `1409`; `ctrip` domain span is `3472`; `meituan` domain span is `1246`; `runCtripCookieApiCapture` is `85` lines.
+- Current self-audit after local runtime cleanup: full directory about `269.4 MB`, without `.git` about `92.23 MB`, without `.git` and dependencies about `63.04 MB`, tracked files about `18.12 MB` / `613` files; code scope `370` files, `189178` total lines, and `173401` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:clean`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

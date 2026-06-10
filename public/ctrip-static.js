@@ -422,6 +422,30 @@ window.SUXI_CTRIP_STATIC = (() => {
         auto_save: true,
     });
 
+    const buildCtripCookieApiFetchRequestBody = ({
+        systemHotelId = null,
+        hotelId = '',
+        hotelName = '',
+        profileId = '',
+        dataDate = '',
+        requestUrl = '',
+        form = {},
+        endpointsJson = '',
+        cookies = '',
+    } = {}) => ({
+        system_hotel_id: systemHotelId,
+        hotel_id: hotelId,
+        hotel_name: hotelName,
+        profile_id: profileId,
+        data_date: dataDate,
+        request_url: requestUrl,
+        method: String(form.method || 'GET').toUpperCase(),
+        payload_json: String(form.payloadJson || '').trim(),
+        endpoints_json: endpointsJson,
+        cookies,
+        auto_save: true,
+    });
+
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
     const ctripSortMetricValue = (row = {}, field = '') => {
@@ -931,6 +955,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripTrafficResponseModel,
         buildCtripOverviewFetchRequestBody,
         buildCtripAdsFetchRequestBody,
+        buildCtripCookieApiFetchRequestBody,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,

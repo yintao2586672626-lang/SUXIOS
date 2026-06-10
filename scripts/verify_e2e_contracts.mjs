@@ -80,6 +80,8 @@ requireText('public/index.html', "requireCtripStatic('buildCtripOverviewFetchReq
 requireText('public/ctrip-static.js', 'const buildCtripOverviewFetchRequestBody', 'Ctrip static builds overview fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('buildCtripAdsFetchRequestBody')", 'entry uses extracted Ctrip ads fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripAdsFetchRequestBody', 'Ctrip static builds ads fetch request bodies');
+requireText('public/index.html', "requireCtripStatic('buildCtripCookieApiFetchRequestBody')", 'entry uses extracted Ctrip Cookie API fetch request builder');
+requireText('public/ctrip-static.js', 'const buildCtripCookieApiFetchRequestBody', 'Ctrip static builds Cookie API fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckInitialState')", 'entry uses extracted Ctrip Profile recheck state builders');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
@@ -115,6 +117,9 @@ requireNoText('public/index.html', "method: form.method || 'GET',", 'Ctrip flow 
 requireNoText('public/index.html', "const defaultCtripAdsEffectReportUrl = 'https://", 'Ctrip ads default URL is not re-inlined');
 requireNoText('public/index.html', 'const isCtripAdsApiUrl = (url = \'\') => {', 'Ctrip ads URL guard is not re-inlined');
 requireNoText('public/index.html', 'api_type: normalizeCtripAdsApiType(form.apiType),', 'Ctrip ads request body is not re-inlined');
+requireNoText('public/index.html', 'profile_id: cookieApiProfileId,', 'Ctrip Cookie API request body is not re-inlined');
+requireNoText('public/index.html', "method: String(ctripCookieApiForm.value.method || 'GET').toUpperCase(),", 'Ctrip Cookie API request method normalization is not re-inlined');
+requireNoText('public/index.html', "payload_json: String(ctripCookieApiForm.value.payloadJson || '').trim(),", 'Ctrip Cookie API payload trimming is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -567,6 +572,7 @@ try {
   const buildCtripTrafficResponseModel = ctripStatic.buildCtripTrafficResponseModel;
   const buildCtripOverviewFetchRequestBody = ctripStatic.buildCtripOverviewFetchRequestBody;
   const buildCtripAdsFetchRequestBody = ctripStatic.buildCtripAdsFetchRequestBody;
+  const buildCtripCookieApiFetchRequestBody = ctripStatic.buildCtripCookieApiFetchRequestBody;
   const defaultCtripAdsEffectReportUrl = ctripStatic.defaultCtripAdsEffectReportUrl;
   const isCtripAdsApiUrl = ctripStatic.isCtripAdsApiUrl;
   const normalizeCtripAdsApiType = ctripStatic.normalizeCtripAdsApiType;
@@ -659,6 +665,7 @@ try {
     || typeof buildCtripTrafficFetchRequestBody !== 'function'
     || typeof buildCtripOverviewFetchRequestBody !== 'function'
     || typeof buildCtripAdsFetchRequestBody !== 'function'
+    || typeof buildCtripCookieApiFetchRequestBody !== 'function'
     || typeof isCtripAdsApiUrl !== 'function'
     || typeof normalizeCtripAdsApiType !== 'function'
     || typeof buildCtripTrafficResponseModel !== 'function') {
@@ -666,7 +673,7 @@ try {
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch, latest snapshot, traffic, overview, and ads builders',
+      detail: 'Ctrip fetch, latest snapshot, traffic, overview, ads, and Cookie API builders',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -785,6 +792,17 @@ try {
         startDate: '2026-06-01',
         endDate: '2026-06-10',
       },
+    });
+    const cookieApiBody = buildCtripCookieApiFetchRequestBody({
+      systemHotelId: '58',
+      hotelId: 'ctrip-hotel-1',
+      hotelName: 'Tiancheng Hotel',
+      profileId: 'profile-1',
+      dataDate: '2026-06-10',
+      requestUrl: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHomePageRealTimeData',
+      form: { method: 'post', payloadJson: ' {"scope":"core"} ' },
+      endpointsJson: '[{"section":"homepage"}]',
+      cookies: 'sid=cookie-api',
     });
     const trafficModel = buildCtripTrafficResponseModel({
       http_code: 200,
@@ -915,6 +933,22 @@ try {
         && adsBody.end_date === '2026-06-10'
         && adsBody.auto_save === true,
       detail: 'Ctrip ads request sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Cookie API builder keeps request fields and normalized payload',
+      ok: cookieApiBody.system_hotel_id === '58'
+        && cookieApiBody.hotel_id === 'ctrip-hotel-1'
+        && cookieApiBody.hotel_name === 'Tiancheng Hotel'
+        && cookieApiBody.profile_id === 'profile-1'
+        && cookieApiBody.data_date === '2026-06-10'
+        && cookieApiBody.request_url.includes('queryHomePageRealTimeData')
+        && cookieApiBody.method === 'POST'
+        && cookieApiBody.payload_json === '{"scope":"core"}'
+        && cookieApiBody.endpoints_json === '[{"section":"homepage"}]'
+        && cookieApiBody.cookies === 'sid=cookie-api'
+        && cookieApiBody.auto_save === true,
+      detail: 'Ctrip Cookie API request sample',
     });
   }
   if (typeof buildCtripProfileRecheckInitialState !== 'function'

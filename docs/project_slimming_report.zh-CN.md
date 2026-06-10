@@ -841,6 +841,17 @@
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:e2e-contracts`、`node --test tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第六十一刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程 Cookie API 采集请求体构建器 `buildCtripCookieApiFetchRequestBody`。
+- `public/index.html` 只保留 `runCtripCookieApiCapture()` 的运行时职责：目标酒店校验、Request URL / endpoints JSON 校验、登录会话/Profile 解析、`/online-data/fetch-ctrip-cookie-api` 请求执行、结果写入、历史刷新与 toast 状态；携程 Cookie API 接口、入库行为、字段展示和缺失/失败状态口径均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`：要求入口通过 `requireCtripStatic('buildCtripCookieApiFetchRequestBody')` 显式读取 builder，禁止 `profile_id`、method 归一化、payload trim 等请求体细节重新内联回 `public/index.html`，并在 VM 中校验 Cookie API 请求字段样例。
+- 当前保存点也保留美团摘要加载保护的延续修正：`scheduleMeituanRankingSummaryRefresh`、配置详情 single-flight、配置列表 single-flight、进入美团排名页后的延迟加载，避免全店竞品摘要阻塞页面切换。
+- 当前 split-map：`public/index.html` 为 `38104` 行；前端函数级块 `1409` 个；`ctrip` 领域 span 为 `3472` 行；`meituan` 领域 span 为 `1246` 行；`runCtripCookieApiCapture` 当前为 `85` 行。
+- 当前自审计：完整目录约 `269.4 MB`；不含 `.git` 约 `92.23 MB`；不含 `.git` 和依赖约 `63.04 MB`；Git 跟踪文件约 `18.12 MB` / `613` 个；代码范围 `370` 个文件，`189178` 行，非空 `173401` 行；默认可清理目标为 `0`。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:clean`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

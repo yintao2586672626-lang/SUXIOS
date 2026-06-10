@@ -19119,6 +19119,7 @@
             const buildCtripFlowOverviewMetricCards = requireCtripStatic('buildCtripFlowOverviewMetricCards');
             const buildCtripFlowOverviewInterfaceRows = requireCtripStatic('buildCtripFlowOverviewInterfaceRows');
             const buildCtripAdsFetchRequestBody = requireCtripStatic('buildCtripAdsFetchRequestBody');
+            const buildCtripCookieApiFetchRequestBody = requireCtripStatic('buildCtripCookieApiFetchRequestBody');
             const ctripOverviewForm = ref(createCtripOverviewForm());
             const ctripFlowOverviewForm = ref(createCtripFlowOverviewForm());
             const ctripOverviewResult = ref(null);
@@ -21878,12 +21879,7 @@
                 }
                 currentPage.value = entry.page;
                 if (entry.page === 'meituan-ebooking' && onlineDataTab.value === 'meituan-ranking') {
-                    nextTick(async () => {
-                        if (!competitorSummary.value) {
-                            await loadCompetitorSummary();
-                        }
-                        syncMeituanRankingDisplayFromCompetitorSummary();
-                    });
+                    nextTick(() => scheduleMeituanRankingSummaryRefresh());
                 }
             };
 
@@ -24026,11 +24022,14 @@
                 }
                 if (newPage === 'meituan-ebooking') {
                     onlineDataTab.value = 'meituan-ranking';
-                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
-                        loadMeituanConfig(),
-                        loadOnlineDataHotelList(),
-                        loadMeituanConfigList(),
-                    ]));
+                    runPageLoadOnce(newPage, 'main', () => loadMeituanConfigList());
+                    deferUiTask(() => {
+                        if (currentPage.value !== 'meituan-ebooking') return null;
+                        return Promise.allSettled([
+                            loadMeituanConfig(),
+                            loadOnlineDataHotelList(),
+                        ]);
+                    }, 120);
                 }
                 if (newPage === 'hotels') {
                     runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
@@ -24263,12 +24262,9 @@
                         nextTick(() => ensureHotelOtaConfigLists());
                     }
                     if (item.path === 'meituan-ebooking') {
-                        nextTick(async () => {
+                        nextTick(() => {
                             onlineDataTab.value = 'meituan-ranking';
-                            if (!competitorSummary.value) {
-                                await loadCompetitorSummary();
-                            }
-                            syncMeituanRankingDisplayFromCompetitorSummary();
+                            scheduleMeituanRankingSummaryRefresh();
                         });
                     }
                     if (['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(item.path)) {
@@ -32119,6 +32115,19 @@
                 return true;
             };
 
+            const scheduleMeituanRankingSummaryRefresh = (options = {}) => {
+                const delay = Number.isFinite(options.delay) ? options.delay : 0;
+                const force = options.force === true;
+                deferUiTask(async () => {
+                    if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== 'meituan-ranking') return;
+                    if (force || !competitorSummary.value) {
+                        await loadCompetitorSummary({ includeByHotel: false });
+                        return;
+                    }
+                    syncMeituanRankingDisplayFromCompetitorSummary();
+                }, delay);
+            };
+
             // 线上数据获取相关方法
             const fetchCtripData = async () => {
                 // 检查登录状态
@@ -32992,22 +33001,21 @@
                 ctripCookieApiRunning.value = true;
                 fetchingData.value = true;
                 ctripBrowserCaptureResult.value = null;
+                const ctripCookieApiFetchBody = buildCtripCookieApiFetchRequestBody({
+                    systemHotelId,
+                    hotelId: resolveCtripCookieApiRequestHotelId(systemHotelId, activeConfig),
+                    hotelName: getHotelNameById(systemHotelId),
+                    profileId: cookieApiProfileId,
+                    dataDate: ctripOverviewForm.value.dataDate,
+                    requestUrl,
+                    form: ctripCookieApiForm.value,
+                    endpointsJson,
+                    cookies,
+                });
                 try {
                     const res = await request('/online-data/fetch-ctrip-cookie-api', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            hotel_id: resolveCtripCookieApiRequestHotelId(systemHotelId, activeConfig),
-                            hotel_name: getHotelNameById(systemHotelId),
-                            profile_id: cookieApiProfileId,
-                            data_date: ctripOverviewForm.value.dataDate,
-                            request_url: requestUrl,
-                            method: String(ctripCookieApiForm.value.method || 'GET').toUpperCase(),
-                            payload_json: String(ctripCookieApiForm.value.payloadJson || '').trim(),
-                            endpoints_json: endpointsJson,
-                            cookies,
-                            auto_save: true,
-                        }),
+                        body: JSON.stringify(ctripCookieApiFetchBody),
                     });
                     if (res.code === 200) {
                         const data = res.data || {};
@@ -33559,13 +33567,37 @@
                 return res.data || null;
             };
 
+            const meituanConfigDetailCache = new Map();
+            const meituanConfigDetailLoadingPromises = new Map();
+            const getMeituanConfigDetailVersion = (config = {}) => String(config.update_time || config.updated_at || config.created_at || '');
+            const clearMeituanConfigDetailCache = (id = '') => {
+                if (id) {
+                    meituanConfigDetailCache.delete(String(id));
+                    meituanConfigDetailLoadingPromises.delete(String(id));
+                    return;
+                }
+                meituanConfigDetailCache.clear();
+                meituanConfigDetailLoadingPromises.clear();
+            };
             const loadMeituanConfigDetail = async (id) => {
                 if (!id) return null;
-                const res = await request(`/online-data/get-meituan-config-detail?id=${encodeURIComponent(id)}`);
-                if (res.code !== 200) {
-                    throw new Error(res.message || '加载美团完整配置失败');
+                const cacheKey = String(id);
+                if (meituanConfigDetailLoadingPromises.has(cacheKey)) {
+                    return meituanConfigDetailLoadingPromises.get(cacheKey);
                 }
-                return res.data || null;
+                const detailPromise = (async () => {
+                    const res = await request(`/online-data/get-meituan-config-detail?id=${encodeURIComponent(cacheKey)}`);
+                    if (res.code !== 200) {
+                        throw new Error(res.message || '加载美团完整配置失败');
+                    }
+                    return res.data || null;
+                })();
+                meituanConfigDetailLoadingPromises.set(cacheKey, detailPromise);
+                try {
+                    return await detailPromise;
+                } finally {
+                    meituanConfigDetailLoadingPromises.delete(cacheKey);
+                }
             };
 
             const ensureCtripConfigSecret = async (config) => {
@@ -33582,8 +33614,21 @@
             const ensureMeituanConfigSecret = async (config) => {
                 if (!config) return null;
                 if (config.cookies || !config.has_cookies) return config;
+                const cacheKey = config.id ? String(config.id) : '';
+                const listVersion = getMeituanConfigDetailVersion(config);
+                const cached = cacheKey ? meituanConfigDetailCache.get(cacheKey) : null;
+                if (cached && (!listVersion || cached.version === listVersion)) {
+                    return cached.data;
+                }
                 try {
-                    return await loadMeituanConfigDetail(config.id);
+                    const detail = await loadMeituanConfigDetail(config.id);
+                    if (detail && cacheKey) {
+                        meituanConfigDetailCache.set(cacheKey, {
+                            version: getMeituanConfigDetailVersion(detail) || listVersion,
+                            data: detail,
+                        });
+                    }
+                    return detail;
                 } catch (e) {
                     showToast(e.message || '加载美团完整配置失败', 'error');
                     return null;
@@ -33829,15 +33874,19 @@
                 await applyCtripHotelConfig(false);
             };
 
-            const applyMeituanHotelConfig = async (showMessage = true) => {
+            const applyMeituanHotelConfig = async (showMessage = true, options = {}) => {
                 let configSource = selectedMeituanHotelConfig.value;
-                if (!configSource && meituanForm.value.hotelId) {
+                if (!configSource && meituanForm.value.hotelId && options.refreshList !== false) {
                     try {
-                        const res = await request('/online-data/get-meituan-config-list');
-                        if (res.code === 200) {
-                            meituanConfigList.value = Array.isArray(res.data) ? res.data : [];
-                            configSource = findMeituanConfigByHotelId(meituanForm.value.hotelId);
+                        if (meituanConfigListLoadingPromise) {
+                            await meituanConfigListLoadingPromise;
+                        } else {
+                            const res = await request('/online-data/get-meituan-config-list');
+                            if (res.code === 200) {
+                                meituanConfigList.value = Array.isArray(res.data) ? res.data : [];
+                            }
                         }
+                        configSource = findMeituanConfigByHotelId(meituanForm.value.hotelId);
                     } catch (e) {
                         console.error('[Debug] 补拉美团配置列表失败:', e);
                     }
@@ -33862,7 +33911,7 @@
                     showToast(`已应用配置: ${config.name || getHotelNameById(meituanForm.value.hotelId) || '美团数据源'}`);
                 }
                 if (currentPage.value === 'meituan-ebooking' && onlineDataTab.value === 'meituan-ranking') {
-                    deferUiTask(() => loadCompetitorSummary({ includeByHotel: false }), 0);
+                    scheduleMeituanRankingSummaryRefresh({ force: true });
                 }
             };
 
@@ -34595,7 +34644,7 @@
                         if (res.code === 200) {
                             meituanConfigList.value = res.data || [];
                             if (meituanForm.value.hotelId) {
-                                await applyMeituanHotelConfig(false);
+                                await applyMeituanHotelConfig(false, { refreshList: false });
                             }
                             return meituanConfigList.value;
                         } else {
@@ -34637,6 +34686,7 @@
                     if (res.code === 200) {
                         const credentialStatus = res.data?.credential_status || res.data?.credential_requirement?.credential_status || '';
                         showToast(res.message || '配置保存成功', credentialStatus === 'missing_resource_id' ? 'warning' : 'success');
+                        clearMeituanConfigDetailCache(meituanConfigForm.value.id);
                         meituanConfigForm.value = {
                             id: null,
                             name: '',
@@ -34693,6 +34743,7 @@
                     });
                     if (res.code === 200) {
                         showToast('删除成功');
+                        clearMeituanConfigDetailCache(id);
                         loadMeituanConfigList();
                     } else {
                         showToast(res.message || '删除失败', 'error');
