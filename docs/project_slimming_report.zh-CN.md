@@ -800,6 +800,16 @@
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第五十七刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程最新入库快照的纯模型构建器 `buildLatestCtripSnapshotModel`，统一切分 `rank`、`traffic`、`review`、`metadata` 和 `onlineResult`。
+- `public/index.html` 只保留 `applyLatestCtripSnapshot()` 的运行时职责：写入 `ctripLatestMeta`、刷新携程经营展示行、流量展示行、点评聚合结果和 `onlineDataResult`；最新快照接口、入库数据口径、历史数据读取、缺失/失败状态展示均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `requireCtripStatic('buildLatestCtripSnapshotModel')` 显式读取快照模型构建器，禁止 latest 快照切片逻辑重新内联，并在 VM 中校验 rank、traffic、review、onlineResult 与空快照行为。
+- `public/index.html` 从 `38,070` 行降至 `38,058` 行；`public/ctrip-static.js` 当前 `836` 行；`ctrip` 领域 span 从 `3,525` 行降至 `3,512` 行。
+- 当前自审计：完整目录约 `267.01 MB`，不含 `.git` 约 `92.19 MB`，不含 `.git` 和依赖约 `63 MB`，Git 跟踪文件约 `18.08 MB` / `613` 个；代码范围 `370` 个文件，`188,752` 行，非空 `172,980` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

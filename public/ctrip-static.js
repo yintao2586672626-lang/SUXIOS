@@ -275,6 +275,50 @@ window.SUXI_CTRIP_STATIC = (() => {
         hint: '请检查: 1.Cookie是否过期 2.API地址是否正确',
     });
 
+    const buildLatestCtripSnapshotModel = (payload = {}) => {
+        const rank = payload?.rank || {};
+        const traffic = payload?.traffic || {};
+        const review = payload?.review || {};
+        const rankRows = Array.isArray(rank.rows) ? rank.rows : [];
+        const rankDisplayHotels = Array.isArray(rank.display_hotels) ? rank.display_hotels : [];
+        const trafficRows = Array.isArray(traffic.rows) ? traffic.rows : [];
+        const displayTrafficRows = Array.isArray(traffic.display_traffic_rows) ? traffic.display_traffic_rows : [];
+        const reviewRows = Array.isArray(review.rows) ? review.rows : [];
+        const hasRank = rankRows.length > 0 || rankDisplayHotels.length > 0;
+        const hasTraffic = trafficRows.length > 0 || displayTrafficRows.length > 0;
+        const hasReview = reviewRows.length > 0;
+        const hasAnySnapshot = hasRank || hasTraffic || hasReview;
+
+        return {
+            metadata: payload?.metadata || null,
+            rankRows,
+            rankDisplayHotels,
+            rankDisplaySummary: rank.display_summary || null,
+            rankTotal: rank.total || 0,
+            rankDataDate: rank.data_date || '',
+            trafficRows,
+            displayTrafficRows,
+            trafficDisplaySummary: traffic.display_traffic_summary || null,
+            reviewRows,
+            reviewResult: hasReview ? {
+                data: reviewRows,
+                total: review.total || reviewRows.length,
+                saved_count: review.total || reviewRows.length,
+            } : null,
+            onlineResult: hasAnySnapshot ? {
+                source: 'latest',
+                metadata: payload.metadata,
+                rank: payload.rank,
+                traffic: payload.traffic,
+                review: payload.review,
+            } : null,
+            hasRank,
+            hasTraffic,
+            hasReview,
+            hasAnySnapshot,
+        };
+    };
+
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
     const ctripSortMetricValue = (row = {}, field = '') => {
@@ -775,6 +819,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         selectCtripFetchResponsePayload,
         buildCtripFetchMeta,
         buildCtripFetchRawFailureResult,
+        buildLatestCtripSnapshotModel,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,

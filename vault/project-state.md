@@ -770,6 +770,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the Ctrip fetch builder split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Latest Snapshot Model Split
+
+- Fifty-seventh frontend split target chosen from pure latest Ctrip snapshot payload slicing inside `public/index.html`.
+- Extended `public/ctrip-static.js` with `buildLatestCtripSnapshotModel`, covering `metadata`, rank rows/display hotels, traffic rows/display rows, review result, and `onlineResult` construction.
+- `public/index.html` keeps `applyLatestCtripSnapshot()` responsible for runtime state writes only: `ctripLatestMeta`, Ctrip rank display rows, traffic display rows, review aggregate result, and `onlineDataResult`.
+- This split did not change the latest snapshot endpoint, stored data scope, history loading, Ctrip OTA channel display scope, or missing/failed-state visibility.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted latest snapshot model builder, prevent latest row slicing from being re-inlined, and validate rank, traffic, review, online result, and empty snapshot behavior in a VM context.
+- `public/index.html` decreased from `38070` lines to `38058` lines; `public/ctrip-static.js` is now `836` lines; the split-map `ctrip` domain span decreased from `3525` to `3512` lines.
+- Current self-audit after the code move: full directory about `267.01 MB`, without `.git` about `92.19 MB`, without `.git` and dependencies about `63 MB`, tracked files about `18.08 MB` / `613` files; code scope `370` files, `188752` total lines, and `172980` nonblank lines.
+- Verified after the latest snapshot model split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

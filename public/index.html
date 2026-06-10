@@ -19086,6 +19086,7 @@
             const selectCtripFetchResponsePayload = requireCtripStatic('selectCtripFetchResponsePayload');
             const buildCtripFetchMeta = requireCtripStatic('buildCtripFetchMeta');
             const buildCtripFetchRawFailureResult = requireCtripStatic('buildCtripFetchRawFailureResult');
+            const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
             const buildCtripProfileRecheckInitialState = requireCtripStatic('buildCtripProfileRecheckInitialState');
             const buildCtripProfileRecheckCaptureRefreshState = requireCtripStatic('buildCtripProfileRecheckCaptureRefreshState');
             const buildCtripProfileRecheckSuccessResult = requireCtripStatic('buildCtripProfileRecheckSuccessResult');
@@ -32404,48 +32405,35 @@
             };
 
             const applyLatestCtripSnapshot = (payload) => {
-                const rankRows = payload?.rank?.rows || [];
-                const trafficRows = payload?.traffic?.rows || [];
-                const displayTrafficRows = payload?.traffic?.display_traffic_rows || [];
-                const reviewRows = payload?.review?.rows || [];
+                const snapshotModel = buildLatestCtripSnapshotModel(payload || {});
 
-                ctripLatestMeta.value = payload?.metadata || null;
+                ctripLatestMeta.value = snapshotModel.metadata;
 
-                if (rankRows.length > 0 || (payload?.rank?.display_hotels || []).length > 0) {
-                    const allHotels = useCtripDisplayHotels(payload?.rank?.display_hotels || [], payload?.rank?.display_summary || null);
-                    ctripSavedCount.value = payload.rank.total || allHotels.length;
-                    if (payload.rank.data_date) {
-                        onlineDataFilter.value.start_date = payload.rank.data_date;
-                        onlineDataFilter.value.end_date = payload.rank.data_date;
+                if (snapshotModel.hasRank) {
+                    const allHotels = useCtripDisplayHotels(snapshotModel.rankDisplayHotels, snapshotModel.rankDisplaySummary);
+                    ctripSavedCount.value = snapshotModel.rankTotal || allHotels.length;
+                    if (snapshotModel.rankDataDate) {
+                        onlineDataFilter.value.start_date = snapshotModel.rankDataDate;
+                        onlineDataFilter.value.end_date = snapshotModel.rankDataDate;
                     }
                     updateAiAnalysisHotelList();
                 }
 
-                if (trafficRows.length > 0 || displayTrafficRows.length > 0) {
+                if (snapshotModel.hasTraffic) {
                     useCtripTrafficDisplayRows(
-                        displayTrafficRows,
-                        payload?.traffic?.display_traffic_summary || null,
-                        trafficRows,
+                        snapshotModel.displayTrafficRows,
+                        snapshotModel.trafficDisplaySummary,
+                        snapshotModel.trafficRows,
                         null
                     );
                 }
 
-                if (reviewRows.length > 0) {
-                    ctripCommentResult.value = {
-                        data: reviewRows,
-                        total: payload.review.total || reviewRows.length,
-                        saved_count: payload.review.total || reviewRows.length,
-                    };
+                if (snapshotModel.hasReview) {
+                    ctripCommentResult.value = snapshotModel.reviewResult;
                 }
 
-                if (rankRows.length > 0 || trafficRows.length > 0 || displayTrafficRows.length > 0 || reviewRows.length > 0) {
-                    onlineDataResult.value = {
-                        source: 'latest',
-                        metadata: payload.metadata,
-                        rank: payload.rank,
-                        traffic: payload.traffic,
-                        review: payload.review,
-                    };
+                if (snapshotModel.onlineResult) {
+                    onlineDataResult.value = snapshotModel.onlineResult;
                 }
             };
 

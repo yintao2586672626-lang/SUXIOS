@@ -72,6 +72,8 @@ requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorRe
 requireText('public/index.html', "requireCtripStatic('buildCtripFetchRequestBody')", 'entry uses extracted Ctrip fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripFetchDateRange', 'Ctrip static builds fetch date ranges');
 requireText('public/ctrip-static.js', 'const buildCtripFetchRequestBody', 'Ctrip static builds fetch request bodies');
+requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotModel')", 'entry uses extracted Ctrip latest snapshot model builder');
+requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckInitialState')", 'entry uses extracted Ctrip Profile recheck state builders');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
@@ -95,6 +97,7 @@ requireNoText('public/index.html', 'const normalizeCtripBrowserCaptureErrorResul
 requireNoText('public/index.html', 'const yesterday = new Date();', 'Ctrip fetch default date calculation is not re-inlined');
 requireNoText('public/index.html', 'const ctripFetchBody = {', 'Ctrip fetch request body is not re-inlined');
 requireNoText('public/index.html', 'raw: rawResponse.substring(0, 1000)', 'Ctrip fetch raw failure result is not re-inlined');
+requireNoText('public/index.html', 'const rankRows = payload?.rank?.rows || [];', 'Ctrip latest snapshot row slicing is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -542,6 +545,7 @@ try {
   const selectCtripFetchResponsePayload = ctripStatic.selectCtripFetchResponsePayload;
   const buildCtripFetchMeta = ctripStatic.buildCtripFetchMeta;
   const buildCtripFetchRawFailureResult = ctripStatic.buildCtripFetchRawFailureResult;
+  const buildLatestCtripSnapshotModel = ctripStatic.buildLatestCtripSnapshotModel;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
@@ -626,12 +630,13 @@ try {
     || typeof buildCtripFetchRequestBody !== 'function'
     || typeof selectCtripFetchResponsePayload !== 'function'
     || typeof buildCtripFetchMeta !== 'function'
-    || typeof buildCtripFetchRawFailureResult !== 'function') {
+    || typeof buildCtripFetchRawFailureResult !== 'function'
+    || typeof buildLatestCtripSnapshotModel !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch builders',
+      detail: 'Ctrip fetch builders and latest snapshot model',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -670,6 +675,31 @@ try {
       errorMsg: '授权过期',
       rawResponse: 'x'.repeat(1200),
     });
+    const latestModel = buildLatestCtripSnapshotModel({
+      metadata: { status: 'success', data_date: '2026-06-09' },
+      rank: {
+        rows: [{ row_id: 'rank-1' }],
+        display_hotels: [{ hotelId: 'h1' }],
+        display_summary: { cards: [{ key: 'amount' }] },
+        total: 3,
+        data_date: '2026-06-09',
+      },
+      traffic: {
+        rows: [{ date: '2026-06-09' }],
+        display_traffic_rows: [{ date: '2026-06-09', compareType: 'self' }],
+        display_traffic_summary: { status: 'ok' },
+      },
+      review: {
+        rows: [{ review_id: 'r1' }],
+        total: 2,
+      },
+    });
+    const emptyLatestModel = buildLatestCtripSnapshotModel({
+      metadata: { status: 'missing', status_label: '暂无入库快照' },
+      rank: { rows: [], display_hotels: [] },
+      traffic: { rows: [], display_traffic_rows: [] },
+      review: { rows: [] },
+    });
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip fetch builders keep request fields and date defaults',
@@ -699,6 +729,28 @@ try {
         && rawFailure.raw.length === 1000
         && rawFailure.hint.includes('Cookie是否过期'),
       detail: 'Ctrip fetch response sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip latest snapshot model keeps payload slices explicit',
+      ok: latestModel.metadata.status === 'success'
+        && latestModel.hasRank === true
+        && latestModel.rankRows.length === 1
+        && latestModel.rankDisplayHotels.length === 1
+        && latestModel.rankDisplaySummary.cards.length === 1
+        && latestModel.rankTotal === 3
+        && latestModel.rankDataDate === '2026-06-09'
+        && latestModel.hasTraffic === true
+        && latestModel.trafficRows.length === 1
+        && latestModel.displayTrafficRows.length === 1
+        && latestModel.trafficDisplaySummary.status === 'ok'
+        && latestModel.hasReview === true
+        && latestModel.reviewResult.saved_count === 2
+        && latestModel.onlineResult.source === 'latest'
+        && emptyLatestModel.metadata.status === 'missing'
+        && emptyLatestModel.hasAnySnapshot === false
+        && emptyLatestModel.onlineResult === null,
+      detail: 'Ctrip latest snapshot sample',
     });
   }
   if (typeof buildCtripProfileRecheckInitialState !== 'function'
