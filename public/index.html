@@ -13,6 +13,7 @@
     <script src="revenue-research-static.js"></script>
     <script src="ctrip-static.js"></script>
     <script src="meituan-static.js"></script>
+    <script src="data-health-static.js"></script>
     <script src="system-static.js"></script>
     <script src="notification-static.js"></script>
     <script src="auto-fetch-static.js"></script>
@@ -19930,40 +19931,22 @@
             const onlineDataHotelList = ref([]);
             const onlineDataSummary = ref(null);
             const onlineDataQualitySummary = ref(null);
-            const onlineDataQualityStatusText = (quality) => {
-                const status = quality?.status || 'ok';
-                if (status === 'error') return '异常';
-                if (status === 'warning') return '需复核';
-                return '完整';
-            };
-            const onlineDataQualityStatusClass = (quality) => {
-                const status = quality?.status || 'ok';
-                if (status === 'error') return 'bg-red-50 text-red-700 border-red-200';
-                if (status === 'warning') return 'bg-amber-50 text-amber-700 border-amber-200';
-                return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-            };
-            const onlineDataQualityPromptList = (quality, limit = 3) => {
-                const prompts = quality?.prompts || quality?.top_prompts || [];
-                return Array.isArray(prompts) ? prompts.filter(Boolean).slice(0, limit) : [];
-            };
-            const onlineDataQualityScopeText = (quality) => {
-                if (!quality) return '质量摘要未加载。';
-                const scope = quality.calculation_scope || 'selected_rows';
-                const sampleSize = Number(quality.sample_size ?? quality.checked_records ?? 0);
-                const totalRecords = Number(quality.total_records ?? sampleSize);
-                const page = Number(quality.page || 1);
-                if (scope === 'current_page') {
-                    return `质量摘要仅统计当前第 ${page} 页 ${sampleSize} 条样本，筛选范围共 ${totalRecords} 条，不是全量质量结论。`;
+            const dataHealthStatic = window.SUXI_DATA_HEALTH_STATIC;
+            if (!dataHealthStatic || typeof dataHealthStatic !== 'object') {
+                throw new Error('缺少数据健康静态展示工具：data-health-static.js 未加载');
+            }
+            const requireDataHealthStatic = (key) => {
+                const value = dataHealthStatic[key];
+                if (typeof value !== 'function') {
+                    throw new Error(`缺少数据健康静态展示工具项：${key}`);
                 }
-                return `质量摘要统计已加载样本 ${sampleSize} 条。`;
+                return value;
             };
-            const autoFetchRecordStatusClass = (status) => {
-                if (status === 'success') return 'bg-green-100 text-green-700';
-                if (status === 'skipped') return 'bg-gray-200 text-gray-600';
-                if (status === 'running') return 'bg-blue-100 text-blue-700';
-                if (status === 'pending') return 'bg-amber-100 text-amber-700';
-                return 'bg-red-100 text-red-700';
-            };
+            const onlineDataQualityStatusText = requireDataHealthStatic('onlineDataQualityStatusText');
+            const onlineDataQualityStatusClass = requireDataHealthStatic('onlineDataQualityStatusClass');
+            const onlineDataQualityPromptList = requireDataHealthStatic('onlineDataQualityPromptList');
+            const onlineDataQualityScopeText = requireDataHealthStatic('onlineDataQualityScopeText');
+            const autoFetchRecordStatusClass = requireDataHealthStatic('autoFetchRecordStatusClass');
             const collectionReliability = ref(null);
             const collectionReliabilityLoading = ref(false);
             const collectionReliabilityError = ref('');
@@ -19986,11 +19969,8 @@
             const collectionHealthAuthorization = computed(() => collectionReliability.value?.authorization?.summary || {});
             const collectionHealthAuthorizationRows = computed(() => Array.isArray(collectionReliability.value?.authorization?.list) ? collectionReliability.value.authorization.list : []);
             const collectionHealthCtripAuthorizationRows = computed(() => collectionHealthAuthorizationRows.value.filter(row => String(row?.platform || '').toLowerCase() === 'ctrip'));
-            const collectionHealthCookieLightClass = (row) => ({
-                green: 'bg-green-500',
-                red: 'bg-red-500',
-            }[String(row?.light_status || (row?.is_usable ? 'green' : 'red')).toLowerCase()] || 'bg-red-500');
-            const collectionHealthCookieLightText = (row) => row?.light_label || (row?.is_usable ? '可用' : '不可用');
+            const collectionHealthCookieLightClass = requireDataHealthStatic('collectionHealthCookieLightClass');
+            const collectionHealthCookieLightText = requireDataHealthStatic('collectionHealthCookieLightText');
             const collectionHealthFailureReasons = computed(() => Array.isArray(collectionReliability.value?.failure_reasons) ? collectionReliability.value.failure_reasons : []);
             const dataHealthDiagnosticBoundary = computed(() => {
                 if (dataHealthFullDiagnosticsLoaded.value) {
@@ -20059,31 +20039,10 @@
             const collectionHealthPendingActions = computed(() => Array.isArray(collectionReliability.value?.pending_actions) ? collectionReliability.value.pending_actions : []);
             const collectionHealthLifecycleCatalog = computed(() => Array.isArray(collectionReliability.value?.collection_lifecycle_catalog) ? collectionReliability.value.collection_lifecycle_catalog : []);
             const collectionHealthFieldAssetSummary = computed(() => collectionReliability.value?.field_asset_summary || {});
-            const dataHealthNormalizeStatus = (status) => {
-                const value = String(status || '').toLowerCase();
-                if (['ok', 'success'].includes(value)) return 'ok';
-                if (['expired', 'failed', 'error', 'auth_failed', 'request_failed'].includes(value)) return 'failed';
-                if (['warning', 'partial_success', 'unknown'].includes(value)) return 'warning';
-                if (['waiting_config', 'not_collected', 'missing_file'].includes(value)) return 'waiting_config';
-                return value || 'unknown';
-            };
-            const dataHealthPriorityClass = (priority = 'medium') => ({
-                high: 'bg-red-50 text-red-700 border-red-200',
-                medium: 'bg-amber-50 text-amber-700 border-amber-200',
-                low: 'bg-blue-50 text-blue-700 border-blue-200',
-                ok: 'bg-green-50 text-green-700 border-green-200',
-            }[priority] || 'bg-gray-50 text-gray-600 border-gray-200');
-            const dataHealthPriorityText = (priority = 'medium') => ({
-                high: '高优先级',
-                medium: '中优先级',
-                low: '低优先级',
-                ok: '正常',
-            }[priority] || '待确认');
-            const dataHealthPlatformText = (platform = '') => ({
-                ctrip: '携程',
-                meituan: '美团',
-                qunar: '去哪儿',
-            }[String(platform || '').toLowerCase()] || (platform || 'OTA'));
+            const dataHealthNormalizeStatus = requireDataHealthStatic('dataHealthNormalizeStatus');
+            const dataHealthPriorityClass = requireDataHealthStatic('dataHealthPriorityClass');
+            const dataHealthPriorityText = requireDataHealthStatic('dataHealthPriorityText');
+            const dataHealthPlatformText = requireDataHealthStatic('dataHealthPlatformText');
             const dataHealthCookieAlertRows = computed(() => collectionHealthAuthorizationRows.value
                 .filter(row => dataHealthNormalizeStatus(row?.status) !== 'ok')
                 .map(row => {

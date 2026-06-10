@@ -265,6 +265,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the fifteenth frontend split: `node --check public\meituan-static.js`; residual Meituan helper definition scan; `git diff --check`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
+## 2026-06-10 Progress: Frontend Data Health Display Utility Split
+
+- Sixteenth frontend split target chosen from low-risk data-health display helpers in `public/index.html`.
+- Added `public/data-health-static.js` for online data quality status text/classes, prompt slicing, quality-scope text, auto-fetch record status classes, cookie health light text/classes, data-health status normalization, priority text/classes, and OTA platform labels.
+- `public/index.html` now loads `data-health-static.js` and binds the needed data-health display helpers from `window.SUXI_DATA_HEALTH_STATIC`; missing script or function keys throw explicit configuration errors instead of silently falling back.
+- Updated `tests/automation/ctrip_store_data_overview.test.mjs` so split static evidence is read from `public/data-health-static.js` and `public/ctrip-static.js` instead of requiring those static constants to remain embedded in `public/index.html`.
+- `public/index.html` decreased from `41781` lines to `41740` lines; current split map reports `1152` frontend function-level blocks and `44` `currentPage` references.
+- Current staged self-audit after the sixteenth frontend split: full directory about `242.84 MB`, without `.git` about `91.93 MB`, without `.git` and dependencies about `62.74 MB`, tracked files about `17.82 MB` / `607` files; code scope `364` files, `186103` total lines, `170437` nonblank lines.
+- Verified after the sixteenth frontend split: `node --check public\data-health-static.js`; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; residual data-health helper definition scan; `git diff --check`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

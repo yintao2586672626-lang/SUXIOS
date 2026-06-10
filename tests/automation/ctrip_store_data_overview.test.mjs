@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const html = readFileSync('public/index.html', 'utf8');
+const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
+const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
 const backend = readFileSync('app/controller/OnlineData.php', 'utf8');
 const ctripPageStart = html.indexOf("currentPage === 'ctrip-ebooking'");
 const ctripPageEnd = html.indexOf('<!-- 携程数据抓取设置 -->', ctripPageStart);
@@ -168,18 +170,18 @@ test('Ctrip profile field config manages modules from the same panel', () => {
   assert.match(html, /const ctripProfileFieldSectionOptions = computed/);
   assert.match(html, /const openCtripProfileModulePage = \(module\) =>/);
   assert.match(html, /const ctripProfileModulePageDisplay = \(module\) =>/);
-  assert.match(html, /const ctripProfilePrimaryCategoryOptions = \['流量转化数据', '经营收益数据', '服务质量数据', '竞争力数据'\]/);
-  assert.match(html, /primary_category: '流量转化数据'/);
-  assert.match(html, /primary_category: '经营收益数据'/);
-  assert.match(html, /primary_category: '服务质量数据'/);
-  assert.match(html, /primary_category: '竞争力数据'/);
+  assert.match(ctripStatic, /const ctripProfilePrimaryCategoryOptions = \['流量转化数据', '经营收益数据', '服务质量数据', '竞争力数据'\]/);
+  assert.match(ctripStatic, /primary_category: '流量转化数据'/);
+  assert.match(ctripStatic, /primary_category: '经营收益数据'/);
+  assert.match(ctripStatic, /primary_category: '服务质量数据'/);
+  assert.match(ctripStatic, /primary_category: '竞争力数据'/);
   assert.match(html, /const ctripProfilePrimaryCategoryCards = computed/);
   assert.match(html, /ctripProfileModulePageUrl\(module\)/);
   assert.match(html, /\/online-data\/ctrip-profile-modules/);
-  assert.match(html, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/outline\?microJump=true/);
-  assert.match(html, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/weekReport\?microJump=true/);
-  assert.match(html, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/beneficialdata\?microJump=true/);
-  assert.match(html, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/flowdata\?microJump=true/);
+  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/outline\?microJump=true/);
+  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/weekReport\?microJump=true/);
+  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/beneficialdata\?microJump=true/);
+  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/flowdata\?microJump=true/);
   assert.match(backend, /CTRIP_PROFILE_MODULES_CONFIG_KEY/);
   assert.match(backend, /'page_url' => trim/);
   assert.match(backend, /'primary_category' => trim/);
@@ -290,8 +292,8 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
     'const runCtripBrowserCapture = async (options = {}) =>',
     'const normalizeCtripBrowserCaptureErrorResult = (error) =>'
   );
-  assert.match(cookieApiRunner, /await loadDataHealthPanel\(\)/);
-  assert.match(profileRunner, /await loadDataHealthPanel\(\)/);
+  assert.match(cookieApiRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
+  assert.match(profileRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
 });
 
 test('Ctrip Cookie API save is guarded against cross-store hotel identity conflicts', () => {
@@ -509,8 +511,8 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(ctripDiagnosticsPanel, /editCtripCookieFromHealth/);
   assert.match(ctripDiagnosticsPanel, /deleteCtripCookieFromHealth/);
   assert.match(ctripDiagnosticsPanel, /建议删除/);
-  assert.match(html, /green:\s*'bg-green-500'/);
-  assert.match(html, /red:\s*'bg-red-500'/);
+  assert.match(dataHealthStatic, /green:\s*'bg-green-500'/);
+  assert.match(dataHealthStatic, /red:\s*'bg-red-500'/);
 });
 
 test('Ctrip platform authorization status supports inline view and edit', () => {
