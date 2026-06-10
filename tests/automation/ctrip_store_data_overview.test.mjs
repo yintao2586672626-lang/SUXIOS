@@ -547,14 +547,21 @@ test('Ctrip capture coverage panel hides raw diagnostic field names', () => {
 
 test('Ctrip flow overview interface misses show actionable reasons', () => {
   assert.match(ctripPage, /说明 \/ 未命中原因/);
+  assert.match(ctripStatic, /const buildCtripOverviewMetricCards = /);
+  assert.match(ctripStatic, /const buildCtripOverviewTopRankTables = /);
+  assert.match(ctripStatic, /const buildCtripFlowOverviewMetricCards = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewInterfaceRows = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewInterfaceReason = \(context\) =>/);
   assert.match(ctripStatic, /未在本次 Request URL 列表中配置/);
   assert.match(ctripStatic, /已配置但未收到接口响应/);
   assert.match(ctripStatic, /接口有响应但未解析到可入库行/);
   assert.match(ctripStatic, /接口请求失败/);
+  assert.match(html, /requireCtripStatic\('buildCtripOverviewMetricCards'\)/);
+  assert.match(html, /requireCtripStatic\('buildCtripOverviewTopRankTables'\)/);
+  assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewMetricCards'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewInterfaceRows'\)/);
   assert.match(html, /row\.reasonText/);
+  assert.doesNotMatch(html, /const normalizeCtripTopRankItems = /);
   assert.doesNotMatch(html, /本次未从响应 URL 中命中该接口/);
 });
 

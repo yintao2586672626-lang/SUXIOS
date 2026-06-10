@@ -19259,6 +19259,9 @@
             const ctripFlowOverviewApiGroups = requireCtripStatic('ctripFlowOverviewApiGroups');
             const ctripFlowOverviewDefaultRequestUrls = requireCtripStatic('ctripFlowOverviewDefaultRequestUrls');
             const ctripFlowOverviewApiKeywords = ctripFlowOverviewApiGroups.map(item => item.keyword);
+            const buildCtripOverviewMetricCards = requireCtripStatic('buildCtripOverviewMetricCards');
+            const buildCtripOverviewTopRankTables = requireCtripStatic('buildCtripOverviewTopRankTables');
+            const buildCtripFlowOverviewMetricCards = requireCtripStatic('buildCtripFlowOverviewMetricCards');
             const buildCtripFlowOverviewInterfaceRows = requireCtripStatic('buildCtripFlowOverviewInterfaceRows');
             const ctripOverviewForm = ref({
                 requestUrls: '',
@@ -19282,140 +19285,9 @@
             const ctripOverviewFetching = ref(false);
             const ctripFlowOverviewResult = ref(null);
             const ctripFlowOverviewFetching = ref(false);
-            const ctripOverviewMetricCards = computed(() => {
-                const metrics = ctripOverviewResult.value?.metrics || {};
-                return [
-                    { key: 'yesterday_uv', label: '昨日UV', value: metrics.yesterday_uv },
-                    { key: 'order_count', label: '订单数', value: metrics.order_count },
-                    { key: 'amount', label: '成交收入', value: metrics.amount, type: 'currency2' },
-                    { key: 'room_nights', label: '成交间夜', value: metrics.room_nights },
-                    { key: 'avg_price', label: '均价', value: metrics.avg_price, type: 'currency2' },
-                    { key: 'conversion_rate', label: '成交率', value: metrics.conversion_rate, type: 'percent' },
-                    { key: 'competitor_uv', label: '竞品UV', value: metrics.competitor_uv },
-                    { key: 'competitor_orders', label: '竞品订单', value: metrics.competitor_orders },
-                    { key: 'competitor_amount', label: '竞品收入', value: metrics.competitor_amount, type: 'currency2' },
-                    { key: 'psi', label: 'PSI', value: metrics.psi },
-                    { key: 'hotel_score', label: '酒店评分', value: metrics.hotel_score },
-                    { key: 'reply_rate', label: '回复率', value: metrics.reply_rate, type: 'percent' },
-                    { key: 'favorite_count', label: '收藏数', value: metrics.favorite_count },
-                    { key: 'visitor_rank', label: '访客排名', value: metrics.visitor_rank },
-                    { key: 'self_list_exposure', label: '列表曝光', value: metrics.self_list_exposure },
-                    { key: 'self_detail_exposure', label: '详情访客', value: metrics.self_detail_exposure },
-                    { key: 'self_flow_rate', label: '曝光转化率', value: metrics.self_flow_rate, type: 'percent' },
-                    { key: 'self_order_filling_num', label: '订单页访客', value: metrics.self_order_filling_num },
-                    { key: 'self_order_submit_num', label: '订单提交人数', value: metrics.self_order_submit_num },
-                    { key: 'self_order_fill_rate', label: '下单转化率', value: metrics.self_order_fill_rate, type: 'percent' },
-                    { key: 'self_deal_rate', label: '成交转化率', value: metrics.self_deal_rate, type: 'percent' },
-                    { key: 'competitor_list_exposure', label: '竞圈列表曝光', value: metrics.competitor_list_exposure },
-                    { key: 'competitor_detail_exposure', label: '竞圈详情访客', value: metrics.competitor_detail_exposure },
-                    { key: 'competitor_order_filling_num', label: '竞圈订单页访客', value: metrics.competitor_order_filling_num },
-                    { key: 'competitor_order_submit_num', label: '竞圈订单提交', value: metrics.competitor_order_submit_num },
-                    { key: 'competitor_order_fill_rate', label: '竞圈下单转化率', value: metrics.competitor_order_fill_rate, type: 'percent' },
-                    { key: 'competitor_deal_rate', label: '竞圈成交转化率', value: metrics.competitor_deal_rate, type: 'percent' },
-                    { key: 'compete_hotel_count', label: '竞争圈酒店数', value: metrics.compete_hotel_count },
-                    { key: 'amount_rank', label: '销售额排名', value: metrics.amount_rank },
-                    { key: 'quantity_rank', label: '在店间夜排名', value: metrics.quantity_rank },
-                    { key: 'book_order_num_rank', label: '预订订单排名', value: metrics.book_order_num_rank },
-                    { key: 'comment_score_rank', label: '点评排名', value: metrics.comment_score_rank },
-                    { key: 'conversion_rank', label: 'APP转化排名', value: metrics.conversion_rank },
-                    { key: 'flow_lost_order_num', label: '流失订单', value: metrics.flow_lost_order_num },
-                    { key: 'flow_lost_room_nights', label: '流失间夜', value: metrics.flow_lost_room_nights },
-                    { key: 'flow_lost_amount', label: '流失收入', value: metrics.flow_lost_amount, type: 'currency2' },
-                    { key: 'top_flow_hotel', label: '流失访客TOP1', value: metrics.top_flow_hotel, type: 'text' },
-                    { key: 'top_flow_hotel_browse_rate', label: 'TOP浏览率', value: metrics.top_flow_hotel_browse_rate, type: 'percent' },
-                    { key: 'top_flow_hotel_order_rate', label: 'TOP下单率', value: metrics.top_flow_hotel_order_rate, type: 'percent' },
-                    { key: 'top_hot_room', label: '热售房型TOP1', value: metrics.top_hot_room, type: 'text' },
-                    { key: 'top_hot_room_nights', label: '热售房型间夜', value: metrics.top_hot_room_nights },
-                    { key: 'top_hot_room_sale_percent', label: '热售房型占比', value: metrics.top_hot_room_sale_percent, type: 'percent' },
-                    { key: 'last_week_comment_score', label: '上周点评分', value: metrics.last_week_comment_score },
-                    { key: 'last_week_good_add', label: '新增好评数', value: metrics.last_week_good_add },
-                    { key: 'last_week_bad_add', label: '新增差评数', value: metrics.last_week_bad_add },
-                    { key: 'last_week_price_score', label: '起价竞争分', value: metrics.last_week_price_score },
-                    { key: 'last_week_checkout_room_nights', label: '上周离店间夜', value: metrics.last_week_checkout_room_nights },
-                    { key: 'last_week_checkout_sales', label: '上周离店销售额', value: metrics.last_week_checkout_sales, type: 'currency2' },
-                    { key: 'last_week_checkout_room_price', label: '上周离店均价', value: metrics.last_week_checkout_room_price, type: 'currency2' },
-                    { key: 'last_week_book_quantity', label: '上周预订订单', value: metrics.last_week_book_quantity },
-                    { key: 'last_week_book_room_nights', label: '上周预订间夜', value: metrics.last_week_book_room_nights },
-                    { key: 'last_week_book_sales', label: '上周预订销售额', value: metrics.last_week_book_sales, type: 'currency2' },
-                    { key: 'weekly_self_list_exposure', label: '周列表曝光', value: metrics.weekly_self_list_exposure },
-                    { key: 'weekly_self_detail_exposure', label: '周详情访客', value: metrics.weekly_self_detail_exposure },
-                    { key: 'weekly_self_order_filling_num', label: '周订单页访客', value: metrics.weekly_self_order_filling_num },
-                    { key: 'weekly_self_order_submit_num', label: '周订单提交', value: metrics.weekly_self_order_submit_num },
-                    { key: 'weekly_self_flow_rate', label: '周曝光转化率', value: metrics.weekly_self_flow_rate, type: 'percent' },
-                    { key: 'weekly_self_order_fill_rate', label: '周下单转化率', value: metrics.weekly_self_order_fill_rate, type: 'percent' },
-                    { key: 'weekly_self_deal_rate', label: '周成交转化率', value: metrics.weekly_self_deal_rate, type: 'percent' },
-                    { key: 'top_competitor_list_exposure', label: '标杆列表曝光', value: metrics.top_competitor_list_exposure },
-                    { key: 'top_competitor_detail_exposure', label: '标杆详情访客', value: metrics.top_competitor_detail_exposure },
-                    { key: 'top_competitor_order_filling_num', label: '标杆订单页访客', value: metrics.top_competitor_order_filling_num },
-                    { key: 'top_competitor_order_submit_num', label: '标杆订单提交', value: metrics.top_competitor_order_submit_num },
-                    { key: 'top_competitor_flow_rate', label: '标杆曝光转化率', value: metrics.top_competitor_flow_rate, type: 'percent' },
-                    { key: 'top_competitor_order_fill_rate', label: '标杆下单转化率', value: metrics.top_competitor_order_fill_rate, type: 'percent' },
-                    { key: 'top_competitor_deal_rate', label: '标杆成交转化率', value: metrics.top_competitor_deal_rate, type: 'percent' },
-                ].filter(card => card.value !== undefined && card.value !== null && card.value !== '');
-            });
-            const normalizeCtripTopRankItems = (value) => {
-                const list = Array.isArray(value) ? value : (value ? [value] : []);
-                return list.map((item) => {
-                    if (item && typeof item === 'object') {
-                        return String(item.hotelName || item.hotel_name || item.name || item.title || item.keyword || item.word || '').trim();
-                    }
-                    return String(item || '').trim();
-                }).filter(Boolean).slice(0, 10);
-            };
-            const ctripOverviewTopRankTables = computed(() => {
-                const metrics = ctripOverviewResult.value?.metrics || {};
-                const period = metrics.week_period || metrics.period || metrics.date_range || '';
-                const hotels = normalizeCtripTopRankItems(metrics.top_hot_hotels);
-                const words = normalizeCtripTopRankItems(metrics.top_hot_words);
-                return [
-                    {
-                        key: 'hot-hotels',
-                        title: '同城热门酒店TOP榜',
-                        valueLabel: '酒店名称',
-                        period,
-                        items: hotels,
-                    },
-                    {
-                        key: 'hot-words',
-                        title: '同城热门关键词',
-                        valueLabel: '关键词',
-                        period,
-                        items: words,
-                    },
-                ].filter(table => table.items.length > 0);
-            });
-            const ctripFlowOverviewMetricCards = computed(() => {
-                const metrics = ctripFlowOverviewResult.value?.metrics || {};
-                return [
-                    { key: 'yesterday_uv', label: '昨日UV', value: metrics.yesterday_uv },
-                    { key: 'visitor_rank', label: '访客排名', value: metrics.visitor_rank },
-                    { key: 'self_list_exposure', label: '列表曝光', value: metrics.self_list_exposure },
-                    { key: 'self_detail_exposure', label: '详情访客', value: metrics.self_detail_exposure },
-                    { key: 'self_flow_rate', label: '曝光转化率', value: metrics.self_flow_rate, type: 'percent' },
-                    { key: 'self_order_filling_num', label: '订单页访客', value: metrics.self_order_filling_num },
-                    { key: 'self_order_submit_num', label: '订单提交人数', value: metrics.self_order_submit_num },
-                    { key: 'self_order_fill_rate', label: '下单转化率', value: metrics.self_order_fill_rate, type: 'percent' },
-                    { key: 'self_deal_rate', label: '成交转化率', value: metrics.self_deal_rate, type: 'percent' },
-                    { key: 'competitor_uv', label: '竞品UV', value: metrics.competitor_uv },
-                    { key: 'competitor_orders', label: '竞品订单/间夜', value: metrics.competitor_orders },
-                    { key: 'competitor_amount', label: '竞品收入', value: metrics.competitor_amount, type: 'currency2' },
-                    { key: 'competitor_list_exposure', label: '竞圈列表曝光', value: metrics.competitor_list_exposure },
-                    { key: 'competitor_detail_exposure', label: '竞圈详情访客', value: metrics.competitor_detail_exposure },
-                    { key: 'competitor_order_filling_num', label: '竞圈订单页访客', value: metrics.competitor_order_filling_num },
-                    { key: 'competitor_order_submit_num', label: '竞圈订单提交', value: metrics.competitor_order_submit_num },
-                    { key: 'competitor_order_fill_rate', label: '竞圈下单转化率', value: metrics.competitor_order_fill_rate, type: 'percent' },
-                    { key: 'competitor_deal_rate', label: '竞圈成交转化率', value: metrics.competitor_deal_rate, type: 'percent' },
-                    { key: 'amount', label: '成交收入', value: metrics.amount, type: 'currency2' },
-                    { key: 'room_nights', label: '成交间夜', value: metrics.room_nights },
-                    { key: 'order_count', label: '订单数', value: metrics.order_count },
-                    { key: 'avg_price', label: '均价', value: metrics.avg_price, type: 'currency2' },
-                    { key: 'conversion_rate', label: '成交率', value: metrics.conversion_rate, type: 'percent' },
-                    { key: 'psi', label: 'PSI', value: metrics.psi },
-                    { key: 'hotel_score', label: '酒店评分', value: metrics.hotel_score },
-                    { key: 'reply_rate', label: '回复率', value: metrics.reply_rate, type: 'percent' },
-                    { key: 'favorite_count', label: '收藏数', value: metrics.favorite_count },
-                ].filter(card => card.value !== undefined && card.value !== null && card.value !== '');
-            });
+            const ctripOverviewMetricCards = computed(() => buildCtripOverviewMetricCards(ctripOverviewResult.value));
+            const ctripOverviewTopRankTables = computed(() => buildCtripOverviewTopRankTables(ctripOverviewResult.value));
+            const ctripFlowOverviewMetricCards = computed(() => buildCtripFlowOverviewMetricCards(ctripFlowOverviewResult.value));
             const ctripFlowOverviewInterfaceRows = computed(() => buildCtripFlowOverviewInterfaceRows(ctripFlowOverviewResult.value, ctripFlowOverviewApiGroups));
             const ctripBrowserCaptureForm = ref({
                 profileId: '',
