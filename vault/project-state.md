@@ -884,6 +884,19 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\manual_minimum_credential_ui.test.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `node scripts\verify_frontend_display_boundary.mjs`; `node --test tests\automation\manual_minimum_credential_ui.test.mjs`; `git diff --check`; `npm.cmd run self:clean`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Meituan Batch Fetch Input Validation Split
+
+- Sixty-sixth frontend split target chosen from pure Meituan batch ranking input validation inside `fetchMeituanData()` in `public/index.html`.
+- Extended `public/meituan-static.js` with `validateMeituanBatchFetchInput`.
+- `public/index.html` keeps runtime responsibilities only: selected hotel guard, configured data source guard, `applyMeituanHotelConfig()`, `/online-data/fetch-meituan` requests, display-model request, UI state writes, history refresh, and AI hotel-list refresh.
+- This split did not change Meituan fetch endpoints, persistence, display-model payloads, history refresh, AI analysis list updates, or OTA channel scope.
+- The extracted validator keeps missing states explicit: missing platform authorization, missing partner/poi identifiers, missing date ranges, and missing custom date bounds return visible messages and severity levels instead of defaulting silently.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted validator, prevent Meituan batch input validation from being re-inlined, and validate missing-cookie, missing-resource, missing-custom-date, and valid input samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37997` lines to `37982` lines; `meituan` domain span decreased from `1221` to `1205`; `fetchMeituanData` decreased from `104` to `88` lines.
+- Current self-audit: full directory about `272.96 MB`, without `.git` about `92.26 MB`, without `.git` and dependencies about `63.07 MB`, tracked files about `18.15 MB` / `613` files; code scope `370` files, `189502` total lines, and `173720` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\meituan-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `node scripts\verify_frontend_display_boundary.mjs`; `git diff --check`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

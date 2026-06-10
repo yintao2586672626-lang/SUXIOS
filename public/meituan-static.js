@@ -128,6 +128,48 @@ window.SUXI_MEITUAN_STATIC = (() => {
         30: '近30天',
         custom: '自定义时间',
     };
+    const validateMeituanBatchFetchInput = ({
+        form = {},
+        cookies = '',
+        partnerId = '',
+        poiId = '',
+    } = {}) => {
+        if (!form.hotelId) {
+            return { ok: false, level: 'error', message: '请选择目标酒店' };
+        }
+        if (!String(cookies || '').trim()) {
+            return { ok: false, level: 'error', message: '平台授权缺失：请提供美团平台授权内容' };
+        }
+        const missingResourceFields = [];
+        if (!String(partnerId || '').trim()) {
+            missingResourceFields.push('平台接口标识');
+        }
+        if (!String(poiId || '').trim()) {
+            missingResourceFields.push('平台门店标识');
+        }
+        if (missingResourceFields.length > 0) {
+            return {
+                ok: false,
+                level: 'warning',
+                message: `需补充一次性门店标识：${missingResourceFields.join(' / ')}。请在酒店管理中补充后再获取美团榜单。`,
+            };
+        }
+        const dateRanges = Array.isArray(form.dateRanges) ? form.dateRanges : [];
+        if (dateRanges.length === 0) {
+            return { ok: false, level: 'error', message: '请至少选择一个时间维度' };
+        }
+        if (dateRanges.includes('custom') && (!form.startDate || !form.endDate)) {
+            return { ok: false, level: 'error', message: '请填写自定义时间的开始和结束日期' };
+        }
+        return {
+            ok: true,
+            level: 'success',
+            cookies: String(cookies || '').trim(),
+            partnerId: String(partnerId || '').trim(),
+            poiId: String(poiId || '').trim(),
+        };
+    };
+
     const buildMeituanBatchFetchTasks = ({
         form = {},
         partnerId = '',
@@ -354,6 +396,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         createMeituanAdsForm,
         createMeituanBrowserCaptureForm,
         normalizeMeituanCaptureSections,
+        validateMeituanBatchFetchInput,
         buildMeituanBatchFetchTasks,
         buildMeituanBatchFetchResultEntry,
         buildMeituanDisplayModelPayload,

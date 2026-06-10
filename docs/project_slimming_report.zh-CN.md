@@ -898,6 +898,17 @@
 - 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`node --test tests\automation\manual_minimum_credential_ui.test.mjs`、`git diff --check`、`npm.cmd run self:clean`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第六十六刀拆分
+
+- 扩展 `public/meituan-static.js`，承载美团批量榜单抓取前的纯输入校验：`validateMeituanBatchFetchInput`。
+- `public/index.html` 中 `fetchMeituanData()` 继续负责目标酒店确认、数据源配置确认、`applyMeituanHotelConfig()`、`/online-data/fetch-meituan` 请求、展示模型构建、历史刷新和 toast 状态；本轮不迁移接口、保存、展示模型、AI 酒店列表刷新或 OTA 入库链路。
+- 新校验 helper 明确返回缺授权、缺平台接口标识/门店标识、缺时间维度、自定义日期缺失等状态，不用兜底值隐藏缺失原因。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式读取 `validateMeituanBatchFetchInput`，要求静态模块导出该函数，禁止美团批量抓取输入校验重新内联，并在 VM 中验证缺授权、缺门店标识、自定义日期缺失和成功路径样本。
+- 当前 split-map：`public/index.html` 从 `37997` 行降至 `37982` 行；`meituan` 领域 span 从 `1221` 行降至 `1205` 行；`fetchMeituanData` 从 `104` 行降至 `88` 行。
+- 当前自审计：完整目录约 `272.96 MB`；不含 `.git` 约 `92.26 MB`；不含 `.git` 和依赖约 `63.07 MB`；Git 跟踪文件约 `18.15 MB` / `613` 个；代码范围 `370` 个文件，`189502` 行，非空 `173720` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\meituan-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`git diff --check`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

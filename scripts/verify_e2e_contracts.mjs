@@ -87,8 +87,10 @@ requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckIn
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
 requireText('public/index.html', "requireMeituanStatic('buildMeituanBatchFetchTasks')", 'entry uses extracted Meituan batch fetch task builder');
+requireText('public/index.html', "requireMeituanStatic('validateMeituanBatchFetchInput')", 'entry uses extracted Meituan batch fetch input validator');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
+requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
@@ -124,6 +126,8 @@ requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Pro
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
 requireNoText('public/index.html', 'const rankTypeNames = {', 'Meituan batch rank labels are not re-inlined');
+requireNoText('public/index.html', 'const missingResourceFields = [];', 'Meituan batch fetch input validation is not re-inlined');
+requireNoText('public/index.html', "meituanForm.value.dateRanges.includes('custom')", 'Meituan batch custom-date validation is not re-inlined');
 requireNoText('public/index.html', 'display_hotels: results.flatMap', 'Meituan display model payload is not re-inlined');
 requireNoText('public/index.html', 'const getDefaultDataConfigForm = () => ({', 'data config default form is not re-inlined');
 requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
@@ -288,9 +292,11 @@ try {
   const buildMeituanBatchFetchTasks = meituanStatic.buildMeituanBatchFetchTasks;
   const buildMeituanBatchFetchResultEntry = meituanStatic.buildMeituanBatchFetchResultEntry;
   const buildMeituanDisplayModelPayload = meituanStatic.buildMeituanDisplayModelPayload;
+  const validateMeituanBatchFetchInput = meituanStatic.validateMeituanBatchFetchInput;
   if (typeof buildMeituanBatchFetchTasks !== 'function'
     || typeof buildMeituanBatchFetchResultEntry !== 'function'
-    || typeof buildMeituanDisplayModelPayload !== 'function') {
+    || typeof buildMeituanDisplayModelPayload !== 'function'
+    || typeof validateMeituanBatchFetchInput !== 'function') {
     checks.push({
       file: 'public/meituan-static.js',
       label: 'Meituan static exports batch fetch builders',
@@ -311,7 +317,48 @@ try {
       poiId: 'poi-1',
       cookies: 'mt-cookie',
     });
+    const missingCookieValidation = validateMeituanBatchFetchInput({
+      form: { hotelId: '10', dateRanges: ['1'] },
+      cookies: '',
+      partnerId: 'partner-1',
+      poiId: 'poi-1',
+    });
+    const missingResourceValidation = validateMeituanBatchFetchInput({
+      form: { hotelId: '10', dateRanges: ['1'] },
+      cookies: 'mt-cookie',
+      partnerId: '',
+      poiId: '',
+    });
+    const missingCustomDateValidation = validateMeituanBatchFetchInput({
+      form: { hotelId: '10', dateRanges: ['custom'], startDate: '', endDate: '' },
+      cookies: 'mt-cookie',
+      partnerId: 'partner-1',
+      poiId: 'poi-1',
+    });
+    const validBatchInput = validateMeituanBatchFetchInput({
+      form: { hotelId: '10', dateRanges: ['custom'], startDate: '2026-06-01', endDate: '2026-06-10' },
+      cookies: ' mt-cookie ',
+      partnerId: ' partner-1 ',
+      poiId: ' poi-1 ',
+    });
     const customTask = tasks.find(task => task.rankType === 'P_LL' && task.dateRange === 'custom');
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan batch fetch input validator keeps missing-state signals explicit',
+      ok: missingCookieValidation.ok === false
+        && missingCookieValidation.level === 'error'
+        && missingCookieValidation.message.includes('平台授权缺失')
+        && missingResourceValidation.ok === false
+        && missingResourceValidation.level === 'warning'
+        && missingResourceValidation.message.includes('平台接口标识 / 平台门店标识')
+        && missingCustomDateValidation.ok === false
+        && missingCustomDateValidation.message.includes('自定义时间')
+        && validBatchInput.ok === true
+        && validBatchInput.cookies === 'mt-cookie'
+        && validBatchInput.partnerId === 'partner-1'
+        && validBatchInput.poiId === 'poi-1',
+      detail: 'validateMeituanBatchFetchInput sample',
+    });
     checks.push({
       file: 'public/meituan-static.js',
       label: 'Meituan batch fetch task builder covers four rank types and custom dates',

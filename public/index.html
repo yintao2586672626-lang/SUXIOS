@@ -19363,6 +19363,7 @@
             const buildMeituanRankDisplayRows = requireMeituanStatic('buildMeituanRankDisplayRows');
             const buildCompetitorSummaryCoreCards = requireMeituanStatic('buildCompetitorSummaryCoreCards');
             const buildHomeCompetitorSummaryCards = requireMeituanStatic('buildHomeCompetitorSummaryCards');
+            const validateMeituanBatchFetchInput = requireMeituanStatic('validateMeituanBatchFetchInput');
             const buildMeituanBatchFetchTasks = requireMeituanStatic('buildMeituanBatchFetchTasks');
             const buildMeituanBatchFetchResultEntry = requireMeituanStatic('buildMeituanBatchFetchResultEntry');
             const buildMeituanDisplayModelPayload = requireMeituanStatic('buildMeituanDisplayModelPayload');
@@ -32267,31 +32268,15 @@
                 const meituanCookies = String(meituanForm.value.cookies || '').trim();
                 const partnerId = String(meituanForm.value.partnerId || '').trim();
                 const poiId = String(meituanForm.value.poiId || '').trim();
-                if (!meituanCookies) {
-                    showToast('平台授权缺失：请提供美团平台授权内容', 'error');
+                const batchInput = validateMeituanBatchFetchInput({
+                    form: meituanForm.value,
+                    cookies: meituanCookies,
+                    partnerId,
+                    poiId,
+                });
+                if (!batchInput.ok) {
+                    showToast(batchInput.message, batchInput.level);
                     return;
-                }
-                const missingResourceFields = [];
-                if (!partnerId) {
-                    missingResourceFields.push('平台接口标识');
-                }
-                if (!poiId) {
-                    missingResourceFields.push('平台门店标识');
-                }
-                if (missingResourceFields.length > 0) {
-                    showToast(`需补充一次性门店标识：${missingResourceFields.join(' / ')}。请在酒店管理中补充后再获取美团榜单。`, 'warning');
-                    return;
-                }
-                if (!meituanForm.value.dateRanges || meituanForm.value.dateRanges.length === 0) {
-                    showToast('请至少选择一个时间维度', 'error');
-                    return;
-                }
-                // 检查自定义时间是否填写
-                if (meituanForm.value.dateRanges.includes('custom')) {
-                    if (!meituanForm.value.startDate || !meituanForm.value.endDate) {
-                        showToast('请填写自定义时间的开始和结束日期', 'error');
-                        return;
-                    }
                 }
 
                 fetchingData.value = true;
