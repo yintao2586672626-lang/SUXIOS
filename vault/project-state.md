@@ -970,6 +970,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `node scripts\verify_frontend_display_boundary.mjs`; `npm.cmd run self:clean:dry-run`; `npm.cmd run self:clean`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Ctrip Profile Recheck Run Context Split
+
+- Seventy-third frontend split target chosen from Ctrip Profile recheck run-context construction inside `recheckCtripProfileMismatchedFields()` in `public/index.html`.
+- Extended `public/ctrip-static.js` with `buildCtripProfileRecheckRunContext` for deduplicated recheck sections, browser recapture availability, initial state, start toast message, and the POST request options for `/online-data/recheck-ctrip-profile-mismatched-fields`.
+- `public/index.html` keeps runtime orchestration in place: sample-loaded guard, target-field filtering, optional browser recapture, Profile recheck endpoint execution, sample refresh, toast state, and timer cleanup.
+- This split did not change Ctrip Profile capture, field persistence, sample refresh, second-confirmation behavior, unresolved-parser status, missing/failed-state visibility, or OTA channel scope.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted run-context helper, prevent section deduplication, recapture guard, and request options from being re-inlined, and validate section deduplication plus default-section samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37953` lines to `37940` lines; frontend function-level blocks decreased from `1407` to `1406`; `ctrip` domain span decreased from `3472` to `3459`; `recheckCtripProfileMismatchedFields` decreased from `108` to `102` lines.
+- Current self-audit: full directory about `277.18 MB`, without `.git` about `92.31 MB`, without `.git` and dependencies about `63.12 MB`, tracked files about `18.20 MB` / `613` files; code scope `370` files, `189878` total lines, and `174091` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

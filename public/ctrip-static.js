@@ -730,6 +730,41 @@ window.SUXI_CTRIP_STATIC = (() => {
         sections,
     });
 
+    const buildCtripProfileRecheckRunContext = ({
+        targets = [],
+        estimatedText = '',
+        startedAt = '',
+        selectedCtripHotelId = '',
+        autoFetchHotelId = '',
+        userHotelId = '',
+    } = {}) => {
+        const rows = Array.isArray(targets) ? targets : [];
+        const sections = Array.from(new Set(rows
+            .map(field => String(field?.section || '').trim())
+            .filter(Boolean)));
+        const normalizedSections = sections.length ? sections : ['default'];
+        const canRecapture = Boolean(selectedCtripHotelId || autoFetchHotelId || userHotelId);
+        const targetCount = rows.length;
+        const normalizedStartedAt = startedAt || new Date().toLocaleString('zh-CN', { hour12: false });
+        return {
+            sections: normalizedSections,
+            canRecapture,
+            targetCount,
+            requestOptions: {
+                method: 'POST',
+                body: JSON.stringify({ sections: normalizedSections }),
+            },
+            initialState: buildCtripProfileRecheckInitialState({
+                canRecapture,
+                targetCount,
+                estimatedText,
+                startedAt: normalizedStartedAt,
+                sections: normalizedSections,
+            }),
+            startMessage: `开始重抓 ${targetCount} 个缺口/存疑字段，${estimatedText}`,
+        };
+    };
+
     const buildCtripProfileRecheckCaptureRefreshState = ({
         previousState = {},
         captureSucceeded = false,
@@ -963,6 +998,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripFlowOverviewMetricCards,
         buildCtripFlowOverviewInterfaceRows,
         buildCtripProfileRecheckInitialState,
+        buildCtripProfileRecheckRunContext,
         buildCtripProfileRecheckCaptureRefreshState,
         buildCtripProfileRecheckSuccessResult,
         buildCtripProfileRecheckErrorResult,

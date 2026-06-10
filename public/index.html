@@ -19093,7 +19093,7 @@
             const buildCtripTrafficFetchRequestBody = requireCtripStatic('buildCtripTrafficFetchRequestBody');
             const buildCtripTrafficResponseModel = requireCtripStatic('buildCtripTrafficResponseModel');
             const buildCtripOverviewFetchRequestBody = requireCtripStatic('buildCtripOverviewFetchRequestBody');
-            const buildCtripProfileRecheckInitialState = requireCtripStatic('buildCtripProfileRecheckInitialState');
+            const buildCtripProfileRecheckRunContext = requireCtripStatic('buildCtripProfileRecheckRunContext');
             const buildCtripProfileRecheckCaptureRefreshState = requireCtripStatic('buildCtripProfileRecheckCaptureRefreshState');
             const buildCtripProfileRecheckSuccessResult = requireCtripStatic('buildCtripProfileRecheckSuccessResult');
             const buildCtripProfileRecheckErrorResult = requireCtripStatic('buildCtripProfileRecheckErrorResult');
@@ -25717,13 +25717,6 @@
             const ctripProfileFieldsNeedingRecheck = () => ctripProfileFields.value.filter(ctripProfileFieldNeedsRecheck);
             const ctripProfileFieldRecheckTargetCount = computed(() => ctripProfileFieldsNeedingRecheck().length);
 
-            const ctripProfileFieldRecheckSections = (fields = []) => {
-                const sections = Array.from(new Set(fields
-                    .map(field => String(field.section || '').trim())
-                    .filter(Boolean)));
-                return sections.length ? sections : ['default'];
-            };
-
             const recheckCtripProfileMismatchedFields = async () => {
                 const requestSeq = ++ctripProfileFieldRequestSeq;
                 if (!ctripProfileFieldSamplesLoaded.value) {
@@ -25735,23 +25728,22 @@
                     showToast('暂无未返回、不符或待补解析字段需要重抓', 'warning');
                     return;
                 }
-                const sections = ctripProfileFieldRecheckSections(targets);
                 startAutoFetchRunTimer();
-                const startedAt = new Date().toLocaleString('zh-CN', { hour12: false });
+                const recheckRun = buildCtripProfileRecheckRunContext({
+                    targets,
+                    estimatedText: ctripProfileFieldRecheckEstimatedText.value,
+                    selectedCtripHotelId: selectedCtripHotelId.value,
+                    autoFetchHotelId: autoFetchHotelId.value,
+                    userHotelId: user.value?.hotel_id,
+                });
+                const { sections, canRecapture, requestOptions } = recheckRun;
                 ctripProfileFieldRechecking.value = true;
                 ctripProfileFieldSampleLoading.value = true;
-                const canRecapture = Boolean(selectedCtripHotelId.value || autoFetchHotelId.value || user.value?.hotel_id);
                 let captureSucceeded = false;
                 let captureSkipped = false;
                 let captureMessage = '';
-                ctripProfileFieldRecheckState.value = buildCtripProfileRecheckInitialState({
-                    canRecapture,
-                    targetCount: targets.length,
-                    estimatedText: ctripProfileFieldRecheckEstimatedText.value,
-                    startedAt,
-                    sections,
-                });
-                showToast(`开始重抓 ${targets.length} 个缺口/存疑字段，${ctripProfileFieldRecheckEstimatedText.value}`, 'info');
+                ctripProfileFieldRecheckState.value = recheckRun.initialState;
+                showToast(recheckRun.startMessage, 'info');
                 try {
                     if (canRecapture) {
                         const captureRes = await runCtripBrowserCapture({
@@ -25769,12 +25761,7 @@
                     } else {
                         captureSkipped = true;
                     }
-                    const res = await request('/online-data/recheck-ctrip-profile-mismatched-fields', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            sections,
-                        }),
-                    });
+                    const res = await request('/online-data/recheck-ctrip-profile-mismatched-fields', requestOptions);
                     if (requestSeq !== ctripProfileFieldRequestSeq) return;
                     if (res.code === 200) {
                         const data = res.data || {};

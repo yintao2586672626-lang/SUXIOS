@@ -83,8 +83,9 @@ requireText('public/ctrip-static.js', 'const buildCtripAdsFetchRequestBody', 'Ct
 requireText('public/index.html', "requireCtripStatic('buildCtripCookieApiFetchRequestBody')", 'entry uses extracted Ctrip Cookie API fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripCookieApiFetchRequestBody', 'Ctrip static builds Cookie API fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
-requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckInitialState')", 'entry uses extracted Ctrip Profile recheck state builders');
+requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckRunContext')", 'entry uses extracted Ctrip Profile recheck run context builder');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
+requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckRunContext', 'Ctrip static builds Profile recheck run context');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
 requireText('public/index.html', "requireMeituanStatic('buildMeituanBatchFetchTasks')", 'entry uses extracted Meituan batch fetch task builder');
 requireText('public/index.html', "requireMeituanStatic('validateMeituanBatchFetchInput')", 'entry uses extracted Meituan batch fetch input validator');
@@ -122,6 +123,9 @@ requireNoText('public/index.html', 'api_type: normalizeCtripAdsApiType(form.apiT
 requireNoText('public/index.html', 'profile_id: cookieApiProfileId,', 'Ctrip Cookie API request body is not re-inlined');
 requireNoText('public/index.html', "method: String(ctripCookieApiForm.value.method || 'GET').toUpperCase(),", 'Ctrip Cookie API request method normalization is not re-inlined');
 requireNoText('public/index.html', "payload_json: String(ctripCookieApiForm.value.payloadJson || '').trim(),", 'Ctrip Cookie API payload trimming is not re-inlined');
+requireNoText('public/index.html', 'const ctripProfileFieldRecheckSections = (fields = []) => {', 'Ctrip Profile recheck section builder is not re-inlined');
+requireNoText('public/index.html', 'const canRecapture = Boolean(selectedCtripHotelId.value || autoFetchHotelId.value || user.value?.hotel_id);', 'Ctrip Profile recheck recapture guard is not re-inlined');
+requireNoText('public/index.html', 'body: JSON.stringify({\n                            sections,', 'Ctrip Profile recheck request options are not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -979,6 +983,7 @@ try {
   const isCtripAdsApiUrl = ctripStatic.isCtripAdsApiUrl;
   const normalizeCtripAdsApiType = ctripStatic.normalizeCtripAdsApiType;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
+  const buildCtripProfileRecheckRunContext = ctripStatic.buildCtripProfileRecheckRunContext;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
   const buildCtripProfileRecheckErrorResult = ctripStatic.buildCtripProfileRecheckErrorResult;
@@ -1354,6 +1359,7 @@ try {
     });
   }
   if (typeof buildCtripProfileRecheckInitialState !== 'function'
+    || typeof buildCtripProfileRecheckRunContext !== 'function'
     || typeof buildCtripProfileRecheckCaptureRefreshState !== 'function'
     || typeof buildCtripProfileRecheckSuccessResult !== 'function'
     || typeof buildCtripProfileRecheckErrorResult !== 'function'
@@ -1371,6 +1377,21 @@ try {
       estimatedText: '预计 1 分钟',
       startedAt: '2026-06-10 14:00:00',
       sections: ['business_overview'],
+    });
+    const runContext = buildCtripProfileRecheckRunContext({
+      targets: [
+        { section: 'business_overview' },
+        { section: 'business_overview' },
+        { section: 'traffic_report' },
+      ],
+      estimatedText: '预计 2 分钟',
+      startedAt: '2026-06-10 14:01:00',
+      selectedCtripHotelId: 'hotel_001',
+    });
+    const defaultRunContext = buildCtripProfileRecheckRunContext({
+      targets: [{ section: '' }],
+      estimatedText: '预计 1 分钟',
+      startedAt: '2026-06-10 14:02:00',
     });
     const refreshState = buildCtripProfileRecheckCaptureRefreshState({
       previousState: initialState,
@@ -1402,6 +1423,16 @@ try {
       ok: initialState.stage === 'capture'
         && initialState.target_count === 3
         && initialState.sections.includes('business_overview')
+        && runContext.canRecapture === true
+        && runContext.targetCount === 3
+        && runContext.sections.length === 2
+        && runContext.requestOptions.method === 'POST'
+        && JSON.parse(runContext.requestOptions.body).sections.join(',') === 'business_overview,traffic_report'
+        && runContext.initialState.stage === 'capture'
+        && runContext.startMessage.includes('开始重抓 3 个')
+        && defaultRunContext.canRecapture === false
+        && defaultRunContext.sections[0] === 'default'
+        && defaultRunContext.initialState.stage === 'refresh_samples'
         && refreshState.type === 'warning'
         && refreshState.stage === 'refresh_samples'
         && refreshState.message.includes('后端未返回成功状态')
