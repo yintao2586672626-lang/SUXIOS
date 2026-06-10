@@ -19695,6 +19695,16 @@
             const summarizePublicEndpointSecurity = requireDataHealthStatic('summarizePublicEndpointSecurity');
             const publicEndpointTokenText = requireDataHealthStatic('publicEndpointTokenText');
             const publicEndpointPathText = requireDataHealthStatic('publicEndpointPathText');
+            const buildCollectionHealthCtripCatalogCards = requireDataHealthStatic('buildCollectionHealthCtripCatalogCards');
+            const collectionHealthCtripCatalogDiagnosticScopeText = requireDataHealthStatic('collectionHealthCtripCatalogDiagnosticScopeText');
+            const collectionHealthCtripCatalogAuthTextFromStatic = requireDataHealthStatic('collectionHealthCtripCatalogAuthText');
+            const collectionHealthCtripCatalogPendingFetchTextFromStatic = requireDataHealthStatic('collectionHealthCtripCatalogPendingFetchText');
+            const collectionHealthCtripCatalogPendingFieldTextFromStatic = requireDataHealthStatic('collectionHealthCtripCatalogPendingFieldText');
+            const buildCollectionHealthCtripCatalogVisibleNotes = requireDataHealthStatic('buildCollectionHealthCtripCatalogVisibleNotes');
+            const collectionHealthCtripCatalogActionTextFromStatic = requireDataHealthStatic('collectionHealthCtripCatalogActionText');
+            const buildCollectionHealthCtripLatestCards = requireDataHealthStatic('buildCollectionHealthCtripLatestCards');
+            const buildCollectionHealthCtripOverviewStatusCards = requireDataHealthStatic('buildCollectionHealthCtripOverviewStatusCards');
+            const buildCtripOverviewFetchModuleCards = requireDataHealthStatic('buildCtripOverviewFetchModuleCards');
             const collectionReliability = ref(null);
             const collectionReliabilityLoading = ref(false);
             const collectionReliabilityError = ref('');
@@ -20053,57 +20063,18 @@
             const collectionHealthCtripSectionText = (sections) => (
                 Array.isArray(sections) && sections.length ? sections.join('、') : '-'
             );
-            const collectionHealthCtripCatalogCards = computed(() => {
-                const catalog = collectionHealthCtripCatalog.value || {};
-                const valueOrZero = (key) => catalog[key] || 0;
-                return [
-                    { key: 'sections', label: '覆盖模块', value: `${valueOrZero('section_count')}`, sub: '经营、流量、竞争等' },
-                    { key: 'rules', label: '采集规则', value: `${valueOrZero('endpoint_count')}`, sub: '可请求的数据接口' },
-                    { key: 'metrics', label: '指标口径', value: `${valueOrZero('field_count')}`, sub: '已定义核心指标' },
-                    { key: 'responses', label: '接口响应', value: `${valueOrZero('response_count')}`, sub: valueOrZero('response_count') > 0 ? '本轮已返回' : '本轮未返回' },
-                    { key: 'rows', label: '入库快照', value: `${valueOrZero('standard_row_count')}`, sub: valueOrZero('standard_row_count') > 0 ? '已形成标准数据' : '未形成标准数据' },
-                    { key: 'coverage', label: '覆盖率', value: catalog.coverage_rate === null || catalog.coverage_rate === undefined ? '-' : `${catalog.coverage_rate}%`, sub: '按已抓/待补统计' },
-                ];
-            });
-            const collectionHealthCtripCatalogDiagnosticScope = computed(() => '经营、流量、竞争、PSI、广告');
-            const collectionHealthCtripCatalogAuthText = computed(() => {
-                const catalog = collectionHealthCtripCatalog.value || {};
-                const authStatus = String(catalog.auth_status || '').toLowerCase();
-                if (authStatus === 'login_required') return '需要重新登录';
-                return catalog.is_live_capture_ready ? '授权可用' : '待验证';
-            });
-            const collectionHealthCtripCatalogPendingFetchText = computed(() => {
-                const catalog = collectionHealthCtripCatalog.value || {};
-                return `${catalog.capture_gap_missing_formal_endpoint_count || 0} 项`;
-            });
-            const collectionHealthCtripCatalogPendingFieldText = computed(() => {
-                const catalog = collectionHealthCtripCatalog.value || {};
-                return `${catalog.capture_gap_missing_field_count || 0} 项`;
-            });
-            const collectionHealthCtripCatalogVisibleNotes = computed(() => {
-                return [
-                    { label: '诊断口径', value: collectionHealthCtripCatalogDiagnosticScope.value },
-                    { label: '授权状态', value: collectionHealthCtripCatalogAuthText.value },
-                    { label: '待补采集', value: collectionHealthCtripCatalogPendingFetchText.value },
-                    { label: '待补字段', value: collectionHealthCtripCatalogPendingFieldText.value },
-                ];
-            });
-            const collectionHealthCtripCatalogActionText = computed(() => {
-                const catalog = collectionHealthCtripCatalog.value || {};
-                if (!catalog.available) return '等待携程采集目录生成后再判断。';
-                if (catalog.is_live_capture_ready) return '';
-                const authStatus = String(catalog.auth_status || '').toLowerCase();
-                const blockers = Array.isArray(catalog.capture_gap_blockers) ? catalog.capture_gap_blockers : [];
-                if (authStatus === 'login_required' || blockers.includes('auth_session')) {
-                    return 'Cookie 不可用或登录态失效，请先更新携程 Cookie。';
-                }
-                const missingEndpoints = Number(catalog.capture_gap_missing_formal_endpoint_count || 0);
-                const missingFields = Number(catalog.capture_gap_missing_field_count || 0);
-                if (missingEndpoints > 0 || missingFields > 0) {
-                    return '本轮采集不完整，建议重新采集目标门店数据。';
-                }
-                return '采集状态待确认，请查看失败原因或重新采集。';
-            });
+            const collectionHealthCtripCatalogCards = computed(() => buildCollectionHealthCtripCatalogCards(collectionHealthCtripCatalog.value || {}));
+            const collectionHealthCtripCatalogDiagnosticScope = computed(() => collectionHealthCtripCatalogDiagnosticScopeText());
+            const collectionHealthCtripCatalogAuthText = computed(() => collectionHealthCtripCatalogAuthTextFromStatic(collectionHealthCtripCatalog.value || {}));
+            const collectionHealthCtripCatalogPendingFetchText = computed(() => collectionHealthCtripCatalogPendingFetchTextFromStatic(collectionHealthCtripCatalog.value || {}));
+            const collectionHealthCtripCatalogPendingFieldText = computed(() => collectionHealthCtripCatalogPendingFieldTextFromStatic(collectionHealthCtripCatalog.value || {}));
+            const collectionHealthCtripCatalogVisibleNotes = computed(() => buildCollectionHealthCtripCatalogVisibleNotes({
+                diagnosticScope: collectionHealthCtripCatalogDiagnosticScope.value,
+                authText: collectionHealthCtripCatalogAuthText.value,
+                pendingFetchText: collectionHealthCtripCatalogPendingFetchText.value,
+                pendingFieldText: collectionHealthCtripCatalogPendingFieldText.value,
+            }));
+            const collectionHealthCtripCatalogActionText = computed(() => collectionHealthCtripCatalogActionTextFromStatic(collectionHealthCtripCatalog.value || {}));
             const collectionHealthCtripLatest = computed(() => collectionReliability.value?.ctrip_latest_capture || {});
             const collectionHealthCtripLatestModules = computed(() => (
                 Array.isArray(collectionHealthCtripLatest.value?.modules) ? collectionHealthCtripLatest.value.modules : []
@@ -20130,22 +20101,7 @@
                 const nextAction = String(report.next_action || '').trim();
                 return [message, nextAction].filter(Boolean).join(' ');
             });
-            const collectionHealthCtripLatestCards = computed(() => {
-                const latest = collectionHealthCtripLatest.value || {};
-                const freshness = latest.freshness || {};
-                const effectiveness = latest.effectiveness || {};
-                const freshnessValue = freshness.age_hours === null || freshness.age_hours === undefined
-                    ? (freshness.label || '暂无有效采集')
-                    : `${freshness.age_hours} 小时`;
-                return [
-                    { key: 'module_count', label: '覆盖模块', value: `${latest.module_count || 0} 个`, sub: '不含订单明细、点评列表' },
-                    { key: 'response_count', label: '接口响应', value: `${latest.response_count || 0}`, sub: latest.response_count ? '本轮已返回' : '本轮未返回' },
-                    { key: 'standard_row_count', label: '入库快照', value: `${latest.standard_row_count || 0}`, sub: latest.standard_row_count ? '可用于门店分析' : '未形成标准数据' },
-                    { key: 'catalog_fact_count', label: '已识别指标', value: `${latest.catalog_fact_count || 0}`, sub: '已提取的字段和值' },
-                    { key: 'coverage_rate', label: '覆盖率', value: latest.coverage_rate === null || latest.coverage_rate === undefined ? '-' : `${latest.coverage_rate}%`, sub: '按已抓/待补口径统计' },
-                    { key: 'freshness', label: '实效', value: freshnessValue, sub: effectiveness.label || freshness.label || '需要重新采集' },
-                ];
-            });
+            const collectionHealthCtripLatestCards = computed(() => buildCollectionHealthCtripLatestCards(collectionHealthCtripLatest.value || {}));
             const collectionHealthCtripOverviewAuthState = computed(() => {
                 const rows = collectionHealthCtripAuthorizationRows.value;
                 if (!rows.length) return { value: '未配置', status: 'waiting_config', className: 'text-amber-700' };
@@ -20158,40 +20114,26 @@
             });
             const collectionHealthCtripOverviewStatusCards = computed(() => {
                 const latest = collectionHealthCtripLatest.value || {};
-                const effect = latest.effectiveness || {};
                 const persistedCount = collectionHealthCtripPersistedRowCount.value;
-                const authState = collectionHealthCtripOverviewAuthState.value;
                 const latestRow = collectionHealthCtripPersistedLatestRow.value || {};
-                const identityReport = collectionHealthCtripIdentityFilter.value || {};
-                const identityBlocked = collectionHealthCtripIdentityBlocked.value;
                 const dataDate = latest.data_date || latestRow.data_date || ctripLatestMeta.value?.data_date || '-';
                 const capturedAt = latest.captured_at || latestRow.updated_at || ctripLatestMeta.value?.fetched_at || '暂无有效采集';
-                const standardRows = Number(latest.standard_row_count || 0);
-                const sourceRowCount = Math.max(standardRows, persistedCount, Number(ctripHeaderRecordCount.value || 0));
-                const rowCount = identityBlocked ? persistedCount : sourceRowCount;
-                const statusText = identityBlocked ? '门店身份冲突' : (effect.label || (rowCount > 0 ? '已形成入库快照' : '未形成入库快照'));
-                const statusClass = identityBlocked ? 'text-red-700' : (['effective', 'fresh'].includes(String(effect.status || '')) || rowCount > 0 ? 'text-emerald-700' : 'text-amber-700');
-                return [
-                    { key: 'auth', label: '当前授权', value: authState.value, sub: collectionHealthCtripCatalogAuthText.value, className: authState.className },
-                    { key: 'date', label: '数据日期', value: dataDate, sub: '当前展示口径', className: 'text-gray-900' },
-                    { key: 'latest', label: '最近采集', value: capturedAt, sub: latest.freshness?.label || '-', className: 'text-gray-900' },
-                    { key: 'rows', label: '本轮入库', value: identityBlocked ? `安全 ${persistedCount} 条` : (rowCount > 0 ? `${rowCount} 条` : '未形成入库快照'), sub: identityBlocked ? `已过滤 ${identityReport.filtered_count || 0} 条错店风险数据` : 'online_daily_data', className: identityBlocked ? 'text-red-700' : (rowCount > 0 ? 'text-emerald-700' : 'text-amber-700') },
-                    { key: 'modules', label: '可抓模块', value: '经营 / 流量 / 竞争 / PSI / 广告', sub: `${collectionHealthCtripLatestModules.value.length || 5} 个模块`, className: 'text-gray-900' },
-                    { key: 'status', label: '采集状态', value: statusText, sub: identityBlocked ? '已阻止错店数据展示' : `缺失 ${latest.missing_field_count || 0} 项`, className: statusClass },
-                ];
+                const sourceRowCount = Math.max(Number(latest.standard_row_count || 0), persistedCount, Number(ctripHeaderRecordCount.value || 0));
+                return buildCollectionHealthCtripOverviewStatusCards({
+                    latest,
+                    persistedCount,
+                    authState: collectionHealthCtripOverviewAuthState.value,
+                    latestRow,
+                    identityReport: collectionHealthCtripIdentityFilter.value || {},
+                    identityBlocked: collectionHealthCtripIdentityBlocked.value,
+                    dataDate,
+                    capturedAt,
+                    sourceRowCount,
+                    moduleCount: collectionHealthCtripLatestModules.value.length || 5,
+                    catalogAuthText: collectionHealthCtripCatalogAuthText.value,
+                });
             });
-            const ctripOverviewFetchModuleCards = computed(() => {
-                const authState = collectionHealthCtripOverviewAuthState.value;
-                const disabledLabel = authState.status === 'expired' ? '重新登录后抓取' : '';
-                const actionLabel = (label) => disabledLabel || label;
-                return [
-                    { key: 'business', title: '收益经营', subtitle: '订单、间夜、成交率、均价', tab: 'ctrip-flow-overview', icon: 'fas fa-yen-sign', actionLabel: actionLabel('抓取经营') },
-                    { key: 'traffic', title: '流量漏斗', subtitle: '曝光、访客、下单转化', tab: 'ctrip-traffic', icon: 'fas fa-filter', actionLabel: actionLabel('抓取流量') },
-                    { key: 'competitor', title: '竞争表现', subtitle: '竞争圈排名、价格排名', tab: 'ctrip-ranking', icon: 'fas fa-trophy', actionLabel: actionLabel('抓取竞争') },
-                    { key: 'quality', title: '服务质量', subtitle: 'PSI、评分、回复率、收藏数', tab: 'ctrip-quality', icon: 'fas fa-shield-alt', actionLabel: actionLabel('抓取 PSI') },
-                    { key: 'ads', title: '广告投放', subtitle: '花费、曝光、点击、ROAS', tab: 'ctrip-ads', icon: 'fas fa-bullhorn', actionLabel: actionLabel('抓取广告') },
-                ];
-            });
+            const ctripOverviewFetchModuleCards = computed(() => buildCtripOverviewFetchModuleCards(collectionHealthCtripOverviewAuthState.value));
             const collectionHealthCtripModuleStatusText = (status) => ({
                 captured: '已抓到',
                 needs_mapping: '待映射',

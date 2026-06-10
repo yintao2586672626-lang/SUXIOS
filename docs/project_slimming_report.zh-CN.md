@@ -481,6 +481,17 @@
 - 验证通过：`node --check public\operation-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、Operation display helper smoke check、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍预计失败，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第二十九刀拆分
+
+- 扩展 `public/data-health-static.js`，承载携程采集健康展示构建器：`buildCollectionHealthCtripCatalogCards`、`collectionHealthCtripCatalogDiagnosticScopeText`、`collectionHealthCtripCatalogAuthText`、`collectionHealthCtripCatalogPendingFetchText`、`collectionHealthCtripCatalogPendingFieldText`、`buildCollectionHealthCtripCatalogVisibleNotes`、`collectionHealthCtripCatalogActionText`、`buildCollectionHealthCtripLatestCards`、`buildCollectionHealthCtripOverviewStatusCards`、`buildCtripOverviewFetchModuleCards`。
+- `public/index.html` 仅保留对应 computed 绑定、携程授权状态、门店身份阻断、入库行计数和运行态来源；本轮不移动携程采集、Cookie/Profile 检查、接口请求、持久化或 OTA 数据链路。
+- 更新 `tests/automation/ctrip_store_data_overview.test.mjs`，携程总览卡片、补抓按钮、身份冲突文案和新 builder 的静态证据改为同时读取 `public/index.html` 与 `public/data-health-static.js`。
+- `public/index.html` 从 `40,583` 行降至 `40,525` 行；split-map 前端函数级块从 `1,119` 降至 `1,117`，`general` 域 span 从 `9,538` 行降至 `9,411` 行。
+- 当前 `public/data-health-static.js` 为 `536` 行；总代码行数为 `186,498` 行，非空行 `170,799` 行。
+- 当前审计：完整目录约 `249.97 MB`；不含 `.git` 约 `92 MB`；不含 `.git` 和依赖约 `62.81 MB`；Git 跟踪文件约 `17.88 MB` / `609` 个；代码范围 `366` 个文件。
+- 验证通过：`node --check public\data-health-static.js`、`node --check tests\automation\ctrip_store_data_overview.test.mjs`、携程数据健康展示 builder smoke check、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍未宣称完成，原因仍是 `public/index.html` 与 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

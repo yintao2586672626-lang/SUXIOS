@@ -5,6 +5,7 @@ import test from 'node:test';
 const html = readFileSync('public/index.html', 'utf8');
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
+const dataHealthOverviewSource = `${html}\n${dataHealthStatic}`;
 const backend = readFileSync('app/controller/OnlineData.php', 'utf8');
 const ctripPageStart = html.indexOf("currentPage === 'ctrip-ebooking'");
 const ctripPageEnd = html.indexOf('<!-- 携程数据抓取设置 -->', ctripPageStart);
@@ -59,10 +60,10 @@ test('Ctrip eBooking first tab is a business-first store data overview with diag
   assert.doesNotMatch(detailsOpenTag, /\bopen\b/, 'diagnostics must be collapsed by default');
 
   for (const label of ['当前授权', '数据日期', '最近采集', '本轮入库', '可抓模块', '采集状态']) {
-    assert.match(html, new RegExp(label), `missing compact status label: ${label}`);
+    assert.match(dataHealthOverviewSource, new RegExp(label), `missing compact status label: ${label}`);
   }
   for (const label of ['收益经营', '流量漏斗', '竞争表现', '服务质量', '广告投放']) {
-    assert.match(html, new RegExp(label), `missing fetch module card: ${label}`);
+    assert.match(dataHealthOverviewSource, new RegExp(label), `missing fetch module card: ${label}`);
   }
   for (const label of ['采集诊断与失败原因', '采集覆盖统计', '携程授权状态', '失败原因']) {
     assert.match(ctripDiagnosticsPanel, new RegExp(label), `diagnostics must retain: ${label}`);
@@ -230,19 +231,19 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   );
   assert.ok(quickActions.length > 0, 'overview quick fetch actions must exist');
   assert.match(quickActions, /一键抓取/);
-  assert.match(html, /抓取竞争/);
-  assert.match(html, /抓取经营/);
-  assert.match(html, /抓取流量/);
-  assert.match(html, /抓取 PSI/);
-  assert.match(html, /抓取广告/);
+  assert.match(dataHealthOverviewSource, /抓取竞争/);
+  assert.match(dataHealthOverviewSource, /抓取经营/);
+  assert.match(dataHealthOverviewSource, /抓取流量/);
+  assert.match(dataHealthOverviewSource, /抓取 PSI/);
+  assert.match(dataHealthOverviewSource, /抓取广告/);
   assert.match(quickActions, /runCtripOverviewCoreFetchAction/);
   assert.doesNotMatch(quickActions, /runCtripOverviewFetchAllActions/);
   assert.match(quickActions, /runCtripOverviewFetchAction\(item\.tab\)/);
-  assert.match(html, /tab:\s*'ctrip-ranking'/);
-  assert.match(html, /tab:\s*'ctrip-flow-overview'/);
-  assert.match(html, /tab:\s*'ctrip-traffic'/);
-  assert.match(html, /tab:\s*'ctrip-quality'/);
-  assert.match(html, /tab:\s*'ctrip-ads'/);
+  assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-ranking'/);
+  assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-flow-overview'/);
+  assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-traffic'/);
+  assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-quality'/);
+  assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-ads'/);
   assert.doesNotMatch(quickActions, /openCtripOverviewFetchTab\('ctrip-/);
   assert.match(html, /const runCtripOverviewFetchAction = async \(tabName\) =>/);
   assert.match(html, /const runCtripOverviewCoreFetchAction = async \(\) =>/);
@@ -488,8 +489,8 @@ test('Ctrip store overview surfaces identity-filtered rows instead of generic un
   assert.match(html, /collectionHealthCtripIdentityBlocked/);
   assert.match(html, /collectionHealthCtripIdentityMessage/);
   assert.match(ctripPage, /已抓到数据，但当前门店身份不安全，暂不展示经营结果。/);
-  assert.match(html, /门店身份冲突/);
-  assert.match(html, /已过滤 \$\{identityReport\.filtered_count \|\| 0\} 条错店风险数据/);
+  assert.match(dataHealthOverviewSource, /门店身份冲突/);
+  assert.match(dataHealthOverviewSource, /已过滤 \$\{identityReport\.filtered_count \|\| 0\} 条错店风险数据/);
   assert.match(html, /diagnosisType:\s*'hotel_identity_conflict'/);
   assert.match(html, /已抓到携程数据，但门店身份存在冲突，系统已阻止展示错店风险数据。/);
 });
@@ -518,9 +519,15 @@ test('Ctrip store data overview exposes Ctrip platform authorization CRUD with t
   assert.match(dataHealthStatic, /const buildDataHealthDiagnosticBoundary = /);
   assert.match(dataHealthStatic, /const buildDataHealthQualityTaskRows = /);
   assert.match(dataHealthStatic, /const summarizePublicEndpointSecurity = /);
+  assert.match(dataHealthStatic, /const buildCollectionHealthCtripCatalogCards = /);
+  assert.match(dataHealthStatic, /const buildCollectionHealthCtripLatestCards = /);
+  assert.match(dataHealthStatic, /const buildCollectionHealthCtripOverviewStatusCards = /);
+  assert.match(dataHealthStatic, /const buildCtripOverviewFetchModuleCards = /);
   assert.match(html, /requireDataHealthStatic\('buildCollectionHealthFailureReasonRanking'\)/);
   assert.match(html, /requireDataHealthStatic\('buildDataHealthQualityTaskRows'\)/);
   assert.match(html, /requireDataHealthStatic\('summarizePublicEndpointSecurity'\)/);
+  assert.match(html, /requireDataHealthStatic\('buildCollectionHealthCtripCatalogCards'\)/);
+  assert.match(html, /requireDataHealthStatic\('buildCtripOverviewFetchModuleCards'\)/);
   assert.match(html, /buildDataHealthTodayWorkOrders\(\{/);
 });
 
