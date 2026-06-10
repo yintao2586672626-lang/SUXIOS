@@ -68,6 +68,13 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
 
     const getAiAnalysisHotelKey = (hotel) => `${hotel.poiId}_${hotel.hotelName}`;
 
+    const resolveAiSelectedData = (selectedKeys = [], hotels = []) => {
+        if (!Array.isArray(selectedKeys) || !Array.isArray(hotels)) return [];
+        return selectedKeys
+            .map(key => hotels.find(hotel => getAiAnalysisHotelKey(hotel) === key))
+            .filter(Boolean);
+    };
+
     const aiAnalysisStatusText = (status) => {
         const map = {
             pending: '等待中',
@@ -473,6 +480,18 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         };
     };
 
+    const buildCapturedOtaGroupOutcome = (batchResults = []) => {
+        const rows = Array.isArray(batchResults) ? batchResults : [];
+        const successGroups = rows.filter(item => item.status === 'success' && item.result);
+        const failedGroups = rows.filter(item => item.status === 'failed' || item.error).map(item => ({
+            group_index: item.groupIndex,
+            hotel_count: item.hotelCount,
+            error: item.error,
+        }));
+        const failedReason = failedGroups.map(item => `第 ${item.group_index} 组：${item.error || '分析失败'}`).join('\n\n');
+        return { successGroups, failedGroups, failedReason };
+    };
+
     const buildCapturedOtaSummaryRequestBody = ({
         platform = 'ctrip',
         modelKey = '',
@@ -576,6 +595,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         pickNullableNumber,
         maxNullableNumber,
         getAiAnalysisHotelKey,
+        resolveAiSelectedData,
         aiAnalysisStatusText,
         aiAnalysisStatusClass,
         aiAnalysisPriorityClass,
@@ -601,6 +621,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildAiAnalysisProgress,
         buildAiAnalysisBatchResults,
         buildCapturedOtaAnalysisRunPlan,
+        buildCapturedOtaGroupOutcome,
         buildCapturedOtaSummaryRequestBody,
         buildAiAnalysisHistoryRecord,
         getMeituanAiAnalysisHotelKey,

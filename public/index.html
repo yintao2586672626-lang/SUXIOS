@@ -34948,8 +34948,10 @@
             const buildCapturedOtaReportCopyHtml = requireAiAnalysisStatic('buildCapturedOtaReportCopyHtml');
             const buildCapturedFallbackSummaryReport = requireAiAnalysisStatic('buildCapturedFallbackSummaryReport');
             const buildCapturedOtaAnalysisRunPlan = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan');
+            const buildCapturedOtaGroupOutcome = requireAiAnalysisStatic('buildCapturedOtaGroupOutcome');
             const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
             const buildAiAnalysisHistoryRecord = requireAiAnalysisStatic('buildAiAnalysisHistoryRecord');
+            const resolveAiSelectedData = requireAiAnalysisStatic('resolveAiSelectedData');
             const sanitizeAiReportHtml = requireAiAnalysisStatic('sanitizeAiReportHtml');
             const aiReportHtmlToText = requireAiAnalysisStatic('aiReportHtmlToText');
             const buildMeituanAiAnalysisHotelList = requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList');
@@ -35069,10 +35071,7 @@
                     return;
                 }
 
-                // 获取选中酒店的详细数据
-                const selectedData = aiSelectedHotels.value.map(key => {
-                    return aiAnalysisHotelList.value.find(h => getAiAnalysisHotelKey(h) === key);
-                }).filter(Boolean);
+                const selectedData = resolveAiSelectedData(aiSelectedHotels.value, aiAnalysisHotelList.value);
 
                 if (selectedData.length === 0) {
                     showToast('未找到选中的酒店数据', 'error');
@@ -35127,12 +35126,7 @@
                         }
                     }
 
-                    const successGroups = aiAnalysisBatchResults.value.filter(item => item.status === 'success' && item.result);
-                    const failedGroups = aiAnalysisBatchResults.value.filter(item => item.status === 'failed' || item.error).map(item => ({
-                        group_index: item.groupIndex,
-                        hotel_count: item.hotelCount,
-                        error: item.error,
-                    }));
+                    const { successGroups, failedGroups, failedReason } = buildCapturedOtaGroupOutcome(aiAnalysisBatchResults.value);
 
                     if (successGroups.length > 0) {
                         aiAnalysisProgress.value.summarizing = true;
@@ -35180,7 +35174,6 @@
                             aiAnalysisProgress.value.summarizing = false;
                         }
                     } else {
-                        const failedReason = failedGroups.map(item => `第 ${item.group_index} 组：${item.error || '分析失败'}`).join('\n\n');
                         aiAnalysisCapturedError.value = '全部分析失败，无法生成综合报告。\n' + maskAiAnalysisError(failedReason);
                     }
 

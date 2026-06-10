@@ -909,6 +909,16 @@
 - 已验证：`node --check public\meituan-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`git diff --check`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第六十七刀拆分
+
+- 扩展 `public/ai-analysis-static.js`，承载携程 OTA AI 分析中的纯选中酒店解析和批次结果汇总：`resolveAiSelectedData`、`buildCapturedOtaGroupOutcome`。
+- `public/index.html` 中 `startAiAnalysis()` 继续负责日期校验、`/agent/analyze-captured-ota-data` 分组请求、重试、`/agent/summarize-captured-ota-analysis` 汇总请求、UI 状态写入和历史记录；本轮不迁移 AI 请求、汇总接口、模型选择、历史裁剪、OTA 存储或缺失/失败状态展示。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式读取新 helper，要求静态模块导出对应函数，禁止选中酒店查找、成功/失败组过滤和失败原因拼接重新内联，并在 VM 中验证无效选中 key 清理、成功组、失败组和失败原因样本。
+- 当前 split-map：`public/index.html` 从 `37982` 行降至 `37975` 行；`ai` 领域 span 从 `1242` 行降至 `1235` 行；`startAiAnalysis` 从 `144` 行降至 `135` 行。
+- 当前自审计：完整目录约 `273.56 MB`；不含 `.git` 约 `92.27 MB`；不含 `.git` 和依赖约 `63.08 MB`；Git 跟踪文件约 `18.15 MB` / `613` 个；代码范围 `370` 个文件，`189551` 行，非空 `173767` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`node scripts\verify_frontend_display_boundary.mjs`、`git diff --check`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
