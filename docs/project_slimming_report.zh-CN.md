@@ -607,7 +607,7 @@
 - 更新 `scripts/verify_e2e_contracts.mjs`，要求入口使用 `filterVisibleMenuItems(menuItems.value, user.value)`，并要求菜单解析/过滤 helper 留在 `public/system-static.js`，禁止 `isItemVisible` 重新内联。
 - `public/index.html` 从 `39,801` 行降至 `39,745` 行；split-map 前端函数级块从 `1,457` 降至 `1,455`，`general` 域 span 从 `8,617` 行降至 `8,561` 行。
 - 当前自审：完整目录约 `255.85 MB`；不含 `.git` 约 `92.05 MB`；不含 `.git` 和依赖约 `62.86 MB`；Git 跟踪文件约 `17.93 MB` / `612` 个；代码范围 `369` 个文件、`186,960` 行、非空 `171,227` 行。
-- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
 ## 2026-06-10 前端第三十九刀拆分
@@ -728,6 +728,16 @@
 - `public/index.html` 从 `38,797` 行降至 `38,732` 行；split-map 中 `general` 域 span 从 `7,498` 行降至 `7,433` 行，`globalNotifications` 不再进入最大前端块列表。
 - 当前自审计：完整目录约 `262.32 MB`，不含 `.git` 约 `92.13 MB`，不含 `.git` 和依赖约 `62.94 MB`；Git 跟踪文件约 `18 MB` / `612` 个；代码范围 `369` 个文件，`187,604` 行，非空 `171,849` 行。
 - 已验证：`node --check public\notification-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
+## 2026-06-10 前端第五十刀拆分
+
+- 扩展 `public/system-static.js`，承载数据配置默认表单构建器 `getDefaultDataConfigForm`，覆盖通用字段、携程/美团账号字段、Cookie/API 诊断字段和广告配置字段默认值。
+- `public/index.html` 只保留 `getDefaultDataConfigForm` 的静态读取和调用；数据配置弹窗、类型默认值覆盖、保存请求、测试请求、OTA 采集配置和入库链路均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `requireSystemStatic('getDefaultDataConfigForm')` 显式读取构建器，禁止默认表单对象重新内联，并在 VM 中校验 OTA 配置默认值和数组隔离。
+- `public/index.html` 从 `38,732` 行降至 `38,658` 行；split-map 前端函数级块从 `1,441` 降至 `1,440`，`config` 域 span 从 `607` 行降至 `532` 行。
+- 当前自审计：完整目录约 `262.9 MB`，不含 `.git` 约 `92.13 MB`，不含 `.git` 和依赖约 `62.94 MB`；Git 跟踪文件约 `18.01 MB` / `612` 个；代码范围 `369` 个文件，`187,647` 行，非空 `171,891` 行。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
 ## 后续处理建议

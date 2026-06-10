@@ -690,6 +690,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the global notification builder split: `node --check public\notification-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Data Config Default Form Split
+
+- Fiftieth frontend split target chosen from pure data-config default form construction in `public/index.html`.
+- Extended `public/system-static.js` with `getDefaultDataConfigForm`, covering common config fields, Ctrip/Meituan account fields, Cookie/API diagnostic fields, and ads config defaults.
+- `public/index.html` keeps only the static read and existing calls; data-config modal behavior, per-type default overrides, save/test requests, OTA capture configuration, and storage paths remain unchanged.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted default-form builder, prevent the long default object from returning to `public/index.html`, and validate default OTA config values plus fresh `rank_types` arrays in a VM context.
+- `public/index.html` decreased from `38732` lines to `38658` lines; frontend function-level blocks decreased from `1441` to `1440`; the split-map `config` domain span decreased from `607` to `532` lines.
+- Current self-audit after the code move: full directory about `262.9 MB`, without `.git` about `92.13 MB`, without `.git` and dependencies about `62.94 MB`, tracked files about `18.01 MB` / `612` files; code scope `369` files, `187647` total lines, and `171891` nonblank lines.
+- Verified after the data-config default form split: `node --check public\system-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

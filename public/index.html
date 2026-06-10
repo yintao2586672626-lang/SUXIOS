@@ -24495,85 +24495,11 @@
             const testingConfig = ref(false);
             const savingConfig = ref(false);
             const dataConfigProfiles = requireSystemStatic('dataConfigProfiles');
+            const getDefaultDataConfigForm = requireSystemStatic('getDefaultDataConfigForm');
             const dataConfigMeta = computed(() => dataConfigProfiles[currentDataConfigType.value] || {
                 description: '配置平台数据获取参数。',
                 requiredText: '-',
                 outputText: '-'
-            });
-            const getDefaultDataConfigForm = () => ({
-                // 通用字段
-                config_name: '',
-                enabled: true,
-                url: '',
-                cookies: '',
-                cookie: '',
-                hotelId: '',
-                system_hotel_id: '',
-                startDate: '',
-                endDate: '',
-                start_date: '',
-                end_date: '',
-                begin_date: '',
-                date_range: '1',
-                platform: 'Ctrip',
-                fetch_frequency: 'manual',
-                schedule_time: '06:00',
-                cookie_expire_days: 7,
-                auto_save: true,
-                extraParams: '',
-                extra_params: '',
-                remark: '',
-                // 携程ebooking
-                nodeId: '',
-                node_id: '',
-                auth_data: '',
-                // 美团ebooking
-                partnerId: '',
-                poiId: '',
-                rankType: '',
-                partner_id: '',
-                poi_id: '',
-                rank_type: 'P_RZ',
-                rank_types: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'],
-                data_scope: 'vpoi',
-                method: 'GET',
-                shop_id: '',
-                hotel_room_count: '',
-                competitor_room_count: '',
-                // 携程点评
-                request_url: '',
-                request_urls: '',
-                requestUrls: '',
-                endpoints_json: '',
-                endpointsJson: '',
-                headers_json: '',
-                headersJson: '',
-                master_hotel_id: '',
-                profile_id: '',
-                profileId: '',
-                hotel_id: '',
-                ctrip_hotel_id: '',
-                ctripHotelId: '',
-                spidertoken: '',
-                payloadJson: '',
-                payload_json: '',
-                _fxpcqlniredt: '',
-                x_trace_id: '',
-                tag_type: '',
-                page_index: 1,
-                page_size: 10,
-                // 美团点评
-                mtgsig: '',
-                _mtsi_eb_u: '',
-                reply_type: '2',
-                tag: '',
-                limit: 10,
-                offset: 0,
-                custom_url: '',
-                // 广告
-                api_type: 'effect_report',
-                campaign_id: '',
-                time_unit: 'day',
             });
             const getDataConfigTypeDefaults = (type) => ({
                 'ctrip-ebooking': {

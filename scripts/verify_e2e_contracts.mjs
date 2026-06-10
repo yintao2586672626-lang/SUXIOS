@@ -66,6 +66,8 @@ requireText('public/index.html', 'buildHotelPlatformAccountRowStatic', 'entry us
 requireText('public/system-static.js', 'const buildHotelPlatformAccountRow', 'system static builds hotel platform account rows');
 requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
 requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
+requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
+requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
 requireText('public/index.html', '<script src="testid-static.js"></script>', 'frontend loads extracted test id helper');
 requireText('public/index.html', 'createPageTestIdController', 'entry wires extracted page test id controller');
@@ -76,6 +78,7 @@ requireText('public/notification-static.js', 'const buildGlobalNotifications', '
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
+requireNoText('public/index.html', 'const getDefaultDataConfigForm = () => ({', 'data config default form is not re-inlined');
 requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
 requireNoText('public/index.html', 'autoFetchRecentRuns.value.slice(0, 3).forEach', 'global notification recent-run loop is not re-inlined');
 requireNoText('public/index.html', 'const readSet = new Set(globalNotificationReadIds.value);', 'global notification read-set mapping is not re-inlined');
@@ -187,6 +190,50 @@ requireText('package.json', 'test:e2e:business', 'package exposes business chain
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
 requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(read('public/system-static.js'), context, {
+    filename: 'public/system-static.js',
+  });
+  const getDefaultDataConfigForm = context.window.SUXI_SYSTEM_STATIC?.getDefaultDataConfigForm;
+  if (typeof getDefaultDataConfigForm !== 'function') {
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static exports data config default form builder',
+      ok: false,
+      detail: 'getDefaultDataConfigForm',
+    });
+  } else {
+    const first = getDefaultDataConfigForm();
+    const second = getDefaultDataConfigForm();
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'data config default form keeps OTA config defaults',
+      ok: first.platform === 'Ctrip'
+        && first.rank_type === 'P_RZ'
+        && Array.isArray(first.rank_types)
+        && first.rank_types.includes('P_ZH')
+        && first.api_type === 'effect_report'
+        && first.reply_type === '2',
+      detail: 'getDefaultDataConfigForm sample',
+    });
+    first.rank_types.push('mutated');
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'data config default form returns fresh mutable arrays',
+      ok: Array.isArray(second.rank_types) && !second.rank_types.includes('mutated'),
+      detail: 'rank_types',
+    });
+  }
+} catch (error) {
+  checks.push({
+    file: 'public/system-static.js',
+    label: 'system static runtime validation',
+    ok: false,
+    detail: error.message,
+  });
+}
 
 try {
   const context = { window: {} };
