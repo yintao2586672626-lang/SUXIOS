@@ -298,6 +298,17 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the eighteenth frontend split: `node --check public\meituan-static.js`; `node --check scripts\verify_p0_learning_contract.mjs`; `npm.cmd run verify:p0-learning`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check`; `npm.cmd run verify:p0-guards`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
 
+## 2026-06-10 Progress: Frontend Home Closed-Loop Utility Split
+
+- Nineteenth frontend split target chosen from home-page closed-loop and AI trace row builders in `public/index.html`.
+- Added `public/home-static.js` with `buildHomeClosedLoopStages` and `buildHomeAiTraceRows`.
+- `public/index.html` now keeps only Vue computed bindings and runtime inputs for `homeClosedLoopStages` and `homeAiTraceRows`; product-chain labels, explicit missing-state copy, evidence text, and quick-entry payload shaping are handled by `window.SUXI_HOME_STATIC`.
+- Updated `scripts/verify_home_visual_hierarchy_contract.mjs` so the home closed-loop product-chain evidence reads `public/home-static.js`, while the entry file must explicitly load `home-static.js` and read both builders through `requireHomeStatic()`.
+- `public/index.html` decreased from `41586` lines to `41527` lines; current `public/home-static.js` is `122` lines; current split map reports `1152` frontend function-level blocks, `44` `currentPage` references, and general-domain span `10126` lines.
+- Current self-audit after the nineteenth frontend split: full directory about `244.06 MB`, without `.git` about `91.95 MB`, without `.git` and dependencies about `62.76 MB`, tracked files about `17.83 MB` / `608` files; code scope `365` files, `186245` total lines, `170572` nonblank lines.
+- Verified after the nineteenth frontend split: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `npm.cmd run verify:home-visual-hierarchy`; `npm.cmd run verify:public-entry`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `OnlineData.php`, are further reduced.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

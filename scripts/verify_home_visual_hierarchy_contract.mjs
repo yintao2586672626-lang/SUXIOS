@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 const publicSource = readFileSync('public/index.html', 'utf8');
+const homeStaticSource = readFileSync('public/home-static.js', 'utf8');
 const packageSource = readFileSync('package.json', 'utf8');
 
 const checks = [
@@ -49,6 +50,20 @@ const checks = [
     pass: publicSource.includes('data-testid="home-action-panel"')
       && publicSource.includes('{{ action.detail || \'-\' }}')
       && publicSource.includes('v-for="action in homeBoardActionRows"'),
+  },
+  {
+    name: 'home closed-loop builders live in explicit static helper',
+    pass: publicSource.includes('<script src="home-static.js"></script>')
+      && publicSource.includes("requireHomeStatic('buildHomeClosedLoopStages')")
+      && publicSource.includes("requireHomeStatic('buildHomeAiTraceRows')")
+      && homeStaticSource.includes('window.SUXI_HOME_STATIC')
+      && homeStaticSource.includes('OTA数据可信度')
+      && homeStaticSource.includes('收益分析')
+      && homeStaticSource.includes('AI决策')
+      && homeStaticSource.includes('运营执行')
+      && homeStaticSource.includes('投资决策')
+      && homeStaticSource.includes('不把模型输出当作事实')
+      && homeStaticSource.includes('不用 OTA 渠道数据替代全酒店口径'),
   },
   {
     name: 'home visual hierarchy verifier is exposed through npm',
