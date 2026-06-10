@@ -475,6 +475,18 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the frontend feasibility display split: `node --check public\expansion-static-options.js`; `node --check scripts\verify_expansion_p2.mjs`; `node scripts\verify_expansion_p2.mjs`; `node scripts\verify_strategy_location_ui_contract.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check -- public\index.html public\expansion-static-options.js scripts\verify_expansion_p2.mjs`; `npm.cmd run self:check`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Simulation Display Builder Split
+
+- Thirty-second frontend split target chosen from pure simulation display computed logic in `public/index.html`.
+- Extended `public/simulation-static.js` with builders for investment groups, investment totals, per-room investment, room revenue segments, cost groups, OTA commission channels, model-analysis visibility, and model-source labels.
+- `public/index.html` now keeps only Vue computed bindings and runtime state inputs for those simulation displays; simulation requests, record loading, history reuse, archiving, localStorage persistence, backend save behavior, and OTA data paths remain unchanged.
+- Updated `scripts/verify_simulation_p2.mjs` so simulation P2 requires the display builders from `public/simulation-static.js`, while the entry file must explicitly load them through `requireSimulationStatic()`.
+- `public/index.html` decreased from `40356` lines to `40319` lines; split-map frontend function-level blocks decreased from `1113` to `1110`; the `simulation` domain span decreased from `380` to `343` lines, and the `handleSimulation` block span decreased from `231` to `194` lines.
+- Current `public/simulation-static.js` is `514` lines. Total code lines are `186785` and nonblank lines are `171051` after the code move.
+- Current self-audit after the code move: full directory about `252.36 MB`, without `.git` about `92.02 MB`, without `.git` and dependencies about `62.83 MB`, tracked files about `17.91 MB` / `611` files; code scope `368` files.
+- Verified after the frontend simulation display split: `node --check public\simulation-static.js`; `node --check scripts\verify_simulation_p2.mjs`; `node scripts\verify_simulation_p2.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run verify:e2e-contracts`; `git diff --check -- public\index.html public\simulation-static.js scripts\verify_simulation_p2.mjs`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

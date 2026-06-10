@@ -38694,23 +38694,23 @@
             const transferTimingNumberFields = requireSimulationStatic('transferTimingNumberFields');
             const transferTimingDataFields = requireSimulationStatic('transferTimingDataFields');
             const simulationCostFields = requireSimulationStatic('simulationCostFields');
-            const simulationCostFieldGroups = requireSimulationStatic('simulationCostFieldGroups');
-            const simulationOtaCommissionChannelDefinitions = requireSimulationStatic('simulationOtaCommissionChannelDefinitions');
-            const simulationInvestmentFieldGroups = requireSimulationStatic('simulationInvestmentFieldGroups');
-            const simulationRoomRevenueDefinitions = requireSimulationStatic('simulationRoomRevenueDefinitions');
             const simulationOtherIncomeFields = requireSimulationStatic('simulationOtherIncomeFields');
-            const simulationGroupTotal = requireSimulationStatic('simulationGroupTotal');
             const simulationRevenueSummaryFromInput = requireSimulationStatic('simulationRevenueSummaryFromInput');
             const simulationCostSummaryFromInput = requireSimulationStatic('simulationCostSummaryFromInput');
+            const buildSimulationInvestmentGroups = requireSimulationStatic('buildSimulationInvestmentGroups');
+            const simulationInvestmentTotalFromGroups = requireSimulationStatic('simulationInvestmentTotalFromGroups');
+            const simulationInvestmentPerRoomFromInput = requireSimulationStatic('simulationInvestmentPerRoom');
+            const buildSimulationRoomRevenueSegments = requireSimulationStatic('buildSimulationRoomRevenueSegments');
+            const buildSimulationCostGroups = requireSimulationStatic('buildSimulationCostGroups');
+            const buildSimulationOtaCommissionChannels = requireSimulationStatic('buildSimulationOtaCommissionChannels');
+            const isSimulationModelAnalysisVisible = requireSimulationStatic('isSimulationModelAnalysisVisible');
+            const simulationModelSourceLabelForAnalysis = requireSimulationStatic('simulationModelSourceLabel');
             const generateRiskHints = requireSimulationStatic('generateRiskHints');
             const normalizeSimulationModelAnalysis = requireSimulationStatic('normalizeSimulationModelAnalysis');
             const normalizeSimulationInput = requireSimulationStatic('normalizeSimulationInput');
             const validateSimulationInput = requireSimulationStatic('validateSimulationInput');
 
-            const aiNumber = (value) => Number(value) || 0;
-            const aiClamp = (value, min, max) => Math.max(min, Math.min(max, value));
             const aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
-            const percentToDecimal = (value) => toNumber(value) / 100;
             const formatCurrency = (value) => `¥${Math.round(toNumber(value)).toLocaleString()}`;
             const formatMoney = formatCurrency;
             const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
@@ -39768,53 +39768,16 @@
             }, { deep: true });
 
             const baseSimulation = computed(() => aiSimulationResult.value);
-            const simulationInvestmentGroups = computed(() => simulationInvestmentFieldGroups.map(group => ({
-                ...group,
-                total: simulationGroupTotal(aiSimulationParams.value, group)
-            })));
-            const simulationInvestmentTotal = computed(() => simulationInvestmentGroups.value.reduce((sum, group) => sum + toNumber(group.total), 0));
-            const simulationInvestmentPerRoom = computed(() => {
-                const roomCount = toNumber(aiSimulationParams.value.roomCount);
-                return roomCount > 0 ? simulationInvestmentTotal.value / roomCount : 0;
-            });
+            const simulationInvestmentGroups = computed(() => buildSimulationInvestmentGroups(aiSimulationParams.value));
+            const simulationInvestmentTotal = computed(() => simulationInvestmentTotalFromGroups(simulationInvestmentGroups.value));
+            const simulationInvestmentPerRoom = computed(() => simulationInvestmentPerRoomFromInput(aiSimulationParams.value, simulationInvestmentTotal.value));
             const simulationRevenueSummary = computed(() => simulationRevenueSummaryFromInput(aiSimulationParams.value, aiSimulationResult.value));
-            const simulationRoomRevenueSegments = computed(() => simulationRoomRevenueDefinitions.map(segment => {
-                const days = Math.max(0, toNumber(aiSimulationParams.value[segment.daysKey]));
-                const adr = Math.max(0, toNumber(aiSimulationParams.value[segment.adrKey]));
-                const occupancy = aiClamp(toNumber(aiSimulationParams.value[segment.occupancyKey]), 0, 100);
-                return {
-                    ...segment,
-                    days,
-                    adr,
-                    occupancy,
-                    revenue: null
-                };
-            }));
+            const simulationRoomRevenueSegments = computed(() => buildSimulationRoomRevenueSegments(aiSimulationParams.value));
             const simulationCostSummary = computed(() => simulationCostSummaryFromInput(aiSimulationParams.value, aiSimulationResult.value));
-            const simulationCostGroups = computed(() => simulationCostFieldGroups.map(group => ({
-                ...group,
-                total: simulationGroupTotal(aiSimulationParams.value, group)
-            })));
-            const simulationOtaCommissionChannels = computed(() => simulationOtaCommissionChannelDefinitions.map(channel => {
-                const share = Math.max(0, toNumber(aiSimulationParams.value[channel.shareKey]));
-                const rate = Math.max(0, toNumber(aiSimulationParams.value[channel.rateKey]));
-                return {
-                    ...channel,
-                    share,
-                    rate,
-                    weightedRate: null
-                };
-            }));
-            const simulationModelAnalysisVisible = computed(() => {
-                const analysis = simulationModelAnalysis.value;
-                return !!(analysis && (analysis.summary || analysis.decision || analysis.recommendations.length || analysis.watch_points.length || analysis.assumptions.length));
-            });
-            const simulationModelSourceLabel = computed(() => {
-                const source = simulationModelAnalysis.value?.source;
-                if (source === 'llm') return 'AI模型';
-                if (source === 'fallback') return '本地兜底';
-                return '模型解读';
-            });
+            const simulationCostGroups = computed(() => buildSimulationCostGroups(aiSimulationParams.value));
+            const simulationOtaCommissionChannels = computed(() => buildSimulationOtaCommissionChannels(aiSimulationParams.value));
+            const simulationModelAnalysisVisible = computed(() => isSimulationModelAnalysisVisible(simulationModelAnalysis.value));
+            const simulationModelSourceLabel = computed(() => simulationModelSourceLabelForAnalysis(simulationModelAnalysis.value));
             const strategyScoreCards = computed(() => {
                 const r = aiStrategyResult.value;
                 if (!r) return [];

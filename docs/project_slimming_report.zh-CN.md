@@ -536,6 +536,17 @@
 - 验证通过：`node --check public\expansion-static-options.js`、`node --check scripts\verify_expansion_p2.mjs`、`node scripts\verify_expansion_p2.mjs`、`node scripts\verify_strategy_location_ui_contract.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check -- public\index.html public\expansion-static-options.js scripts\verify_expansion_p2.mjs`、`npm.cmd run self:check`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十二刀拆分
+
+- 扩展 `public/simulation-static.js`，承载量化模拟纯展示构建器：`buildSimulationInvestmentGroups`、`simulationInvestmentTotalFromGroups`、`simulationInvestmentPerRoom`、`buildSimulationRoomRevenueSegments`、`buildSimulationCostGroups`、`buildSimulationOtaCommissionChannels`、`isSimulationModelAnalysisVisible`、`simulationModelSourceLabel`。
+- `public/index.html` 仅保留 Vue computed 绑定和运行态输入；本轮不移动量化模拟请求、历史加载、复用、归档、localStorage 持久化、后端保存或 OTA 数据链路。
+- 更新 `scripts/verify_simulation_p2.mjs`，要求入口显式通过 `requireSimulationStatic()` 读取上述展示构建器，同时要求构建器留在 `public/simulation-static.js`。
+- `public/index.html` 从 `40,356` 行降至 `40,319` 行；split-map 中前端函数级块从 `1,113` 降至 `1,110`，`simulation` 域 span 从 `380` 行降至 `343` 行，`handleSimulation` 块 span 从 `231` 行降至 `194` 行。
+- 当前 `public/simulation-static.js` 为 `514` 行；本轮代码改动后总代码行数为 `186,785`，非空行 `171,051`。
+- 本轮代码改动后自审计：完整目录约 `252.36 MB`；不含 `.git` 约 `92.02 MB`；不含 `.git` 和依赖约 `62.83 MB`；Git 跟踪文件约 `17.91 MB` / `611` 个；代码范围 `368` 个文件。
+- 验证通过：`node --check public\simulation-static.js`、`node --check scripts\verify_simulation_p2.mjs`、`node scripts\verify_simulation_p2.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`、`git diff --check -- public\index.html public\simulation-static.js scripts\verify_simulation_p2.mjs`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+- 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

@@ -218,6 +218,69 @@ window.SUXI_SIMULATION_STATIC = (() => {
         };
     }
 
+    function buildSimulationInvestmentGroups(input = {}) {
+        return simulationInvestmentFieldGroups.map(group => ({
+            ...group,
+            total: simulationGroupTotal(input, group),
+        }));
+    }
+
+    function simulationInvestmentTotalFromGroups(groups = []) {
+        return groups.reduce((sum, group) => sum + toNumberValue(group.total), 0);
+    }
+
+    function simulationInvestmentPerRoom(input = {}, totalInvestment = 0) {
+        const roomCount = toNumberValue(input.roomCount);
+        return roomCount > 0 ? toNumberValue(totalInvestment) / roomCount : 0;
+    }
+
+    function clampValue(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    function buildSimulationRoomRevenueSegments(input = {}) {
+        return simulationRoomRevenueDefinitions.map(segment => ({
+            ...segment,
+            days: Math.max(0, toNumberValue(input[segment.daysKey])),
+            adr: Math.max(0, toNumberValue(input[segment.adrKey])),
+            occupancy: clampValue(toNumberValue(input[segment.occupancyKey]), 0, 100),
+            revenue: null,
+        }));
+    }
+
+    function buildSimulationCostGroups(input = {}) {
+        return simulationCostFieldGroups.map(group => ({
+            ...group,
+            total: simulationGroupTotal(input, group),
+        }));
+    }
+
+    function buildSimulationOtaCommissionChannels(input = {}) {
+        return simulationOtaCommissionChannelDefinitions.map(channel => ({
+            ...channel,
+            share: Math.max(0, toNumberValue(input[channel.shareKey])),
+            rate: Math.max(0, toNumberValue(input[channel.rateKey])),
+            weightedRate: null,
+        }));
+    }
+
+    function isSimulationModelAnalysisVisible(analysis) {
+        return !!(analysis && (
+            analysis.summary
+            || analysis.decision
+            || (Array.isArray(analysis.recommendations) && analysis.recommendations.length)
+            || (Array.isArray(analysis.watch_points) && analysis.watch_points.length)
+            || (Array.isArray(analysis.assumptions) && analysis.assumptions.length)
+        ));
+    }
+
+    function simulationModelSourceLabel(analysis) {
+        const source = analysis?.source;
+        if (source === 'llm') return 'AI\u6a21\u578b';
+        if (source === 'fallback') return '\u672c\u5730\u515c\u5e95';
+        return '\u6a21\u578b\u89e3\u8bfb';
+    }
+
     function generateRiskHints() {
         return [];
     }
@@ -455,6 +518,14 @@ window.SUXI_SIMULATION_STATIC = (() => {
         simulationGroupTotal,
         simulationRevenueSummaryFromInput,
         simulationCostSummaryFromInput,
+        buildSimulationInvestmentGroups,
+        simulationInvestmentTotalFromGroups,
+        simulationInvestmentPerRoom,
+        buildSimulationRoomRevenueSegments,
+        buildSimulationCostGroups,
+        buildSimulationOtaCommissionChannels,
+        isSimulationModelAnalysisVisible,
+        simulationModelSourceLabel,
         generateRiskHints,
         normalizeSimulationModelAnalysis,
         normalizeSimulationInput,
