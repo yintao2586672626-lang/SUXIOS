@@ -487,6 +487,181 @@ window.SUXI_SYSTEM_STATIC = (() => {
             return item;
         });
     };
+    const firstNonEmptyText = (...values) => {
+        const value = values.find(item => item !== undefined && item !== null && String(item).trim() !== '');
+        return value === undefined ? '' : String(value).trim();
+    };
+    const requireHotelPlatformHelper = (helpers, key) => {
+        const helper = helpers?.[key];
+        if (typeof helper !== 'function') {
+            throw new Error(`Missing hotel platform account helper: ${key}`);
+        }
+        return helper;
+    };
+    const platformNextActionMeta = ({ label = '', statusCode = '', captureCode = '', bound = false } = {}) => {
+        const prefix = label || '账号';
+        if (statusCode === 'mismatch') {
+            return { text: `${prefix}复核`, weight: 5, className: 'bg-red-50 text-red-700 border-red-200', target: 'hotel-ota', actionKey: 'fix_identity_mismatch' };
+        }
+        if (statusCode === 'login_expired') {
+            return { text: `${prefix}重登`, weight: 10, className: 'bg-red-50 text-red-700 border-red-200', target: 'profile-login', actionKey: 'login_platform_profile' };
+        }
+        if (captureCode === 'failed') {
+            return { text: `${prefix}重采`, weight: 15, className: 'bg-red-50 text-red-700 border-red-200', target: 'sync-logs', actionKey: 'open_sync_logs' };
+        }
+        if (statusCode === 'missing_config') {
+            return { text: `${prefix}补配置`, weight: 20, className: 'bg-amber-50 text-amber-700 border-amber-200', target: 'hotel-ota', actionKey: 'complete_platform_identity' };
+        }
+        if (statusCode === 'waiting_login') {
+            return { text: `${prefix}登录`, weight: 25, className: 'bg-amber-50 text-amber-700 border-amber-200', target: 'profile-login', actionKey: 'login_platform_profile' };
+        }
+        if (statusCode === 'unbound') {
+            return { text: `${prefix}添加`, weight: bound ? 30 : 35, className: 'bg-gray-50 text-gray-500 border-gray-200', target: 'hotel-ota', actionKey: 'bind_platform_account' };
+        }
+        if (statusCode === 'logged_in' && captureCode === 'none') {
+            return { text: `${prefix}采集`, weight: 40, className: 'bg-blue-50 text-blue-700 border-blue-200', target: 'platform-auto', actionKey: 'run_trial_capture' };
+        }
+        return { text: '正常', weight: 99, className: 'bg-emerald-50 text-emerald-700 border-emerald-200', target: '', actionKey: '' };
+    };
+    const platformAccountStoreText = (label, hotel, source = {}, config = {}) => {
+        const sourceConfig = source?.config || {};
+        const name = firstNonEmptyText(
+            sourceConfig.hotel_name,
+            sourceConfig.poi_name,
+            sourceConfig.store_name,
+            config?.hotel_name,
+            config?.poi_name,
+            config?.store_name,
+            source?.platform_hotel_name,
+            config?.name
+        );
+        if (name) return name;
+        if (source || config) return `${label}账号已绑定`;
+        return '-';
+    };
+    const buildHotelPlatformAccountRow = ({
+        hotel,
+        platform,
+        label,
+        icon,
+        iconClass,
+        profileSource,
+        config,
+        ready,
+        partial,
+        missingConfig,
+        modules,
+        source = {},
+        helpers = {},
+    } = {}) => {
+        const hasPlatformHotelMismatch = requireHotelPlatformHelper(helpers, 'hasPlatformHotelMismatch');
+        const isPlatformSourceLoginExpired = requireHotelPlatformHelper(helpers, 'isPlatformSourceLoginExpired');
+        const platformCaptureStatusCode = requireHotelPlatformHelper(helpers, 'platformCaptureStatusCode');
+        const platformAccountReason = requireHotelPlatformHelper(helpers, 'platformAccountReason');
+        const formatHotelBindingDate = requireHotelPlatformHelper(helpers, 'formatHotelBindingDate');
+        const platformLastSuccessText = requireHotelPlatformHelper(helpers, 'platformLastSuccessText');
+        const platformAccountStatusText = requireHotelPlatformHelper(helpers, 'platformAccountStatusText');
+        const platformAccountStatusClass = requireHotelPlatformHelper(helpers, 'platformAccountStatusClass');
+        const platformCaptureStatusText = requireHotelPlatformHelper(helpers, 'platformCaptureStatusText');
+        const platformCaptureStatusClass = requireHotelPlatformHelper(helpers, 'platformCaptureStatusClass');
+        const mismatch = hasPlatformHotelMismatch(source, config);
+        const loginExpired = isPlatformSourceLoginExpired(source, config);
+        const sourceStatus = String(source?.status || source?.last_sync_status || '').toLowerCase();
+        const sourceReady = !!source?.id && ['success', 'logged_in', 'active', 'ok'].includes(sourceStatus);
+        const effectiveReady = ready || sourceReady;
+        const effectivePartial = partial || !!source?.id;
+        const statusCode = mismatch
+            ? 'mismatch'
+            : (loginExpired ? 'login_expired' : (effectiveReady ? 'logged_in' : (effectivePartial ? (missingConfig ? 'missing_config' : 'waiting_login') : 'unbound')));
+        const captureCode = platformCaptureStatusCode(source, config);
+        const reason = platformAccountReason(statusCode, captureCode, source, config);
+        const bound = !!(profileSource || config || source?.id);
+        const lastCaptureText = formatHotelBindingDate(firstNonEmptyText(
+            source?.last_sync_time,
+            source?.last_capture_time,
+            source?.last_fetch_time,
+            config?.last_sync_time,
+            config?.last_capture_time,
+            config?.last_fetch_time
+        ));
+        const nextAction = platformNextActionMeta({ label, statusCode, captureCode, bound });
+        const sourceConfig = source?.config || {};
+        const loginBinding = platform === 'ctrip'
+            ? {
+                profile_id: firstNonEmptyText(
+                    sourceConfig.profile_id,
+                    sourceConfig.hotel_id,
+                    config?.profile_id,
+                    config?.profileId,
+                    config?.browser_profile_id,
+                    config?.browserProfileId,
+                    config?.ota_hotel_id,
+                    config?.ctrip_hotel_id,
+                    config?.ctripHotelId,
+                    `system_${hotel?.id || ''}`
+                ),
+                hotel_id: firstNonEmptyText(sourceConfig.hotel_id, sourceConfig.ctrip_hotel_id, config?.ota_hotel_id, config?.ctrip_hotel_id, config?.ctripHotelId),
+                hotel_name: firstNonEmptyText(sourceConfig.hotel_name, config?.hotel_name, hotel?.name),
+            }
+            : {
+                store_id: firstNonEmptyText(sourceConfig.store_id, sourceConfig.poi_id, config?.store_id, config?.poi_id, config?.poiId),
+                poi_id: firstNonEmptyText(sourceConfig.poi_id, sourceConfig.store_id, config?.poi_id, config?.poiId),
+                poi_name: firstNonEmptyText(sourceConfig.poi_name, sourceConfig.store_name, config?.poi_name, config?.store_name, hotel?.name),
+                partner_id_configured: !!firstNonEmptyText(sourceConfig.partner_id, config?.partner_id, config?.partnerId),
+            };
+        return {
+            platform,
+            label,
+            icon,
+            iconClass,
+            profileSource,
+            config: profileSource || config || null,
+            deleteKey: profileSource?.id || `${platform}-${hotel?.id || ''}`,
+            level: effectiveReady && !mismatch && !loginExpired ? 'ready' : (effectivePartial ? 'partial' : 'missing'),
+            statusCode,
+            statusText: platformAccountStatusText(statusCode),
+            statusClass: platformAccountStatusClass(statusCode),
+            accountStoreText: bound ? platformAccountStoreText(label, hotel, source, config) : '-',
+            lastLoginText: formatHotelBindingDate(firstNonEmptyText(
+                source?.last_login_time,
+                source?.last_login_at,
+                source?.login_time,
+                source?.updated_at,
+                source?.update_time,
+                config?.last_login_time,
+                config?.last_login_at,
+                config?.update_time,
+                config?.created_at
+            )),
+            lastCaptureText,
+            lastSuccessText: platformLastSuccessText(source, config, captureCode, lastCaptureText),
+            captureStatusText: platformCaptureStatusText(captureCode),
+            captureStatusClass: platformCaptureStatusClass(captureCode),
+            modules: effectiveReady && !mismatch && !loginExpired ? modules : ['无'],
+            reasonText: reason.text,
+            reasonClass: reason.className,
+            nextActionText: nextAction.text,
+            nextActionWeight: nextAction.weight,
+            nextActionClass: nextAction.className,
+            nextActionTarget: nextAction.target || '',
+            nextActionKey: nextAction.actionKey || '',
+            primaryActionText: bound ? '重新登录' : `添加${label}账号`,
+            loginItem: {
+                platform,
+                platform_name: label,
+                profile_key: firstNonEmptyText(loginBinding.profile_id, loginBinding.store_id, loginBinding.poi_id),
+                binding: loginBinding,
+            },
+            canUnbind: !!profileSource,
+            unbindItem: profileSource ? {
+                data_source_id: profileSource.id,
+                platform,
+                platform_name: label,
+                profile_key: firstNonEmptyText(profileSource?.config?.profile_id, profileSource?.config?.store_id, profileSource?.config?.hotel_id),
+                binding: profileSource.config || {},
+            } : null,
+        };
+    };
 
     return {
         aiModelConfigI18n,
@@ -507,5 +682,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         agentTabs,
         resolveMenuItems,
         filterVisibleMenuItems,
+        platformNextActionMeta,
+        platformAccountStoreText,
+        buildHotelPlatformAccountRow,
     };
 })();

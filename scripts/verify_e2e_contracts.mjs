@@ -61,12 +61,18 @@ requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third
 requireText('public/index.html', 'filterVisibleMenuItems(menuItems.value, user.value)', 'entry uses extracted visible menu filter');
 requireText('public/system-static.js', 'const resolveMenuItems', 'system static module resolves menu config keys');
 requireText('public/system-static.js', 'const filterVisibleMenuItems', 'system static module filters visible menu items');
+requireText('public/index.html', 'buildHotelPlatformAccountRowStatic', 'entry uses extracted hotel platform account row builder');
+requireText('public/system-static.js', 'const buildHotelPlatformAccountRow', 'system static builds hotel platform account rows');
+requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
+requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
 requireText('public/index.html', '<script src="testid-static.js"></script>', 'frontend loads extracted test id helper');
 requireText('public/index.html', 'createPageTestIdController', 'entry wires extracted page test id controller');
 requireText('public/testid-static.js', 'assignPageControlTestIds', 'page controls receive generated stable test ids');
 requireText('public/testid-static.js', 'normalizeTestIdSegment', 'test id helper keeps stable segment normalization');
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
+requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
+requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
 requireText('public/index.html', 'history-strategy-reuse', 'strategy history reuse button has stable selector');
 requireText('public/index.html', 'history-simulation-reuse', 'simulation history reuse button has stable selector');
 requireText('public/index.html', 'history-expansion-reuse', 'expansion history reuse button has stable selector');

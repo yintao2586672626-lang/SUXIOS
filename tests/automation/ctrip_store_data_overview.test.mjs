@@ -5,6 +5,7 @@ import test from 'node:test';
 const html = readFileSync('public/index.html', 'utf8');
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
+const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const dataHealthOverviewSource = `${html}\n${dataHealthStatic}`;
 const backend = readFileSync('app/controller/OnlineData.php', 'utf8');
 const ctripPageStart = html.indexOf("currentPage === 'ctrip-ebooking'");
@@ -431,8 +432,13 @@ test('Platform account badge treats browser profile login timeout as login expir
     'const hasPlatformHotelMismatch'
   );
   const accountRowBuilder = sliceBetween(
-    html,
+    systemStatic,
     'const buildHotelPlatformAccountRow',
+    'return {'
+  );
+  const accountRowWrapper = sliceBetween(
+    html,
+    'const buildHotelPlatformAccountRowStatic',
     'const hotelPlatformBindingRows'
   );
 
@@ -442,6 +448,8 @@ test('Platform account badge treats browser profile login timeout as login expir
   assert.match(accountRowBuilder, /const loginExpired = isPlatformSourceLoginExpired\(source, config\)/);
   assert.match(accountRowBuilder, /loginExpired \? 'login_expired'/);
   assert.match(accountRowBuilder, /effectiveReady \? 'logged_in'/);
+  assert.match(accountRowWrapper, /buildHotelPlatformAccountRowStatic/);
+  assert.match(accountRowWrapper, /platformSourceForHotel\(options\.hotel\?\.id, options\.platform\)/);
 });
 
 test('Ctrip collection quality rows overfetch before identity filtering', () => {

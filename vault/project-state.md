@@ -556,6 +556,20 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified after the frontend menu visibility split: `node --check public\system-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Hotel Platform Account Row Builder Split
+
+- Thirty-ninth frontend split target chosen from pure hotel platform account row display logic in `public/index.html`.
+- Extended `public/system-static.js` with `platformNextActionMeta`, `platformAccountStoreText`, and `buildHotelPlatformAccountRow`.
+- `public/index.html` now keeps only the wrapper `buildHotelPlatformAccountRowStatic` plus explicit runtime helper injection; OTA capture execution, Profile/Cookie/API checks, data-source persistence, sync-log loading, and storage paths remain unchanged.
+- Updated `scripts/verify_e2e_contracts.mjs` so the e2e contract requires the extracted hotel platform account row builder and prevents `platformNextActionMeta` / `platformAccountStoreText` from being re-inlined.
+- Updated `scripts/verify_platform_account_guide_contract.mjs` so platform-account guide evidence reads both `public/system-static.js` and the entry action-routing block; backend action evidence now matches the current `configure_platform_profile` / `platform-sources` contract.
+- Updated `tests/automation/ctrip_store_data_overview.test.mjs` so the login-timeout platform badge test reads the row builder from `public/system-static.js` and verifies the entry wrapper injects `platformSourceForHotel(...)`.
+- `public/index.html` decreased from `39745` lines to `39607` lines; split-map frontend function-level blocks decreased from `1455` to `1453`; the `general` domain span decreased from `8561` to `8518` lines.
+- Current `public/system-static.js` is about `690` lines. Total code lines are `187022` and nonblank lines are `171291` after the code move.
+- Current self-audit after the code move: full directory about `256.44 MB`, without `.git` about `92.06 MB`, without `.git` and dependencies about `62.87 MB`, tracked files about `17.95 MB` / `612` files; code scope `369` files.
+- Verified after the hotel platform account row split: `node --check public\system-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check scripts\verify_platform_account_guide_contract.mjs`; `node --check tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:platform-account-guide`; `node --test tests\automation\ctrip_store_data_overview.test.mjs`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and the still-large `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 
 const read = (path) => readFileSync(path, 'utf8');
 const publicSource = read('public/index.html');
+const systemStaticSource = read('public/system-static.js');
 const packageSource = read('package.json');
 const controllerSource = read('app/controller/OnlineData.php');
 
@@ -53,8 +54,12 @@ const profileActionHandlers = sliceBetween(
   'const fillPlatformProfileForms ='
 );
 const hotelActionBlock = sliceBetween(
-  publicSource,
+  systemStaticSource,
   'const platformNextActionMeta =',
+  'const platformAccountStoreText ='
+) + '\n' + sliceBetween(
+  publicSource,
+  'const buildHotelPlatformAccountRowStatic',
   'const refreshHotelBindingPanel = async'
 );
 
@@ -102,7 +107,8 @@ const checks = [
     name: 'backend profile status returns structured direct next actions',
     pass: controllerSource.includes('buildPlatformProfileBindingCheck')
       && controllerSource.includes("'primary_action' => $primaryAction")
-      && controllerSource.includes("'configure_meituan_poi'")
+      && controllerSource.includes("'configure_platform_profile'")
+      && controllerSource.includes("'platform-sources'")
       && controllerSource.includes("'login_platform_profile'")
       && controllerSource.includes("'open_sync_logs'")
       && controllerSource.includes("'sync-logs'"),
@@ -123,7 +129,9 @@ const checks = [
   },
   {
     name: 'hotel management next action carries direct targets',
-    pass: hotelActionBlock.includes("target: 'profile-login'")
+    pass: systemStaticSource.includes('const buildHotelPlatformAccountRow')
+      && hotelActionBlock.includes('buildHotelPlatformAccountRowStatic')
+      && hotelActionBlock.includes("target: 'profile-login'")
       && hotelActionBlock.includes("target: 'sync-logs'")
       && hotelActionBlock.includes('nextActionTarget')
       && hotelActionBlock.includes("action?.target === 'profile-login'")

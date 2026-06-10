@@ -610,6 +610,19 @@
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
 - 当前严格门禁仍不声明完成，原因仍是 `public/index.html` 和 `app/controller/OnlineData.php` 两个真实拆分候选尚未全部收口。
 
+## 2026-06-10 前端第三十九刀拆分
+
+- 扩展 `public/system-static.js`，承载酒店平台账号行构造相关纯展示逻辑：`platformNextActionMeta`、`platformAccountStoreText` 和 `buildHotelPlatformAccountRow`。
+- `public/index.html` 仅保留 `buildHotelPlatformAccountRowStatic` 包装和现有 Vue/运行态依赖注入；酒店账号绑定状态、下一个动作、登录/日志/采集入口语义保持不变。
+- 本轮不移动 OTA 采集执行、Profile/Cookie/API 检查、接口调用、数据源保存、同步日志或入库链路。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口继续使用提取后的账号行构造器，并禁止 `platformNextActionMeta` / `platformAccountStoreText` 重新内联回 `public/index.html`。
+- 更新 `scripts/verify_platform_account_guide_contract.mjs`，让平台账号向导契约同时读取 `public/system-static.js` 和入口路由代码；后端动作契约对齐当前 `configure_platform_profile` / `platform-sources` 行为。
+- 更新 `tests/automation/ctrip_store_data_overview.test.mjs`，让平台账号 badge 相关断言从 `public/system-static.js` 读取行构造器，并确认入口通过 `platformSourceForHotel(...)` 注入来源数据。
+- `public/index.html` 从 `39,745` 行降至 `39,607` 行；`public/system-static.js` 当前为约 `690` 行；split-map 前端函数级块从 `1,455` 降至 `1,453`，`general` 域 span 从 `8,561` 行降至 `8,518` 行。
+- 当前自审计：完整目录约 `256.44 MB`，不含 `.git` 约 `92.06 MB`，不含 `.git` 和依赖约 `62.87 MB`，Git 跟踪文件约 `17.95 MB` / `612` 个；代码范围 `369` 个文件，`187,022` 行，非空行 `171,291`。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_platform_account_guide_contract.mjs`、`node --check tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:platform-account-guide`、`node --test tests\automation\ctrip_store_data_overview.test.mjs`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
