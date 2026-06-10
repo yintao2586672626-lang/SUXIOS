@@ -537,6 +537,25 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         failed_groups: failedGroups,
     });
 
+    const buildCapturedOtaSummaryContext = ({
+        hotelsPayload = [],
+        progress = {},
+        batchResults = [],
+        successGroups = [],
+        failedGroups = [],
+    } = {}) => {
+        const selectedHotelCount = Array.isArray(hotelsPayload) ? hotelsPayload.length : 0;
+        return {
+            selectedHotelCount,
+            selectedCount: selectedHotelCount,
+            completedHotels: toNumber(progress?.completedHotels),
+            failedHotels: toNumber(progress?.failedHotels),
+            groupCount: Array.isArray(batchResults) ? batchResults.length : 0,
+            successGroups: Array.isArray(successGroups) ? successGroups : [],
+            failedGroups: Array.isArray(failedGroups) ? failedGroups : [],
+        };
+    };
+
     const buildCapturedOtaSummaryResponseResult = ({
         response = {},
         successGroups = [],
@@ -705,6 +724,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         buildCapturedOtaAnalysisRunPlan,
         buildCapturedOtaGroupOutcome,
         buildCapturedOtaSummaryRequestBody,
+        buildCapturedOtaSummaryContext,
         buildCapturedOtaSummaryResponseResult,
         buildAiAnalysisHistoryRecord,
         buildCapturedOtaAnalysisCompletion,

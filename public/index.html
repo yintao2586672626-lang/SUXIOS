@@ -34948,6 +34948,7 @@
             const buildCapturedOtaAnalysisRunPlan = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan');
             const buildCapturedOtaGroupOutcome = requireAiAnalysisStatic('buildCapturedOtaGroupOutcome');
             const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
+            const buildCapturedOtaSummaryContext = requireAiAnalysisStatic('buildCapturedOtaSummaryContext');
             const buildCapturedOtaSummaryResponseResult = requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult');
             const buildCapturedOtaAnalysisCompletion = requireAiAnalysisStatic('buildCapturedOtaAnalysisCompletion');
             const resolveAiSelectedData = requireAiAnalysisStatic('resolveAiSelectedData');
@@ -35119,6 +35120,13 @@
                     }
 
                     const { successGroups, failedGroups, failedReason } = buildCapturedOtaGroupOutcome(aiAnalysisBatchResults.value);
+                    const summaryContext = buildCapturedOtaSummaryContext({
+                        hotelsPayload,
+                        progress: aiAnalysisProgress.value,
+                        batchResults: aiAnalysisBatchResults.value,
+                        successGroups,
+                        failedGroups,
+                    });
 
                     if (successGroups.length > 0) {
                         aiAnalysisProgress.value.summarizing = true;
@@ -35130,33 +35138,19 @@
                                     modelKey: getSafeAiAnalysisModelKey(),
                                     startDate: onlineDataFilter.value.start_date,
                                     endDate: onlineDataFilter.value.end_date,
-                                    selectedHotelCount: hotelsPayload.length,
-                                    completedHotels: aiAnalysisProgress.value.completedHotels,
-                                    failedHotels: aiAnalysisProgress.value.failedHotels,
-                                    successGroups,
-                                    failedGroups,
+                                    ...summaryContext,
                                 })),
                             });
                             const summaryResult = buildCapturedOtaSummaryResponseResult({
                                 response: summaryRes,
-                                successGroups,
-                                failedGroups,
-                                selectedCount: hotelsPayload.length,
-                                completedHotels: aiAnalysisProgress.value.completedHotels,
-                                failedHotels: aiAnalysisProgress.value.failedHotels,
-                                groupCount: aiAnalysisBatchResults.value.length,
+                                ...summaryContext,
                             });
                             aiAnalysisCapturedReport.value = summaryResult.report;
                             aiAnalysisProcess.value = summaryResult.process;
                         } catch (e) {
                             const summaryResult = buildCapturedOtaSummaryResponseResult({
                                 response: { message: e.message || '网络错误' },
-                                successGroups,
-                                failedGroups,
-                                selectedCount: hotelsPayload.length,
-                                completedHotels: aiAnalysisProgress.value.completedHotels,
-                                failedHotels: aiAnalysisProgress.value.failedHotels,
-                                groupCount: aiAnalysisBatchResults.value.length,
+                                ...summaryContext,
                             });
                             aiAnalysisCapturedReport.value = summaryResult.report;
                             aiAnalysisProcess.value = summaryResult.process;
@@ -35170,8 +35164,8 @@
                     const completion = buildCapturedOtaAnalysisCompletion({
                         selectedData,
                         capturedReport: aiAnalysisCapturedReport.value,
-                        completedHotels: aiAnalysisProgress.value.completedHotels,
-                        failedHotels: aiAnalysisProgress.value.failedHotels,
+                        completedHotels: summaryContext.completedHotels,
+                        failedHotels: summaryContext.failedHotels,
                         successGroups,
                         existingHistory: aiAnalysisHistory.value,
                     });

@@ -150,6 +150,7 @@ requireText('public/index.html', '<script src="ai-analysis-static.js"></script>'
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunPlan')", 'entry uses extracted AI analysis run plan builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaGroupOutcome')", 'entry uses extracted AI analysis group outcome builder');
+requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryContext')", 'entry uses extracted AI analysis summary context builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult')", 'entry uses extracted AI analysis summary response builder');
 requireText('public/index.html', "requireAiAnalysisStatic('resolveAiSelectedData')", 'entry uses extracted AI selected data resolver');
 requireText('public/index.html', "requireAiAnalysisStatic('validateCapturedOtaAiAnalysisStart')", 'entry uses extracted AI analysis start validator');
@@ -166,6 +167,7 @@ requireText('public/ai-analysis-static.js', 'const buildCtripAiAnalysisHotelSele
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisRunPlan', 'AI analysis static builds captured OTA run plans');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaGroupOutcome', 'AI analysis static builds captured OTA group outcomes');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryRequestBody', 'AI analysis static builds captured OTA summary requests');
+requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryContext', 'AI analysis static builds captured OTA summary context');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaSummaryResponseResult', 'AI analysis static builds captured OTA summary response results');
 requireText('public/ai-analysis-static.js', 'const buildCapturedFallbackSummaryReport', 'AI analysis static builds fallback summary reports');
 requireText('public/ai-analysis-static.js', 'const resolveAiSelectedData', 'AI analysis static resolves selected hotel rows');
@@ -199,6 +201,9 @@ requireNoText('public/index.html', 'failedGroups.map(item => `第 ${item.group_i
 requireNoText('public/index.html', 'if (summaryRes.code === 200) {', 'AI summary success response handling is not re-inlined');
 requireNoText('public/index.html', 'const summaryData = summaryRes.data || {};', 'AI summary data extraction is not re-inlined');
 requireNoText('public/index.html', "reason: summaryRes.message || '汇总失败'", 'AI summary fallback response handling is not re-inlined');
+requireNoText('public/index.html', 'selectedCount: hotelsPayload.length,', 'AI summary selected count context is not re-inlined');
+requireNoText('public/index.html', 'groupCount: aiAnalysisBatchResults.value.length,', 'AI summary group count context is not re-inlined');
+requireNoText('public/index.html', 'completedHotels: aiAnalysisProgress.value.completedHotels,', 'AI summary completed count context is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedOtaSummaryRequestBody = ({', 'AI analysis summary request builder is not re-inlined');
 requireNoText('public/index.html', 'total_hotels: selectedData.length,', 'Meituan AI analysis request body is not re-inlined');
 requireNoText('public/index.html', 'selectedData.slice(0, 3).map(h => h.hotelName)', 'Meituan AI analysis history naming is not re-inlined');
@@ -537,6 +542,7 @@ try {
     'buildCapturedOtaAnalysisRunPlan',
     'buildCapturedOtaGroupOutcome',
     'buildCapturedOtaSummaryRequestBody',
+    'buildCapturedOtaSummaryContext',
     'buildCapturedOtaSummaryResponseResult',
     'buildCapturedFallbackSummaryReport',
     'buildAiAnalysisHistoryRecord',
@@ -705,6 +711,13 @@ try {
       groupCount: 2,
       reason: 'Bearer token-secret',
     });
+    const summaryContext = aiAnalysisStatic.buildCapturedOtaSummaryContext({
+      hotelsPayload: runPlan.hotelsPayload,
+      progress: { completedHotels: '3', failedHotels: '1' },
+      batchResults: runPlan.batchResults,
+      successGroups: [successGroup],
+      failedGroups: [{ group_index: 2, error: 'failed' }],
+    });
     const summarySuccessResult = aiAnalysisStatic.buildCapturedOtaSummaryResponseResult({
       response: {
         code: 200,
@@ -862,6 +875,12 @@ try {
         && summaryBody.group_summaries[0].report.priority === 'high'
         && summaryBody.group_summaries[0].report.problem_hotels[0].problem === '转化偏低'
         && summaryBody.failed_groups.length === 1
+        && summaryContext.selectedHotelCount === 4
+        && summaryContext.selectedCount === 4
+        && summaryContext.completedHotels === 3
+        && summaryContext.failedHotels === 1
+        && summaryContext.groupCount === 2
+        && summaryContext.successGroups.length === 1
         && fallback.fallback === true
         && fallback.summary.failed_hotel_count === 1
         && fallback.fallback_reason === 'Bearer ****'
