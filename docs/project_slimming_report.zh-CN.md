@@ -830,6 +830,17 @@
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:clean`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`；提交前仍需跑完整门禁。
 - 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第六十刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程广告效果报表的默认接口、URL 判定、API 类型归一化和请求体构建器 `buildCtripAdsFetchRequestBody`。
+- `public/index.html` 只保留 `fetchCtripAdsData()` 的运行时职责：酒店/配置/Cookie/URL/日期校验、调用 `/online-data/fetch-ctrip-ads`、写入结果、刷新最新快照和历史；携程广告接口、入库行为、展示字段、失败提示和效果报表单一口径均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `requireCtripStatic(...)` 显式读取广告 URL guard 和请求体 builder，禁止默认 URL、URL guard、广告请求体重新内联，并在 VM 中校验默认接口、页面 URL 排除、`effect_report` 归一化和请求字段。
+- 同步更新 `tests/automation/manual_minimum_credential_ui.test.mjs`，让手工凭据 UI 契约适配当前静态 builder 口径，并覆盖美团竞品摘要加载不等待全店汇总的并行优化。
+- `public/index.html` 当前为 `38,053` 行；前端函数级块从 `1,407` 降至 `1,405`；`ctrip` 领域 span 从 `3,488` 行降至 `3,471` 行；`fetchCtripAdsData` 当前为 `72` 行。
+- 当前自审计：完整目录约 `268.79 MB`，不含 `.git` 约 `92.22 MB`，不含 `.git` 和依赖约 `63.03 MB`，Git 跟踪文件约 `18.1 MB` / `613` 个；代码范围 `370` 个文件，`189,043` 行，非空 `173,268` 行；当前默认可回收量为 `0 MB`。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:e2e-contracts`、`node --test tests\automation\manual_minimum_credential_ui.test.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成，原因：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

@@ -806,6 +806,20 @@ Updated: 2026-06-10 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:clean`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-10 Progress: Frontend Ctrip Ads Builder Split And Meituan Summary Load Guard
+
+- Sixtieth frontend split target chosen from pure Ctrip ads effect-report URL/helper/request-body construction inside `public/index.html`.
+- Extended `public/ctrip-static.js` with `defaultCtripAdsEffectReportUrl`, `ctripAdsApiUrlHint`, `isCtripAdsApiUrl`, `normalizeCtripAdsApiType`, and `buildCtripAdsFetchRequestBody`.
+- `public/index.html` keeps `fetchCtripAdsData()` responsible for runtime validation and execution only: hotel/config/Cookie/URL/date checks, `/online-data/fetch-ctrip-ads` request execution, result writes, latest snapshot refresh, history refresh, and toast status.
+- This split did not change the Ctrip ads endpoint, storage behavior, display fields, failure handling, or the effect-report-only collection scope.
+- The same save point also preserves the current Meituan summary loading guard in `public/index.html`: request sequencing for stale competitor summaries, optional `include_by_hotel`, deferred ranking-page summary refresh, and single-flight Meituan config-list loading.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted Ctrip ads URL guard and request builder, prevent ads URL/request bodies from being re-inlined, and validate effect-report defaults in a VM context.
+- Updated `tests/automation/manual_minimum_credential_ui.test.mjs` so manual credential UI assertions match the current static-builder architecture and cover the Meituan summary loading guard.
+- Current split-map in the mixed worktree: `public/index.html` is `38053` lines; frontend function-level blocks decreased from `1407` to `1405`; `ctrip` domain span decreased from `3488` to `3471`; `fetchCtripAdsData` is now `72` lines.
+- Current self-audit in the mixed worktree: full directory about `268.79 MB`, without `.git` about `92.22 MB`, without `.git` and dependencies about `63.03 MB`, tracked files about `18.1 MB` / `613` files; code scope `370` files, `189043` total lines, and `173268` nonblank lines; default reclaim is `0 MB`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\manual_minimum_credential_ui.test.mjs`; `npm.cmd run verify:e2e-contracts`; `node --test tests\automation\manual_minimum_credential_ui.test.mjs`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

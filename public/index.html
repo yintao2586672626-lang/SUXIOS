@@ -19108,12 +19108,17 @@
             const ctripOverviewApiKeywords = requireCtripStatic('ctripOverviewApiKeywords');
             const ctripFlowOverviewApiGroups = requireCtripStatic('ctripFlowOverviewApiGroups');
             const ctripFlowOverviewDefaultRequestUrls = requireCtripStatic('ctripFlowOverviewDefaultRequestUrls');
+            const defaultCtripAdsEffectReportUrl = requireCtripStatic('defaultCtripAdsEffectReportUrl');
+            const ctripAdsApiUrlHint = requireCtripStatic('ctripAdsApiUrlHint');
+            const isCtripAdsApiUrl = requireCtripStatic('isCtripAdsApiUrl');
+            const normalizeCtripAdsApiType = requireCtripStatic('normalizeCtripAdsApiType');
             const ctripFlowOverviewApiKeywords = ctripFlowOverviewApiGroups.map(item => item.keyword);
             const buildCtripSortedHotelRows = requireCtripStatic('buildCtripSortedHotelRows');
             const buildCtripOverviewMetricCards = requireCtripStatic('buildCtripOverviewMetricCards');
             const buildCtripOverviewTopRankTables = requireCtripStatic('buildCtripOverviewTopRankTables');
             const buildCtripFlowOverviewMetricCards = requireCtripStatic('buildCtripFlowOverviewMetricCards');
             const buildCtripFlowOverviewInterfaceRows = requireCtripStatic('buildCtripFlowOverviewInterfaceRows');
+            const buildCtripAdsFetchRequestBody = requireCtripStatic('buildCtripAdsFetchRequestBody');
             const ctripOverviewForm = ref(createCtripOverviewForm());
             const ctripFlowOverviewForm = ref(createCtripFlowOverviewForm());
             const ctripOverviewResult = ref(null);
@@ -19305,6 +19310,7 @@
             const meituanBusinessSummary = ref(emptyMeituanBusinessSummary());
             const competitorSummary = ref(null);
             const competitorSummaryLoading = ref(false);
+            let competitorSummaryRequestSeq = 0;
             const hotelCompetitorSummaries = ref({});
             const meituanBusinessSummaryCards = computed(() => {
                 const cards = meituanBusinessSummary.value?.cards;
@@ -31688,20 +31694,6 @@
                 return value === undefined ? '' : value;
             };
 
-            const defaultCtripAdsEffectReportUrl = 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE';
-
-            const isCtripAdsApiUrl = (url = '') => {
-                const text = String(url || '').trim().toLowerCase();
-                return text.includes('pyramidad')
-                    || text.includes('promotion')
-                    || text.includes('/toolcenter/api/cpc/')
-                    || text.includes('querycampaignreportlist');
-            };
-
-            const normalizeCtripAdsApiType = (value = '') => 'effect_report';
-
-            const ctripAdsApiUrlHint = '接口 URL 可留空使用默认 queryCampaignReportList；如手动填写，必须是 Network 中 CPC 广告 JSON 接口 URL';
-
             const parseDataConfigValue = requireAutoFetchStatic('parseDataConfigValue');
             const normalizeDataConfigForForm = requireAutoFetchStatic('normalizeDataConfigForForm');
             const buildDataConfigRequestBodyFromForm = requireAutoFetchStatic('buildDataConfigRequestBody');
@@ -31931,32 +31923,48 @@
                 }
             };
 
-            const loadCompetitorSummary = async () => {
+            const loadCompetitorSummary = async (options = {}) => {
                 if (!token.value) return;
+                const requestSeq = ++competitorSummaryRequestSeq;
                 competitorSummaryLoading.value = true;
+                let includeByHotel = false;
                 try {
                     const params = new URLSearchParams();
-                    const meituanRankingHotelId = currentPage.value === 'meituan-ebooking' && onlineDataTab.value === 'meituan-ranking'
+                    const isMeituanRankingPage = currentPage.value === 'meituan-ebooking' && onlineDataTab.value === 'meituan-ranking';
+                    const meituanRankingHotelId = isMeituanRankingPage
                         ? String(meituanForm.value.hotelId || '')
                         : '';
                     const summaryHotelId = meituanRankingHotelId || String(filterReportHotel.value || '');
                     if (summaryHotelId) params.append('hotel_id', summaryHotelId);
-                    params.append('include_by_hotel', '1');
-                    const res = await request(`/online-data/competitor-summary?${params.toString()}`);
+                    includeByHotel = options.includeByHotel === true || (options.includeByHotel !== false && !isMeituanRankingPage);
+                    if (includeByHotel) params.append('include_by_hotel', '1');
+                    const query = params.toString();
+                    const res = await request(`/online-data/competitor-summary${query ? '?' + query : ''}`);
+                    if (requestSeq !== competitorSummaryRequestSeq) return;
                     if (res.code === 200) {
                         competitorSummary.value = res.data || null;
-                        hotelCompetitorSummaries.value = res.data?.by_hotel && typeof res.data.by_hotel === 'object' ? res.data.by_hotel : {};
+                        if (includeByHotel) {
+                            hotelCompetitorSummaries.value = res.data?.by_hotel && typeof res.data.by_hotel === 'object' ? res.data.by_hotel : {};
+                        }
                         syncMeituanRankingDisplayFromCompetitorSummary(res.data || null);
                     } else {
                         competitorSummary.value = null;
-                        hotelCompetitorSummaries.value = {};
+                        if (includeByHotel) {
+                            hotelCompetitorSummaries.value = {};
+                        }
                     }
                 } catch (e) {
                     console.error('加载竞对摘要失败:', e);
-                    competitorSummary.value = null;
-                    hotelCompetitorSummaries.value = {};
+                    if (requestSeq === competitorSummaryRequestSeq) {
+                        competitorSummary.value = null;
+                        if (includeByHotel) {
+                            hotelCompetitorSummaries.value = {};
+                        }
+                    }
                 } finally {
-                    competitorSummaryLoading.value = false;
+                    if (requestSeq === competitorSummaryRequestSeq) {
+                        competitorSummaryLoading.value = false;
+                    }
                 }
             };
 
@@ -33170,20 +33178,17 @@
                 fetchingData.value = true;
                 ctripAdsBrowserCaptureResult.value = null;
                 try {
+                    const ctripAdsFetchBody = buildCtripAdsFetchRequestBody({
+                        systemHotelId,
+                        hotelId,
+                        hotelName: getHotelNameById(systemHotelId),
+                        url,
+                        cookies,
+                        form,
+                    });
                     const res = await request('/online-data/fetch-ctrip-ads', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            hotel_id: hotelId,
-                            hotel_name: getHotelNameById(systemHotelId),
-                            url,
-                            cookies,
-                            api_type: normalizeCtripAdsApiType(form.apiType),
-                            date_range: form.dateRange,
-                            start_date: form.startDate,
-                            end_date: form.endDate,
-                            auto_save: true,
-                        }),
+                        body: JSON.stringify(ctripAdsFetchBody),
                     });
                     if (res.code === 200) {
                         ctripAdsBrowserCaptureResult.value = res.data || {};
@@ -33857,7 +33862,7 @@
                     showToast(`已应用配置: ${config.name || getHotelNameById(meituanForm.value.hotelId) || '美团数据源'}`);
                 }
                 if (currentPage.value === 'meituan-ebooking' && onlineDataTab.value === 'meituan-ranking') {
-                    await loadCompetitorSummary();
+                    deferUiTask(() => loadCompetitorSummary({ includeByHotel: false }), 0);
                 }
             };
 
@@ -34579,20 +34584,31 @@
             };
 
             // 美团配置管理方法
+            let meituanConfigListLoadingPromise = null;
             const loadMeituanConfigList = async () => {
-                try {
-                    const res = await request('/online-data/get-meituan-config-list');
-                    if (res.code === 200) {
-                        meituanConfigList.value = res.data || [];
-                        if (meituanForm.value.hotelId) {
-                            await applyMeituanHotelConfig(false);
-                        }
-                    } else {
-                        console.error('[Debug] API 返回错误:', res.message);
-                    }
-                } catch (e) {
-                    console.error('[Debug] 加载美团配置列表失败:', e);
+                if (meituanConfigListLoadingPromise) {
+                    return meituanConfigListLoadingPromise;
                 }
+                meituanConfigListLoadingPromise = (async () => {
+                    try {
+                        const res = await request('/online-data/get-meituan-config-list');
+                        if (res.code === 200) {
+                            meituanConfigList.value = res.data || [];
+                            if (meituanForm.value.hotelId) {
+                                await applyMeituanHotelConfig(false);
+                            }
+                            return meituanConfigList.value;
+                        } else {
+                            console.error('[Debug] API 返回错误:', res.message);
+                        }
+                    } catch (e) {
+                        console.error('[Debug] 加载美团配置列表失败:', e);
+                    } finally {
+                        meituanConfigListLoadingPromise = null;
+                    }
+                    return [];
+                })();
+                return meituanConfigListLoadingPromise;
             };
 
             const saveMeituanConfigItem = async () => {

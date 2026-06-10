@@ -66,6 +66,17 @@ window.SUXI_CTRIP_STATIC = (() => {
         'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
         'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
     ];
+    const defaultCtripAdsEffectReportUrl = 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE';
+    const ctripAdsApiUrlHint = '接口 URL 可留空使用默认 queryCampaignReportList；如手动填写，必须是 Network 中 CPC 广告 JSON 接口 URL';
+    const isCtripAdsApiUrl = (url = '') => {
+        const text = String(url || '').trim().toLowerCase();
+        return text.includes('pyramidad')
+            || text.includes('promotion')
+            || text.includes('/toolcenter/api/cpc/')
+            || text.includes('querycampaignreportlist');
+    };
+    const normalizeCtripAdsApiType = (value = '') => 'effect_report';
+
     const createCtripFetchForm = () => ({
         url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
         nodeId: '24588',
@@ -389,6 +400,26 @@ window.SUXI_CTRIP_STATIC = (() => {
         spidertoken: form.spidertoken,
         method: form.method || defaultMethod,
         data_date: form.dataDate,
+    });
+
+    const buildCtripAdsFetchRequestBody = ({
+        systemHotelId = null,
+        hotelId = '',
+        hotelName = '',
+        url = '',
+        cookies = '',
+        form = {},
+    } = {}) => ({
+        system_hotel_id: systemHotelId,
+        hotel_id: hotelId,
+        hotel_name: hotelName,
+        url,
+        cookies,
+        api_type: normalizeCtripAdsApiType(form.apiType),
+        date_range: form.dateRange,
+        start_date: form.startDate,
+        end_date: form.endDate,
+        auto_save: true,
     });
 
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
@@ -873,6 +904,10 @@ window.SUXI_CTRIP_STATIC = (() => {
         ctripOverviewApiKeywords,
         ctripFlowOverviewApiGroups,
         ctripFlowOverviewDefaultRequestUrls,
+        defaultCtripAdsEffectReportUrl,
+        ctripAdsApiUrlHint,
+        isCtripAdsApiUrl,
+        normalizeCtripAdsApiType,
         createCtripFetchForm,
         createCtripTrafficForm,
         createCtripAdsBrowserCaptureForm,
@@ -895,6 +930,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripTrafficFetchRequestBody,
         buildCtripTrafficResponseModel,
         buildCtripOverviewFetchRequestBody,
+        buildCtripAdsFetchRequestBody,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,

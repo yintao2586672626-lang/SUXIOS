@@ -78,6 +78,9 @@ requireText('public/index.html', "requireCtripStatic('buildCtripTrafficFetchRequ
 requireText('public/ctrip-static.js', 'const buildCtripTrafficFetchRequestBody', 'Ctrip static builds traffic fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('buildCtripOverviewFetchRequestBody')", 'entry uses extracted Ctrip overview fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripOverviewFetchRequestBody', 'Ctrip static builds overview fetch request bodies');
+requireText('public/index.html', "requireCtripStatic('buildCtripAdsFetchRequestBody')", 'entry uses extracted Ctrip ads fetch request builder');
+requireText('public/ctrip-static.js', 'const buildCtripAdsFetchRequestBody', 'Ctrip static builds ads fetch request bodies');
+requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckInitialState')", 'entry uses extracted Ctrip Profile recheck state builders');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
@@ -109,6 +112,9 @@ requireNoText('public/index.html', 'request_urls: form.requestUrls,', 'Ctrip ove
 requireNoText('public/index.html', 'request_urls: requestUrls,', 'Ctrip flow overview request body is not re-inlined');
 requireNoText('public/index.html', "method: form.method || 'POST',", 'Ctrip overview request method fallback is not re-inlined');
 requireNoText('public/index.html', "method: form.method || 'GET',", 'Ctrip flow overview request method fallback is not re-inlined');
+requireNoText('public/index.html', "const defaultCtripAdsEffectReportUrl = 'https://", 'Ctrip ads default URL is not re-inlined');
+requireNoText('public/index.html', 'const isCtripAdsApiUrl = (url = \'\') => {', 'Ctrip ads URL guard is not re-inlined');
+requireNoText('public/index.html', 'api_type: normalizeCtripAdsApiType(form.apiType),', 'Ctrip ads request body is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -560,6 +566,10 @@ try {
   const buildCtripTrafficFetchRequestBody = ctripStatic.buildCtripTrafficFetchRequestBody;
   const buildCtripTrafficResponseModel = ctripStatic.buildCtripTrafficResponseModel;
   const buildCtripOverviewFetchRequestBody = ctripStatic.buildCtripOverviewFetchRequestBody;
+  const buildCtripAdsFetchRequestBody = ctripStatic.buildCtripAdsFetchRequestBody;
+  const defaultCtripAdsEffectReportUrl = ctripStatic.defaultCtripAdsEffectReportUrl;
+  const isCtripAdsApiUrl = ctripStatic.isCtripAdsApiUrl;
+  const normalizeCtripAdsApiType = ctripStatic.normalizeCtripAdsApiType;
   const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
   const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
   const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
@@ -648,12 +658,15 @@ try {
     || typeof buildLatestCtripSnapshotModel !== 'function'
     || typeof buildCtripTrafficFetchRequestBody !== 'function'
     || typeof buildCtripOverviewFetchRequestBody !== 'function'
+    || typeof buildCtripAdsFetchRequestBody !== 'function'
+    || typeof isCtripAdsApiUrl !== 'function'
+    || typeof normalizeCtripAdsApiType !== 'function'
     || typeof buildCtripTrafficResponseModel !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch, latest snapshot, traffic, and overview builders',
+      detail: 'Ctrip fetch, latest snapshot, traffic, overview, and ads builders',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -759,6 +772,19 @@ try {
         dataDate: '2026-06-10',
       },
       defaultMethod: 'GET',
+    });
+    const adsBody = buildCtripAdsFetchRequestBody({
+      systemHotelId: '58',
+      hotelId: 'ctrip-hotel-1',
+      hotelName: 'Tiancheng Hotel',
+      url: 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE',
+      cookies: 'sid=ads',
+      form: {
+        apiType: 'custom_ignored',
+        dateRange: 'custom',
+        startDate: '2026-06-01',
+        endDate: '2026-06-10',
+      },
     });
     const trafficModel = buildCtripTrafficResponseModel({
       http_code: 200,
@@ -870,6 +896,25 @@ try {
         && flowOverviewBody.method === 'GET'
         && flowOverviewBody.data_date === '2026-06-10',
       detail: 'Ctrip overview request sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip ads builders keep request fields and URL guard',
+      ok: defaultCtripAdsEffectReportUrl.includes('queryCampaignReportList')
+        && isCtripAdsApiUrl(defaultCtripAdsEffectReportUrl) === true
+        && isCtripAdsApiUrl('https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true') === false
+        && normalizeCtripAdsApiType('anything') === 'effect_report'
+        && adsBody.system_hotel_id === '58'
+        && adsBody.hotel_id === 'ctrip-hotel-1'
+        && adsBody.hotel_name === 'Tiancheng Hotel'
+        && adsBody.url.includes('queryCampaignReportList')
+        && adsBody.cookies === 'sid=ads'
+        && adsBody.api_type === 'effect_report'
+        && adsBody.date_range === 'custom'
+        && adsBody.start_date === '2026-06-01'
+        && adsBody.end_date === '2026-06-10'
+        && adsBody.auto_save === true,
+      detail: 'Ctrip ads request sample',
     });
   }
   if (typeof buildCtripProfileRecheckInitialState !== 'function'

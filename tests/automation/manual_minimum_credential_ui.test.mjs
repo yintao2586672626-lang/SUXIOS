@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const html = readFileSync('public/index.html', 'utf8');
+const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 
 const sliceFrom = (needle, endNeedle) => {
   const start = html.indexOf(needle);
@@ -18,9 +19,9 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   const fetchCtripTrafficData = functionSlice('fetchCtripTrafficData');
 
   assert.doesNotMatch(fetchCtripData, /请输入节点ID/);
-  assert.match(fetchCtripData, /const ctripFetchBody = \{/);
-  assert.match(fetchCtripData, /if \(nodeId\) \{\s*ctripFetchBody\.node_id = nodeId;/);
-  assert.match(fetchCtripTrafficData, /const ctripTrafficFetchBody = \{/);
+  assert.match(fetchCtripData, /const ctripFetchBody = buildCtripFetchRequestBody\(\{/);
+  assert.match(fetchCtripData, /nodeId,/);
+  assert.match(fetchCtripTrafficData, /const ctripTrafficFetchBody = buildCtripTrafficFetchRequestBody\(\{/);
   assert.match(html, /只需平台授权/);
 });
 
@@ -43,6 +44,21 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   assert.doesNotMatch(saveMeituanConfigItem, /请输入酒店房量/);
   assert.doesNotMatch(saveMeituanConfigItem, /请输入竞争圈总房量/);
   assert.match(html, /缺门店标识/);
+});
+
+test('Meituan hotel matching does not wait for all-store competitor summaries', () => {
+  const loadCompetitorSummary = sliceFrom('const loadCompetitorSummary = async (options = {}) => {', '\n            const loadCompassData');
+  const applyMeituanHotelConfig = sliceFrom('const applyMeituanHotelConfig = async (showMessage = true) => {', '\n            const syncMeituanTrafficConfigFromSelectedConfig');
+  const loadMeituanConfigList = sliceFrom('const loadMeituanConfigList = async () => {', '\n            const saveMeituanConfigItem');
+
+  assert.match(loadCompetitorSummary, /const isMeituanRankingPage = currentPage\.value === 'meituan-ebooking' && onlineDataTab\.value === 'meituan-ranking';/);
+  assert.match(loadCompetitorSummary, /includeByHotel = options\.includeByHotel === true \|\| \(options\.includeByHotel !== false && !isMeituanRankingPage\);/);
+  assert.match(loadCompetitorSummary, /if \(includeByHotel\) params\.append\('include_by_hotel', '1'\);/);
+  assert.match(loadCompetitorSummary, /if \(requestSeq !== competitorSummaryRequestSeq\) return;/);
+  assert.doesNotMatch(applyMeituanHotelConfig, /await loadCompetitorSummary\(\)/);
+  assert.match(applyMeituanHotelConfig, /deferUiTask\(\(\) => loadCompetitorSummary\(\{ includeByHotel: false \}\), 0\);/);
+  assert.match(loadMeituanConfigList, /if \(meituanConfigListLoadingPromise\) \{/);
+  assert.match(loadMeituanConfigList, /return meituanConfigListLoadingPromise;/);
 });
 
 test('Meituan orders and ads remain network-required workflows', () => {
@@ -71,8 +87,13 @@ test('Ctrip ads only exposes the effect report workflow', () => {
   assert.doesNotMatch(adsConfigPanel, /推广活动列表/);
   assert.doesNotMatch(adsConfigPanel, /推广活动报表/);
   assert.doesNotMatch(adsConfigPanel, /v-if="dataConfigForm\.api_type === 'campaign_report'"/);
-  assert.match(html, /const defaultCtripAdsEffectReportUrl =/);
-  assert.match(html, /const normalizeCtripAdsApiType = \(value = ''\) =>/);
+  assert.match(html, /requireCtripStatic\('defaultCtripAdsEffectReportUrl'\)/);
+  assert.match(html, /requireCtripStatic\('normalizeCtripAdsApiType'\)/);
+  assert.match(html, /requireCtripStatic\('buildCtripAdsFetchRequestBody'\)/);
+  assert.match(ctripStatic, /const defaultCtripAdsEffectReportUrl =/);
+  assert.match(ctripStatic, /const normalizeCtripAdsApiType = \(value = ''\) =>/);
+  assert.match(ctripStatic, /const buildCtripAdsFetchRequestBody = \(\{/);
   assert.match(functionSlice('fetchCtripAdsData'), /const url = String\(form\.url \|\| defaultCtripAdsEffectReportUrl\)\.trim\(\);/);
-  assert.match(functionSlice('fetchCtripAdsData'), /api_type: normalizeCtripAdsApiType\(form\.apiType\)/);
+  assert.match(functionSlice('fetchCtripAdsData'), /const ctripAdsFetchBody = buildCtripAdsFetchRequestBody\(\{/);
+  assert.doesNotMatch(functionSlice('fetchCtripAdsData'), /api_type: normalizeCtripAdsApiType\(form\.apiType\)/);
 });
