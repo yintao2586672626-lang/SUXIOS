@@ -780,6 +780,16 @@
 - 已验证：`node --check public\ai-analysis-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:clean`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
+## 2026-06-10 前端第五十五刀拆分
+
+- 扩展 `public/ctrip-static.js`，承载携程 Profile 缺口/存疑字段重抓的纯状态构建器：初始状态、采集后刷新状态、成功/部分成功结果、错误结果和中断状态。
+- `public/index.html` 只保留 `recheckCtripProfileMismatchedFields()` 的运行态职责：字段筛选、是否可启动浏览器重抓、调用 `runCtripBrowserCapture()`、请求 `/online-data/recheck-ctrip-profile-mismatched-fields`、刷新字段响应、toast 和计时器收尾；Profile 采集、字段保存、样本刷新、二次确认和待补解析口径均未迁移。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口通过 `requireCtripStatic(...)` 显式读取重抓状态构建器，禁止结果文案和中断状态重新内联，并在 VM 中校验采集失败后刷新、仅刷新历史获取值、错误和中断状态样例。
+- `public/index.html` 从 `38,101` 行降至 `38,088` 行；`public/ctrip-static.js` 当前约 `710` 行；`recheckCtripProfileMismatchedFields` 从 `126` 行降至 `108` 行；`ctrip` 域 span 从 `3,566` 行降至 `3,548` 行。
+- 当前自审计：完整目录约 `265.83 MB`，不含 `.git` 约 `92.17 MB`，不含 `.git` 和依赖约 `62.98 MB`；Git 跟踪文件约 `18.06 MB` / `613` 个；代码范围 `370` 个文件，`188,514` 行，非空 `172,749` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

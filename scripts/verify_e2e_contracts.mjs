@@ -69,6 +69,9 @@ requireText('public/system-static.js', "target: 'sync-logs'", 'system static kee
 requireText('public/index.html', "requireCtripStatic('buildCtripBrowserCapturePayload')", 'entry uses extracted Ctrip browser capture payload builder');
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', 'Ctrip static builds browser capture payloads');
 requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorResult', 'Ctrip static normalizes browser capture errors');
+requireText('public/index.html', "requireCtripStatic('buildCtripProfileRecheckInitialState')", 'entry uses extracted Ctrip Profile recheck state builders');
+requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckInitialState', 'Ctrip static builds Profile recheck initial state');
+requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
 requireText('public/index.html', "requireMeituanStatic('buildMeituanBatchFetchTasks')", 'entry uses extracted Meituan batch fetch task builder');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
@@ -86,6 +89,8 @@ requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform n
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');
 requireNoText('public/index.html', 'const optionSections = options.sections || options.captureSections ||', 'Ctrip browser capture section normalization is not re-inlined');
 requireNoText('public/index.html', 'const normalizeCtripBrowserCaptureErrorResult = (error) => {', 'Ctrip browser capture error normalization is not re-inlined');
+requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
+requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
 requireNoText('public/index.html', 'const rankTypeNames = {', 'Meituan batch rank labels are not re-inlined');
 requireNoText('public/index.html', 'display_hotels: results.flatMap', 'Meituan display model payload is not re-inlined');
@@ -526,6 +531,11 @@ try {
   const ctripStatic = context.window.SUXI_CTRIP_STATIC || {};
   const buildCtripBrowserCapturePayload = ctripStatic.buildCtripBrowserCapturePayload;
   const normalizeCtripBrowserCaptureErrorResult = ctripStatic.normalizeCtripBrowserCaptureErrorResult;
+  const buildCtripProfileRecheckInitialState = ctripStatic.buildCtripProfileRecheckInitialState;
+  const buildCtripProfileRecheckCaptureRefreshState = ctripStatic.buildCtripProfileRecheckCaptureRefreshState;
+  const buildCtripProfileRecheckSuccessResult = ctripStatic.buildCtripProfileRecheckSuccessResult;
+  const buildCtripProfileRecheckErrorResult = ctripStatic.buildCtripProfileRecheckErrorResult;
+  const buildCtripProfileRecheckInterruptedState = ctripStatic.buildCtripProfileRecheckInterruptedState;
   if (typeof buildCtripBrowserCapturePayload !== 'function') {
     checks.push({
       file: 'public/ctrip-static.js',
@@ -599,6 +609,75 @@ try {
         && errorResult.stderr === 'err'
         && errorResult.partial_capture?.available === true,
       detail: 'partial_capture',
+    });
+  }
+  if (typeof buildCtripProfileRecheckInitialState !== 'function'
+    || typeof buildCtripProfileRecheckCaptureRefreshState !== 'function'
+    || typeof buildCtripProfileRecheckSuccessResult !== 'function'
+    || typeof buildCtripProfileRecheckErrorResult !== 'function'
+    || typeof buildCtripProfileRecheckInterruptedState !== 'function') {
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip static exports Profile recheck state builders',
+      ok: false,
+      detail: 'Profile recheck state builders',
+    });
+  } else {
+    const initialState = buildCtripProfileRecheckInitialState({
+      canRecapture: true,
+      targetCount: 3,
+      estimatedText: '预计 1 分钟',
+      startedAt: '2026-06-10 14:00:00',
+      sections: ['business_overview'],
+    });
+    const refreshState = buildCtripProfileRecheckCaptureRefreshState({
+      previousState: initialState,
+      captureSucceeded: false,
+      captureMessage: '',
+    });
+    const successResult = buildCtripProfileRecheckSuccessResult({
+      previousState: refreshState,
+      captureSucceeded: false,
+      captureSkipped: true,
+      result: { refreshed_count: 2, unresolved_count: 1 },
+      durationText: '12秒',
+      finishedAt: '2026-06-10 14:00:12',
+    });
+    const errorResult = buildCtripProfileRecheckErrorResult({
+      previousState: initialState,
+      message: '接口失败',
+      durationText: '8秒',
+      finishedAt: '2026-06-10 14:00:08',
+      prefix: '不符字段重跑失败: ',
+    });
+    const interruptedState = buildCtripProfileRecheckInterruptedState({
+      previousState: initialState,
+      finishedAt: '2026-06-10 14:00:20',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Profile recheck builders keep capture and refresh states explicit',
+      ok: initialState.stage === 'capture'
+        && initialState.target_count === 3
+        && initialState.sections.includes('business_overview')
+        && refreshState.type === 'warning'
+        && refreshState.stage === 'refresh_samples'
+        && refreshState.message.includes('后端未返回成功状态')
+        && successResult.state.stage === 'partial'
+        && successResult.toastType === 'warning'
+        && successResult.message.includes('仅刷新历史获取值')
+        && successResult.message.includes('待补解析 1 个'),
+      detail: 'Profile recheck state sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Profile recheck builders keep error and interruption states visible',
+      ok: errorResult.state.type === 'error'
+        && errorResult.message === '不符字段重跑失败: 接口失败（耗时 8秒）'
+        && interruptedState.type === 'warning'
+        && interruptedState.stage === 'partial'
+        && interruptedState.message.includes('字段列表在执行中被刷新'),
+      detail: 'Profile recheck error sample',
     });
   }
 } catch (error) {

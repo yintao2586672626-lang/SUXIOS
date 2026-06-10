@@ -19081,6 +19081,11 @@
             const createCtripCommentBrowserCaptureForm = requireCtripStatic('createCtripCommentBrowserCaptureForm');
             const buildCtripBrowserCapturePayload = requireCtripStatic('buildCtripBrowserCapturePayload');
             const normalizeCtripBrowserCaptureErrorResult = requireCtripStatic('normalizeCtripBrowserCaptureErrorResult');
+            const buildCtripProfileRecheckInitialState = requireCtripStatic('buildCtripProfileRecheckInitialState');
+            const buildCtripProfileRecheckCaptureRefreshState = requireCtripStatic('buildCtripProfileRecheckCaptureRefreshState');
+            const buildCtripProfileRecheckSuccessResult = requireCtripStatic('buildCtripProfileRecheckSuccessResult');
+            const buildCtripProfileRecheckErrorResult = requireCtripStatic('buildCtripProfileRecheckErrorResult');
+            const buildCtripProfileRecheckInterruptedState = requireCtripStatic('buildCtripProfileRecheckInterruptedState');
             const ctripForm = ref(createCtripFetchForm());
             const ctripTrafficForm = ref(createCtripTrafficForm());
             const ctripTrafficSummary = ref(null);
@@ -25721,18 +25726,13 @@
                 let captureSucceeded = false;
                 let captureSkipped = false;
                 let captureMessage = '';
-                ctripProfileFieldRecheckState.value = {
-                    active: true,
-                    type: 'running',
-                    stage: canRecapture ? 'capture' : 'refresh_samples',
-                    message: canRecapture
-                        ? `正在重抓 ${targets.length} 个缺口/存疑字段，浏览器会按模块触发接口；${ctripProfileFieldRecheckEstimatedText.value}。`
-                        : '未选目标酒店，无法启动浏览器重抓，正在刷新已有历史获取值。',
-                    started_at: startedAt,
-                    finished_at: '',
-                    target_count: targets.length,
+                ctripProfileFieldRecheckState.value = buildCtripProfileRecheckInitialState({
+                    canRecapture,
+                    targetCount: targets.length,
+                    estimatedText: ctripProfileFieldRecheckEstimatedText.value,
+                    startedAt,
                     sections,
-                };
+                });
                 showToast(`开始重抓 ${targets.length} 个缺口/存疑字段，${ctripProfileFieldRecheckEstimatedText.value}`, 'info');
                 try {
                     if (canRecapture) {
@@ -25743,14 +25743,11 @@
                         });
                         captureSucceeded = Number(captureRes?.code || 0) === 200;
                         captureMessage = captureRes?.message || captureRes?.data?.message || '';
-                        ctripProfileFieldRecheckState.value = {
-                            ...ctripProfileFieldRecheckState.value,
-                            type: captureSucceeded ? 'running' : 'warning',
-                            stage: 'refresh_samples',
-                            message: captureSucceeded
-                                ? '浏览器采集已返回，正在刷新字段获取值并恢复为待二次确认。'
-                                : `浏览器采集未完整完成：${captureMessage || '后端未返回成功状态'}；正在刷新已有字段获取值。`,
-                        };
+                        ctripProfileFieldRecheckState.value = buildCtripProfileRecheckCaptureRefreshState({
+                            previousState: ctripProfileFieldRecheckState.value,
+                            captureSucceeded,
+                            captureMessage,
+                        });
                     } else {
                         captureSkipped = true;
                     }
@@ -25765,58 +25762,48 @@
                         const data = res.data || {};
                         applyCtripProfileFieldResponse(data, { includeSamples: true });
                         const result = data.recheck_result || {};
-                        const prefix = captureSucceeded
-                            ? 'Profile 已重抓'
-                            : (captureSkipped ? '未选目标酒店，仅刷新历史获取值' : 'Profile 重抓未完成，已刷新历史获取值');
                         const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                        const finalMessage = `${prefix}：待二次确认 ${result.second_confirmation_count || result.refreshed_count || 0} 个，待补解析 ${result.unresolved_count || 0} 个（耗时 ${durationText}）`;
-                        ctripProfileFieldRecheckState.value = {
-                            ...ctripProfileFieldRecheckState.value,
-                            active: false,
-                            type: captureSucceeded ? 'success' : 'warning',
-                            stage: captureSucceeded ? 'done' : 'partial',
-                            message: finalMessage,
-                            finished_at: new Date().toLocaleString('zh-CN', { hour12: false }),
-                        };
-                        showToast(finalMessage, captureSucceeded ? 'success' : 'warning');
+                        const recheckResult = buildCtripProfileRecheckSuccessResult({
+                            previousState: ctripProfileFieldRecheckState.value,
+                            captureSucceeded,
+                            captureSkipped,
+                            result,
+                            durationText,
+                            finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+                        });
+                        ctripProfileFieldRecheckState.value = recheckResult.state;
+                        showToast(recheckResult.message, recheckResult.toastType);
                     } else {
                         const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                        const finalMessage = `${res.message || '不符字段重跑失败'}（耗时 ${durationText}）`;
-                        ctripProfileFieldRecheckState.value = {
-                            ...ctripProfileFieldRecheckState.value,
-                            active: false,
-                            type: 'error',
-                            stage: 'error',
-                            message: finalMessage,
-                            finished_at: new Date().toLocaleString('zh-CN', { hour12: false }),
-                        };
-                        showToast(finalMessage, 'error');
+                        const recheckResult = buildCtripProfileRecheckErrorResult({
+                            previousState: ctripProfileFieldRecheckState.value,
+                            message: res.message || '不符字段重跑失败',
+                            durationText,
+                            finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+                        });
+                        ctripProfileFieldRecheckState.value = recheckResult.state;
+                        showToast(recheckResult.message, 'error');
                     }
                 } catch (error) {
                     if (requestSeq === ctripProfileFieldRequestSeq) {
                         const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                        const finalMessage = `不符字段重跑失败: ${error.message}（耗时 ${durationText}）`;
-                        ctripProfileFieldRecheckState.value = {
-                            ...ctripProfileFieldRecheckState.value,
-                            active: false,
-                            type: 'error',
-                            stage: 'error',
-                            message: finalMessage,
-                            finished_at: new Date().toLocaleString('zh-CN', { hour12: false }),
-                        };
-                        showToast(finalMessage, 'error');
+                        const recheckResult = buildCtripProfileRecheckErrorResult({
+                            previousState: ctripProfileFieldRecheckState.value,
+                            message: error.message,
+                            durationText,
+                            finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+                            prefix: '不符字段重跑失败: ',
+                        });
+                        ctripProfileFieldRecheckState.value = recheckResult.state;
+                        showToast(recheckResult.message, 'error');
                     }
                 } finally {
                     if (requestSeq === ctripProfileFieldRequestSeq || ctripProfileFieldRechecking.value) {
                         if (ctripProfileFieldRecheckState.value.active) {
-                            ctripProfileFieldRecheckState.value = {
-                                ...ctripProfileFieldRecheckState.value,
-                                active: false,
-                                type: 'warning',
-                                stage: 'partial',
-                                message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。',
-                                finished_at: new Date().toLocaleString('zh-CN', { hour12: false }),
-                            };
+                            ctripProfileFieldRecheckState.value = buildCtripProfileRecheckInterruptedState({
+                                previousState: ctripProfileFieldRecheckState.value,
+                                finishedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+                            });
                         }
                     }
                     if (ctripProfileFieldRechecking.value) {

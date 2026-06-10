@@ -464,6 +464,97 @@ window.SUXI_CTRIP_STATIC = (() => {
         });
     };
 
+    const buildCtripProfileRecheckInitialState = ({
+        canRecapture = false,
+        targetCount = 0,
+        estimatedText = '',
+        startedAt = '',
+        sections = [],
+    } = {}) => ({
+        active: true,
+        type: 'running',
+        stage: canRecapture ? 'capture' : 'refresh_samples',
+        message: canRecapture
+            ? `正在重抓 ${targetCount} 个缺口/存疑字段，浏览器会按模块触发接口；${estimatedText}。`
+            : '未选目标酒店，无法启动浏览器重抓，正在刷新已有历史获取值。',
+        started_at: startedAt,
+        finished_at: '',
+        target_count: targetCount,
+        sections,
+    });
+
+    const buildCtripProfileRecheckCaptureRefreshState = ({
+        previousState = {},
+        captureSucceeded = false,
+        captureMessage = '',
+    } = {}) => ({
+        ...previousState,
+        type: captureSucceeded ? 'running' : 'warning',
+        stage: 'refresh_samples',
+        message: captureSucceeded
+            ? '浏览器采集已返回，正在刷新字段获取值并恢复为待二次确认。'
+            : `浏览器采集未完整完成：${captureMessage || '后端未返回成功状态'}；正在刷新已有字段获取值。`,
+    });
+
+    const buildCtripProfileRecheckSuccessResult = ({
+        previousState = {},
+        captureSucceeded = false,
+        captureSkipped = false,
+        result = {},
+        durationText = '',
+        finishedAt = '',
+    } = {}) => {
+        const prefix = captureSucceeded
+            ? 'Profile 已重抓'
+            : (captureSkipped ? '未选目标酒店，仅刷新历史获取值' : 'Profile 重抓未完成，已刷新历史获取值');
+        const message = `${prefix}：待二次确认 ${result.second_confirmation_count || result.refreshed_count || 0} 个，待补解析 ${result.unresolved_count || 0} 个（耗时 ${durationText}）`;
+        return {
+            state: {
+                ...previousState,
+                active: false,
+                type: captureSucceeded ? 'success' : 'warning',
+                stage: captureSucceeded ? 'done' : 'partial',
+                message,
+                finished_at: finishedAt,
+            },
+            message,
+            toastType: captureSucceeded ? 'success' : 'warning',
+        };
+    };
+
+    const buildCtripProfileRecheckErrorResult = ({
+        previousState = {},
+        message = '不符字段重跑失败',
+        durationText = '',
+        finishedAt = '',
+        prefix = '',
+    } = {}) => {
+        const finalMessage = `${prefix}${message}（耗时 ${durationText}）`;
+        return {
+            state: {
+                ...previousState,
+                active: false,
+                type: 'error',
+                stage: 'error',
+                message: finalMessage,
+                finished_at: finishedAt,
+            },
+            message: finalMessage,
+        };
+    };
+
+    const buildCtripProfileRecheckInterruptedState = ({
+        previousState = {},
+        finishedAt = '',
+    } = {}) => ({
+        ...previousState,
+        active: false,
+        type: 'warning',
+        stage: 'partial',
+        message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。',
+        finished_at: finishedAt,
+    });
+
     const getCtripCookieApiCorePresetEndpoints = () => ([
         {
             request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo',
@@ -609,6 +700,11 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripOverviewTopRankTables,
         buildCtripFlowOverviewMetricCards,
         buildCtripFlowOverviewInterfaceRows,
+        buildCtripProfileRecheckInitialState,
+        buildCtripProfileRecheckCaptureRefreshState,
+        buildCtripProfileRecheckSuccessResult,
+        buildCtripProfileRecheckErrorResult,
+        buildCtripProfileRecheckInterruptedState,
         getCtripCookieApiCorePresetEndpoints,
     };
 })();
