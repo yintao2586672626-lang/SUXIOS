@@ -1627,6 +1627,17 @@
 - 更新守卫：`verify_e2e_contracts.mjs` 与 `verify_public_entry_guard.mjs` 要求平台自动抓取操作使用 `scheduleAutoFetchStatusPanelRefresh()`，并拒绝重新引入无参 `loadAutoFetchStatus()` / `await loadAutoFetchStatus()`。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`800` checks）、`git diff --check`。
 
+## 2026-06-12 保存点：历史查询参数与携程酒店切换收口
+
+- `public/data-health-static.js` 新增 `buildOnlineHistoryQueryParams()`，承载线上数据历史页的分页、平台、数据类型、酒店范围、关键词和日期参数组装；`public/index.html` 的 `loadOnlineHistory()` 保留请求、列表回填、分页回填、汇总回填和错误提示，不再内联参数分支。
+- 携程手动采集页的目标酒店下拉改为 `scheduleCtripHotelConfigApply()`：先回显列表配置，后台预热完整配置详情，再按版本号和当前酒店校验后应用密钥详情与最新快照，避免快速切换时旧请求污染当前表单。
+- 美团配置应用继续支持 `resolvedConfig`，避免已解析完整配置后重复请求详情；携程/美团缺失、失败、未配置状态不被兜底隐藏。
+- 本保存点不改变历史查询接口、携程/美团配置接口、OTA 采集、持久化、字段口径、AI 分析、权限或数据库结构。
+- 更新守卫：`verify_e2e_contracts.mjs` 与 `verify_public_entry_guard.mjs` 要求历史查询参数 helper、携程酒店切换调度、配置详情预热和美团 resolvedConfig 复用；`verify:e2e-contracts` 当前覆盖 `814` 项检查。
+- 当前 split-map：`public/index.html` 为 `37,550` 行、`1,576` 个前端函数级块、`43` 个 `currentPage` 引用；`loadOnlineHistory` 已退出最大块列表；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前 self-audit：完整目录约 `239.43 MB`；不含 `.git` 约 `114.13 MB`；不含 `.git` 和依赖约 `84.94 MB`；Git 跟踪文件约 `18.97 MB / 618` 个；代码范围 `373` 个文件、`198,937` 行、非空 `182,941` 行；默认可清理目标为 `runtime` 约 `21.04 MB / 522` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\data-health-static.js`、`node --check public\meituan-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`814` checks）、`node --test tests\automation\ctrip_store_data_overview.test.mjs`（`20/20`）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

@@ -38,6 +38,39 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return 'bg-red-100 text-red-700';
     };
 
+    const buildOnlineHistoryQueryParams = ({ page = 1, pageSize = 20, filter = {} } = {}) => {
+        const params = new URLSearchParams({
+            page: String(page || 1),
+            page_size: String(pageSize || 20),
+        });
+        const currentFilter = filter || {};
+        if (currentFilter.platform && currentFilter.platform !== 'all') {
+            params.append('platform', currentFilter.platform);
+        }
+        if (currentFilter.data_type && currentFilter.data_type !== 'all') {
+            params.append('data_type', currentFilter.data_type);
+        }
+        if (currentFilter.hotel_scope) {
+            const hotelScope = String(currentFilter.hotel_scope);
+            if (['all', 'mine', 'competitor_avg'].includes(hotelScope)) {
+                params.append('hotel_scope', hotelScope);
+            } else {
+                params.append('hotel_scope', 'hotel');
+                params.append('hotel_id', hotelScope);
+            }
+        }
+        if (currentFilter.keyword) {
+            params.append('keyword', currentFilter.keyword);
+        }
+        if (currentFilter.start_date) {
+            params.append('start_date', currentFilter.start_date);
+        }
+        if (currentFilter.end_date) {
+            params.append('end_date', currentFilter.end_date);
+        }
+        return params;
+    };
+
     const collectionHealthCookieLightClass = (row) => ({
         green: 'bg-green-500',
         red: 'bg-red-500',
@@ -656,6 +689,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineDataQualityPromptList,
         onlineDataQualityScopeText,
         autoFetchRecordStatusClass,
+        buildOnlineHistoryQueryParams,
         collectionHealthCookieLightClass,
         collectionHealthCookieLightText,
         dataHealthNormalizeStatus,

@@ -78,6 +78,8 @@ if (!fs.existsSync(indexPath)) {
   const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
   const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
   const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
+  const dataHealthStaticPath = path.join(repoRoot, 'public/data-health-static.js');
+  const dataHealthStaticContent = fs.existsSync(dataHealthStaticPath) ? fs.readFileSync(dataHealthStaticPath, 'utf8') : '';
 
   if (stat.size < 500_000) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
@@ -98,7 +100,7 @@ if (!fs.existsSync(indexPath)) {
   }
 
   if (!content.includes('ctrip-static.js?v=20260612-manual-tab-perf')
-    || !content.includes('meituan-static.js?v=20260612-manual-tab-perf')) {
+    || !content.includes('meituan-static.js?v=20260612-manual-fetch-perf')) {
     failures.push('public/index.html must bump Ctrip/Meituan static helper versions when manual tab/performance exports change.');
   }
 
@@ -288,6 +290,13 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('deferUiTask(() => ensureCtripConfigSecret(config, { silent: true }), 80);')) {
     failures.push('public/index.html must support silent, deferred Ctrip full-config prewarm for manual-fetch responsiveness.');
   }
+  if (!content.includes('const scheduleCtripHotelConfigApply = (event = null, options = {}) => {')
+    || !content.includes('const applyVersion = ++ctripHotelConfigApplyVersion;')
+    || !content.includes('const config = await ensureCtripConfigSecret(configSource, { silent: true });')
+    || !content.includes('@change="scheduleCtripHotelConfigApply"')
+    || content.includes('@change="applyCtripHotelConfig"')) {
+    failures.push('public/index.html Ctrip hotel selection must apply list config immediately and defer full config detail loading.');
+  }
   if (!content.includes("clearCtripConfigDetailCache(body?.id || '');")
     || !content.includes("clearCtripConfigDetailCache(ctrip.id || existing?.id || '');")
     || !/deleteCtripConfig = async[\s\S]*clearCtripConfigDetailCache\(id\);/.test(content)
@@ -381,6 +390,10 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("console.error('[Meituan] 预热完整配置失败:', e);")
     || !content.includes('const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {')
     || !content.includes('deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);')
+    || !content.includes('let configSource = options.resolvedConfig || selectedMeituanHotelConfig.value;')
+    || !content.includes('const config = options.resolvedConfig || await ensureMeituanConfigSecret(configSource);')
+    || !meituanStaticContent.includes('await applyMeituanHotelConfig(false, { resolvedConfig: selectedMeituanConfig, refreshList: false });')
+    || meituanStaticContent.includes('await applyMeituanHotelConfig(false);')
     || !content.includes('loadMeituanConfigList().then(() => prewarmSelectedMeituanConfigSecret()),')
     || !content.includes("prewarmSelectedMeituanConfigSecret();\n                                deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);")
     || content.includes("if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;")) {
@@ -687,6 +700,19 @@ if (!fs.existsSync(indexPath)) {
   if (!/ctrip_auto_fetch_mode:\s*autoFetchMode\.value/.test(autoFetchModePayloadSource)
     || !/meituan_auto_fetch_mode:\s*autoFetchMode\.value/.test(autoFetchModePayloadSource)) {
     failures.push('public/index.html must keep platform auto-fetch Ctrip and Meituan modes on the selected fast mode by default.');
+  }
+  const onlineHistorySource = content.slice(
+    content.indexOf('const loadOnlineHistory = async'),
+    content.indexOf('const refreshOnlineHistory = async')
+  );
+  if (!dataHealthStaticContent.includes('const buildOnlineHistoryQueryParams = ({ page = 1, pageSize = 20, filter = {} } = {}) => {')
+    || !dataHealthStaticContent.includes('buildOnlineHistoryQueryParams,')
+    || !content.includes("const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');")
+    || !content.includes('data-health-static.js?v=20260612-history-query')
+    || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
+    || onlineHistorySource.includes('const params = new URLSearchParams({')
+    || onlineHistorySource.includes("params.append('hotel_id', filter.hotel_scope);")) {
+    failures.push('public/index.html must delegate online history query parameter construction to public/data-health-static.js.');
   }
   if (/ctrip_auto_fetch_mode:\s*['"]profile_browser['"]/.test(autoFetchModePayloadSource)) {
     failures.push('public/index.html must not force platform auto-fetch Ctrip runs through browser Profile by default.');

@@ -1659,6 +1659,18 @@ Updated: 2026-06-12 Asia/Shanghai
 - Guards now require platform auto-fetch actions to schedule the panel refresh helper and reject direct no-argument `loadAutoFetchStatus()` / `await loadAutoFetchStatus()` from those action paths; `verify:e2e-contracts` covers `800` checks.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:p0-guards`; `verify:e2e-contracts` with `800` checks; `git diff --check`.
 
+## 2026-06-12 Progress: Online History Query Helper and Ctrip Hotel Switch Scheduling
+
+- `public/data-health-static.js` now owns `buildOnlineHistoryQueryParams()` for online-data history pagination, platform, data type, hotel scope, keyword, and date query parameters.
+- `public/index.html` keeps `loadOnlineHistory()` responsible for the `/online-data/history` request, explicit error toasts, list state, pagination state, and summary state. It no longer inlines online-history query parameter branching.
+- Ctrip manual target-hotel selects now use `scheduleCtripHotelConfigApply()` instead of directly calling `applyCtripHotelConfig()`. The scheduler applies list config immediately, prewarms full config detail, then applies resolved secret detail only if the selected hotel and apply version still match.
+- Meituan config application can reuse `options.resolvedConfig`, avoiding duplicate full-config detail reads after a resolved config is already available.
+- This does not change online-history APIs, Ctrip/Meituan config APIs, OTA collection, persistence, metric/field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and stale async states remain explicit.
+- Guards now require the online-history query helper, Ctrip hotel switch scheduler, deferred full-config prewarm, and Meituan resolved-config reuse; `verify:e2e-contracts` covers `814` checks.
+- Current split-map: `public/index.html` has `37550` lines, `1576` frontend function-level blocks, and `43` `currentPage` refs; `loadOnlineHistory` is out of the largest-block list. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `239.43 MB`, without `.git` about `114.13 MB`, without `.git` and dependencies about `84.94 MB`, tracked files about `18.97 MB` / `618` files; code scope `373` files, `198937` total lines, and `182941` nonblank lines. Runtime cleanup is about `21.04 MB` / `522` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\data-health-static.js`; `node --check public\meituan-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:p0-guards`; `verify:e2e-contracts` with `814` checks; `node --test tests\automation\ctrip_store_data_overview.test.mjs` with `20/20` tests; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

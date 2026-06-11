@@ -878,7 +878,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify('当前酒店未配置美团数据源', 'warning');
             return { status: 'missing_config' };
         }
-        await applyMeituanHotelConfig(false);
+        await applyMeituanHotelConfig(false, { resolvedConfig: selectedMeituanConfig, refreshList: false });
         const meituanCookies = String(form.cookies || '').trim();
         const partnerId = String(form.partnerId || '').trim();
         const poiId = String(form.poiId || '').trim();

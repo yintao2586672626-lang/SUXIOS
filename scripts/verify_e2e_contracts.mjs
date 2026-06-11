@@ -84,7 +84,7 @@ requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'ope
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
 requireText('public/index.html', 'ctrip-static.js?v=20260612-manual-tab-perf', 'entry bumps Ctrip static helper version for manual tab/performance exports');
-requireText('public/index.html', 'meituan-static.js?v=20260612-manual-tab-perf', 'entry bumps Meituan static helper version for manual tab/performance exports');
+requireText('public/index.html', 'meituan-static.js?v=20260612-manual-fetch-perf', 'entry bumps Meituan static helper version for manual fetch/performance exports');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -252,6 +252,11 @@ requireText('public/index.html', 'const ensureCtripConfigSecret = async (config,
 requireText('public/index.html', "console.error('[CTrip] 预热完整配置失败:', e);", 'Ctrip config-detail prewarm failure stays silent to the user');
 requireText('public/index.html', 'const prewarmSelectedCtripConfigSecret = (config = findCtripConfigByHotelId(selectedCtripHotelId.value)) => {', 'entry can prewarm selected Ctrip config detail without blocking manual fetch UI');
 requireText('public/index.html', 'deferUiTask(() => ensureCtripConfigSecret(config, { silent: true }), 80);', 'Ctrip selected config detail prewarm is scheduled outside the current interaction');
+requireText('public/index.html', 'const scheduleCtripHotelConfigApply = (event = null, options = {}) => {', 'Ctrip hotel selection uses a non-blocking config apply scheduler');
+requireText('public/index.html', 'const applyVersion = ++ctripHotelConfigApplyVersion;', 'Ctrip hotel selection ignores stale deferred full-config responses');
+requireText('public/index.html', 'const config = await ensureCtripConfigSecret(configSource, { silent: true });', 'Ctrip hotel selection loads full config detail only in silent deferred work');
+requireText('public/index.html', '@change="scheduleCtripHotelConfigApply"', 'Ctrip manual hotel selects use the non-blocking selection handler');
+requireNoText('public/index.html', '@change="applyCtripHotelConfig"', 'Ctrip manual hotel selects must not block on full config detail application');
 requireText('public/index.html', "clearCtripConfigDetailCache(body?.id || '');", 'entry invalidates Ctrip config detail cache after manual config saves');
 requireText('public/index.html', 'const scheduleCtripEbookingDeferredStartupRefresh = () => {', 'Ctrip manual page defers non-first-paint startup refreshes');
 requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking') return null;", 'deferred Ctrip manual startup refresh is scoped to the active page');
@@ -287,6 +292,10 @@ requireText('public/index.html', 'const ensureMeituanConfigSecret = async (confi
 requireText('public/index.html', "console.error('[Meituan] 预热完整配置失败:', e);", 'Meituan config-detail prewarm failure stays silent to the user');
 requireText('public/index.html', 'const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {', 'entry can prewarm selected Meituan config detail without blocking manual fetch UI');
 requireText('public/index.html', 'deferUiTask(() => ensureMeituanConfigSecret(config, { silent: true }), 80);', 'Meituan selected config detail prewarm is scheduled outside the current interaction');
+requireText('public/index.html', 'let configSource = options.resolvedConfig || selectedMeituanHotelConfig.value;', 'Meituan config apply can reuse a resolved full config from the fetch flow');
+requireText('public/index.html', 'const config = options.resolvedConfig || await ensureMeituanConfigSecret(configSource);', 'Meituan config apply avoids duplicate full config detail requests when resolved config is already available');
+requireText('public/meituan-static.js', 'await applyMeituanHotelConfig(false, { resolvedConfig: selectedMeituanConfig, refreshList: false });', 'Meituan batch fetch flow reuses the already-resolved config while applying form fields');
+requireNoText('public/meituan-static.js', 'await applyMeituanHotelConfig(false);', 'Meituan batch fetch flow must not trigger a second full config apply after resolving config');
 requireText('public/index.html', 'loadMeituanConfigList().then(() => prewarmSelectedMeituanConfigSecret()),', 'Meituan manual page prewarms selected config detail during deferred startup refresh');
 requireText('public/index.html', "prewarmSelectedMeituanConfigSecret();\n                                deferUiTask(() => applyMeituanHotelConfig(false, { refreshList: false }), 80);", 'Meituan config-list loader does not wait for full config detail before returning');
 requireNoText('public/index.html', "if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;", 'Meituan config-list loader must not wait for full config detail application');
@@ -446,14 +455,34 @@ requireNoText('public/index.html', "error.name === 'AbortError'", 'knowledge imp
 requireText('public/index.html', "requireDataHealthStatic('buildOnlineAnalysisChartConfig')", 'entry uses extracted online analysis chart config');
 requireText('public/data-health-static.js', 'const buildOnlineAnalysisChartConfig', 'data-health static builds online analysis chart config');
 requireText('public/index.html', 'new ChartLib(ctx, buildOnlineAnalysisChartConfig(analysisData.value.chart_data))', 'analysis chart rendering keeps only lifecycle wiring in the SPA entry');
+requireText('public/index.html', "requireDataHealthStatic('buildOnlineHistoryQueryParams')", 'entry uses extracted online history query parameter builder');
+requireText('public/index.html', 'data-health-static.js?v=20260612-history-query', 'entry bumps data-health static helper version for online history query exports');
+requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
+requireText('public/index.html', 'const params = buildOnlineHistoryQueryParams({', 'online history loader delegates query parameter construction');
+requireNoText('public/index.html', "params.append('hotel_id', filter.hotel_scope);", 'online history hotel scope query construction is not re-inlined');
 requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis labels are not re-inlined in the SPA entry');
 {
-  const context = { window: {} };
+  const context = { window: {}, URLSearchParams };
   vm.runInNewContext(read('public/data-health-static.js'), context, {
     filename: 'public/data-health-static.js',
   });
   const chartData = { labels: ['2026-06-11'], datasets: [{ label: 'OTA销售额', data: [100] }] };
   const config = context.window.SUXI_DATA_HEALTH_STATIC.buildOnlineAnalysisChartConfig(chartData);
+  const historyParams = context.window.SUXI_DATA_HEALTH_STATIC.buildOnlineHistoryQueryParams({
+    page: 3,
+    pageSize: 50,
+    filter: {
+      platform: 'ctrip',
+      data_type: 'business',
+      hotel_scope: '58',
+      keyword: 'hotel-key',
+      start_date: '2026-06-01',
+      end_date: '2026-06-11',
+    },
+  });
+  const competitorParams = context.window.SUXI_DATA_HEALTH_STATIC.buildOnlineHistoryQueryParams({
+    filter: { platform: 'all', data_type: 'all', hotel_scope: 'competitor_avg' },
+  });
   checks.push({
     file: 'public/data-health-static.js',
     label: 'online analysis chart config preserves chart data and axis semantics',
@@ -463,6 +492,24 @@ requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis
       && config?.options?.scales?.y1?.title?.text === '房晚/订单'
       && config?.options?.scales?.y1?.grid?.drawOnChartArea === false,
     detail: 'buildOnlineAnalysisChartConfig must keep original Chart.js line config semantics',
+  });
+  checks.push({
+    file: 'public/data-health-static.js',
+    label: 'online history query builder preserves filter semantics',
+    ok: historyParams.get('page') === '3'
+      && historyParams.get('page_size') === '50'
+      && historyParams.get('platform') === 'ctrip'
+      && historyParams.get('data_type') === 'business'
+      && historyParams.get('hotel_scope') === 'hotel'
+      && historyParams.get('hotel_id') === '58'
+      && historyParams.get('keyword') === 'hotel-key'
+      && historyParams.get('start_date') === '2026-06-01'
+      && historyParams.get('end_date') === '2026-06-11'
+      && !competitorParams.has('platform')
+      && !competitorParams.has('data_type')
+      && competitorParams.get('hotel_scope') === 'competitor_avg'
+      && !competitorParams.has('hotel_id'),
+    detail: 'buildOnlineHistoryQueryParams samples',
   });
 }
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
