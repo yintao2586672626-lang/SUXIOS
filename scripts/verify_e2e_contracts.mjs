@@ -1383,6 +1383,8 @@ try {
         && trafficStates.join('|') === 'fetching:true|fetching:false'
         && trafficEvents.includes('history')
         && trafficEvents.includes('refresh-data')
+        && delayedTrafficFlowResult.status === 'success'
+        && delayedTrafficReturnedBeforeHistory === true
         && trafficEvents.some(event => event === 'notify:info:获取成功！已保存 6 条流量数据')
         && missingTrafficResult.status === 'missing_url'
         && missingTrafficEvents[0] === 'notify:error:需 Network 请求信息：请输入接口地址'

@@ -61,6 +61,12 @@ const openTagStackBefore = (content, endOffset) => {
 
 const hasOpenVueRoot = (stack) => stack.some((entry) => entry.tag === 'div' && /\bid\s*=\s*["']app["']/.test(entry.raw));
 
+const coreFetchFlowFiles = [
+  'public/auto-fetch-static.js',
+  'public/ctrip-static.js',
+  'public/meituan-static.js',
+];
+
 if (!fs.existsSync(indexPath)) {
   failures.push('public/index.html is missing.');
 } else {
@@ -273,6 +279,30 @@ if (!fs.existsSync(indexPath)) {
         `public/index.html Vue boundary broken before ${marker.name} at line ${lineNumberForOffset(content, offset)}. ` +
         'Global modals and toast must stay inside #app; check malformed <div>, <details>, <template>, or <teleport> closures.'
       );
+    }
+  }
+}
+
+for (const relativePath of coreFetchFlowFiles) {
+  const flowPath = path.join(repoRoot, relativePath);
+  if (!fs.existsSync(flowPath)) {
+    failures.push(`${relativePath} is missing.`);
+    continue;
+  }
+
+  const flowSource = fs.readFileSync(flowPath, 'utf8');
+  if (!flowSource.includes('const runPostFetchRefresh')) {
+    failures.push(`${relativePath} must keep a non-blocking post-fetch refresh helper.`);
+  }
+
+  for (const blockedCall of [
+    'await refreshOnlineHistory(',
+    'await refreshLatestCtripData(',
+    'await refreshOnlineData(',
+    'await loadAutoFetchStatus(',
+  ]) {
+    if (flowSource.includes(blockedCall)) {
+      failures.push(`${relativePath} must not block collection completion with ${blockedCall}.`);
     }
   }
 }
