@@ -9,14 +9,14 @@
     <link href="font-awesome.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=20260611-perf-bg-avif">
     <link rel="stylesheet" href="ai-custom.css?v=20260603-lifecycle-footer">
-    <script src="vue.global.prod.js"></script>
+    <script src="vue.global.prod.js?v=20260611-open-fix"></script>
     <script src="shared-components.js?v=20260611-open-fix"></script>
     <script src="form-operation-support.js" defer></script>
     <script src="ctrip-static.js?v=20260611-core-fetch"></script>
     <script src="meituan-static.js?v=20260611-core-fetch"></script>
     <script src="data-health-static.js?v=20260611-core-fetch"></script>
     <script src="ota-diagnosis-static.js?v=20260611-core-fetch"></script>
-    <script src="system-static.js?v=20260611-platform-guide"></script>
+    <script src="system-static.js?v=20260611-open-fix"></script>
     <script src="compass-static.js?v=20260611-open-fix"></script>
     <script src="home-static.js?v=20260611-open-fix"></script>
 </head>
@@ -4487,34 +4487,34 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr v-for="(u, index) in filteredUsers" :key="u.id" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
+                                        <tr v-for="(u, index) in filteredUsers" :key="u?.id || index" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
                                             <td class="px-6 py-4 text-sm text-gray-500">{{ index + 1 }}</td>
-                                            <td class="px-6 py-4 text-sm font-semibold text-gray-800">{{ u.username }}</td>
-                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u.realname || '-' }}</td>
+                                            <td class="px-6 py-4 text-sm font-semibold text-gray-800">{{ u?.username || '-' }}</td>
+                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u?.realname || '-' }}</td>
                                             <td class="px-6 py-4">
                                                 <span :class="{
-                                                    'bg-red-100 text-red-700': u.role?.level === 1,
-                                                    'bg-orange-100 text-orange-700': u.role?.level === 2,
-                                                    'bg-green-100 text-green-700': u.role?.level === 3
+                                                    'bg-red-100 text-red-700': u?.role?.level === 1,
+                                                    'bg-orange-100 text-orange-700': u?.role?.level === 2,
+                                                    'bg-green-100 text-green-700': u?.role?.level === 3
                                                 }" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
-                                                    {{ u.role?.display_name || '-' }}
+                                                    {{ u?.role?.display_name || '-' }}
                                                 </span>
                                             </td>
-                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u.hotel?.name || '-' }}</td>
+                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u?.hotel?.name || '-' }}</td>
                                             <td class="px-6 py-4">
-                                                <span :class="String(u.status) === '1' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                                                <span :class="String(u?.status) === '1' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
                                                     class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
-                                                    {{ String(u.status) === '1' ? '正常' : '停用' }}
+                                                    {{ String(u?.status) === '1' ? '正常' : '停用' }}
                                                 </span>
                                             </td>
                                             <td class="px-6 py-4">
                                                 <div class="flex items-center gap-2">
-                                                    <button v-if="user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id)"
+                                                    <button v-if="u && (user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id))"
                                                         @click="openUserModal(u)"
                                                         class="p-1.5 text-blue-500 hover:bg-blue-100 rounded transition-colors" title="编辑">
                                                         <i class="fas fa-edit text-sm"></i>
                                                     </button>
-                                                    <button v-if="u.id !== user?.id && (user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id))"
+                                                    <button v-if="u && u.id !== user?.id && (user?.is_super_admin || (user?.role_id === 2 && u.role_id === 3 && u.hotel_id === user?.hotel_id))"
                                                         @click="deleteUser(u)"
                                                         class="p-1.5 text-red-500 hover:bg-red-100 rounded transition-colors" title="删除">
                                                         <i class="fas fa-trash-alt text-sm"></i>
@@ -11713,7 +11713,7 @@
                                     </select>
                                     <select v-model="logFilter.user_id" @change="reloadOperationLogs" class="input-field">
                                         <option value="">全部用户</option>
-                                        <option v-for="u in logUsers" :key="u.id" :value="u.id">{{ u.realname || u.username }}</option>
+                                        <option v-for="(u, index) in logUsers" :key="u?.id || index" :value="u?.id || ''">{{ u?.realname || u?.username || '-' }}</option>
                                     </select>
                                     <select v-model="logFilter.hotel_id" @change="reloadOperationLogs" class="input-field">
                                         <option value="">全部酒店</option>
@@ -18299,6 +18299,16 @@
             'zh-CN'
         );
     };
+    const createAiModelConfigText = (localeResolver) => (key, values = {}) => {
+        const resolvedLocale = normalizeLocale(typeof localeResolver === 'function' ? localeResolver() : localeResolver);
+        const defaultText = aiModelConfigI18n['zh-CN']?.[key] || key;
+        let text = aiModelConfigI18n[resolvedLocale]?.[key] || defaultText;
+        Object.entries(values || {}).forEach(([name, value]) => {
+            text = text.replaceAll(`{${name}}`, String(value));
+        });
+        return text;
+    };
+    const globalAiModelConfigText = createAiModelConfigText(() => document.documentElement.lang || localStorage.getItem('suxios_locale') || 'zh-CN');
 
     const languageOptions = requireAppSystemStatic('languageOptions');
     const menuItemDefinitions = requireAppSystemStatic('menuItemDefinitions');
@@ -18322,7 +18332,7 @@
     const ActionButtons = requireSharedComponent('ActionButtons');
     const DataTable = requireSharedComponent('DataTable');
 
-    createApp({
+    const suxiApp = createApp({
         components: {
             CompassCardHeader,
             MetricCard,
@@ -18342,13 +18352,7 @@
             const token = ref(localStorage.getItem('token') || '');
             const currentLocale = ref(getInitialLocale());
             document.documentElement.lang = currentLocale.value;
-            const aiModelConfigText = (key, values = {}) => {
-                let text = aiModelConfigI18n[currentLocale.value]?.[key] || aiModelConfigI18n['zh-CN'][key] || key;
-                Object.entries(values).forEach(([name, value]) => {
-                    text = text.replaceAll(`{${name}}`, String(value));
-                });
-                return text;
-            };
+            const aiModelConfigText = createAiModelConfigText(() => currentLocale.value);
             const currentTime = ref('');
             const updateCurrentTime = () => {
                 currentTime.value = new Date().toLocaleString(currentLocale.value);
@@ -24874,7 +24878,10 @@
 
             const filteredUsers = computed(() => {
                 return users.value.filter(u => {
-                    const matchSearch = !searchUser.value || u.username.includes(searchUser.value) || (u.realname && u.realname.includes(searchUser.value));
+                    if (!u || typeof u !== 'object') return false;
+                    const username = String(u.username || '');
+                    const realname = String(u.realname || '');
+                    const matchSearch = !searchUser.value || username.includes(searchUser.value) || realname.includes(searchUser.value);
                     const matchRole = !filterUserRoleId.value || u.role_id == filterUserRoleId.value;
                     return matchSearch && matchRole;
                 }).sort((a, b) => {
@@ -37231,7 +37238,37 @@
                 sidebarCollapsed, toggleSidebar,
             };
         }
-    }).mount('#app');
+    });
+    const renderSuxiStartupError = (error) => {
+        const appRoot = document.getElementById('app');
+        if (!appRoot) return;
+        if (appRoot.dataset.startupErrorRendered === '1') return;
+        appRoot.dataset.startupErrorRendered = '1';
+        const stack = String(error?.stack || '').split('\n').slice(0, 8).join('\n');
+        const message = [String(error?.message || error || 'unknown startup error'), stack].filter(Boolean).join('\n')
+            .replace(/[<>&"']/g, (char) => ({
+                '<': '&lt;',
+                '>': '&gt;',
+                '&': '&amp;',
+                '"': '&quot;',
+                "'": '&#39;',
+            }[char]));
+        appRoot.innerHTML = `
+            <div class="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+                <div class="max-w-xl w-full bg-white border border-red-100 rounded-lg shadow-sm p-6">
+                    <div class="text-lg font-semibold text-red-700 mb-2">项目启动失败</div>
+                    <div class="text-sm text-gray-600 mb-4">前端初始化被异常中断，请刷新页面；如果仍失败，请保留下面错误信息。</div>
+                    <pre class="text-xs whitespace-pre-wrap break-words bg-red-50 text-red-700 border border-red-100 rounded p-3">${message}</pre>
+                </div>
+            </div>
+        `;
+    };
+    suxiApp.config.errorHandler = (error) => {
+        console.error('[SUXIOS] Vue runtime error:', error);
+        renderSuxiStartupError(error);
+    };
+    suxiApp.config.globalProperties.aiModelConfigText = globalAiModelConfigText;
+    suxiApp.mount('#app');
     </script>
 </body>
 </html>

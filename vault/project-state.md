@@ -1465,6 +1465,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Current self-audit: full directory about `207.72 MB`, without `.git` about `97.53 MB`, without `.git` and dependencies about `68.34 MB`, tracked files about `18.78 MB` / `618` files; code scope `373` files, `197393` total lines, and `181419` nonblank lines. Runtime cleanup is about `4.63 MB` / `161` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check scripts\verify_public_entry_guard.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `607` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-11 Progress: Explicit Entry Failure Surface and Versioned Home Static Guard
+
+- `public/index.html` now keeps the Vue app instance as `suxiApp`, adds `renderSuxiStartupError()`, and wires `suxiApp.config.errorHandler` so startup/runtime initialization errors render as escaped error details plus bounded stack evidence in `#app` instead of failing silently.
+- `public/index.html` also hardens the admin user search, user table, and operation-log user filter by skipping null/non-object rows or rendering missing user fields with safe defaults.
+- `scripts/verify_home_visual_hierarchy_contract.mjs` now matches the versioned `home-static.js?v=...` script entry instead of requiring the old unversioned `<script src="home-static.js"></script>` literal.
+- Current `public/index.html` already loads `vue.global.prod.js?v=20260611-open-fix`, `system-static.js?v=20260611-open-fix`, and `home-static.js?v=20260611-open-fix`. This save point does not change home UI, home metric definitions, OTA data, AI analysis, static helper contents, or script load order.
+- The updated guard still covers home closed-loop builders, AI trace rows, operating result cards, causal-chain nodes, data-source readiness cards, compass readiness, and trend-chart config. `verify:home-visual-hierarchy` covers `13` checks.
+- Guards now require `suxiApp`, the startup error renderer, Vue errorHandler, escaped injected error text, bounded stack evidence, idempotent startup-error rendering, versioned core/static script loading, and null-safe user row rendering. `verify:e2e-contracts` covers `627` checks.
+- Current split-map: `public/index.html` has `37274` lines, `1550` frontend function-level blocks, and `44` `currentPage` refs. `app/controller/OnlineData.php` has `26931` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `213.71 MB`, without `.git` about `101.48 MB`, without `.git` and dependencies about `72.29 MB`, tracked files about `18.8 MB` / `618` files; code scope `373` files, `197489` total lines, and `181514` nonblank lines. Runtime cleanup is about `8.57 MB` / `193` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:home-visual-hierarchy` with `13` checks; `verify:public-entry`; `verify:e2e-contracts` with `627` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

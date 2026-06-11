@@ -105,7 +105,7 @@ const checks = [
   },
   {
     name: 'home closed-loop builders live in explicit static helper',
-    pass: publicSource.includes('<script src="home-static.js"></script>')
+    pass: /<script\s+src="home-static\.js\?v=[^"]+"><\/script>/.test(publicSource)
       && publicSource.includes("requireHomeStatic('buildHomeClosedLoopStages')")
       && publicSource.includes("requireHomeStatic('buildHomeAiTraceRows')")
       && publicSource.includes("requireHomeStatic('buildHomeOperatingResultCards')")

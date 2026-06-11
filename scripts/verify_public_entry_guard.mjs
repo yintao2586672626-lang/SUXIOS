@@ -91,12 +91,51 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
+  if (!content.includes('const suxiApp = createApp({')
+    || !content.includes('const renderSuxiStartupError = (error) => {')
+    || !content.includes('suxiApp.config.errorHandler = (error) => {')
+    || !content.includes("suxiApp.mount('#app');")) {
+    failures.push('public/index.html must surface Vue startup/runtime initialization errors through the app root instead of failing silently.');
+  }
+  if (!content.includes(".replace(/[<>&\"']/g")) {
+    failures.push('public/index.html startup error renderer must HTML-escape error messages before injecting them into #app.');
+  }
+  if (!content.includes("const stack = String(error?.stack || '').split('\\n').slice(0, 8).join('\\n');")
+    || !content.includes("[String(error?.message || error || 'unknown startup error'), stack].filter(Boolean).join('\\n')")) {
+    failures.push('public/index.html startup error renderer must include bounded stack evidence for debugging startup failures.');
+  }
+  if (!content.includes("if (appRoot.dataset.startupErrorRendered === '1') return;")
+    || !content.includes("appRoot.dataset.startupErrorRendered = '1';")) {
+    failures.push('public/index.html startup error renderer must be idempotent so repeated runtime errors do not keep replacing #app.');
+  }
+  if (!content.includes("if (!u || typeof u !== 'object') return false;")
+    || !content.includes("const username = String(u.username || '');")
+    || !content.includes("const realname = String(u.realname || '');")) {
+    failures.push('public/index.html user filtering must skip invalid rows and normalize names before matching search input.');
+  }
+  if (!content.includes(':key="u?.id || index"')
+    || !content.includes("{{ u?.username || '-' }}")
+    || !content.includes("String(u?.status) === '1'")
+    || !content.includes('v-if="u && (user?.is_super_admin')) {
+    failures.push('public/index.html user table must render invalid or partial rows safely after user filtering.');
+  }
+  if (!content.includes('v-for="(u, index) in logUsers"')
+    || !content.includes(':value="u?.id || \'\'"')
+    || !content.includes("{{ u?.realname || u?.username || '-' }}")) {
+    failures.push('public/index.html operation-log user filter must render invalid or partial user rows safely.');
+  }
+  if (!/<script\s+src=["']vue\.global\.prod\.js\?v=[^"']+["']><\/script>/.test(content)
+    || !/<script\s+src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content)) {
+    failures.push('public/index.html must version core Vue/system static scripts so P0 entry fixes are not hidden by stale browser cache.');
+  }
+
   if (/\/assets\/index-[A-Za-z0-9_-]+\.(?:js|css)/.test(content)) {
     failures.push('public/index.html references Vite hashed assets; do not build Vite into HOTEL/public.');
   }
 
   const tailwindOffset = content.indexOf('href="tailwind.min.css"');
-  const vueScriptOffset = content.indexOf('src="vue.global.prod.js"');
+  const vueScriptMatch = content.match(/<script\s+src=["']vue\.global\.prod\.js(?:\?v=[^"']+)?["']/);
+  const vueScriptOffset = vueScriptMatch ? vueScriptMatch.index : -1;
   if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
     failures.push('public/index.html must discover core stylesheets before synchronous Vue/static scripts.');
   }

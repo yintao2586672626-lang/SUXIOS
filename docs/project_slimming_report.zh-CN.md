@@ -1434,6 +1434,18 @@
 - 当前自审计：完整目录约 `207.72 MB`；不含 `.git` 约 `97.53 MB`；不含 `.git` 和依赖约 `68.34 MB`；Git 跟踪文件约 `18.78 MB` / `618` 个；代码范围 `373` 个文件、`197,393` 行、非空 `181,419` 行；默认可清理目标为 `runtime` 约 `4.63 MB` / `161` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`607` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-11 保存点：入口失败显式化与首页静态版本守卫
+
+- `public/index.html` 将 Vue app 实例保留为 `suxiApp`，新增 `renderSuxiStartupError()` 与 `suxiApp.config.errorHandler`，在前端初始化或 Vue 运行时异常时把已 HTML 转义的错误信息和受控 stack 片段显式渲染到 `#app`，避免页面静默空白。
+- `public/index.html` 同步补强后台用户列表搜索、用户表格和操作日志用户筛选：过滤空值/非对象行，并在匹配或渲染前把用户字段按安全默认值处理，避免异常用户行中断管理页渲染。
+- `scripts/verify_home_visual_hierarchy_contract.mjs` 将首页静态 helper 入口检查从固定 `<script src="home-static.js"></script>` 调整为匹配 `home-static.js?v=...` 的版本化资源加载。
+- 当前 `public/index.html` 已使用 `vue.global.prod.js?v=20260611-open-fix`、`system-static.js?v=20260611-open-fix` 与 `home-static.js?v=20260611-open-fix`；本保存点不改变首页 UI、首页指标口径、OTA 数据、AI 分析、静态 helper 内容或加载顺序。
+- 更新守卫后，`verify:home-visual-hierarchy` 继续覆盖首页闭环 builder、AI trace、经营结果、因果链、数据源就绪卡片、罗盘 readiness 和趋势图配置，共 `13` 项检查。
+- 更新守卫：`verify_public_entry_guard.mjs` 与 `verify_e2e_contracts.mjs` 要求入口保留 `suxiApp`、启动错误渲染器、Vue errorHandler、HTML 转义、受控 stack 片段、重复错误渲染保护、核心脚本版本化和用户行空值安全渲染；`verify_home_visual_hierarchy_contract.mjs` 要求首页静态 helper 版本化加载。E2E 合同检查数为 `627`。
+- 当前 split-map：`public/index.html` 为 `37,274` 行、`1,550` 个前端函数级块、`44` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,931` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `213.71 MB`；不含 `.git` 约 `101.48 MB`；不含 `.git` 和依赖约 `72.29 MB`；Git 跟踪文件约 `18.8 MB` / `618` 个；代码范围 `373` 个文件、`197,489` 行、非空 `181,514` 行；默认可清理目标为 `runtime` 约 `8.57 MB` / `193` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:home-visual-hierarchy`（`13` checks）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`627` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
