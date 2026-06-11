@@ -1115,6 +1115,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Auto-Fetch Trigger Flow Split
+
+- Eighty-fifth frontend split target chosen from manual auto-fetch trigger orchestration inside `triggerAutoFetch()` in `public/index.html`.
+- Extended `public/auto-fetch-static.js` with `runAutoFetchTriggerFlow`, `buildAutoFetchTriggerRequestBody`, and `buildAutoFetchRunStartState` for selected-hotel guard, platform-config guard, request body construction, running state, success refresh callbacks, error response handling, exception handling, and busy/timer cleanup.
+- `public/index.html` now keeps only Vue callback wiring for refs, `/online-data/auto-fetch`, toast dispatch, elapsed-time formatting, latest/history/status/data-health refresh callbacks, and Ctrip Profile field review opening.
+- This split did not change `/online-data/auto-fetch`, storage behavior, latest snapshot refresh, history refresh, data-health refresh, Ctrip Profile review behavior, missing/failed-state visibility, or OTA channel scope. Missing hotel and missing platform config guards remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted auto-fetch trigger runner, prevent request body, running state, and success refresh flow from being re-inlined, and validate success, error response, exception, missing hotel, and missing config samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37351` lines to `37297` lines; frontend function-level blocks remain `1396`; `general` domain span decreased from `7165` to `7111`; `triggerAutoFetch` is no longer in the largest-block list, and the current largest frontend block is `fetchCtripFlowOverviewData` at `72` lines.
+- Current self-audit: full directory about `284.64 MB`, without `.git` about `92.43 MB`, without `.git` and dependencies about `63.24 MB`, tracked files about `18.32 MB` / `613` files; code scope `370` files, `191558` total lines, and `175756` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\auto-fetch-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

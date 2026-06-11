@@ -106,6 +106,10 @@ requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Me
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
 requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
+requireText('public/index.html', "requireAutoFetchStatic('runAutoFetchTriggerFlow')", 'entry uses extracted auto-fetch trigger flow runner');
+requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBody', 'auto-fetch static builds trigger request bodies');
+requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
+requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'auto-fetch static runs manual trigger flow');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
@@ -178,6 +182,9 @@ requireNoText('public/index.html', 'const rankTypeNames = {', 'Meituan batch ran
 requireNoText('public/index.html', 'const missingResourceFields = [];', 'Meituan batch fetch input validation is not re-inlined');
 requireNoText('public/index.html', "meituanForm.value.dateRanges.includes('custom')", 'Meituan batch custom-date validation is not re-inlined');
 requireNoText('public/index.html', 'display_hotels: results.flatMap', 'Meituan display model payload is not re-inlined');
+requireNoText('public/index.html', "const body = { system_hotel_id: hotelId, data_period: 'realtime_snapshot'", 'auto-fetch trigger request body is not re-inlined');
+requireNoText('public/index.html', '已提交后端执行。${autoFetchCtripExecutionText.value}', 'auto-fetch trigger start state is not re-inlined');
+requireNoText('public/index.html', 'await openCtripProfileFieldsForReview();', 'auto-fetch trigger success refresh flow is not re-inlined');
 requireNoText('public/index.html', 'const getDefaultDataConfigForm = () => ({', 'data config default form is not re-inlined');
 requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
 requireNoText('public/index.html', 'autoFetchRecentRuns.value.slice(0, 3).forEach', 'global notification recent-run loop is not re-inlined');
@@ -372,6 +379,175 @@ requireText('package.json', 'test:e2e:business', 'package exposes business chain
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
 requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(read('public/auto-fetch-static.js'), context, {
+    filename: 'public/auto-fetch-static.js',
+  });
+  const autoFetchStatic = context.window.SUXI_AUTO_FETCH_STATIC || {};
+  const buildAutoFetchTriggerRequestBody = autoFetchStatic.buildAutoFetchTriggerRequestBody;
+  const buildAutoFetchRunStartState = autoFetchStatic.buildAutoFetchRunStartState;
+  const runAutoFetchTriggerFlow = autoFetchStatic.runAutoFetchTriggerFlow;
+  if (typeof buildAutoFetchTriggerRequestBody !== 'function'
+    || typeof buildAutoFetchRunStartState !== 'function'
+    || typeof runAutoFetchTriggerFlow !== 'function') {
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch static exports trigger flow helpers',
+      ok: false,
+      detail: 'trigger request, start state, flow runner',
+    });
+  } else {
+    const triggerBody = buildAutoFetchTriggerRequestBody({
+      hotelId: 58,
+      browserHeadless: true,
+      modePayload: { meituan_auto_fetch_mode: 'hybrid_auto', ctrip_section_concurrency: 3 },
+    });
+    const startState = buildAutoFetchRunStartState({
+      startedAt: '2026-06-11 10:00:00',
+      ctripExecutionText: '携程 3 页并发',
+      modePayload: { meituan_auto_fetch_mode: 'hybrid_auto' },
+      modeLabel: () => '接口直连自动',
+      browserHeadless: true,
+    });
+    const runTriggerSample = async (overrides = {}) => {
+      const events = [];
+      const timestamps = [...(overrides.timestamps || ['2026-06-11 10:00:00', '2026-06-11 10:00:09'])];
+      let capturedRequestBody = null;
+      const result = await runAutoFetchTriggerFlow({
+        getHotelId: () => (overrides.hotelId === undefined ? 58 : overrides.hotelId),
+        hasPlatformFetchConfig: hotelId => (overrides.hasConfig === undefined ? Boolean(hotelId) : overrides.hasConfig),
+        setFetching: value => events.push(['fetching', value]),
+        startTimer: () => events.push(['timer', 'start']),
+        stopTimer: () => events.push(['timer', 'stop']),
+        getTimestamp: () => timestamps.shift() || '2026-06-11 10:00:09',
+        getBrowserHeadless: () => (overrides.browserHeadless === undefined ? true : overrides.browserHeadless),
+        getCtripExecutionText: () => '携程 3 页并发',
+        buildModePayload: () => ({ meituan_auto_fetch_mode: 'hybrid_auto', ctrip_section_concurrency: 3 }),
+        modeLabel: value => ({ hybrid_auto: '接口直连自动' }[value] || value),
+        getCtripSectionConcurrency: () => 3,
+        notify: (message, type = 'success') => events.push(['notify', type, message]),
+        setRunState: value => events.push(['state', value.type, value]),
+        requestAutoFetch: async (body) => {
+          capturedRequestBody = body;
+          events.push(['request', body]);
+          if (overrides.throwRequest) {
+            throw new Error('network failed');
+          }
+          return overrides.response || { code: 200, message: 'ok', data: { saved_count: 9 } };
+        },
+        getDurationText: () => '9秒',
+        updateLastResult: (response, success, message) => events.push(['lastResult', success, message, response]),
+        refreshOnlineData: async () => events.push(['refresh', 'online']),
+        refreshOnlineHistory: async () => events.push(['refresh', 'history']),
+        refreshLatestCtripData: async options => events.push(['refresh', 'latest', options]),
+        openCtripProfileFieldsForReview: async () => events.push(['refresh', 'profile-review']),
+        loadAutoFetchStatus: async () => events.push(['refresh', 'status']),
+        loadBackendGlobalNotifications: async () => events.push(['refresh', 'notifications']),
+      });
+      return { result, events, capturedRequestBody };
+    };
+
+    const successRun = await runTriggerSample();
+    const errorRun = await runTriggerSample({
+      response: { code: 500, message: 'upstream failed', data: { saved_count: 0 } },
+    });
+    const exceptionRun = await runTriggerSample({ throwRequest: true });
+    const missingHotelRun = await runTriggerSample({ hotelId: '' });
+    const missingConfigRun = await runTriggerSample({ hasConfig: false });
+
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch trigger request body preserves OTA capture scope',
+      ok: triggerBody.system_hotel_id === 58
+        && triggerBody.data_period === 'realtime_snapshot'
+        && triggerBody.interactive_browser === false
+        && triggerBody.browser_headless === true
+        && triggerBody.meituan_auto_fetch_mode === 'hybrid_auto'
+        && triggerBody.ctrip_section_concurrency === 3,
+      detail: 'buildAutoFetchTriggerRequestBody sample',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch trigger running state keeps explicit platform mode text',
+      ok: startState.active === true
+        && startState.type === 'running'
+        && startState.message.includes('携程 3 页并发')
+        && startState.message.includes('美团使用接口直连自动')
+        && startState.message.includes('浏览器无头运行'),
+      detail: 'buildAutoFetchRunStartState sample',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch trigger success path refreshes persisted and UI data',
+      ok: successRun.result.status === 'success'
+        && successRun.capturedRequestBody.system_hotel_id === 58
+        && successRun.events.some(event => event[0] === 'state' && event[1] === 'running')
+        && successRun.events.some(event => event[0] === 'state' && event[1] === 'success')
+        && successRun.events.some(event => event[0] === 'lastResult' && event[1] === true && event[2] === 'ok')
+        && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'online')
+        && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'history')
+        && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'latest' && event[2]?.silent === true)
+        && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'profile-review')
+        && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'status')
+        && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'notifications')
+        && successRun.events.some(event => event[0] === 'timer' && event[1] === 'start')
+        && successRun.events.some(event => event[0] === 'timer' && event[1] === 'stop')
+        && successRun.events.some(event => event[0] === 'fetching' && event[1] === false),
+      detail: 'runAutoFetchTriggerFlow success sample',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch trigger error response keeps failed state explicit',
+      ok: errorRun.result.status === 'error_response'
+        && errorRun.events.some(event => event[0] === 'lastResult' && event[1] === false && String(event[2]).includes('upstream failed'))
+        && errorRun.events.some(event => event[0] === 'state' && event[1] === 'error' && event[2].message.includes('upstream failed'))
+        && errorRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('upstream failed'))
+        && errorRun.events.some(event => event[0] === 'refresh' && event[1] === 'status')
+        && errorRun.events.some(event => event[0] === 'refresh' && event[1] === 'notifications')
+        && !errorRun.events.some(event => event[0] === 'refresh' && event[1] === 'online'),
+      detail: 'runAutoFetchTriggerFlow error response sample',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch trigger exception path exposes failure and releases busy state',
+      ok: exceptionRun.result.status === 'exception'
+        && exceptionRun.events.some(event => event[0] === 'state' && event[1] === 'error' && event[2].message.includes('network failed'))
+        && exceptionRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('获取失败: network failed'))
+        && exceptionRun.events.some(event => event[0] === 'refresh' && event[1] === 'status')
+        && exceptionRun.events.some(event => event[0] === 'refresh' && event[1] === 'notifications')
+        && exceptionRun.events.some(event => event[0] === 'timer' && event[1] === 'stop')
+        && exceptionRun.events.some(event => event[0] === 'fetching' && event[1] === false),
+      detail: 'runAutoFetchTriggerFlow exception sample',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch trigger guards missing hotel before mutation',
+      ok: missingHotelRun.result.status === 'missing_hotel'
+        && missingHotelRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请先选择酒店'))
+        && !missingHotelRun.events.some(event => event[0] === 'fetching')
+        && !missingHotelRun.events.some(event => event[0] === 'timer'),
+      detail: 'missing hotel guard',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch trigger guards missing platform config before mutation',
+      ok: missingConfigRun.result.status === 'missing_config'
+        && missingConfigRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('保存并关联携程或美团配置'))
+        && !missingConfigRun.events.some(event => event[0] === 'fetching')
+        && !missingConfigRun.events.some(event => event[0] === 'timer'),
+      detail: 'missing config guard',
+    });
+  }
+} catch (error) {
+  checks.push({
+    file: 'public/auto-fetch-static.js',
+    label: 'auto-fetch static runtime validation',
+    ok: false,
+    detail: error.message,
+  });
+}
 
 try {
   const context = { window: {} };

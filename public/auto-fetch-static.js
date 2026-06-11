@@ -275,6 +275,143 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         return compactDataConfigBody(body);
     };
 
+    const buildAutoFetchTriggerRequestBody = ({
+        hotelId = '',
+        browserHeadless = false,
+        modePayload = {},
+    } = {}) => ({
+        system_hotel_id: hotelId,
+        data_period: 'realtime_snapshot',
+        interactive_browser: !browserHeadless,
+        browser_headless: browserHeadless,
+        ...(modePayload || {}),
+    });
+
+    const buildAutoFetchRunStartState = ({
+        startedAt = '',
+        ctripExecutionText = '',
+        modePayload = {},
+        modeLabel = value => value,
+        browserHeadless = false,
+    } = {}) => ({
+        active: true,
+        type: 'running',
+        message: `已提交后端执行。${ctripExecutionText}；美团使用${modeLabel(modePayload?.meituan_auto_fetch_mode)}；浏览器${browserHeadless ? '无头运行' : '可视运行'}。`,
+        started_at: startedAt,
+        finished_at: '',
+    });
+
+    const runAutoFetchTriggerFlow = async ({
+        getHotelId = () => '',
+        hasPlatformFetchConfig = () => false,
+        setFetching = () => {},
+        startTimer = () => {},
+        stopTimer = () => {},
+        getTimestamp = () => new Date().toLocaleString('zh-CN', { hour12: false }),
+        getBrowserHeadless = () => false,
+        getCtripExecutionText = () => '',
+        buildModePayload = () => ({}),
+        modeLabel = value => value,
+        getCtripSectionConcurrency = () => '',
+        notify = () => {},
+        setRunState = () => {},
+        requestAutoFetch = async () => ({}),
+        getDurationText = () => '',
+        updateLastResult = () => {},
+        refreshOnlineData = async () => {},
+        refreshOnlineHistory = async () => {},
+        refreshLatestCtripData = async () => {},
+        openCtripProfileFieldsForReview = async () => {},
+        loadAutoFetchStatus = async () => {},
+        loadBackendGlobalNotifications = async () => {},
+    } = {}) => {
+        const hotelId = getHotelId();
+        if (!hotelId) {
+            notify('请先选择酒店', 'error');
+            return { status: 'missing_hotel' };
+        }
+        if (!hasPlatformFetchConfig(hotelId)) {
+            notify('请先在酒店管理中为该酒店保存并关联携程或美团配置', 'error');
+            return { status: 'missing_config' };
+        }
+
+        setFetching(true);
+        startTimer();
+        const startedAt = getTimestamp();
+        const browserHeadless = !!getBrowserHeadless();
+        const modePayload = buildModePayload() || {};
+        setRunState(buildAutoFetchRunStartState({
+            startedAt,
+            ctripExecutionText: getCtripExecutionText(),
+            modePayload,
+            modeLabel,
+            browserHeadless,
+        }));
+        notify(`正在启动平台抓取：携程 ${getCtripSectionConcurrency()} 页并发 / ${browserHeadless ? '无头' : '可视'}浏览器`, 'info');
+
+        const requestBody = buildAutoFetchTriggerRequestBody({
+            hotelId,
+            browserHeadless,
+            modePayload,
+        });
+        try {
+            const res = await requestAutoFetch(requestBody);
+            const finishedAt = getTimestamp();
+            const durationText = getDurationText();
+            if (res.code === 200) {
+                const message = `采集完成并入库 ${res.data?.saved_count || 0} 条 OTA 指标行（耗时 ${durationText}）`;
+                updateLastResult(res, true, res.message || message);
+                setRunState({
+                    active: false,
+                    type: 'success',
+                    message,
+                    started_at: startedAt,
+                    finished_at: finishedAt,
+                });
+                notify(message);
+                await refreshOnlineData();
+                await refreshOnlineHistory();
+                await refreshLatestCtripData({ silent: true });
+                await openCtripProfileFieldsForReview();
+                await loadAutoFetchStatus();
+                await loadBackendGlobalNotifications().catch(() => null);
+                return { status: 'success', response: res, requestBody };
+            }
+
+            const message = `${res.message || '获取失败'}（耗时 ${durationText}）`;
+            updateLastResult(res, false, message);
+            setRunState({
+                active: false,
+                type: 'error',
+                message,
+                started_at: startedAt,
+                finished_at: finishedAt,
+            });
+            notify(message, 'error');
+            await loadAutoFetchStatus();
+            await loadBackendGlobalNotifications().catch(() => null);
+            return { status: 'error_response', response: res, requestBody };
+        } catch (error) {
+            const finishedAt = getTimestamp();
+            const durationText = getDurationText();
+            const message = '获取失败: ' + error.message + `（耗时 ${durationText}）`;
+            setRunState({
+                active: false,
+                type: 'error',
+                message,
+                started_at: startedAt,
+                finished_at: finishedAt,
+            });
+            notify(message, 'error');
+            await loadAutoFetchStatus().catch(() => null);
+            await loadBackendGlobalNotifications().catch(() => null);
+            return { status: 'exception', error, requestBody };
+        } finally {
+            stopTimer();
+            setFetching(false);
+        }
+    };
+
     return {
         autoFetchModeOptions,
         autoFetchCollectionBlueprintRows,
@@ -283,5 +420,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         normalizeDataConfigForForm,
         compactDataConfigBody,
         buildDataConfigRequestBody,
+        buildAutoFetchTriggerRequestBody,
+        buildAutoFetchRunStartState,
+        runAutoFetchTriggerFlow,
     };
 })();

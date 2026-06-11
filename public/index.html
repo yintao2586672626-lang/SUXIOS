@@ -21365,6 +21365,7 @@
             const autoFetchModeOptions = requireAutoFetchStatic('autoFetchModeOptions');
             const autoFetchCollectionBlueprintRows = requireAutoFetchStatic('autoFetchCollectionBlueprintRows');
             const autoFetchFieldScopeGroups = requireAutoFetchStatic('autoFetchFieldScopeGroups');
+            const runAutoFetchTriggerFlow = requireAutoFetchStatic('runAutoFetchTriggerFlow');
             const autoFetchScopeStatusClass = (status) => ({
                 ready: 'bg-emerald-50 text-emerald-700 border-emerald-100',
                 partial: 'bg-amber-50 text-amber-700 border-amber-100',
@@ -23752,87 +23753,32 @@
             };
 
             // 手动触发自动获取
-            const triggerAutoFetch = async () => {
-                const hotelId = getAutoFetchHotelId();
-                if (!hotelId) {
-                    showToast('请先选择酒店', 'error');
-                    return;
-                }
-                if (!hasAnyPlatformFetchConfigByHotelId(hotelId)) {
-                    showToast('请先在酒店管理中为该酒店保存并关联携程或美团配置', 'error');
-                    return;
-                }
-                fetchingData.value = true;
-                startAutoFetchRunTimer();
-                const startedAt = new Date().toLocaleString('zh-CN', { hour12: false });
-                const browserHeadless = !!autoFetchBrowserHeadless.value;
-                autoFetchRunState.value = {
-                    active: true,
-                    type: 'running',
-                    message: `已提交后端执行。${autoFetchCtripExecutionText.value}；美团使用${autoFetchModeLabel(buildAutoFetchModePayload().meituan_auto_fetch_mode)}；浏览器${browserHeadless ? '无头运行' : '可视运行'}。`,
-                    started_at: startedAt,
-                    finished_at: '',
-                };
-                showToast(`正在启动平台抓取：携程 ${normalizeCtripSectionConcurrencyValue()} 页并发 / ${browserHeadless ? '无头' : '可视'}浏览器`, 'info');
-                try {
-                    const body = { system_hotel_id: hotelId, data_period: 'realtime_snapshot', interactive_browser: !browserHeadless, browser_headless: browserHeadless, ...buildAutoFetchModePayload() };
-                    const res = await request('/online-data/auto-fetch', {
-                        method: 'POST',
-                        body: JSON.stringify(body)
-                    });
-                     const finishedAt = new Date().toLocaleString('zh-CN', { hour12: false });
-                     if (res.code === 200) {
-                         const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                        const message = `采集完成并入库 ${res.data?.saved_count || 0} 条 OTA 指标行（耗时 ${durationText}）`;
-                        updateAutoFetchLastResultFromResponse(res, true, res.message || message);
-                         autoFetchRunState.value = {
-                             active: false,
-                             type: 'success',
-                             message,
-                             started_at: startedAt,
-                            finished_at: finishedAt,
-                        };
-                        showToast(message);
-                        await refreshOnlineData();
-                        await refreshOnlineHistory();
-                        await loadLatestCtripData({ silent: true });
-                        await openCtripProfileFieldsForReview();
-                        await loadAutoFetchStatus();
-                        await loadBackendGlobalNotifications().catch(() => null);
-                     } else {
-                         const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                         const message = `${res.message || '获取失败'}（耗时 ${durationText}）`;
-                        updateAutoFetchLastResultFromResponse(res, false, message);
-                         autoFetchRunState.value = {
-                             active: false,
-                             type: 'error',
-                             message,
-                            started_at: startedAt,
-                            finished_at: finishedAt,
-                        };
-                        showToast(message, 'error');
-                        await loadAutoFetchStatus();
-                        await loadBackendGlobalNotifications().catch(() => null);
-                    }
-                } catch (error) {
-                    const finishedAt = new Date().toLocaleString('zh-CN', { hour12: false });
-                    const durationText = formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value);
-                    const message = '获取失败: ' + error.message + `（耗时 ${durationText}）`;
-                    autoFetchRunState.value = {
-                        active: false,
-                        type: 'error',
-                        message,
-                        started_at: startedAt,
-                        finished_at: finishedAt,
-                    };
-                    showToast(message, 'error');
-                    await loadAutoFetchStatus().catch(() => null);
-                    await loadBackendGlobalNotifications().catch(() => null);
-                } finally {
-                    stopAutoFetchRunTimer();
-                    fetchingData.value = false;
-                }
-            };
+            const triggerAutoFetch = async () => runAutoFetchTriggerFlow({
+                getHotelId: getAutoFetchHotelId,
+                hasPlatformFetchConfig: hasAnyPlatformFetchConfigByHotelId,
+                setFetching: value => { fetchingData.value = value; },
+                startTimer: startAutoFetchRunTimer,
+                stopTimer: stopAutoFetchRunTimer,
+                getBrowserHeadless: () => autoFetchBrowserHeadless.value,
+                getCtripExecutionText: () => autoFetchCtripExecutionText.value,
+                buildModePayload: buildAutoFetchModePayload,
+                modeLabel: autoFetchModeLabel,
+                getCtripSectionConcurrency: normalizeCtripSectionConcurrencyValue,
+                notify: showToast,
+                setRunState: value => { autoFetchRunState.value = value; },
+                requestAutoFetch: body => request('/online-data/auto-fetch', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                getDurationText: () => formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value),
+                updateLastResult: updateAutoFetchLastResultFromResponse,
+                refreshOnlineData,
+                refreshOnlineHistory,
+                refreshLatestCtripData: loadLatestCtripData,
+                openCtripProfileFieldsForReview,
+                loadAutoFetchStatus,
+                loadBackendGlobalNotifications,
+            });
 
             const retryAutoFetchDate = async (date) => {
                 const hotelId = getAutoFetchHotelId();
