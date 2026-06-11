@@ -139,6 +139,9 @@ requireText('public/index.html', 'await ensureAutoFetchStaticReady();', 'entry g
 requireText('public/index.html', 'const schedulePostFetchRefresh =', 'entry defers post-fetch refresh work');
 requireText('public/index.html', 'const AUTO_FETCH_PANEL_CACHE_TTL_MS', 'entry deduplicates platform auto-fetch panel loading');
 requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads platform auto-fetch panel only on tab entry');
+requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
+requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
+requireNoText('public/ctrip-static.js', 'await refreshOnlineHistory();\n                await refreshLatestCtripData({ silent: true });', 'Ctrip manual fetch success does not block on history/latest snapshot refresh');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBody', 'auto-fetch static builds trigger request bodies');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
 requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'auto-fetch static runs manual trigger flow');
@@ -3051,6 +3054,8 @@ try {
     let fetchFlowFilterDates = null;
     let fetchFlowLatestMeta = null;
     let fetchFlowTableTab = '';
+    let fetchFlowHistorySettled = false;
+    let fetchFlowLatestSettled = false;
     const fetchFlowResult = await runCtripFetchDataFlow({
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
@@ -3097,14 +3102,27 @@ try {
       setLatestMeta: value => { fetchFlowLatestMeta = value; },
       setTableTab: value => { fetchFlowTableTab = value; },
       updateAiAnalysisHotelList: () => fetchFlowEvents.push('update-ai-hotels'),
-      refreshOnlineHistory: async () => fetchFlowEvents.push('history'),
-      refreshLatestCtripData: async params => fetchFlowEvents.push(`latest:${params.silent}`),
+      refreshOnlineHistory: () => new Promise(resolve => {
+        setTimeout(() => {
+          fetchFlowHistorySettled = true;
+          fetchFlowEvents.push('history');
+          resolve();
+        }, 25);
+      }),
+      refreshLatestCtripData: params => new Promise(resolve => {
+        setTimeout(() => {
+          fetchFlowLatestSettled = true;
+          fetchFlowEvents.push(`latest:${params.silent}`);
+          resolve();
+        }, 25);
+      }),
       getOnlineDataTab: () => 'data',
       refreshOnlineData: () => fetchFlowEvents.push('refresh-data'),
       handleFetchFailure: async message => fetchFlowEvents.push(`failure:${message}`),
       hasVisibleSnapshot: () => false,
       logError: (message) => fetchFlowEvents.push(`log-error:${message}`),
     });
+    const fetchFlowReturnedBeforePostRefresh = !fetchFlowHistorySettled && !fetchFlowLatestSettled;
     let failedFlowResultPayload = null;
     let failedFlowShowRawData = false;
     const failedFlowEvents = [];
@@ -3646,8 +3664,7 @@ try {
         && fetchFlowEvents.includes('apply:58')
         && fetchFlowEvents.includes('request-fetch')
         && fetchFlowEvents.includes('display-hotels:1')
-        && fetchFlowEvents.includes('history')
-        && fetchFlowEvents.includes('latest:true')
+        && fetchFlowReturnedBeforePostRefresh
         && fetchFlowEvents.includes('refresh-data')
         && failedFlowResult.status === 'failed'
         && failedFlowResultPayload.error === '授权过期'

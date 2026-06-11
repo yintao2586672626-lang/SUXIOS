@@ -24213,6 +24213,7 @@
                     }
                 }
                 if (newTab === 'data') {
+                    ensureManualOnlineFetchConfigReady();
                     // 清除之前的定时器，防止重复加载
                     if (dataLoadTimer) {
                         clearTimeout(dataLoadTimer);
@@ -24446,6 +24447,9 @@
                         onlineDataTab.value = item.tab;
                         if (item.path === 'online-data' && item.tab === 'platform-auto') {
                             loadAutoFetchPanel();
+                        }
+                        if (item.path === 'online-data' && item.tab === 'data') {
+                            ensureManualOnlineFetchConfigReady();
                         }
                         if (item.path === 'online-data' && item.tab === 'analysis') {
                             applyOnlineAnalysisDefaultDateRange();
@@ -33960,6 +33964,28 @@
                     return [];
                 })();
                 return meituanConfigListLoadingPromise;
+            };
+
+            let manualOnlineFetchConfigReadyPromise = null;
+            const ensureManualOnlineFetchConfigReady = async () => {
+                if (manualOnlineFetchConfigReadyPromise) {
+                    return manualOnlineFetchConfigReadyPromise;
+                }
+                const tasks = [];
+                if (!ctripConfigList.value.length) {
+                    tasks.push(loadCtripConfigList());
+                }
+                if (!meituanConfigList.value.length) {
+                    tasks.push(loadMeituanConfigList());
+                }
+                if (tasks.length === 0) {
+                    return [];
+                }
+                manualOnlineFetchConfigReadyPromise = Promise.allSettled(tasks)
+                    .finally(() => {
+                        manualOnlineFetchConfigReadyPromise = null;
+                    });
+                return manualOnlineFetchConfigReadyPromise;
             };
 
             const saveMeituanConfigItem = async () => {

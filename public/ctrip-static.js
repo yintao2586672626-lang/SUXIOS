@@ -845,8 +845,8 @@ window.SUXI_CTRIP_STATIC = (() => {
                 setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
                 setTableTab('sales');
                 updateAiAnalysisHotelList();
-                await refreshOnlineHistory();
-                await refreshLatestCtripData({ silent: true });
+                refreshOnlineHistory();
+                refreshLatestCtripData({ silent: true });
                 if (currentFetchMeta.fetched_at && (!getLatestMeta()?.fetched_at || String(getLatestMeta().fetched_at) < currentFetchMeta.fetched_at)) {
                     setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
                 }

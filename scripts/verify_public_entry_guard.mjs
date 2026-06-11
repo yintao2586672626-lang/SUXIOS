@@ -185,6 +185,13 @@ if (!fs.existsSync(indexPath)) {
     || !/const saveDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const testDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);/.test(content)) {
     failures.push('public/index.html must load auto-fetch-static.js before data-source config form parsing, saving, or testing.');
   }
+  if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*loadCtripConfigList\(\)[\s\S]*loadMeituanConfigList\(\)/.test(content)) {
+    failures.push('public/index.html must keep a lightweight manual-fetch config prewarm that loads saved Ctrip/Meituan config lists without opening the full platform-auto panel.');
+  }
+  if (!/newTab === ['"]data['"][\s\S]{0,240}ensureManualOnlineFetchConfigReady\(\)/.test(content)
+    || !/item\.path === ['"]online-data['"] && item\.tab === ['"]data['"][\s\S]{0,180}ensureManualOnlineFetchConfigReady\(\)/.test(content)) {
+    failures.push('public/index.html must prewarm saved platform configs when the online-data manual data tab is opened.');
+  }
   const onlineDataDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'online-data' && token.value)"),
     content.indexOf("if (newPage === 'operation-logs'")
