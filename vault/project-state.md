@@ -1337,6 +1337,13 @@ Updated: 2026-06-11 Asia/Shanghai
 - Ctrip, Meituan, Cookie API, and auto-fetch flows keep immediate result/state/toast updates in the main path, while history, latest snapshot, profile/data-source status, data-health, auto-fetch status, and global notification refreshes continue asynchronously with visible console errors if a refresh fails.
 - `scripts/verify_e2e_contracts.mjs` and `scripts/verify_public_entry_guard.mjs` now guard the non-blocking refresh boundary across those static helpers and validate delayed-refresh samples for auto-fetch and Meituan traffic. Verification passed with `514` E2E contract checks.
 
+## 2026-06-11 Progress: Data Config Defaults Static Split
+
+- `public/system-static.js` now owns `getDataConfigTypeDefaults()` for saved data-source default values, including Ctrip eBooking, Meituan eBooking, Ctrip traffic, Ctrip Cookie API, Meituan traffic, Booking.com, Agoda, Expedia, Ctrip/Meituan comments, and Ctrip/Meituan ads.
+- `public/index.html` now reads the defaults through `requireSystemStatic('getDataConfigTypeDefaults')` instead of inlining the mapping. This keeps data-config form initialization unchanged while reducing the SPA entry by about `60` lines.
+- `scripts/verify_e2e_contracts.mjs` now requires the extracted helper, prevents re-inlining, and validates Ctrip, Meituan, Booking.com, and unknown-platform samples in VM. Verification passed with `519` E2E contract checks.
+- Current split-map for this save point: `public/index.html` has `37397` lines and `1542` frontend function-level blocks; config domain blocks reduced to `24` and `508` span lines. `app/controller/OnlineData.php` remains unchanged at `26725` lines and `871` methods.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

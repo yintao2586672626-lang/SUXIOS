@@ -506,6 +506,67 @@ window.SUXI_SYSTEM_STATIC = (() => {
         campaign_id: '',
         time_unit: 'day',
     });
+    const getDataConfigTypeDefaults = (type) => ({
+        'ctrip-ebooking': {
+            url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+            node_id: '24588',
+            nodeId: '24588',
+            date_range: '1',
+        },
+        'meituan-ebooking': {
+            url: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
+            rank_type: 'P_RZ',
+            rankType: 'P_RZ',
+            data_scope: 'vpoi',
+            date_range: '1',
+        },
+        'ctrip-traffic': {
+            url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+            platform: 'Ctrip',
+            date_range: '1',
+        },
+        'ctrip-cookie-api': {
+            method: 'GET',
+            date_range: '1',
+            request_urls: '',
+            endpoints_json: '',
+        },
+        'meituan-traffic': {
+            date_range: '1',
+        },
+        'booking-ota': {
+            platform: 'booking',
+            url: 'https://admin.booking.com/',
+            extra_params: '{"revenue_field":"Booking.com房费收入","rooms_field":"Booking.com出租间夜"}',
+        },
+        'agoda-ota': {
+            platform: 'agoda',
+            url: 'https://ycs.agoda.com/',
+            extra_params: '{"revenue_field":"Agoda房费收入","rooms_field":"Agoda出租间夜"}',
+        },
+        'expedia-ota': {
+            platform: 'expedia',
+            url: 'https://apps.expediapartnercentral.com/',
+            extra_params: '{"revenue_field":"Expedia房费收入","rooms_field":"Expedia出租间夜"}',
+        },
+        'ctrip-comments': {
+            page_index: 1,
+            page_size: 50,
+        },
+        'meituan-comments': {
+            reply_type: '2',
+            limit: 50,
+            offset: 0,
+        },
+        'ctrip-ads': {
+            api_type: 'effect_report',
+            date_range: '1',
+        },
+        'meituan-ads': {
+            method: 'GET',
+            time_unit: 'day',
+        },
+    }[type] || {});
     const platformAccountBindingGuidePresetRows = [
         {
             key: 'ctrip-profile',
@@ -814,6 +875,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         aiGovernanceTabs,
         dataConfigProfiles,
         getDefaultDataConfigForm,
+        getDataConfigTypeDefaults,
         getPlatformAccountBindingGuideRows,
         knowledgeDocumentTextExtensions,
         knowledgeDocumentHtmlExtensions,

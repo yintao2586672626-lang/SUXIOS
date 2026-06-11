@@ -1298,6 +1298,15 @@
 - 携程普通手动获取 `runCtripFetchDataFlow()` 成功后，先写入结果、指标卡、表格、成功状态和最新 meta；历史记录、最新快照和数据列表刷新改为调用已有延后调度函数，不再阻塞“获取数据”按钮恢复。
 - 更新守卫：`verify_public_entry_guard.mjs` 要求手动数据标签保留轻量配置预热；`verify_e2e_contracts.mjs` 增加运行态样例，验证携程手动获取主流程在历史/快照刷新完成前已经返回，E2E 合同检查数增至 `499`。
 
+## 2026-06-11 保存点：数据源默认配置静态拆分
+
+- `public/system-static.js` 新增 `getDataConfigTypeDefaults()`，承载携程 eBooking、美团 eBooking、携程流量、携程 Cookie API、美团流量、Booking.com、Agoda、Expedia、携程/美团点评和携程/美团广告的数据源默认值。
+- `public/index.html` 改为通过 `requireSystemStatic('getDataConfigTypeDefaults')` 获取数据源默认值，不再内联该映射；数据源配置保存、回显、连接测试、旧配置兼容和 OTA 渠道口径不变。
+- 更新守卫：`verify_e2e_contracts.mjs` 要求入口读取提取后的 helper，禁止默认值映射重新内联，并在 VM 中校验携程、美团、Booking.com 和未知平台样例。E2E 合同检查数增至 `519`。
+- 当前 split-map：`public/index.html` 为 `37,397` 行、`1,542` 个前端函数级块；config 域从 `25` 个块收敛到 `24` 个块、`508` 行跨度。`app/controller/OnlineData.php` 仍为 `26,725` 行、`871` 个方法，是后续 P2 拆分候选。
+- 当前自审计：完整目录约 `193.73 MB`；不含 `.git` 约 `92.73 MB`；不含 `.git` 和依赖约 `63.54 MB`；Git 跟踪文件约 `18.61 MB` / `614` 个；代码范围 `369` 个文件，`195,082` 行，非空 `179,210` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

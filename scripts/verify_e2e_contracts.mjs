@@ -139,6 +139,8 @@ requireText('public/index.html', 'await ensureAutoFetchStaticReady();', 'entry g
 requireText('public/index.html', 'const schedulePostFetchRefresh =', 'entry defers post-fetch refresh work');
 requireText('public/index.html', 'const AUTO_FETCH_PANEL_CACHE_TTL_MS', 'entry deduplicates platform auto-fetch panel loading');
 requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads platform auto-fetch panel only on tab entry');
+requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
+requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
 requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
 requireNoText('public/ctrip-static.js', 'await refreshOnlineHistory();\n                await refreshLatestCtripData({ silent: true });', 'Ctrip manual fetch success does not block on history/latest snapshot refresh');
@@ -153,7 +155,9 @@ requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBo
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
 requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'auto-fetch static runs manual trigger flow');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
+requireText('public/index.html', "requireSystemStatic('getDataConfigTypeDefaults')", 'entry uses extracted data config type defaults');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
+requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'system static owns data config type defaults');
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
 requireText('public/index.html', "const testIdStaticScript = 'testid-static.js'", 'frontend lazy-loads extracted test id helper');
 requireText('public/index.html', 'const loadTestIdStatic = () =>', 'entry keeps explicit test id helper lazy loader');
@@ -286,6 +290,7 @@ requireNoText('public/index.html', "const body = { system_hotel_id: hotelId, dat
 requireNoText('public/index.html', '已提交后端执行。${autoFetchCtripExecutionText.value}', 'auto-fetch trigger start state is not re-inlined');
 requireNoText('public/index.html', 'await openCtripProfileFieldsForReview();', 'auto-fetch trigger success refresh flow is not re-inlined');
 requireNoText('public/index.html', 'const getDefaultDataConfigForm = () => ({', 'data config default form is not re-inlined');
+requireNoText('public/index.html', 'const getDataConfigTypeDefaults = (type) => ({', 'data config type defaults are not re-inlined');
 requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
 requireNoText('public/index.html', 'autoFetchRecentRuns.value.slice(0, 3).forEach', 'global notification recent-run loop is not re-inlined');
 requireNoText('public/index.html', 'const readSet = new Set(globalNotificationReadIds.value);', 'global notification read-set mapping is not re-inlined');
@@ -4173,6 +4178,7 @@ try {
     filename: 'public/system-static.js',
   });
   const getDefaultDataConfigForm = context.window.SUXI_SYSTEM_STATIC?.getDefaultDataConfigForm;
+  const getDataConfigTypeDefaults = context.window.SUXI_SYSTEM_STATIC?.getDataConfigTypeDefaults;
   if (typeof getDefaultDataConfigForm !== 'function') {
     checks.push({
       file: 'public/system-static.js',
@@ -4200,6 +4206,37 @@ try {
       label: 'data config default form returns fresh mutable arrays',
       ok: Array.isArray(second.rank_types) && !second.rank_types.includes('mutated'),
       detail: 'rank_types',
+    });
+  }
+  if (typeof getDataConfigTypeDefaults !== 'function') {
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static exports data config type defaults',
+      ok: false,
+      detail: 'getDataConfigTypeDefaults',
+    });
+  } else {
+    const ctripDefaults = getDataConfigTypeDefaults('ctrip-ebooking');
+    const meituanDefaults = getDataConfigTypeDefaults('meituan-ebooking');
+    const bookingDefaults = getDataConfigTypeDefaults('booking-ota');
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'data config type defaults keep OTA source presets',
+      ok: ctripDefaults.node_id === '24588'
+        && ctripDefaults.nodeId === '24588'
+        && String(ctripDefaults.url || '').includes('ebooking.ctrip.com')
+        && meituanDefaults.rank_type === 'P_RZ'
+        && meituanDefaults.rankType === 'P_RZ'
+        && meituanDefaults.data_scope === 'vpoi'
+        && bookingDefaults.platform === 'booking'
+        && String(bookingDefaults.extra_params || '').includes('Booking.com房费收入'),
+      detail: 'getDataConfigTypeDefaults samples',
+    });
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'unknown data config type returns empty defaults',
+      ok: Object.keys(getDataConfigTypeDefaults('unknown-platform')).length === 0,
+      detail: 'unknown-platform',
     });
   }
 } catch (error) {

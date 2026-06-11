@@ -22287,7 +22287,7 @@
             };
             const buildAutoFetchModePayload = () => ({
                 auto_fetch_mode: autoFetchMode.value,
-                ctrip_auto_fetch_mode: 'profile_browser',
+                ctrip_auto_fetch_mode: autoFetchMode.value,
                 meituan_auto_fetch_mode: autoFetchMode.value,
                 ctrip_section_concurrency: normalizeCtripSectionConcurrencyValue(),
             });
@@ -22305,7 +22305,7 @@
             });
              const autoFetchStatus = ref({
                  auto_fetch_mode: 'hybrid_auto',
-                 ctrip_auto_fetch_mode: 'profile_browser',
+                 ctrip_auto_fetch_mode: 'hybrid_auto',
                  meituan_auto_fetch_mode: 'hybrid_auto',
                  ctrip_section_concurrency: 3,
                  last_run_time: null,
@@ -23270,7 +23270,7 @@
                         autoFetchBrowserHeadless.value = !(res.data?.browser_headless === false || res.data?.browser_headless === 0 || res.data?.browser_headless === '0' || res.data?.browser_headless === 'false');
                         const sectionConcurrency = Number.parseInt(res.data?.ctrip_section_concurrency ?? res.data?.last_result?.ctrip_section_concurrency, 10);
                         autoFetchCtripSectionConcurrency.value = Number.isFinite(sectionConcurrency) ? Math.max(1, Math.min(4, sectionConcurrency)) : 3;
-                        autoFetchMode.value = res.data?.meituan_auto_fetch_mode || res.data?.auto_fetch_mode || 'hybrid_auto';
+                        autoFetchMode.value = res.data?.auto_fetch_mode || res.data?.meituan_auto_fetch_mode || 'hybrid_auto';
                         const missed = Array.isArray(res.data?.missed_dates) ? res.data.missed_dates : [];
                         const failed = Array.isArray(res.data?.failed_records) ? res.data.failed_records : [];
                         autoFetchBackfillDate.value = missed[0] || failed[0]?.data_date || autoFetchBackfillDate.value || autoFetchMaxBackfillDate.value;
@@ -24689,72 +24689,12 @@
             const savingConfig = ref(false);
             const dataConfigProfiles = requireSystemStatic('dataConfigProfiles');
             const getDefaultDataConfigForm = requireSystemStatic('getDefaultDataConfigForm');
+            const getDataConfigTypeDefaults = requireSystemStatic('getDataConfigTypeDefaults');
             const dataConfigMeta = computed(() => dataConfigProfiles[currentDataConfigType.value] || {
                 description: '配置平台数据获取参数。',
                 requiredText: '-',
                 outputText: '-'
             });
-            const getDataConfigTypeDefaults = (type) => ({
-                'ctrip-ebooking': {
-                    url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                    node_id: '24588',
-                    nodeId: '24588',
-                    date_range: '1',
-                },
-                'meituan-ebooking': {
-                    url: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
-                    rank_type: 'P_RZ',
-                    rankType: 'P_RZ',
-                    data_scope: 'vpoi',
-                    date_range: '1',
-                },
-                'ctrip-traffic': {
-                    url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
-                    platform: 'Ctrip',
-                    date_range: '1',
-                },
-                'ctrip-cookie-api': {
-                    method: 'GET',
-                    date_range: '1',
-                    request_urls: '',
-                    endpoints_json: '',
-                },
-                'meituan-traffic': {
-                    date_range: '1',
-                },
-                'booking-ota': {
-                    platform: 'booking',
-                    url: 'https://admin.booking.com/',
-                    extra_params: '{"revenue_field":"Booking.com房费收入","rooms_field":"Booking.com出租间夜"}',
-                },
-                'agoda-ota': {
-                    platform: 'agoda',
-                    url: 'https://ycs.agoda.com/',
-                    extra_params: '{"revenue_field":"Agoda房费收入","rooms_field":"Agoda出租间夜"}',
-                },
-                'expedia-ota': {
-                    platform: 'expedia',
-                    url: 'https://apps.expediapartnercentral.com/',
-                    extra_params: '{"revenue_field":"Expedia房费收入","rooms_field":"Expedia出租间夜"}',
-                },
-                'ctrip-comments': {
-                    page_index: 1,
-                    page_size: 50,
-                },
-                'meituan-comments': {
-                    reply_type: '2',
-                    limit: 50,
-                    offset: 0,
-                },
-                'ctrip-ads': {
-                    api_type: 'effect_report',
-                    date_range: '1',
-                },
-                'meituan-ads': {
-                    method: 'GET',
-                    time_unit: 'day',
-                },
-            }[type] || {});
             const dataConfigForm = ref(getDefaultDataConfigForm());
             const showDataConfigSpidertoken = ref(false);
             const showDataConfigCookie = ref(false);
