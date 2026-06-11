@@ -18312,6 +18312,9 @@
 
     const languageOptions = requireAppSystemStatic('languageOptions');
     const menuItemDefinitions = requireAppSystemStatic('menuItemDefinitions');
+    const createRegisterForm = requireAppSystemStatic('createRegisterForm');
+    const buildRegisterRequestPayload = requireAppSystemStatic('buildRegisterRequestPayload');
+    const validateRegisterRequestPayload = requireAppSystemStatic('validateRegisterRequestPayload');
 
     const sharedComponents = window.SUXI_SHARED_COMPONENTS;
     if (!sharedComponents || typeof sharedComponents !== 'object') {
@@ -18468,12 +18471,7 @@
             const registerLoading = ref(false);
             const registerError = ref('');
             const registerSuccess = ref('');
-            const registerForm = ref({
-                username: '',
-                realname: '',
-                password: '',
-                confirm_password: ''
-            });
+            const registerForm = ref(createRegisterForm());
             const rememberAccount = ref(hasRememberedAccount);
             const directorEntryVisible = ref(false);
             const directorEntryAnswer = ref('');
@@ -23065,7 +23063,7 @@
             const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh('online-data-list', () => refreshOnlineData(), 260);
             const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340);
             const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
-            const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus(), 180);
+            const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);
             const scheduleAutoFetchStatusDetailRefresh = () => schedulePostFetchRefresh('auto-fetch-status-detail', () => loadAutoFetchStatus({ detail: true }), 520);
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
             const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
@@ -23203,14 +23201,20 @@
                 return run;
             };
 
+            const autoFetchStatusRequestPromises = new Map();
             const loadAutoFetchStatus = async (options = {}) => {
+                const hotelId = getAutoFetchHotelId();
+                const includeDetail = !(options && (options.detail === false || options.includeDetail === false));
+                const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;
+                if (autoFetchStatusRequestPromises.has(requestKey)) {
+                    return autoFetchStatusRequestPromises.get(requestKey);
+                }
+                const run = (async () => {
                 try {
                     const params = new URLSearchParams();
-                    const hotelId = getAutoFetchHotelId();
                     if (hotelId) {
                         params.append('hotel_id', hotelId);
                     }
-                    const includeDetail = !(options && (options.detail === false || options.includeDetail === false));
                     if (!includeDetail) {
                         params.append('include_detail', '0');
                     }
@@ -23256,7 +23260,12 @@
                     }
                 } catch (error) {
                     console.error('加载自动获取状态失败:', error);
+                } finally {
+                    autoFetchStatusRequestPromises.delete(requestKey);
                 }
+                })();
+                autoFetchStatusRequestPromises.set(requestKey, run);
+                return run;
             };
 
             const loadPlatformProfileStatus = async (options = {}) => {
@@ -23801,6 +23810,30 @@
                 user.value?.is_super_admin ? 'super' : 'normal',
             ].join('|');
 
+            const buildDataHealthPanelJobs = (normalizedMode) => {
+                const jobs = [
+                    loadAutoFetchStatus({ detail: normalizedMode === 'full' }),
+                    loadCookieStatus(),
+                    loadCollectionReliability(normalizedMode),
+                ];
+                if (normalizedMode === 'full') {
+                    jobs.push(
+                        loadDataHealthOperationLogs(),
+                        loadPublicEndpointSecurity(),
+                        loadHotelDataDashboard(),
+                        loadPlatformCollectionResources()
+                    );
+                }
+                return jobs;
+            };
+
+            const scheduleDataHealthLightDiagnostics = () => {
+                deferUiTask(() => Promise.allSettled([
+                    loadDataHealthOperationLogs(),
+                    loadPublicEndpointSecurity(),
+                ]), 360);
+            };
+
             const loadDataHealthPanel = async (mode = 'light', options = {}) => {
                 const normalizedMode = mode === 'full' ? 'full' : 'light';
                 const force = !!options.force || normalizedMode === 'full';
@@ -23827,16 +23860,7 @@
                         dataHealthFullDiagnosticsLoaded.value = false;
                     }
                 }
-                const jobs = [
-                    loadAutoFetchStatus(),
-                    loadCookieStatus(),
-                    loadCollectionReliability(normalizedMode),
-                    loadDataHealthOperationLogs(),
-                    loadPublicEndpointSecurity(),
-                ];
-                if (normalizedMode === 'full') {
-                    jobs.push(loadHotelDataDashboard(), loadPlatformCollectionResources());
-                }
+                const jobs = buildDataHealthPanelJobs(normalizedMode);
                 const run = Promise.allSettled(jobs).finally(() => {
                     if (normalizedMode === 'light' && dataHealthLightCache.key === cacheKey && dataHealthLightCache.promise === run) {
                         dataHealthLightCache.promise = null;
@@ -23851,6 +23875,9 @@
                     };
                 }
                 await run;
+                if (normalizedMode === 'light') {
+                    scheduleDataHealthLightDiagnostics();
+                }
             };
 
             // 手动触发自动获取
@@ -28278,12 +28305,7 @@
 
             // 登录
             const resetRegisterForm = () => {
-                registerForm.value = {
-                    username: '',
-                    realname: '',
-                    password: '',
-                    confirm_password: ''
-                };
+                registerForm.value = createRegisterForm();
             };
 
             const openRegisterForm = () => {
@@ -28313,20 +28335,13 @@
                     return;
                 }
 
-                const username = String(registerForm.value.username || '').trim();
-                const realname = String(registerForm.value.realname || '').trim();
-                const password = String(registerForm.value.password || '');
-                const confirmPassword = String(registerForm.value.confirm_password || '');
-
                 registerError.value = '';
                 registerSuccess.value = '';
 
-                if (!username || !password || !confirmPassword) {
-                    registerError.value = '请填写用户名、密码和确认密码';
-                    return;
-                }
-                if (password !== confirmPassword) {
-                    registerError.value = '两次输入的密码不一致';
+                const payload = buildRegisterRequestPayload(registerForm.value);
+                const validationError = validateRegisterRequestPayload(payload);
+                if (validationError) {
+                    registerError.value = validationError;
                     return;
                 }
 
@@ -28334,16 +28349,11 @@
                 try {
                     const res = await request('/auth/register', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            username,
-                            realname,
-                            password,
-                            confirm_password: confirmPassword
-                        })
+                        body: JSON.stringify(payload)
                     });
 
                     if (res.code === 200) {
-                        loginForm.value.username = username;
+                        loginForm.value.username = payload.username;
                         loginForm.value.password = '';
                         registerSuccess.value = '注册成功，请登录';
                         resetRegisterForm();
@@ -33513,26 +33523,38 @@
                 openHotelModal(hotel, { expandOta: true });
             };
 
+            let ctripConfigListLoadingPromise = null;
+            const ctripConfigListLoading = ref(false);
             const loadCtripConfigList = async () => {
-                try {
-                    const res = await request('/online-data/get-ctrip-config-list');
-                    if (res && res.code === 200) {
-                        const list = res.data || [];
-                        ctripConfigList.value = Array.isArray(list) ? list : Object.values(list);
-                        const validIds = new Set(ctripConfigList.value.map(item => String(item.id)));
-                        selectedCtripConfigIds.value = selectedCtripConfigIds.value.filter(id => validIds.has(String(id)));
-                        if (selectedCtripHotelId.value) {
-                            await applyCtripHotelConfig(false);
-                        }
-                        return ctripConfigList.value;
-                    } else {
-                        console.error('[CTrip] 加载失败:', res?.message || '接口返回异常');
-                    }
-                } catch (e) {
-                    console.error('[CTrip] 异常:', e);
-                    showToast('加载携程配置失败', 'error');
+                if (ctripConfigListLoadingPromise) {
+                    return ctripConfigListLoadingPromise;
                 }
-                return [];
+                ctripConfigListLoading.value = true;
+                ctripConfigListLoadingPromise = (async () => {
+                    try {
+                        const res = await request('/online-data/get-ctrip-config-list');
+                        if (res && res.code === 200) {
+                            const list = res.data || [];
+                            ctripConfigList.value = Array.isArray(list) ? list : Object.values(list);
+                            const validIds = new Set(ctripConfigList.value.map(item => String(item.id)));
+                            selectedCtripConfigIds.value = selectedCtripConfigIds.value.filter(id => validIds.has(String(id)));
+                            if (selectedCtripHotelId.value) {
+                                await applyCtripHotelConfig(false);
+                            }
+                            return ctripConfigList.value;
+                        } else {
+                            console.error('[CTrip] 加载失败:', res?.message || '接口返回异常');
+                        }
+                    } catch (e) {
+                        console.error('[CTrip] 异常:', e);
+                        showToast('加载携程配置失败', 'error');
+                    } finally {
+                        ctripConfigListLoadingPromise = null;
+                        ctripConfigListLoading.value = false;
+                    }
+                    return [];
+                })();
+                return ctripConfigListLoadingPromise;
             };
 
             const saveCtripConfig = async () => runCtripConfigSaveFlow({

@@ -340,6 +340,27 @@ window.SUXI_SYSTEM_STATIC = (() => {
         { key: 'status', label: '状态' },
         { key: 'actions', label: '操作' },
     ];
+    const createRegisterForm = () => ({
+        username: '',
+        realname: '',
+        password: '',
+        confirm_password: '',
+    });
+    const buildRegisterRequestPayload = (form = {}) => ({
+        username: String(form.username || '').trim(),
+        realname: String(form.realname || '').trim(),
+        password: String(form.password || ''),
+        confirm_password: String(form.confirm_password || ''),
+    });
+    const validateRegisterRequestPayload = (payload = {}) => {
+        if (!payload.username || !payload.password || !payload.confirm_password) {
+            return '请填写用户名、密码和确认密码';
+        }
+        if (payload.password !== payload.confirm_password) {
+            return '两次输入的密码不一致';
+        }
+        return '';
+    };
     const createHotelForm = ({ hotel = null, operatorName = '', code = '', parsedDescription = {} } = {}) => {
         if (hotel) {
             return {
@@ -962,6 +983,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
         testIdNameMap,
         hotelColumns,
         userColumns,
+        createRegisterForm,
+        buildRegisterRequestPayload,
+        validateRegisterRequestPayload,
         createHotelForm,
         buildHotelSavePayload,
         knowledgeCenterBaseSourceOptions,

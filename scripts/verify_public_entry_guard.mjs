@@ -253,6 +253,9 @@ if (!fs.existsSync(indexPath)) {
   if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*loadCtripConfigList\(\)[\s\S]*loadMeituanConfigList\(\)/.test(content)) {
     failures.push('public/index.html must keep a lightweight manual-fetch config prewarm that loads saved Ctrip/Meituan config lists without opening the full platform-auto panel.');
   }
+  if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise\) \{[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)) {
+    failures.push('public/index.html must deduplicate concurrent Ctrip config-list loads for manual-fetch prewarm and tab switching.');
+  }
   if (!/newTab === ['"]data['"][\s\S]{0,240}ensureManualOnlineFetchConfigReady\(\)/.test(content)
     || !/item\.path === ['"]online-data['"] && item\.tab === ['"]data['"][\s\S]{0,180}ensureManualOnlineFetchConfigReady\(\)/.test(content)) {
     failures.push('public/index.html must prewarm saved platform configs when the online-data manual data tab is opened.');
@@ -317,13 +320,30 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const payload = buildHotelSavePayload({')) {
     failures.push('public/index.html must use system-static.js helpers for hotel admin forms and save payloads.');
   }
+  if (!content.includes("requireAppSystemStatic('createRegisterForm')")
+    || !content.includes("requireAppSystemStatic('buildRegisterRequestPayload')")
+    || !content.includes("requireAppSystemStatic('validateRegisterRequestPayload')")
+    || !content.includes('const registerForm = ref(createRegisterForm());')
+    || !content.includes('const payload = buildRegisterRequestPayload(registerForm.value);')
+    || !content.includes('const validationError = validateRegisterRequestPayload(payload);')) {
+    failures.push('public/index.html must use system-static.js helpers for self-registration form defaults, payloads, and validation.');
+  }
   if (!systemStaticContent.includes('const createHotelForm = ({ hotel = null, operatorName = \'\', code = \'\', parsedDescription = {} } = {}) =>')
     || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')) {
     failures.push('public/system-static.js must own hotel admin form defaults and save payload normalization.');
   }
+  if (!systemStaticContent.includes('const createRegisterForm = () => ({')
+    || !systemStaticContent.includes('const buildRegisterRequestPayload = (form = {}) => ({')
+    || !systemStaticContent.includes('const validateRegisterRequestPayload = (payload = {}) => {')) {
+    failures.push('public/system-static.js must own self-registration form defaults, payload normalization, and validation.');
+  }
   if (content.includes("hotelForm.value = { id: null, name: '', code: getNextHotelCode()")
     || content.includes('name: hotelForm.value.name.trim(),\n                    code: normalizedCode,')) {
     failures.push('public/index.html must not re-inline hotel admin form defaults or save payload normalization.');
+  }
+  if (content.includes("const username = String(registerForm.value.username || '').trim();")
+    || content.includes("body: JSON.stringify({\n                            username,")) {
+    failures.push('public/index.html must not re-inline self-registration payload normalization.');
   }
   if (content.includes('successCount = Number(res.data?.success_count')
     || content.includes("error.name === 'AbortError'")
@@ -337,6 +357,31 @@ if (!fs.existsSync(indexPath)) {
   if (!/await loadAutoFetchStatus\(\{\s*detail:\s*false\s*\}\);[\s\S]*scheduleAutoFetchStatusDetailRefresh\(\);[\s\S]*schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
     || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {
     failures.push('public/index.html must let platform-auto first paint wait only for light auto-fetch status and defer detail/profile refresh.');
+  }
+  if (!content.includes('const autoFetchStatusRequestPromises = new Map();')
+    || !content.includes("const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;")
+    || !content.includes('if (autoFetchStatusRequestPromises.has(requestKey))')
+    || !content.includes('autoFetchStatusRequestPromises.delete(requestKey);')) {
+    failures.push('public/index.html must deduplicate concurrent auto-fetch status requests by hotel and detail level.');
+  }
+  if (!content.includes("const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);")) {
+    failures.push('public/index.html must use light auto-fetch status for post-fetch status refreshes.');
+  }
+  const dataHealthPanelSource = content.slice(
+    content.indexOf('const buildDataHealthPanelJobs = (normalizedMode) =>'),
+    content.indexOf('const triggerAutoFetch = async')
+  );
+  if (!dataHealthPanelSource.includes('const buildDataHealthPanelJobs = (normalizedMode) => {')
+    || !dataHealthPanelSource.includes("loadAutoFetchStatus({ detail: normalizedMode === 'full' })")
+    || !dataHealthPanelSource.includes('loadCookieStatus()')
+    || !dataHealthPanelSource.includes('loadCollectionReliability(normalizedMode)')
+    || !dataHealthPanelSource.includes('loadDataHealthOperationLogs()')
+    || !dataHealthPanelSource.includes('loadPublicEndpointSecurity()')
+    || !dataHealthPanelSource.includes('loadHotelDataDashboard()')
+    || !dataHealthPanelSource.includes('const scheduleDataHealthLightDiagnostics = () => {')
+    || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelJobs(normalizedMode);')
+    || !dataHealthPanelSource.includes('scheduleDataHealthLightDiagnostics();')) {
+    failures.push('public/index.html must keep data-health panel job composition and deferred light diagnostics out of loadDataHealthPanel.');
   }
   const autoFetchModePayloadSource = content.slice(
     content.indexOf('const buildAutoFetchModePayload = () => ({'),

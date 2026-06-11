@@ -1,6 +1,6 @@
 # SUXIOS Project State Vault
 
-Updated: 2026-06-11 Asia/Shanghai
+Updated: 2026-06-12 Asia/Shanghai
 
 ## Current Verified State
 
@@ -1488,6 +1488,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Current split-map: `public/index.html` has `37271` lines, `1550` frontend function-level blocks, and `44` `currentPage` refs; the `hotel_admin` domain span dropped from `1344` to `1332` lines and backend `auto_fetch` span is `2107` lines. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
 - Current self-audit: full directory about `213.91 MB`, without `.git` about `101.5 MB`, without `.git` and dependencies about `72.31 MB`, tracked files about `18.81 MB` / `618` files; code scope `373` files, `197664` total lines, and `181686` nonblank lines. Runtime cleanup is about `8.57 MB` / `230` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: PHP lint for `app/controller/OnlineData.php`; `tests\OnlineDataTest.php --filter "AutoFetch|autoFetch|retryAutoFetch"` with `14` tests and `126` assertions; `node --check public\system-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `634` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
+## 2026-06-12 Progress: Register Helper Split and Data-Health Light Refresh
+
+- `public/system-static.js` now owns `createRegisterForm()`, `buildRegisterRequestPayload()`, and `validateRegisterRequestPayload()` for self-registration defaults, request-body normalization, and explicit password/missing-field validation.
+- `public/index.html` keeps `handleRegister()` focused on UI state, `/auth/register`, success login-name handoff, error display, and password-field focus. It no longer inlines register form defaults or payload construction.
+- `public/index.html` now builds data-health panel jobs through `buildDataHealthPanelJobs()` and schedules light-mode operation-log/security diagnostics through `scheduleDataHealthLightDiagnostics()` after the core OTA health work returns.
+- `public/index.html` now de-duplicates concurrent Ctrip config-list loads with `ctripConfigListLoadingPromise`, avoiding repeated `/online-data/get-ctrip-config-list` calls during manual-fetch prewarm, Ctrip page entry, and refresh paths.
+- This does not change `/auth/register`, data-health endpoints, Ctrip config endpoints, OTA collection, persistence, field semantics, AI analysis, permissions, or database schema. Missing, failed, running, and queued states remain explicit.
+- Guards now require the register helpers, data-health job helper, light diagnostics scheduler, and Ctrip config-list in-flight reuse; they also reject re-inlined register payload normalization in `public/index.html`.
+- Current split-map: `public/index.html` has `37293` lines, `1553` frontend function-level blocks, and `44` `currentPage` refs; `handleRegister` is no longer in the largest-block list, and the largest frontend blocks are `59` lines. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `216.39 MB`, without `.git` about `103.01 MB`, without `.git` and dependencies about `73.82 MB`, tracked files about `18.83 MB` / `618` files; code scope `373` files, `197806` total lines, and `181827` nonblank lines. Runtime cleanup is about `10.06 MB` / `265` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `655` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
 ## Maintenance Rule
 

@@ -53,6 +53,9 @@ requireText('public/index.html', 'data-testid="open-register"', 'login page expo
 requireText('public/index.html', 'data-testid="register-submit"', 'login page exposes self-registration submit');
 requireText('public/index.html', 'data-testid="register-username"', 'login page exposes self-registration fields');
 requireText('public/index.html', "request('/auth/register'", 'frontend calls public self-registration API');
+requireText('public/index.html', "requireAppSystemStatic('createRegisterForm')", 'entry uses extracted register form builder');
+requireText('public/index.html', "requireAppSystemStatic('buildRegisterRequestPayload')", 'entry uses extracted register payload builder');
+requireText('public/index.html', "requireAppSystemStatic('validateRegisterRequestPayload')", 'entry uses extracted register validation');
 requireText('public/index.html', 'data-testid="app-nav"', 'sidebar nav has stable selector');
 requireText('public/index.html', 'data-testid="app-main"', 'main app surface has stable selector');
 requireText('public/index.html', ':data-current-page="currentPage"', 'main app surface exposes current page state');
@@ -173,11 +176,21 @@ requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlat
 requireNoText('public/index.html', 'await loadAutoFetchPanel();\n                    return;\n                }\n                downloadCenterTab.value = tab;', 'download tab switch does not load full platform auto-fetch panel for Ctrip settings');
 requireText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchStatusDetailRefresh();\n                    schedulePlatformProfileStatusRefresh({ silent: true });', 'platform auto-fetch first paint uses light status and defers detail/profile refresh');
 requireText('public/index.html', "params.append('include_detail', '0');", 'platform auto-fetch status can request light backend status');
+requireText('public/index.html', "const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);", 'post-fetch status refresh uses light auto-fetch status');
+requireText('public/index.html', 'const autoFetchStatusRequestPromises = new Map();', 'entry deduplicates concurrent auto-fetch status requests');
+requireText('public/index.html', "const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;", 'auto-fetch status request dedupe is scoped by hotel and detail level');
+requireText('public/index.html', "loadAutoFetchStatus({ detail: normalizedMode === 'full' })", 'data-health light refresh uses light auto-fetch status');
 requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
 requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireText('app/controller/OnlineData.php', "get('include_detail'", 'backend auto-fetch status supports light detail requests');
 requireText('app/controller/OnlineData.php', "'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
+requireText('public/index.html', 'const buildDataHealthPanelJobs = (normalizedMode) =>', 'entry builds data-health panel jobs outside the main loader');
+requireText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () =>', 'entry defers non-core light data-health diagnostics through a helper');
+requireText('public/index.html', 'const jobs = buildDataHealthPanelJobs(normalizedMode);', 'data-health panel loader uses extracted job composition');
+requireText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light data-health refresh defers non-core diagnostics after OTA health returns');
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
+requireText('public/index.html', 'let ctripConfigListLoadingPromise = null;', 'entry deduplicates concurrent Ctrip config-list loads');
+requireText('public/index.html', 'if (ctripConfigListLoadingPromise) {\n                    return ctripConfigListLoadingPromise;', 'Ctrip config-list loader reuses in-flight requests');
 requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
@@ -246,6 +259,9 @@ requireText('public/index.html', "requireSystemStatic('getDataConfigTypeDefaults
 requireText('public/index.html', "requireSystemStatic('getSystemConfigDefaults')", 'entry uses extracted system config defaults');
 requireText('public/index.html', "requireSystemStatic('createHotelForm')", 'entry uses extracted hotel form builder');
 requireText('public/index.html', "requireSystemStatic('buildHotelSavePayload')", 'entry uses extracted hotel save payload builder');
+requireText('public/system-static.js', 'const createRegisterForm', 'system static builds register default forms');
+requireText('public/system-static.js', 'const buildRegisterRequestPayload', 'system static builds register request payloads');
+requireText('public/system-static.js', 'const validateRegisterRequestPayload', 'system static validates register request payloads');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'system static owns data config type defaults');
 requireText('public/system-static.js', 'const getSystemConfigDefaults', 'system static owns system config defaults');
@@ -4857,6 +4873,9 @@ try {
   const getDefaultDataConfigForm = context.window.SUXI_SYSTEM_STATIC?.getDefaultDataConfigForm;
   const getDataConfigTypeDefaults = context.window.SUXI_SYSTEM_STATIC?.getDataConfigTypeDefaults;
   const getSystemConfigDefaults = context.window.SUXI_SYSTEM_STATIC?.getSystemConfigDefaults;
+  const createRegisterForm = context.window.SUXI_SYSTEM_STATIC?.createRegisterForm;
+  const buildRegisterRequestPayload = context.window.SUXI_SYSTEM_STATIC?.buildRegisterRequestPayload;
+  const validateRegisterRequestPayload = context.window.SUXI_SYSTEM_STATIC?.validateRegisterRequestPayload;
   const createHotelForm = context.window.SUXI_SYSTEM_STATIC?.createHotelForm;
   const buildHotelSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelSavePayload;
   if (typeof getDefaultDataConfigForm !== 'function') {
@@ -4947,6 +4966,38 @@ try {
       label: 'system config defaults return fresh objects',
       ok: second.system_name === '宿析OS',
       detail: 'system_name',
+    });
+  }
+  if (typeof createRegisterForm !== 'function' || typeof buildRegisterRequestPayload !== 'function' || typeof validateRegisterRequestPayload !== 'function') {
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static exports register form helpers',
+      ok: false,
+      detail: 'createRegisterForm/buildRegisterRequestPayload/validateRegisterRequestPayload',
+    });
+  } else {
+    const first = createRegisterForm();
+    const second = createRegisterForm();
+    first.username = 'mutated';
+    const payload = buildRegisterRequestPayload({
+      username: ' test_user ',
+      realname: ' 店长 ',
+      password: 'secret123',
+      confirm_password: 'secret123',
+    });
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static register helpers preserve defaults, normalization, and explicit validation',
+      ok: first.username === 'mutated'
+        && second.username === ''
+        && payload.username === 'test_user'
+        && payload.realname === '店长'
+        && payload.password === 'secret123'
+        && payload.confirm_password === 'secret123'
+        && validateRegisterRequestPayload(payload) === ''
+        && validateRegisterRequestPayload({ ...payload, confirm_password: 'other' }).includes('不一致')
+        && validateRegisterRequestPayload({ ...payload, username: '' }).includes('用户名'),
+      detail: 'createRegisterForm/buildRegisterRequestPayload/validateRegisterRequestPayload samples',
     });
   }
   if (typeof createHotelForm !== 'function' || typeof buildHotelSavePayload !== 'function') {

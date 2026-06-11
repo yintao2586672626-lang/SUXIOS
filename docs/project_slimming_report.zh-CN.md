@@ -1,6 +1,6 @@
 # 项目瘦身报告
 
-更新日期：2026-06-11
+更新日期：2026-06-12
 
 范围：本报告只处理本地运行产物、测试产物、可再生成缓存和自净化审计；不删除业务代码、验收文档、`.git` 历史、依赖锁文件或数据库备份。
 
@@ -1457,6 +1457,18 @@
 - 当前 split-map：`public/index.html` 为 `37,271` 行、`1,550` 个前端函数级块、`44` 个 `currentPage` 引用，`hotel_admin` 域 span 从 `1,344` 行降至 `1,332` 行，`auto_fetch` 后端域 span 为 `2,107` 行；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
 - 当前自审计：完整目录约 `213.91 MB`；不含 `.git` 约 `101.5 MB`；不含 `.git` 和依赖约 `72.31 MB`；Git 跟踪文件约 `18.81 MB` / `618` 个；代码范围 `373` 个文件、`197,664` 行、非空 `181,686` 行；默认可清理目标为 `runtime` 约 `8.57 MB` / `230` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "AutoFetch|autoFetch|retryAutoFetch"`（`14` tests / `126` assertions）、`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`634` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
+## 2026-06-12 保存点：注册入口 helper、数据健康轻量刷新与携程配置加载去重
+
+- `public/system-static.js` 新增 `createRegisterForm()`、`buildRegisterRequestPayload()` 和 `validateRegisterRequestPayload()`，承载自注册表单默认值、请求体 trim/标准化和显式前端校验。
+- `public/index.html` 的 `handleRegister()` 继续保留 `/auth/register` 请求、loading、成功回填登录用户名、失败提示和登录框聚焦；不再内联注册表单默认值、请求体字段组装和密码一致性校验。
+- `public/index.html` 将数据健康面板任务编排抽为 `buildDataHealthPanelJobs()`，将轻量模式下的操作日志/公开端点安全诊断抽为 `scheduleDataHealthLightDiagnostics()` 后置执行；轻量首屏仍优先返回 OTA 自动获取状态、Cookie 状态和采集可靠性。
+- `public/index.html` 为 `loadCtripConfigList()` 增加 `ctripConfigListLoadingPromise`，复用并发中的携程配置列表请求，避免手动数据页预热、携程入口和保存后刷新重复触发同一接口。
+- 本保存点不改变 `/auth/register`、数据健康接口、携程配置接口、OTA 采集、入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未完成和后台运行状态仍显式暴露。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求注册 helper、数据健康任务 helper、携程配置列表并发去重，并禁止把注册 payload 标准化重新内联回 `public/index.html`；`verify_e2e_contracts.mjs` 在 VM 中验证注册 helper 默认值独立性、trim 语义和错误提示，并将合同检查数提升到 `655`。
+- 当前 split-map：`public/index.html` 为 `37,293` 行、`1,553` 个前端函数级块、`44` 个 `currentPage` 引用；`handleRegister` 已退出最大块列表，最大前端块为 `run` / `importKnowledgeUnits` 的 `59` 行；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `216.39 MB`；不含 `.git` 约 `103.01 MB`；不含 `.git` 和依赖约 `73.82 MB`；Git 跟踪文件约 `18.83 MB` / `618` 个；代码范围 `373` 个文件、`197,806` 行、非空 `181,827` 行；默认可清理目标为 `runtime` 约 `10.06 MB` / `265` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`655` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
 ## 后续处理建议
 
