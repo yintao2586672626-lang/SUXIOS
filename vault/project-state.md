@@ -1572,6 +1572,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `226.91 MB`, without `.git` about `108.03 MB`, without `.git` and dependencies about `78.84 MB`, tracked files about `18.89 MB` / `618` files; code scope `373` files, `198393` total lines, and `182410` nonblank lines. Runtime cleanup is about `15.03 MB` / `342` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\meituan-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `734` checks; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Ctrip Manual Tab Static Helper Split
+
+- `public/ctrip-static.js` now exports `runCtripManualTabSwitch()` for Ctrip eBooking manual-tab light data-health refresh, config-list loading, selected-hotel config application, ad-config sync, and active page/tab rechecks.
+- `public/index.html` keeps `openCtripManualTab()` as a thin Vue wrapper that switches the tab, schedules `deferUiTask()`, and injects refs/callbacks into the static helper. It no longer inlines `await loadCtripConfigList()`, Ctrip tab branching, or ad-sync branching.
+- The helper checks the active page and tab around config loading, config application, and ad sync. Stale async results return `stale_*` statuses and do not write into the old tab.
+- This does not change Ctrip fetch APIs, config APIs, OTA persistence, field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and running states remain explicit.
+- Guards now require `requireCtripStatic('runCtripManualTabSwitch')`, reject re-inlined Ctrip manual-tab async branching in `public/index.html`, and validate ads-active, config-stale, and data-health samples in VM; `verify:e2e-contracts` covers `740` checks.
+- Current split-map: `public/index.html` has `37466` lines, `1568` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `228.66 MB`, without `.git` about `109.07 MB`, without `.git` and dependencies about `79.88 MB`, tracked files about `18.9 MB` / `618` files; code scope `373` files, `198506` total lines, and `182517` nonblank lines. Runtime cleanup is about `16.05 MB` / `361` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\ctrip-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `740` checks; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

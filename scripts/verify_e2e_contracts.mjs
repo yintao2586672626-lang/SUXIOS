@@ -121,10 +121,12 @@ requireText('public/ctrip-static.js', 'const runCtripCookieApiCaptureFlow', 'Ctr
 requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
 requireText('public/index.html', "requireCtripStatic('createCtripConfigForm')", 'entry uses extracted Ctrip config default form builder');
 requireText('public/index.html', "requireCtripStatic('runCtripConfigSaveFlow')", 'entry uses extracted Ctrip config save flow runner');
+requireText('public/index.html', "requireCtripStatic('runCtripManualTabSwitch')", 'entry uses extracted Ctrip manual tab switch helper');
 requireText('public/ctrip-static.js', 'const createCtripConfigForm', 'Ctrip static builds config default forms');
 requireText('public/ctrip-static.js', 'const buildCtripConfigSavePayload', 'Ctrip static builds config save payloads');
 requireText('public/ctrip-static.js', 'const validateCtripConfigSaveInput', 'Ctrip static validates config save inputs');
 requireText('public/ctrip-static.js', 'const runCtripConfigSaveFlow', 'Ctrip static runs config save flow');
+requireText('public/ctrip-static.js', 'const runCtripManualTabSwitch = async', 'Ctrip static runs manual tab switch orchestration');
 requireText('public/index.html', "requireCtripStatic('createCtripProfileFieldForm')", 'entry uses extracted Ctrip Profile field default form builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSmartDefaults')", 'entry uses extracted Ctrip Profile field smart defaults builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSavePayload')", 'entry uses extracted Ctrip Profile field save payload builder');
@@ -227,7 +229,9 @@ requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking') re
 requireText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),", 'Ctrip manual page first paint keeps only hotel list and light health status in the initial load');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promise.allSettled([\n                        loadOnlineDataHotelList(),\n                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),\n                        loadDataHealthPanel('light'),\n                        loadCookiesList(),\n                        loadBookmarklet(),\n                    ]));", 'Ctrip manual page must not start config/latest/cookie/bookmarklet work in the first-paint loader');
 requireText('public/index.html', 'const openCtripManualTab = (tab) => {', 'Ctrip manual tabs use a non-blocking tab switch helper');
-requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;", 'deferred Ctrip manual tab sync is scoped to the active tab');
+requireText('public/index.html', 'deferUiTask(() => runCtripManualTabSwitch({', 'Ctrip manual tab switch delegates async branching to static helper');
+requireText('public/index.html', 'getCurrentPage: () => currentPage.value', 'Ctrip manual tab static helper receives active page reader');
+requireText('public/index.html', 'getCurrentTab: () => onlineDataTab.value', 'Ctrip manual tab static helper receives active tab reader');
 requireText('public/index.html', '@click="openCtripManualTab(\'data-health\')"', 'Ctrip data-health tab uses the non-blocking tab helper');
 requireText('public/index.html', '@click="openCtripManualTab(\'ctrip-flow-overview\')"', 'Ctrip flow overview tab does not inline config-list loading');
 requireText('public/index.html', '@click="openCtripManualTab(\'ctrip-fetch-settings\')"', 'Ctrip fetch settings tab does not inline config-list loading');
@@ -235,6 +239,7 @@ requireText('public/index.html', '@click="openCtripManualTab(\'ctrip-ads\')"', '
 requireNoText('public/index.html', "onlineDataTab = 'ctrip-flow-overview'; loadCtripConfigList()", 'Ctrip manual tabs must not synchronously request saved configs from inline click handlers');
 requireNoText('public/index.html', "onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList()", 'Ctrip fetch settings tab must not synchronously request saved configs from inline click handlers');
 requireNoText('public/index.html', "onlineDataTab = 'ctrip-ads'; syncCtripAdsDirectConfig(false)", 'Ctrip ads tab must not synchronously sync ad config from inline click handlers');
+requireNoText('public/index.html', "await loadCtripConfigList();\n                        if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;", 'Ctrip manual tab switch must not re-inline config loading and stale-tab checks');
 requireText('public/index.html', 'const openCtripOverviewFetchTab = async (tabName) => {\n                currentPage.value = \'ctrip-ebooking\';', 'Ctrip overview external entry keeps the route switch first');
 requireText('public/index.html', 'onlineDataTab.value = tabName;\n                deferUiTask(async () => {', 'Ctrip overview external entry defers config loading after switching tabs');
 requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {', 'Meituan manual page defers config matching and secondary startup refreshes');
@@ -3297,6 +3302,7 @@ try {
   const buildCtripConfigSavePayload = ctripStatic.buildCtripConfigSavePayload;
   const validateCtripConfigSaveInput = ctripStatic.validateCtripConfigSaveInput;
   const runCtripConfigSaveFlow = ctripStatic.runCtripConfigSaveFlow;
+  const runCtripManualTabSwitch = ctripStatic.runCtripManualTabSwitch;
   const createCtripProfileFieldForm = ctripStatic.createCtripProfileFieldForm;
   const buildCtripProfileFieldSmartDefaults = ctripStatic.buildCtripProfileFieldSmartDefaults;
   const buildCtripProfileFieldSavePayload = ctripStatic.buildCtripProfileFieldSavePayload;
@@ -3436,6 +3442,59 @@ try {
         && guardResult.status === 'missing_name'
         && guardEvents[0] === 'notify:error:请输入配置名称',
       detail: 'runCtripConfigSaveFlow state samples',
+    });
+  }
+  if (typeof runCtripManualTabSwitch !== 'function') {
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip static exports manual tab switch helper',
+      ok: false,
+      detail: 'runCtripManualTabSwitch',
+    });
+  } else {
+    const manualTabEvents = [];
+    let activeManualTab = 'ctrip-ads';
+    const manualAdsResult = await runCtripManualTabSwitch({
+      tab: 'ctrip-ads',
+      getCurrentPage: () => 'ctrip-ebooking',
+      getCurrentTab: () => activeManualTab,
+      loadConfigList: async () => { manualTabEvents.push('load'); },
+      applyHotelConfig: async flag => { manualTabEvents.push(`apply:${flag}`); },
+      syncAdsConfig: async flag => { manualTabEvents.push(`ads:${flag}`); },
+      hasSelectedHotel: () => true,
+    });
+    const staleManualEvents = [];
+    let staleManualTab = 'ctrip-flow-overview';
+    const staleManualResult = await runCtripManualTabSwitch({
+      tab: 'ctrip-flow-overview',
+      getCurrentPage: () => 'ctrip-ebooking',
+      getCurrentTab: () => staleManualTab,
+      loadConfigList: async () => {
+        staleManualEvents.push('load');
+        staleManualTab = 'ctrip-ads';
+      },
+      applyHotelConfig: async () => { staleManualEvents.push('apply'); },
+      hasSelectedHotel: () => true,
+    });
+    const healthEvents = [];
+    const healthResult = await runCtripManualTabSwitch({
+      tab: 'data-health',
+      getCurrentPage: () => 'ctrip-ebooking',
+      getCurrentTab: () => 'data-health',
+      loadDataHealthPanel: async mode => { healthEvents.push(mode); },
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip manual tab switch helper keeps async config loading scoped to the active tab',
+      ok: manualAdsResult.status === 'synced'
+        && manualAdsResult.target === 'ads'
+        && manualTabEvents.join('|') === 'load|apply:false|ads:false'
+        && staleManualResult.status === 'stale_after_load'
+        && staleManualEvents.join('|') === 'load'
+        && healthResult.status === 'synced'
+        && healthResult.target === 'data-health'
+        && healthEvents.join('|') === 'light',
+      detail: 'runCtripManualTabSwitch active/stale/data-health samples',
     });
   }
   if (typeof createCtripProfileFieldForm !== 'function'

@@ -74,6 +74,8 @@ if (!fs.existsSync(indexPath)) {
   const stat = fs.statSync(indexPath);
   const content = fs.readFileSync(indexPath, 'utf8');
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
+  const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
+  const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
   const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
   const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
 
@@ -290,12 +292,24 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf("onlineDataTab !== 'data-health'")
   );
   if (!content.includes('const openCtripManualTab = (tab) => {')
-    || !content.includes("if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;")
+    || !content.includes("const runCtripManualTabSwitch = requireCtripStatic('runCtripManualTabSwitch');")
+    || !content.includes('deferUiTask(() => runCtripManualTabSwitch({')
+    || !content.includes('getCurrentPage: () => currentPage.value')
+    || !content.includes('getCurrentTab: () => onlineDataTab.value')
     || !ctripManualTabTemplate.includes("@click=\"openCtripManualTab('ctrip-flow-overview')\"")
     || ctripManualTabTemplate.includes("onlineDataTab = 'ctrip-flow-overview'; loadCtripConfigList()")
     || ctripManualTabTemplate.includes("onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList()")
     || ctripManualTabTemplate.includes("onlineDataTab = 'ctrip-ads'; syncCtripAdsDirectConfig(false)")) {
     failures.push('public/index.html Ctrip manual tab buttons must use the non-blocking tab switch helper.');
+  }
+  const openCtripManualTabSource = content.slice(
+    content.indexOf('const openCtripManualTab = (tab) => {'),
+    content.indexOf('const openMeituanManualTab = (tab) => {')
+  );
+  if (openCtripManualTabSource.includes('await loadCtripConfigList();')
+    || openCtripManualTabSource.includes("if (['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads'].includes(tab))")
+    || !ctripStaticContent.includes('const runCtripManualTabSwitch = async')) {
+    failures.push('public/index.html must keep Ctrip manual tab async branching in public/ctrip-static.js.');
   }
   const openCtripOverviewFetchTabSource = content.slice(
     content.indexOf('const openCtripOverviewFetchTab = async'),
@@ -604,8 +618,6 @@ if (!fs.existsSync(indexPath)) {
   }
   const autoFetchStaticPath = path.join(repoRoot, 'public/auto-fetch-static.js');
   const autoFetchStaticContent = fs.existsSync(autoFetchStaticPath) ? fs.readFileSync(autoFetchStaticPath, 'utf8') : '';
-  const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
-  const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
   if (!/const\s+buildAutoFetchTriggerRequestBody[\s\S]*async:\s*true/.test(autoFetchStaticContent)) {
     failures.push('public/auto-fetch-static.js must submit platform auto-fetch triggers with async: true so the UI is not blocked by OTA collection.');
   }

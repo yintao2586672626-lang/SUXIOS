@@ -253,6 +253,53 @@ window.SUXI_CTRIP_STATIC = (() => {
             return { status: 'exception', error, requestBody };
         }
     };
+    const runCtripManualTabSwitch = async ({
+        tab = '',
+        getCurrentPage = () => '',
+        getCurrentTab = () => '',
+        loadDataHealthPanel = async () => {},
+        loadConfigList = async () => {},
+        applyHotelConfig = async () => {},
+        syncAdsConfig = async () => {},
+        hasSelectedHotel = () => false,
+    } = {}) => {
+        const isActive = () => getCurrentPage() === 'ctrip-ebooking' && getCurrentTab() === tab;
+        if (!isActive()) {
+            return { status: 'stale_before_load', tab };
+        }
+
+        if (tab === 'data-health') {
+            await loadDataHealthPanel('light');
+            return isActive()
+                ? { status: 'synced', tab, target: 'data-health' }
+                : { status: 'stale_after_load', tab };
+        }
+
+        if (!['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads'].includes(tab)) {
+            return { status: 'noop', tab };
+        }
+
+        await loadConfigList();
+        if (!isActive()) {
+            return { status: 'stale_after_load', tab };
+        }
+
+        if (hasSelectedHotel()) {
+            await applyHotelConfig(false);
+            if (!isActive()) {
+                return { status: 'stale_after_apply', tab };
+            }
+        }
+
+        if (tab === 'ctrip-ads') {
+            await syncAdsConfig(false);
+            return isActive()
+                ? { status: 'synced', tab, target: 'ads' }
+                : { status: 'stale_after_sync', tab };
+        }
+
+        return { status: 'synced', tab, target: 'config' };
+    };
     const createCtripProfileFieldForm = () => ({
         id: '',
         field_key: '',
@@ -2143,6 +2190,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripConfigSavePayload,
         validateCtripConfigSaveInput,
         runCtripConfigSaveFlow,
+        runCtripManualTabSwitch,
         createCtripProfileFieldForm,
         buildCtripProfileFieldSmartDefaults,
         buildCtripProfileFieldSavePayload,

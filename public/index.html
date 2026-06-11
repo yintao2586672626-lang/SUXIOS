@@ -19039,6 +19039,7 @@
             const buildCtripProfileFieldSmartDefaults = requireCtripStatic('buildCtripProfileFieldSmartDefaults');
             const buildCtripProfileFieldSavePayload = requireCtripStatic('buildCtripProfileFieldSavePayload');
             const runCtripConfigSaveFlow = requireCtripStatic('runCtripConfigSaveFlow');
+            const runCtripManualTabSwitch = requireCtripStatic('runCtripManualTabSwitch');
             const runCtripBrowserCaptureFlow = requireCtripStatic('runCtripBrowserCaptureFlow');
             const runCtripFetchDataFlow = requireCtripStatic('runCtripFetchDataFlow');
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
@@ -24138,23 +24139,16 @@
             };
             const openCtripManualTab = (tab) => {
                 onlineDataTab.value = tab;
-                deferUiTask(async () => {
-                    if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;
-                    if (tab === 'data-health') {
-                        return loadDataHealthPanel('light');
-                    }
-                    if (['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads'].includes(tab)) {
-                        await loadCtripConfigList();
-                        if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;
-                        if (selectedCtripHotelId.value) {
-                            await applyCtripHotelConfig(false);
-                        }
-                        if (tab === 'ctrip-ads') {
-                            return syncCtripAdsDirectConfig(false);
-                        }
-                    }
-                    return null;
-                }, 80);
+                deferUiTask(() => runCtripManualTabSwitch({
+                    tab,
+                    getCurrentPage: () => currentPage.value,
+                    getCurrentTab: () => onlineDataTab.value,
+                    loadDataHealthPanel,
+                    loadConfigList: loadCtripConfigList,
+                    applyHotelConfig: applyCtripHotelConfig,
+                    syncAdsConfig: syncCtripAdsDirectConfig,
+                    hasSelectedHotel: () => !!selectedCtripHotelId.value,
+                }), 80);
             };
             const openMeituanManualTab = (tab) => {
                 onlineDataTab.value = tab;

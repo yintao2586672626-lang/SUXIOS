@@ -1541,6 +1541,17 @@
 - 当前自审计：完整目录约 `226.91 MB`；不含 `.git` 约 `108.03 MB`；不含 `.git` 和依赖约 `78.84 MB`；Git 跟踪文件约 `18.89 MB` / `618` 个；代码范围 `373` 个文件、`198,393` 行、非空 `182,410` 行；默认可清理目标为 `runtime` 约 `15.03 MB` / `342` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\meituan-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`734` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-12 保存点：携程手工 Tab helper 静态化收口
+
+- `public/ctrip-static.js` 新增 `runCtripManualTabSwitch()`，承载携程 eBooking 手工 Tab 的轻量数据健康刷新、配置列表读取、选中酒店配置应用、广告配置同步和页面/Tab 过期校验。
+- `public/index.html` 的 `openCtripManualTab()` 只保留 Tab 切换、`deferUiTask()` 调用和 Vue 状态/回调注入，不再内联 `await loadCtripConfigList()`、携程 Tab 分支判断或广告同步分支。
+- 新 helper 在配置读取、配置应用和广告同步前后保留 active page/tab 校验；过期异步结果返回 `stale_*` 状态，不写回旧 Tab。
+- 本保存点不改变携程采集接口、配置接口、OTA 入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置和后台运行状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求入口使用 `requireCtripStatic('runCtripManualTabSwitch')` 并禁止把携程手工 Tab 异步分支重新内联回 `public/index.html`；`verify_e2e_contracts.mjs` 在 VM 中验证广告 active、配置读取 stale 和 data-health 三类样例，并将 E2E 合同检查数提升到 `740`。
+- 当前 split-map：`public/index.html` 为 `37,466` 行、`1,568` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `228.66 MB`；不含 `.git` 约 `109.07 MB`；不含 `.git` 和依赖约 `79.88 MB`；Git 跟踪文件约 `18.9 MB` / `618` 个；代码范围 `373` 个文件、`198,506` 行、非空 `182,517` 行；默认可清理目标为 `runtime` 约 `16.05 MB` / `361` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`740` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
