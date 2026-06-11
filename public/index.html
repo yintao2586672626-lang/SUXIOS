@@ -12,8 +12,6 @@
     <script src="shared-components.js"></script>
     <script src="form-operation-support.js" defer></script>
     <script src="expansion-static-options.js"></script>
-    <script src="hotel-image-optimizer-static.js"></script>
-    <script src="revenue-research-static.js"></script>
     <script src="ctrip-static.js"></script>
     <script src="meituan-static.js"></script>
     <script src="data-health-static.js"></script>
@@ -24027,6 +24025,12 @@
                         loadOnlineDataHotelList(),
                     ]));
                 }
+                if (newPage === 'agent-center' || newPage === 'hotel-image-optimizer') {
+                    runPageLoadOnce(newPage, 'hotel-image-optimizer-static', () => ensureHotelImageOptimizerReady());
+                }
+                if (newPage === 'revenue-research-center') {
+                    runPageLoadOnce(newPage, 'revenue-research-static', () => ensureRevenueResearchReady());
+                }
                 if (newPage === 'lifecycle') {
                     runPageLoadOnce(newPage, 'main', () => loadLifecycleOverview());
                 }
@@ -30029,18 +30033,44 @@
             const otaDiagnosisResultSections = computed(() => requireOtaDiagnosisStatic('buildOtaDiagnosisResultSections')(otaDiagnosisResult.value || {}));
             const runOtaDiagnosisHotelFetchFlow = requireOtaDiagnosisStatic('runOtaDiagnosisHotelFetchFlow');
             const runOtaDiagnosisGenerateFlow = requireOtaDiagnosisStatic('runOtaDiagnosisGenerateFlow');
-            const hotelImageOptimizerStatic = window.SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC;
-            if (!hotelImageOptimizerStatic || typeof hotelImageOptimizerStatic !== 'object') {
-                throw new Error('缺少酒店图片优化静态配置：hotel-image-optimizer-static.js 未加载');
-            }
-            const requireHotelImageOptimizerStatic = (key) => {
-                const value = hotelImageOptimizerStatic[key];
+            const hotelImageOptimizerStaticScript = 'hotel-image-optimizer-static.js';
+            let hotelImageOptimizerStaticLoadPromise = null;
+            let hotelImageOptimizerDraftsLoaded = false;
+            const loadHotelImageOptimizerStatic = () => {
+                const currentStatic = window.SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC;
+                if (currentStatic && typeof currentStatic === 'object') {
+                    return Promise.resolve(currentStatic);
+                }
+                if (hotelImageOptimizerStaticLoadPromise) {
+                    return hotelImageOptimizerStaticLoadPromise;
+                }
+                hotelImageOptimizerStaticLoadPromise = new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = hotelImageOptimizerStaticScript;
+                    script.onload = () => {
+                        const loadedStatic = window.SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC;
+                        if (loadedStatic && typeof loadedStatic === 'object') {
+                            resolve(loadedStatic);
+                            return;
+                        }
+                        reject(new Error('缺少酒店图片优化静态配置：hotel-image-optimizer-static.js 未加载'));
+                    };
+                    script.onerror = () => reject(new Error('缺少酒店图片优化静态配置：hotel-image-optimizer-static.js 未加载'));
+                    document.head.appendChild(script);
+                }).catch((error) => {
+                    hotelImageOptimizerStaticLoadPromise = null;
+                    throw error;
+                });
+                return hotelImageOptimizerStaticLoadPromise;
+            };
+            const requireHotelImageOptimizerStatic = (staticConfig, key) => {
+                const value = staticConfig?.[key];
                 if (value === undefined || value === null) {
                     throw new Error(`酒店图片优化静态配置缺失：${key}`);
                 }
                 return value;
             };
-            const hotelAiToolboxLinks = requireHotelImageOptimizerStatic('hotelAiToolboxLinks');
+            const hotelAiToolboxLinks = ref([]);
             const hotelImageOptimizerStorageKey = 'suxi_hotel_image_optimizer_drafts_v1';
             const hotelImageOptimizerFileInput = ref(null);
             const hotelImageOptimizerPreview = ref('');
@@ -30057,24 +30087,49 @@
                 notes: '',
                 issues: [],
             });
-            const hotelImageOptimizerScenes = requireHotelImageOptimizerStatic('hotelImageOptimizerScenes');
-            const hotelImageOptimizerGoals = requireHotelImageOptimizerStatic('hotelImageOptimizerGoals');
-            const hotelImageOptimizerStyles = requireHotelImageOptimizerStatic('hotelImageOptimizerStyles');
-            const hotelImageOptimizerPromptProfiles = requireHotelImageOptimizerStatic('hotelImageOptimizerPromptProfiles');
-            const hotelImageOptimizerIssueOptions = requireHotelImageOptimizerStatic('hotelImageOptimizerIssueOptions');
-            const hotelImageOptimizerRecommendedTools = requireHotelImageOptimizerStatic('hotelImageOptimizerRecommendedTools');
-            const hotelImageOptimizerLabel = (items, value) => (items.find(item => item.value === value)?.label || value || '-');
-            const hotelImageOptimizerPromptProfile = computed(() => (
-                hotelImageOptimizerPromptProfiles.find(profile => profile.key === hotelImageOptimizerForm.value.promptProfile)
-                || hotelImageOptimizerPromptProfiles[0]
-            ));
-            const hotelImageOptimizerSceneLabel = computed(() => hotelImageOptimizerLabel(hotelImageOptimizerScenes, hotelImageOptimizerForm.value.scene));
-            const hotelImageOptimizerGoalLabel = computed(() => hotelImageOptimizerLabel(hotelImageOptimizerGoals, hotelImageOptimizerForm.value.goal));
-            const hotelImageOptimizerStyleLabel = computed(() => hotelImageOptimizerLabel(hotelImageOptimizerStyles, hotelImageOptimizerForm.value.style));
+            const hotelImageOptimizerScenes = ref([]);
+            const hotelImageOptimizerGoals = ref([]);
+            const hotelImageOptimizerStyles = ref([]);
+            const hotelImageOptimizerPromptProfiles = ref([]);
+            const hotelImageOptimizerIssueOptions = ref([]);
+            const hotelImageOptimizerRecommendedTools = ref([]);
+            const hotelImageOptimizerLabel = (items, value) => {
+                const list = Array.isArray(items) ? items : [];
+                return list.find(item => item.value === value)?.label || value || '-';
+            };
+            const hotelImageOptimizerPromptProfile = computed(() => {
+                const profiles = Array.isArray(hotelImageOptimizerPromptProfiles.value) ? hotelImageOptimizerPromptProfiles.value : [];
+                return profiles.find(profile => profile.key === hotelImageOptimizerForm.value.promptProfile) || profiles[0] || null;
+            });
+            const hotelImageOptimizerSceneLabel = computed(() => hotelImageOptimizerLabel(hotelImageOptimizerScenes.value, hotelImageOptimizerForm.value.scene));
+            const hotelImageOptimizerGoalLabel = computed(() => hotelImageOptimizerLabel(hotelImageOptimizerGoals.value, hotelImageOptimizerForm.value.goal));
+            const hotelImageOptimizerStyleLabel = computed(() => hotelImageOptimizerLabel(hotelImageOptimizerStyles.value, hotelImageOptimizerForm.value.style));
             const hotelImageOptimizerSelectedIssues = computed(() => {
                 const selected = Array.isArray(hotelImageOptimizerForm.value.issues) ? hotelImageOptimizerForm.value.issues : [];
-                return hotelImageOptimizerIssueOptions.filter(issue => selected.includes(issue.key));
+                const issueOptions = Array.isArray(hotelImageOptimizerIssueOptions.value) ? hotelImageOptimizerIssueOptions.value : [];
+                return issueOptions.filter(issue => selected.includes(issue.key));
             });
+            const ensureHotelImageOptimizerReady = async () => {
+                try {
+                    const staticConfig = await loadHotelImageOptimizerStatic();
+                    hotelAiToolboxLinks.value = requireHotelImageOptimizerStatic(staticConfig, 'hotelAiToolboxLinks');
+                    hotelImageOptimizerScenes.value = requireHotelImageOptimizerStatic(staticConfig, 'hotelImageOptimizerScenes');
+                    hotelImageOptimizerGoals.value = requireHotelImageOptimizerStatic(staticConfig, 'hotelImageOptimizerGoals');
+                    hotelImageOptimizerStyles.value = requireHotelImageOptimizerStatic(staticConfig, 'hotelImageOptimizerStyles');
+                    hotelImageOptimizerPromptProfiles.value = requireHotelImageOptimizerStatic(staticConfig, 'hotelImageOptimizerPromptProfiles');
+                    hotelImageOptimizerIssueOptions.value = requireHotelImageOptimizerStatic(staticConfig, 'hotelImageOptimizerIssueOptions');
+                    hotelImageOptimizerRecommendedTools.value = requireHotelImageOptimizerStatic(staticConfig, 'hotelImageOptimizerRecommendedTools');
+                    if (!hotelImageOptimizerDraftsLoaded) {
+                        loadHotelImageOptimizerDrafts();
+                        hotelImageOptimizerDraftsLoaded = true;
+                    }
+                    return staticConfig;
+                } catch (error) {
+                    console.error('[hotel-image-optimizer] static load failed:', error);
+                    showToast('图片优化静态配置加载失败，请刷新后重试', 'error');
+                    throw error;
+                }
+            };
             const loadHotelImageOptimizerDrafts = () => {
                 try {
                     const raw = localStorage.getItem(hotelImageOptimizerStorageKey);
@@ -30149,11 +30204,12 @@
                 '不要让画面变成效果图、样板间渲染图、卡通风、塑料感或过度磨皮。',
                 '不要模糊、过度锐化、改变透视、改变真实材质或制造虚假宣传。',
             ].join('\n');
-            const generateHotelImageOptimizationPrompt = () => {
+            const generateHotelImageOptimizationPrompt = async () => {
                 if (!hotelImageOptimizerPreview.value) {
                     showToast('请先上传一张房源图片', 'error');
                     return;
                 }
+                await ensureHotelImageOptimizerReady();
                 const profile = hotelImageOptimizerPromptProfile.value;
                 if (profile?.scene && hotelImageOptimizerForm.value.scene !== profile.scene) {
                     hotelImageOptimizerForm.value.scene = profile.scene;
@@ -30176,7 +30232,7 @@
                     issueActions,
                     prompt: buildHotelImageOptimizerPrompt(issues, profile),
                     negativePrompt: buildHotelImageOptimizerNegativePrompt(),
-                    recommendedTools: hotelImageOptimizerRecommendedTools,
+                    recommendedTools: hotelImageOptimizerRecommendedTools.value,
                     riskNotes: [
                         '只能修复真实瑕疵和画面表现，不得生成不存在的设施或景观。',
                         '用于美团、携程等 OTA 前，需要人工核对原图与生成图的一致性。',
@@ -30242,9 +30298,10 @@
                 persistHotelImageOptimizerDrafts();
                 showToast('图片优化记录草稿已保存');
             };
-            const restoreHotelImageOptimizerDraft = (draft) => {
+            const restoreHotelImageOptimizerDraft = async (draft) => {
                 if (!draft) return;
-                hotelImageOptimizerResult.value = { ...draft, recommendedTools: draft.recommendedTools || hotelImageOptimizerRecommendedTools };
+                await ensureHotelImageOptimizerReady();
+                hotelImageOptimizerResult.value = { ...draft, recommendedTools: draft.recommendedTools || hotelImageOptimizerRecommendedTools.value };
                 hotelImageOptimizerFileName.value = draft.imageName || '';
                 hotelImageOptimizerForm.value = {
                     ...hotelImageOptimizerForm.value,
@@ -30263,19 +30320,43 @@
             const showHotelImageOptimizerImageGenerationNotice = () => {
                 showToast('AI出图接口暂未接入；当前先生成可用于修图工具的提示词', 'warning');
             };
-            loadHotelImageOptimizerDrafts();
-            const revenueResearchStatic = window.SUXI_REVENUE_RESEARCH_STATIC;
-            if (!revenueResearchStatic || typeof revenueResearchStatic !== 'object') {
-                throw new Error('缺少收益研究静态配置：revenue-research-static.js 未加载');
-            }
-            const requireRevenueResearchStatic = (key) => {
-                const value = revenueResearchStatic[key];
+            const revenueResearchStaticScript = 'revenue-research-static.js';
+            let revenueResearchStaticLoadPromise = null;
+            const loadRevenueResearchStatic = () => {
+                const currentStatic = window.SUXI_REVENUE_RESEARCH_STATIC;
+                if (currentStatic && typeof currentStatic === 'object') {
+                    return Promise.resolve(currentStatic);
+                }
+                if (revenueResearchStaticLoadPromise) {
+                    return revenueResearchStaticLoadPromise;
+                }
+                revenueResearchStaticLoadPromise = new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = revenueResearchStaticScript;
+                    script.onload = () => {
+                        const loadedStatic = window.SUXI_REVENUE_RESEARCH_STATIC;
+                        if (loadedStatic && typeof loadedStatic === 'object') {
+                            resolve(loadedStatic);
+                            return;
+                        }
+                        reject(new Error('缺少收益研究静态配置：revenue-research-static.js 未加载'));
+                    };
+                    script.onerror = () => reject(new Error('缺少收益研究静态配置：revenue-research-static.js 未加载'));
+                    document.head.appendChild(script);
+                }).catch((error) => {
+                    revenueResearchStaticLoadPromise = null;
+                    throw error;
+                });
+                return revenueResearchStaticLoadPromise;
+            };
+            const requireRevenueResearchStatic = (staticConfig, key) => {
+                const value = staticConfig?.[key];
                 if (value === undefined || value === null) {
                     throw new Error(`收益研究静态配置缺失：${key}`);
                 }
                 return value;
             };
-            const revenueResearchProducts = requireRevenueResearchStatic('revenueResearchProducts');
+            const revenueResearchProducts = ref([]);
             const revenueResearchStatusClass = (status) => ({
                 connected: 'bg-green-50 text-green-700 border-green-100',
                 orchestrated: 'bg-blue-50 text-blue-700 border-blue-100',
@@ -30290,7 +30371,19 @@
                     revenueResearchHotelId.value = options[0].id;
                 }
             }, { immediate: true });
-            const revenueResearchSteps = requireRevenueResearchStatic('revenueResearchSteps');
+            const revenueResearchSteps = ref([]);
+            const ensureRevenueResearchReady = async () => {
+                try {
+                    const staticConfig = await loadRevenueResearchStatic();
+                    revenueResearchProducts.value = requireRevenueResearchStatic(staticConfig, 'revenueResearchProducts');
+                    revenueResearchSteps.value = requireRevenueResearchStatic(staticConfig, 'revenueResearchSteps');
+                    return staticConfig;
+                } catch (error) {
+                    console.error('[revenue-research] static load failed:', error);
+                    showToast('收益研究静态配置加载失败，请刷新后重试', 'error');
+                    throw error;
+                }
+            };
             const revenueResearchRunFor = (productKey) => revenueResearchRuns.value[productKey] || {};
             const setRevenueResearchRun = (productKey, patch) => {
                 revenueResearchRuns.value = {
@@ -30347,13 +30440,14 @@
                 ];
             };
             const runRevenueResearchProduct = async (product) => {
+                await ensureRevenueResearchReady();
                 if (!product || revenueResearchRunFor(product.key).loading) return;
                 let progressTimer = null;
                 setRevenueResearchRun(product.key, { loading: true, stepIndex: 0, error: '', result: null });
                 progressTimer = setInterval(() => {
                     const run = revenueResearchRunFor(product.key);
                     if (!run.loading) return;
-                    setRevenueResearchRun(product.key, { stepIndex: Math.min(Number(run.stepIndex || 0) + 1, revenueResearchSteps.length - 1) });
+                    setRevenueResearchRun(product.key, { stepIndex: Math.min(Number(run.stepIndex || 0) + 1, revenueResearchSteps.value.length - 1) });
                 }, 900);
                 try {
                     const res = await apiRequest('/revenue-research/run', {
@@ -30365,7 +30459,7 @@
                         }),
                     });
                     if (res.code === 200) {
-                        setRevenueResearchRun(product.key, { loading: false, stepIndex: revenueResearchSteps.length - 1, result: res.data, error: '' });
+                        setRevenueResearchRun(product.key, { loading: false, stepIndex: revenueResearchSteps.value.length - 1, result: res.data, error: '' });
                         showToast(res.data?.status === 'pending_data' ? '已生成预测，需补数据校准' : '经营预测已生成');
                         return;
                     }
@@ -30380,6 +30474,7 @@
                 }
             };
             const openRevenueResearchModule = async (product) => {
+                await ensureRevenueResearchReady();
                 if (!product.module) {
                     showToast(`${product.name}需要新增数据表和接口后才能在系统内闭环`, 'error');
                     return;

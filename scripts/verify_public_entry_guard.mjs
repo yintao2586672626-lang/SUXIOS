@@ -98,6 +98,25 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/vue-router.global.prod.js is unused by the current shell and must not remain as a dead public asset.');
   }
 
+  if (/<script\s+src=["']hotel-image-optimizer-static\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load hotel-image-optimizer-static.js; it is not required for the initial shell.');
+  }
+  if (!/const\s+hotelImageOptimizerStaticScript\s*=\s*["']hotel-image-optimizer-static\.js["']/.test(content) || !/const\s+loadHotelImageOptimizerStatic\s*=\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader for hotel-image-optimizer-static.js.');
+  }
+  if (!/newPage === ['"]agent-center['"] \|\| newPage === ['"]hotel-image-optimizer['"]/.test(content) || !/ensureHotelImageOptimizerReady\(\)/.test(content)) {
+    failures.push('public/index.html must load hotel image optimizer static data only when agent-center or hotel-image-optimizer is opened.');
+  }
+  if (/<script\s+src=["']revenue-research-static\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load revenue-research-static.js; it is only required by revenue-research-center.');
+  }
+  if (!/const\s+revenueResearchStaticScript\s*=\s*["']revenue-research-static\.js["']/.test(content) || !/const\s+loadRevenueResearchStatic\s*=\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader for revenue-research-static.js.');
+  }
+  if (!/newPage === ['"]revenue-research-center['"]/.test(content) || !/ensureRevenueResearchReady\(\)/.test(content)) {
+    failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
+  }
+
   if (!/<script\s+src=["']form-operation-support\.js["']\s+defer\s*><\/script>/.test(content)) {
     failures.push('public/index.html must defer form-operation-support.js because it self-initializes and is not a Vue setup dependency.');
   }
