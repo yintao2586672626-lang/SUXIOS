@@ -1274,7 +1274,7 @@
 
 ## 2026-06-11 保存点：AI 分析与采集面板按需加载
 
-- `public/index.html` 不再首屏同步加载 `ai-analysis-static.js`；在线数据、携程 eBooking、美团 eBooking 页面进入时按需加载该静态 helper。携程 AI 分析、美团 AI 分析和 AI 酒店列表刷新前显式等待 `ensureAiAnalysisStaticReady()`；加载失败时 toast 并停止当前动作，不用空 helper 继续执行。
+- `public/index.html` 不再首屏同步加载 `ai-analysis-static.js`；仅在下载中心/OTA AI 标签和在线数据 `analysis` 标签进入时按需加载该静态 helper，普通手动采集和平台自动获取入口不加载 AI helper。携程 AI 分析、美团 AI 分析和 AI 酒店列表刷新前显式等待 `ensureAiAnalysisStaticReady()`；加载失败时 toast 并停止当前动作，不用空 helper 继续执行。
 - 在线数据默认页不再预加载完整 `platform-auto` 面板；进入 `platform-auto` 标签时再加载酒店、携程/美团配置、自动采集状态和 Profile 状态，并通过短 TTL 避免重复请求。采集、补抓和流量/订单/广告流程后的列表、历史、最新数据、状态和通知刷新改为延后调度，避免把 UI 动作阻塞在多组刷新请求上。
 - 保留 AI 分析相关业务边界：不改变 `/agent/analyze-captured-ota-data`、`/agent/summarize-captured-ota-analysis`、`/online-data/ai-analysis` 接口，不改变携程/美团 OTA 渠道口径、报告 HTML 清洗、历史记录写回或失败状态展示。
 - 更新守卫：`verify_public_entry_guard.mjs` 禁止首屏同步加载 `ai-analysis-static.js`，要求保留懒加载器和页面进入加载；`verify_e2e_contracts.mjs` 从要求同步脚本改为要求懒加载器、ready guard、页面触发和动作前加载，E2E 合同检查数增至 `491`。
