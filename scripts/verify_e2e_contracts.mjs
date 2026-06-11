@@ -618,7 +618,8 @@ requireNoText('app/controller/SystemNotificationController.php', 'filterRowsByCu
 requireText('app/model/SystemConfig.php', 'public static function getConfigsByKeys(array $keys): array', 'system config model supports bounded key reads');
 requireText('app/model/SystemConfig.php', 'private static array $valueCache = [];', 'system config model keeps request-local value cache for repeated key reads');
 requireText('app/model/SystemConfig.php', 'if (array_key_exists($key, self::$valueCache)) {', 'system config getValue checks request-local cache before querying');
-requireText('app/model/SystemConfig.php', "self::where('config_key', $key)->value('config_value')", 'system config getValue reads only the config_value column');
+requireText('app/model/SystemConfig.php', "self::where('config_key', $key)->field('config_value')->find()", 'system config getValue reads only the config_value column');
+requireText('app/model/SystemConfig.php', "self::$valueCache[$key] = ['found' => $found, 'value' => $value];", 'system config cache preserves missing-row vs null-value semantics');
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');

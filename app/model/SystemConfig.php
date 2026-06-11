@@ -13,6 +13,11 @@ class SystemConfig extends Model
     // 表名
     protected $name = 'system_config';
 
+    /**
+     * @var array<string, array{found: bool, value: mixed}>
+     */
+    private static array $valueCache = [];
+
     // 自动时间戳
     protected $autoWriteTimestamp = true;
     protected $createTime = 'create_time';
@@ -73,8 +78,20 @@ class SystemConfig extends Model
      */
     public static function getValue(string $key, $default = null)
     {
-        $config = self::where('config_key', $key)->find();
-        return $config ? $config->config_value : $default;
+        $key = trim($key);
+        if ($key === '') {
+            return $default;
+        }
+        if (array_key_exists($key, self::$valueCache)) {
+            return self::$valueCache[$key]['found'] ? self::$valueCache[$key]['value'] : $default;
+        }
+
+        $config = self::where('config_key', $key)->field('config_value')->find();
+        $found = $config !== null;
+        $value = $found ? $config->config_value : null;
+        self::$valueCache[$key] = ['found' => $found, 'value' => $value];
+
+        return $found ? $value : $default;
     }
 
     /**
@@ -85,13 +102,21 @@ class SystemConfig extends Model
         $config = self::where('config_key', $key)->find();
         if ($config) {
             $config->config_value = $value;
-            return $config->save();
+            $saved = $config->save();
+            if ($saved) {
+                self::$valueCache[$key] = ['found' => true, 'value' => $value];
+            }
+            return $saved;
         } else {
             $config = new self();
             $config->config_key = $key;
             $config->config_value = $value;
             $config->description = $description;
-            return $config->save();
+            $saved = $config->save();
+            if ($saved) {
+                self::$valueCache[$key] = ['found' => true, 'value' => $value];
+            }
+            return $saved;
         }
     }
 
@@ -104,6 +129,7 @@ class SystemConfig extends Model
         $result = [];
         foreach ($configs as $config) {
             $result[$config->config_key] = $config->config_value;
+            self::$valueCache[$config->config_key] = ['found' => true, 'value' => $config->config_value];
         }
         return $result;
     }
@@ -118,10 +144,32 @@ class SystemConfig extends Model
             return [];
         }
 
-        $configs = self::whereIn('config_key', $keys)->select();
         $result = [];
+        $missingKeys = [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, self::$valueCache)) {
+                if (self::$valueCache[$key]['found']) {
+                    $result[$key] = self::$valueCache[$key]['value'];
+                }
+                continue;
+            }
+            $missingKeys[] = $key;
+        }
+        if (empty($missingKeys)) {
+            return $result;
+        }
+
+        $configs = self::whereIn('config_key', $missingKeys)->select();
+        $foundKeys = [];
         foreach ($configs as $config) {
             $result[$config->config_key] = $config->config_value;
+            self::$valueCache[$config->config_key] = ['found' => true, 'value' => $config->config_value];
+            $foundKeys[$config->config_key] = true;
+        }
+        foreach ($missingKeys as $key) {
+            if (!isset($foundKeys[$key])) {
+                self::$valueCache[$key] = ['found' => false, 'value' => null];
+            }
         }
 
         return $result;

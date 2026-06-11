@@ -1778,6 +1778,14 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `255.6 MB`, without `.git` about `120.78 MB`, without `.git` and dependencies about `91.59 MB`, tracked files about `19.04 MB` / `620` files; code scope `375` files, `199248` total lines, and `183256` nonblank lines. Runtime cleanup is about `27.61 MB` / `923` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: PHP syntax checks for `app/controller/OnlineData.php` and `app/service/OnlineDailyDataPersistenceService.php`; `tests\OnlineDataTest.php --filter Traffic` with `18` tests and `189` assertions; full `tests\OnlineDataTest.php` with `139` tests and `1649` assertions; `verify:public-entry`; `verify:e2e-contracts` with `900` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: System Config Bounded Read Cache
+
+- `app/model/SystemConfig.php` now keeps a request-local value cache for repeated `getValue()` and `getConfigsByKeys()` reads.
+- `getValue()` trims empty keys, reads only `config_value`, and caches both found rows and missing rows with explicit `found` metadata so a missing key still returns the caller default while a stored null remains distinguishable.
+- `setValue()` and `getAllConfigs()` update the same request-local cache after successful writes or full reads. This does not change system-config routes, exported config redaction, protected-capability policy keys, permissions, or database schema.
+- Guards now require the bounded key read method, request-local cache, column-scoped `getValue()` query, and missing-row vs null-value cache shape.
+- Verified in this save point: PHP syntax check for `app/model/SystemConfig.php`; `verify:e2e-contracts` with `904` checks; `verify:p0-guards`; `tests\AuthRegistrationTest.php` plus `tests\DatabaseBuildScriptTest.php` with `4` tests and `98` assertions; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
