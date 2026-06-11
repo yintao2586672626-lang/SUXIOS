@@ -1151,6 +1151,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend OTA Diagnosis Generate Flow Split
+
+- Eighty-eighth frontend split target chosen from OTA diagnosis generation orchestration inside `generateOtaDiagnosis()` in `public/index.html`.
+- Extended `public/ota-diagnosis-static.js` with `runOtaDiagnosisGenerateFlow`, `buildOtaDiagnosisGenerateRequestBody`, `isEmptyOtaDiagnosisResult`, and `buildOtaDiagnosisFetchFailureWarning` for form validation, pre-diagnosis fetch warning, diagnosis request body construction, empty-result detection, failed response handling, exception handling, and loading cleanup.
+- `public/index.html` now keeps only Vue callback wiring for refs, hotel options, `runOtaDiagnosisHotelFetch()`, `/agent/ota-diagnosis`, and toast dispatch.
+- This split did not change `/agent/ota-diagnosis`, pre-diagnosis fetch behavior, continue-with-stored-data behavior, empty data display, missing/failed-state visibility, or OTA channel scope. Missing hotel, missing date range, invalid date range, backend failure, and request exception states remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted generate flow runner, prevent request-body construction, empty-result detection, and fetch-failure warning logic from being re-inlined, and validate success, partial fetch failure, missing hotel, backend failure, and exception cleanup samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37171` lines to `37118` lines; frontend function-level blocks remain `1396`; `ota` domain span decreased from `437` to `384`; `generateOtaDiagnosis` is no longer in the largest-block list, and the current largest frontend blocks are `importKnowledgeUnits`, `fetchMeituanOrdersData`, and `openSystemConfigModal` at `68` lines each.
+- Current self-audit: full directory about `286.55 MB`, without `.git` about `92.47 MB`, without `.git` and dependencies about `63.28 MB`, tracked files about `18.36 MB` / `613` files; code scope `370` files, `192092` total lines, and `176281` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ota-diagnosis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

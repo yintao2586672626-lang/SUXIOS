@@ -205,9 +205,12 @@ requireText('public/index.html', 'field-market-business-area', 'market business 
 requireText('public/index.html', 'field-transfer-pricing-', 'transfer pricing fields have stable selectors');
 requireTextInFiles(['public/index.html', 'public/ota-diagnosis-static.js'], 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
 requireText('public/index.html', "requireOtaDiagnosisStatic('runOtaDiagnosisHotelFetchFlow')", 'entry uses extracted OTA diagnosis fetch flow runner');
+requireText('public/index.html', "requireOtaDiagnosisStatic('runOtaDiagnosisGenerateFlow')", 'entry uses extracted OTA diagnosis generate flow runner');
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchContext', 'OTA diagnosis static builds fetch context');
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchTasks', 'OTA diagnosis static builds fetch tasks');
 requireText('public/ota-diagnosis-static.js', 'const runOtaDiagnosisHotelFetchFlow', 'OTA diagnosis static runs fetch flow');
+requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisGenerateRequestBody', 'OTA diagnosis static builds generate request bodies');
+requireText('public/ota-diagnosis-static.js', 'const runOtaDiagnosisGenerateFlow', 'OTA diagnosis static runs generate flow');
 requireText('public/index.html', '<script src="ai-analysis-static.js"></script>', 'frontend loads extracted AI analysis static helper');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext')", 'entry uses extracted AI analysis start context builder');
@@ -249,6 +252,10 @@ requireNoText('public/index.html', 'const genericCtripCookie = String(fetchConte
 requireNoText('public/index.html', 'let useCtripCorePresetForDiagnosis = false;', 'OTA diagnosis core preset decision is not re-inlined');
 requireNoText('public/index.html', 'const success = results.filter(item => item.success).length;', 'OTA diagnosis fetch result summary is not re-inlined');
 requireNoText('public/index.html', "['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(rankType => {", 'OTA diagnosis Meituan task list is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/agent/ota-diagnosis', {", 'OTA diagnosis generate request flow is not re-inlined');
+requireNoText('public/index.html', "const conclusion = String(data.diagnosis?.summary || data.core_conclusion || '');", 'OTA diagnosis empty-result detection is not re-inlined');
+requireNoText('public/index.html', 'OTA数据同步完成，${fetchSummary.failed} 项失败', 'OTA diagnosis fetch failure warning is not re-inlined');
+requireNoText('public/index.html', 'hotel_id: diagnosisHotelId || 0,', 'OTA diagnosis generate request body is not re-inlined');
 requireNoText('public/index.html', 'const aiAnalysisStatusText = (status) => {', 'AI analysis status text helper is not re-inlined');
 requireNoText('public/index.html', 'const chunkArray = (items, size) => {', 'AI analysis chunk helper is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedOtaHotelPayload = (hotel) => {', 'AI analysis captured payload builder is not re-inlined');
@@ -780,14 +787,16 @@ try {
   const buildOtaDiagnosisFetchContext = otaDiagnosisStatic.buildOtaDiagnosisFetchContext;
   const buildOtaDiagnosisFetchTasks = otaDiagnosisStatic.buildOtaDiagnosisFetchTasks;
   const runOtaDiagnosisHotelFetchFlow = otaDiagnosisStatic.runOtaDiagnosisHotelFetchFlow;
+  const runOtaDiagnosisGenerateFlow = otaDiagnosisStatic.runOtaDiagnosisGenerateFlow;
   if (typeof buildOtaDiagnosisFetchContext !== 'function'
     || typeof buildOtaDiagnosisFetchTasks !== 'function'
-    || typeof runOtaDiagnosisHotelFetchFlow !== 'function') {
+    || typeof runOtaDiagnosisHotelFetchFlow !== 'function'
+    || typeof runOtaDiagnosisGenerateFlow !== 'function') {
     checks.push({
       file: 'public/ota-diagnosis-static.js',
-      label: 'OTA diagnosis static exports fetch task builders and flow runner',
+      label: 'OTA diagnosis static exports fetch/generate builders and flow runners',
       ok: false,
-      detail: 'buildOtaDiagnosisFetchContext/buildOtaDiagnosisFetchTasks/runOtaDiagnosisHotelFetchFlow',
+      detail: 'buildOtaDiagnosisFetchContext/buildOtaDiagnosisFetchTasks/runOtaDiagnosisHotelFetchFlow/runOtaDiagnosisGenerateFlow',
     });
   } else {
     const fetchContext = buildOtaDiagnosisFetchContext({
@@ -879,6 +888,127 @@ try {
         && flowTaskEvent.task?.body?.request_source === 'core_preset:profile'
         && flowEvents.some(event => event.type === 'notify'),
       detail: 'runOtaDiagnosisHotelFetchFlow profile preset sample',
+    });
+
+    const generateEvents = [];
+    const generateLoading = [];
+    let generateError = 'seed';
+    let generateResult = 'seed';
+    let generateEmpty = true;
+    let generateRequestBody = null;
+    const generateResultStatus = await runOtaDiagnosisGenerateFlow({
+      form: {
+        hotel_id: 'hotel-key',
+        platform: 'ctrip',
+        start_date: '2026-06-04',
+        end_date: '2026-06-05',
+      },
+      hotelOptions: [{
+        value: 'hotel-key',
+        hotel_id: '40',
+        platform_hotel_id: 'platform-40',
+        config_id: 'config-40',
+        source: 'system',
+        name: 'Hotel 40',
+      }],
+      getModelKey: () => 'deepseek-chat',
+      runHotelFetch: async (selectedHotel, form) => {
+        generateEvents.push({ type: 'fetch', selectedHotel, form });
+        return {
+          attempted: 2,
+          success: 1,
+          failed: 1,
+          results: [
+            { label: 'ctrip-cookie-api', success: true, message: 'ok' },
+            { label: 'meituan-traffic', success: false, message: 'missing auth' },
+          ],
+        };
+      },
+      requestDiagnosis: async body => {
+        generateRequestBody = body;
+        return {
+          code: 200,
+          data: {
+            diagnosis: { summary: '流量稳定' },
+            metrics: { record_count: 12 },
+          },
+        };
+      },
+      setLoading: value => { generateLoading.push(value); },
+      setError: value => { generateError = value; },
+      setResult: value => { generateResult = value; },
+      setEmpty: value => { generateEmpty = value; },
+      notify: (message, level) => generateEvents.push({ type: 'notify', message, level: level || '' }),
+    });
+    checks.push({
+      file: 'public/ota-diagnosis-static.js',
+      label: 'OTA diagnosis generate flow keeps fetch warning and success state explicit',
+      ok: generateResultStatus.status === 'success'
+        && generateLoading[0] === true
+        && generateLoading[generateLoading.length - 1] === false
+        && generateError === ''
+        && generateEmpty === false
+        && generateResult?.metrics?.record_count === 12
+        && generateRequestBody?.hotel_id === '40'
+        && generateRequestBody?.platform_hotel_id === 'platform-40'
+        && generateRequestBody?.model_key === 'deepseek-chat'
+        && generateEvents.some(event => event.type === 'fetch' && event.selectedHotel?.hotel_id === '40')
+        && generateEvents.some(event => event.type === 'notify' && event.level === 'warning' && event.message.includes('继续使用已入库数据生成诊断'))
+        && generateEvents.some(event => event.type === 'notify' && event.message === 'OTA诊断已生成'),
+      detail: 'runOtaDiagnosisGenerateFlow success sample',
+    });
+
+    const missingLoading = [];
+    let missingError = '';
+    const missingHotelResult = await runOtaDiagnosisGenerateFlow({
+      form: { hotel_id: '', platform: 'ctrip', start_date: '2026-06-04', end_date: '2026-06-05' },
+      setLoading: value => { missingLoading.push(value); },
+      setError: value => { missingError = value; },
+    });
+    const failedLoading = [];
+    let failedError = '';
+    let failedRequestBody = null;
+    const failedResponseResult = await runOtaDiagnosisGenerateFlow({
+      form: { hotel_id: 'fallback-hotel', platform: 'meituan', start_date: '2026-06-06', end_date: '2026-06-06' },
+      hotelOptions: [],
+      getModelKey: () => 'deepseek-reasoner',
+      runHotelFetch: async () => ({ attempted: 0, success: 0, failed: 0, results: [] }),
+      requestDiagnosis: async body => {
+        failedRequestBody = body;
+        return { code: 500, message: 'backend failed' };
+      },
+      setLoading: value => { failedLoading.push(value); },
+      setError: value => { failedError = value; },
+    });
+    const exceptionLoading = [];
+    let exceptionError = '';
+    const exceptionResult = await runOtaDiagnosisGenerateFlow({
+      form: { hotel_id: 'fallback-hotel', platform: 'ctrip', start_date: '2026-06-07', end_date: '2026-06-07' },
+      runHotelFetch: async () => ({ attempted: 0, success: 0, failed: 0, results: [] }),
+      requestDiagnosis: async () => {
+        throw new Error('network down');
+      },
+      setLoading: value => { exceptionLoading.push(value); },
+      setError: value => { exceptionError = value; },
+    });
+    checks.push({
+      file: 'public/ota-diagnosis-static.js',
+      label: 'OTA diagnosis generate flow keeps missing, failed and exception states visible',
+      ok: missingHotelResult.status === 'missing_hotel'
+        && missingError === '请选择酒店'
+        && missingLoading.length === 0
+        && failedResponseResult.status === 'failed'
+        && failedError === 'backend failed'
+        && failedRequestBody?.hotel_id === 'fallback-hotel'
+        && failedRequestBody?.model_key === 'deepseek-reasoner'
+        && failedLoading[0] === true
+        && failedLoading[failedLoading.length - 1] === false
+        && exceptionResult.status === 'exception'
+        && exceptionResult.errorMessage === 'network down'
+        && exceptionError === 'network down'
+        && exceptionLoading[0] === true
+        && exceptionLoading[exceptionLoading.length - 1] === false,
+      detail: 'runOtaDiagnosisGenerateFlow error-state samples',
     });
   }
 } catch (error) {

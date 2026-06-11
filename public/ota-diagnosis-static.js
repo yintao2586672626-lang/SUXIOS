@@ -483,6 +483,130 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         return runOtaDiagnosisFetchTasks({ tasks, requestTask });
     };
 
+    const buildOtaDiagnosisGenerateRequestBody = ({
+        selectedHotel = null,
+        form = {},
+        modelKey = '',
+    } = {}) => {
+        const diagnosisHotelId = String(selectedHotel?.hotel_id || form.hotel_id || '').trim();
+        return {
+            hotel_id: diagnosisHotelId || 0,
+            platform_hotel_id: selectedHotel?.platform_hotel_id || '',
+            config_id: selectedHotel?.config_id || '',
+            config_source: selectedHotel?.source || '',
+            hotel_name: selectedHotel?.name || '',
+            platform: form.platform,
+            start_date: form.start_date,
+            end_date: form.end_date,
+            mode: 'historical_db',
+            analysis_type: 'all',
+            data_type: 'traffic',
+            model_key: modelKey,
+        };
+    };
+
+    const isEmptyOtaDiagnosisResult = (data = {}) => {
+        const conclusion = String(data?.diagnosis?.summary || data?.core_conclusion || '');
+        return conclusion.includes('暂无 OTA 数据')
+            || conclusion.includes('暂无OTA数据')
+            || conclusion.includes('暂无该酒店在该日期范围内的OTA数据');
+    };
+
+    const buildOtaDiagnosisFetchFailureWarning = (fetchSummary = {}) => {
+        if (!(fetchSummary.attempted > 0 && fetchSummary.failed > 0)) return '';
+        const failedText = (Array.isArray(fetchSummary.results) ? fetchSummary.results : [])
+            .filter(item => !item.success)
+            .map(item => `${item.label}: ${item.message || 'failed'}`)
+            .slice(0, 2)
+            .join('；');
+        return `OTA数据同步完成，${fetchSummary.failed} 项失败：${failedText}。继续使用已入库数据生成诊断`;
+    };
+
+    const runOtaDiagnosisGenerateFlow = async ({
+        form = {},
+        hotelOptions = [],
+        getModelKey = () => '',
+        runHotelFetch = async () => buildEmptyOtaDiagnosisFetchSummary(),
+        requestDiagnosis = async () => ({}),
+        setLoading = () => {},
+        setError = () => {},
+        setResult = () => {},
+        setEmpty = () => {},
+        notify = () => {},
+    } = {}) => {
+        const currentForm = form || {};
+        setError('');
+        setResult(null);
+        setEmpty(false);
+
+        if (!currentForm.hotel_id) {
+            setError('请选择酒店');
+            return { status: 'missing_hotel' };
+        }
+        const selectedHotel = (Array.isArray(hotelOptions) ? hotelOptions : [])
+            .find(item => item.value === currentForm.hotel_id);
+        if (!currentForm.start_date || !currentForm.end_date) {
+            setError('请选择日期范围');
+            return { status: 'missing_date_range', selectedHotel };
+        }
+        if (currentForm.start_date > currentForm.end_date) {
+            setError('开始日期不能晚于结束日期');
+            return { status: 'invalid_date_range', selectedHotel };
+        }
+
+        let fetchSummary = buildEmptyOtaDiagnosisFetchSummary();
+        let requestBody = null;
+        setLoading(true);
+        try {
+            fetchSummary = await runHotelFetch(selectedHotel, currentForm);
+            const warning = buildOtaDiagnosisFetchFailureWarning(fetchSummary);
+            if (warning) notify(warning, 'warning');
+
+            requestBody = buildOtaDiagnosisGenerateRequestBody({
+                selectedHotel,
+                form: currentForm,
+                modelKey: getModelKey(),
+            });
+            const res = await requestDiagnosis(requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                const isEmpty = isEmptyOtaDiagnosisResult(data);
+                setEmpty(isEmpty);
+                setResult(isEmpty ? null : data);
+                notify(isEmpty ? '暂无OTA数据' : 'OTA诊断已生成', isEmpty ? 'warning' : undefined);
+                return {
+                    status: isEmpty ? 'empty' : 'success',
+                    response: res,
+                    requestBody,
+                    fetchSummary,
+                    data,
+                };
+            }
+
+            const errorMessage = res.message || res.msg || 'OTA诊断生成失败';
+            setError(errorMessage);
+            return {
+                status: 'failed',
+                response: res,
+                requestBody,
+                fetchSummary,
+                errorMessage,
+            };
+        } catch (error) {
+            const errorMessage = error?.data?.message || error?.data?.msg || error.message || 'OTA诊断生成失败';
+            setError(errorMessage);
+            return {
+                status: 'exception',
+                error,
+                requestBody,
+                fetchSummary,
+                errorMessage,
+            };
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return {
         normalizeOtaDiagnosisList,
         otaDiagnosisPlatformText,
@@ -494,5 +618,9 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         buildOtaDiagnosisFetchContext,
         buildOtaDiagnosisFetchTasks,
         runOtaDiagnosisHotelFetchFlow,
+        buildOtaDiagnosisGenerateRequestBody,
+        isEmptyOtaDiagnosisResult,
+        buildOtaDiagnosisFetchFailureWarning,
+        runOtaDiagnosisGenerateFlow,
     };
 })();

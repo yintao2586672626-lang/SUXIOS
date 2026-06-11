@@ -29971,6 +29971,7 @@
             }));
             const otaDiagnosisResultSections = computed(() => requireOtaDiagnosisStatic('buildOtaDiagnosisResultSections')(otaDiagnosisResult.value || {}));
             const runOtaDiagnosisHotelFetchFlow = requireOtaDiagnosisStatic('runOtaDiagnosisHotelFetchFlow');
+            const runOtaDiagnosisGenerateFlow = requireOtaDiagnosisStatic('runOtaDiagnosisGenerateFlow');
             const hotelImageOptimizerStatic = window.SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC;
             if (!hotelImageOptimizerStatic || typeof hotelImageOptimizerStatic !== 'object') {
                 throw new Error('缺少酒店图片优化静态配置：hotel-image-optimizer-static.js 未加载');
@@ -30542,75 +30543,21 @@
                 });
             };
 
-            const generateOtaDiagnosis = async () => {
-                const form = otaDiagnosisForm.value;
-                otaDiagnosisError.value = '';
-                otaDiagnosisResult.value = null;
-                otaDiagnosisEmpty.value = false;
-
-                if (!form.hotel_id) {
-                    otaDiagnosisError.value = '请选择酒店';
-                    return;
-                }
-                const selectedHotel = otaDiagnosisHotelOptions.value.find(item => item.value === form.hotel_id);
-                const diagnosisHotelId = String(selectedHotel?.hotel_id || form.hotel_id || '').trim();
-                if (!form.start_date || !form.end_date) {
-                    otaDiagnosisError.value = '请选择日期范围';
-                    return;
-                }
-                if (form.start_date > form.end_date) {
-                    otaDiagnosisError.value = '开始日期不能晚于结束日期';
-                    return;
-                }
-
-                otaDiagnosisLoading.value = true;
-                try {
-                    const fetchSummary = await runOtaDiagnosisHotelFetch(selectedHotel, form);
-                    if (fetchSummary.attempted > 0 && fetchSummary.failed > 0) {
-                        const failedText = fetchSummary.results
-                            .filter(item => !item.success)
-                            .map(item => `${item.label}: ${item.message || 'failed'}`)
-                            .slice(0, 2)
-                            .join('；');
-                        showToast(`OTA数据同步完成，${fetchSummary.failed} 项失败：${failedText}。继续使用已入库数据生成诊断`, 'warning');
-                    }
-                    const res = await request('/agent/ota-diagnosis', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            hotel_id: diagnosisHotelId || 0,
-                            platform_hotel_id: selectedHotel?.platform_hotel_id || '',
-                            config_id: selectedHotel?.config_id || '',
-                            config_source: selectedHotel?.source || '',
-                            hotel_name: selectedHotel?.name || '',
-                            platform: form.platform,
-                            start_date: form.start_date,
-                            end_date: form.end_date,
-                            mode: 'historical_db',
-                            analysis_type: 'all',
-                            data_type: 'traffic',
-                            model_key: getSafeOtaDiagnosisModelKey(),
-                        }),
-                    });
-                    if (res.code === 200) {
-                        const data = res.data || {};
-                        const conclusion = String(data.diagnosis?.summary || data.core_conclusion || '');
-                        const isEmpty = conclusion.includes('暂无 OTA 数据') || conclusion.includes('暂无OTA数据') || conclusion.includes('暂无该酒店在该日期范围内的OTA数据');
-                        otaDiagnosisEmpty.value = isEmpty;
-                        otaDiagnosisResult.value = isEmpty ? null : data;
-                        if (isEmpty) {
-                            showToast('暂无OTA数据', 'warning');
-                        } else {
-                            showToast('OTA诊断已生成');
-                        }
-                    } else {
-                        otaDiagnosisError.value = res.message || res.msg || 'OTA诊断生成失败';
-                    }
-                } catch (e) {
-                    otaDiagnosisError.value = e?.data?.message || e?.data?.msg || e.message || 'OTA诊断生成失败';
-                } finally {
-                    otaDiagnosisLoading.value = false;
-                }
-            };
+            const generateOtaDiagnosis = async () => runOtaDiagnosisGenerateFlow({
+                form: otaDiagnosisForm.value,
+                hotelOptions: otaDiagnosisHotelOptions.value,
+                getModelKey: getSafeOtaDiagnosisModelKey,
+                runHotelFetch: runOtaDiagnosisHotelFetch,
+                requestDiagnosis: body => request('/agent/ota-diagnosis', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                setLoading: value => { otaDiagnosisLoading.value = value; },
+                setError: value => { otaDiagnosisError.value = value; },
+                setResult: value => { otaDiagnosisResult.value = value; },
+                setEmpty: value => { otaDiagnosisEmpty.value = value; },
+                notify: showToast,
+            });
 
             // 加载Agent概览
             const loadAgentOverview = async () => {
