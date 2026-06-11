@@ -10,15 +10,15 @@
     <link rel="stylesheet" href="style.css?v=20260611-perf-bg-avif">
     <link rel="stylesheet" href="ai-custom.css?v=20260603-lifecycle-footer">
     <script src="vue.global.prod.js"></script>
-    <script src="shared-components.js"></script>
+    <script src="shared-components.js?v=20260611-open-fix"></script>
     <script src="form-operation-support.js" defer></script>
-    <script src="ctrip-static.js"></script>
-    <script src="meituan-static.js"></script>
-    <script src="data-health-static.js"></script>
-    <script src="ota-diagnosis-static.js"></script>
+    <script src="ctrip-static.js?v=20260611-core-fetch"></script>
+    <script src="meituan-static.js?v=20260611-core-fetch"></script>
+    <script src="data-health-static.js?v=20260611-core-fetch"></script>
+    <script src="ota-diagnosis-static.js?v=20260611-core-fetch"></script>
     <script src="system-static.js?v=20260611-platform-guide"></script>
-    <script src="compass-static.js"></script>
-    <script src="home-static.js"></script>
+    <script src="compass-static.js?v=20260611-open-fix"></script>
+    <script src="home-static.js?v=20260611-open-fix"></script>
 </head>
 <body class="bg-gray-100">
     <div id="app" v-cloak>
@@ -21343,6 +21343,7 @@
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
             const autoFetchStaticScript = 'auto-fetch-static.js';
+            const autoFetchStaticVersion = '20260611-core-fetch';
             const autoFetchStatic = ref(window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object' ? window.SUXI_AUTO_FETCH_STATIC : null);
             const autoFetchStaticLoadError = ref('');
             let autoFetchStaticLoadPromise = null;
@@ -21370,7 +21371,7 @@
                 if (!autoFetchStaticLoadPromise) {
                     autoFetchStaticLoadPromise = new Promise((resolve, reject) => {
                         const script = document.createElement('script');
-                        script.src = autoFetchStaticScript;
+                        script.src = `${autoFetchStaticScript}?v=${autoFetchStaticVersion}`;
                         script.async = true;
                         script.onload = () => {
                             if (window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object') {
@@ -24526,6 +24527,9 @@
             };
             const knowledgeCenterBaseSourceOptions = requireSystemStatic('knowledgeCenterBaseSourceOptions');
             const knowledgeImportModeMetaMap = requireSystemStatic('knowledgeImportModeMetaMap');
+            const buildKnowledgeImportRequestBody = requireSystemStatic('buildKnowledgeImportRequestBody');
+            const knowledgeImportSuccessMessage = requireSystemStatic('knowledgeImportSuccessMessage');
+            const knowledgeImportErrorMessage = requireSystemStatic('knowledgeImportErrorMessage');
             const knowledgeImportModeMeta = (mode) => knowledgeImportModeMetaMap[mode] || { label: '导入内容', placeholder: '每段内容用空行分隔' };
             const knowledgeImportCurrentMeta = computed(() => knowledgeImportModeMeta(knowledgeCenterImportForm.value.mode));
             const knowledgeCenterStats = computed(() => {
@@ -29736,12 +29740,16 @@
                     showToast('请选择资料绑定的门店', 'error');
                     return;
                 }
-                const mode = form.mode || 'document';
 
                 knowledgeCenterImporting.value = true;
                 const controller = new AbortController();
                 const timeoutMs = 90000;
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+                const requestBody = buildKnowledgeImportRequestBody({
+                    form,
+                    raw,
+                    tags: parseKnowledgeTags(form.tags),
+                });
                 try {
                     const response = await fetch(API_BASE + '/knowledge/import', {
                         method: 'POST',
@@ -29749,14 +29757,7 @@
                             'Content-Type': 'application/json',
                             ...(token.value ? { Authorization: token.value } : {}),
                         },
-                        body: JSON.stringify({
-                            mode,
-                            source: form.source || mode,
-                            hotel_id: Number(form.hotel_id),
-                            model_key: form.model_key || 'deepseek_chat',
-                            tags: parseKnowledgeTags(form.tags),
-                            raw,
-                        }),
+                        body: JSON.stringify(requestBody),
                         signal: controller.signal,
                     });
                     const res = await response.json().catch(() => ({}));
@@ -29771,20 +29772,14 @@
                         throw new Error(res.msg || res.message || `导入失败: ${response.status}`);
                     }
                     if (res.code === 0) {
-                        const successCount = Number(res.data?.success_count || 0);
-                        const errorCount = Number(res.data?.error_count || 0);
                         showKnowledgeCenterImportModal.value = false;
-                        showToast(errorCount > 0
-                            ? `导入完成：成功 ${successCount} 条，失败 ${errorCount} 条，请查看异常状态`
-                            : `导入完成：成功 ${successCount} 条`);
+                        showToast(knowledgeImportSuccessMessage(res.data));
                         await loadKnowledgeCenter();
                     } else {
                         showToast(res.msg || '导入失败', 'error');
                     }
                 } catch (error) {
-                    const message = error.name === 'AbortError'
-                        ? 'AI读取超过90秒，已停止等待；请刷新列表确认是否已生成，避免重复提交'
-                        : (error.message || '导入失败');
+                    const message = knowledgeImportErrorMessage(error);
                     showToast(message, 'error');
                     knowledgeCenterImportDocumentError.value = message;
                 } finally {

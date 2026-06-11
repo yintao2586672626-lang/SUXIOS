@@ -1424,6 +1424,16 @@
 - 当前自审计：完整目录约 `206.05 MB`；不含 `.git` 约 `96.54 MB`；不含 `.git` 和依赖约 `67.35 MB`；Git 跟踪文件约 `18.77 MB` / `618` 个；代码范围 `373` 个文件、`197,328` 行、非空 `181,354` 行；默认可清理目标为 `runtime` 约 `3.65 MB` / `159` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\data-health-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`598` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-11 保存点：知识导入请求体与提示格式抽离
+
+- `public/system-static.js` 新增 `buildKnowledgeImportRequestBody()`、`knowledgeImportSuccessMessage()` 和 `knowledgeImportErrorMessage()`，承载知识中心导入请求体默认值、成功计数提示和 90 秒超时提示。
+- `public/index.html` 的 `importKnowledgeUnits()` 继续保留空内容/缺门店校验、`/knowledge/import` 请求、401 登录过期处理、弹窗关闭、列表刷新和 loading 释放；不再内联请求体字段组装、成功计数文案和超时文案。
+- 本保存点不改变知识导入接口、AI 读取模型默认值、标签解析、授权 token、登录过期状态、异常展示或知识列表刷新，只把纯格式化逻辑迁入系统静态 helper。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求入口使用系统静态 helper，并禁止重新内联知识导入 payload/成功/超时提示；`verify_e2e_contracts.mjs` 在 VM 中验证 helper 保留 `document` 默认 source、`deepseek_chat` 默认模型、数字门店 ID、原始 raw/tags 和超时提示语义。E2E 合同检查数为 `607`。
+- 当前 split-map：`public/index.html` 为 `37,237` 行、`1,549` 个前端函数级块、`44` 个 `currentPage` 引用，general 域 span 为 `7,354` 行；`importKnowledgeUnits` 从 `68` 行降至 `59` 行但仍是拆分候选；`app/controller/OnlineData.php` 为 `26,931` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `207.72 MB`；不含 `.git` 约 `97.53 MB`；不含 `.git` 和依赖约 `68.34 MB`；Git 跟踪文件约 `18.78 MB` / `618` 个；代码范围 `373` 个文件、`197,393` 行、非空 `181,419` 行；默认可清理目标为 `runtime` 约 `4.63 MB` / `161` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`607` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

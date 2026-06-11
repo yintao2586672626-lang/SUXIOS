@@ -1455,6 +1455,16 @@ Updated: 2026-06-11 Asia/Shanghai
 - Current self-audit: full directory about `206.05 MB`, without `.git` about `96.54 MB`, without `.git` and dependencies about `67.35 MB`, tracked files about `18.77 MB` / `618` files; code scope `373` files, `197328` total lines, and `181354` nonblank lines. Runtime cleanup is about `3.65 MB` / `159` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\data-health-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check scripts\verify_public_entry_guard.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `598` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-11 Progress: Knowledge Import Payload and Message Split
+
+- `public/system-static.js` now owns `buildKnowledgeImportRequestBody()`, `knowledgeImportSuccessMessage()`, and `knowledgeImportErrorMessage()` for knowledge-center import request defaults, success-count messaging, and the explicit 90-second timeout message.
+- `public/index.html` keeps `importKnowledgeUnits()` responsible for empty-content/hotel validation, `/knowledge/import`, 401 logout state, modal close, list refresh, and loading cleanup. It no longer inlines request body fields, success-count wording, or timeout wording.
+- This does not change the knowledge import API, AI reader model default, tag parsing, auth token, login-expired behavior, error display, or knowledge list refresh. It only moves pure formatting and request-body construction into the already-loaded system static helper.
+- Guards now require system-static helpers for the knowledge import payload and messages, reject re-inlined payload/success/timeout formatting in `public/index.html`, and validate in VM that helper defaults preserve `document` source, `deepseek_chat`, numeric hotel ID, raw/tags, and timeout wording. E2E contract coverage is `607` checks.
+- Current split-map: `public/index.html` has `37237` lines, `1549` frontend function-level blocks, and `44` `currentPage` refs; the general domain span is `7354` lines. `importKnowledgeUnits` dropped from `68` lines to `59` lines but remains a split candidate. `app/controller/OnlineData.php` has `26931` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `207.72 MB`, without `.git` about `97.53 MB`, without `.git` and dependencies about `68.34 MB`, tracked files about `18.78 MB` / `618` files; code scope `373` files, `197393` total lines, and `181419` nonblank lines. Runtime cleanup is about `4.63 MB` / `161` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check scripts\verify_public_entry_guard.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `607` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

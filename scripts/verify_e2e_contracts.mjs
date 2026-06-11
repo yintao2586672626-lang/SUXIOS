@@ -223,6 +223,39 @@ requireText('public/index.html', "requireSystemStatic('getSystemConfigDefaults')
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'system static owns data config type defaults');
 requireText('public/system-static.js', 'const getSystemConfigDefaults', 'system static owns system config defaults');
+requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
+requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
+requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');
+requireText('public/system-static.js', 'const buildKnowledgeImportRequestBody', 'system static builds knowledge import request body');
+requireText('public/system-static.js', 'const knowledgeImportSuccessMessage', 'system static formats knowledge import success message');
+requireText('public/system-static.js', 'const knowledgeImportErrorMessage', 'system static formats knowledge import error message');
+requireNoText('public/index.html', "successCount = Number(res.data?.success_count", 'knowledge import success message is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "error.name === 'AbortError'", 'knowledge import abort message is not re-inlined in the SPA entry');
+{
+  const context = { window: {} };
+  vm.runInNewContext(read('public/system-static.js'), context, {
+    filename: 'public/system-static.js',
+  });
+  const helpers = context.window.SUXI_SYSTEM_STATIC;
+  const payload = helpers.buildKnowledgeImportRequestBody({
+    form: { mode: 'document', source: '', hotel_id: '12', model_key: '' },
+    tags: ['OTA', '复盘'],
+    raw: '经营资料',
+  });
+  checks.push({
+    file: 'public/system-static.js',
+    label: 'knowledge import helper preserves request and message semantics',
+    ok: payload.mode === 'document'
+      && payload.source === 'document'
+      && payload.hotel_id === 12
+      && payload.model_key === 'deepseek_chat'
+      && payload.raw === '经营资料'
+      && payload.tags.length === 2
+      && helpers.knowledgeImportSuccessMessage({ success_count: 3, error_count: 1 }).includes('失败 1 条')
+      && helpers.knowledgeImportErrorMessage({ name: 'AbortError' }).includes('超过90秒'),
+    detail: 'knowledge import helper must keep the original request defaults and explicit timeout message',
+  });
+}
 requireText('public/index.html', "requireDataHealthStatic('buildOnlineAnalysisChartConfig')", 'entry uses extracted online analysis chart config');
 requireText('public/data-health-static.js', 'const buildOnlineAnalysisChartConfig', 'data-health static builds online analysis chart config');
 requireText('public/index.html', 'new ChartLib(ctx, buildOnlineAnalysisChartConfig(analysisData.value.chart_data))', 'analysis chart rendering keeps only lifecycle wiring in the SPA entry');

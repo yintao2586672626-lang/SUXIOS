@@ -350,6 +350,30 @@ window.SUXI_SYSTEM_STATIC = (() => {
         url: { label: 'URL 列表', placeholder: '每行一个 URL' },
         manual: { label: '手动内容', placeholder: '每个知识块用空行分隔' },
     };
+    const buildKnowledgeImportRequestBody = ({ form = {}, raw = '', tags = [] } = {}) => {
+        const mode = form.mode || 'document';
+        return {
+            mode,
+            source: form.source || mode,
+            hotel_id: Number(form.hotel_id),
+            model_key: form.model_key || 'deepseek_chat',
+            tags: Array.isArray(tags) ? tags : [],
+            raw,
+        };
+    };
+    const knowledgeImportSuccessMessage = (data = {}) => {
+        const successCount = Number(data?.success_count || 0);
+        const errorCount = Number(data?.error_count || 0);
+        return errorCount > 0
+            ? `导入完成：成功 ${successCount} 条，失败 ${errorCount} 条，请查看异常状态`
+            : `导入完成：成功 ${successCount} 条`;
+    };
+    const knowledgeImportErrorMessage = (error) => {
+        if (error?.name === 'AbortError') {
+            return 'AI读取超过90秒，已停止等待；请刷新列表确认是否已生成，避免重复提交';
+        }
+        return error?.message || '导入失败';
+    };
     const aiQuickSetupProviderModelMap = {
         deepseek: ['deepseek-chat', 'deepseek-reasoner'],
         openai: ['openai_gpt', 'openai_fast'],
@@ -907,6 +931,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
         userColumns,
         knowledgeCenterBaseSourceOptions,
         knowledgeImportModeMetaMap,
+        buildKnowledgeImportRequestBody,
+        knowledgeImportSuccessMessage,
+        knowledgeImportErrorMessage,
         aiQuickSetupProviderModelMap,
         baseAiModelOptions,
         aiGovernanceTabs,

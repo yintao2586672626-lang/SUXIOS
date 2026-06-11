@@ -265,6 +265,16 @@ if (!fs.existsSync(indexPath)) {
   if (content.includes("text: '销售额(¥)'") || content.includes("text: '房晚/订单'")) {
     failures.push('public/index.html must not re-inline online analysis chart axis labels; use buildOnlineAnalysisChartConfig.');
   }
+  if (!content.includes("requireSystemStatic('buildKnowledgeImportRequestBody')")
+    || !content.includes("requireSystemStatic('knowledgeImportSuccessMessage')")
+    || !content.includes("requireSystemStatic('knowledgeImportErrorMessage')")) {
+    failures.push('public/index.html must use system-static.js helpers for knowledge import request body and messages.');
+  }
+  if (content.includes('successCount = Number(res.data?.success_count')
+    || content.includes("error.name === 'AbortError'")
+    || content.includes('body: JSON.stringify({\n                            mode,\n                            source: form.source || mode,')) {
+    failures.push('public/index.html must not re-inline knowledge import payload or success/timeout message formatting.');
+  }
   const autoFetchPanelLoader = content.slice(
     content.indexOf('const loadAutoFetchPanel = async'),
     content.indexOf('const loadAutoFetchStatus = async')
