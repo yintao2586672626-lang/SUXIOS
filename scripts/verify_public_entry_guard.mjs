@@ -439,13 +439,22 @@ if (!fs.existsSync(indexPath)) {
     || !/const\s+openPlatformSourcesTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
     failures.push('public/index.html must route platform source tab opens through one deduplicated page-load scheduler.');
   }
+  if (!/const\s+schedulePlatformSyncLogPanelRefresh\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-sync-log-panel['"][\s\S]*loadPlatformSyncTasks\(\)[\s\S]*loadPlatformSyncLogs\(\)[\s\S]*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\)/.test(content)
+    || !content.includes('@click="schedulePlatformSyncLogPanelRefresh({ force: true })"')) {
+    failures.push('public/index.html must route platform sync-log refreshes through the shared scheduler instead of inline requests.');
+  }
   if (content.includes("onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()")
     || content.includes('onlineDataTab = "platform-sources"; loadPlatformDataSourcePanel()')) {
     failures.push('public/index.html must not double-trigger the heavy platform source panel from inline tab switches.');
   }
   if (content.includes('await loadPlatformDataSourcePanel();')
-    || content.includes('await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformCollectionResources(), loadOnlineDataList()]);')) {
+    || content.includes('await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformCollectionResources(), loadOnlineDataList()]);')
+    || content.includes('await Promise.all([loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformProfileStatus({ silent: true })]);')
+    || content.includes('await Promise.all([loadPlatformSyncTasks(), loadPlatformSyncLogs()]);')) {
     failures.push('public/index.html must not block platform source save/delete/sync/import flows on full follow-up panel refreshes.');
+  }
+  if (content.includes('@click="loadPlatformSyncTasks(); loadPlatformSyncLogs()"')) {
+    failures.push('public/index.html platform source log button must not synchronously request sync logs inline.');
   }
   if (!content.includes('schedulePlatformDataSourcePanelLoad({ force: true });')) {
     failures.push('public/index.html must force-refresh the platform source panel through the page-load scheduler after source mutations.');

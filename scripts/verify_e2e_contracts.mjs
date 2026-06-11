@@ -183,10 +183,15 @@ requireNoText('public/index.html', "if (row.tab === 'platform-auto') loadAutoFet
 requireNoText('public/index.html', '@change="loadAutoFetchPanel"', 'platform-auto hotel switching does not bypass the shared scheduler');
 requireNoText('public/index.html', '@click="loadAutoFetchPanel"', 'platform-auto refresh buttons do not bypass the shared scheduler');
 requireText('public/index.html', "const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(", 'platform source panel loads through the shared page-load scheduler');
+requireText('public/index.html', "const schedulePlatformSyncLogPanelRefresh = (options = {}) => runPageLoadOnce(", 'platform sync logs refresh through the shared page-load scheduler');
 requireText('public/index.html', "const openPlatformSourcesTab = (options = {}) =>", 'platform source tab opens through a single deduplicated entrypoint');
+requireText('public/index.html', '@click="schedulePlatformSyncLogPanelRefresh({ force: true })"', 'platform source log button uses the non-blocking sync-log scheduler');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()", 'platform source tab switches do not double-trigger the heavy data-source panel load');
 requireNoText('public/index.html', 'await loadPlatformDataSourcePanel();', 'platform source mutations do not block on full panel reload');
 requireNoText('public/index.html', 'await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformCollectionResources(), loadOnlineDataList()]);', 'platform import completion defers heavy follow-up panel and list refreshes');
+requireNoText('public/index.html', 'await Promise.all([loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformProfileStatus({ silent: true })]);', 'platform sync-log navigation does not block on log/profile refreshes');
+requireNoText('public/index.html', 'await Promise.all([loadPlatformSyncTasks(), loadPlatformSyncLogs()]);', 'platform source sync failure does not block on log refreshes');
+requireNoText('public/index.html', '@click="loadPlatformSyncTasks(); loadPlatformSyncLogs()"', 'platform source log button does not synchronously request logs inline');
 requireText('public/index.html', 'schedulePlatformDataSourcePanelLoad({ force: true });', 'platform source mutations schedule forced panel refresh after server writes');
 requireNoText('public/index.html', "onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList(); loadAutoFetchPanel()", 'Ctrip fetch settings does not load full platform auto-fetch panel');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel(); loadPlatformProfileStatus({ silent: true })", 'platform sources tab does not duplicate profile status loading');

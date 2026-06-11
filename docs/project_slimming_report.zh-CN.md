@@ -1552,6 +1552,17 @@
 - 当前自审计：完整目录约 `228.66 MB`；不含 `.git` 约 `109.07 MB`；不含 `.git` 和依赖约 `79.88 MB`；Git 跟踪文件约 `18.9 MB` / `618` 个；代码范围 `373` 个文件、`198,506` 行、非空 `182,517` 行；默认可清理目标为 `runtime` 约 `16.05 MB` / `361` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`740` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 
+## 2026-06-12 保存点：平台同步日志刷新调度收口
+
+- `public/index.html` 新增 `schedulePlatformSyncLogPanelRefresh()`，通过 `runPageLoadOnce()` 统一调度同步任务、同步日志和平台 Profile 状态刷新，使用独立 `platform-sync-log-panel` 去重 key。
+- 平台资源行的“日志”按钮、平台 Profile 行动入口、门店平台账号行动入口和数据源同步失败后的日志刷新都改为调用该调度器，不再直接 `await Promise.all([loadPlatformSyncTasks(), loadPlatformSyncLogs(), ...])` 阻塞当前交互。
+- `setup()` 返回列表已暴露 `schedulePlatformSyncLogPanelRefresh`，避免模板按钮引用未暴露方法。
+- 本保存点不改变平台数据源接口、同步任务/日志接口、Profile 状态接口、OTA 采集、入库、字段口径、AI 分析、权限或数据库结构；失败和部分采集状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求平台同步日志刷新走共享调度器，并禁止按钮内联同步日志请求和阻塞式日志刷新；`verify_e2e_contracts.mjs` 同步将 E2E 合同检查数提升到 `745`。
+- 当前 split-map：`public/index.html` 为 `37,476` 行、`1,569` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `229.39 MB`；不含 `.git` 约 `109.08 MB`；不含 `.git` 和依赖约 `79.89 MB`；Git 跟踪文件约 `18.91 MB` / `618` 个；代码范围 `373` 个文件、`198,530` 行、非空 `182,541` 行；默认可清理目标为 `runtime` 约 `16.05 MB` / `373` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`745` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

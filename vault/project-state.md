@@ -1583,6 +1583,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `228.66 MB`, without `.git` about `109.07 MB`, without `.git` and dependencies about `79.88 MB`, tracked files about `18.9 MB` / `618` files; code scope `373` files, `198506` total lines, and `182517` nonblank lines. Runtime cleanup is about `16.05 MB` / `361` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\ctrip-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `740` checks; `self:audit`; `self:split-map`.
 
+## 2026-06-12 Progress: Platform Sync Log Refresh Scheduling
+
+- `public/index.html` now adds `schedulePlatformSyncLogPanelRefresh()`, routing sync tasks, sync logs, and platform Profile status refreshes through `runPageLoadOnce()` with a dedicated `platform-sync-log-panel` de-dupe key.
+- Platform resource row log buttons, Platform Profile action entries, hotel platform-account action entries, and data-source sync failure refreshes now call this scheduler instead of directly awaiting `Promise.all([loadPlatformSyncTasks(), loadPlatformSyncLogs(), ...])`.
+- The Vue `setup()` return list now exposes `schedulePlatformSyncLogPanelRefresh`, so template buttons do not reference an unreturned method.
+- This does not change platform data-source APIs, sync task/log APIs, Profile status APIs, OTA collection, persistence, field semantics, AI analysis, permissions, or database schema. Failed and partial-capture states remain explicit.
+- Guards now require platform sync-log refreshes to use the shared scheduler, reject inline sync-log button requests, and reject blocking log refreshes; `verify:e2e-contracts` covers `745` checks.
+- Current split-map: `public/index.html` has `37476` lines, `1569` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `229.39 MB`, without `.git` about `109.08 MB`, without `.git` and dependencies about `79.89 MB`, tracked files about `18.91 MB` / `618` files; code scope `373` files, `198530` total lines, and `182541` nonblank lines. Runtime cleanup is about `16.05 MB` / `373` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:p0-guards`; `verify:e2e-contracts` with `745` checks; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
