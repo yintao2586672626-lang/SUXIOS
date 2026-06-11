@@ -1284,6 +1284,13 @@
 - 已验证：`git diff --check`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:clean`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍需继续拆分或明确 disposition；PR #2 继续保持 Draft，不能作为发布 ready 状态。
 
+## 2026-06-11 保存点：自动获取静态配置按需加载
+
+- `public/index.html` 不再首屏同步加载 `auto-fetch-static.js`；登录页和在线数据默认页不再承担平台自动获取静态工具。门店罗盘每日运营字段清单、`platform-auto` 面板、数据源配置弹窗/保存/测试、已保存 OTA 配置读取和手动触发自动获取前，显式等待 `ensureAutoFetchStaticReady()`。
+- `online-data` 普通 `data` 标签不再通过菜单点击触发 `loadAutoFetchPanel()`；只有 `platform-auto` 标签加载自动获取面板。自动获取执行仍调用 `/online-data/auto-fetch`，不改变携程/美团 OTA 采集接口、入库逻辑、失败状态展示或 OTA 渠道口径。
+- 更新守卫：`verify_public_entry_guard.mjs` 禁止首屏同步加载 `auto-fetch-static.js`，要求保留 lazy loader/ready guard，并要求平台自动获取和数据源配置入口先加载静态工具；`verify_e2e_contracts.mjs` 同步要求自动获取静态 helper 按需加载，E2E 合同检查数增至 `496`。
+- 已验证：`npm.cmd run verify:public-entry`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:clean`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

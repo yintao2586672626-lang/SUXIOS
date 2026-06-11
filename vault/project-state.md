@@ -1311,6 +1311,13 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified in this save point: `git diff --check`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:clean`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 - Strict gate remains intentionally incomplete because `public/index.html` and `app/controller/OnlineData.php` still require further splitting or explicit disposition. PR #2 remains Draft unless the user explicitly chooses release/ready.
 
+## 2026-06-11 Progress: Auto-Fetch Static Lazy Load
+
+- `public/index.html` no longer eagerly loads `auto-fetch-static.js` in the first shell. The login page and default online-data page do not load platform auto-fetch helpers. The compass daily-ops field list, `platform-auto` panel, data-source config modal/save/test paths, saved OTA data config reads, and manual auto-fetch trigger explicitly await `ensureAutoFetchStaticReady()`.
+- The normal `online-data` `data` tab no longer triggers `loadAutoFetchPanel()` from menu tab routing; only the `platform-auto` tab loads the auto-fetch panel. This does not change `/online-data/auto-fetch`, Ctrip/Meituan OTA capture APIs, storage behavior, failed-state display, or OTA channel scope.
+- Guards updated: `verify_public_entry_guard.mjs` prevents eager `auto-fetch-static.js`, requires the lazy loader/ready guard, and requires platform auto-fetch/data-source config entry points to load the helper first. `verify_e2e_contracts.mjs` now checks the auto-fetch static lazy-load boundary; E2E contract coverage increased to `496`.
+- Verified in this save point: `npm.cmd run verify:public-entry`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:clean`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

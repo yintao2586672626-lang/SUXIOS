@@ -169,6 +169,22 @@ if (!fs.existsSync(indexPath)) {
     || !/runPageLoadOnce\(currentPage\.value \|\| ['"]online-data['"], ['"]ai-analysis-static['"][\s\S]*await ensureAiAnalysisStaticReady\(\);/.test(content)) {
     failures.push('public/index.html must load AI analysis static data only from the OTA AI tab or online analysis tab.');
   }
+  if (/<script\s+src=["']auto-fetch-static\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load auto-fetch-static.js; the login shell and default online-data page do not need platform auto-fetch helpers.');
+  }
+  if (!/const\s+autoFetchStaticScript\s*=\s*["']auto-fetch-static\.js["']/.test(content)
+    || !/const\s+loadAutoFetchStatic\s*=\s*\(\)\s*=>/.test(content)
+    || !/const\s+ensureAutoFetchStaticReady\s*=\s*async\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader and ready guard for auto-fetch-static.js.');
+  }
+  if (!/const loadAutoFetchPanel = async[\s\S]*await ensureAutoFetchStaticReady\(\);/.test(content)
+    || !/const triggerAutoFetch = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runAutoFetchTriggerFlow['"]\)/.test(content)) {
+    failures.push('public/index.html must load auto-fetch-static.js before opening the platform-auto panel or triggering manual auto-fetch.');
+  }
+  if (!/const openDataConfigModal = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const loadDataConfig = async/.test(content)
+    || !/const saveDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const testDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);/.test(content)) {
+    failures.push('public/index.html must load auto-fetch-static.js before data-source config form parsing, saving, or testing.');
+  }
   const onlineDataDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'online-data' && token.value)"),
     content.indexOf("if (newPage === 'operation-logs'")

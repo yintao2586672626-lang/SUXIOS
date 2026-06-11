@@ -17,7 +17,6 @@
     <script src="data-health-static.js"></script>
     <script src="ota-diagnosis-static.js"></script>
     <script src="system-static.js?v=20260611-platform-guide"></script>
-    <script src="auto-fetch-static.js"></script>
     <script src="compass-static.js"></script>
     <script src="home-static.js"></script>
 </head>
@@ -21382,29 +21381,74 @@
                 });
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
-            const autoFetchStatic = window.SUXI_AUTO_FETCH_STATIC;
-            if (!autoFetchStatic || typeof autoFetchStatic !== 'object') {
-                throw new Error('缺少自动采集静态配置：auto-fetch-static.js 未加载');
+            const autoFetchStaticScript = 'auto-fetch-static.js';
+            const autoFetchStatic = ref(window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object' ? window.SUXI_AUTO_FETCH_STATIC : null);
+            const autoFetchStaticLoadError = ref('');
+            let autoFetchStaticLoadPromise = null;
+            const autoFetchModeOptions = ref([]);
+            const autoFetchCollectionBlueprintRows = ref([]);
+            const autoFetchFieldScopeGroups = ref([]);
+            const setAutoFetchStatic = (staticOptions) => {
+                if (!staticOptions || typeof staticOptions !== 'object') {
+                    throw new Error('缺少自动采集静态配置：auto-fetch-static.js 未加载');
+                }
+                autoFetchStatic.value = staticOptions;
+                autoFetchModeOptions.value = Array.isArray(staticOptions.autoFetchModeOptions) ? staticOptions.autoFetchModeOptions : [];
+                autoFetchCollectionBlueprintRows.value = Array.isArray(staticOptions.autoFetchCollectionBlueprintRows) ? staticOptions.autoFetchCollectionBlueprintRows : [];
+                autoFetchFieldScopeGroups.value = Array.isArray(staticOptions.autoFetchFieldScopeGroups) ? staticOptions.autoFetchFieldScopeGroups : [];
+                autoFetchStaticLoadError.value = '';
+                return staticOptions;
+            };
+            if (autoFetchStatic.value) {
+                setAutoFetchStatic(autoFetchStatic.value);
             }
+            const loadAutoFetchStatic = () => {
+                if (window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object') {
+                    return Promise.resolve(setAutoFetchStatic(window.SUXI_AUTO_FETCH_STATIC));
+                }
+                if (!autoFetchStaticLoadPromise) {
+                    autoFetchStaticLoadPromise = new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = autoFetchStaticScript;
+                        script.async = true;
+                        script.onload = () => {
+                            if (window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object') {
+                                resolve(setAutoFetchStatic(window.SUXI_AUTO_FETCH_STATIC));
+                                return;
+                            }
+                            reject(new Error('缺少自动采集静态配置：auto-fetch-static.js 未加载'));
+                        };
+                        script.onerror = () => reject(new Error('缺少自动采集静态配置：auto-fetch-static.js 未加载'));
+                        document.head.appendChild(script);
+                    });
+                }
+                return autoFetchStaticLoadPromise;
+            };
+            const ensureAutoFetchStaticReady = async () => {
+                try {
+                    return await loadAutoFetchStatic();
+                } catch (error) {
+                    autoFetchStaticLoadError.value = error.message || '自动采集静态配置加载失败';
+                    console.error('[auto-fetch-static] load failed:', error);
+                    showToast(autoFetchStaticLoadError.value, 'error');
+                    throw error;
+                }
+            };
             const requireAutoFetchStatic = (key) => {
-                const value = autoFetchStatic[key];
+                const value = autoFetchStatic.value?.[key];
                 if (value === undefined || value === null) {
                     throw new Error(`自动采集静态配置缺失：${key}`);
                 }
                 return value;
             };
-            const autoFetchModeOptions = requireAutoFetchStatic('autoFetchModeOptions');
-            const autoFetchCollectionBlueprintRows = requireAutoFetchStatic('autoFetchCollectionBlueprintRows');
-            const autoFetchFieldScopeGroups = requireAutoFetchStatic('autoFetchFieldScopeGroups');
-            const runAutoFetchTriggerFlow = requireAutoFetchStatic('runAutoFetchTriggerFlow');
             const autoFetchScopeStatusClass = (status) => ({
                 ready: 'bg-emerald-50 text-emerald-700 border-emerald-100',
                 partial: 'bg-amber-50 text-amber-700 border-amber-100',
                 blocked: 'bg-rose-50 text-rose-700 border-rose-100',
                 manual: 'bg-slate-50 text-slate-600 border-slate-200',
             }[String(status || '')] || 'bg-slate-50 text-slate-600 border-slate-200');
-            const dailyOpsMetricRows = computed(() => autoFetchFieldScopeGroups);
-            const dailyOpsFieldCount = computed(() => autoFetchFieldScopeGroups.reduce((total, row) => total + row.fields.length, 0));
+            const dailyOpsMetricRows = computed(() => autoFetchFieldScopeGroups.value);
+            const dailyOpsFieldCount = computed(() => autoFetchFieldScopeGroups.value.reduce((total, row) => total + row.fields.length, 0));
             const dailyOpsStatusCards = computed(() => {
                 const count = (status) => dailyOpsMetricRows.value.filter(row => row.status === status).length;
                 return [
@@ -22223,7 +22267,7 @@
             const autoFetchEnabled = ref(false);
             const autoFetchMode = ref('hybrid_auto');
             const autoFetchModeLabel = (mode) => {
-                const found = autoFetchModeOptions.find(item => item.value === mode);
+                const found = autoFetchModeOptions.value.find(item => item.value === mode);
                 return found ? found.label : '接口直连自动';
             };
             const normalizeAutoFetchScheduleMinuteValue = () => {
@@ -23169,6 +23213,7 @@
                 autoFetchPanelCache = { key: '', expiresAt: 0, promise: null };
             };
             const loadAutoFetchPanel = async (options = {}) => {
+                await ensureAutoFetchStaticReady();
                 const force = options && options.force === true;
                 const keyBeforeLoad = autoFetchPanelCacheKey();
                 const now = Date.now();
@@ -23828,32 +23873,36 @@
             };
 
             // 手动触发自动获取
-            const triggerAutoFetch = async () => runAutoFetchTriggerFlow({
-                getHotelId: getAutoFetchHotelId,
-                hasPlatformFetchConfig: hasAnyPlatformFetchConfigByHotelId,
-                setFetching: value => { fetchingData.value = value; },
-                startTimer: startAutoFetchRunTimer,
-                stopTimer: stopAutoFetchRunTimer,
-                getBrowserHeadless: () => autoFetchBrowserHeadless.value,
-                getCtripExecutionText: () => autoFetchCtripExecutionText.value,
-                buildModePayload: buildAutoFetchModePayload,
-                modeLabel: autoFetchModeLabel,
-                getCtripSectionConcurrency: normalizeCtripSectionConcurrencyValue,
-                notify: showToast,
-                setRunState: value => { autoFetchRunState.value = value; },
-                requestAutoFetch: body => request('/online-data/auto-fetch', {
-                    method: 'POST',
-                    body: JSON.stringify(body),
-                }),
-                getDurationText: () => formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value),
-                updateLastResult: updateAutoFetchLastResultFromResponse,
-                refreshOnlineData: scheduleOnlineDataRefresh,
-                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
-                refreshLatestCtripData: scheduleLatestCtripRefresh,
-                openCtripProfileFieldsForReview: scheduleCtripProfileFieldReview,
-                loadAutoFetchStatus: scheduleAutoFetchStatusRefresh,
-                loadBackendGlobalNotifications: scheduleBackendNotificationRefresh,
-            });
+            const triggerAutoFetch = async () => {
+                await ensureAutoFetchStaticReady();
+                const runAutoFetchTriggerFlow = requireAutoFetchStatic('runAutoFetchTriggerFlow');
+                return runAutoFetchTriggerFlow({
+                    getHotelId: getAutoFetchHotelId,
+                    hasPlatformFetchConfig: hasAnyPlatformFetchConfigByHotelId,
+                    setFetching: value => { fetchingData.value = value; },
+                    startTimer: startAutoFetchRunTimer,
+                    stopTimer: stopAutoFetchRunTimer,
+                    getBrowserHeadless: () => autoFetchBrowserHeadless.value,
+                    getCtripExecutionText: () => autoFetchCtripExecutionText.value,
+                    buildModePayload: buildAutoFetchModePayload,
+                    modeLabel: autoFetchModeLabel,
+                    getCtripSectionConcurrency: normalizeCtripSectionConcurrencyValue,
+                    notify: showToast,
+                    setRunState: value => { autoFetchRunState.value = value; },
+                    requestAutoFetch: body => request('/online-data/auto-fetch', {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    }),
+                    getDurationText: () => formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value),
+                    updateLastResult: updateAutoFetchLastResultFromResponse,
+                    refreshOnlineData: scheduleOnlineDataRefresh,
+                    refreshOnlineHistory: scheduleOnlineHistoryRefresh,
+                    refreshLatestCtripData: scheduleLatestCtripRefresh,
+                    openCtripProfileFieldsForReview: scheduleCtripProfileFieldReview,
+                    loadAutoFetchStatus: scheduleAutoFetchStatusRefresh,
+                    loadBackendGlobalNotifications: scheduleBackendNotificationRefresh,
+                });
+            };
 
             const retryAutoFetchDate = async (date) => {
                 const hotelId = getAutoFetchHotelId();
@@ -23991,6 +24040,7 @@
                     destroyAnalysisChart();
                 }
                 if (newPage === 'compass') {
+                    runPageLoadOnce(newPage, 'auto-fetch-static', () => ensureAutoFetchStaticReady());
                     runPageLoadOnce(newPage, 'main', () => loadCompassData());
                 }
                 if (newPage === 'ctrip-ebooking') {
@@ -24394,7 +24444,7 @@
                 if (item.tab) {
                     nextTick(() => {
                         onlineDataTab.value = item.tab;
-                        if (item.path === 'online-data' && ['data', 'platform-auto'].includes(item.tab)) {
+                        if (item.path === 'online-data' && item.tab === 'platform-auto') {
                             loadAutoFetchPanel();
                         }
                         if (item.path === 'online-data' && item.tab === 'analysis') {
@@ -28436,6 +28486,7 @@
                         showToast(`欢迎回来，${res.data.user.realname || res.data.user.username}！`, 'success');
                         currentPage.value = 'compass';
                         loadData();
+                        runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), { force: true });
                         runPageLoadOnce('compass', 'main', () => loadCompassData(), { force: true });
                         setTimeout(() => refreshGlobalNotifications({ silent: true, backendOnly: true }), 300);
                     } else {
@@ -30828,6 +30879,7 @@
 
             const readSavedOtaDataConfig = async (type) => {
                 const configKey = `data_config_${type.replace('-', '_')}`;
+                await ensureAutoFetchStaticReady();
                 try {
                     const res = await request(`/system-config?key=${configKey}`);
                     if (res.code !== 200 || !res.data) {
@@ -31593,6 +31645,11 @@
                     showToast('只有超级管理员才能配置数据', 'error');
                     return;
                 }
+                try {
+                    await ensureAutoFetchStaticReady();
+                } catch (e) {
+                    return;
+                }
                 currentDataConfigType.value = type;
                 const titles = {
                     'ctrip-ebooking': '携程ebooking配置',
@@ -31632,13 +31689,14 @@
                 return value === undefined ? '' : value;
             };
 
-            const parseDataConfigValue = requireAutoFetchStatic('parseDataConfigValue');
-            const normalizeDataConfigForForm = requireAutoFetchStatic('normalizeDataConfigForForm');
-            const buildDataConfigRequestBodyFromForm = requireAutoFetchStatic('buildDataConfigRequestBody');
+            const parseDataConfigValue = (value) => requireAutoFetchStatic('parseDataConfigValue')(value);
+            const normalizeDataConfigForForm = (config = {}) => requireAutoFetchStatic('normalizeDataConfigForForm')(config);
+            const buildDataConfigRequestBodyFromForm = (type, form = {}) => requireAutoFetchStatic('buildDataConfigRequestBody')(type, form);
             const buildDataConfigForSave = () => normalizeDataConfigForForm(dataConfigForm.value || {});
             const buildDataConfigRequestBody = (type) => buildDataConfigRequestBodyFromForm(type, dataConfigForm.value || {});
 
             const loadDataConfig = async (type) => {
+                await ensureAutoFetchStaticReady();
                 try {
                     const configKey = `data_config_${type.replace('-', '_')}`;
                     const res = await request(`/system-config?key=${configKey}`);
@@ -31662,6 +31720,7 @@
             };
 
             const loadSavedDataConfigByType = async (type) => {
+                await ensureAutoFetchStaticReady();
                 const configKey = `data_config_${type.replace('-', '_')}`;
                 const res = await request(`/system-config?key=${configKey}`);
                 if (res.code !== 200 || !res.data) return null;
@@ -31735,6 +31794,11 @@
                     showToast('只有超级管理员才能保存配置', 'error');
                     return;
                 }
+                try {
+                    await ensureAutoFetchStaticReady();
+                } catch (e) {
+                    return;
+                }
                 if (currentDataConfigType.value === 'ctrip-ads') {
                     const url = String(firstDataConfigValue(dataConfigForm.value.url, dataConfigForm.value.request_url, dataConfigForm.value.requestUrl)).trim();
                     if (url && !isCtripAdsApiUrl(url)) {
@@ -31777,6 +31841,7 @@
             const testDataConfig = async () => {
                 testingConfig.value = true;
                 try {
+                    await ensureAutoFetchStaticReady();
                     let apiUrl = '';
                     const type = currentDataConfigType.value;
 
@@ -35349,6 +35414,7 @@
                             isLoggedIn.value = true;
                             loadData();
                             if (currentPage.value === 'compass') {
+                                runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), { force: true });
                                 runPageLoadOnce('compass', 'main', () => loadCompassData(), { force: true });
                             }
                             setTimeout(() => refreshGlobalNotifications({ silent: true, backendOnly: true }), 300);
