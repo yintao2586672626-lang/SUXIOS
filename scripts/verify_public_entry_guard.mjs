@@ -120,8 +120,20 @@ if (!fs.existsSync(publicRouterPath)) {
   failures.push('public/router.php is missing.');
 } else {
   const routerSource = fs.readFileSync(publicRouterPath, 'utf8');
+  if (!routerSource.includes("'runtime' . DIRECTORY_SEPARATOR . 'static-gzip'")) {
+    failures.push('public/router.php must cache gzip output under runtime/static-gzip to avoid repeated CPU compression on large local assets.');
+  }
+  if (!routerSource.includes("file_put_contents($gzipCacheFile, $encoded, LOCK_EX)")) {
+    failures.push('public/router.php must persist gzip cache files atomically enough for local dev reloads.');
+  }
+  if (!routerSource.includes("header('Content-Length: ' . (int)filesize($gzipCacheFile))")) {
+    failures.push('public/router.php must send Content-Length for cached gzip assets.');
+  }
+  if (!routerSource.includes("header('Content-Length: ' . strlen($encoded))")) {
+    failures.push('public/router.php must send Content-Length for refreshed gzip assets.');
+  }
   if (!/gzencode\(\(string\)file_get_contents\(\$staticFile\),\s*1\)/.test(routerSource)) {
-    failures.push('public/router.php must use gzip level 1 for local static assets to avoid high CPU first-load compression.');
+    failures.push('public/router.php must use gzip level 1 when refreshing the static gzip cache.');
   }
 }
 

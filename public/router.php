@@ -63,11 +63,28 @@ if ($publicRoot !== false
         && function_exists('gzencode')
         && str_contains($acceptEncoding, 'gzip');
     if ($canGzip) {
-        header('Content-Encoding: gzip');
-        echo gzencode((string)file_get_contents($staticFile), 1);
-        return true;
+        $gzipCacheRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'static-gzip';
+        $gzipCacheFile = $gzipCacheRoot . DIRECTORY_SEPARATOR . md5($staticFile) . '-' . $mtime . '-' . $size . '.gz';
+        if (is_file($gzipCacheFile)) {
+            header('Content-Encoding: gzip');
+            header('Content-Length: ' . (int)filesize($gzipCacheFile));
+            readfile($gzipCacheFile);
+            return true;
+        }
+
+        $encoded = gzencode((string)file_get_contents($staticFile), 1);
+        if ($encoded !== false) {
+            if ((is_dir($gzipCacheRoot) || mkdir($gzipCacheRoot, 0775, true)) && is_writable($gzipCacheRoot)) {
+                file_put_contents($gzipCacheFile, $encoded, LOCK_EX);
+            }
+            header('Content-Encoding: gzip');
+            header('Content-Length: ' . strlen($encoded));
+            echo $encoded;
+            return true;
+        }
     }
 
+    header('Content-Length: ' . $size);
     readfile($staticFile);
     return true;
 }
