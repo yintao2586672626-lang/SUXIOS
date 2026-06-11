@@ -6265,6 +6265,20 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
         linear-gradient(90deg, rgba(5, 8, 8, 0.44) 0%, rgba(5, 8, 8, 0.34) 38%, rgba(4, 8, 9, 0.72) 100%),
         linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.24) 100%),
         url("images/login-hotel-lobby-bg.png") center center / cover no-repeat !important;
+    background:
+        linear-gradient(90deg, rgba(5, 8, 8, 0.44) 0%, rgba(5, 8, 8, 0.34) 38%, rgba(4, 8, 9, 0.72) 100%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.24) 100%),
+        -webkit-image-set(
+            url("images/login-hotel-lobby-bg.webp") type("image/webp") 1x,
+            url("images/login-hotel-lobby-bg.png") type("image/png") 1x
+        ) center center / cover no-repeat !important;
+    background:
+        linear-gradient(90deg, rgba(5, 8, 8, 0.44) 0%, rgba(5, 8, 8, 0.34) 38%, rgba(4, 8, 9, 0.72) 100%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.24) 100%),
+        image-set(
+            url("images/login-hotel-lobby-bg.webp") type("image/webp") 1x,
+            url("images/login-hotel-lobby-bg.png") type("image/png") 1x
+        ) center center / cover no-repeat !important;
 }
 
 .login-bg::before {

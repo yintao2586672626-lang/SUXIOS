@@ -64,7 +64,7 @@ for (const routeCheck of requiredActiveRoutes) {
   }
 }
 
-if (!/<link\s+rel=["']stylesheet["']\s+href=["']style\.css["']/.test(publicIndex)) {
+if (!/<link\s+rel=["']stylesheet["']\s+href=["']style\.css(?:\?[^"']*)?["']/.test(publicIndex)) {
   failures.push('public/index.html must load public/style.css as the local application stylesheet.');
 }
 

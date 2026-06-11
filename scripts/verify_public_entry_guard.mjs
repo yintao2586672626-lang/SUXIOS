@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
+const stylePath = path.join(repoRoot, 'public/style.css');
+const loginBgPngPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.png');
+const loginBgWebpPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.webp');
 const failures = [];
 
 const lineNumberForOffset = (content, offset) => content.slice(0, offset).split(/\r?\n/).length;
@@ -176,6 +179,36 @@ if (!fs.existsSync(indexPath)) {
         'Global modals and toast must stay inside #app; check malformed <div>, <details>, <template>, or <teleport> closures.'
       );
     }
+  }
+}
+
+if (!fs.existsSync(stylePath)) {
+  failures.push('public/style.css is missing.');
+} else {
+  const styleSource = fs.readFileSync(stylePath, 'utf8');
+  if (!fs.existsSync(loginBgPngPath)) {
+    failures.push('public/images/login-hotel-lobby-bg.png fallback is missing.');
+  }
+  if (!fs.existsSync(loginBgWebpPath)) {
+    failures.push('public/images/login-hotel-lobby-bg.webp optimized login background is missing.');
+  }
+  if (fs.existsSync(loginBgPngPath) && fs.existsSync(loginBgWebpPath)) {
+    const pngSize = fs.statSync(loginBgPngPath).size;
+    const webpSize = fs.statSync(loginBgWebpPath).size;
+    if (webpSize >= pngSize * 0.25) {
+      failures.push('public/images/login-hotel-lobby-bg.webp must remain a substantially smaller first-choice login background.');
+    }
+  }
+  const loginPngOffset = styleSource.indexOf('images/login-hotel-lobby-bg.png');
+  const loginWebpOffset = styleSource.indexOf('images/login-hotel-lobby-bg.webp');
+  if (loginPngOffset === -1 || loginWebpOffset === -1) {
+    failures.push('public/style.css must keep both the original PNG declaration and the optimized WebP login background declaration.');
+  }
+  if (loginPngOffset !== -1 && loginWebpOffset !== -1 && loginWebpOffset < loginPngOffset) {
+    failures.push('public/style.css must declare the optimized WebP login background after the original PNG declaration.');
+  }
+  if (!styleSource.includes('-webkit-image-set(') || !styleSource.includes('image-set(')) {
+    failures.push('public/style.css must use image-set declarations for the optimized login background with PNG fallback.');
   }
 }
 
