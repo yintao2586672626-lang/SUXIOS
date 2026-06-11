@@ -1037,6 +1037,98 @@ window.SUXI_CTRIP_STATIC = (() => {
         auto_save: true,
     });
 
+    const runCtripAdsFetchFlow = async ({
+        getSystemHotelId = () => null,
+        notify = () => {},
+        getActiveCtripConfig = () => null,
+        ensureCtripConfigSecret = async config => config,
+        applyCtripConfigObject = () => {},
+        syncAdsDirectConfig = async () => {},
+        getForm = () => ({}),
+        getCtripCookies = () => '',
+        getHotelNameById = () => '',
+        defaultAdsUrl = defaultCtripAdsEffectReportUrl,
+        adsUrlHint = ctripAdsApiUrlHint,
+        setRunning = () => {},
+        setGlobalFetching = () => {},
+        setResult = () => {},
+        setOnlineDataResult = () => {},
+        setShowRawData = () => {},
+        requestFetch = async () => ({}),
+        refreshLatestCtripData = async () => {},
+        refreshOnlineHistory = async () => {},
+    } = {}) => {
+        const systemHotelId = getSystemHotelId();
+        if (!systemHotelId) {
+            notify('请选择目标酒店', 'error');
+            return { status: 'missing_hotel' };
+        }
+
+        const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
+        if (!activeConfig) {
+            notify('当前酒店未配置携程数据源', 'warning');
+            return { status: 'missing_config' };
+        }
+        applyCtripConfigObject(activeConfig);
+        await syncAdsDirectConfig(false);
+
+        const form = getForm() || {};
+        const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.hotel_id || '').trim();
+        const url = String(form.url || defaultAdsUrl).trim();
+        const cookies = String(form.cookies || getCtripCookies() || activeConfig.cookies || '').trim();
+        if (url.includes('/toolcenter/cpc/pyramid')) {
+            notify('请填写 Network 中 queryCampaignReportList 的 JSON 接口 URL，不是广告页面地址', 'error');
+            return { status: 'invalid_page_url', url };
+        }
+        if (!isCtripAdsApiUrl(url)) {
+            notify(adsUrlHint, 'error');
+            return { status: 'invalid_api_url', url };
+        }
+        if (!cookies) {
+            notify('请提供携程 Cookie', 'error');
+            return { status: 'missing_cookies', url };
+        }
+        if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
+            notify('请选择自定义开始日期和结束日期', 'error');
+            return { status: 'missing_custom_dates', url };
+        }
+
+        setRunning(true);
+        setGlobalFetching(true);
+        setResult(null);
+        try {
+            const requestBody = buildCtripAdsFetchRequestBody({
+                systemHotelId,
+                hotelId,
+                hotelName: getHotelNameById(systemHotelId),
+                url,
+                cookies,
+                form,
+            });
+            const res = await requestFetch(requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                setResult(data);
+                setOnlineDataResult(data);
+                setShowRawData(false);
+                notify(res.message || `广告数据获取完成，已入库 ${data.saved_count || 0} 条`);
+                await refreshLatestCtripData({ silent: true });
+                await refreshOnlineHistory();
+                return { status: 'success', response: res, requestBody };
+            }
+
+            notify(res.message || '广告数据获取失败', 'error');
+            return { status: 'failed', response: res };
+        } catch (error) {
+            notify('广告数据获取失败: ' + error.message, 'error');
+            setResult(error?.data?.data || { error: error.message });
+            return { status: 'exception', error };
+        } finally {
+            setRunning(false);
+            setGlobalFetching(false);
+        }
+    };
+
     const buildCtripCookieApiFetchRequestBody = ({
         systemHotelId = null,
         hotelId = '',
@@ -1835,6 +1927,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripOverviewFetchRequestBody,
         runCtripOverviewFetchFlow,
         buildCtripAdsFetchRequestBody,
+        runCtripAdsFetchFlow,
         buildCtripCookieApiFetchRequestBody,
         runCtripCookieApiCaptureFlow,
         ctripSortMetricValue,

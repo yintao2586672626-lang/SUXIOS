@@ -19080,7 +19080,7 @@
             const buildCtripOverviewTopRankTables = requireCtripStatic('buildCtripOverviewTopRankTables');
             const buildCtripFlowOverviewMetricCards = requireCtripStatic('buildCtripFlowOverviewMetricCards');
             const buildCtripFlowOverviewInterfaceRows = requireCtripStatic('buildCtripFlowOverviewInterfaceRows');
-            const buildCtripAdsFetchRequestBody = requireCtripStatic('buildCtripAdsFetchRequestBody');
+            const runCtripAdsFetchFlow = requireCtripStatic('runCtripAdsFetchFlow');
             const runCtripCookieApiCaptureFlow = requireCtripStatic('runCtripCookieApiCaptureFlow');
             const ctripOverviewForm = ref(createCtripOverviewForm());
             const ctripFlowOverviewForm = ref(createCtripFlowOverviewForm());
@@ -32443,76 +32443,30 @@
                 return applied;
             };
 
-            const fetchCtripAdsData = async () => {
-                const systemHotelId = selectedCtripHotelId.value || user.value?.hotel_id || null;
-                if (!systemHotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-
-                const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-                if (!activeConfig) {
-                    showToast('当前酒店未配置携程数据源', 'warning');
-                    return;
-                }
-                applyCtripConfigObject(activeConfig, false);
-                await syncCtripAdsDirectConfig(false);
-
-                const form = ctripAdsBrowserCaptureForm.value;
-                const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.hotel_id || '').trim();
-                const url = String(form.url || defaultCtripAdsEffectReportUrl).trim();
-                const cookies = String(form.cookies || ctripForm.value.cookies || activeConfig.cookies || '').trim();
-                if (url.includes('/toolcenter/cpc/pyramid')) {
-                    showToast('请填写 Network 中 queryCampaignReportList 的 JSON 接口 URL，不是广告页面地址', 'error');
-                    return;
-                }
-                if (!isCtripAdsApiUrl(url)) {
-                    showToast(ctripAdsApiUrlHint, 'error');
-                    return;
-                }
-                if (!cookies) {
-                    showToast('请提供携程 Cookie', 'error');
-                    return;
-                }
-                if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
-                    showToast('请选择自定义开始日期和结束日期', 'error');
-                    return;
-                }
-
-                ctripAdsBrowserCaptureRunning.value = true;
-                fetchingData.value = true;
-                ctripAdsBrowserCaptureResult.value = null;
-                try {
-                    const ctripAdsFetchBody = buildCtripAdsFetchRequestBody({
-                        systemHotelId,
-                        hotelId,
-                        hotelName: getHotelNameById(systemHotelId),
-                        url,
-                        cookies,
-                        form,
-                    });
-                    const res = await request('/online-data/fetch-ctrip-ads', {
-                        method: 'POST',
-                        body: JSON.stringify(ctripAdsFetchBody),
-                    });
-                    if (res.code === 200) {
-                        ctripAdsBrowserCaptureResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        showRawData.value = false;
-                        showToast(res.message || `广告数据获取完成，已入库 ${res.data?.saved_count || 0} 条`);
-                        await loadLatestCtripData({ silent: true });
-                        await refreshOnlineHistory();
-                    } else {
-                        showToast(res.message || '广告数据获取失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('广告数据获取失败: ' + e.message, 'error');
-                    ctripAdsBrowserCaptureResult.value = e?.data?.data || { error: e.message };
-                } finally {
-                    ctripAdsBrowserCaptureRunning.value = false;
-                    fetchingData.value = false;
-                }
-            };
+            const fetchCtripAdsData = async () => runCtripAdsFetchFlow({
+                getSystemHotelId: () => selectedCtripHotelId.value || user.value?.hotel_id || null,
+                notify: showToast,
+                getActiveCtripConfig,
+                ensureCtripConfigSecret,
+                applyCtripConfigObject: config => applyCtripConfigObject(config, false),
+                syncAdsDirectConfig: syncCtripAdsDirectConfig,
+                getForm: () => ctripAdsBrowserCaptureForm.value,
+                getCtripCookies: () => ctripForm.value.cookies,
+                getHotelNameById,
+                defaultAdsUrl: defaultCtripAdsEffectReportUrl,
+                adsUrlHint: ctripAdsApiUrlHint,
+                setRunning: value => { ctripAdsBrowserCaptureRunning.value = value; },
+                setGlobalFetching: value => { fetchingData.value = value; },
+                setResult: value => { ctripAdsBrowserCaptureResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                setShowRawData: value => { showRawData.value = value; },
+                requestFetch: body => request('/online-data/fetch-ctrip-ads', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                refreshLatestCtripData: loadLatestCtripData,
+                refreshOnlineHistory,
+            });
 
             // 美团流量数据获取
             const fetchMeituanTrafficData = async () => {

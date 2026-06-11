@@ -84,8 +84,9 @@ requireText('public/ctrip-static.js', 'const buildCtripTrafficFetchRequestBody',
 requireText('public/index.html', "requireCtripStatic('runCtripOverviewFetchFlow')", 'entry uses extracted Ctrip overview fetch flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripOverviewFetchRequestBody', 'Ctrip static builds overview fetch request bodies');
 requireText('public/ctrip-static.js', 'const runCtripOverviewFetchFlow', 'Ctrip static runs overview fetch flow');
-requireText('public/index.html', "requireCtripStatic('buildCtripAdsFetchRequestBody')", 'entry uses extracted Ctrip ads fetch request builder');
+requireText('public/index.html', "requireCtripStatic('runCtripAdsFetchFlow')", 'entry uses extracted Ctrip ads fetch flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripAdsFetchRequestBody', 'Ctrip static builds ads fetch request bodies');
+requireText('public/ctrip-static.js', 'const runCtripAdsFetchFlow', 'Ctrip static runs ads fetch flow');
 requireText('public/ctrip-static.js', 'const buildCtripCookieApiFetchRequestBody', 'Ctrip static builds Cookie API fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('runCtripCookieApiCaptureFlow')", 'entry uses extracted Ctrip Cookie API capture flow runner');
 requireText('public/ctrip-static.js', 'const runCtripCookieApiCaptureFlow', 'Ctrip static runs Cookie API capture flow');
@@ -159,6 +160,9 @@ requireNoText('public/index.html', "method: form.method || 'GET',", 'Ctrip flow 
 requireNoText('public/index.html', "const defaultCtripAdsEffectReportUrl = 'https://", 'Ctrip ads default URL is not re-inlined');
 requireNoText('public/index.html', 'const isCtripAdsApiUrl = (url = \'\') => {', 'Ctrip ads URL guard is not re-inlined');
 requireNoText('public/index.html', 'api_type: normalizeCtripAdsApiType(form.apiType),', 'Ctrip ads request body is not re-inlined');
+requireNoText('public/index.html', 'const ctripAdsFetchBody = buildCtripAdsFetchRequestBody({', 'Ctrip ads request flow is not re-inlined');
+requireNoText('public/index.html', 'const url = String(form.url || defaultCtripAdsEffectReportUrl).trim();', 'Ctrip ads URL selection is not re-inlined');
+requireNoText('public/index.html', "const cookies = String(form.cookies || ctripForm.value.cookies || activeConfig.cookies || '').trim();", 'Ctrip ads cookie selection is not re-inlined');
 requireNoText('public/index.html', 'profile_id: cookieApiProfileId,', 'Ctrip Cookie API request body is not re-inlined');
 requireNoText('public/index.html', "method: String(ctripCookieApiForm.value.method || 'GET').toUpperCase(),", 'Ctrip Cookie API request method normalization is not re-inlined');
 requireNoText('public/index.html', "payload_json: String(ctripCookieApiForm.value.payloadJson || '').trim(),", 'Ctrip Cookie API payload trimming is not re-inlined');
@@ -1470,6 +1474,7 @@ try {
   const buildCtripOverviewFetchRequestBody = ctripStatic.buildCtripOverviewFetchRequestBody;
   const runCtripOverviewFetchFlow = ctripStatic.runCtripOverviewFetchFlow;
   const buildCtripAdsFetchRequestBody = ctripStatic.buildCtripAdsFetchRequestBody;
+  const runCtripAdsFetchFlow = ctripStatic.runCtripAdsFetchFlow;
   const buildCtripCookieApiFetchRequestBody = ctripStatic.buildCtripCookieApiFetchRequestBody;
   const runCtripCookieApiCaptureFlow = ctripStatic.runCtripCookieApiCaptureFlow;
   const defaultCtripAdsEffectReportUrl = ctripStatic.defaultCtripAdsEffectReportUrl;
@@ -1780,6 +1785,7 @@ try {
     || typeof buildCtripOverviewFetchRequestBody !== 'function'
     || typeof runCtripOverviewFetchFlow !== 'function'
     || typeof buildCtripAdsFetchRequestBody !== 'function'
+    || typeof runCtripAdsFetchFlow !== 'function'
     || typeof buildCtripCookieApiFetchRequestBody !== 'function'
     || typeof runCtripCookieApiCaptureFlow !== 'function'
     || typeof isCtripAdsApiUrl !== 'function'
@@ -2091,6 +2097,80 @@ try {
         startDate: '2026-06-01',
         endDate: '2026-06-10',
       },
+    });
+    const runAdsSample = async (overrides = {}) => {
+      const events = [];
+      const states = [];
+      const form = {
+        url: 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE',
+        cookies: '',
+        apiType: 'effect_report',
+        dateRange: 'custom',
+        startDate: '2026-06-01',
+        endDate: '2026-06-10',
+        ...(overrides.form || {}),
+      };
+      let adsResultPayload = null;
+      let adsOnlinePayload = null;
+      let adsShowRawData = true;
+      let adsRequestBody = null;
+      const result = await runCtripAdsFetchFlow({
+        getSystemHotelId: () => (overrides.systemHotelId === undefined ? '58' : overrides.systemHotelId),
+        notify: (message, level = 'success') => events.push(['notify', level, message]),
+        getActiveCtripConfig: () => (overrides.activeConfig === undefined
+          ? { ota_hotel_id: 'ctrip-hotel-1', cookies: 'sid=config' }
+          : overrides.activeConfig),
+        ensureCtripConfigSecret: async config => {
+          events.push(['ensure-config', Boolean(config)]);
+          return config;
+        },
+        applyCtripConfigObject: config => events.push(['apply-config', config?.ota_hotel_id || '']),
+        syncAdsDirectConfig: async showMessage => events.push(['sync-ads', showMessage]),
+        getForm: () => form,
+        getCtripCookies: () => (overrides.ctripCookies === undefined ? 'sid=form' : overrides.ctripCookies),
+        getHotelNameById: hotelId => `hotel-${hotelId}`,
+        defaultAdsUrl: defaultCtripAdsEffectReportUrl,
+        adsUrlHint: '广告接口 URL 提示',
+        setRunning: value => states.push(['running', value]),
+        setGlobalFetching: value => states.push(['global-fetching', value]),
+        setResult: value => { adsResultPayload = value; },
+        setOnlineDataResult: value => { adsOnlinePayload = value; },
+        setShowRawData: value => { adsShowRawData = value; },
+        requestFetch: async requestBody => {
+          adsRequestBody = requestBody;
+          events.push(['request-ads', requestBody]);
+          if (overrides.throwRequest) {
+            const error = new Error('network failed');
+            error.data = { data: { error: 'network failed' } };
+            throw error;
+          }
+          return overrides.response || { code: 200, message: '', data: { saved_count: 5, rows: [{ id: 1 }] } };
+        },
+        refreshLatestCtripData: async options => events.push(['latest', options]),
+        refreshOnlineHistory: async () => events.push(['history']),
+      });
+      return { result, events, states, form, adsResultPayload, adsOnlinePayload, adsShowRawData, adsRequestBody };
+    };
+    const adsFlowSuccess = await runAdsSample();
+    const adsFlowFailure = await runAdsSample({
+      response: { code: 500, message: 'upstream failed', data: { saved_count: 0 } },
+    });
+    const adsFlowException = await runAdsSample({ throwRequest: true });
+    const adsMissingHotel = await runAdsSample({ systemHotelId: '' });
+    const adsMissingConfig = await runAdsSample({ activeConfig: null });
+    const adsPageUrl = await runAdsSample({
+      form: { url: 'https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true' },
+    });
+    const adsInvalidUrl = await runAdsSample({
+      form: { url: 'https://ebooking.ctrip.com/not/ads/api' },
+    });
+    const adsMissingCookie = await runAdsSample({
+      form: { cookies: '' },
+      ctripCookies: '',
+      activeConfig: { ota_hotel_id: 'ctrip-hotel-1', cookies: '' },
+    });
+    const adsMissingCustomDates = await runAdsSample({
+      form: { dateRange: 'custom', startDate: '', endDate: '' },
     });
     const cookieApiBody = buildCtripCookieApiFetchRequestBody({
       systemHotelId: '58',
@@ -2436,6 +2516,61 @@ try {
         && adsBody.end_date === '2026-06-10'
         && adsBody.auto_save === true,
       detail: 'Ctrip ads request sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip ads fetch flow refreshes persisted and UI data on success',
+      ok: adsFlowSuccess.result.status === 'success'
+        && adsFlowSuccess.adsRequestBody.system_hotel_id === '58'
+        && adsFlowSuccess.adsRequestBody.hotel_id === 'ctrip-hotel-1'
+        && adsFlowSuccess.adsRequestBody.hotel_name === 'hotel-58'
+        && adsFlowSuccess.adsRequestBody.url.includes('queryCampaignReportList')
+        && adsFlowSuccess.adsRequestBody.cookies === 'sid=form'
+        && adsFlowSuccess.adsRequestBody.api_type === 'effect_report'
+        && adsFlowSuccess.adsRequestBody.date_range === 'custom'
+        && adsFlowSuccess.adsRequestBody.start_date === '2026-06-01'
+        && adsFlowSuccess.adsRequestBody.end_date === '2026-06-10'
+        && adsFlowSuccess.adsResultPayload?.saved_count === 5
+        && adsFlowSuccess.adsOnlinePayload?.saved_count === 5
+        && adsFlowSuccess.adsShowRawData === false
+        && adsFlowSuccess.events.some(event => event[0] === 'sync-ads' && event[1] === false)
+        && adsFlowSuccess.events.some(event => event[0] === 'latest' && event[1]?.silent === true)
+        && adsFlowSuccess.events.some(event => event[0] === 'history')
+        && adsFlowSuccess.states.some(event => event[0] === 'running' && event[1] === false)
+        && adsFlowSuccess.states.some(event => event[0] === 'global-fetching' && event[1] === false),
+      detail: 'runCtripAdsFetchFlow success sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip ads fetch flow keeps failed response visible',
+      ok: adsFlowFailure.result.status === 'failed'
+        && adsFlowFailure.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('upstream failed'))
+        && adsFlowFailure.states.some(event => event[0] === 'running' && event[1] === false),
+      detail: 'runCtripAdsFetchFlow failed response sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip ads fetch flow preserves exception evidence',
+      ok: adsFlowException.result.status === 'exception'
+        && adsFlowException.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('广告数据获取失败: network failed'))
+        && adsFlowException.adsResultPayload?.error === 'network failed'
+        && adsFlowException.states.some(event => event[0] === 'global-fetching' && event[1] === false),
+      detail: 'runCtripAdsFetchFlow exception sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip ads fetch flow keeps missing states explicit',
+      ok: adsMissingHotel.result.status === 'missing_hotel'
+        && adsMissingConfig.result.status === 'missing_config'
+        && adsPageUrl.result.status === 'invalid_page_url'
+        && adsInvalidUrl.result.status === 'invalid_api_url'
+        && adsMissingCookie.result.status === 'missing_cookies'
+        && adsMissingCustomDates.result.status === 'missing_custom_dates'
+        && adsPageUrl.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('不是广告页面地址'))
+        && adsInvalidUrl.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('广告接口 URL 提示'))
+        && adsMissingCookie.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请提供携程 Cookie'))
+        && adsMissingCustomDates.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请选择自定义开始日期和结束日期')),
+      detail: 'runCtripAdsFetchFlow missing-state samples',
     });
     checks.push({
       file: 'public/ctrip-static.js',

@@ -10,10 +10,10 @@
 
 | 项目 | 体积 | 处理策略 |
 |---|---:|---|
-| 完整 `HOTEL/` 目录 | 约 285.27 MB | 包含 `.git`、依赖、本地报告和项目代码；会随本地 Git 对象轻微波动。 |
-| 不含 `.git` | 约 92.45 MB | 更接近工作副本体积。 |
-| 不含 `.git`、`node_modules/`、`vendor/` | 约 63.26 MB | 更接近业务与资料体积。 |
-| Git 跟踪文件 | 约 18.33 MB / 613 个文件 | 这是代码提交体积口径。 |
+| 完整 `HOTEL/` 目录 | 约 285.91 MB | 包含 `.git`、依赖、本地报告和项目代码；会随本地 Git 对象轻微波动。 |
+| 不含 `.git` | 约 92.46 MB | 更接近工作副本体积。 |
+| 不含 `.git`、`node_modules/`、`vendor/` | 约 63.27 MB | 更接近业务与资料体积。 |
+| Git 跟踪文件 | 约 18.34 MB / 613 个文件 | 这是代码提交体积口径。 |
 | `reports/` | 约 1.14 MB | 大型可再生成采集产物已清理；剩余报告文件默认保留。 |
 | `node_modules/`、`vendor/` | 约 29.19 MB | 默认不清理；需要重新安装依赖时可显式清理。 |
 
@@ -100,8 +100,8 @@
 | 口径 | 当前值 |
 |---|---:|
 | 代码文件 | 370 |
-| 总代码行 | 约 191,705 |
-| 非空代码行 | 约 175,904 |
+| 总代码行 | 约 191,887 |
+| 非空代码行 | 约 176,084 |
 
 ## 跟踪代码热点
 
@@ -109,7 +109,7 @@
 
 | 文件 | 行数 | 体积 | 当前本地改动 | 判断 |
 |---|---:|---:|---|---|
-| `public/index.html` | 37,217 | 2.74 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，抽出自动采集静态配置与手动触发自动采集流程到 `public/auto-fetch-static.js`，抽出门店罗盘静态配置到 `public/compass-static.js`，抽出模拟测算/转让字段静态配置到 `public/simulation-static.js`，抽出运营/开业静态选项到 `public/operation-static.js`，继续把门店罗盘宏观信号文案归入 `public/compass-static.js`，抽出携程字段/Profile/概览接口静态配置和携程概览/流量概要采集流程到 `public/ctrip-static.js`，抽出系统/AI/知识库静态配置、AI 模型配置 I18N、语言选项和导航菜单定义到 `public/system-static.js`，抽出前端复用 Vue 组件到 `public/shared-components.js`，抽出全局通知展示工具到 `public/notification-static.js`，抽出美团榜单展示工具和美团竞对摘要卡片构建器到 `public/meituan-static.js`，扩展 `public/data-health-static.js` 承载数据健康展示、失败原因排名和今日待办构建工具，新增 `public/home-static.js` 承载首页闭环与 AI 轨迹展示构建器，新增 `public/ota-diagnosis-static.js` 承载 OTA 诊断结果展示构建器，并持续收口携程、美团、OTA AI 运行态数据整形、分组状态更新、携程 Profile 重抓上下文、携程浏览器采集请求上下文、携程普通榜单采集请求上下文与采集流程、美团批量榜单采集流程、OTA AI 分析启动/汇总上下文与流程编排、携程 Cookie API 采集流程、携程 Profile 字段表单默认值/智能推断/保存 payload 与校验工具、携程 Profile 重抓流程、OTA 诊断补抓流程、携程浏览器采集流程；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
+| `public/index.html` | 37,171 | 2.74 MB | 本轮拆分中 | 当前前端 SPA 主入口；已先抽出扩张/市场测算静态选项数据到 `public/expansion-static-options.js`，抽出酒店图片优化/AI 工具箱静态选项到 `public/hotel-image-optimizer-static.js`，抽出收益研究中心静态产品清单到 `public/revenue-research-static.js`，抽出自动采集静态配置与手动触发自动采集流程到 `public/auto-fetch-static.js`，抽出门店罗盘静态配置到 `public/compass-static.js`，抽出模拟测算/转让字段静态配置到 `public/simulation-static.js`，抽出运营/开业静态选项到 `public/operation-static.js`，继续把门店罗盘宏观信号文案归入 `public/compass-static.js`，抽出携程字段/Profile/概览接口静态配置和携程概览/流量概要/广告采集流程到 `public/ctrip-static.js`，抽出系统/AI/知识库静态配置、AI 模型配置 I18N、语言选项和导航菜单定义到 `public/system-static.js`，抽出前端复用 Vue 组件到 `public/shared-components.js`，抽出全局通知展示工具到 `public/notification-static.js`，抽出美团榜单展示工具和美团竞对摘要卡片构建器到 `public/meituan-static.js`，扩展 `public/data-health-static.js` 承载数据健康展示、失败原因排名和今日待办构建工具，新增 `public/home-static.js` 承载首页闭环与 AI 轨迹展示构建器，新增 `public/ota-diagnosis-static.js` 承载 OTA 诊断结果展示构建器，并持续收口携程、美团、OTA AI 运行态数据整形、分组状态更新、携程 Profile 重抓上下文、携程浏览器采集请求上下文、携程普通榜单采集请求上下文与采集流程、美团批量榜单采集流程、OTA AI 分析启动/汇总上下文与流程编排、携程 Cookie API 采集流程、携程 Profile 字段表单默认值/智能推断/保存 payload 与校验工具、携程 Profile 重抓流程、OTA 诊断补抓流程、携程浏览器采集流程；后续继续按页面或面板拆分，同时保持 Vue CDN 运行契约。 |
 | `app/controller/OnlineData.php` | 26,725 | 1.14 MB | 本轮未改动 | OTA 采集、字段配置、展示和诊断职责仍过重；已先抽出携程字段静态元数据、关键字段清单、默认采集字段行、流量漏斗/周报/竞争圈画像元数据、Ctrip overview 汇总逻辑、在线数据分析报告渲染逻辑和平台 Profile 绑定检查逻辑，并删除已被禁用响应短路的携程/美团点评旧直连、旧浏览器抓取、旧配置读写和旧自动抓取执行死代码；后续继续迁移到聚焦 service，不改变现有路由。 |
 
 前一轮 10 个业务改动文件已单独保存并推送；当前自净化拆分集中在 `app/controller/OnlineData.php` 后端瘦身与 `public/index.html` 前端静态配置拆分，均保持现有路由、接口和 Vue CDN 运行契约。
@@ -130,7 +130,7 @@
 
 | 文件 | 结构信号 | 最大拆分起点 | 领域分布信号 |
 |---|---:|---|---|
-| `public/index.html` | 1,396 个函数级块；44 个 `currentPage` 引用 | `fetchCtripAdsData` 72 行、`generateOtaDiagnosis` 71 行、`importKnowledgeUnits` 68 行、`fetchMeituanOrdersData` 68 行、`openSystemConfigModal` 68 行、`testDataConfig` 66 行 | `general` 7,111 行、`ctrip` 2,952 行、`hotel_admin` 1,289 行、`ai` 1,159 行、`meituan` 1,148 行、`ota` 437 行 |
+| `public/index.html` | 1,396 个函数级块；44 个 `currentPage` 引用 | `generateOtaDiagnosis` 71 行、`importKnowledgeUnits` 68 行、`fetchMeituanOrdersData` 68 行、`openSystemConfigModal` 68 行、`testDataConfig` 66 行、`fetchMeituanAdsData` 66 行 | `general` 7,111 行、`ctrip` 2,906 行、`hotel_admin` 1,289 行、`ai` 1,159 行、`meituan` 1,148 行、`ota` 437 行 |
 | `app/controller/OnlineData.php` | 871 个方法 | `captureMeituanBrowserData` 274 行、`captureCtripBrowserData` 272 行、`parseAndSaveMeituanData` 237 行 | `ctrip` 11,463 行、`meituan` 4,979 行、`general` 4,478 行、`auto_fetch` 1,838 行、`profile` 941 行 |
 
 ## 2026-06-10 后端第一刀拆分
@@ -1120,6 +1120,17 @@
 - 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式读取 `runCtripOverviewFetchFlow()`，要求静态模块导出该 runner，禁止流量概要默认 URL 选择和概览请求体逻辑重新内联，并在 VM 中验证成功、错误响应、异常、缺目标酒店、缺配置、页面 URL 误填和缺 Cookie 样例。
 - 当前 split-map：`public/index.html` 从 `37,297` 行降至 `37,217` 行；前端函数级块保持 `1,396`；`ctrip` 领域 span 从 `3,032` 行降至 `2,952` 行；`fetchCtripFlowOverviewData` 与 `fetchCtripOverviewData` 已不再进入最大块列表，当前最大前端块为 `fetchCtripAdsData`，`72` 行。
 - 当前自审计：完整目录约 `285.27 MB`；不含 `.git` 约 `92.45 MB`；不含 `.git` 和依赖约 `63.26 MB`；Git 跟踪文件约 `18.33 MB` / `613` 个；代码范围 `370` 个文件，`191,705` 行，非空 `175,904` 行；默认可清理目标为 `0 MB`。
+- 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
+- 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
+
+## 2026-06-11 前端第八十七刀拆分
+
+- 扩展 `public/ctrip-static.js`，新增携程广告采集流程编排器 `runCtripAdsFetchFlow()`，统一处理目标酒店校验、携程配置加载/补密、广告配置同步、广告接口 URL 校验、Cookie 校验、自定义日期校验、请求 body、成功刷新链、错误响应和异常证据保留。
+- `public/index.html` 中 `fetchCtripAdsData()` 只保留 Vue ref、`/online-data/fetch-ctrip-ads` 请求回调、toast、最近快照刷新和历史刷新函数装配；`isCtripAdsApiUrl()` 和 `normalizeCtripAdsApiType()` 仍保留入口引用，供配置表单校验继续使用。
+- 本轮不改变 `/online-data/fetch-ctrip-ads`、广告数据入库、最近快照刷新、历史刷新、原始数据展示开关、缺失/失败状态可见性或携程 OTA 渠道范围；页面 URL 误填、非广告接口 URL、缺 Cookie 和自定义日期缺失仍显式返回。
+- 更新 `scripts/verify_e2e_contracts.mjs`，要求入口显式读取 `runCtripAdsFetchFlow()`，要求静态模块导出该 runner，禁止广告 URL/Cookie 选择与请求流程重新内联，并在 VM 中验证成功、错误响应、异常、缺目标酒店、缺配置、页面 URL 误填、非广告接口、缺 Cookie 和自定义日期缺失样例。
+- 当前 split-map：`public/index.html` 从 `37,217` 行降至 `37,171` 行；前端函数级块保持 `1,396`；`ctrip` 领域 span 从 `2,952` 行降至 `2,906` 行；`fetchCtripAdsData` 已不再进入最大块列表，当前最大前端块为 `generateOtaDiagnosis`，`71` 行。
+- 当前自审计：完整目录约 `285.91 MB`；不含 `.git` 约 `92.46 MB`；不含 `.git` 和依赖约 `63.27 MB`；Git 跟踪文件约 `18.34 MB` / `613` 个；代码范围 `370` 个文件，`191,887` 行，非空 `176,084` 行；默认可清理目标为 `0 MB`。
 - 已验证：`node --check public\ctrip-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`npm.cmd run self:check`、`git diff --check`。
 - 当前严格门禁仍不声明完成：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选，需要继续收口或明确 disposition。
 
