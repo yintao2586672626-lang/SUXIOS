@@ -1307,6 +1307,13 @@
 - 当前自审计：完整目录约 `193.73 MB`；不含 `.git` 约 `92.73 MB`；不含 `.git` 和依赖约 `63.54 MB`；Git 跟踪文件约 `18.61 MB` / `614` 个；代码范围 `369` 个文件，`195,082` 行，非空 `179,210` 行；默认可清理目标为 `0 MB`。
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`、`git diff --check`。
 
+## 2026-06-11 保存点：平台自动采集模式默认值收口
+
+- `app/controller/OnlineData.php` 将携程平台自动采集默认模式从硬编码 `profile_browser` 调整为跟随全局 `auto_fetch_mode`；只有显式传入或已保存 `ctrip_auto_fetch_mode` 时才覆盖全局模式。美团仍按同一规则跟随全局或平台显式配置。
+- `public/index.html` 的携程平台卡片模式文案同步改为优先使用后端状态，其次使用 `autoFetchMode.value`，不再在无状态时显示 Profile 默认。
+- `scripts/verify_public_entry_guard.mjs` 新增守卫：自动采集模式 payload 中携程和美团默认都必须跟随当前快速模式，禁止重新硬编码 `ctrip_auto_fetch_mode: 'profile_browser'`。
+- 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "AutoFetch|autoFetch|Ctrip"`（`97` tests / `1246` assertions）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`521` checks）。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

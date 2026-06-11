@@ -208,6 +208,17 @@ if (!fs.existsSync(indexPath)) {
   if (!/newTab === ['"]platform-auto['"][\s\S]*loadAutoFetchPanel\(\)/.test(content)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
   }
+  const autoFetchModePayloadSource = content.slice(
+    content.indexOf('const buildAutoFetchModePayload = () => ({'),
+    content.indexOf('const buildAutoFetchSchedulePayload = () => ({')
+  );
+  if (!/ctrip_auto_fetch_mode:\s*autoFetchMode\.value/.test(autoFetchModePayloadSource)
+    || !/meituan_auto_fetch_mode:\s*autoFetchMode\.value/.test(autoFetchModePayloadSource)) {
+    failures.push('public/index.html must keep platform auto-fetch Ctrip and Meituan modes on the selected fast mode by default.');
+  }
+  if (/ctrip_auto_fetch_mode:\s*['"]profile_browser['"]/.test(autoFetchModePayloadSource)) {
+    failures.push('public/index.html must not force platform auto-fetch Ctrip runs through browser Profile by default.');
+  }
   if (!content.includes('schedulePostFetchRefresh')
     || !content.includes('scheduleOnlineDataRefresh')
     || !content.includes('scheduleOnlineHistoryRefresh')) {

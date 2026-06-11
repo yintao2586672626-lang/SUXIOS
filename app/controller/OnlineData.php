@@ -18428,7 +18428,7 @@ JAVASCRIPT;
         $status = is_array($status) ? $status : [];
         $modeOptions = [
             'auto_fetch_mode' => $runMode,
-            'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'] ?? 'profile_browser',
+            'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'] ?? $runMode,
             'meituan_auto_fetch_mode' => $status['meituan_auto_fetch_mode'] ?? $runMode,
         ];
         $ctripMode = $this->resolvePlatformAutoFetchMode($ctripConfig, $modeOptions, 'ctrip');
@@ -18821,7 +18821,7 @@ JAVASCRIPT;
                     'browser_headless' => true,
                     'ctrip_section_concurrency' => 3,
                     'auto_fetch_mode' => 'hybrid_auto',
-                    'ctrip_auto_fetch_mode' => 'profile_browser',
+                    'ctrip_auto_fetch_mode' => 'hybrid_auto',
                     'meituan_auto_fetch_mode' => 'hybrid_auto',
                     'auto_fetch_mode_label' => '接口直连自动',
                     'recent_runs' => [],
@@ -18846,7 +18846,7 @@ JAVASCRIPT;
             'browser_headless' => true,
             'ctrip_section_concurrency' => 3,
             'auto_fetch_mode' => 'hybrid_auto',
-            'ctrip_auto_fetch_mode' => 'profile_browser',
+            'ctrip_auto_fetch_mode' => 'hybrid_auto',
             'meituan_auto_fetch_mode' => 'hybrid_auto',
             'recent_runs' => [],
             'failed_records' => [],
@@ -18876,7 +18876,7 @@ JAVASCRIPT;
         $status['auto_fetch_mode'] = $hotelId
             ? $this->resolveAutoFetchRunMode((int)$hotelId, ['auto_fetch_mode' => $status['auto_fetch_mode'] ?? ''])
             : $this->normalizeAutoFetchMode($status['auto_fetch_mode'] ?? 'hybrid_auto');
-        $status['ctrip_auto_fetch_mode'] = $this->normalizeAutoFetchMode($status['ctrip_auto_fetch_mode'] ?? 'profile_browser');
+        $status['ctrip_auto_fetch_mode'] = $this->normalizeAutoFetchMode($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['meituan_auto_fetch_mode'] = $this->normalizeAutoFetchMode($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['auto_fetch_mode_label'] = $this->autoFetchModeLabel((string)$status['auto_fetch_mode']);
         $status = $this->normalizeAutoFetchScheduleStatus($status);
@@ -19358,7 +19358,7 @@ JAVASCRIPT;
         $modeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto'));
         $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
         $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
-        $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? 'profile_browser');
+        $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         if (!isset($status['schedule_time'])) {
             $status['schedule_time'] = '10:00';
@@ -19470,7 +19470,7 @@ JAVASCRIPT;
         $modeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto'));
         $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
         $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
-        $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? 'profile_browser');
+        $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
             $requestData,
@@ -20185,7 +20185,7 @@ JAVASCRIPT;
                 'interactive_browser' => !$browserHeadless,
                 'browser_headless' => $browserHeadless,
                 'auto_fetch_mode' => $status['auto_fetch_mode'] ?? null,
-                'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'] ?? 'profile_browser',
+                'ctrip_auto_fetch_mode' => $status['ctrip_auto_fetch_mode'] ?? ($status['auto_fetch_mode'] ?? 'hybrid_auto'),
                 'meituan_auto_fetch_mode' => $status['meituan_auto_fetch_mode'] ?? ($status['auto_fetch_mode'] ?? 'hybrid_auto'),
                 'ctrip_section_concurrency' => $status['ctrip_section_concurrency'] ?? 3,
             ];
@@ -20276,7 +20276,7 @@ JAVASCRIPT;
         $options['auto_fetch_mode'] = $this->resolveAutoFetchRunMode($hotelId, $options);
         $options['ctrip_auto_fetch_mode'] = $options['ctrip_auto_fetch_mode']
             ?? $options['ctripAutoFetchMode']
-            ?? 'profile_browser';
+            ?? $options['auto_fetch_mode'];
         $options['meituan_auto_fetch_mode'] = $options['meituan_auto_fetch_mode']
             ?? $options['meituanAutoFetchMode']
             ?? $options['auto_fetch_mode'];

@@ -22448,7 +22448,7 @@
                     name: '携程',
                     icon: 'fas fa-plane',
                     tone: 'blue',
-                    mode: autoFetchPlatformStatus.value?.ctrip?.mode || autoFetchModeLabel(autoFetchStatus.value?.ctrip_auto_fetch_mode || 'profile_browser'),
+                    mode: autoFetchPlatformStatus.value?.ctrip?.mode || autoFetchModeLabel(autoFetchStatus.value?.ctrip_auto_fetch_mode || autoFetchMode.value),
                     configured: !!autoFetchPlatformStatus.value?.ctrip?.configured || hasCtripFetchConfigByHotelId(autoFetchHotelId.value),
                     configName: autoFetchPlatformStatus.value?.ctrip?.name || getCtripConfigNameByHotelId(autoFetchHotelId.value) || '未关联配置',
                     entryUrl: autoFetchPlatformStatus.value?.ctrip?.entry_url || defaultCtripLoginUrl,

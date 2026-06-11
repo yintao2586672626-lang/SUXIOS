@@ -1344,6 +1344,12 @@ Updated: 2026-06-11 Asia/Shanghai
 - `scripts/verify_e2e_contracts.mjs` now requires the extracted helper, prevents re-inlining, and validates Ctrip, Meituan, Booking.com, and unknown-platform samples in VM. Verification passed with `519` E2E contract checks.
 - Current split-map for this save point: `public/index.html` has `37397` lines and `1542` frontend function-level blocks; config domain blocks reduced to `24` and `508` span lines. `app/controller/OnlineData.php` remains unchanged at `26725` lines and `871` methods.
 
+## 2026-06-11 Progress: Platform Auto-Fetch Mode Defaults
+
+- Ctrip platform auto-fetch defaults now follow the selected global `auto_fetch_mode` when no explicit `ctrip_auto_fetch_mode` exists, instead of forcing `profile_browser`. Explicit Ctrip or Meituan platform modes still override the global mode.
+- `public/index.html` aligns the Ctrip platform card fallback with `autoFetchMode.value`, and `scripts/verify_public_entry_guard.mjs` prevents reintroducing a hard-coded Ctrip `profile_browser` default in the auto-fetch mode payload.
+- Verified with PHP lint for `app/controller/OnlineData.php`, `tests/OnlineDataTest.php --filter "AutoFetch|autoFetch|Ctrip"` (`97` tests, `1246` assertions), `npm.cmd run verify:public-entry`, and `npm.cmd run verify:e2e-contracts` (`521` checks).
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
