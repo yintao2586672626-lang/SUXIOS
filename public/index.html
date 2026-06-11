@@ -19324,6 +19324,7 @@
             const buildHomeCompetitorSummaryCards = requireMeituanStatic('buildHomeCompetitorSummaryCards');
             const runMeituanBatchFetchFlow = requireMeituanStatic('runMeituanBatchFetchFlow');
             const runMeituanOrderFetchFlow = requireMeituanStatic('runMeituanOrderFetchFlow');
+            const runMeituanAdsFetchFlow = requireMeituanStatic('runMeituanAdsFetchFlow');
             const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
             const meituanDynamicSelfRankRow = computed(() => meituanRankedHotelsList.value.find(row => row?.isSelf) || null);
             const meituanDisplayedHotelsList = computed(() => [...meituanRankedHotelsList.value].sort((a, b) => {
@@ -32478,8 +32479,6 @@
                 }
             };
 
-            const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
-
             const fetchMeituanOrdersData = async () => runMeituanOrderFetchFlow({
                 getForm: () => meituanOrderForm.value,
                 getSystemHotelId: () => meituanForm.value.hotelId || user.value?.hotel_id || null,
@@ -32495,71 +32494,20 @@
                 refreshOnlineHistory,
             });
 
-            const fetchMeituanAdsData = async () => {
-                const form = meituanAdsForm.value;
-                form.url = String(form.url || '').trim();
-                form.method = String(form.method || 'GET').toUpperCase();
-                form.partnerId = String(form.partnerId || '').trim();
-                form.poiId = String(form.poiId || '').trim();
-                form.shopId = String(form.shopId || '').trim();
-                form.cookies = normalizeMeituanCookieText(form.cookies);
-                form.payloadJson = String(form.payloadJson || '').trim();
-                form.extraParams = String(form.extraParams || '').trim();
-                if (!form.url) {
-                    showToast('需 Network 请求信息：请填写广告接口 Request URL', 'error');
-                    return;
-                }
-                if (form.url.includes('/shopdiy/account/pcCpcEntry')) {
-                    showToast('请填写 Network 中 cureShops 的接口 URL，不是推广通入口页面 URL', 'error');
-                    return;
-                }
-                if (!form.shopId && !form.poiId) {
-                    showToast('请输入推广店铺或门店标识', 'error');
-                    return;
-                }
-                if (!form.cookies) {
-                    showToast('请输入 Cookies', 'error');
-                    return;
-                }
-
-                fetchingData.value = true;
-                meituanAdsResult.value = null;
-                onlineDataResult.value = null;
-                try {
-                    const systemHotelId = meituanForm.value.hotelId || user.value?.hotel_id || null;
-                    const res = await request('/online-data/fetch-meituan-ads', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            url: form.url,
-                            method: form.method,
-                            partner_id: form.partnerId,
-                            poi_id: form.poiId || form.shopId,
-                            shop_id: form.shopId || form.poiId,
-                            cookies: form.cookies,
-                            start_date: form.startDate,
-                            end_date: form.endDate,
-                            payload_json: form.payloadJson,
-                            extra_params: form.extraParams,
-                            auto_save: true,
-                            system_hotel_id: systemHotelId,
-                            hotel_name: getHotelNameById(systemHotelId),
-                        }),
-                    });
-                    if (res.code === 200) {
-                        meituanAdsResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        const savedCount = res.data?.saved_count || 0;
-                        showToast(savedCount > 0 ? `广告数据获取成功，已入库 ${savedCount} 条` : '广告接口请求成功，但未解析到可入库数据', savedCount > 0 ? 'success' : 'warning');
-                        await refreshOnlineHistory();
-                    } else {
-                        showToast(res.message || '广告数据获取失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('广告数据获取失败: ' + e.message, 'error');
-                } finally {
-                    fetchingData.value = false;
-                }
-            };
+            const fetchMeituanAdsData = async () => runMeituanAdsFetchFlow({
+                getForm: () => meituanAdsForm.value,
+                getSystemHotelId: () => meituanForm.value.hotelId || user.value?.hotel_id || null,
+                getHotelNameById,
+                notify: showToast,
+                setFetching: value => { fetchingData.value = value; },
+                setAdsResult: value => { meituanAdsResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                requestFetch: body => request('/online-data/fetch-meituan-ads', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                refreshOnlineHistory,
+            });
 
             const fetchMeituanComments = async () => {
                 showToast('点评采集已禁用。当前只采集业务、流量、订单、广告和服务质量数据。', 'warning');

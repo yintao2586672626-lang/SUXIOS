@@ -105,12 +105,15 @@ requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResu
 requireText('public/ctrip-static.js', 'const runCtripProfileRecheckFlow', 'Ctrip static runs Profile recheck flow');
 requireText('public/index.html', "requireMeituanStatic('runMeituanBatchFetchFlow')", 'entry uses extracted Meituan batch fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanOrderFetchFlow')", 'entry uses extracted Meituan order fetch flow runner');
+requireText('public/index.html', "requireMeituanStatic('runMeituanAdsFetchFlow')", 'entry uses extracted Meituan ads fetch flow runner');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
 requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanOrderFetchRequestBody', 'Meituan static builds order fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanOrderFetchFlow', 'Meituan static runs order fetch flow');
+requireText('public/meituan-static.js', 'const buildMeituanAdsFetchRequestBody', 'Meituan static builds ads fetch request bodies');
+requireText('public/meituan-static.js', 'const runMeituanAdsFetchFlow', 'Meituan static runs ads fetch flow');
 requireText('public/index.html', "requireAutoFetchStatic('runAutoFetchTriggerFlow')", 'entry uses extracted auto-fetch trigger flow runner');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBody', 'auto-fetch static builds trigger request bodies');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
@@ -188,6 +191,10 @@ requireNoText('public/index.html', "const res = await request('/online-data/fetc
 requireNoText('public/index.html', "form.url.includes('/order-eb/index.html')", 'Meituan order page URL guard is not re-inlined');
 requireNoText('public/index.html', 'meituanOrderResult.value = res.data || {};', 'Meituan order success result write is not re-inlined');
 requireNoText('public/index.html', '订单数据获取成功，已入库 ${savedCount} 条', 'Meituan order success toast is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/fetch-meituan-ads', {", 'Meituan ads request flow is not re-inlined');
+requireNoText('public/index.html', "form.url.includes('/shopdiy/account/pcCpcEntry')", 'Meituan ads page URL guard is not re-inlined');
+requireNoText('public/index.html', 'meituanAdsResult.value = res.data || {};', 'Meituan ads success result write is not re-inlined');
+requireNoText('public/index.html', '广告数据获取成功，已入库 ${savedCount} 条', 'Meituan ads success toast is not re-inlined');
 requireNoText('public/index.html', 'const prefix = captureSucceeded', 'Ctrip Profile recheck result message is not re-inlined');
 requireNoText('public/index.html', "message: '重抓流程已结束，但字段列表在执行中被刷新；请查看当前获取值状态或再次重抓。'", 'Ctrip Profile recheck interrupted state is not re-inlined');
 requireNoText('public/index.html', 'const allRankTypes = [', 'Meituan batch rank type list is not re-inlined');
@@ -584,6 +591,10 @@ try {
   const validateMeituanOrderFetchInput = meituanStatic.validateMeituanOrderFetchInput;
   const buildMeituanOrderFetchRequestBody = meituanStatic.buildMeituanOrderFetchRequestBody;
   const runMeituanOrderFetchFlow = meituanStatic.runMeituanOrderFetchFlow;
+  const normalizeMeituanAdsFetchForm = meituanStatic.normalizeMeituanAdsFetchForm;
+  const validateMeituanAdsFetchInput = meituanStatic.validateMeituanAdsFetchInput;
+  const buildMeituanAdsFetchRequestBody = meituanStatic.buildMeituanAdsFetchRequestBody;
+  const runMeituanAdsFetchFlow = meituanStatic.runMeituanAdsFetchFlow;
   if (typeof buildMeituanBatchFetchTasks !== 'function'
     || typeof buildMeituanBatchFetchResultEntry !== 'function'
     || typeof buildMeituanDisplayModelPayload !== 'function'
@@ -592,12 +603,16 @@ try {
     || typeof normalizeMeituanOrderFetchForm !== 'function'
     || typeof validateMeituanOrderFetchInput !== 'function'
     || typeof buildMeituanOrderFetchRequestBody !== 'function'
-    || typeof runMeituanOrderFetchFlow !== 'function') {
+    || typeof runMeituanOrderFetchFlow !== 'function'
+    || typeof normalizeMeituanAdsFetchForm !== 'function'
+    || typeof validateMeituanAdsFetchInput !== 'function'
+    || typeof buildMeituanAdsFetchRequestBody !== 'function'
+    || typeof runMeituanAdsFetchFlow !== 'function') {
     checks.push({
       file: 'public/meituan-static.js',
-      label: 'Meituan static exports batch and order fetch builders',
+      label: 'Meituan static exports batch/order/ads fetch builders',
       ok: false,
-      detail: 'batch/order fetch builders and flow runners',
+      detail: 'batch/order/ads fetch builders and flow runners',
     });
   } else {
     const tasks = buildMeituanBatchFetchTasks({
@@ -900,6 +915,132 @@ try {
         && exceptionOrderEvents[0] === 'notify:error:订单数据获取失败: network down'
         && exceptionOrderStates.join('|') === 'fetching:true|fetching:false',
       detail: 'runMeituanOrderFetchFlow state samples',
+    });
+
+    const adsForm = {
+      url: ' https://example.test/cureShops ',
+      method: 'post',
+      partnerId: ' partner-30 ',
+      poiId: ' poi-30 ',
+      shopId: ' shop-30 ',
+      startDate: '2026-06-04',
+      endDate: '2026-06-05',
+      cookies: '\nmt-ads-cookie\n',
+      payloadJson: ' {"timeUnit":"day"} ',
+      extraParams: ' {"scope":"campaign"} ',
+    };
+    const normalizedAdsForm = normalizeMeituanAdsFetchForm(adsForm);
+    const missingAdsUrl = validateMeituanAdsFetchInput({ url: '', shopId: 'shop', cookies: 'cookie' });
+    const invalidAdsPageUrl = validateMeituanAdsFetchInput({ url: 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry', shopId: 'shop', cookies: 'cookie' });
+    const missingAdsTarget = validateMeituanAdsFetchInput({ url: 'https://example.test/cureShops', shopId: '', poiId: '', cookies: 'cookie' });
+    const missingAdsCookie = validateMeituanAdsFetchInput({ url: 'https://example.test/cureShops', shopId: 'shop', cookies: '' });
+    const adsRequestBody = buildMeituanAdsFetchRequestBody({
+      form: normalizedAdsForm,
+      systemHotelId: '30',
+      hotelName: 'Ads Hotel',
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan ads fetch input and request builder keep missing states explicit',
+      ok: normalizedAdsForm.url === 'https://example.test/cureShops'
+        && normalizedAdsForm.method === 'POST'
+        && normalizedAdsForm.partnerId === 'partner-30'
+        && normalizedAdsForm.poiId === 'poi-30'
+        && normalizedAdsForm.shopId === 'shop-30'
+        && normalizedAdsForm.cookies === 'mt-ads-cookie'
+        && normalizedAdsForm.payloadJson === '{"timeUnit":"day"}'
+        && normalizedAdsForm.extraParams === '{"scope":"campaign"}'
+        && missingAdsUrl.status === 'missing_url'
+        && invalidAdsPageUrl.status === 'invalid_page_url'
+        && missingAdsTarget.status === 'missing_shop_or_poi_id'
+        && missingAdsCookie.status === 'missing_cookies'
+        && adsRequestBody.partner_id === 'partner-30'
+        && adsRequestBody.poi_id === 'poi-30'
+        && adsRequestBody.shop_id === 'shop-30'
+        && adsRequestBody.auto_save === true
+        && adsRequestBody.system_hotel_id === '30'
+        && adsRequestBody.hotel_name === 'Ads Hotel',
+      detail: 'buildMeituanAdsFetchRequestBody sample',
+    });
+
+    const adsEvents = [];
+    const adsStates = [];
+    let adsResultPayload = null;
+    let adsOnlinePayload = null;
+    let adsRequestedBody = null;
+    const adsFlowResult = await runMeituanAdsFetchFlow({
+      getForm: () => ({
+        url: ' https://example.test/cureShops ',
+        method: 'get',
+        partnerId: ' partner-40 ',
+        poiId: '',
+        shopId: ' shop-40 ',
+        cookies: ' mt-ads-cookie-40 ',
+        startDate: '2026-06-06',
+        endDate: '2026-06-07',
+        payloadJson: ' {"pageNo":1} ',
+        extraParams: '',
+      }),
+      getSystemHotelId: () => '40',
+      getHotelNameById: id => `Ads Hotel ${id}`,
+      notify: (message, level) => adsEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => adsStates.push(`fetching:${value}`),
+      setAdsResult: value => { adsResultPayload = value; },
+      setOnlineDataResult: value => { adsOnlinePayload = value; },
+      requestFetch: async body => {
+        adsRequestedBody = body;
+        return { code: 200, data: { saved_count: 5, row_count: 7 } };
+      },
+      refreshOnlineHistory: async () => adsEvents.push('history'),
+    });
+    const missingAdsEvents = [];
+    const missingAdsResult = await runMeituanAdsFetchFlow({
+      getForm: () => ({ url: '', shopId: 'shop', cookies: 'cookie' }),
+      notify: (message, level) => missingAdsEvents.push(`notify:${level}:${message}`),
+      setFetching: value => missingAdsEvents.push(`fetching:${value}`),
+    });
+    const failedAdsStates = [];
+    const failedAdsEvents = [];
+    const failedAdsResult = await runMeituanAdsFetchFlow({
+      getForm: () => ({ url: 'https://example.test/cureShops', shopId: 'shop', cookies: 'cookie' }),
+      notify: (message, level) => failedAdsEvents.push(`notify:${level}:${message}`),
+      setFetching: value => failedAdsStates.push(`fetching:${value}`),
+      requestFetch: async () => ({ code: 500, message: 'ads backend failed' }),
+    });
+    const exceptionAdsStates = [];
+    const exceptionAdsEvents = [];
+    const exceptionAdsResult = await runMeituanAdsFetchFlow({
+      getForm: () => ({ url: 'https://example.test/cureShops', shopId: 'shop', cookies: 'cookie' }),
+      notify: (message, level) => exceptionAdsEvents.push(`notify:${level}:${message}`),
+      setFetching: value => exceptionAdsStates.push(`fetching:${value}`),
+      requestFetch: async () => {
+        throw new Error('network down');
+      },
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan ads fetch flow preserves success, failed and exception states',
+      ok: adsFlowResult.status === 'success'
+        && adsRequestedBody.partner_id === 'partner-40'
+        && adsRequestedBody.method === 'GET'
+        && adsRequestedBody.poi_id === 'shop-40'
+        && adsRequestedBody.shop_id === 'shop-40'
+        && adsRequestedBody.hotel_name === 'Ads Hotel 40'
+        && adsResultPayload.saved_count === 5
+        && adsOnlinePayload.row_count === 7
+        && adsStates.join('|') === 'fetching:true|fetching:false'
+        && adsEvents.includes('history')
+        && adsEvents.some(event => event === 'notify:success:广告数据获取成功，已入库 5 条')
+        && missingAdsResult.status === 'missing_url'
+        && missingAdsEvents[0] === 'notify:error:需 Network 请求信息：请填写广告接口 Request URL'
+        && !missingAdsEvents.some(event => event.startsWith('fetching:'))
+        && failedAdsResult.status === 'failed'
+        && failedAdsEvents[0] === 'notify:error:ads backend failed'
+        && failedAdsStates.join('|') === 'fetching:true|fetching:false'
+        && exceptionAdsResult.status === 'exception'
+        && exceptionAdsEvents[0] === 'notify:error:广告数据获取失败: network down'
+        && exceptionAdsStates.join('|') === 'fetching:true|fetching:false',
+      detail: 'runMeituanAdsFetchFlow state samples',
     });
   }
 } catch (error) {

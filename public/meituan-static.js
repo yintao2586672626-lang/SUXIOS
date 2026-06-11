@@ -343,6 +343,106 @@ window.SUXI_MEITUAN_STATIC = (() => {
         }
     };
 
+    const normalizeMeituanAdsFetchForm = (form = {}) => {
+        form.url = String(form.url || '').trim();
+        form.method = String(form.method || 'GET').toUpperCase();
+        form.partnerId = String(form.partnerId || '').trim();
+        form.poiId = String(form.poiId || '').trim();
+        form.shopId = String(form.shopId || '').trim();
+        form.cookies = normalizeMeituanCookieText(form.cookies);
+        form.payloadJson = String(form.payloadJson || '').trim();
+        form.extraParams = String(form.extraParams || '').trim();
+        return form;
+    };
+
+    const validateMeituanAdsFetchInput = (form = {}) => {
+        if (!form.url) {
+            return { ok: false, status: 'missing_url', level: 'error', message: '需 Network 请求信息：请填写广告接口 Request URL' };
+        }
+        if (form.url.includes('/shopdiy/account/pcCpcEntry')) {
+            return { ok: false, status: 'invalid_page_url', level: 'error', message: '请填写 Network 中 cureShops 的接口 URL，不是推广通入口页面 URL' };
+        }
+        if (!form.shopId && !form.poiId) {
+            return { ok: false, status: 'missing_shop_or_poi_id', level: 'error', message: '请输入推广店铺或门店标识' };
+        }
+        if (!form.cookies) {
+            return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入 Cookies' };
+        }
+        return { ok: true, status: 'ok' };
+    };
+
+    const buildMeituanAdsFetchRequestBody = ({
+        form = {},
+        systemHotelId = null,
+        hotelName = '',
+    } = {}) => ({
+        url: form.url,
+        method: form.method,
+        partner_id: form.partnerId,
+        poi_id: form.poiId || form.shopId,
+        shop_id: form.shopId || form.poiId,
+        cookies: form.cookies,
+        start_date: form.startDate,
+        end_date: form.endDate,
+        payload_json: form.payloadJson,
+        extra_params: form.extraParams,
+        auto_save: true,
+        system_hotel_id: systemHotelId,
+        hotel_name: hotelName,
+    });
+
+    const runMeituanAdsFetchFlow = async ({
+        getForm = () => ({}),
+        getSystemHotelId = () => null,
+        getHotelNameById = () => '',
+        notify = () => {},
+        setFetching = () => {},
+        setAdsResult = () => {},
+        setOnlineDataResult = () => {},
+        requestFetch = async () => ({}),
+        refreshOnlineHistory = async () => {},
+    } = {}) => {
+        const form = normalizeMeituanAdsFetchForm(getForm() || {});
+        const validation = validateMeituanAdsFetchInput(form);
+        if (!validation.ok) {
+            notify(validation.message, validation.level);
+            return { status: validation.status, validation, form };
+        }
+
+        setFetching(true);
+        setAdsResult(null);
+        setOnlineDataResult(null);
+        const systemHotelId = getSystemHotelId();
+        const requestBody = buildMeituanAdsFetchRequestBody({
+            form,
+            systemHotelId,
+            hotelName: getHotelNameById(systemHotelId),
+        });
+        try {
+            const res = await requestFetch(requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                setAdsResult(data);
+                setOnlineDataResult(data);
+                const savedCount = data.saved_count || 0;
+                notify(
+                    savedCount > 0 ? `广告数据获取成功，已入库 ${savedCount} 条` : '广告接口请求成功，但未解析到可入库数据',
+                    savedCount > 0 ? 'success' : 'warning'
+                );
+                await refreshOnlineHistory();
+                return { status: 'success', response: res, requestBody, data, savedCount };
+            }
+
+            notify(res.message || '广告数据获取失败', 'error');
+            return { status: 'failed', response: res, requestBody };
+        } catch (error) {
+            notify('广告数据获取失败: ' + error.message, 'error');
+            return { status: 'exception', error, requestBody };
+        } finally {
+            setFetching(false);
+        }
+    };
+
     const runMeituanBatchFetchFlow = async ({
         getForm = () => ({}),
         getSelectedConfig = () => null,
@@ -610,6 +710,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         validateMeituanOrderFetchInput,
         buildMeituanOrderFetchRequestBody,
         runMeituanOrderFetchFlow,
+        normalizeMeituanAdsFetchForm,
+        validateMeituanAdsFetchInput,
+        buildMeituanAdsFetchRequestBody,
+        runMeituanAdsFetchFlow,
         runMeituanBatchFetchFlow,
         buildMeituanRankDisplayRows,
         buildCompetitorSummaryCoreCards,
