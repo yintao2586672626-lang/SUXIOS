@@ -35277,46 +35277,16 @@
             const transferRecordsLoading = ref(false);
             const transferHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
             const transferAiModelOptions = availableAiModelOptions;
-            const transferDecisionLayerRows = computed(() => {
-                const snapshot = transferSourceSnapshot.value;
-                const pricingReady = !!transferPricingResult.value;
-                const timingReady = !!transferTimingResult.value;
-                const dashboardReady = !!transferDashboardResult.value;
-                return [
-                    {
-                        key: 'facts',
-                        label: '事实数据',
-                        status: snapshot ? '有快照' : '待取数',
-                        className: snapshot ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                        detail: snapshot ? `近30天营收、ADR、入住率来自 ${transferSourceDate.value || '所选日期'} 经营快照。` : '请先绑定酒店并从真实数据带入。',
-                        evidence: snapshot ? `data_status: ${snapshot.data_status || 'unknown'}` : '暂无经营快照',
-                    },
-                    {
-                        key: 'assumptions',
-                        label: '人工假设',
-                        status: transferPricingForm.value.hotel_name || transferTimingForm.value.current_revenue ? '已填写' : '待填写',
-                        className: (transferPricingForm.value.hotel_name || transferTimingForm.value.current_revenue) ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-amber-50 text-amber-700 border-amber-100',
-                        detail: '转让价、租金、装修投入、剩余租期等仍属于人工输入假设，需要单独复核。',
-                        evidence: '表单输入不自动等同于已验证事实。',
-                    },
-                    {
-                        key: 'calculation',
-                        label: '测算结果',
-                        status: pricingReady || timingReady ? '已生成' : '待测算',
-                        className: (pricingReady || timingReady) ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                        detail: pricingReady && timingReady ? '资产定价和时机推演均已形成结果。' : '需分别完成资产定价和时机推演。',
-                        evidence: `定价 ${pricingReady ? '有' : '无'} / 时机 ${timingReady ? '有' : '无'}`,
-                    },
-                    {
-                        key: 'risk',
-                        label: '风险与决策',
-                        status: dashboardReady ? '可汇总' : '待汇总',
-                        className: dashboardReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                        detail: dashboardReady ? '决策板已汇总估值、时机、风险点和下一步建议。' : '最终建议需在决策板汇总，不直接由单一测算替代。',
-                        evidence: dashboardReady ? (transferDashboardResult.value?.final_judgement || '已生成决策看板') : '暂无最终判断',
-                    },
-                ];
-            });
+            const buildTransferDecisionLayerRows = requireSimulationStatic('buildTransferDecisionLayerRows');
+            const transferDecisionLayerRows = computed(() => buildTransferDecisionLayerRows({
+                snapshot: transferSourceSnapshot.value,
+                sourceDate: transferSourceDate.value,
+                pricingResult: transferPricingResult.value,
+                timingResult: transferTimingResult.value,
+                dashboardResult: transferDashboardResult.value,
+                pricingForm: transferPricingForm.value,
+                timingForm: transferTimingForm.value,
+            }));
 
             const transferPricingFields = requireSimulationStatic('transferPricingFields');
             const transferTimingCompareFields = requireSimulationStatic('transferTimingCompareFields');

@@ -1259,6 +1259,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`; `npm.cmd run self:check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Transfer Decision Layer Split
+
+- Ninety-seventh frontend split target chosen from investment transfer decision-layer row construction inside `transferDecisionLayerRows` in `public/index.html`.
+- Extended `public/simulation-static.js` with `buildTransferDecisionLayerRows` for fact data, manual assumption, calculation result, and risk decision rows.
+- `public/index.html` now keeps only Vue ref reads and the `buildTransferDecisionLayerRows` call for the transfer decision layer.
+- This split did not change transfer pricing/timing APIs, operating snapshot loading, manual input scope, final dashboard fields, or investment decision boundaries. Missing snapshot, unfilled assumptions, ungenerated calculations, and unaggregated dashboard states remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted transfer decision layer builder, prevent fact-row and calculation-evidence construction from being re-inlined, and validate ready/empty state samples in a VM context.
+- Commit-scope metrics: `public/index.html` decreases from `36756` lines to `36726` lines; the `transfer` domain span decreases from `274` to `244`; `transferDecisionLayerRows` is no longer in the largest-block list, and the current largest frontend blocks remain `importKnowledgeUnits` and `openSystemConfigModal` at `68` lines each.
+- Commit-scope code stats: `370` files, `193633` total lines, `177788` nonblank lines, tracked files about `18.46 MB` / `613` files, and cleanup candidates `0`.
+- Verified during the split: `node --check public\simulation-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:clean`; `npm.cmd run self:check`; `git diff --cached --check`.
+- Current worktree also contains unstaged external changes outside this save point. This save point intentionally stages only the transfer decision-layer split files. Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

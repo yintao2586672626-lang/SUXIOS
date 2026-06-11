@@ -252,6 +252,11 @@ requireText('public/index.html', 'field-strategy-city', 'strategy city field has
 requireText('public/index.html', 'field-simulation-adr', 'simulation ADR field has stable selector');
 requireText('public/index.html', 'field-market-business-area', 'market business area field has stable selector');
 requireText('public/index.html', 'field-transfer-pricing-', 'transfer pricing fields have stable selectors');
+requireText('public/index.html', "requireSimulationStatic('buildTransferDecisionLayerRows')", 'entry uses extracted transfer decision layer builder');
+requireText('public/simulation-static.js', 'const buildTransferDecisionLayerRows', 'simulation static builds transfer decision layer rows');
+requireNoText('public/index.html', 'const pricingReady = !!transferPricingResult.value;', 'transfer decision pricing ready state is not re-inlined');
+requireNoText('public/index.html', "label: '事实数据',\n                        status: snapshot ? '有快照' : '待取数'", 'transfer decision fact row is not re-inlined');
+requireNoText('public/index.html', "evidence: `定价 ${pricingReady ? '有' : '无'} / 时机 ${timingReady ? '有' : '无'}`", 'transfer decision calculation evidence is not re-inlined');
 requireTextInFiles(['public/index.html', 'public/ota-diagnosis-static.js'], 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
 requireText('public/index.html', "requireOtaDiagnosisStatic('runOtaDiagnosisHotelFetchFlow')", 'entry uses extracted OTA diagnosis fetch flow runner');
 requireText('public/index.html', "requireOtaDiagnosisStatic('runOtaDiagnosisGenerateFlow')", 'entry uses extracted OTA diagnosis generate flow runner');
@@ -451,6 +456,63 @@ requireText('package.json', 'test:e2e:business', 'package exposes business chain
 requireText('package.json', 'test:e2e:edge', 'package exposes edge input e2e command');
 requireText('package.json', 'test:e2e:ui', 'package exposes UI automation e2e command');
 requireText('package.json', 'test:e2e:full:bounded', 'package exposes bounded full-click e2e command');
+
+try {
+  const context = { window: {} };
+  vm.runInNewContext(read('public/simulation-static.js'), context, {
+    filename: 'public/simulation-static.js',
+  });
+  const simulationStatic = context.window.SUXI_SIMULATION_STATIC || {};
+  const buildTransferDecisionLayerRows = simulationStatic.buildTransferDecisionLayerRows;
+  if (typeof buildTransferDecisionLayerRows !== 'function') {
+    checks.push({
+      file: 'public/simulation-static.js',
+      label: 'Simulation static exports transfer decision layer builder',
+      ok: false,
+      detail: 'buildTransferDecisionLayerRows',
+    });
+  } else {
+    const readyRows = buildTransferDecisionLayerRows({
+      snapshot: { data_status: 'verified' },
+      sourceDate: '2026-06-10',
+      pricingResult: { valuation: 280 },
+      timingResult: { window: 'now' },
+      dashboardResult: { final_judgement: '可进入谈判' },
+      pricingForm: { hotel_name: '天成酒店' },
+      timingForm: {},
+    });
+    const emptyRows = buildTransferDecisionLayerRows({});
+    checks.push({
+      file: 'public/simulation-static.js',
+      label: 'Simulation static builds transfer decision rows with explicit fact, assumption, calculation and risk states',
+      ok: readyRows.length === 4
+        && readyRows[0].key === 'facts'
+        && readyRows[0].status === '有快照'
+        && readyRows[0].detail.includes('2026-06-10')
+        && readyRows[0].evidence === 'data_status: verified'
+        && readyRows[1].status === '已填写'
+        && readyRows[1].evidence === '表单输入不自动等同于已验证事实。'
+        && readyRows[2].status === '已生成'
+        && readyRows[2].evidence === '定价 有 / 时机 有'
+        && readyRows[3].status === '可汇总'
+        && readyRows[3].evidence === '可进入谈判'
+        && emptyRows[0].status === '待取数'
+        && emptyRows[0].evidence === '暂无经营快照'
+        && emptyRows[1].status === '待填写'
+        && emptyRows[2].evidence === '定价 无 / 时机 无'
+        && emptyRows[3].status === '待汇总'
+        && emptyRows[3].evidence === '暂无最终判断',
+      detail: 'buildTransferDecisionLayerRows samples',
+    });
+  }
+} catch (error) {
+  checks.push({
+    file: 'public/simulation-static.js',
+    label: 'Simulation static VM smoke check',
+    ok: false,
+    detail: error.message,
+  });
+}
 
 try {
   const context = { window: {} };
