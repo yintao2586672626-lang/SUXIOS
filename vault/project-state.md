@@ -1247,6 +1247,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Meituan AI Analysis Flow Split
+
+- Ninety-sixth frontend split target chosen from Meituan AI analysis orchestration inside `startMeituanAiAnalysis()` in `public/index.html`.
+- Extended `public/ai-analysis-static.js` with `validateMeituanAiAnalysisStart` and `runMeituanAiAnalysisFlow` for selected-hotel validation, selected-data resolution, request body construction, backend AI request orchestration, sanitized report write, history trimming, failed response handling, exception logging, and busy-state cleanup.
+- `public/index.html` now keeps only Vue callback wiring for refs, `/online-data/ai-analysis`, toast dispatch, result setter, history setter, analyzing-state setter, and error logging.
+- This split did not change `/online-data/ai-analysis`, Meituan OTA channel scope, AI report HTML sanitization, the latest-10 history limit, missing/failed-state visibility, or backend AI analysis responsibility. Missing selected hotel, missing selected data, backend failure, and request exception states remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted Meituan AI analysis runner, prevent selection validation, selected-data resolution, request body construction, request flow, history construction/trimming, and exception logging from being re-inlined, and validate success, backend failure, exception, and missing-state samples in a VM context.
+- Current split-map: `public/index.html` decreased from `36795` lines to `36756` lines; frontend function-level blocks remain `1395`; `meituan` domain span decreased from `916` to `876`; `startMeituanAiAnalysis` is no longer in the largest-block list, and the current largest frontend blocks are `importKnowledgeUnits` and `openSystemConfigModal` at `68` lines each.
+- Current self-audit: full directory about `291.69 MB`, without `.git` about `92.58 MB`, without `.git` and dependencies about `63.39 MB`, tracked files about `18.46 MB` / `613` files; code scope `370` files, `193552` total lines, and `177708` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `git diff --check`; `npm.cmd run self:check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

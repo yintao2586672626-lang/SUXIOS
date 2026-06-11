@@ -828,6 +828,20 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
             .filter(Boolean);
     };
 
+    const validateMeituanAiAnalysisStart = ({
+        selectedKeys = [],
+        hotels = [],
+    } = {}) => {
+        if (!Array.isArray(selectedKeys) || selectedKeys.length === 0) {
+            return { ok: false, status: 'missing_selection', level: 'error', message: '请先选择要分析的酒店', selectedData: [] };
+        }
+        const selectedData = resolveMeituanAiSelectedData(selectedKeys, hotels);
+        if (selectedData.length === 0) {
+            return { ok: false, status: 'missing_selected_data', level: 'error', message: '未找到选中的酒店数据', selectedData };
+        }
+        return { ok: true, status: 'ok', selectedData };
+    };
+
     const buildMeituanAiAnalysisRequestBody = (selectedData = []) => ({
         hotels: selectedData,
         total_hotels: selectedData.length,
@@ -849,6 +863,64 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         report,
         create_time: now.toLocaleString('zh-CN'),
     });
+
+    const runMeituanAiAnalysisFlow = async ({
+        selectedKeys = [],
+        hotels = [],
+        requestAnalysis = async () => ({}),
+        notify = () => {},
+        setAnalyzing = () => {},
+        setResult = () => {},
+        getHistory = () => [],
+        setHistory = () => {},
+        logError = () => {},
+        sanitizeReport = sanitizeAiReportHtml,
+        now = () => new Date(),
+        historyLimit = 10,
+    } = {}) => {
+        const startContext = validateMeituanAiAnalysisStart({ selectedKeys, hotels });
+        if (!startContext.ok) {
+            notify(startContext.message, startContext.level);
+            return { status: startContext.status, startContext };
+        }
+
+        const { selectedData } = startContext;
+        setAnalyzing(true);
+        setResult('');
+        try {
+            const requestBody = buildMeituanAiAnalysisRequestBody(selectedData);
+            notify('AI正在分析数据，请稍候...');
+            const res = await requestAnalysis(requestBody);
+
+            if (res.code === 200 && res.data) {
+                const report = sanitizeReport(res.data.report || res.data.analysis || res.data);
+                setResult(report);
+                const nextHistory = [
+                    buildMeituanAiAnalysisHistoryRecord({
+                        selectedData,
+                        summary: res.data.summary,
+                        report,
+                        now: now(),
+                    }),
+                    ...((getHistory() || [])),
+                ].slice(0, historyLimit);
+                setHistory(nextHistory);
+                notify('AI分析完成！');
+                return { status: 'success', response: res, requestBody, selectedData, report, history: nextHistory };
+            }
+
+            setResult('');
+            notify(res.message || '美团 AI 分析接口返回失败，请修复后端接口后重试', 'error');
+            return { status: 'failed', response: res, requestBody, selectedData };
+        } catch (error) {
+            logError('美团AI分析请求失败:', error);
+            setResult('');
+            notify('美团 AI 分析请求失败，请修复后端接口后重试', 'error');
+            return { status: 'exception', error, selectedData };
+        } finally {
+            setAnalyzing(false);
+        }
+    };
 
     return {
         htmlEscape,
@@ -898,7 +970,9 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         getMeituanAiAnalysisHotelKey,
         buildMeituanAiAnalysisHotelList,
         resolveMeituanAiSelectedData,
+        validateMeituanAiAnalysisStart,
         buildMeituanAiAnalysisRequestBody,
         buildMeituanAiAnalysisHistoryRecord,
+        runMeituanAiAnalysisFlow,
     };
 })();

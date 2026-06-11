@@ -33825,6 +33825,7 @@
             const resolveMeituanAiSelectedData = requireAiAnalysisStatic('resolveMeituanAiSelectedData');
             const buildMeituanAiAnalysisRequestBody = requireAiAnalysisStatic('buildMeituanAiAnalysisRequestBody');
             const buildMeituanAiAnalysisHistoryRecord = requireAiAnalysisStatic('buildMeituanAiAnalysisHistoryRecord');
+            const runMeituanAiAnalysisFlow = requireAiAnalysisStatic('runMeituanAiAnalysisFlow');
 
             const extractAiAnalysisErrorDetails = (source, fallback = '分析失败') => {
                 const data = source?.data?.data || source?.data || {};
@@ -34064,60 +34065,20 @@
             };
 
             // 开始美团AI分析
-            const startMeituanAiAnalysis = async () => {
-                if (meituanAiSelectedHotels.value.length === 0) {
-                    showToast('请先选择要分析的酒店', 'error');
-                    return;
-                }
-
-                const selectedData = resolveMeituanAiSelectedData(meituanAiSelectedHotels.value, meituanAiAnalysisHotelList.value);
-
-                if (selectedData.length === 0) {
-                    showToast('未找到选中的酒店数据', 'error');
-                    return;
-                }
-
-                meituanAiAnalyzing.value = true;
-                meituanAiAnalysisResult.value = '';
-
-                try {
-                    const analysisData = buildMeituanAiAnalysisRequestBody(selectedData);
-
-                    showToast('AI正在分析数据，请稍候...');
-
-                    // 调用后端AI分析接口
-                    const res = await request('/online-data/ai-analysis', {
-                        method: 'POST',
-                        body: JSON.stringify(analysisData),
-                    });
-
-                    if (res.code === 200 && res.data) {
-                        meituanAiAnalysisResult.value = sanitizeAiReportHtml(res.data.report || res.data.analysis || res.data);
-
-                        meituanAiAnalysisHistory.value.unshift(buildMeituanAiAnalysisHistoryRecord({
-                            selectedData,
-                            summary: res.data.summary,
-                            report: meituanAiAnalysisResult.value,
-                        }));
-
-                        // 只保留最近10条记录
-                        if (meituanAiAnalysisHistory.value.length > 10) {
-                            meituanAiAnalysisHistory.value = meituanAiAnalysisHistory.value.slice(0, 10);
-                        }
-
-                        showToast('AI分析完成！');
-                    } else {
-                        meituanAiAnalysisResult.value = '';
-                        showToast(res.message || '美团 AI 分析接口返回失败，请修复后端接口后重试', 'error');
-                    }
-                } catch (e) {
-                    console.error('美团AI分析请求失败:', e);
-                    meituanAiAnalysisResult.value = '';
-                    showToast('美团 AI 分析请求失败，请修复后端接口后重试', 'error');
-                } finally {
-                    meituanAiAnalyzing.value = false;
-                }
-            };
+            const startMeituanAiAnalysis = async () => runMeituanAiAnalysisFlow({
+                selectedKeys: meituanAiSelectedHotels.value,
+                hotels: meituanAiAnalysisHotelList.value,
+                requestAnalysis: analysisData => request('/online-data/ai-analysis', {
+                    method: 'POST',
+                    body: JSON.stringify(analysisData),
+                }),
+                notify: showToast,
+                setAnalyzing: value => { meituanAiAnalyzing.value = value; },
+                setResult: value => { meituanAiAnalysisResult.value = value; },
+                getHistory: () => meituanAiAnalysisHistory.value,
+                setHistory: value => { meituanAiAnalysisHistory.value = value; },
+                logError: (...args) => console.error(...args),
+            });
 
             // 美团本地 AI 分析已关闭：前端仅保留展示入口，经营分析由后端接口生成。
             const generateMeituanLocalAnalysis = () => {

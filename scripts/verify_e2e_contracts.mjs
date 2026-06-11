@@ -273,6 +273,7 @@ requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysi
 requireText('public/index.html', "requireAiAnalysisStatic('resolveMeituanAiSelectedData')", 'entry uses extracted Meituan AI selection resolver');
 requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysisRequestBody')", 'entry uses extracted Meituan AI request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildMeituanAiAnalysisHistoryRecord')", 'entry uses extracted Meituan AI history builder');
+requireText('public/index.html', "requireAiAnalysisStatic('runMeituanAiAnalysisFlow')", 'entry uses extracted Meituan AI analysis flow runner');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaHotelPayload', 'AI analysis static builds captured OTA hotel payloads');
 requireText('public/ai-analysis-static.js', 'const buildCtripAiAnalysisHotelSelection', 'AI analysis static builds Ctrip hotel selections');
 requireText('public/ai-analysis-static.js', 'const buildCapturedOtaAnalysisRunPlan', 'AI analysis static builds captured OTA run plans');
@@ -294,6 +295,8 @@ requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisHotelLi
 requireText('public/ai-analysis-static.js', 'const resolveMeituanAiSelectedData', 'AI analysis static resolves Meituan selected hotels');
 requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisRequestBody', 'AI analysis static builds Meituan AI request bodies');
 requireText('public/ai-analysis-static.js', 'const buildMeituanAiAnalysisHistoryRecord', 'AI analysis static builds Meituan AI history records');
+requireText('public/ai-analysis-static.js', 'const validateMeituanAiAnalysisStart', 'AI analysis static validates Meituan AI analysis start');
+requireText('public/ai-analysis-static.js', 'const runMeituanAiAnalysisFlow', 'AI analysis static runs Meituan AI analysis flow');
 requireNoText('public/index.html', 'const pushOtaDiagnosisFetchTask = (tasks, task) => {', 'OTA diagnosis task push helper is not re-inlined');
 requireNoText('public/index.html', 'const fetchContext = buildOtaDiagnosisFetchContext({', 'OTA diagnosis fetch context construction is not re-inlined');
 requireNoText('public/index.html', 'tasks.push(...buildOtaDiagnosisFetchTasks({', 'OTA diagnosis fetch task construction is not re-inlined');
@@ -337,6 +340,13 @@ requireNoText('public/index.html', 'selectedCount: hotelsPayload.length,', 'AI s
 requireNoText('public/index.html', 'groupCount: aiAnalysisBatchResults.value.length,', 'AI summary group count context is not re-inlined');
 requireNoText('public/index.html', 'completedHotels: aiAnalysisProgress.value.completedHotels,', 'AI summary completed count context is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedOtaSummaryRequestBody = ({', 'AI analysis summary request builder is not re-inlined');
+requireNoText('public/index.html', 'if (meituanAiSelectedHotels.value.length === 0) {', 'Meituan AI analysis selection guard is not re-inlined');
+requireNoText('public/index.html', 'const selectedData = resolveMeituanAiSelectedData(meituanAiSelectedHotels.value, meituanAiAnalysisHotelList.value);', 'Meituan AI selected data resolution is not re-inlined');
+requireNoText('public/index.html', 'const analysisData = buildMeituanAiAnalysisRequestBody(selectedData);', 'Meituan AI request body construction is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/ai-analysis', {", 'Meituan AI request flow is not re-inlined');
+requireNoText('public/index.html', 'meituanAiAnalysisHistory.value.unshift(buildMeituanAiAnalysisHistoryRecord({', 'Meituan AI history construction is not re-inlined');
+requireNoText('public/index.html', 'meituanAiAnalysisHistory.value = meituanAiAnalysisHistory.value.slice(0, 10);', 'Meituan AI history trimming is not re-inlined');
+requireNoText('public/index.html', "console.error('美团AI分析请求失败:', e);", 'Meituan AI exception logging is not re-inlined');
 requireNoText('public/index.html', 'total_hotels: selectedData.length,', 'Meituan AI analysis request body is not re-inlined');
 requireNoText('public/index.html', 'selectedData.slice(0, 3).map(h => h.hotelName)', 'Meituan AI analysis history naming is not re-inlined');
 requireNoText('public/index.html', 'const buildCapturedFallbackSummaryReport = ({', 'AI analysis fallback summary builder is not re-inlined');
@@ -1772,8 +1782,10 @@ try {
     'getMeituanAiAnalysisHotelKey',
     'buildMeituanAiAnalysisHotelList',
     'resolveMeituanAiSelectedData',
+    'validateMeituanAiAnalysisStart',
     'buildMeituanAiAnalysisRequestBody',
     'buildMeituanAiAnalysisHistoryRecord',
+    'runMeituanAiAnalysisFlow',
   ];
   const missingKeys = requiredKeys.filter(key => typeof aiAnalysisStatic[key] !== 'function');
   if (missingKeys.length > 0) {
@@ -2108,6 +2120,71 @@ try {
       report: '<section>meituan</section>',
       now: new Date('2026-06-10T00:00:00+08:00'),
     });
+    const meituanMissingSelection = aiAnalysisStatic.validateMeituanAiAnalysisStart({
+      selectedKeys: [],
+      hotels: meituanHotels,
+    });
+    const meituanMissingData = aiAnalysisStatic.validateMeituanAiAnalysisStart({
+      selectedKeys: ['missing_Key'],
+      hotels: meituanHotels,
+    });
+    const meituanValidStart = aiAnalysisStatic.validateMeituanAiAnalysisStart({
+      selectedKeys: ['m1_Meituan One'],
+      hotels: meituanHotels,
+    });
+    const meituanFlowEvents = [];
+    const meituanFlowStates = [];
+    let meituanFlowRequestBody = null;
+    let meituanFlowResultHtml = '';
+    let meituanFlowHistory = [];
+    const oldMeituanHistory = Array.from({ length: 10 }, (_, index) => ({ id: `old-${index}` }));
+    const meituanFlowResult = await aiAnalysisStatic.runMeituanAiAnalysisFlow({
+      selectedKeys: ['m1_Meituan One'],
+      hotels: meituanHotels,
+      requestAnalysis: async body => {
+        meituanFlowRequestBody = body;
+        return { code: 200, data: { report: '<section>美团报告</section>', summary: '美团汇总' } };
+      },
+      notify: (message, level) => meituanFlowEvents.push(`notify:${level || 'info'}:${message}`),
+      setAnalyzing: value => meituanFlowStates.push(`analyzing:${value}`),
+      setResult: value => { meituanFlowResultHtml = value; },
+      getHistory: () => oldMeituanHistory,
+      setHistory: value => { meituanFlowHistory = value; },
+      sanitizeReport: value => `safe:${value}`,
+      now: () => new Date('2026-06-10T00:00:00+08:00'),
+    });
+    const meituanFailedEvents = [];
+    const meituanFailedStates = [];
+    let meituanFailedResultHtml = 'before';
+    const meituanFailedResult = await aiAnalysisStatic.runMeituanAiAnalysisFlow({
+      selectedKeys: ['m1_Meituan One'],
+      hotels: meituanHotels,
+      requestAnalysis: async () => ({ code: 500, message: 'backend failed' }),
+      notify: (message, level) => meituanFailedEvents.push(`notify:${level || 'info'}:${message}`),
+      setAnalyzing: value => meituanFailedStates.push(`analyzing:${value}`),
+      setResult: value => { meituanFailedResultHtml = value; },
+    });
+    const meituanExceptionEvents = [];
+    const meituanExceptionLogs = [];
+    const meituanExceptionStates = [];
+    let meituanExceptionResultHtml = 'before';
+    const meituanExceptionResult = await aiAnalysisStatic.runMeituanAiAnalysisFlow({
+      selectedKeys: ['m1_Meituan One'],
+      hotels: meituanHotels,
+      requestAnalysis: async () => { throw new Error('network down'); },
+      notify: (message, level) => meituanExceptionEvents.push(`notify:${level}:${message}`),
+      setAnalyzing: value => meituanExceptionStates.push(`analyzing:${value}`),
+      setResult: value => { meituanExceptionResultHtml = value; },
+      logError: (...args) => meituanExceptionLogs.push(args.map(item => item?.message || item).join('|')),
+    });
+    const meituanGuardEvents = [];
+    const meituanGuardStates = [];
+    const meituanGuardResult = await aiAnalysisStatic.runMeituanAiAnalysisFlow({
+      selectedKeys: [],
+      hotels: meituanHotels,
+      notify: (message, level) => meituanGuardEvents.push(`notify:${level}:${message}`),
+      setAnalyzing: value => meituanGuardStates.push(`analyzing:${value}`),
+    });
     checks.push({
       file: 'public/ai-analysis-static.js',
       label: 'AI analysis static builds captured OTA payload and batch state',
@@ -2207,6 +2284,12 @@ try {
         && meituanHotels[0].poiId === 'm1'
         && meituanHotels[0].roomNights === '2'
         && meituanSelectedData.length === 1
+        && meituanMissingSelection.status === 'missing_selection'
+        && meituanMissingSelection.message === '请先选择要分析的酒店'
+        && meituanMissingData.status === 'missing_selected_data'
+        && meituanMissingData.message === '未找到选中的酒店数据'
+        && meituanValidStart.ok === true
+        && meituanValidStart.selectedData.length === 1
         && meituanRequestBody.total_hotels === 1
         && meituanRequestBody.source === 'meituan'
         && meituanRequestBody.include_suggestions === true
@@ -2214,6 +2297,34 @@ try {
         && meituanHistory.hotel_names === 'Meituan One、Meituan Extra A、Meituan Extra B'
         && meituanHistory.summary === 'Meituan summary',
       detail: 'Meituan AI selection request history sample',
+    });
+    checks.push({
+      file: 'public/ai-analysis-static.js',
+      label: 'AI analysis static runs Meituan analysis flow with explicit success, failure and guard states',
+      ok: meituanFlowResult.status === 'success'
+        && meituanFlowRequestBody.source === 'meituan'
+        && meituanFlowRequestBody.total_hotels === 1
+        && meituanFlowResultHtml === 'safe:<section>美团报告</section>'
+        && meituanFlowHistory.length === 10
+        && meituanFlowHistory[0].summary === '美团汇总'
+        && meituanFlowHistory[0].report === 'safe:<section>美团报告</section>'
+        && meituanFlowHistory[9].id === 'old-8'
+        && meituanFlowStates.join('|') === 'analyzing:true|analyzing:false'
+        && meituanFlowEvents.join('|') === 'notify:info:AI正在分析数据，请稍候...|notify:info:AI分析完成！'
+        && meituanFailedResult.status === 'failed'
+        && meituanFailedResultHtml === ''
+        && meituanFailedEvents.includes('notify:error:backend failed')
+        && meituanFailedStates.join('|') === 'analyzing:true|analyzing:false'
+        && meituanExceptionResult.status === 'exception'
+        && meituanExceptionResultHtml === ''
+        && meituanExceptionEvents.includes('notify:error:美团 AI 分析请求失败，请修复后端接口后重试')
+        && meituanExceptionLogs[0].includes('美团AI分析请求失败:')
+        && meituanExceptionLogs[0].includes('network down')
+        && meituanExceptionStates.join('|') === 'analyzing:true|analyzing:false'
+        && meituanGuardResult.status === 'missing_selection'
+        && meituanGuardEvents[0] === 'notify:error:请先选择要分析的酒店'
+        && meituanGuardStates.length === 0,
+      detail: 'runMeituanAiAnalysisFlow state samples',
     });
     checks.push({
       file: 'public/ai-analysis-static.js',
