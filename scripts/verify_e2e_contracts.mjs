@@ -79,8 +79,9 @@ requireText('public/ctrip-static.js', 'const buildCtripFetchRequestContext', 'Ct
 requireText('public/ctrip-static.js', 'const runCtripFetchDataFlow', 'Ctrip static runs fetch flow');
 requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotModel')", 'entry uses extracted Ctrip latest snapshot model builder');
 requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
-requireText('public/index.html', "requireCtripStatic('buildCtripTrafficFetchRequestBody')", 'entry uses extracted Ctrip traffic fetch request builder');
+requireText('public/index.html', "requireCtripStatic('runCtripTrafficFetchFlow')", 'entry uses extracted Ctrip traffic fetch flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripTrafficFetchRequestBody', 'Ctrip static builds traffic fetch request bodies');
+requireText('public/ctrip-static.js', 'const runCtripTrafficFetchFlow', 'Ctrip static runs traffic fetch flow');
 requireText('public/index.html', "requireCtripStatic('runCtripOverviewFetchFlow')", 'entry uses extracted Ctrip overview fetch flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripOverviewFetchRequestBody', 'Ctrip static builds overview fetch request bodies');
 requireText('public/ctrip-static.js', 'const runCtripOverviewFetchFlow', 'Ctrip static runs overview fetch flow');
@@ -155,6 +156,9 @@ requireNoText('public/index.html', 'onlineDataResult.value = buildCtripFetchRawF
 requireNoText('public/index.html', 'const rankRows = payload?.rank?.rows || [];', 'Ctrip latest snapshot row slicing is not re-inlined');
 requireNoText('public/index.html', 'const trafficUrl = String(form.url || \'\').trim();', 'Ctrip traffic request URL trimming is not re-inlined');
 requireNoText('public/index.html', 'const ctripTrafficFetchBody = {', 'Ctrip traffic request body is not re-inlined');
+requireNoText('public/index.html', 'const ctripTrafficFetchBody = buildCtripTrafficFetchRequestBody({', 'Ctrip traffic request flow is not re-inlined');
+requireNoText('public/index.html', 'const trafficModel = buildCtripTrafficResponseModel(res.data || {});', 'Ctrip traffic response flow is not re-inlined');
+requireNoText('public/index.html', 'onlineDataResult.value = trafficModel.onlineResult;', 'Ctrip traffic success result write is not re-inlined');
 requireNoText('public/index.html', 'const createCtripProfileFieldForm = () => ({', 'Ctrip Profile field default form is not re-inlined');
 requireNoText('public/index.html', 'const ctripProfileSimpleHash = (value) => {', 'Ctrip Profile field key hashing is not re-inlined');
 requireNoText('public/index.html', 'const ctripProfileEndpointFromUrl = (url) => {', 'Ctrip Profile endpoint parsing is not re-inlined');
@@ -2006,6 +2010,7 @@ try {
   const buildLatestCtripSnapshotModel = ctripStatic.buildLatestCtripSnapshotModel;
   const buildCtripTrafficFetchRequestBody = ctripStatic.buildCtripTrafficFetchRequestBody;
   const buildCtripTrafficResponseModel = ctripStatic.buildCtripTrafficResponseModel;
+  const runCtripTrafficFetchFlow = ctripStatic.runCtripTrafficFetchFlow;
   const buildCtripOverviewFetchRequestBody = ctripStatic.buildCtripOverviewFetchRequestBody;
   const runCtripOverviewFetchFlow = ctripStatic.runCtripOverviewFetchFlow;
   const buildCtripAdsFetchRequestBody = ctripStatic.buildCtripAdsFetchRequestBody;
@@ -2317,6 +2322,7 @@ try {
     || typeof runCtripFetchDataFlow !== 'function'
     || typeof buildLatestCtripSnapshotModel !== 'function'
     || typeof buildCtripTrafficFetchRequestBody !== 'function'
+    || typeof runCtripTrafficFetchFlow !== 'function'
     || typeof buildCtripOverviewFetchRequestBody !== 'function'
     || typeof runCtripOverviewFetchFlow !== 'function'
     || typeof buildCtripAdsFetchRequestBody !== 'function'
@@ -2330,7 +2336,7 @@ try {
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch context, flow, latest snapshot, traffic, overview, ads, and Cookie API builders/flow',
+      detail: 'Ctrip fetch context, flow, latest snapshot, traffic runner, overview, ads, and Cookie API builders/flow',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -2857,6 +2863,83 @@ try {
     const trafficFallbackModel = buildCtripTrafficResponseModel({
       data: [{ decoded: 'fallback' }],
     });
+    const runTrafficSample = async (overrides = {}) => {
+      const events = [];
+      const states = [];
+      const form = {
+        platform: 'ctrip',
+        dateRange: 'custom',
+        startDate: '2026-06-01',
+        endDate: '2026-06-10',
+        url: ' https://ebooking.ctrip.test/traffic ',
+        cookies: ' sid=traffic-flow ',
+        extraParams: '{"scope":"self"}',
+        ...(overrides.form || {}),
+      };
+      let trafficOnlinePayload = null;
+      let trafficRequestBody = null;
+      let trafficDisplayArgs = null;
+      const result = await runCtripTrafficFetchFlow({
+        getSelectedCtripHotelId: () => (overrides.selectedHotelId === undefined ? '58' : overrides.selectedHotelId),
+        notify: (message, level = 'success') => events.push(['notify', level, message]),
+        getActiveCtripConfig: () => (overrides.activeConfig === undefined
+          ? { hotel_id: '58', cookies: 'sid=config' }
+          : overrides.activeConfig),
+        ensureCtripConfigSecret: async config => {
+          events.push(['ensure-config', Boolean(config)]);
+          return config;
+        },
+        applyCtripConfigObject: config => events.push(['apply-config', config?.hotel_id || '']),
+        getForm: () => form,
+        setFetching: value => states.push(['fetching', value]),
+        requestFetch: async requestBody => {
+          trafficRequestBody = requestBody;
+          events.push(['request-traffic', requestBody]);
+          if (overrides.throwRequest) {
+            throw new Error('network failed');
+          }
+          return overrides.response || {
+            code: 200,
+            data: {
+              saved_count: 3,
+              decoded_data: [{ decoded: true }],
+              traffic_rows: [{ row_id: 'traffic-flow-1' }],
+              display_traffic_rows: [{ date: '2026-06-01', compareType: 'self' }],
+              display_traffic_summary: { status: 'ok' },
+              derived_analysis: { conversion: 'stable' },
+            },
+          };
+        },
+        useCtripTrafficDisplayRows: (displayRows, displaySummary, trafficRows, derivedAnalysis) => {
+          trafficDisplayArgs = { displayRows, displaySummary, trafficRows, derivedAnalysis };
+          return overrides.displayRowsReturn === undefined ? displayRows : overrides.displayRowsReturn;
+        },
+        setOnlineDataResult: value => { trafficOnlinePayload = value; },
+        refreshOnlineHistory: async () => events.push(['history']),
+        getOnlineDataTab: () => (overrides.onlineDataTab === undefined ? 'data' : overrides.onlineDataTab),
+        refreshOnlineData: () => events.push(['refresh-data']),
+        handleFetchFailure: async message => events.push(['failure', message]),
+      });
+      return { result, events, states, form, trafficOnlinePayload, trafficRequestBody, trafficDisplayArgs };
+    };
+    const trafficFlowSuccess = await runTrafficSample();
+    const trafficFlowEmpty = await runTrafficSample({
+      response: { code: 200, data: { saved_count: 0, data: [], display_traffic_rows: [] } },
+      displayRowsReturn: [],
+    });
+    const trafficFlowFailure = await runTrafficSample({
+      response: { code: 500, message: 'upstream traffic failed' },
+    });
+    const trafficFlowException = await runTrafficSample({ throwRequest: true });
+    const trafficMissingHotel = await runTrafficSample({ selectedHotelId: '' });
+    const trafficMissingConfig = await runTrafficSample({ activeConfig: null });
+    const trafficMissingCookie = await runTrafficSample({
+      form: { cookies: '   ' },
+      activeConfig: { hotel_id: '58', cookies: '' },
+    });
+    const trafficMissingCustomDates = await runTrafficSample({
+      form: { dateRange: 'custom', startDate: '', endDate: '' },
+    });
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip fetch builders keep request fields and date defaults',
@@ -2965,6 +3048,46 @@ try {
         && trafficFallbackModel.trafficRows[0].decoded === 'fallback'
         && trafficFallbackModel.onlineResult.display_traffic_rows.length === 0,
       detail: 'Ctrip traffic builder sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip traffic fetch flow preserves success, empty, failed and exception states',
+      ok: trafficFlowSuccess.result.status === 'success'
+        && trafficFlowSuccess.trafficRequestBody.url === 'https://ebooking.ctrip.test/traffic'
+        && trafficFlowSuccess.trafficRequestBody.cookies === 'sid=traffic-flow'
+        && trafficFlowSuccess.trafficRequestBody.system_hotel_id === '58'
+        && trafficFlowSuccess.trafficRequestBody.extra_params === '{"scope":"self"}'
+        && trafficFlowSuccess.trafficOnlinePayload.saved_count === 3
+        && trafficFlowSuccess.trafficOnlinePayload.traffic_rows[0].row_id === 'traffic-flow-1'
+        && trafficFlowSuccess.trafficDisplayArgs.displayRows[0].compareType === 'self'
+        && trafficFlowSuccess.trafficDisplayArgs.derivedAnalysis.conversion === 'stable'
+        && trafficFlowSuccess.states.join('|') === 'fetching,true|fetching,false'
+        && trafficFlowSuccess.events.some(event => event[0] === 'history')
+        && trafficFlowSuccess.events.some(event => event[0] === 'refresh-data')
+        && trafficFlowSuccess.events.some(event => event[0] === 'notify' && event[1] === 'success' && event[2].includes('获取成功，已保存 3 条流量数据'))
+        && trafficFlowEmpty.result.status === 'empty'
+        && trafficFlowEmpty.events.some(event => event[0] === 'notify' && event[1] === 'warning' && event[2].includes('当前日期范围暂无流量数据'))
+        && !trafficFlowEmpty.events.some(event => event[0] === 'history')
+        && trafficFlowFailure.result.status === 'failed'
+        && trafficFlowFailure.events.some(event => event[0] === 'failure' && event[1] === 'upstream traffic failed')
+        && trafficFlowFailure.states.some(event => event[0] === 'fetching' && event[1] === false)
+        && trafficFlowException.result.status === 'exception'
+        && trafficFlowException.events.some(event => event[0] === 'failure' && event[1] === '请求失败: network failed')
+        && trafficFlowException.states.some(event => event[0] === 'fetching' && event[1] === false),
+      detail: 'runCtripTrafficFetchFlow state samples',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip traffic fetch flow keeps missing states explicit',
+      ok: trafficMissingHotel.result.status === 'missing_hotel'
+        && trafficMissingHotel.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请选择目标酒店'))
+        && trafficMissingConfig.result.status === 'missing_config'
+        && trafficMissingConfig.events.some(event => event[0] === 'notify' && event[1] === 'warning' && event[2].includes('当前酒店未配置携程数据源'))
+        && trafficMissingCookie.result.status === 'missing_cookies'
+        && trafficMissingCookie.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请提供携程 Cookie'))
+        && trafficMissingCustomDates.result.status === 'missing_custom_dates'
+        && trafficMissingCustomDates.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请选择自定义开始日期和结束日期')),
+      detail: 'runCtripTrafficFetchFlow missing-state samples',
     });
     checks.push({
       file: 'public/ctrip-static.js',

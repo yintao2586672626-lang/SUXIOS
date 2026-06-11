@@ -1199,6 +1199,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\meituan-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Ctrip Traffic Fetch Flow Split
+
+- Ninety-second frontend split target chosen from Ctrip traffic fetch orchestration inside `fetchCtripTrafficData()` in `public/index.html`.
+- Extended `public/ctrip-static.js` with `runCtripTrafficFetchFlow`, reusing existing `buildCtripTrafficFetchRequestBody` and `buildCtripTrafficResponseModel` for request construction and response display model construction.
+- `public/index.html` now keeps only Vue callback wiring for refs, `/online-data/ctrip/traffic`, traffic display writes, online history refresh, online data refresh, and the existing Ctrip fetch failure handler.
+- This split did not change `/online-data/ctrip/traffic`, storage behavior, traffic display row construction, history refresh, latest-snapshot failure fallback, missing/failed-state visibility, or Ctrip OTA channel scope. Missing target hotel, missing Ctrip data source, missing Cookie, missing custom dates, backend failure, empty traffic result, and request exception states remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted traffic fetch runner, prevent traffic request flow, response model write, and success write from being re-inlined, and validate success, empty result, backend failure, exception, and missing-state samples in a VM context.
+- Current split-map: `public/index.html` decreased from `36970` lines to `36927` lines; frontend function-level blocks remain `1395`; `ctrip` domain span decreased from `2906` to `2864`; `fetchCtripTrafficData` is no longer in the largest-block list, and the current largest frontend blocks are `importKnowledgeUnits` and `openSystemConfigModal` at `68` lines each.
+- Current self-audit: full directory about `289.09 MB`, without `.git` about `92.52 MB`, without `.git` and dependencies about `63.33 MB`, tracked files about `18.41 MB` / `613` files; code scope `370` files, `192820` total lines, and `176983` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

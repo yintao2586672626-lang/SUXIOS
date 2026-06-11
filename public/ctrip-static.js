@@ -904,6 +904,85 @@ window.SUXI_CTRIP_STATIC = (() => {
         };
     };
 
+    const runCtripTrafficFetchFlow = async ({
+        getSelectedCtripHotelId = () => '',
+        notify = () => {},
+        getActiveCtripConfig = () => null,
+        ensureCtripConfigSecret = async config => config,
+        applyCtripConfigObject = () => {},
+        getForm = () => ({}),
+        setFetching = () => {},
+        requestFetch = async () => ({}),
+        useCtripTrafficDisplayRows = rows => rows,
+        setOnlineDataResult = () => {},
+        refreshOnlineHistory = async () => {},
+        getOnlineDataTab = () => '',
+        refreshOnlineData = () => {},
+        handleFetchFailure = async () => {},
+    } = {}) => {
+        const selectedCtripHotelId = getSelectedCtripHotelId();
+        if (!selectedCtripHotelId) {
+            notify('请选择目标酒店', 'error');
+            return { status: 'missing_hotel' };
+        }
+        const selectedConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
+        if (!selectedConfig) {
+            notify('当前酒店未配置携程数据源', 'warning');
+            return { status: 'missing_config' };
+        }
+        applyCtripConfigObject(selectedConfig);
+        const form = getForm() || {};
+        const cookies = String(form.cookies || '').trim();
+        if (!cookies) {
+            notify('请提供携程 Cookie', 'error');
+            return { status: 'missing_cookies' };
+        }
+        if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
+            notify('请选择自定义开始日期和结束日期', 'error');
+            return { status: 'missing_custom_dates' };
+        }
+
+        setFetching(true);
+        const requestBody = buildCtripTrafficFetchRequestBody({
+            form,
+            cookies,
+            systemHotelId: selectedCtripHotelId || null,
+        });
+        try {
+            const res = await requestFetch(requestBody);
+            if (res.code === 200) {
+                const trafficModel = buildCtripTrafficResponseModel(res.data || {});
+                const rows = useCtripTrafficDisplayRows(
+                    trafficModel.displayTrafficRows,
+                    trafficModel.displayTrafficSummary,
+                    trafficModel.trafficRows,
+                    trafficModel.derivedAnalysis
+                );
+                setOnlineDataResult(trafficModel.onlineResult);
+                const savedCount = trafficModel.savedCount;
+                if (rows.length === 0) {
+                    notify('当前日期范围暂无流量数据', 'warning');
+                    return { status: 'empty', response: res, requestBody, trafficModel, rows, savedCount };
+                }
+
+                notify(`获取成功，已保存 ${savedCount} 条流量数据`);
+                await refreshOnlineHistory();
+                if (getOnlineDataTab() === 'data') {
+                    refreshOnlineData();
+                }
+                return { status: 'success', response: res, requestBody, trafficModel, rows, savedCount };
+            }
+
+            await handleFetchFailure(res.message || '获取失败');
+            return { status: 'failed', response: res, requestBody };
+        } catch (error) {
+            await handleFetchFailure('请求失败: ' + error.message);
+            return { status: 'exception', error, requestBody };
+        } finally {
+            setFetching(false);
+        }
+    };
+
     const buildCtripOverviewFetchRequestBody = ({
         systemHotelId = null,
         hotelId = '',
@@ -1924,6 +2003,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildLatestCtripSnapshotModel,
         buildCtripTrafficFetchRequestBody,
         buildCtripTrafficResponseModel,
+        runCtripTrafficFetchFlow,
         buildCtripOverviewFetchRequestBody,
         runCtripOverviewFetchFlow,
         buildCtripAdsFetchRequestBody,

@@ -19052,8 +19052,7 @@
             const runCtripBrowserCaptureFlow = requireCtripStatic('runCtripBrowserCaptureFlow');
             const runCtripFetchDataFlow = requireCtripStatic('runCtripFetchDataFlow');
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
-            const buildCtripTrafficFetchRequestBody = requireCtripStatic('buildCtripTrafficFetchRequestBody');
-            const buildCtripTrafficResponseModel = requireCtripStatic('buildCtripTrafficResponseModel');
+            const runCtripTrafficFetchFlow = requireCtripStatic('runCtripTrafficFetchFlow');
             const runCtripOverviewFetchFlow = requireCtripStatic('runCtripOverviewFetchFlow');
             const buildCtripProfileRecheckRunContext = requireCtripStatic('buildCtripProfileRecheckRunContext');
             const runCtripProfileRecheckFlow = requireCtripStatic('runCtripProfileRecheckFlow');
@@ -31946,67 +31945,25 @@
             };
 
             // 携程 / 去哪儿流量对比数据获取
-            const fetchCtripTrafficData = async () => {
-                const form = ctripTrafficForm.value;
-                if (!selectedCtripHotelId.value) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-                const selectedConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-                if (!selectedConfig) {
-                    showToast('当前酒店未配置携程数据源', 'warning');
-                    return;
-                }
-                applyCtripConfigObject(selectedConfig, false);
-                const cookies = String(form.cookies || '').trim();
-                if (!cookies) {
-                    showToast('请提供携程 Cookie', 'error');
-                    return;
-                }
-                if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
-                    showToast('请选择自定义开始日期和结束日期', 'error');
-                    return;
-                }
-
-                fetchingData.value = true;
-                try {
-                    const ctripTrafficFetchBody = buildCtripTrafficFetchRequestBody({
-                        form,
-                        cookies,
-                        systemHotelId: selectedCtripHotelId.value || null,
-                    });
-                    const res = await request('/online-data/ctrip/traffic', {
-                        method: 'POST',
-                        body: JSON.stringify(ctripTrafficFetchBody),
-                    });
-                    if (res.code === 200) {
-                        const trafficModel = buildCtripTrafficResponseModel(res.data || {});
-                        const rows = useCtripTrafficDisplayRows(
-                            trafficModel.displayTrafficRows,
-                            trafficModel.displayTrafficSummary,
-                            trafficModel.trafficRows,
-                            trafficModel.derivedAnalysis
-                        );
-                        onlineDataResult.value = trafficModel.onlineResult;
-                        const savedCount = trafficModel.savedCount;
-                        if (rows.length === 0) {
-                            showToast('当前日期范围暂无流量数据', 'warning');
-                        } else {
-                            showToast(`获取成功，已保存 ${savedCount} 条流量数据`);
-                            await refreshOnlineHistory();
-                            if (onlineDataTab.value === 'data') {
-                                refreshOnlineData();
-                            }
-                        }
-                    } else {
-                        await handleCtripFetchFailure(res.message || '获取失败');
-                    }
-                } catch (e) {
-                    await handleCtripFetchFailure('请求失败: ' + e.message);
-                } finally {
-                    fetchingData.value = false;
-                }
-            };
+            const fetchCtripTrafficData = async () => runCtripTrafficFetchFlow({
+                getSelectedCtripHotelId: () => selectedCtripHotelId.value,
+                notify: showToast,
+                getActiveCtripConfig,
+                ensureCtripConfigSecret,
+                applyCtripConfigObject: config => applyCtripConfigObject(config, false),
+                getForm: () => ctripTrafficForm.value,
+                setFetching: value => { fetchingData.value = value; },
+                requestFetch: body => request('/online-data/ctrip/traffic', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                useCtripTrafficDisplayRows,
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                refreshOnlineHistory,
+                getOnlineDataTab: () => onlineDataTab.value,
+                refreshOnlineData,
+                handleFetchFailure: handleCtripFetchFailure,
+            });
             const fetchCtripComments = async () => {
                 showToast('点评采集已禁用。当前只采集业务、流量、订单、广告和服务质量数据。', 'warning');
             };
