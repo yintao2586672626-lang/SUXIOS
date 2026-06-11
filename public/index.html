@@ -19050,10 +19050,7 @@
             const buildCtripProfileFieldSmartDefaults = requireCtripStatic('buildCtripProfileFieldSmartDefaults');
             const buildCtripProfileFieldSavePayload = requireCtripStatic('buildCtripProfileFieldSavePayload');
             const runCtripBrowserCaptureFlow = requireCtripStatic('runCtripBrowserCaptureFlow');
-            const buildCtripFetchRequestContext = requireCtripStatic('buildCtripFetchRequestContext');
-            const selectCtripFetchResponsePayload = requireCtripStatic('selectCtripFetchResponsePayload');
-            const buildCtripFetchMeta = requireCtripStatic('buildCtripFetchMeta');
-            const buildCtripFetchRawFailureResult = requireCtripStatic('buildCtripFetchRawFailureResult');
+            const runCtripFetchDataFlow = requireCtripStatic('runCtripFetchDataFlow');
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
             const buildCtripTrafficFetchRequestBody = requireCtripStatic('buildCtripTrafficFetchRequestBody');
             const buildCtripTrafficResponseModel = requireCtripStatic('buildCtripTrafficResponseModel');
@@ -31823,98 +31820,41 @@
 
             // 线上数据获取相关方法
             const fetchCtripData = async () => {
-                // 检查登录状态
-                if (!isLoggedIn.value) {
-                    showToast('请先登录', 'error');
-                    return;
-                }
-
-                if (!selectedCtripHotelId.value) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-                const selectedConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-                if (!selectedConfig) {
-                    showToast('当前酒店未配置携程数据源', 'warning');
-                    return;
-                }
-                applyCtripConfigObject(selectedConfig, false);
-
-                const requestContext = buildCtripFetchRequestContext({
-                    form: ctripForm.value,
-                    selectedCtripHotelId: selectedCtripHotelId.value,
-                });
-                if (!requestContext.ok) {
-                    showToast(requestContext.message, requestContext.level || 'error');
-                    return;
-                }
-                const { startDate, endDate } = requestContext;
-
-                fetchingData.value = true;
-                showRawData.value = false;
-                ctripFetchSuccess.value = false;
-                ctripSavedCount.value = 0;
-
-                try {
-                    debugLog('发送携程数据请求...', requestContext.debugMeta);
-                    const res = await request('/online-data/fetch-ctrip', {
+                await runCtripFetchDataFlow({
+                    isLoggedIn: () => isLoggedIn.value,
+                    getSelectedCtripHotelId: () => selectedCtripHotelId.value,
+                    notify: showToast,
+                    getActiveCtripConfig,
+                    ensureCtripConfigSecret,
+                    applyCtripConfigObject: config => applyCtripConfigObject(config, false),
+                    getForm: () => ctripForm.value,
+                    setFetching: value => { fetchingData.value = value; },
+                    setShowRawData: value => { showRawData.value = value; },
+                    setFetchSuccess: value => { ctripFetchSuccess.value = value; },
+                    setSavedCount: value => { ctripSavedCount.value = value; },
+                    debugLog,
+                    requestFetch: requestBody => request('/online-data/fetch-ctrip', {
                         method: 'POST',
-                        body: JSON.stringify(requestContext.requestBody),
-                    });
-                    debugLog('携程数据响应:', res);
-
-                    if (res.code === 200) {
-                        onlineDataResult.value = selectCtripFetchResponsePayload(res.data || {});
-                        const allHotels = useCtripDisplayHotels(res.data.display_hotels || [], res.data.display_summary || null);
+                        body: JSON.stringify(requestBody),
+                    }),
+                    setOnlineDataResult: value => { onlineDataResult.value = value; },
+                    useDisplayHotels: useCtripDisplayHotels,
+                    setOnlineDataFilterDates: ({ startDate, endDate }) => {
                         onlineDataFilter.value.start_date = startDate;
                         onlineDataFilter.value.end_date = endDate;
-                        const savedCount = res.data.saved_count || 0;
-                        ctripSavedCount.value = savedCount;
-                        ctripFetchSuccess.value = true;
-                        const currentFetchMeta = buildCtripFetchMeta({
-                            hotelId: selectedCtripHotelId.value || '',
-                            startDate,
-                            endDate,
-                            fetchedAt: res.data.fetched_at || '',
-                            savedCount,
-                            displayHotelCount: allHotels.length,
-                        });
-                        ctripLatestMeta.value = { ...(ctripLatestMeta.value || {}), ...currentFetchMeta };
-                        // 重置表格Tab
-                        ctripTableTab.value = 'sales';
-                        // 更新AI分析酒店列表
-                        updateAiAnalysisHotelList();
-                        await refreshOnlineHistory();
-                        await loadLatestCtripData({ silent: true });
-                        if (currentFetchMeta.fetched_at && (!ctripLatestMeta.value?.fetched_at || String(ctripLatestMeta.value.fetched_at) < currentFetchMeta.fetched_at)) {
-                            ctripLatestMeta.value = { ...(ctripLatestMeta.value || {}), ...currentFetchMeta };
-                        }
-                        // 刷新数据记录列表
-                        if (onlineDataTab.value === 'data') {
-                            refreshOnlineData();
-                        }
-                    } else if (res.code === 401) {
-                        showToast('登录已过期，请重新登录', 'error');
-                    } else {
-                        // 显示错误信息和原始响应
-                        const errorMsg = res.message || '获取失败';
-                        const rawResponse = res.data?.raw_response || res.data?.raw || '';
-                        await handleCtripFetchFailure(errorMsg);
-                        // 如果有原始响应，显示在结果区域
-                        if (rawResponse && !hasVisibleCtripSnapshot()) {
-                            onlineDataResult.value = buildCtripFetchRawFailureResult({
-                                errorMsg,
-                                rawResponse,
-                            });
-                            showRawData.value = true;
-                        }
-                    }
-                } catch (e) {
-                    console.error('携程数据请求异常:', e);
-                    await handleCtripFetchFailure('请求失败: ' + e.message);
-                } finally {
-                    fetchingData.value = false;
-                }
+                    },
+                    getLatestMeta: () => ctripLatestMeta.value,
+                    setLatestMeta: value => { ctripLatestMeta.value = value; },
+                    setTableTab: value => { ctripTableTab.value = value; },
+                    updateAiAnalysisHotelList,
+                    refreshOnlineHistory,
+                    refreshLatestCtripData: params => loadLatestCtripData(params),
+                    getOnlineDataTab: () => onlineDataTab.value,
+                    refreshOnlineData,
+                    handleFetchFailure: message => handleCtripFetchFailure(message),
+                    hasVisibleSnapshot: hasVisibleCtripSnapshot,
+                    logError: (...args) => console.error(...args),
+                });
             };
 
             // 美团ebooking数据获取 - 支持批量获取多个榜单和时间维度

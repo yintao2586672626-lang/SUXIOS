@@ -72,10 +72,11 @@ requireText('public/ctrip-static.js', 'const buildCtripBrowserCapturePayload', '
 requireText('public/ctrip-static.js', 'const buildCtripBrowserCaptureRequestContext', 'Ctrip static builds browser capture request context');
 requireText('public/ctrip-static.js', 'const normalizeCtripBrowserCaptureErrorResult', 'Ctrip static normalizes browser capture errors');
 requireText('public/ctrip-static.js', 'const runCtripBrowserCaptureFlow', 'Ctrip static runs browser capture flow');
-requireText('public/index.html', "requireCtripStatic('buildCtripFetchRequestContext')", 'entry uses extracted Ctrip fetch request context builder');
+requireText('public/index.html', "requireCtripStatic('runCtripFetchDataFlow')", 'entry uses extracted Ctrip fetch flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripFetchDateRange', 'Ctrip static builds fetch date ranges');
 requireText('public/ctrip-static.js', 'const buildCtripFetchRequestBody', 'Ctrip static builds fetch request bodies');
 requireText('public/ctrip-static.js', 'const buildCtripFetchRequestContext', 'Ctrip static builds fetch request context');
+requireText('public/ctrip-static.js', 'const runCtripFetchDataFlow', 'Ctrip static runs fetch flow');
 requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotModel')", 'entry uses extracted Ctrip latest snapshot model builder');
 requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
 requireText('public/index.html', "requireCtripStatic('buildCtripTrafficFetchRequestBody')", 'entry uses extracted Ctrip traffic fetch request builder');
@@ -131,6 +132,10 @@ requireNoText('public/index.html', 'const yesterday = new Date();', 'Ctrip fetch
 requireNoText('public/index.html', 'const ctripFetchBody = {', 'Ctrip fetch request body is not re-inlined');
 requireNoText('public/index.html', 'const ctripFetchBody = buildCtripFetchRequestBody({', 'Ctrip fetch request body helper call is not re-inlined');
 requireNoText('public/index.html', 'raw: rawResponse.substring(0, 1000)', 'Ctrip fetch raw failure result is not re-inlined');
+requireNoText('public/index.html', 'const requestContext = buildCtripFetchRequestContext({', 'Ctrip fetch request context flow is not re-inlined');
+requireNoText('public/index.html', 'onlineDataResult.value = selectCtripFetchResponsePayload(res.data || {});', 'Ctrip fetch success result flow is not re-inlined');
+requireNoText('public/index.html', 'const currentFetchMeta = buildCtripFetchMeta({', 'Ctrip fetch meta flow is not re-inlined');
+requireNoText('public/index.html', 'onlineDataResult.value = buildCtripFetchRawFailureResult({', 'Ctrip fetch raw failure flow is not re-inlined');
 requireNoText('public/index.html', 'const rankRows = payload?.rank?.rows || [];', 'Ctrip latest snapshot row slicing is not re-inlined');
 requireNoText('public/index.html', 'const trafficUrl = String(form.url || \'\').trim();', 'Ctrip traffic request URL trimming is not re-inlined');
 requireNoText('public/index.html', 'const ctripTrafficFetchBody = {', 'Ctrip traffic request body is not re-inlined');
@@ -1099,6 +1104,7 @@ try {
   const selectCtripFetchResponsePayload = ctripStatic.selectCtripFetchResponsePayload;
   const buildCtripFetchMeta = ctripStatic.buildCtripFetchMeta;
   const buildCtripFetchRawFailureResult = ctripStatic.buildCtripFetchRawFailureResult;
+  const runCtripFetchDataFlow = ctripStatic.runCtripFetchDataFlow;
   const buildLatestCtripSnapshotModel = ctripStatic.buildLatestCtripSnapshotModel;
   const buildCtripTrafficFetchRequestBody = ctripStatic.buildCtripTrafficFetchRequestBody;
   const buildCtripTrafficResponseModel = ctripStatic.buildCtripTrafficResponseModel;
@@ -1407,6 +1413,7 @@ try {
     || typeof selectCtripFetchResponsePayload !== 'function'
     || typeof buildCtripFetchMeta !== 'function'
     || typeof buildCtripFetchRawFailureResult !== 'function'
+    || typeof runCtripFetchDataFlow !== 'function'
     || typeof buildLatestCtripSnapshotModel !== 'function'
     || typeof buildCtripTrafficFetchRequestBody !== 'function'
     || typeof buildCtripOverviewFetchRequestBody !== 'function'
@@ -1419,7 +1426,7 @@ try {
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch context, latest snapshot, traffic, overview, ads, and Cookie API builders',
+      detail: 'Ctrip fetch context, flow, latest snapshot, traffic, overview, ads, and Cookie API builders',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -1472,6 +1479,92 @@ try {
     const rawFailure = buildCtripFetchRawFailureResult({
       errorMsg: '授权过期',
       rawResponse: 'x'.repeat(1200),
+    });
+    const fetchFlowEvents = [];
+    const fetchFlowStates = [];
+    let fetchFlowRequestedBody = null;
+    let fetchFlowResultPayload = null;
+    let fetchFlowFilterDates = null;
+    let fetchFlowLatestMeta = null;
+    let fetchFlowTableTab = '';
+    const fetchFlowResult = await runCtripFetchDataFlow({
+      isLoggedIn: () => true,
+      getSelectedCtripHotelId: () => '58',
+      notify: (message, level) => fetchFlowEvents.push(`notify:${level || 'info'}:${message}`),
+      getActiveCtripConfig: () => ({ id: 1, hotel_id: '58', cookies: 'sid=config' }),
+      ensureCtripConfigSecret: async config => {
+        fetchFlowEvents.push('ensure-config');
+        return config;
+      },
+      applyCtripConfigObject: config => fetchFlowEvents.push(`apply:${config.hotel_id}`),
+      getForm: () => ({
+        cookies: ' sid=fetch ',
+        nodeId: '24588',
+        startDate: '2026-06-01',
+        endDate: '2026-06-10',
+        auth_data: { token: 'ctx' },
+      }),
+      setFetching: value => fetchFlowStates.push(`fetching:${value}`),
+      setShowRawData: value => fetchFlowStates.push(`raw:${value}`),
+      setFetchSuccess: value => fetchFlowStates.push(`success:${value}`),
+      setSavedCount: value => fetchFlowStates.push(`saved:${value}`),
+      debugLog: (message) => fetchFlowEvents.push(`debug:${message}`),
+      requestFetch: async requestBody => {
+        fetchFlowRequestedBody = requestBody;
+        fetchFlowEvents.push('request-fetch');
+        return {
+          code: 200,
+          data: {
+            data: [{ order_id: 'o1' }],
+            display_hotels: [{ hotel_id: 'h1' }],
+            display_summary: { status: 'ok' },
+            saved_count: 4,
+            fetched_at: '2026-06-10 14:00:00',
+          },
+        };
+      },
+      setOnlineDataResult: value => { fetchFlowResultPayload = value; },
+      useDisplayHotels: rows => {
+        fetchFlowEvents.push(`display-hotels:${rows.length}`);
+        return rows;
+      },
+      setOnlineDataFilterDates: value => { fetchFlowFilterDates = value; },
+      getLatestMeta: () => fetchFlowLatestMeta,
+      setLatestMeta: value => { fetchFlowLatestMeta = value; },
+      setTableTab: value => { fetchFlowTableTab = value; },
+      updateAiAnalysisHotelList: () => fetchFlowEvents.push('update-ai-hotels'),
+      refreshOnlineHistory: async () => fetchFlowEvents.push('history'),
+      refreshLatestCtripData: async params => fetchFlowEvents.push(`latest:${params.silent}`),
+      getOnlineDataTab: () => 'data',
+      refreshOnlineData: () => fetchFlowEvents.push('refresh-data'),
+      handleFetchFailure: async message => fetchFlowEvents.push(`failure:${message}`),
+      hasVisibleSnapshot: () => false,
+      logError: (message) => fetchFlowEvents.push(`log-error:${message}`),
+    });
+    let failedFlowResultPayload = null;
+    let failedFlowShowRawData = false;
+    const failedFlowEvents = [];
+    const failedFlowResult = await runCtripFetchDataFlow({
+      isLoggedIn: () => true,
+      getSelectedCtripHotelId: () => '58',
+      notify: (message, level) => failedFlowEvents.push(`notify:${level || 'info'}:${message}`),
+      getActiveCtripConfig: () => ({ hotel_id: '58' }),
+      ensureCtripConfigSecret: async config => config,
+      getForm: () => ({ cookies: 'sid=fetch', startDate: '2026-06-10', endDate: '2026-06-10' }),
+      requestFetch: async () => ({
+        code: 500,
+        message: '授权过期',
+        data: { raw_response: 'raw-body' },
+      }),
+      setOnlineDataResult: value => { failedFlowResultPayload = value; },
+      setShowRawData: value => { failedFlowShowRawData = value; },
+      handleFetchFailure: async message => failedFlowEvents.push(`failure:${message}`),
+      hasVisibleSnapshot: () => false,
+    });
+    const guardFlowEvents = [];
+    const guardFlowResult = await runCtripFetchDataFlow({
+      isLoggedIn: () => false,
+      notify: (message, level) => guardFlowEvents.push(`notify:${level}:${message}`),
     });
     const latestModel = buildLatestCtripSnapshotModel({
       metadata: { status: 'success', data_date: '2026-06-09' },
@@ -1617,7 +1710,32 @@ try {
         && fetchMeta.total_records === 7
         && rawFailure.error === '授权过期'
         && rawFailure.raw.length === 1000
-        && rawFailure.hint.includes('Cookie是否过期'),
+        && rawFailure.hint.includes('Cookie是否过期')
+        && fetchFlowResult.status === 'success'
+        && fetchFlowRequestedBody.cookies === 'sid=fetch'
+        && fetchFlowRequestedBody.node_id === '24588'
+        && fetchFlowRequestedBody.system_hotel_id === '58'
+        && fetchFlowResultPayload[0].order_id === 'o1'
+        && fetchFlowFilterDates.startDate === '2026-06-01'
+        && fetchFlowFilterDates.endDate === '2026-06-10'
+        && fetchFlowLatestMeta.total_records === 4
+        && fetchFlowLatestMeta.data_date === '2026-06-01 至 2026-06-10'
+        && fetchFlowTableTab === 'sales'
+        && fetchFlowStates.join('|') === 'fetching:true|raw:false|success:false|saved:0|saved:4|success:true|fetching:false'
+        && fetchFlowEvents.includes('ensure-config')
+        && fetchFlowEvents.includes('apply:58')
+        && fetchFlowEvents.includes('request-fetch')
+        && fetchFlowEvents.includes('display-hotels:1')
+        && fetchFlowEvents.includes('history')
+        && fetchFlowEvents.includes('latest:true')
+        && fetchFlowEvents.includes('refresh-data')
+        && failedFlowResult.status === 'failed'
+        && failedFlowResultPayload.error === '授权过期'
+        && failedFlowResultPayload.raw === 'raw-body'
+        && failedFlowShowRawData === true
+        && failedFlowEvents.includes('failure:授权过期')
+        && guardFlowResult.status === 'not_logged_in'
+        && guardFlowEvents[0] === 'notify:error:请先登录',
       detail: 'Ctrip fetch response sample',
     });
     checks.push({

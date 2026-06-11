@@ -687,6 +687,126 @@ window.SUXI_CTRIP_STATIC = (() => {
         raw: String(rawResponse || '').substring(0, limit),
         hint: '请检查: 1.Cookie是否过期 2.API地址是否正确',
     });
+    const runCtripFetchDataFlow = async ({
+        isLoggedIn = () => false,
+        getSelectedCtripHotelId = () => '',
+        notify = () => {},
+        getActiveCtripConfig = () => null,
+        ensureCtripConfigSecret = async config => config,
+        applyCtripConfigObject = () => {},
+        getForm = () => ({}),
+        setFetching = () => {},
+        setShowRawData = () => {},
+        setFetchSuccess = () => {},
+        setSavedCount = () => {},
+        debugLog = () => {},
+        requestFetch = async () => ({}),
+        setOnlineDataResult = () => {},
+        useDisplayHotels = rows => rows,
+        setOnlineDataFilterDates = () => {},
+        getLatestMeta = () => null,
+        setLatestMeta = () => {},
+        setTableTab = () => {},
+        updateAiAnalysisHotelList = () => {},
+        refreshOnlineHistory = async () => {},
+        refreshLatestCtripData = async () => {},
+        getOnlineDataTab = () => '',
+        refreshOnlineData = () => {},
+        handleFetchFailure = async () => {},
+        hasVisibleSnapshot = () => false,
+        logError = () => {},
+    } = {}) => {
+        if (!isLoggedIn()) {
+            notify('请先登录', 'error');
+            return { status: 'not_logged_in' };
+        }
+
+        const selectedCtripHotelId = getSelectedCtripHotelId();
+        if (!selectedCtripHotelId) {
+            notify('请选择目标酒店', 'error');
+            return { status: 'missing_hotel' };
+        }
+        const selectedConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
+        if (!selectedConfig) {
+            notify('当前酒店未配置携程数据源', 'warning');
+            return { status: 'missing_config' };
+        }
+        applyCtripConfigObject(selectedConfig);
+
+        const requestContext = buildCtripFetchRequestContext({
+            form: getForm(),
+            selectedCtripHotelId,
+        });
+        if (!requestContext.ok) {
+            notify(requestContext.message, requestContext.level || 'error');
+            return { status: 'invalid_request', requestContext };
+        }
+        const { startDate, endDate } = requestContext;
+
+        setFetching(true);
+        setShowRawData(false);
+        setFetchSuccess(false);
+        setSavedCount(0);
+
+        try {
+            debugLog('发送携程数据请求...', requestContext.debugMeta);
+            const res = await requestFetch(requestContext.requestBody);
+            debugLog('携程数据响应:', res);
+
+            if (res.code === 200) {
+                const data = res.data || {};
+                setOnlineDataResult(selectCtripFetchResponsePayload(data));
+                const allHotels = useDisplayHotels(data.display_hotels || [], data.display_summary || null);
+                setOnlineDataFilterDates({ startDate, endDate });
+                const savedCount = data.saved_count || 0;
+                setSavedCount(savedCount);
+                setFetchSuccess(true);
+                const currentFetchMeta = buildCtripFetchMeta({
+                    hotelId: selectedCtripHotelId || '',
+                    startDate,
+                    endDate,
+                    fetchedAt: data.fetched_at || '',
+                    savedCount,
+                    displayHotelCount: allHotels.length,
+                });
+                setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
+                setTableTab('sales');
+                updateAiAnalysisHotelList();
+                await refreshOnlineHistory();
+                await refreshLatestCtripData({ silent: true });
+                if (currentFetchMeta.fetched_at && (!getLatestMeta()?.fetched_at || String(getLatestMeta().fetched_at) < currentFetchMeta.fetched_at)) {
+                    setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
+                }
+                if (getOnlineDataTab() === 'data') {
+                    refreshOnlineData();
+                }
+                return { status: 'success', response: res, meta: currentFetchMeta };
+            }
+
+            if (res.code === 401) {
+                notify('登录已过期，请重新登录', 'error');
+                return { status: 'expired', response: res };
+            }
+
+            const errorMsg = res.message || '获取失败';
+            const rawResponse = res.data?.raw_response || res.data?.raw || '';
+            await handleFetchFailure(errorMsg);
+            if (rawResponse && !hasVisibleSnapshot()) {
+                setOnlineDataResult(buildCtripFetchRawFailureResult({
+                    errorMsg,
+                    rawResponse,
+                }));
+                setShowRawData(true);
+            }
+            return { status: 'failed', response: res };
+        } catch (error) {
+            logError('携程数据请求异常:', error);
+            await handleFetchFailure('请求失败: ' + error.message);
+            return { status: 'error', error };
+        } finally {
+            setFetching(false);
+        }
+    };
 
     const buildLatestCtripSnapshotModel = (payload = {}) => {
         const rank = payload?.rank || {};
@@ -1491,6 +1611,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         selectCtripFetchResponsePayload,
         buildCtripFetchMeta,
         buildCtripFetchRawFailureResult,
+        runCtripFetchDataFlow,
         buildLatestCtripSnapshotModel,
         buildCtripTrafficFetchRequestBody,
         buildCtripTrafficResponseModel,
