@@ -1470,6 +1470,18 @@
 - 当前自审计：完整目录约 `216.39 MB`；不含 `.git` 约 `103.01 MB`；不含 `.git` 和依赖约 `73.82 MB`；Git 跟踪文件约 `18.83 MB` / `618` 个；代码范围 `373` 个文件、`197,806` 行、非空 `181,827` 行；默认可清理目标为 `runtime` 约 `10.06 MB` / `265` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`655` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-12 保存点：登录入口 helper 与携程配置详情缓存
+
+- `public/system-static.js` 新增 `createLoginForm()`、`getRememberedLoginAccount()`、`buildLoginRequestPayload()`、`validateLoginRequestPayload()` 和 `applyRememberedLoginAccount()`，承载登录表单默认值、登录请求体、必填校验和“只记住账号、不持久化密码”的本地存储规则。
+- `public/index.html` 的 `handleLogin()` 继续保留 `/auth/login` 请求、token/user 写入、欢迎提示、罗盘页跳转、首页数据加载和后端通知刷新；不再内联登录表单初始化、登录 payload 组装、必填提示和 remembered account 读写。
+- `public/index.html` 为携程完整配置详情读取增加 `ctripConfigDetailCache` 与 `ctripConfigDetailLoadingPromises`，在手动采集门店切换、配置编辑和 Cookie 健康面板读取时复用同一配置详情请求。
+- 携程配置保存、酒店表单内 OTA 配置保存、单项删除、批量删除和 Cookie 保存成功后均清理对应配置详情缓存，避免已更新的 Cookie/配置继续命中旧详情。
+- 本保存点不改变 `/auth/login`、`/online-data/get-ctrip-config-detail`、携程配置保存/删除接口、OTA 采集、入库、字段口径、AI 分析、权限或数据库结构；配置详情接口失败仍抛出并由原有 toast 显式展示，不写兜底成功。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求登录 helper、携程配置详情缓存/并发去重和保存/删除后的缓存失效，并禁止把登录 payload 和 remembered account 存储重新内联回 `public/index.html`；`verify_e2e_contracts.mjs` 在 VM 中验证登录 helper 保留账号、清除旧密码、请求体语义和必填提示，合同检查数为 `668`。
+- 当前 split-map：`public/index.html` 为 `37,337` 行、`1,556` 个前端函数级块、`44` 个 `currentPage` 引用；`handleLogin` 已退出最大块列表，最大前端块仍为 `59` 行；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `218.09 MB`；不含 `.git` 约 `104.01 MB`；不含 `.git` 和依赖约 `74.82 MB`；Git 跟踪文件约 `18.84 MB` / `618` 个；代码范围 `373` 个文件、`197,979` 行、非空 `182,000` 行；默认可清理目标为 `runtime` 约 `11.05 MB` / `273` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`668` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

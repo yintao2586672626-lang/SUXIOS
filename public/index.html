@@ -18312,6 +18312,10 @@
 
     const languageOptions = requireAppSystemStatic('languageOptions');
     const menuItemDefinitions = requireAppSystemStatic('menuItemDefinitions');
+    const getRememberedLoginAccount = requireAppSystemStatic('getRememberedLoginAccount');
+    const buildLoginRequestPayload = requireAppSystemStatic('buildLoginRequestPayload');
+    const validateLoginRequestPayload = requireAppSystemStatic('validateLoginRequestPayload');
+    const applyRememberedLoginAccount = requireAppSystemStatic('applyRememberedLoginAccount');
     const createRegisterForm = requireAppSystemStatic('createRegisterForm');
     const buildRegisterRequestPayload = requireAppSystemStatic('buildRegisterRequestPayload');
     const validateRegisterRequestPayload = requireAppSystemStatic('validateRegisterRequestPayload');
@@ -18461,18 +18465,14 @@
             };
 
             // 登录表单 - 仅记住账号，避免在 localStorage 持久化密码
-            const rememberedUsername = localStorage.getItem('remembered_username') || '';
-            localStorage.removeItem('remembered_password');
-            const hasRememberedAccount = !!rememberedUsername;
-            const savedUsername = hasRememberedAccount ? rememberedUsername : '';
-            const savedPassword = '';
-            const loginForm = ref({ username: savedUsername, password: savedPassword });
+            const rememberedLogin = getRememberedLoginAccount(localStorage);
+            const loginForm = ref(rememberedLogin.form);
             const registerMode = ref(false);
             const registerLoading = ref(false);
             const registerError = ref('');
             const registerSuccess = ref('');
             const registerForm = ref(createRegisterForm());
-            const rememberAccount = ref(hasRememberedAccount);
+            const rememberAccount = ref(rememberedLogin.remember);
             const directorEntryVisible = ref(false);
             const directorEntryAnswer = ref('');
             const directorEntryError = ref('');
@@ -28379,8 +28379,10 @@
                 if (loading.value) {
                     return;
                 }
-                if (!loginForm.value.username || !loginForm.value.password) {
-                    loginError.value = '请输入用户名和密码';
+                const payload = buildLoginRequestPayload(loginForm.value);
+                const validationError = validateLoginRequestPayload(payload);
+                if (validationError) {
+                    loginError.value = validationError;
                     return;
                 }
 
@@ -28389,10 +28391,7 @@
                 try {
                     const res = await request('/auth/login', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            username: loginForm.value.username,
-                            password: loginForm.value.password
-                        })
+                        body: JSON.stringify(payload)
                     });
 
                     if (res.code === 200) {
@@ -28402,13 +28401,11 @@
                         localStorage.setItem('token', token.value);
 
                         // 只记住账号，不持久化密码
-                        if (rememberAccount.value) {
-                            localStorage.setItem('remembered_username', loginForm.value.username);
-                            localStorage.removeItem('remembered_password');
-                        } else {
-                            localStorage.removeItem('remembered_username');
-                            localStorage.removeItem('remembered_password');
-                        }
+                        applyRememberedLoginAccount({
+                            storage: localStorage,
+                            username: payload.username,
+                            remember: rememberAccount.value,
+                        });
 
                         isLoggedIn.value = true;
                         showToast(`欢迎回来，${res.data.user.realname || res.data.user.username}！`, 'success');
@@ -32857,13 +32854,37 @@
                 ctripCommentBrowserCaptureForm.value.profileId = '';
             };
 
+            const ctripConfigDetailCache = new Map();
+            const ctripConfigDetailLoadingPromises = new Map();
+            const getCtripConfigDetailVersion = (config = {}) => String(config.update_time || config.updated_at || config.created_at || '');
+            const clearCtripConfigDetailCache = (id = '') => {
+                if (id) {
+                    ctripConfigDetailCache.delete(String(id));
+                    ctripConfigDetailLoadingPromises.delete(String(id));
+                    return;
+                }
+                ctripConfigDetailCache.clear();
+                ctripConfigDetailLoadingPromises.clear();
+            };
             const loadCtripConfigDetail = async (id) => {
                 if (!id) return null;
-                const res = await request(`/online-data/get-ctrip-config-detail?id=${encodeURIComponent(id)}`);
-                if (res.code !== 200) {
-                    throw new Error(res.message || '加载携程完整配置失败');
+                const cacheKey = String(id);
+                if (ctripConfigDetailLoadingPromises.has(cacheKey)) {
+                    return ctripConfigDetailLoadingPromises.get(cacheKey);
                 }
-                return res.data || null;
+                const detailPromise = (async () => {
+                    const res = await request(`/online-data/get-ctrip-config-detail?id=${encodeURIComponent(cacheKey)}`);
+                    if (res.code !== 200) {
+                        throw new Error(res.message || '加载携程完整配置失败');
+                    }
+                    return res.data || null;
+                })();
+                ctripConfigDetailLoadingPromises.set(cacheKey, detailPromise);
+                try {
+                    return await detailPromise;
+                } finally {
+                    ctripConfigDetailLoadingPromises.delete(cacheKey);
+                }
             };
 
             const meituanConfigDetailCache = new Map();
@@ -32902,8 +32923,21 @@
             const ensureCtripConfigSecret = async (config) => {
                 if (!config) return null;
                 if (config.cookies || !config.has_cookies) return config;
+                const cacheKey = config.id ? String(config.id) : '';
+                const listVersion = getCtripConfigDetailVersion(config);
+                const cached = cacheKey ? ctripConfigDetailCache.get(cacheKey) : null;
+                if (cached && (!listVersion || cached.version === listVersion)) {
+                    return cached.data;
+                }
                 try {
-                    return await loadCtripConfigDetail(config.id);
+                    const detail = await loadCtripConfigDetail(config.id);
+                    if (detail && cacheKey) {
+                        ctripConfigDetailCache.set(cacheKey, {
+                            version: getCtripConfigDetailVersion(detail) || listVersion,
+                            data: detail,
+                        });
+                    }
+                    return detail;
                 } catch (e) {
                     showToast(e.message || '加载携程完整配置失败', 'error');
                     return null;
@@ -33482,6 +33516,7 @@
                     if (res.code !== 200) {
                         throw new Error(res.message || '携程数据源保存失败');
                     }
+                    clearCtripConfigDetailCache(ctrip.id || existing?.id || '');
                     saved = true;
                 }
 
@@ -33559,10 +33594,16 @@
 
             const saveCtripConfig = async () => runCtripConfigSaveFlow({
                 getForm: () => ctripConfigForm.value,
-                requestSave: body => request('/online-data/save-ctrip-config', {
-                    method: 'POST',
-                    body: JSON.stringify(body),
-                }),
+                requestSave: async body => {
+                    const res = await request('/online-data/save-ctrip-config', {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    });
+                    if (res?.code === 200) {
+                        clearCtripConfigDetailCache(body?.id || '');
+                    }
+                    return res;
+                },
                 notify: showToast,
                 resetForm: form => { ctripConfigForm.value = form; },
                 reloadConfigs: loadCtripConfigList,
@@ -33630,6 +33671,7 @@
                     });
                     if (data.code === 200) {
                         showToast('删除成功');
+                        clearCtripConfigDetailCache(id);
                         selectedCtripConfigIds.value = selectedCtripConfigIds.value.filter(item => String(item) !== String(id));
                         loadCtripConfigList();
                     } else {
@@ -33739,6 +33781,7 @@
 
                     if (res.code === 200) {
                         showToast('携程 Cookie 已保存');
+                        clearCtripConfigDetailCache(form.id || '');
                         showCtripCookieEditorModal.value = false;
                         await loadCtripConfigList();
                         await loadDataHealthPanel('light', { force: true });
@@ -33778,6 +33821,7 @@
                             method: 'DELETE'
                         });
                         if (data.code === 200) {
+                            clearCtripConfigDetailCache(id);
                             deletedCount += 1;
                         } else {
                             failedIds.push(id);

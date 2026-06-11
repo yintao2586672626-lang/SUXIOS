@@ -49,6 +49,10 @@ function requireNoTextInFiles(files, needle, label) {
 requireText('public/index.html', 'data-testid="login-username"', 'login username has stable selector');
 requireText('public/index.html', 'data-testid="login-password"', 'login password has stable selector');
 requireText('public/index.html', 'data-testid="login-submit"', 'login submit has stable selector');
+requireText('public/index.html', "requireAppSystemStatic('getRememberedLoginAccount')", 'entry uses extracted remembered login account reader');
+requireText('public/index.html', "requireAppSystemStatic('buildLoginRequestPayload')", 'entry uses extracted login payload builder');
+requireText('public/index.html', "requireAppSystemStatic('validateLoginRequestPayload')", 'entry uses extracted login validation');
+requireText('public/index.html', "requireAppSystemStatic('applyRememberedLoginAccount')", 'entry uses extracted remembered login account writer');
 requireText('public/index.html', 'data-testid="open-register"', 'login page exposes self-registration entry selector');
 requireText('public/index.html', 'data-testid="register-submit"', 'login page exposes self-registration submit');
 requireText('public/index.html', 'data-testid="register-username"', 'login page exposes self-registration fields');
@@ -191,6 +195,9 @@ requireText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
 requireText('public/index.html', 'let ctripConfigListLoadingPromise = null;', 'entry deduplicates concurrent Ctrip config-list loads');
 requireText('public/index.html', 'if (ctripConfigListLoadingPromise) {\n                    return ctripConfigListLoadingPromise;', 'Ctrip config-list loader reuses in-flight requests');
+requireText('public/index.html', 'const ctripConfigDetailCache = new Map();', 'entry caches full Ctrip config details for manual-fetch hotel switching');
+requireText('public/index.html', 'const ctripConfigDetailLoadingPromises = new Map();', 'entry deduplicates concurrent full Ctrip config detail loads');
+requireText('public/index.html', "clearCtripConfigDetailCache(body?.id || '');", 'entry invalidates Ctrip config detail cache after manual config saves');
 requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
@@ -259,6 +266,11 @@ requireText('public/index.html', "requireSystemStatic('getDataConfigTypeDefaults
 requireText('public/index.html', "requireSystemStatic('getSystemConfigDefaults')", 'entry uses extracted system config defaults');
 requireText('public/index.html', "requireSystemStatic('createHotelForm')", 'entry uses extracted hotel form builder');
 requireText('public/index.html', "requireSystemStatic('buildHotelSavePayload')", 'entry uses extracted hotel save payload builder');
+requireText('public/system-static.js', 'const createLoginForm', 'system static builds login default forms');
+requireText('public/system-static.js', 'const getRememberedLoginAccount', 'system static reads remembered login account and clears legacy password');
+requireText('public/system-static.js', 'const buildLoginRequestPayload', 'system static builds login request payloads');
+requireText('public/system-static.js', 'const validateLoginRequestPayload', 'system static validates login request payloads');
+requireText('public/system-static.js', 'const applyRememberedLoginAccount', 'system static writes remembered login account without persisting passwords');
 requireText('public/system-static.js', 'const createRegisterForm', 'system static builds register default forms');
 requireText('public/system-static.js', 'const buildRegisterRequestPayload', 'system static builds register request payloads');
 requireText('public/system-static.js', 'const validateRegisterRequestPayload', 'system static validates register request payloads');
@@ -4873,6 +4885,11 @@ try {
   const getDefaultDataConfigForm = context.window.SUXI_SYSTEM_STATIC?.getDefaultDataConfigForm;
   const getDataConfigTypeDefaults = context.window.SUXI_SYSTEM_STATIC?.getDataConfigTypeDefaults;
   const getSystemConfigDefaults = context.window.SUXI_SYSTEM_STATIC?.getSystemConfigDefaults;
+  const createLoginForm = context.window.SUXI_SYSTEM_STATIC?.createLoginForm;
+  const getRememberedLoginAccount = context.window.SUXI_SYSTEM_STATIC?.getRememberedLoginAccount;
+  const buildLoginRequestPayload = context.window.SUXI_SYSTEM_STATIC?.buildLoginRequestPayload;
+  const validateLoginRequestPayload = context.window.SUXI_SYSTEM_STATIC?.validateLoginRequestPayload;
+  const applyRememberedLoginAccount = context.window.SUXI_SYSTEM_STATIC?.applyRememberedLoginAccount;
   const createRegisterForm = context.window.SUXI_SYSTEM_STATIC?.createRegisterForm;
   const buildRegisterRequestPayload = context.window.SUXI_SYSTEM_STATIC?.buildRegisterRequestPayload;
   const validateRegisterRequestPayload = context.window.SUXI_SYSTEM_STATIC?.validateRegisterRequestPayload;
@@ -4966,6 +4983,50 @@ try {
       label: 'system config defaults return fresh objects',
       ok: second.system_name === '宿析OS',
       detail: 'system_name',
+    });
+  }
+  if (typeof createLoginForm !== 'function'
+    || typeof getRememberedLoginAccount !== 'function'
+    || typeof buildLoginRequestPayload !== 'function'
+    || typeof validateLoginRequestPayload !== 'function'
+    || typeof applyRememberedLoginAccount !== 'function') {
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static exports login form helpers',
+      ok: false,
+      detail: 'createLoginForm/getRememberedLoginAccount/buildLoginRequestPayload/validateLoginRequestPayload/applyRememberedLoginAccount',
+    });
+  } else {
+    const storageMap = new Map([
+      ['remembered_username', 'manager01'],
+      ['remembered_password', 'legacy-secret'],
+    ]);
+    const storage = {
+      getItem: key => storageMap.get(key) || '',
+      setItem: (key, value) => storageMap.set(key, String(value)),
+      removeItem: key => storageMap.delete(key),
+    };
+    const remembered = getRememberedLoginAccount(storage);
+    const loginPayload = buildLoginRequestPayload({ username: ' manager01 ', password: 'secret123' });
+    applyRememberedLoginAccount({ storage, username: loginPayload.username, remember: true });
+    const rememberedPasswordAfterSave = storageMap.has('remembered_password');
+    applyRememberedLoginAccount({ storage, username: loginPayload.username, remember: false });
+    checks.push({
+      file: 'public/system-static.js',
+      label: 'system static login helpers preserve account-only storage and explicit validation',
+      ok: remembered.username === 'manager01'
+        && remembered.remember === true
+        && remembered.form.username === 'manager01'
+        && remembered.form.password === ''
+        && !storageMap.has('remembered_password')
+        && createLoginForm({ username: 'u1' }).password === ''
+        && loginPayload.username === ' manager01 '
+        && loginPayload.password === 'secret123'
+        && validateLoginRequestPayload(loginPayload) === ''
+        && validateLoginRequestPayload({ username: '', password: 'secret123' }).includes('用户名')
+        && rememberedPasswordAfterSave === false
+        && !storageMap.has('remembered_username'),
+      detail: 'login helper samples and remembered_password cleanup',
     });
   }
   if (typeof createRegisterForm !== 'function' || typeof buildRegisterRequestPayload !== 'function' || typeof validateRegisterRequestPayload !== 'function') {

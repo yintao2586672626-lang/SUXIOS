@@ -340,6 +340,37 @@ window.SUXI_SYSTEM_STATIC = (() => {
         { key: 'status', label: '状态' },
         { key: 'actions', label: '操作' },
     ];
+    const rememberedUsernameStorageKey = 'remembered_username';
+    const legacyRememberedPasswordStorageKey = 'remembered_password';
+    const createLoginForm = ({ username = '' } = {}) => ({
+        username: String(username || ''),
+        password: '',
+    });
+    const getRememberedLoginAccount = (storage) => {
+        const username = String(storage?.getItem?.(rememberedUsernameStorageKey) || '');
+        storage?.removeItem?.(legacyRememberedPasswordStorageKey);
+        return {
+            username,
+            remember: !!username,
+            form: createLoginForm({ username }),
+        };
+    };
+    const buildLoginRequestPayload = (form = {}) => ({
+        username: String(form.username || ''),
+        password: String(form.password || ''),
+    });
+    const validateLoginRequestPayload = (payload = {}) => (
+        payload.username && payload.password ? '' : '请输入用户名和密码'
+    );
+    const applyRememberedLoginAccount = ({ storage, username = '', remember = false } = {}) => {
+        if (remember) {
+            storage?.setItem?.(rememberedUsernameStorageKey, String(username || ''));
+            storage?.removeItem?.(legacyRememberedPasswordStorageKey);
+            return;
+        }
+        storage?.removeItem?.(rememberedUsernameStorageKey);
+        storage?.removeItem?.(legacyRememberedPasswordStorageKey);
+    };
     const createRegisterForm = () => ({
         username: '',
         realname: '',
@@ -983,6 +1014,11 @@ window.SUXI_SYSTEM_STATIC = (() => {
         testIdNameMap,
         hotelColumns,
         userColumns,
+        createLoginForm,
+        getRememberedLoginAccount,
+        buildLoginRequestPayload,
+        validateLoginRequestPayload,
+        applyRememberedLoginAccount,
         createRegisterForm,
         buildRegisterRequestPayload,
         validateRegisterRequestPayload,

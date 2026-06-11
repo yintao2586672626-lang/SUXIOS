@@ -256,6 +256,15 @@ if (!fs.existsSync(indexPath)) {
   if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise\) \{[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)) {
     failures.push('public/index.html must deduplicate concurrent Ctrip config-list loads for manual-fetch prewarm and tab switching.');
   }
+  if (!/const ctripConfigDetailCache = new Map\(\);[\s\S]*const ctripConfigDetailLoadingPromises = new Map\(\);[\s\S]*const loadCtripConfigDetail = async[\s\S]*if \(ctripConfigDetailLoadingPromises\.has\(cacheKey\)\)[\s\S]*return ctripConfigDetailLoadingPromises\.get\(cacheKey\);[\s\S]*const ensureCtripConfigSecret = async[\s\S]*const cached = cacheKey \? ctripConfigDetailCache\.get\(cacheKey\) : null;/.test(content)) {
+    failures.push('public/index.html must cache and deduplicate full Ctrip config detail loads for manual-fetch hotel switching.');
+  }
+  if (!content.includes("clearCtripConfigDetailCache(body?.id || '');")
+    || !content.includes("clearCtripConfigDetailCache(ctrip.id || existing?.id || '');")
+    || !/deleteCtripConfig = async[\s\S]*clearCtripConfigDetailCache\(id\);/.test(content)
+    || !/batchDeleteCtripConfigs = async[\s\S]*clearCtripConfigDetailCache\(id\);/.test(content)) {
+    failures.push('public/index.html must invalidate cached full Ctrip config details after Ctrip config saves or deletes.');
+  }
   if (!/newTab === ['"]data['"][\s\S]{0,240}ensureManualOnlineFetchConfigReady\(\)/.test(content)
     || !/item\.path === ['"]online-data['"] && item\.tab === ['"]data['"][\s\S]{0,180}ensureManualOnlineFetchConfigReady\(\)/.test(content)) {
     failures.push('public/index.html must prewarm saved platform configs when the online-data manual data tab is opened.');
@@ -320,6 +329,17 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const payload = buildHotelSavePayload({')) {
     failures.push('public/index.html must use system-static.js helpers for hotel admin forms and save payloads.');
   }
+  if (!content.includes("requireAppSystemStatic('getRememberedLoginAccount')")
+    || !content.includes("requireAppSystemStatic('buildLoginRequestPayload')")
+    || !content.includes("requireAppSystemStatic('validateLoginRequestPayload')")
+    || !content.includes("requireAppSystemStatic('applyRememberedLoginAccount')")
+    || !content.includes('const rememberedLogin = getRememberedLoginAccount(localStorage);')
+    || !content.includes('const loginForm = ref(rememberedLogin.form);')
+    || !content.includes('const payload = buildLoginRequestPayload(loginForm.value);')
+    || !content.includes('const validationError = validateLoginRequestPayload(payload);')
+    || !content.includes('applyRememberedLoginAccount({')) {
+    failures.push('public/index.html must use system-static.js helpers for login form defaults, payloads, validation, and remembered-account storage.');
+  }
   if (!content.includes("requireAppSystemStatic('createRegisterForm')")
     || !content.includes("requireAppSystemStatic('buildRegisterRequestPayload')")
     || !content.includes("requireAppSystemStatic('validateRegisterRequestPayload')")
@@ -332,6 +352,13 @@ if (!fs.existsSync(indexPath)) {
     || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')) {
     failures.push('public/system-static.js must own hotel admin form defaults and save payload normalization.');
   }
+  if (!systemStaticContent.includes('const createLoginForm = ({ username = \'\' } = {}) => ({')
+    || !systemStaticContent.includes('const getRememberedLoginAccount = (storage) => {')
+    || !systemStaticContent.includes('const buildLoginRequestPayload = (form = {}) => ({')
+    || !systemStaticContent.includes('const validateLoginRequestPayload = (payload = {}) => (')
+    || !systemStaticContent.includes('const applyRememberedLoginAccount = ({ storage, username = \'\', remember = false } = {}) => {')) {
+    failures.push('public/system-static.js must own login form defaults, payload normalization, validation, and remembered-account storage policy.');
+  }
   if (!systemStaticContent.includes('const createRegisterForm = () => ({')
     || !systemStaticContent.includes('const buildRegisterRequestPayload = (form = {}) => ({')
     || !systemStaticContent.includes('const validateRegisterRequestPayload = (payload = {}) => {')) {
@@ -340,6 +367,11 @@ if (!fs.existsSync(indexPath)) {
   if (content.includes("hotelForm.value = { id: null, name: '', code: getNextHotelCode()")
     || content.includes('name: hotelForm.value.name.trim(),\n                    code: normalizedCode,')) {
     failures.push('public/index.html must not re-inline hotel admin form defaults or save payload normalization.');
+  }
+  if (content.includes("localStorage.getItem('remembered_username')")
+    || content.includes("localStorage.setItem('remembered_username'")
+    || content.includes("body: JSON.stringify({\n                            username: loginForm.value.username")) {
+    failures.push('public/index.html must not re-inline login remembered-account storage or login payload normalization.');
   }
   if (content.includes("const username = String(registerForm.value.username || '').trim();")
     || content.includes("body: JSON.stringify({\n                            username,")) {

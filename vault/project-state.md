@@ -1501,6 +1501,18 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `216.39 MB`, without `.git` about `103.01 MB`, without `.git` and dependencies about `73.82 MB`, tracked files about `18.83 MB` / `618` files; code scope `373` files, `197806` total lines, and `181827` nonblank lines. Runtime cleanup is about `10.06 MB` / `265` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `655` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Login Helper Split and Ctrip Config Detail Cache
+
+- `public/system-static.js` now owns `createLoginForm()`, `getRememberedLoginAccount()`, `buildLoginRequestPayload()`, `validateLoginRequestPayload()`, and `applyRememberedLoginAccount()` for login defaults, login request payloads, explicit required-field validation, and account-only local storage.
+- `public/index.html` keeps `handleLogin()` responsible for `/auth/login`, token/user storage, welcome toast, compass navigation, app data loading, and backend notification refresh. It no longer inlines login-form initialization, login payload construction, or remembered-account storage writes.
+- `public/index.html` now caches and de-duplicates full Ctrip config detail reads with `ctripConfigDetailCache` and `ctripConfigDetailLoadingPromises`, reducing repeated `/online-data/get-ctrip-config-detail` calls during manual-fetch hotel switching, config editing, and Cookie health-panel reads.
+- Ctrip config saves, hotel-form OTA config saves, single deletes, batch deletes, and Cookie saves invalidate the relevant detail cache after successful writes/deletes.
+- This does not change `/auth/login`, `/online-data/get-ctrip-config-detail`, Ctrip config save/delete APIs, OTA collection, persistence, field semantics, AI analysis, permissions, or database schema. Ctrip config-detail failures still throw and surface through existing toast paths.
+- Guards now require login helpers, full Ctrip config-detail cache/de-dupe, and cache invalidation after saves/deletes; they reject re-inlined login payload and remembered-account storage logic in `public/index.html`.
+- Current split-map: `public/index.html` has `37337` lines, `1556` frontend function-level blocks, and `44` `currentPage` refs; `handleLogin` is no longer in the largest-block list, and the largest frontend blocks remain `59` lines. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `218.09 MB`, without `.git` about `104.01 MB`, without `.git` and dependencies about `74.82 MB`, tracked files about `18.84 MB` / `618` files; code scope `373` files, `197979` total lines, and `182000` nonblank lines. Runtime cleanup is about `11.05 MB` / `273` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `668` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
