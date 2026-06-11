@@ -150,6 +150,10 @@ requireText('public/index.html', "requireMeituanStatic('runMeituanAdsFetchFlow')
 requireText('public/index.html', "requireMeituanStatic('runMeituanBrowserCaptureFlow')", 'entry uses extracted Meituan browser capture flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanCapturedPayloadSaveFlow')", 'entry uses extracted Meituan captured payload save flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanManualTabSwitch')", 'entry uses extracted Meituan manual tab switch helper');
+requireText('app/service/MeituanRankDataExtractionService.php', 'final class MeituanRankDataExtractionService', 'Meituan rank response extraction lives in a focused service');
+requireText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence rank rows use extracted service');
+requireText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForDisplay($responseData)', 'Meituan display rank rows use extracted service');
+requireNoText('app/controller/OnlineData.php', "isset($responseData['data']['peerRankData']) && is_array($responseData['data']['peerRankData'])", 'OnlineData no longer inlines Meituan peerRankData extraction');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');

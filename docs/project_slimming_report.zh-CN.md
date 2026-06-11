@@ -1651,6 +1651,16 @@
 - 当前 self-audit：完整目录约 `242.98 MB`，不含 `.git` 约 `115.17 MB`，不含 `.git` 和依赖约 `85.98 MB`，Git 跟踪文件约 `18.99 MB / 618` 个；代码范围 `373` 个文件、`199,093` 行、非空 `183,095` 行。默认可清理目标为 `runtime` 约 `22.07 MB / 599` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`832` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-12 保存点：美团榜单行解析服务拆分
+
+- 新增 `app/service/MeituanRankDataExtractionService.php`，集中承载美团榜单响应里的行提取逻辑：保存链路使用 `extractForPersistenceWithSource()`，展示链路使用 `extractForDisplay()`。
+- `app/controller/OnlineData.php` 不再内联 `peerRankData` / `roundrank` / `rankList` / `list` 的榜单行解析分支，只保留保存、入库、字段状态、指标分类、展示聚合和错误显式暴露职责。
+- 本轮不改路由、接口、数据库结构、OTA 字段口径、UI、权限或采集入口；保存链路仍保留原 `data.*` 展开兼容，展示链路仍支持 `data.data.peerRankData` 与顶层 `peerRankData`。
+- 更新 `scripts/verify_e2e_contracts.mjs`：要求美团榜单解析存在独立服务，要求 `OnlineData.php` 调用服务，并禁止把 `peerRankData` 判断重新内联回控制器。
+- 当前 split-map：`public/index.html` 为 `37,544` 行、`1,579` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,903` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `244.22 MB`，不含 `.git` 约 `115.68 MB`，不含 `.git` 和依赖约 `86.49 MB`，Git 跟踪文件约 `18.99 MB / 618` 个；代码范围 `373` 个文件、`199,009` 行、非空 `183,013` 行。默认可清理目标为 `runtime` 约 `22.57 MB / 631` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`C:\xampp\php\php.exe -l app\service\MeituanRankDataExtractionService.php`、`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`node --check scripts\verify_e2e_contracts.mjs`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\MeituanRankDataExtractionServiceTest.php`（`4` tests / `12` assertions）、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter MeituanBusiness`（`3` tests / `35` assertions）、`npm.cmd run verify:e2e-contracts`（`836` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

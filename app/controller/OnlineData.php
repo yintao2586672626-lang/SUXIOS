@@ -14,6 +14,7 @@ use app\service\CtripOverviewSummaryService;
 use app\service\CtripProfileFieldMetaService;
 use app\service\CtripTrafficDisplayService;
 use app\service\ManualOnlineFetchTaskService;
+use app\service\MeituanRankDataExtractionService;
 use app\service\OnlineDataAnalysisReportService;
 use app\service\OnlineTrafficDataExtractionService;
 use app\service\PlatformProfileBindingReadinessService;
@@ -6853,59 +6854,10 @@ class OnlineData extends Base
                 ], JSON_UNESCAPED_UNICODE));
             }
 
-            // 美团竞对排名数据结构解析
-            // 实际结构: { data: { peerRankData: [{ dimName, roundRanks: [...], aiMetricName }] } }
-            if (isset($responseData['data']['peerRankData']) && is_array($responseData['data']['peerRankData'])) {
-                // 遍历每个榜单类型（入住间夜榜、交易额榜等）
-                foreach ($responseData['data']['peerRankData'] as $rankData) {
-                    if (isset($rankData['roundRanks']) && is_array($rankData['roundRanks'])) {
-                        foreach ($rankData['roundRanks'] as $item) {
-                            $item['_dimName'] = $rankData['dimName'] ?? '';
-                            $item['_aiMetricName'] = $rankData['aiMetricName'] ?? '';
-                            $dataList[] = $item;
-                        }
-                    }
-                }
-                \think\facade\Log::info('美团数据解析 - 使用结构: data.peerRankData[].roundRanks, 数量: ' . count($dataList));
-            }
-            // 结构2: { data: { roundrank: [...] } } - 竞对排名数据
-            elseif (isset($responseData['data']['roundrank']) && is_array($responseData['data']['roundrank'])) {
-                $dataList = $responseData['data']['roundrank'];
-                \think\facade\Log::info('美团数据解析 - 使用结构2: data.roundrank, 数量: ' . count($dataList));
-            }
-            // 结构3: { data: { rankList: [...] } }
-            elseif (isset($responseData['data']['rankList']) && is_array($responseData['data']['rankList'])) {
-                $dataList = $responseData['data']['rankList'];
-                \think\facade\Log::info('美团数据解析 - 使用结构3: data.rankList, 数量: ' . count($dataList));
-            }
-            // 结构4: { data: { list: [...] } }
-            elseif (isset($responseData['data']['list']) && is_array($responseData['data']['list'])) {
-                $dataList = $responseData['data']['list'];
-                \think\facade\Log::info('美团数据解析 - 使用结构4: data.list, 数量: ' . count($dataList));
-            }
-            // 结构5: { data: [...] }
-            elseif (isset($responseData['data']) && is_array($responseData['data'])) {
-                if (isset($responseData['data'][0])) {
-                    $dataList = $responseData['data'];
-                    \think\facade\Log::info('美团数据解析 - 使用结构5: data是数组, 数量: ' . count($dataList));
-                } else {
-                    foreach ($responseData['data'] as $key => $value) {
-                        if (is_array($value)) {
-                            $dataList = array_merge($dataList, $value);
-                        }
-                    }
-                    \think\facade\Log::info('美团数据解析 - 使用结构5展开: 数量: ' . count($dataList));
-                }
-            }
-            // 结构6: { list: [...] }
-            elseif (isset($responseData['list']) && is_array($responseData['list'])) {
-                $dataList = $responseData['list'];
-                \think\facade\Log::info('美团数据解析 - 使用结构6: list, 数量: ' . count($dataList));
-            }
-            // 结构7: { roundrank: [...] }
-            elseif (isset($responseData['roundrank']) && is_array($responseData['roundrank'])) {
-                $dataList = $responseData['roundrank'];
-                \think\facade\Log::info('美团数据解析 - 使用结构7: roundrank, 数量: ' . count($dataList));
+            $extraction = MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData);
+            $dataList = $extraction['rows'];
+            if ($this->shouldLogOtaDebug() && $extraction['source'] !== '') {
+                \think\facade\Log::info('Meituan rank data extraction - source: ' . $extraction['source'] . ', count: ' . count($dataList));
             }
 
             if (empty($dataList)) {
@@ -7563,47 +7515,7 @@ class OnlineData extends Base
 
     private function extractMeituanBusinessRankRows($responseData): array
     {
-        if (!is_array($responseData)) {
-            return [];
-        }
-        foreach ([
-            $responseData['data']['peerRankData'] ?? null,
-            $responseData['data']['data']['peerRankData'] ?? null,
-            $responseData['peerRankData'] ?? null,
-        ] as $peerRankData) {
-            if (is_array($peerRankData)) {
-                $rows = [];
-                foreach ($peerRankData as $rankData) {
-                    if (!is_array($rankData) || !isset($rankData['roundRanks']) || !is_array($rankData['roundRanks'])) {
-                        continue;
-                    }
-                    foreach ($rankData['roundRanks'] as $item) {
-                        if (!is_array($item)) {
-                            continue;
-                        }
-                        $item['_dimName'] = $rankData['dimName'] ?? '';
-                        $item['_aiMetricName'] = $rankData['aiMetricName'] ?? '';
-                        $rows[] = $item;
-                    }
-                }
-                return $rows;
-            }
-        }
-
-        foreach ([
-            $responseData['data']['roundrank'] ?? null,
-            $responseData['data']['rankList'] ?? null,
-            $responseData['data']['list'] ?? null,
-            $responseData['data'] ?? null,
-            $responseData['list'] ?? null,
-            $responseData['roundrank'] ?? null,
-        ] as $rows) {
-            if (is_array($rows) && isset($rows[0]) && is_array($rows[0])) {
-                return $rows;
-            }
-        }
-
-        return [];
+        return MeituanRankDataExtractionService::extractForDisplay($responseData);
     }
 
     private function classifyMeituanBusinessDisplayMetric(string $dimName, string $metricName, string $rankType): string

@@ -1684,6 +1684,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `242.98 MB`, without `.git` about `115.17 MB`, without `.git` and dependencies about `85.98 MB`, tracked files about `18.99 MB` / `618` files; code scope `373` files, `199093` total lines, and `183095` nonblank lines. Runtime cleanup is about `22.07 MB` / `599` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:p0-guards`; `verify:e2e-contracts` with `832` checks; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Meituan Rank Row Extraction Service Split
+
+- `app/service/MeituanRankDataExtractionService.php` now owns Meituan rank response row extraction for persistence and display paths.
+- `app/controller/OnlineData.php` delegates `parseAndSaveMeituanData()` row extraction to `extractForPersistenceWithSource()` and delegates `extractMeituanBusinessRankRows()` to `extractForDisplay()`. The controller still owns persistence, metric status, ranking classification, display aggregation, and explicit empty-data handling.
+- This does not change routes, API request/response contracts, database schema, OTA field semantics, UI, permissions, or collection entrypoints. Persistence keeps the prior `data.*` expanded branch compatibility; display keeps the prior nested and top-level `peerRankData` compatibility.
+- Guards now require the focused extraction service, require both controller service calls, and reject re-inlined `peerRankData` extraction in `OnlineData.php`.
+- Current split-map: `public/index.html` has `37544` lines, `1579` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26903` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `244.22 MB`, without `.git` about `115.68 MB`, without `.git` and dependencies about `86.49 MB`, tracked files about `18.99 MB` / `618` files; code scope `373` files, `199009` total lines, and `183013` nonblank lines. Runtime cleanup is about `22.57 MB` / `631` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: PHP syntax checks for `app/service/MeituanRankDataExtractionService.php` and `app/controller/OnlineData.php`; `node --check scripts\verify_e2e_contracts.mjs`; `tests\MeituanRankDataExtractionServiceTest.php` with `4` tests and `12` assertions; `tests\OnlineDataTest.php --filter MeituanBusiness` with `3` tests and `35` assertions; `verify:e2e-contracts` with `836` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
