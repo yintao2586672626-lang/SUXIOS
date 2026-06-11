@@ -968,6 +968,130 @@ window.SUXI_CTRIP_STATIC = (() => {
         auto_save: true,
     });
 
+    const runCtripCookieApiCaptureFlow = async ({
+        getSelectedCtripHotelId = () => '',
+        setSelectedCtripHotelId = () => {},
+        getAutoFetchHotelId = () => '',
+        getUserHotelId = () => '',
+        hasCtripConfigList = () => false,
+        loadCtripConfigList = async () => {},
+        getActiveCtripConfig = () => null,
+        findCtripConfigByHotelId = () => null,
+        ensureCtripConfigSecret = async config => config,
+        applyCtripConfigObject = () => {},
+        getForm = () => ({}),
+        getOverviewForm = () => ({}),
+        getHotelNameById = () => '',
+        resolveProfileId = () => '',
+        resolveRequestHotelId = () => '',
+        requestCapture = async () => ({}),
+        setProfileId = () => {},
+        setRunning = () => {},
+        setFetching = () => {},
+        setCaptureResult = () => {},
+        setOnlineDataResult = () => {},
+        setShowRawData = () => {},
+        notify = () => {},
+        refreshLatestCtripData = async () => {},
+        refreshOnlineHistory = async () => {},
+        shouldRefreshDataHealthPanel = () => false,
+        refreshDataHealthPanel = async () => {},
+    } = {}) => {
+        const targetContext = buildCtripBrowserCaptureTargetContext({
+            selectedCtripHotelId: getSelectedCtripHotelId(),
+            autoFetchHotelId: getAutoFetchHotelId(),
+            userHotelId: getUserHotelId(),
+        });
+        if (!targetContext.ok) {
+            notify(targetContext.result.message, 'error');
+            return { status: 'missing_hotel', result: targetContext.result };
+        }
+        const { systemHotelId } = targetContext;
+        const form = getForm() || {};
+        const requestUrl = String(form.requestUrl || '').trim();
+        const endpointsJson = String(form.endpointsJson || '').trim();
+        if (!requestUrl && !endpointsJson) {
+            notify('请填写携程接口 Request URL 或批量接口 JSON', 'error');
+            return { status: 'missing_request_source' };
+        }
+
+        if (!getSelectedCtripHotelId()) {
+            setSelectedCtripHotelId(String(systemHotelId));
+        }
+        if (!hasCtripConfigList()) {
+            await loadCtripConfigList();
+        }
+        let activeConfig = getActiveCtripConfig();
+        if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
+            activeConfig = findCtripConfigByHotelId(systemHotelId);
+        }
+        activeConfig = await ensureCtripConfigSecret(activeConfig);
+        if (activeConfig) {
+            applyCtripConfigObject(activeConfig, false);
+        }
+
+        const cookies = String(form.cookies || activeConfig?.cookies || activeConfig?.cookie || '').trim();
+        const profileId = resolveProfileId(systemHotelId, activeConfig);
+        if (!profileId) {
+            notify('请填写携程登录会话标识，或先绑定携程登录会话数据源', 'error');
+            return { status: 'missing_profile' };
+        }
+        setProfileId(profileId);
+
+        const overviewForm = getOverviewForm() || {};
+        const requestBody = buildCtripCookieApiFetchRequestBody({
+            systemHotelId,
+            hotelId: resolveRequestHotelId(systemHotelId, activeConfig),
+            hotelName: getHotelNameById(systemHotelId),
+            profileId,
+            dataDate: overviewForm.dataDate,
+            requestUrl,
+            form,
+            endpointsJson,
+            cookies,
+        });
+
+        setRunning(true);
+        setFetching(true);
+        setCaptureResult(null);
+        try {
+            const res = await requestCapture(requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                setCaptureResult(data);
+                setOnlineDataResult(data);
+                setShowRawData(false);
+                if (data.is_ready === false) {
+                    notify(data.warning || data.next_action || res.message || '携程 Cookie API 未达到诊断就绪', 'warning');
+                } else {
+                    notify(res.message || `携程 Cookie API 采集完成，已入库 ${data.saved_count || 0} 条`);
+                }
+                await refreshLatestCtripData({ silent: true });
+                await refreshOnlineHistory();
+                if (shouldRefreshDataHealthPanel()) {
+                    await refreshDataHealthPanel('light', { force: true });
+                }
+                return { status: 'success', response: res, requestBody };
+            }
+
+            const failureResult = res.data || { error: res.message || '携程 Cookie API 采集失败' };
+            setCaptureResult(failureResult);
+            const identityMessage = res.data?.identity_check?.message || res.data?.message || '';
+            notify(identityMessage || res.message || '携程 Cookie API 采集失败', 'error');
+            return { status: 'error_response', response: res, requestBody };
+        } catch (error) {
+            const errorData = error?.data?.data || error?.data || {};
+            const failureResult = errorData && Object.keys(errorData).length ? errorData : { error: error.message };
+            setCaptureResult(failureResult);
+            const identityMessage = errorData?.identity_check?.message || errorData?.message || '';
+            notify(identityMessage || ('携程 Cookie API 采集失败: ' + error.message), 'error');
+            return { status: 'exception', error, requestBody };
+        } finally {
+            setRunning(false);
+            setFetching(false);
+        }
+    };
+
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
     const ctripSortMetricValue = (row = {}, field = '') => {
@@ -1618,6 +1742,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripOverviewFetchRequestBody,
         buildCtripAdsFetchRequestBody,
         buildCtripCookieApiFetchRequestBody,
+        runCtripCookieApiCaptureFlow,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         buildCtripOverviewMetricCards,

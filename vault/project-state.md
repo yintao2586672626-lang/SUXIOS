@@ -1103,6 +1103,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\ai-analysis-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Ctrip Cookie API Capture Flow Split
+
+- Eighty-fourth frontend split target chosen from Ctrip Cookie API capture orchestration inside `runCtripCookieApiCapture()` in `public/index.html`.
+- Extended `public/ctrip-static.js` with `runCtripCookieApiCaptureFlow` for target hotel validation, Request URL / endpoints JSON validation, config loading and secret hydration, Profile resolution, Cookie API request body construction, success refresh callbacks, not-ready warning, error response handling, and exception evidence preservation.
+- `public/index.html` now keeps only Vue ref callback wiring, the `/online-data/fetch-ctrip-cookie-api` request callback, toast dispatch, latest/history/data-health refresh callbacks, and final state writes.
+- This split did not change `/online-data/fetch-ctrip-cookie-api`, storage behavior, Ctrip Profile binding, latest snapshot refresh, history refresh, data-health refresh, missing/failed-state visibility, or Ctrip OTA channel scope. Not-ready, identity mismatch, missing Profile, and missing request-source states remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted Cookie API flow runner, prevent request-source validation, Cookie selection, and request flow from being re-inlined, and validate success refresh, not-ready, error response, exception, missing Profile, and missing request-source samples in a VM context.
+- Current split-map: `public/index.html` decreased from `37403` lines to `37351` lines; frontend function-level blocks remain `1396`; `ctrip` domain span decreased from `3084` to `3032`; `runCtripCookieApiCapture` is no longer in the largest-block list, and the current largest frontend block is `triggerAutoFetch` at `82` lines.
+- Current self-audit: full directory about `284 MB`, without `.git` about `92.42 MB`, without `.git` and dependencies about `63.23 MB`, tracked files about `18.30 MB` / `613` files; code scope `370` files, `191296` total lines, and `175503` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

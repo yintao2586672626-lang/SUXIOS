@@ -19081,7 +19081,7 @@
             const buildCtripFlowOverviewMetricCards = requireCtripStatic('buildCtripFlowOverviewMetricCards');
             const buildCtripFlowOverviewInterfaceRows = requireCtripStatic('buildCtripFlowOverviewInterfaceRows');
             const buildCtripAdsFetchRequestBody = requireCtripStatic('buildCtripAdsFetchRequestBody');
-            const buildCtripCookieApiFetchRequestBody = requireCtripStatic('buildCtripCookieApiFetchRequestBody');
+            const runCtripCookieApiCaptureFlow = requireCtripStatic('runCtripCookieApiCaptureFlow');
             const ctripOverviewForm = ref(createCtripOverviewForm());
             const ctripFlowOverviewForm = ref(createCtripFlowOverviewForm());
             const ctripOverviewResult = ref(null);
@@ -32446,90 +32446,38 @@
                 }
             };
 
-            const runCtripCookieApiCapture = async () => {
-                const systemHotelId = selectedCtripHotelId.value || autoFetchHotelId.value || user.value?.hotel_id || null;
-                if (!systemHotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-                const requestUrl = String(ctripCookieApiForm.value.requestUrl || '').trim();
-                const endpointsJson = String(ctripCookieApiForm.value.endpointsJson || '').trim();
-                if (!requestUrl && !endpointsJson) {
-                    showToast('请填写携程接口 Request URL 或批量接口 JSON', 'error');
-                    return;
-                }
-
-                if (!selectedCtripHotelId.value) {
-                    selectedCtripHotelId.value = String(systemHotelId);
-                }
-                if (!ctripConfigList.value.length) {
-                    await loadCtripConfigList();
-                }
-                let activeConfig = getActiveCtripConfig();
-                if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
-                    activeConfig = findCtripConfigByHotelId(systemHotelId);
-                }
-                activeConfig = await ensureCtripConfigSecret(activeConfig);
-                if (activeConfig) {
-                    applyCtripConfigObject(activeConfig, false);
-                }
-
-                const cookies = String(ctripCookieApiForm.value.cookies || activeConfig?.cookies || activeConfig?.cookie || '').trim();
-                const cookieApiProfileId = resolveCtripCookieApiProfileId(systemHotelId, activeConfig);
-                if (!cookieApiProfileId) {
-                    showToast('请填写携程登录会话标识，或先绑定携程登录会话数据源', 'error');
-                    return;
-                }
-                ctripCookieApiForm.value.profileId = cookieApiProfileId;
-                ctripCookieApiRunning.value = true;
-                fetchingData.value = true;
-                ctripBrowserCaptureResult.value = null;
-                const ctripCookieApiFetchBody = buildCtripCookieApiFetchRequestBody({
-                    systemHotelId,
-                    hotelId: resolveCtripCookieApiRequestHotelId(systemHotelId, activeConfig),
-                    hotelName: getHotelNameById(systemHotelId),
-                    profileId: cookieApiProfileId,
-                    dataDate: ctripOverviewForm.value.dataDate,
-                    requestUrl,
-                    form: ctripCookieApiForm.value,
-                    endpointsJson,
-                    cookies,
-                });
-                try {
-                    const res = await request('/online-data/fetch-ctrip-cookie-api', {
-                        method: 'POST',
-                        body: JSON.stringify(ctripCookieApiFetchBody),
-                    });
-                    if (res.code === 200) {
-                        const data = res.data || {};
-                        ctripBrowserCaptureResult.value = data;
-                        onlineDataResult.value = data;
-                        showRawData.value = false;
-                        if (data.is_ready === false) {
-                            showToast(data.warning || data.next_action || res.message || '携程 Cookie API 未达到诊断就绪', 'warning');
-                        } else {
-                            showToast(res.message || `携程 Cookie API 采集完成，已入库 ${data.saved_count || 0} 条`);
-                        }
-                        await loadLatestCtripData({ silent: true });
-                        await refreshOnlineHistory();
-                        if (onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value) {
-                            await loadDataHealthPanel('light', { force: true });
-                        }
-                    } else {
-                        ctripBrowserCaptureResult.value = res.data || { error: res.message || '携程 Cookie API 采集失败' };
-                        const identityMessage = res.data?.identity_check?.message || res.data?.message || '';
-                        showToast(identityMessage || res.message || '携程 Cookie API 采集失败', 'error');
-                    }
-                } catch (e) {
-                    const errorData = e?.data?.data || e?.data || {};
-                    ctripBrowserCaptureResult.value = errorData && Object.keys(errorData).length ? errorData : { error: e.message };
-                    const identityMessage = errorData?.identity_check?.message || errorData?.message || '';
-                    showToast(identityMessage || ('携程 Cookie API 采集失败: ' + e.message), 'error');
-                } finally {
-                    ctripCookieApiRunning.value = false;
-                    fetchingData.value = false;
-                }
-            };
+            const runCtripCookieApiCapture = async () => runCtripCookieApiCaptureFlow({
+                getSelectedCtripHotelId: () => selectedCtripHotelId.value,
+                setSelectedCtripHotelId: value => { selectedCtripHotelId.value = value; },
+                getAutoFetchHotelId: () => autoFetchHotelId.value,
+                getUserHotelId: () => user.value?.hotel_id || null,
+                hasCtripConfigList: () => ctripConfigList.value.length > 0,
+                loadCtripConfigList,
+                getActiveCtripConfig,
+                findCtripConfigByHotelId,
+                ensureCtripConfigSecret,
+                applyCtripConfigObject,
+                getForm: () => ctripCookieApiForm.value,
+                getOverviewForm: () => ctripOverviewForm.value,
+                getHotelNameById,
+                resolveProfileId: resolveCtripCookieApiProfileId,
+                resolveRequestHotelId: resolveCtripCookieApiRequestHotelId,
+                requestCapture: body => request('/online-data/fetch-ctrip-cookie-api', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                setProfileId: value => { ctripCookieApiForm.value.profileId = value; },
+                setRunning: value => { ctripCookieApiRunning.value = value; },
+                setFetching: value => { fetchingData.value = value; },
+                setCaptureResult: value => { ctripBrowserCaptureResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                setShowRawData: value => { showRawData.value = value; },
+                notify: showToast,
+                refreshLatestCtripData: loadLatestCtripData,
+                refreshOnlineHistory,
+                shouldRefreshDataHealthPanel: () => onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value,
+                refreshDataHealthPanel: loadDataHealthPanel,
+            });
 
             const validateCtripEndpointEvidence = async () => {
                 const form = ctripEndpointEvidenceForm.value;

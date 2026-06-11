@@ -85,8 +85,9 @@ requireText('public/index.html', "requireCtripStatic('buildCtripOverviewFetchReq
 requireText('public/ctrip-static.js', 'const buildCtripOverviewFetchRequestBody', 'Ctrip static builds overview fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('buildCtripAdsFetchRequestBody')", 'entry uses extracted Ctrip ads fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripAdsFetchRequestBody', 'Ctrip static builds ads fetch request bodies');
-requireText('public/index.html', "requireCtripStatic('buildCtripCookieApiFetchRequestBody')", 'entry uses extracted Ctrip Cookie API fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripCookieApiFetchRequestBody', 'Ctrip static builds Cookie API fetch request bodies');
+requireText('public/index.html', "requireCtripStatic('runCtripCookieApiCaptureFlow')", 'entry uses extracted Ctrip Cookie API capture flow runner');
+requireText('public/ctrip-static.js', 'const runCtripCookieApiCaptureFlow', 'Ctrip static runs Cookie API capture flow');
 requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
 requireText('public/index.html', "requireCtripStatic('createCtripProfileFieldForm')", 'entry uses extracted Ctrip Profile field default form builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSmartDefaults')", 'entry uses extracted Ctrip Profile field smart defaults builder');
@@ -155,6 +156,9 @@ requireNoText('public/index.html', 'api_type: normalizeCtripAdsApiType(form.apiT
 requireNoText('public/index.html', 'profile_id: cookieApiProfileId,', 'Ctrip Cookie API request body is not re-inlined');
 requireNoText('public/index.html', "method: String(ctripCookieApiForm.value.method || 'GET').toUpperCase(),", 'Ctrip Cookie API request method normalization is not re-inlined');
 requireNoText('public/index.html', "payload_json: String(ctripCookieApiForm.value.payloadJson || '').trim(),", 'Ctrip Cookie API payload trimming is not re-inlined');
+requireNoText('public/index.html', 'const requestUrl = String(ctripCookieApiForm.value.requestUrl || \'\').trim();', 'Ctrip Cookie API request source validation is not re-inlined');
+requireNoText('public/index.html', 'const cookies = String(ctripCookieApiForm.value.cookies || activeConfig?.cookies || activeConfig?.cookie || \'\').trim();', 'Ctrip Cookie API cookie source selection is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/fetch-ctrip-cookie-api', {", 'Ctrip Cookie API capture request flow is not re-inlined');
 requireNoText('public/index.html', 'const ctripProfileFieldRecheckSections = (fields = []) => {', 'Ctrip Profile recheck section builder is not re-inlined');
 requireNoText('public/index.html', 'const canRecapture = Boolean(selectedCtripHotelId.value || autoFetchHotelId.value || user.value?.hotel_id);', 'Ctrip Profile recheck recapture guard is not re-inlined');
 requireNoText('public/index.html', 'body: JSON.stringify({\n                            sections,', 'Ctrip Profile recheck request options are not re-inlined');
@@ -1288,6 +1292,7 @@ try {
   const buildCtripOverviewFetchRequestBody = ctripStatic.buildCtripOverviewFetchRequestBody;
   const buildCtripAdsFetchRequestBody = ctripStatic.buildCtripAdsFetchRequestBody;
   const buildCtripCookieApiFetchRequestBody = ctripStatic.buildCtripCookieApiFetchRequestBody;
+  const runCtripCookieApiCaptureFlow = ctripStatic.runCtripCookieApiCaptureFlow;
   const defaultCtripAdsEffectReportUrl = ctripStatic.defaultCtripAdsEffectReportUrl;
   const isCtripAdsApiUrl = ctripStatic.isCtripAdsApiUrl;
   const normalizeCtripAdsApiType = ctripStatic.normalizeCtripAdsApiType;
@@ -1596,6 +1601,7 @@ try {
     || typeof buildCtripOverviewFetchRequestBody !== 'function'
     || typeof buildCtripAdsFetchRequestBody !== 'function'
     || typeof buildCtripCookieApiFetchRequestBody !== 'function'
+    || typeof runCtripCookieApiCaptureFlow !== 'function'
     || typeof isCtripAdsApiUrl !== 'function'
     || typeof normalizeCtripAdsApiType !== 'function'
     || typeof buildCtripTrafficResponseModel !== 'function') {
@@ -1603,7 +1609,7 @@ try {
       file: 'public/ctrip-static.js',
       label: 'Ctrip static exports fetch request builders',
       ok: false,
-      detail: 'Ctrip fetch context, flow, latest snapshot, traffic, overview, ads, and Cookie API builders',
+      detail: 'Ctrip fetch context, flow, latest snapshot, traffic, overview, ads, and Cookie API builders/flow',
     });
   } else {
     const defaultRange = buildCtripFetchDateRange({}, new Date('2026-06-10T12:00:00Z'));
@@ -1835,6 +1841,129 @@ try {
       endpointsJson: '[{"section":"homepage"}]',
       cookies: 'sid=cookie-api',
     });
+    const cookieFlowEvents = [];
+    const cookieFlowStates = [];
+    let cookieSelectedHotelId = '';
+    let cookieCaptureResult = null;
+    let cookieOnlineResult = null;
+    let cookieShowRawData = true;
+    let cookieProfileId = '';
+    let cookieRequestBody = null;
+    const cookieFlowResult = await runCtripCookieApiCaptureFlow({
+      getSelectedCtripHotelId: () => cookieSelectedHotelId,
+      setSelectedCtripHotelId: value => {
+        cookieSelectedHotelId = value;
+        cookieFlowEvents.push(`selected:${value}`);
+      },
+      getAutoFetchHotelId: () => '58',
+      getUserHotelId: () => '99',
+      hasCtripConfigList: () => false,
+      loadCtripConfigList: async () => cookieFlowEvents.push('load-configs'),
+      getActiveCtripConfig: () => null,
+      findCtripConfigByHotelId: systemHotelId => ({
+        system_hotel_id: systemHotelId,
+        ota_hotel_id: `ota-${systemHotelId}`,
+        cookies: 'sid=config',
+        profile_id: `profile-${systemHotelId}`,
+      }),
+      ensureCtripConfigSecret: async config => {
+        cookieFlowEvents.push('ensure-secret');
+        return config;
+      },
+      applyCtripConfigObject: (config, showMessage) => cookieFlowEvents.push(`apply:${config.system_hotel_id}:${showMessage}`),
+      getForm: () => ({
+        requestUrl: '',
+        endpointsJson: '[{"section":"homepage"}]',
+        cookies: ' sid=form ',
+        method: 'post',
+        payloadJson: ' {"scope":"core"} ',
+      }),
+      getOverviewForm: () => ({ dataDate: '2026-06-10' }),
+      getHotelNameById: systemHotelId => `Hotel ${systemHotelId}`,
+      resolveProfileId: (systemHotelId, activeConfig) => activeConfig.profile_id || `profile-${systemHotelId}`,
+      resolveRequestHotelId: systemHotelId => `request-${systemHotelId}`,
+      requestCapture: async body => {
+        cookieRequestBody = body;
+        cookieFlowEvents.push('request-cookie-api');
+        return { code: 200, message: 'cookie ok', data: { saved_count: 7, is_ready: true } };
+      },
+      setProfileId: value => { cookieProfileId = value; },
+      setRunning: value => cookieFlowStates.push(`running:${value}`),
+      setFetching: value => cookieFlowStates.push(`fetching:${value}`),
+      setCaptureResult: value => { cookieCaptureResult = value; },
+      setOnlineDataResult: value => { cookieOnlineResult = value; },
+      setShowRawData: value => { cookieShowRawData = value; },
+      notify: (message, level) => cookieFlowEvents.push(`notify:${level || 'info'}:${message}`),
+      refreshLatestCtripData: async params => cookieFlowEvents.push(`latest:${params.silent}`),
+      refreshOnlineHistory: async () => cookieFlowEvents.push('history'),
+      shouldRefreshDataHealthPanel: () => true,
+      refreshDataHealthPanel: async (mode, params) => cookieFlowEvents.push(`health:${mode}:${params.force}`),
+    });
+    const cookieNotReadyEvents = [];
+    const cookieNotReadyResult = await runCtripCookieApiCaptureFlow({
+      getSelectedCtripHotelId: () => '58',
+      hasCtripConfigList: () => true,
+      getActiveCtripConfig: () => ({ system_hotel_id: '58', profile_id: 'profile-58' }),
+      ensureCtripConfigSecret: async config => config,
+      getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
+      getOverviewForm: () => ({ dataDate: '2026-06-10' }),
+      resolveProfileId: () => 'profile-58',
+      resolveRequestHotelId: () => 'hotel-58',
+      requestCapture: async () => ({ code: 200, message: 'not ready', data: { is_ready: false, warning: 'cookie insufficient' } }),
+      notify: (message, level) => cookieNotReadyEvents.push(`notify:${level || 'info'}:${message}`),
+    });
+    let cookieFailureResultPayload = null;
+    const cookieFailureEvents = [];
+    const cookieFailureResult = await runCtripCookieApiCaptureFlow({
+      getSelectedCtripHotelId: () => '58',
+      hasCtripConfigList: () => true,
+      getActiveCtripConfig: () => ({ system_hotel_id: '58', profile_id: 'profile-58' }),
+      ensureCtripConfigSecret: async config => config,
+      getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
+      resolveProfileId: () => 'profile-58',
+      resolveRequestHotelId: () => 'hotel-58',
+      requestCapture: async () => ({
+        code: 422,
+        message: 'identity failed',
+        data: { identity_check: { message: 'hotel mismatch' } },
+      }),
+      setCaptureResult: value => { cookieFailureResultPayload = value; },
+      notify: (message, level) => cookieFailureEvents.push(`notify:${level || 'info'}:${message}`),
+    });
+    let cookieExceptionResultPayload = null;
+    const cookieExceptionEvents = [];
+    const cookieExceptionResult = await runCtripCookieApiCaptureFlow({
+      getSelectedCtripHotelId: () => '58',
+      hasCtripConfigList: () => true,
+      getActiveCtripConfig: () => ({ system_hotel_id: '58', profile_id: 'profile-58' }),
+      ensureCtripConfigSecret: async config => config,
+      getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
+      resolveProfileId: () => 'profile-58',
+      resolveRequestHotelId: () => 'hotel-58',
+      requestCapture: async () => {
+        const error = new Error('network failed');
+        error.data = { data: { message: 'request blocked' } };
+        throw error;
+      },
+      setCaptureResult: value => { cookieExceptionResultPayload = value; },
+      notify: (message, level) => cookieExceptionEvents.push(`notify:${level || 'info'}:${message}`),
+    });
+    const cookieMissingProfileEvents = [];
+    const cookieMissingProfileResult = await runCtripCookieApiCaptureFlow({
+      getSelectedCtripHotelId: () => '58',
+      hasCtripConfigList: () => true,
+      getActiveCtripConfig: () => ({ system_hotel_id: '58' }),
+      ensureCtripConfigSecret: async config => config,
+      getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
+      resolveProfileId: () => '',
+      notify: (message, level) => cookieMissingProfileEvents.push(`notify:${level}:${message}`),
+    });
+    const cookieMissingSourceEvents = [];
+    const cookieMissingSourceResult = await runCtripCookieApiCaptureFlow({
+      getSelectedCtripHotelId: () => '58',
+      getForm: () => ({ requestUrl: '   ', endpointsJson: '   ' }),
+      notify: (message, level) => cookieMissingSourceEvents.push(`notify:${level}:${message}`),
+    });
     const trafficModel = buildCtripTrafficResponseModel({
       http_code: 200,
       saved_count: 4,
@@ -2014,6 +2143,53 @@ try {
         && cookieApiBody.cookies === 'sid=cookie-api'
         && cookieApiBody.auto_save === true,
       detail: 'Ctrip Cookie API request sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Cookie API flow preserves request, state, and refresh callbacks',
+      ok: cookieFlowResult.status === 'success'
+        && cookieSelectedHotelId === '58'
+        && cookieProfileId === 'profile-58'
+        && cookieRequestBody.system_hotel_id === '58'
+        && cookieRequestBody.hotel_id === 'request-58'
+        && cookieRequestBody.hotel_name === 'Hotel 58'
+        && cookieRequestBody.profile_id === 'profile-58'
+        && cookieRequestBody.data_date === '2026-06-10'
+        && cookieRequestBody.request_url === ''
+        && cookieRequestBody.method === 'POST'
+        && cookieRequestBody.payload_json === '{"scope":"core"}'
+        && cookieRequestBody.endpoints_json === '[{"section":"homepage"}]'
+        && cookieRequestBody.cookies === 'sid=form'
+        && cookieCaptureResult.saved_count === 7
+        && cookieOnlineResult.saved_count === 7
+        && cookieShowRawData === false
+        && cookieFlowStates.join('|') === 'running:true|fetching:true|running:false|fetching:false'
+        && cookieFlowEvents.includes('selected:58')
+        && cookieFlowEvents.includes('load-configs')
+        && cookieFlowEvents.includes('ensure-secret')
+        && cookieFlowEvents.includes('apply:58:false')
+        && cookieFlowEvents.includes('request-cookie-api')
+        && cookieFlowEvents.includes('latest:true')
+        && cookieFlowEvents.includes('history')
+        && cookieFlowEvents.includes('health:light:true'),
+      detail: 'Ctrip Cookie API flow success sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip Cookie API flow keeps not-ready, failure, exception, and missing states explicit',
+      ok: cookieNotReadyResult.status === 'success'
+        && cookieNotReadyEvents[0] === 'notify:warning:cookie insufficient'
+        && cookieFailureResult.status === 'error_response'
+        && cookieFailureResultPayload.identity_check.message === 'hotel mismatch'
+        && cookieFailureEvents[0] === 'notify:error:hotel mismatch'
+        && cookieExceptionResult.status === 'exception'
+        && cookieExceptionResultPayload.message === 'request blocked'
+        && cookieExceptionEvents[0] === 'notify:error:request blocked'
+        && cookieMissingProfileResult.status === 'missing_profile'
+        && cookieMissingProfileEvents[0].includes('携程登录会话标识')
+        && cookieMissingSourceResult.status === 'missing_request_source'
+        && cookieMissingSourceEvents[0].includes('Request URL'),
+      detail: 'Ctrip Cookie API flow failure samples',
     });
   }
   if (typeof buildCtripProfileRecheckInitialState !== 'function'
