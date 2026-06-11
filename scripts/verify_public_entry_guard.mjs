@@ -754,7 +754,6 @@ if (!fs.existsSync(indexPath)) {
   );
   if (!dataHealthPanelSource.includes('const buildDataHealthPanelJobs = (normalizedMode) => {')
     || !dataHealthPanelSource.includes("loadAutoFetchStatus({ detail: normalizedMode === 'full' })")
-    || !dataHealthPanelSource.includes('loadCookieStatus()')
     || !dataHealthPanelSource.includes('loadCollectionReliability(normalizedMode)')
     || !dataHealthPanelSource.includes('loadDataHealthOperationLogs()')
     || !dataHealthPanelSource.includes('loadPublicEndpointSecurity()')
@@ -763,6 +762,14 @@ if (!fs.existsSync(indexPath)) {
     || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelJobs(normalizedMode);')
     || !dataHealthPanelSource.includes('scheduleDataHealthLightDiagnostics();')) {
     failures.push('public/index.html must keep data-health panel job composition and deferred light diagnostics out of loadDataHealthPanel.');
+  }
+  if (dataHealthPanelSource.includes('loadCookieStatus()')) {
+    failures.push('public/index.html data-health panel must not duplicate collection-reliability authorization work by also calling cookie-status.');
+  }
+  if (!content.includes('data-testid="data-health-loading-banner"')
+    || content.includes('<template v-else>\n                                        <div data-testid="data-health-command-center"')
+    || content.includes('<div v-if="hotelDashboardLoading || collectionReliabilityLoading" class="rounded-xl border border-gray-200 bg-white p-5">')) {
+    failures.push('public/index.html data-health loading must be a non-blocking banner so drilldowns remain clickable while light diagnostics refresh.');
   }
   const autoFetchModePayloadSource = content.slice(
     content.indexOf('const buildAutoFetchModePayload = () => ({'),

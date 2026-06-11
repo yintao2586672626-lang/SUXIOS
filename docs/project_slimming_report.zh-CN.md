@@ -1714,6 +1714,16 @@
 - 当前 self-audit：完整目录约 `249.21 MB`，不含 `.git` 约 `117.27 MB`，不含 `.git` 和依赖约 `88.08 MB`，Git 跟踪文件约 `19.03 MB / 620` 个；代码范围 `375` 个文件、`199,451` 行、非空 `183,425` 行。默认可清理目标为 `runtime` 约 `24.12 MB / 766` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`880` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：数据健康刷新非阻塞呈现收口
+
+- `public/index.html` 的数据健康加载态从整块 skeleton + `v-else` 包裹，改为 `data-health-loading-banner` 提示条；刷新期间驾驶舱主体继续显示上次结果或未知状态。
+- 该改动避免轻量诊断刷新时隐藏 `data-health-command-center`、下钻入口和已有数据，防止“正在刷新”被误解为当前业务数据为空。
+- 本轮不改数据健康接口、线上数据接口、OTA 采集、持久化、字段口径、AI 分析、权限或数据库结构；加载中状态仍显式提示，不用空态兜底掩盖未返回结果。
+- 更新守卫：`verify_public_entry_guard.mjs` 和 `verify_e2e_contracts.mjs` 要求数据健康加载态使用非阻塞 banner，并禁止恢复整块 loading 结构或 `v-else` 包裹驾驶舱主体。
+- 当前 split-map：`public/index.html` 为 `37,418` 行、`1,579` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,903` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `250.95 MB`，不含 `.git` 约 `118.27 MB`，不含 `.git` 和依赖约 `89.08 MB`，Git 跟踪文件约 `19.04 MB / 620` 个；代码范围 `375` 个文件、`199,485` 行、非空 `183,459` 行。默认可清理目标为 `runtime` 约 `25.12 MB / 804` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`883` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

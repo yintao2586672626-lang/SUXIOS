@@ -249,6 +249,7 @@ requireText('public/index.html', 'const buildDataHealthPanelJobs = (normalizedMo
 requireText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () =>', 'entry defers non-core light data-health diagnostics through a helper');
 requireText('public/index.html', 'const jobs = buildDataHealthPanelJobs(normalizedMode);', 'data-health panel loader uses extracted job composition');
 requireText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light data-health refresh defers non-core diagnostics after OTA health returns');
+requireNoText('public/index.html', 'loadCookieStatus(),\n                    loadCollectionReliability(normalizedMode)', 'data-health panel must not call cookie-status and collection-reliability in the same first-paint group');
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
 requireText('public/index.html', 'let ctripConfigListLoadingPromise = null;', 'entry deduplicates concurrent Ctrip config-list loads');
 requireText('public/index.html', 'if (ctripConfigListLoadingPromise) {\n                    return ctripConfigListLoadingPromise;', 'Ctrip config-list loader reuses in-flight requests');
@@ -356,6 +357,9 @@ requireText('public/index.html', "if (menuName === '线上数据手动获取') {
 requireText('public/index.html', "if (targetPage === 'online-data') {\n                    openOnlineDataEntryTab(targetTab || 'data-health');", 'global notifications targeting online-data use the shared tab entry helper');
 requireNoText('public/index.html', "item.target_page === 'online-data' || item.target_page === 'ctrip-ebooking'", 'global notifications must not load data-health for every online-data target tab');
 requireText('public/index.html', "if (entry.page === 'online-data') {\n                    openOnlineDataEntryTab(entry.tab || 'data-health');\n                    return;\n                }", 'home quick entries targeting online-data use the shared tab entry helper');
+requireText('public/index.html', 'data-testid="data-health-loading-banner"', 'data-health light refresh uses a non-blocking loading banner');
+requireNoText('public/index.html', '<template v-else>\n                                        <div data-testid="data-health-command-center"', 'data-health command center must remain visible while light diagnostics refresh');
+requireNoText('public/index.html', '<div v-if="hotelDashboardLoading || collectionReliabilityLoading" class="rounded-xl border border-gray-200 bg-white p-5">', 'data-health loading must not block the whole cockpit body');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');
