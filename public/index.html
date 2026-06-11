@@ -23,7 +23,6 @@
     <script src="auto-fetch-static.js"></script>
     <script src="compass-static.js"></script>
     <script src="simulation-static.js"></script>
-    <script src="operation-static.js"></script>
     <script src="home-static.js"></script>
 </head>
 <body class="bg-gray-100">
@@ -24031,8 +24030,14 @@
                 if (newPage === 'revenue-research-center') {
                     runPageLoadOnce(newPage, 'revenue-research-static', () => ensureRevenueResearchReady());
                 }
+                if (newPage === 'ops-analysis' || newPage === 'ops-plan') {
+                    runPageLoadOnce(newPage, 'operation-static', () => ensureOperationStaticReady());
+                }
                 if (newPage === 'lifecycle') {
-                    runPageLoadOnce(newPage, 'main', () => loadLifecycleOverview());
+                    runPageLoadOnce(newPage, 'main', async () => {
+                        await ensureOperationStaticReady();
+                        return loadLifecycleOverview();
+                    });
                 }
                 if (newPage === 'ai-strategy') {
                     runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
@@ -24051,21 +24056,37 @@
                 }
                 if (newPage === 'opening-overview' || newPage === 'opening-checklist') {
                     localStorage.setItem('openingCurrentPage', newPage);
-                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
-                        openingProjects.value.length === 0 ? loadOpeningProjects() : Promise.resolve(),
-                        newPage === 'opening-overview' && selectedOpeningProjectId.value ? loadOpeningOverview() : Promise.resolve(),
-                    ]));
+                    runPageLoadOnce(newPage, 'main', async () => {
+                        await ensureOperationStaticReady();
+                        return Promise.allSettled([
+                            openingProjects.value.length === 0 ? loadOpeningProjects() : Promise.resolve(),
+                            newPage === 'opening-overview' && selectedOpeningProjectId.value ? loadOpeningOverview() : Promise.resolve(),
+                        ]);
+                    });
                 }
-                if (newPage === 'ops-source') runPageLoadOnce(newPage, 'main', () => loadOperationFullData());
-                if (newPage === 'ops-insight') runPageLoadOnce(newPage, 'main', () => loadOperationAlerts());
+                if (newPage === 'ops-source') {
+                    runPageLoadOnce(newPage, 'main', async () => {
+                        await ensureOperationStaticReady();
+                        return loadOperationFullData();
+                    });
+                }
+                if (newPage === 'ops-insight') {
+                    runPageLoadOnce(newPage, 'main', async () => {
+                        await ensureOperationStaticReady();
+                        return loadOperationAlerts();
+                    });
+                }
                 if (newPage === 'ai-daily-report') {
                     runPageLoadOnce(newPage, 'main', () => loadAiDailyReport());
                 }
                 if (newPage === 'ops-track') {
-                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
-                        loadOperationActions(),
-                        loadAiDailyReport(),
-                    ]));
+                    runPageLoadOnce(newPage, 'main', async () => {
+                        await ensureOperationStaticReady();
+                        return Promise.allSettled([
+                            loadOperationActions(),
+                            loadAiDailyReport(),
+                        ]);
+                    });
                 }
             });
 
@@ -25949,23 +25970,49 @@
                 return '';
             };
 
-            const operationStatic = window.SUXI_OPERATION_STATIC;
-            if (!operationStatic || typeof operationStatic !== 'object') {
-                throw new Error('缺少运营管理静态配置：operation-static.js 未加载');
-            }
-            const requireOperationStatic = (key) => {
-                const value = operationStatic[key];
+            const operationStaticScript = 'operation-static.js';
+            let operationStaticLoadPromise = null;
+            const loadOperationStatic = () => {
+                const currentStatic = window.SUXI_OPERATION_STATIC;
+                if (currentStatic && typeof currentStatic === 'object') {
+                    return Promise.resolve(currentStatic);
+                }
+                if (operationStaticLoadPromise) {
+                    return operationStaticLoadPromise;
+                }
+                operationStaticLoadPromise = new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = operationStaticScript;
+                    script.onload = () => {
+                        const loadedStatic = window.SUXI_OPERATION_STATIC;
+                        if (loadedStatic && typeof loadedStatic === 'object') {
+                            resolve(loadedStatic);
+                            return;
+                        }
+                        reject(new Error('缺少运营管理静态配置：operation-static.js 未加载'));
+                    };
+                    script.onerror = () => reject(new Error('缺少运营管理静态配置：operation-static.js 未加载'));
+                    document.head.appendChild(script);
+                }).catch((error) => {
+                    operationStaticLoadPromise = null;
+                    throw error;
+                });
+                return operationStaticLoadPromise;
+            };
+            const requireOperationStatic = (staticConfig, key) => {
+                const value = staticConfig?.[key];
                 if (value === undefined || value === null) {
                     throw new Error(`运营管理静态配置缺失：${key}`);
                 }
                 return value;
             };
-            const lifecycleMetricLabels = requireOperationStatic('lifecycleMetricLabels');
-            const lifecycleStageTitles = requireOperationStatic('lifecycleStageTitles');
-            const lifecycleMetricLabel = (label) => lifecycleMetricLabels[label] || label;
-            const lifecycleStageTitle = (stage) => lifecycleStageTitles[stage?.key] || stage?.title || '-';
+            const lifecycleMetricLabels = ref({});
+            const lifecycleStageTitles = ref({});
+            const lifecycleMetricLabel = (label) => lifecycleMetricLabels.value[label] || label;
+            const lifecycleStageTitle = (stage) => lifecycleStageTitles.value[stage?.key] || stage?.title || '-';
             const lifecycleStageStatusClass = () => 'bg-green-50 border-green-100';
             const loadLifecycleOverview = async () => {
+                await ensureOperationStaticReady();
                 lifecycleLoading.value = true;
                 try {
                     const res = await request('/lifecycle/overview');
@@ -26035,13 +26082,42 @@
                 remark: '',
             });
             const operationAlertFilter = ref('all');
-            const operationAlertFilters = requireOperationStatic('operationAlertFilters');
-            const operationStrategyTypes = requireOperationStatic('operationStrategyTypes');
-            const buildOperationSummaryCards = requireOperationStatic('buildOperationSummaryCards');
-            const buildOperationOtaCards = requireOperationStatic('buildOperationOtaCards');
-            const buildOperationCompetitorCards = requireOperationStatic('buildOperationCompetitorCards');
-            const buildOperationSourceBrief = requireOperationStatic('buildOperationSourceBrief');
-            const buildOperationDecisionCards = requireOperationStatic('buildOperationDecisionCards');
+            const operationAlertFilters = ref([]);
+            const operationStrategyTypes = ref([]);
+            const openingCategories = ref([]);
+            const openingStatusOptions = ref([]);
+            const openingProgressQuickValues = ref([]);
+            let buildOperationSummaryCards = () => [];
+            let buildOperationOtaCards = () => [];
+            let buildOperationCompetitorCards = () => [];
+            let buildOperationSourceBrief = () => ({ status: '-', summary: '', className: 'bg-gray-50 text-gray-500' });
+            let buildOperationDecisionCards = () => [];
+            let buildOpeningOverviewCards = () => [];
+            let buildOpeningAiOutputResult = () => ({ badgeClass: '', badgeText: '', cards: [], overviewOutputs: [], taskOutputs: [] });
+            const ensureOperationStaticReady = async () => {
+                try {
+                    const staticConfig = await loadOperationStatic();
+                    lifecycleMetricLabels.value = requireOperationStatic(staticConfig, 'lifecycleMetricLabels');
+                    lifecycleStageTitles.value = requireOperationStatic(staticConfig, 'lifecycleStageTitles');
+                    operationAlertFilters.value = requireOperationStatic(staticConfig, 'operationAlertFilters');
+                    operationStrategyTypes.value = requireOperationStatic(staticConfig, 'operationStrategyTypes');
+                    openingCategories.value = requireOperationStatic(staticConfig, 'openingCategories');
+                    openingStatusOptions.value = requireOperationStatic(staticConfig, 'openingStatusOptions');
+                    openingProgressQuickValues.value = requireOperationStatic(staticConfig, 'openingProgressQuickValues');
+                    buildOperationSummaryCards = requireOperationStatic(staticConfig, 'buildOperationSummaryCards');
+                    buildOperationOtaCards = requireOperationStatic(staticConfig, 'buildOperationOtaCards');
+                    buildOperationCompetitorCards = requireOperationStatic(staticConfig, 'buildOperationCompetitorCards');
+                    buildOperationSourceBrief = requireOperationStatic(staticConfig, 'buildOperationSourceBrief');
+                    buildOperationDecisionCards = requireOperationStatic(staticConfig, 'buildOperationDecisionCards');
+                    buildOpeningOverviewCards = requireOperationStatic(staticConfig, 'buildOpeningOverviewCards');
+                    buildOpeningAiOutputResult = requireOperationStatic(staticConfig, 'buildOpeningAiOutputResult');
+                    return staticConfig;
+                } catch (error) {
+                    console.error('[operation-static] load failed:', error);
+                    showToast('运营管理静态配置加载失败，请刷新后重试', 'error');
+                    throw error;
+                }
+            };
             const operationStrategyAmountRequired = computed(() => strategyForm.value.strategy_type === 'price_adjust');
             const operationStrategyDiscountRequired = computed(() => strategyForm.value.strategy_type === 'promotion');
             const operationStrategyRequirementText = computed(() => {
@@ -26088,7 +26164,7 @@
                 medium_high: '中高风险',
                 high: '高风险',
             }[level] || '待判断');
-            const operationStrategyTypeLabel = (type) => (operationStrategyTypes.find(item => item.key === type)?.label || '未知策略');
+            const operationStrategyTypeLabel = (type) => (operationStrategyTypes.value.find(item => item.key === type)?.label || '未知策略');
             const operationActionStatusLabel = (status) => ({
                 observing: '观察中',
                 success: '有效',
@@ -26488,6 +26564,7 @@
             };
 
             const loadOperationFullData = async () => {
+                await ensureOperationStaticReady();
                 operationLoading.value.fullData = true;
                 operationError.value.fullData = '';
                 try {
@@ -26505,6 +26582,7 @@
             };
 
             const analyzeOperationRootCause = async () => {
+                await ensureOperationStaticReady();
                 operationLoading.value.rootCause = true;
                 operationError.value.rootCause = '';
                 try {
@@ -26532,6 +26610,7 @@
             };
 
             const loadOperationAlerts = async () => {
+                await ensureOperationStaticReady();
                 operationLoading.value.alerts = true;
                 operationError.value.alerts = '';
                 try {
@@ -26625,6 +26704,7 @@
             };
 
             const simulateOperationStrategy = async () => {
+                await ensureOperationStaticReady();
                 operationError.value.strategy = '';
                 const hotelId = normalizeOperationHotelSelection(strategyForm, {
                     requireHotel: true,
@@ -26656,6 +26736,7 @@
             };
 
             const createOperationAction = async () => {
+                await ensureOperationStaticReady();
                 if (!actionForm.value.action_title || !actionForm.value.action_type || !actionForm.value.start_date) {
                     showToast('策略标题、类型和开始日期不能为空', 'error');
                     return;
@@ -26688,6 +26769,7 @@
 
             let aiDailyReportRequestSeq = 0;
             const loadAiDailyReport = async () => {
+                await ensureOperationStaticReady();
                 const requestSeq = ++aiDailyReportRequestSeq;
                 operationLoading.value.aiDailyReport = true;
                 operationError.value.aiDailyReport = '';
@@ -26775,6 +26857,7 @@
             };
 
             const loadOperationActions = async () => {
+                await ensureOperationStaticReady();
                 operationLoading.value.actions = true;
                 operationError.value.actions = '';
                 try {
@@ -26923,12 +27006,6 @@
             });
             const openingProjectForm = ref(resetOpeningProjectForm());
             const openingTaskFilter = ref({ category: '', status: '', risk: '', attention: '' });
-            const openingCategories = requireOperationStatic('openingCategories');
-            const openingStatusOptions = requireOperationStatic('openingStatusOptions');
-            const openingProgressQuickValues = requireOperationStatic('openingProgressQuickValues');
-            const buildOpeningOverviewCards = requireOperationStatic('buildOpeningOverviewCards');
-            const buildOpeningAiOutputResult = requireOperationStatic('buildOpeningAiOutputResult');
-
             const selectedOpeningProject = computed(() => {
                 const id = Number(selectedOpeningProjectId.value);
                 return openingProjects.value.find(project => Number(project.id) === id) || null;
@@ -27375,6 +27452,7 @@
             };
 
             const loadOpeningProjects = async () => {
+                await ensureOperationStaticReady();
                 if (!token.value || openingLoading.value) return;
                 openingLoading.value = true;
                 try {

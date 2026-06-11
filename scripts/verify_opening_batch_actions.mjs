@@ -34,8 +34,10 @@ const requiredOperationStaticSnippets = [
 const missingOperationStatic = requiredOperationStaticSnippets.filter((snippet) => !operationStatic.includes(snippet));
 
 const requiredIndexStaticSnippets = [
-  "const buildOpeningOverviewCards = requireOperationStatic('buildOpeningOverviewCards');",
-  "const buildOpeningAiOutputResult = requireOperationStatic('buildOpeningAiOutputResult');",
+  'let buildOpeningOverviewCards = () => [];',
+  "buildOpeningOverviewCards = requireOperationStatic(staticConfig, 'buildOpeningOverviewCards');",
+  'let buildOpeningAiOutputResult = () => ({ badgeClass: \'\', badgeText: \'\', cards: [], overviewOutputs: [], taskOutputs: [] });',
+  "buildOpeningAiOutputResult = requireOperationStatic(staticConfig, 'buildOpeningAiOutputResult');",
   'const openingOverviewCards = computed(() => buildOpeningOverviewCards(openingOverview.value));',
   'const openingAiOutputResult = computed(() => buildOpeningAiOutputResult({',
 ];

@@ -116,6 +116,21 @@ if (!fs.existsSync(indexPath)) {
   if (!/newPage === ['"]revenue-research-center['"]/.test(content) || !/ensureRevenueResearchReady\(\)/.test(content)) {
     failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
   }
+  if (/<script\s+src=["']operation-static\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load operation-static.js; it is only required by operation/opening/lifecycle pages.');
+  }
+  if (!/const\s+operationStaticScript\s*=\s*["']operation-static\.js["']/.test(content) || !/const\s+loadOperationStatic\s*=\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader for operation-static.js.');
+  }
+  if (!content.includes('await ensureOperationStaticReady();')
+    || !/newPage === ['"]lifecycle['"]/.test(content)
+    || !/newPage === ['"]opening-overview['"] \|\| newPage === ['"]opening-checklist['"]/.test(content)
+    || !/newPage === ['"]ops-source['"]/.test(content)
+    || !/newPage === ['"]ops-analysis['"] \|\| newPage === ['"]ops-plan['"]/.test(content)
+    || !/newPage === ['"]ops-insight['"]/.test(content)
+    || !/newPage === ['"]ops-track['"]/.test(content)) {
+    failures.push('public/index.html must load operation static data before operation, opening, and lifecycle page work.');
+  }
 
   if (!/<script\s+src=["']form-operation-support\.js["']\s+defer\s*><\/script>/.test(content)) {
     failures.push('public/index.html must defer form-operation-support.js because it self-initializes and is not a Vue setup dependency.');
