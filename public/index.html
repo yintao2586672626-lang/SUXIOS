@@ -19443,6 +19443,7 @@
             const buildCollectionHealthCtripLatestCards = requireDataHealthStatic('buildCollectionHealthCtripLatestCards');
             const buildCollectionHealthCtripOverviewStatusCards = requireDataHealthStatic('buildCollectionHealthCtripOverviewStatusCards');
             const buildCtripOverviewFetchModuleCards = requireDataHealthStatic('buildCtripOverviewFetchModuleCards');
+            const buildOnlineAnalysisChartConfig = requireDataHealthStatic('buildOnlineAnalysisChartConfig');
             const collectionReliability = ref(null);
             const collectionReliabilityLoading = ref(false);
             const collectionReliabilityError = ref('');
@@ -22112,23 +22113,7 @@
                     const ctx = canvas.getContext('2d');
                     if (!ctx) return;
 
-                    analysisChart = new ChartLib(ctx, {
-                    type: 'line',
-                    data: analysisData.value.chart_data,
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: { mode: 'index', intersect: false },
-                        plugins: {
-                            legend: { position: 'top' },
-                            tooltip: { mode: 'index', intersect: false }
-                        },
-                        scales: {
-                            y: { type: 'linear', display: true, position: 'left', title: { display: true, text: '销售额(¥)' } },
-                            y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: '房晚/订单' }, grid: { drawOnChartArea: false } }
-                        }
-                    }
-                });
+                    analysisChart = new ChartLib(ctx, buildOnlineAnalysisChartConfig(analysisData.value.chart_data));
                 } catch (chartError) {
                     console.warn('Chart.js渲染失败:', chartError);
                 }
@@ -23432,9 +23417,11 @@
                         platformProfileLoginPollTimers[platform] = setTimeout(() => pollPlatformProfileLoginStatus(platform, taskId), 3000);
                         return;
                     }
-                    await loadPlatformProfileStatus({ silent: true });
-                    await loadPlatformDataSources();
-                    await loadPlatformCollectionResources();
+                    deferUiTask(() => Promise.allSettled([
+                        loadPlatformProfileStatus({ silent: true }),
+                        loadPlatformDataSources(),
+                        loadPlatformCollectionResources(),
+                    ]));
                     if (taskForView.status === 'logged_in') {
                         const warning = taskForView.data_source_error ? `，但数据源绑定失败：${taskForView.data_source_error}` : '';
                         showToast((taskForView.message || '平台账号已登录') + warning, taskForView.data_source_error ? 'warning' : 'success');
@@ -23589,7 +23576,7 @@
                     return;
                 }
 
-                await loadPlatformDataSourcePanel();
+                schedulePlatformDataSourcePanelLoad({ force: true });
             };
 
             const fillPlatformProfileForms = (item) => {
@@ -23645,7 +23632,7 @@
                         }
                     }
                 } finally {
-                    await loadPlatformProfileStatus({ silent: true });
+                    schedulePlatformProfileStatusRefresh({ silent: true });
                 }
             };
 
@@ -25148,7 +25135,7 @@
                     if (res.code === 200) {
                         showToast(res.message || '数据源保存成功');
                         resetPlatformDataSourceForm();
-                        await loadPlatformDataSourcePanel();
+                        schedulePlatformDataSourcePanelLoad({ force: true });
                     } else {
                         platformDataSourceError.value = res.message || '数据源保存失败';
                     }
@@ -25182,7 +25169,7 @@
                     const res = await request(`/online-data/data-sources/${source.id}`, { method: 'DELETE' });
                     if (res.code === 200) {
                         showToast(res.message || '数据源已停用');
-                        await loadPlatformDataSourcePanel();
+                        schedulePlatformDataSourcePanelLoad({ force: true });
                     } else {
                         showToast(res.message || '停用失败', 'error');
                     }
@@ -25263,7 +25250,7 @@
                     } else {
                         showToast(res.message || '同步失败', 'error');
                     }
-                    await loadPlatformDataSourcePanel();
+                    schedulePlatformDataSourcePanelLoad({ force: true });
                 } catch (error) {
                     showToast('同步失败: ' + error.message, 'error');
                     await Promise.all([loadPlatformSyncTasks(), loadPlatformSyncLogs()]);
@@ -25300,7 +25287,8 @@
                     if (res.code === 200) {
                         showToast(`导入完成：${res.data?.saved_count || 0} 条入库`);
                         platformImportForm.value.rows_json = '';
-                        await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformCollectionResources(), loadOnlineDataList()]);
+                        schedulePlatformDataSourcePanelLoad({ force: true });
+                        scheduleOnlineDataRefresh();
                     } else {
                         showToast(res.message || '导入失败', 'error');
                     }

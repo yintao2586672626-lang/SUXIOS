@@ -632,6 +632,24 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         ];
     };
 
+    const buildOnlineAnalysisChartConfig = (chartData) => ({
+        type: 'line',
+        data: chartData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: { mode: 'index', intersect: false },
+            },
+            scales: {
+                y: { type: 'linear', display: true, position: 'left', title: { display: true, text: '销售额(¥)' } },
+                y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: '房晚/订单' }, grid: { drawOnChartArea: false } },
+            },
+        },
+    });
+
     return {
         onlineDataQualityStatusText,
         onlineDataQualityStatusClass,
@@ -668,5 +686,6 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         buildCollectionHealthCtripLatestCards,
         buildCollectionHealthCtripOverviewStatusCards,
         buildCtripOverviewFetchModuleCards,
+        buildOnlineAnalysisChartConfig,
     };
 })();

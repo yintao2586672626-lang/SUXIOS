@@ -1413,6 +1413,17 @@
 - 当前自审计：完整目录约 `204.86 MB`；不含 `.git` 约 `96.03 MB`；不含 `.git` 和依赖约 `66.84 MB`；Git 跟踪文件约 `18.77 MB` / `618` 个；代码范围 `373` 个文件、`197,282` 行、非空 `181,309` 行；默认可清理目标为 `runtime` 约 `3.15 MB` / `157` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`（`13` checks）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`590` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-11 保存点：线上数据分析图表配置与平台来源刷新收口
+
+- `public/data-health-static.js` 新增 `buildOnlineAnalysisChartConfig()`，承载线上数据分析 Chart.js 折线图配置、双 Y 轴标题和 tooltip/legend/interaction 设置。
+- `public/index.html` 的 `renderAnalysisChart()` 只保留 Chart.js 加载重试、canvas 可见性检查、旧实例销毁和新实例创建，不再内联图表配置。
+- `public/index.html` 同时将平台来源保存、停用、同步、导入和 Profile 登录后的后续面板刷新改为 `schedulePlatformDataSourcePanelLoad({ force: true })`、`schedulePlatformProfileStatusRefresh()` 或 `deferUiTask()` 调度，不再阻塞主写入/登录结果返回。
+- 本保存点不改变 `/online-data/data-analysis` 请求、`analysisData.value.chart_data` 数据结构、销售额/房晚/订单图表口径、Chart.js 加载方式、平台来源保存/删除/同步/导入接口、Profile 登录接口或失败状态展示；仅把纯展示配置迁入静态 helper，并把后续刷新改为非阻塞。
+- 更新守卫：`verify_public_entry_guard.mjs` 禁止把分析图表轴标题重新内联回 `public/index.html`，并禁止平台来源写入后重新 `await loadPlatformDataSourcePanel()`；`verify_e2e_contracts.mjs` 要求入口读取 `buildOnlineAnalysisChartConfig()`，在 VM 中验证返回配置保留原始 chart data 引用和双轴语义，并要求平台来源变更后通过调度器强制刷新。E2E 合同检查数为 `598`。
+- 当前 split-map：`public/index.html` 为 `37,242` 行、`1,549` 个前端函数级块、`44` 个 `currentPage` 引用，general 域 span 为 `7,362` 行；`renderAnalysisChart` 已退出最大块列表；`app/controller/OnlineData.php` 为 `26,931` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `206.05 MB`；不含 `.git` 约 `96.54 MB`；不含 `.git` 和依赖约 `67.35 MB`；Git 跟踪文件约 `18.77 MB` / `618` 个；代码范围 `373` 个文件、`197,328` 行、非空 `181,354` 行；默认可清理目标为 `runtime` 约 `3.65 MB` / `159` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\data-health-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`598` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

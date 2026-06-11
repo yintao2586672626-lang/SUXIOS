@@ -145,6 +145,9 @@ requireText('public/index.html', 'deferUiTask(() => Promise.allSettled([\n      
 requireText('public/index.html', "const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(", 'platform source panel loads through the shared page-load scheduler');
 requireText('public/index.html', "const openPlatformSourcesTab = (options = {}) =>", 'platform source tab opens through a single deduplicated entrypoint');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()", 'platform source tab switches do not double-trigger the heavy data-source panel load');
+requireNoText('public/index.html', 'await loadPlatformDataSourcePanel();', 'platform source mutations do not block on full panel reload');
+requireNoText('public/index.html', 'await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformCollectionResources(), loadOnlineDataList()]);', 'platform import completion defers heavy follow-up panel and list refreshes');
+requireText('public/index.html', 'schedulePlatformDataSourcePanelLoad({ force: true });', 'platform source mutations schedule forced panel refresh after server writes');
 requireNoText('public/index.html', "onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList(); loadAutoFetchPanel()", 'Ctrip fetch settings does not load full platform auto-fetch panel');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel(); loadPlatformProfileStatus({ silent: true })", 'platform sources tab does not duplicate profile status loading');
 requireNoText('public/index.html', 'await loadAutoFetchPanel();\n                    return;\n                }\n                downloadCenterTab.value = tab;', 'download tab switch does not load full platform auto-fetch panel for Ctrip settings');
@@ -220,6 +223,28 @@ requireText('public/index.html', "requireSystemStatic('getSystemConfigDefaults')
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'system static owns data config type defaults');
 requireText('public/system-static.js', 'const getSystemConfigDefaults', 'system static owns system config defaults');
+requireText('public/index.html', "requireDataHealthStatic('buildOnlineAnalysisChartConfig')", 'entry uses extracted online analysis chart config');
+requireText('public/data-health-static.js', 'const buildOnlineAnalysisChartConfig', 'data-health static builds online analysis chart config');
+requireText('public/index.html', 'new ChartLib(ctx, buildOnlineAnalysisChartConfig(analysisData.value.chart_data))', 'analysis chart rendering keeps only lifecycle wiring in the SPA entry');
+requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis labels are not re-inlined in the SPA entry');
+{
+  const context = { window: {} };
+  vm.runInNewContext(read('public/data-health-static.js'), context, {
+    filename: 'public/data-health-static.js',
+  });
+  const chartData = { labels: ['2026-06-11'], datasets: [{ label: 'OTA销售额', data: [100] }] };
+  const config = context.window.SUXI_DATA_HEALTH_STATIC.buildOnlineAnalysisChartConfig(chartData);
+  checks.push({
+    file: 'public/data-health-static.js',
+    label: 'online analysis chart config preserves chart data and axis semantics',
+    ok: config?.type === 'line'
+      && config?.data === chartData
+      && config?.options?.scales?.y?.title?.text === '销售额(¥)'
+      && config?.options?.scales?.y1?.title?.text === '房晚/订单'
+      && config?.options?.scales?.y1?.grid?.drawOnChartArea === false,
+    detail: 'buildOnlineAnalysisChartConfig must keep original Chart.js line config semantics',
+  });
+}
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');
 requireText('public/index.html', "const testIdStaticScript = 'testid-static.js'", 'frontend lazy-loads extracted test id helper');
 requireText('public/index.html', 'const loadTestIdStatic = () =>', 'entry keeps explicit test id helper lazy loader');

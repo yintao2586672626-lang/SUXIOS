@@ -248,8 +248,22 @@ if (!fs.existsSync(indexPath)) {
     || content.includes('onlineDataTab = "platform-sources"; loadPlatformDataSourcePanel()')) {
     failures.push('public/index.html must not double-trigger the heavy platform source panel from inline tab switches.');
   }
+  if (content.includes('await loadPlatformDataSourcePanel();')
+    || content.includes('await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformCollectionResources(), loadOnlineDataList()]);')) {
+    failures.push('public/index.html must not block platform source save/delete/sync/import flows on full follow-up panel refreshes.');
+  }
+  if (!content.includes('schedulePlatformDataSourcePanelLoad({ force: true });')) {
+    failures.push('public/index.html must force-refresh the platform source panel through the page-load scheduler after source mutations.');
+  }
   if (/onlineDataTab\s*=\s*['"]platform-sources['"][^@]*loadPlatformDataSourcePanel\(\);\s*loadPlatformProfileStatus/.test(content)) {
     failures.push('public/index.html must not duplicate platform profile status loading when opening platform-sources.');
+  }
+  if (!content.includes("requireDataHealthStatic('buildOnlineAnalysisChartConfig')")
+    || !content.includes('new ChartLib(ctx, buildOnlineAnalysisChartConfig(analysisData.value.chart_data))')) {
+    failures.push('public/index.html must keep online analysis chart options in data-health-static.js and only wire Chart.js lifecycle in the entry.');
+  }
+  if (content.includes("text: '销售额(¥)'") || content.includes("text: '房晚/订单'")) {
+    failures.push('public/index.html must not re-inline online analysis chart axis labels; use buildOnlineAnalysisChartConfig.');
   }
   const autoFetchPanelLoader = content.slice(
     content.indexOf('const loadAutoFetchPanel = async'),
