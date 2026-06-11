@@ -250,6 +250,8 @@ requireText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () 
 requireText('public/index.html', "return schedulePostFetchRefresh('data-health-light-diagnostics', () => {", 'data-health light diagnostics use the shared deduplicated post-fetch scheduler');
 requireText('public/index.html', "if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') return null;", 'data-health light diagnostics do not run after the user leaves the data-health tab');
 requireNoText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () => {\n                deferUiTask(() => Promise.allSettled([', 'data-health light diagnostics must not use a bare deferred task without tab guards');
+requireText('public/index.html', "const initialHotelId = String(getAutoFetchHotelId() || '');\n                const initialCacheKey = dataHealthLightCacheKey(initialHotelId);", 'data-health light cache is checked before target hotel sync');
+requireText('public/index.html', "if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {", 'data-health light cache is rechecked only when target hotel sync changes the cache key');
 requireText('public/index.html', 'const jobs = buildDataHealthPanelJobs(normalizedMode);', 'data-health panel loader uses extracted job composition');
 requireText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light data-health refresh defers non-core diagnostics after OTA health returns');
 requireNoText('public/index.html', 'loadCookieStatus(),\n                    loadCollectionReliability(normalizedMode)', 'data-health panel must not call cookie-status and collection-reliability in the same first-paint group');

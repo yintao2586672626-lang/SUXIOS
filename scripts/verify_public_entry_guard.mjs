@@ -761,9 +761,15 @@ if (!fs.existsSync(indexPath)) {
     || !dataHealthPanelSource.includes('const scheduleDataHealthLightDiagnostics = () => {')
     || !dataHealthPanelSource.includes("return schedulePostFetchRefresh('data-health-light-diagnostics', () => {")
     || !dataHealthPanelSource.includes("if (currentPage.value !== 'online-data' || onlineDataTab.value !== 'data-health') return null;")
+    || !dataHealthPanelSource.includes("const initialHotelId = String(getAutoFetchHotelId() || '');")
+    || !dataHealthPanelSource.includes('const initialCacheKey = dataHealthLightCacheKey(initialHotelId);')
+    || !dataHealthPanelSource.includes("if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {")
     || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelJobs(normalizedMode);')
     || !dataHealthPanelSource.includes('scheduleDataHealthLightDiagnostics();')) {
     failures.push('public/index.html must keep data-health panel job composition and deferred light diagnostics out of loadDataHealthPanel.');
+  }
+  if (dataHealthPanelSource.indexOf('const initialCacheKey = dataHealthLightCacheKey(initialHotelId);') > dataHealthPanelSource.indexOf('await syncCtripOverviewTargetHotel({ loadConfig: false });')) {
+    failures.push('public/index.html data-health light-cache hit checks must run before target-hotel sync.');
   }
   if (dataHealthPanelSource.includes('loadCookieStatus()')) {
     failures.push('public/index.html data-health panel must not duplicate collection-reliability authorization work by also calling cookie-status.');
