@@ -1335,7 +1335,7 @@ Updated: 2026-06-11 Asia/Shanghai
 
 - `public/auto-fetch-static.js`, `public/ctrip-static.js`, and `public/meituan-static.js` now use a local `runPostFetchRefresh()` helper for post-fetch UI refreshes that should not block the main collection result from returning.
 - Ctrip, Meituan, Cookie API, and auto-fetch flows keep immediate result/state/toast updates in the main path, while history, latest snapshot, profile/data-source status, data-health, auto-fetch status, and global notification refreshes continue asynchronously with visible console errors if a refresh fails.
-- `scripts/verify_e2e_contracts.mjs` now guards the non-blocking refresh boundary across those static helpers and validates delayed-refresh samples for auto-fetch and Meituan traffic. Verification passed with `514` E2E contract checks.
+- `scripts/verify_e2e_contracts.mjs` and `scripts/verify_public_entry_guard.mjs` now guard the non-blocking refresh boundary across those static helpers and validate delayed-refresh samples for auto-fetch and Meituan traffic. Verification passed with `514` E2E contract checks.
 
 ## Maintenance Rule
 
