@@ -92,6 +92,12 @@ requireText('public/ctrip-static.js', 'const buildCtripCookieApiFetchRequestBody
 requireText('public/index.html', "requireCtripStatic('runCtripCookieApiCaptureFlow')", 'entry uses extracted Ctrip Cookie API capture flow runner');
 requireText('public/ctrip-static.js', 'const runCtripCookieApiCaptureFlow', 'Ctrip static runs Cookie API capture flow');
 requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
+requireText('public/index.html', "requireCtripStatic('createCtripConfigForm')", 'entry uses extracted Ctrip config default form builder');
+requireText('public/index.html', "requireCtripStatic('runCtripConfigSaveFlow')", 'entry uses extracted Ctrip config save flow runner');
+requireText('public/ctrip-static.js', 'const createCtripConfigForm', 'Ctrip static builds config default forms');
+requireText('public/ctrip-static.js', 'const buildCtripConfigSavePayload', 'Ctrip static builds config save payloads');
+requireText('public/ctrip-static.js', 'const validateCtripConfigSaveInput', 'Ctrip static validates config save inputs');
+requireText('public/ctrip-static.js', 'const runCtripConfigSaveFlow', 'Ctrip static runs config save flow');
 requireText('public/index.html', "requireCtripStatic('createCtripProfileFieldForm')", 'entry uses extracted Ctrip Profile field default form builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSmartDefaults')", 'entry uses extracted Ctrip Profile field smart defaults builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripProfileFieldSavePayload')", 'entry uses extracted Ctrip Profile field save payload builder');
@@ -196,6 +202,10 @@ requireNoText('public/index.html', "const res = await request('/online-data/rech
 requireNoText('public/index.html', 'const recheckResult = buildCtripProfileRecheckSuccessResult({', 'Ctrip Profile recheck success handling is not re-inlined');
 requireNoText('public/index.html', 'const recheckResult = buildCtripProfileRecheckErrorResult({', 'Ctrip Profile recheck error handling is not re-inlined');
 requireNoText('public/index.html', 'buildCtripProfileRecheckInterruptedState({', 'Ctrip Profile recheck interrupted handling is not re-inlined');
+requireNoText('public/index.html', 'if (!ctripConfigForm.value.name) {', 'Ctrip config save validation is not re-inlined');
+requireNoText('public/index.html', 'id: ctripConfigForm.value.id,', 'Ctrip config save payload is not re-inlined');
+requireNoText('public/index.html', "console.error('携程配置保存失败:', res?.message || res?.msg || '接口返回异常');", 'Ctrip config save failed response handling is not re-inlined');
+requireNoText('public/index.html', "const errData = await e.response.json();", 'Ctrip config save response error parsing is not re-inlined');
 requireNoText('public/index.html', 'const batchInput = validateMeituanBatchFetchInput({', 'Meituan batch fetch validation flow is not re-inlined');
 requireNoText('public/index.html', 'const fetchTasks = buildMeituanBatchFetchTasks({', 'Meituan batch fetch task flow is not re-inlined');
 requireNoText('public/index.html', 'results.push(buildMeituanBatchFetchResultEntry(task, res));', 'Meituan batch fetch result flow is not re-inlined');
@@ -2316,6 +2326,10 @@ try {
   const defaultCtripAdsEffectReportUrl = ctripStatic.defaultCtripAdsEffectReportUrl;
   const isCtripAdsApiUrl = ctripStatic.isCtripAdsApiUrl;
   const normalizeCtripAdsApiType = ctripStatic.normalizeCtripAdsApiType;
+  const createCtripConfigForm = ctripStatic.createCtripConfigForm;
+  const buildCtripConfigSavePayload = ctripStatic.buildCtripConfigSavePayload;
+  const validateCtripConfigSaveInput = ctripStatic.validateCtripConfigSaveInput;
+  const runCtripConfigSaveFlow = ctripStatic.runCtripConfigSaveFlow;
   const createCtripProfileFieldForm = ctripStatic.createCtripProfileFieldForm;
   const buildCtripProfileFieldSmartDefaults = ctripStatic.buildCtripProfileFieldSmartDefaults;
   const buildCtripProfileFieldSavePayload = ctripStatic.buildCtripProfileFieldSavePayload;
@@ -2326,6 +2340,137 @@ try {
   const buildCtripProfileRecheckErrorResult = ctripStatic.buildCtripProfileRecheckErrorResult;
   const buildCtripProfileRecheckInterruptedState = ctripStatic.buildCtripProfileRecheckInterruptedState;
   const runCtripProfileRecheckFlow = ctripStatic.runCtripProfileRecheckFlow;
+  if (typeof createCtripConfigForm !== 'function'
+    || typeof buildCtripConfigSavePayload !== 'function'
+    || typeof validateCtripConfigSaveInput !== 'function'
+    || typeof runCtripConfigSaveFlow !== 'function') {
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip static exports config save builders',
+      ok: false,
+      detail: 'Ctrip config save builders',
+    });
+  } else {
+    const defaultConfigForm = createCtripConfigForm();
+    const overriddenConfigForm = createCtripConfigForm({ hotel_id: '10', name: '携程账号' });
+    const missingName = validateCtripConfigSaveInput({ name: '', cookies: 'cookie' });
+    const missingCookies = validateCtripConfigSaveInput({ name: '配置', cookies: '' });
+    const validConfig = validateCtripConfigSaveInput({ name: '配置', cookies: 'cookie' });
+    const savePayload = buildCtripConfigSavePayload({
+      id: 9,
+      name: '携程账号',
+      hotel_id: '10',
+      ctrip_hotel_id: 'ctrip-10',
+      cookies: 'sid=secret',
+      url: 'https://example.test/ctrip',
+      node_id: '24588',
+      capture_sections: 'default traffic',
+      approved_mappings_path: 'approved.json',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip config builders preserve default form, payload and missing states',
+      ok: defaultConfigForm.id === null
+        && defaultConfigForm.url.includes('getDayReportCompeteHotelReport')
+        && defaultConfigForm.node_id === '24588'
+        && defaultConfigForm.capture_sections === 'default'
+        && overriddenConfigForm.hotel_id === '10'
+        && overriddenConfigForm.name === '携程账号'
+        && missingName.status === 'missing_name'
+        && missingName.message === '请输入配置名称'
+        && missingCookies.status === 'missing_cookies'
+        && missingCookies.message === '请输入平台授权内容'
+        && validConfig.ok === true
+        && savePayload.id === 9
+        && savePayload.name === '携程账号'
+        && savePayload.hotel_id === '10'
+        && savePayload.ctrip_hotel_id === 'ctrip-10'
+        && savePayload.cookies === 'sid=secret'
+        && savePayload.url === 'https://example.test/ctrip'
+        && savePayload.node_id === '24588'
+        && savePayload.capture_sections === 'default traffic'
+        && savePayload.approved_mappings_path === 'approved.json',
+      detail: 'Ctrip config save builder sample',
+    });
+    const saveEvents = [];
+    const saveLogs = [];
+    let requestedConfigBody = null;
+    let resetConfigForm = null;
+    const saveResult = await runCtripConfigSaveFlow({
+      getForm: () => ({
+        id: 10,
+        name: '携程保存',
+        hotel_id: '20',
+        ctrip_hotel_id: 'ctrip-20',
+        cookies: 'sid=save',
+        url: 'https://example.test/save',
+        node_id: '24588',
+        capture_sections: 'default',
+        approved_mappings_path: '',
+      }),
+      requestSave: async body => {
+        requestedConfigBody = body;
+        return { code: 200, data: { id: 10 } };
+      },
+      notify: (message, level) => saveEvents.push(`notify:${level || 'info'}:${message}`),
+      resetForm: form => { resetConfigForm = form; },
+      reloadConfigs: () => saveEvents.push('reload'),
+      logError: (...args) => saveLogs.push(args.join('|')),
+    });
+    const failedEvents = [];
+    const failedLogs = [];
+    const failedResult = await runCtripConfigSaveFlow({
+      getForm: () => ({ name: '携程失败', cookies: 'sid=failed' }),
+      requestSave: async () => ({ code: 500, message: 'backend failed' }),
+      notify: (message, level) => failedEvents.push(`notify:${level}:${message}`),
+      logError: (...args) => failedLogs.push(args.join('|')),
+    });
+    const exceptionEvents = [];
+    const exceptionLogs = [];
+    const exceptionResult = await runCtripConfigSaveFlow({
+      getForm: () => ({ name: '携程异常', cookies: 'sid=exception' }),
+      requestSave: async () => {
+        throw {
+          message: 'network down',
+          response: {
+            json: async () => ({ msg: 'response parsed failed' }),
+          },
+        };
+      },
+      notify: (message, level) => exceptionEvents.push(`notify:${level}:${message}`),
+      logError: (...args) => exceptionLogs.push(args.join('|')),
+    });
+    const guardEvents = [];
+    const guardResult = await runCtripConfigSaveFlow({
+      getForm: () => ({ name: '', cookies: 'sid=guard' }),
+      notify: (message, level) => guardEvents.push(`notify:${level}:${message}`),
+      requestSave: async () => {
+        throw new Error('should not request');
+      },
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip config save flow preserves success, failed, exception and guard states',
+      ok: saveResult.status === 'success'
+        && requestedConfigBody.id === 10
+        && requestedConfigBody.hotel_id === '20'
+        && requestedConfigBody.ctrip_hotel_id === 'ctrip-20'
+        && requestedConfigBody.cookies === 'sid=save'
+        && resetConfigForm.url.includes('getDayReportCompeteHotelReport')
+        && resetConfigForm.cookies === ''
+        && saveEvents.join('|') === 'notify:info:配置保存成功|reload'
+        && saveLogs.length === 0
+        && failedResult.status === 'failed'
+        && failedEvents[0] === 'notify:error:backend failed'
+        && failedLogs[0].includes('携程配置保存失败:')
+        && exceptionResult.status === 'exception'
+        && exceptionEvents[0] === 'notify:error:保存失败: response parsed failed'
+        && exceptionLogs[0].includes('保存失败:')
+        && guardResult.status === 'missing_name'
+        && guardEvents[0] === 'notify:error:请输入配置名称',
+      detail: 'runCtripConfigSaveFlow state samples',
+    });
+  }
   if (typeof createCtripProfileFieldForm !== 'function'
     || typeof buildCtripProfileFieldSmartDefaults !== 'function'
     || typeof buildCtripProfileFieldSavePayload !== 'function') {

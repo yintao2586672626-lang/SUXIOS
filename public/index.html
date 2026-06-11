@@ -19038,6 +19038,7 @@
             };
             const showRawData = ref(false); // 是否展开原始数据
             const createCtripFetchForm = requireCtripStatic('createCtripFetchForm');
+            const createCtripConfigForm = requireCtripStatic('createCtripConfigForm');
             const createCtripTrafficForm = requireCtripStatic('createCtripTrafficForm');
             const createCtripAdsBrowserCaptureForm = requireCtripStatic('createCtripAdsBrowserCaptureForm');
             const createCtripOverviewForm = requireCtripStatic('createCtripOverviewForm');
@@ -19049,6 +19050,7 @@
             const createCtripCommentBrowserCaptureForm = requireCtripStatic('createCtripCommentBrowserCaptureForm');
             const buildCtripProfileFieldSmartDefaults = requireCtripStatic('buildCtripProfileFieldSmartDefaults');
             const buildCtripProfileFieldSavePayload = requireCtripStatic('buildCtripProfileFieldSavePayload');
+            const runCtripConfigSaveFlow = requireCtripStatic('runCtripConfigSaveFlow');
             const runCtripBrowserCaptureFlow = requireCtripStatic('runCtripBrowserCaptureFlow');
             const runCtripFetchDataFlow = requireCtripStatic('runCtripFetchDataFlow');
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
@@ -19207,17 +19209,7 @@
             const quickCookiesValue = ref('');
 
             // 携程配置管理
-            const ctripConfigForm = ref({
-                id: null,
-                name: '',
-                hotel_id: '',
-                ctrip_hotel_id: '',
-                url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                node_id: '24588',
-                capture_sections: 'default',
-                approved_mappings_path: '',
-                cookies: '',
-            });
+            const ctripConfigForm = ref(createCtripConfigForm());
             const createCtripCookieEditorForm = () => ({
                 id: null,
                 name: '',
@@ -33255,62 +33247,17 @@
                 return [];
             };
 
-            const saveCtripConfig = async () => {
-                if (!ctripConfigForm.value.name) {
-                    showToast('请输入配置名称', 'error');
-                    return;
-                }
-                if (!ctripConfigForm.value.cookies) {
-                    showToast('请输入平台授权内容', 'error');
-                    return;
-                }
-                try {
-                    // 调用认证的 Controller 接口
-                    const res = await request('/online-data/save-ctrip-config', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            id: ctripConfigForm.value.id,
-                            name: ctripConfigForm.value.name,
-                            hotel_id: ctripConfigForm.value.hotel_id,
-                            ctrip_hotel_id: ctripConfigForm.value.ctrip_hotel_id,
-                            cookies: ctripConfigForm.value.cookies,
-                            url: ctripConfigForm.value.url,
-                            node_id: ctripConfigForm.value.node_id,
-                            capture_sections: ctripConfigForm.value.capture_sections,
-                            approved_mappings_path: ctripConfigForm.value.approved_mappings_path,
-                        }),
-                    });
-
-                    if (res.code === 200) {
-                        showToast('配置保存成功');
-                            ctripConfigForm.value = {
-                                id: null,
-                                name: '',
-                                hotel_id: '',
-                                ctrip_hotel_id: '',
-                                url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                                node_id: '24588',
-                                capture_sections: 'default',
-                                approved_mappings_path: '',
-                                cookies: '',
-                            };
-                        loadCtripConfigList();
-                    } else {
-                        console.error('携程配置保存失败:', res?.message || res?.msg || '接口返回异常');
-                        showToast(res.message || res.msg || '保存失败，请重试', 'error');
-                    }
-                } catch (e) {
-                    console.error('保存失败:', e);
-                    let errorMsg = e.message || '未知错误';
-                    if (e.response) {
-                        try {
-                            const errData = await e.response.json();
-                            errorMsg = errData.message || errData.msg || errorMsg;
-                        } catch(err) {}
-                    }
-                    showToast('保存失败: ' + errorMsg, 'error');
-                }
-            };
+            const saveCtripConfig = async () => runCtripConfigSaveFlow({
+                getForm: () => ctripConfigForm.value,
+                requestSave: body => request('/online-data/save-ctrip-config', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                notify: showToast,
+                resetForm: form => { ctripConfigForm.value = form; },
+                reloadConfigs: loadCtripConfigList,
+                logError: (...args) => console.error(...args),
+            });
 
             const useCtripConfig = async (config) => {
                 config = await ensureCtripConfigSecret(config);

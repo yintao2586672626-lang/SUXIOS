@@ -66,6 +66,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
         'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
     ];
+    const defaultCtripConfigUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport';
     const defaultCtripAdsEffectReportUrl = 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE';
     const ctripAdsApiUrlHint = '接口 URL 可留空使用默认 queryCampaignReportList；如手动填写，必须是 Network 中 CPC 广告 JSON 接口 URL';
     const isCtripAdsApiUrl = (url = '') => {
@@ -78,12 +79,24 @@ window.SUXI_CTRIP_STATIC = (() => {
     const normalizeCtripAdsApiType = (value = '') => 'effect_report';
 
     const createCtripFetchForm = () => ({
-        url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+        url: defaultCtripConfigUrl,
         nodeId: '24588',
         startDate: '',
         endDate: '',
         cookies: '',
         auth_data: {},
+    });
+    const createCtripConfigForm = (overrides = {}) => ({
+        id: null,
+        name: '',
+        hotel_id: '',
+        ctrip_hotel_id: '',
+        url: defaultCtripConfigUrl,
+        node_id: '24588',
+        capture_sections: 'default',
+        approved_mappings_path: '',
+        cookies: '',
+        ...overrides,
     });
     const createCtripTrafficForm = () => ({
         url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
@@ -160,6 +173,66 @@ window.SUXI_CTRIP_STATIC = (() => {
         pageUrl: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
         apiKeyword: 'getCommentList',
     });
+    const buildCtripConfigSavePayload = (form = {}) => ({
+        id: form.id,
+        name: form.name,
+        hotel_id: form.hotel_id,
+        ctrip_hotel_id: form.ctrip_hotel_id,
+        cookies: form.cookies,
+        url: form.url,
+        node_id: form.node_id,
+        capture_sections: form.capture_sections,
+        approved_mappings_path: form.approved_mappings_path,
+    });
+    const validateCtripConfigSaveInput = (form = {}) => {
+        if (!form.name) {
+            return { ok: false, status: 'missing_name', level: 'error', message: '请输入配置名称' };
+        }
+        if (!form.cookies) {
+            return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入平台授权内容' };
+        }
+        return { ok: true, status: 'ok' };
+    };
+    const runCtripConfigSaveFlow = async ({
+        getForm = () => ({}),
+        requestSave = async () => ({}),
+        notify = () => {},
+        resetForm = () => {},
+        reloadConfigs = () => {},
+        logError = () => {},
+    } = {}) => {
+        const form = getForm() || {};
+        const validation = validateCtripConfigSaveInput(form);
+        if (!validation.ok) {
+            notify(validation.message, validation.level);
+            return { status: validation.status, validation };
+        }
+        const requestBody = buildCtripConfigSavePayload(form);
+        try {
+            const res = await requestSave(requestBody);
+            if (res.code === 200) {
+                notify('配置保存成功');
+                resetForm(createCtripConfigForm());
+                reloadConfigs();
+                return { status: 'success', response: res, requestBody };
+            }
+
+            logError('携程配置保存失败:', res?.message || res?.msg || '接口返回异常');
+            notify(res.message || res.msg || '保存失败，请重试', 'error');
+            return { status: 'failed', response: res, requestBody };
+        } catch (error) {
+            logError('保存失败:', error);
+            let errorMsg = error.message || '未知错误';
+            if (error.response) {
+                try {
+                    const errData = await error.response.json();
+                    errorMsg = errData.message || errData.msg || errorMsg;
+                } catch (ignored) {}
+            }
+            notify('保存失败: ' + errorMsg, 'error');
+            return { status: 'exception', error, requestBody };
+        }
+    };
     const createCtripProfileFieldForm = () => ({
         id: '',
         field_key: '',
@@ -1975,6 +2048,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         isCtripAdsApiUrl,
         normalizeCtripAdsApiType,
         createCtripFetchForm,
+        createCtripConfigForm,
         createCtripTrafficForm,
         createCtripAdsBrowserCaptureForm,
         createCtripOverviewForm,
@@ -1984,6 +2058,9 @@ window.SUXI_CTRIP_STATIC = (() => {
         createCtripEndpointEvidenceForm,
         createCtripCommentForm,
         createCtripCommentBrowserCaptureForm,
+        buildCtripConfigSavePayload,
+        validateCtripConfigSaveInput,
+        runCtripConfigSaveFlow,
         createCtripProfileFieldForm,
         buildCtripProfileFieldSmartDefaults,
         buildCtripProfileFieldSavePayload,

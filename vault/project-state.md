@@ -1235,6 +1235,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\meituan-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Ctrip Config Save Flow Split
+
+- Ninety-fifth frontend split target chosen from Ctrip config save orchestration inside `saveCtripConfig()` in `public/index.html`.
+- Extended `public/ctrip-static.js` with `createCtripConfigForm`, `buildCtripConfigSavePayload`, `validateCtripConfigSaveInput`, and `runCtripConfigSaveFlow` for default form construction, input validation, request body construction, save request orchestration, success form reset, failed response handling, exception response parsing, and config-list reload dispatch.
+- `public/index.html` now keeps only Vue callback wiring for refs, `/online-data/save-ctrip-config`, toast dispatch, form reset, config list reload, and error logging.
+- This split did not change `/online-data/save-ctrip-config`, Ctrip config fields, authorization content storage behavior, save success display, config list refresh, missing/failed-state visibility, or Ctrip OTA channel scope. Missing config name, missing platform authorization content, backend failure, and request exception states remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted config form builder and save runner, prevent config save validation, payload, failed-response handling, and exception response parsing from being re-inlined, and validate success, backend failure, exception, and missing-state samples in a VM context.
+- Current split-map: `public/index.html` decreased from `36848` lines to `36795` lines; frontend function-level blocks remain `1395`; `ctrip` domain span decreased from `2864` to `2819`; `saveCtripConfig` is no longer in the largest-block list, and the current largest frontend blocks are `importKnowledgeUnits` and `openSystemConfigModal` at `68` lines each.
+- Current self-audit: full directory about `291.03 MB`, without `.git` about `92.57 MB`, without `.git` and dependencies about `63.38 MB`, tracked files about `18.45 MB` / `613` files; code scope `370` files, `193406` total lines, and `177557` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
