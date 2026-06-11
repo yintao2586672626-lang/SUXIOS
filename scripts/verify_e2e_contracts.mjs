@@ -228,6 +228,15 @@ requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRe
 requireText('public/index.html', "if (currentPage.value !== 'meituan-ebooking') return null;", 'deferred Meituan manual startup refresh is scoped to the active page');
 requireText('public/index.html', 'scheduleMeituanEbookingDeferredStartupRefresh();', 'Meituan manual page schedules deferred startup refresh after route entry');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => loadMeituanConfigList());", 'Meituan manual page must not synchronously request saved configs from the first-paint loader');
+requireText('public/index.html', 'const openMeituanManualTab = (tab) => {', 'Meituan manual tabs use a non-blocking tab switch helper');
+requireText('public/index.html', "if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;", 'deferred Meituan manual tab sync is scoped to the active tab');
+requireText('public/index.html', '@click="openMeituanManualTab(\'meituan-ranking\')"', 'Meituan ranking tab does not inline config-list loading');
+requireText('public/index.html', '@click="openMeituanManualTab(\'meituan-traffic\')"', 'Meituan traffic tab does not inline config-list loading');
+requireText('public/index.html', '@click="openMeituanManualTab(\'meituan-orders\')"', 'Meituan orders tab does not inline config-list loading');
+requireText('public/index.html', '@click="openMeituanManualTab(\'meituan-ads\')"', 'Meituan ads tab does not inline config-list loading');
+requireNoText('public/index.html', "onlineDataTab = 'meituan-ranking'; loadMeituanConfigList()", 'Meituan manual tabs must not synchronously request saved configs from inline click handlers');
+requireNoText('public/index.html', "onlineDataTab = 'meituan-traffic'; loadMeituanConfigList(); syncMeituanTrafficConfigFromSelectedConfig()", 'Meituan traffic tab must not sync before config-list loading settles');
+requireText('public/index.html', "scheduleMeituanEbookingDeferredStartupRefresh();\n                    return;\n                }\n\n                if (target === 'analysis')", 'platform profile Meituan ranking action does not await config-list loading before navigation returns');
 requireText('public/index.html', '配置待读取，正在准备美团数据源匹配...', 'Meituan manual page does not present unloaded configs as missing');
 requireText('public/index.html', '配置读取失败，请刷新后重试；未读取成功前不会判断为未配置。', 'Meituan manual page exposes config-list load failures explicitly');
 requireText('public/index.html', 'meituanConfigListLoaded && !selectedMeituanHotelConfig', 'Meituan manual page only shows unconfigured after the config list has loaded');
@@ -236,6 +245,8 @@ requireText('public/index.html', 'await loadMeituanConfigList();\n              
 requireNoText('public/index.html', "const res = await request('/online-data/get-meituan-config-list');\n                            if (res.code === 200) {\n                                meituanConfigList.value = Array.isArray(res.data) ? res.data : [];\n                            }", 'Meituan hotel selection does not bypass config-list loading flags and request dedupe');
 requireText('public/index.html', 'if (!ctripConfigListLoaded.value && !ctripConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Ctrip config list');
 requireText('public/index.html', 'if (!meituanConfigListLoaded.value && !meituanConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Meituan config list');
+requireText('public/index.html', 'if (!ctripConfigListLoaded.value && ctripConfigList.value.length === 0) tasks.push(loadCtripConfigList());', 'hotel OTA config prewarm does not refetch a known-empty Ctrip config list');
+requireText('public/index.html', 'if (!meituanConfigListLoaded.value && meituanConfigList.value.length === 0) tasks.push(loadMeituanConfigList());', 'hotel OTA config prewarm does not refetch a known-empty Meituan config list');
 requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');

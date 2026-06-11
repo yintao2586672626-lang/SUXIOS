@@ -294,6 +294,33 @@ if (!fs.existsSync(indexPath)) {
   if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*loadMeituanConfigList\(\)/.test(meituanEbookingDefaultLoader)) {
     failures.push('public/index.html Meituan eBooking default loader must not synchronously request saved configs in the first-paint group.');
   }
+  const meituanManualTabTemplate = content.slice(
+    content.indexOf("currentPage === 'meituan-ebooking'"),
+    content.indexOf("onlineDataTab === 'meituan-traffic'")
+  );
+  if (!content.includes('const openMeituanManualTab = (tab) => {')
+    || !content.includes("if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;")
+    || !meituanManualTabTemplate.includes("@click=\"openMeituanManualTab('meituan-ranking')\"")
+    || meituanManualTabTemplate.includes("onlineDataTab = 'meituan-ranking'; loadMeituanConfigList()")) {
+    failures.push('public/index.html Meituan manual tab buttons must use the non-blocking tab switch helper.');
+  }
+  const meituanManualTabsFullTemplate = content.slice(
+    content.indexOf('<!-- Tabs -->'),
+    content.indexOf('<!-- 美团排名数据表格 -->')
+  );
+  if (meituanManualTabsFullTemplate.includes("loadMeituanConfigList(); syncMeituanTrafficConfigFromSelectedConfig()")
+    || meituanManualTabsFullTemplate.includes("loadMeituanConfigList(); syncMeituanOrderConfigFromSelectedConfig()")
+    || meituanManualTabsFullTemplate.includes("loadMeituanConfigList(); syncMeituanAdsConfigFromSelectedConfig()")) {
+    failures.push('public/index.html Meituan manual tab switches must not sync forms before deferred config-list loading settles.');
+  }
+  const platformProfileActionSource = content.slice(
+    content.indexOf('const openPlatformProfileAction = async'),
+    content.indexOf("if (target === 'analysis')")
+  );
+  if (!platformProfileActionSource.includes('scheduleMeituanEbookingDeferredStartupRefresh();')
+    || platformProfileActionSource.includes('await loadMeituanConfigList();')) {
+    failures.push('public/index.html platform profile Meituan ranking action must not await config-list loading before returning.');
+  }
   if (!content.includes('配置待读取，正在准备美团数据源匹配...')
     || !content.includes('配置读取失败，请刷新后重试；未读取成功前不会判断为未配置。')
     || !/meituanConfigListLoaded && !selectedMeituanHotelConfig/.test(content)) {
@@ -309,6 +336,9 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*!ctripConfigListLoaded\.value && !ctripConfigList\.value\.length[\s\S]*!meituanConfigListLoaded\.value && !meituanConfigList\.value\.length/.test(content)) {
     failures.push('public/index.html manual online-data config prewarm must not refetch known-empty Ctrip or Meituan config lists.');
+  }
+  if (!/const ensureHotelOtaConfigLists = async[\s\S]*!ctripConfigListLoaded\.value && ctripConfigList\.value\.length === 0[\s\S]*!meituanConfigListLoaded\.value && meituanConfigList\.value\.length === 0/.test(content)) {
+    failures.push('public/index.html hotel OTA config prewarm must not refetch known-empty Ctrip or Meituan config lists.');
   }
   const onlineDataDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'online-data' && token.value)"),

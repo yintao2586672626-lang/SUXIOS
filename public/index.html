@@ -8220,19 +8220,19 @@
                             <div class="p-6">
                                 <!-- Tabs -->
                                 <div class="flex flex-wrap border-b mb-6 gap-y-1">
-                                    <button @click="onlineDataTab = 'meituan-ranking'; loadMeituanConfigList()"
+                                    <button @click="openMeituanManualTab('meituan-ranking')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         榜单数据获取
                                     </button>
-                                    <button @click="onlineDataTab = 'meituan-traffic'; loadMeituanConfigList(); syncMeituanTrafficConfigFromSelectedConfig()"
+                                    <button @click="openMeituanManualTab('meituan-traffic')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         流量数据获取
                                     </button>
-                                    <button @click="onlineDataTab = 'meituan-orders'; loadMeituanConfigList(); syncMeituanOrderConfigFromSelectedConfig()"
+                                    <button @click="openMeituanManualTab('meituan-orders')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-orders' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         订单数据获取
                                     </button>
-                                    <button @click="onlineDataTab = 'meituan-ads'; loadMeituanConfigList(); syncMeituanAdsConfigFromSelectedConfig()"
+                                    <button @click="openMeituanManualTab('meituan-ads')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         推广通广告
                                     </button>
@@ -23632,7 +23632,7 @@
                     currentPage.value = 'meituan-ebooking';
                     onlineDataTab.value = 'meituan-ranking';
                     await nextTick();
-                    await loadMeituanConfigList();
+                    scheduleMeituanEbookingDeferredStartupRefresh();
                     return;
                 }
 
@@ -24134,6 +24134,24 @@
                         loadOnlineDataHotelList(),
                     ]);
                 }, 240);
+            };
+            const openMeituanManualTab = (tab) => {
+                onlineDataTab.value = tab;
+                deferUiTask(async () => {
+                    if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;
+                    await loadMeituanConfigList();
+                    if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;
+                    if (tab === 'meituan-traffic') {
+                        return syncMeituanTrafficConfigFromSelectedConfig();
+                    }
+                    if (tab === 'meituan-orders') {
+                        return syncMeituanOrderConfigFromSelectedConfig();
+                    }
+                    if (tab === 'meituan-ads') {
+                        return syncMeituanAdsConfigFromSelectedConfig();
+                    }
+                    return applyMeituanHotelConfig(false, { refreshList: false });
+                }, 80);
             };
             const openPlatformAutoTab = (options = {}) => {
                 onlineDataTab.value = 'platform-auto';
@@ -29291,8 +29309,8 @@
 
             const ensureHotelOtaConfigLists = async () => {
                 const tasks = [];
-                if (ctripConfigList.value.length === 0) tasks.push(loadCtripConfigList());
-                if (meituanConfigList.value.length === 0) tasks.push(loadMeituanConfigList());
+                if (!ctripConfigListLoaded.value && ctripConfigList.value.length === 0) tasks.push(loadCtripConfigList());
+                if (!meituanConfigListLoaded.value && meituanConfigList.value.length === 0) tasks.push(loadMeituanConfigList());
                 if (platformDataSources.value.length === 0) tasks.push(loadPlatformDataSources());
                 if (tasks.length > 0) await Promise.all(tasks);
             };
@@ -37330,7 +37348,7 @@
                 meituanConfigForm, meituanConfigList, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig,
                 meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanSavedCount, meituanDataFetchTime,
                 meituanSortField, meituanSortOrder, sortMeituanTable,
-                loadMeituanConfigList, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, goConfigureMeituanForSelectedHotel,
+                loadMeituanConfigList, openMeituanManualTab, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, goConfigureMeituanForSelectedHotel,
                 // AI智能分析（携程）
                 aiSelectedHotels, aiAnalysisHotelList, aiAnalyzing, aiAnalysisResult, aiAnalysisHistory,
                 aiAnalysisModelKey, aiAnalysisBatchResults, aiAnalysisCapturedReport, aiAnalysisCapturedError, aiAnalysisProcess, aiAnalysisGroupDetailsOpen, aiAnalysisProgress,

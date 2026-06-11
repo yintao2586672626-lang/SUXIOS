@@ -1517,6 +1517,18 @@
 - 当前自审计：完整目录约 `224.99 MB`；不含 `.git` 约 `107.51 MB`；不含 `.git` 和依赖约 `78.32 MB`；Git 跟踪文件约 `18.87 MB` / `618` 个；代码范围 `373` 个文件、`198,200` 行、非空 `182,221` 行；默认可清理目标为 `runtime` 约 `14.53 MB` / `309` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`706` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-12 保存点：美团手工页 Tab 调度收口
+
+- `public/index.html` 的美团 eBooking 四个手工 Tab 改为统一调用 `openMeituanManualTab()`，不再在按钮内联 `loadMeituanConfigList()` 或立即同步流量、订单、广告表单。
+- `openMeituanManualTab()` 先切换当前 Tab，再通过 `deferUiTask()` 后置读取美团配置列表；读取完成后再次校验仍停留在当前页面和当前 Tab，再执行对应的配置同步，避免过期异步结果写回错误 Tab。
+- 平台 Profile 跳转美团榜单页时改为调度 `scheduleMeituanEbookingDeferredStartupRefresh()`，不再等待配置列表加载后才返回导航结果。
+- 酒店 OTA 配置预热 `ensureHotelOtaConfigLists()` 改为读取携程/美团 `ConfigListLoaded` 状态；已成功读取为空列表时不重复请求配置列表。
+- 本保存点不改变美团采集接口、配置接口、OTA 入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置和后台运行状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求美团手工 Tab 统一走非阻塞 helper、禁止 Tab 内联配置加载/过早同步，并要求酒店 OTA 配置预热不重复拉取已知空列表；`verify_e2e_contracts.mjs` 同步将 E2E 合同检查数提升到 `717`。
+- 当前 split-map：`public/index.html` 为 `37,456` 行、`1,567` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `226.23 MB`；不含 `.git` 约 `108.06 MB`；不含 `.git` 和依赖约 `78.87 MB`；Git 跟踪文件约 `18.88 MB` / `618` 个；代码范围 `373` 个文件、`198,259` 行、非空 `182,280` 行；默认可清理目标为 `runtime` 约 `15.06 MB` / `329` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`717` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
