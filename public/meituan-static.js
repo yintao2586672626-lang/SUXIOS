@@ -114,6 +114,114 @@ window.SUXI_MEITUAN_STATIC = (() => {
             .filter(Boolean);
         return Array.from(new Set(normalized));
     };
+
+    const buildMeituanBrowserCaptureRequestContext = ({
+        form = {},
+        systemHotelId = null,
+        fallbackPoiId = '',
+        partnerId = '',
+        hotelName = '',
+        options = {},
+    } = {}) => {
+        const loginOnly = Boolean(options.loginOnly);
+        const bindDataSource = options.bindDataSource !== false;
+        const storeId = String(form.storeId || form.poiId || fallbackPoiId || '').trim();
+        const sections = normalizeMeituanCaptureSections(form.captureSections);
+        if (!systemHotelId) {
+            return { ok: false, status: 'missing_hotel', level: 'error', message: '请选择目标酒店' };
+        }
+        if (!storeId) {
+            return { ok: false, status: 'missing_store_id', level: 'error', message: '请填写美团门店标识' };
+        }
+        if (sections.includes('ads') && !String(form.adsUrl || '').trim()) {
+            return { ok: false, status: 'missing_ads_url', level: 'error', message: '请填写推广通广告入口 URL' };
+        }
+        return {
+            ok: true,
+            status: 'ok',
+            loginOnly,
+            bindDataSource,
+            requestBody: {
+                system_hotel_id: systemHotelId,
+                store_id: storeId,
+                poi_id: form.poiId || storeId,
+                poi_name: form.poiName || hotelName,
+                partner_id: partnerId || '',
+                ads_url: sections.includes('ads') ? (form.adsUrl || '') : '',
+                sections,
+                login_only: loginOnly,
+                bind_data_source: bindDataSource,
+            },
+        };
+    };
+
+    const runMeituanBrowserCaptureFlow = async ({
+        getForm = () => ({}),
+        getSystemHotelId = () => null,
+        getFallbackPoiId = () => '',
+        getPartnerId = () => '',
+        getHotelNameById = () => '',
+        options = {},
+        notify = () => {},
+        setRunning = () => {},
+        setFetching = () => {},
+        setCaptureResult = () => {},
+        setOnlineDataResult = () => {},
+        requestCapture = async () => ({}),
+        refreshOnlineHistory = async () => {},
+        refreshPlatformProfileStatus = async () => {},
+        refreshPlatformDataSources = async () => {},
+    } = {}) => {
+        const systemHotelId = getSystemHotelId();
+        const requestContext = buildMeituanBrowserCaptureRequestContext({
+            form: getForm() || {},
+            systemHotelId,
+            fallbackPoiId: getFallbackPoiId(),
+            partnerId: getPartnerId(),
+            hotelName: getHotelNameById(systemHotelId),
+            options,
+        });
+        if (!requestContext.ok) {
+            notify(requestContext.message, requestContext.level);
+            return { status: requestContext.status, requestContext };
+        }
+
+        setRunning(true);
+        setFetching(true);
+        setCaptureResult(null);
+        try {
+            const res = await requestCapture(requestContext.requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                setCaptureResult(data);
+                setOnlineDataResult(data);
+                notify(res.message || (requestContext.loginOnly ? '美团 Profile 登录状态已保存' : `抓取完成，已入库 ${data?.saved_count || 0} 条`));
+                if (!requestContext.loginOnly) {
+                    await refreshOnlineHistory();
+                }
+                if (requestContext.loginOnly || requestContext.bindDataSource) {
+                    await refreshPlatformProfileStatus({ silent: true });
+                    if (requestContext.bindDataSource) {
+                        await refreshPlatformDataSources();
+                    }
+                }
+                return { status: 'success', response: res, requestContext, data };
+            }
+
+            notify(res.message || '抓取失败', 'error');
+            return { status: 'failed', response: res, requestContext };
+        } catch (error) {
+            const detail = error?.data?.data?.stderr || error?.data?.data?.stdout || '';
+            notify('抓取失败: ' + error.message + (detail ? '，请查看结果详情' : ''), 'error');
+            const errorResult = error?.data?.data || { error: error.message };
+            setCaptureResult(errorResult);
+            return { status: 'exception', error, requestContext, errorResult };
+        } finally {
+            setRunning(false);
+            setFetching(false);
+        }
+    };
+
     const meituanBatchRankTypes = ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'];
     const meituanBatchRankTypeNames = {
         P_RZ: '入住榜（入住间夜+房费收入）',
@@ -795,6 +903,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         createMeituanAdsForm,
         createMeituanBrowserCaptureForm,
         normalizeMeituanCaptureSections,
+        buildMeituanBrowserCaptureRequestContext,
+        runMeituanBrowserCaptureFlow,
         validateMeituanBatchFetchInput,
         buildMeituanBatchFetchTasks,
         buildMeituanBatchFetchResultEntry,

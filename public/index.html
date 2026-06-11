@@ -19325,6 +19325,7 @@
             const runMeituanTrafficFetchFlow = requireMeituanStatic('runMeituanTrafficFetchFlow');
             const runMeituanOrderFetchFlow = requireMeituanStatic('runMeituanOrderFetchFlow');
             const runMeituanAdsFetchFlow = requireMeituanStatic('runMeituanAdsFetchFlow');
+            const runMeituanBrowserCaptureFlow = requireMeituanStatic('runMeituanBrowserCaptureFlow');
             const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
             const meituanDynamicSelfRankRow = computed(() => meituanRankedHotelsList.value.find(row => row?.isSelf) || null);
             const meituanDisplayedHotelsList = computed(() => [...meituanRankedHotelsList.value].sort((a, b) => {
@@ -33080,65 +33081,26 @@
                 meituanBrowserCaptureResult.value = null;
             };
 
-            const runMeituanBrowserCapture = async (options = {}) => {
-                const loginOnly = Boolean(options.loginOnly);
-                const systemHotelId = meituanForm.value.hotelId || autoFetchHotelId.value || user.value?.hotel_id || null;
-                const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanBrowserCaptureForm.value.poiId || meituanForm.value.poiId || '').trim();
-                const sections = normalizeMeituanCaptureSections(meituanBrowserCaptureForm.value.captureSections);
-                if (!systemHotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-                if (!storeId) {
-                    showToast('请填写美团门店标识', 'error');
-                    return;
-                }
-                if (sections.includes('ads') && !String(meituanBrowserCaptureForm.value.adsUrl || '').trim()) {
-                    showToast('请填写推广通广告入口 URL', 'error');
-                    return;
-                }
-
-                meituanBrowserCaptureRunning.value = true;
-                fetchingData.value = true;
-                meituanBrowserCaptureResult.value = null;
-                try {
-                    const res = await request('/online-data/capture-meituan-browser', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            store_id: storeId,
-                            poi_id: meituanBrowserCaptureForm.value.poiId || storeId,
-                            poi_name: meituanBrowserCaptureForm.value.poiName || getHotelNameById(systemHotelId),
-                            partner_id: meituanForm.value.partnerId || '',
-                            ads_url: sections.includes('ads') ? (meituanBrowserCaptureForm.value.adsUrl || '') : '',
-                            sections,
-                            login_only: loginOnly,
-                            bind_data_source: options.bindDataSource !== false,
-                        }),
-                    });
-                    if (res.code === 200) {
-                        meituanBrowserCaptureResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        showToast(res.message || (loginOnly ? '美团 Profile 登录状态已保存' : `抓取完成，已入库 ${res.data?.saved_count || 0} 条`));
-                        if (!loginOnly) {
-                            await refreshOnlineHistory();
-                        }
-                        if (loginOnly || options.bindDataSource !== false) {
-                            await loadPlatformProfileStatus({ silent: true });
-                            if (options.bindDataSource !== false) await loadPlatformDataSources();
-                        }
-                    } else {
-                        showToast(res.message || '抓取失败', 'error');
-                    }
-                } catch (e) {
-                    const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
-                    showToast('抓取失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
-                    meituanBrowserCaptureResult.value = e?.data?.data || { error: e.message };
-                } finally {
-                    meituanBrowserCaptureRunning.value = false;
-                    fetchingData.value = false;
-                }
-            };
+            const runMeituanBrowserCapture = async (options = {}) => runMeituanBrowserCaptureFlow({
+                getForm: () => meituanBrowserCaptureForm.value,
+                getSystemHotelId: () => meituanForm.value.hotelId || autoFetchHotelId.value || user.value?.hotel_id || null,
+                getFallbackPoiId: () => meituanForm.value.poiId || '',
+                getPartnerId: () => meituanForm.value.partnerId || '',
+                getHotelNameById,
+                options,
+                notify: showToast,
+                setRunning: value => { meituanBrowserCaptureRunning.value = value; },
+                setFetching: value => { fetchingData.value = value; },
+                setCaptureResult: value => { meituanBrowserCaptureResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                requestCapture: body => request('/online-data/capture-meituan-browser', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                refreshOnlineHistory,
+                refreshPlatformProfileStatus: loadPlatformProfileStatus,
+                refreshPlatformDataSources: loadPlatformDataSources,
+            });
 
             const saveMeituanCapturedPayload = async () => {
                 const systemHotelId = meituanForm.value.hotelId || user.value?.hotel_id || null;

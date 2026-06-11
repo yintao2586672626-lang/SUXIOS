@@ -108,10 +108,13 @@ requireText('public/index.html', "requireMeituanStatic('runMeituanBatchFetchFlow
 requireText('public/index.html', "requireMeituanStatic('runMeituanTrafficFetchFlow')", 'entry uses extracted Meituan traffic fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanOrderFetchFlow')", 'entry uses extracted Meituan order fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanAdsFetchFlow')", 'entry uses extracted Meituan ads fetch flow runner');
+requireText('public/index.html', "requireMeituanStatic('runMeituanBrowserCaptureFlow')", 'entry uses extracted Meituan browser capture flow runner');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
 requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
+requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureRequestContext', 'Meituan static builds browser capture request context');
+requireText('public/meituan-static.js', 'const runMeituanBrowserCaptureFlow', 'Meituan static runs browser capture flow');
 requireText('public/meituan-static.js', 'const buildMeituanTrafficFetchRequestBody', 'Meituan static builds traffic fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanTrafficFetchFlow', 'Meituan static runs traffic fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanOrderFetchRequestBody', 'Meituan static builds order fetch request bodies');
@@ -213,6 +216,10 @@ requireNoText('public/index.html', 'const rankTypeNames = {', 'Meituan batch ran
 requireNoText('public/index.html', 'const missingResourceFields = [];', 'Meituan batch fetch input validation is not re-inlined');
 requireNoText('public/index.html', "meituanForm.value.dateRanges.includes('custom')", 'Meituan batch custom-date validation is not re-inlined');
 requireNoText('public/index.html', 'display_hotels: results.flatMap', 'Meituan display model payload is not re-inlined');
+requireNoText('public/index.html', 'const systemHotelId = meituanForm.value.hotelId || autoFetchHotelId.value || user.value?.hotel_id || null;', 'Meituan browser capture target context is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/capture-meituan-browser', {", 'Meituan browser capture request flow is not re-inlined');
+requireNoText('public/index.html', 'login_only: loginOnly,', 'Meituan browser capture login-only payload is not re-inlined');
+requireNoText('public/index.html', 'meituanBrowserCaptureResult.value = e?.data?.data || { error: e.message };', 'Meituan browser capture exception result is not re-inlined');
 requireNoText('public/index.html', "const body = { system_hotel_id: hotelId, data_period: 'realtime_snapshot'", 'auto-fetch trigger request body is not re-inlined');
 requireNoText('public/index.html', '已提交后端执行。${autoFetchCtripExecutionText.value}', 'auto-fetch trigger start state is not re-inlined');
 requireNoText('public/index.html', 'await openCtripProfileFieldsForReview();', 'auto-fetch trigger success refresh flow is not re-inlined');
@@ -598,6 +605,8 @@ try {
   const buildMeituanDisplayModelPayload = meituanStatic.buildMeituanDisplayModelPayload;
   const validateMeituanBatchFetchInput = meituanStatic.validateMeituanBatchFetchInput;
   const runMeituanBatchFetchFlow = meituanStatic.runMeituanBatchFetchFlow;
+  const buildMeituanBrowserCaptureRequestContext = meituanStatic.buildMeituanBrowserCaptureRequestContext;
+  const runMeituanBrowserCaptureFlow = meituanStatic.runMeituanBrowserCaptureFlow;
   const normalizeMeituanTrafficFetchForm = meituanStatic.normalizeMeituanTrafficFetchForm;
   const validateMeituanTrafficFetchInput = meituanStatic.validateMeituanTrafficFetchInput;
   const buildMeituanTrafficFetchRequestBody = meituanStatic.buildMeituanTrafficFetchRequestBody;
@@ -615,6 +624,8 @@ try {
     || typeof buildMeituanDisplayModelPayload !== 'function'
     || typeof validateMeituanBatchFetchInput !== 'function'
     || typeof runMeituanBatchFetchFlow !== 'function'
+    || typeof buildMeituanBrowserCaptureRequestContext !== 'function'
+    || typeof runMeituanBrowserCaptureFlow !== 'function'
     || typeof normalizeMeituanTrafficFetchForm !== 'function'
     || typeof validateMeituanTrafficFetchInput !== 'function'
     || typeof buildMeituanTrafficFetchRequestBody !== 'function'
@@ -629,9 +640,9 @@ try {
     || typeof runMeituanAdsFetchFlow !== 'function') {
     checks.push({
       file: 'public/meituan-static.js',
-      label: 'Meituan static exports batch/traffic/order/ads fetch builders',
+      label: 'Meituan static exports batch/browser/traffic/order/ads fetch builders',
       ok: false,
-      detail: 'batch/traffic/order/ads fetch builders and flow runners',
+      detail: 'batch/browser/traffic/order/ads fetch builders and flow runners',
     });
   } else {
     const tasks = buildMeituanBatchFetchTasks({
@@ -816,6 +827,157 @@ try {
         && guardResult.status === 'missing_hotel'
         && guardEvents[0] === 'notify:error:请选择目标酒店',
       detail: 'Meituan batch result sample',
+    });
+
+    const browserMissingHotel = buildMeituanBrowserCaptureRequestContext({
+      form: { storeId: 'store-1' },
+      systemHotelId: null,
+    });
+    const browserMissingStore = buildMeituanBrowserCaptureRequestContext({
+      form: {},
+      systemHotelId: '10',
+    });
+    const browserMissingAdsUrl = buildMeituanBrowserCaptureRequestContext({
+      form: { storeId: 'store-1', captureSections: ['ads'], adsUrl: '' },
+      systemHotelId: '10',
+    });
+    const browserRequestContext = buildMeituanBrowserCaptureRequestContext({
+      form: {
+        storeId: ' store-10 ',
+        poiId: 'poi-10',
+        poiName: 'POI Demo',
+        adsUrl: 'https://ads.example.test',
+        captureSections: 'traffic ads',
+      },
+      systemHotelId: '10',
+      fallbackPoiId: 'poi-fallback',
+      partnerId: 'partner-10',
+      hotelName: 'Hotel 10',
+      options: { loginOnly: true, bindDataSource: false },
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan browser capture request context keeps missing states explicit',
+      ok: browserMissingHotel.status === 'missing_hotel'
+        && browserMissingHotel.message === '请选择目标酒店'
+        && browserMissingStore.status === 'missing_store_id'
+        && browserMissingStore.message === '请填写美团门店标识'
+        && browserMissingAdsUrl.status === 'missing_ads_url'
+        && browserMissingAdsUrl.message === '请填写推广通广告入口 URL'
+        && browserRequestContext.ok === true
+        && browserRequestContext.requestBody.system_hotel_id === '10'
+        && browserRequestContext.requestBody.store_id === 'store-10'
+        && browserRequestContext.requestBody.poi_id === 'poi-10'
+        && browserRequestContext.requestBody.poi_name === 'POI Demo'
+        && browserRequestContext.requestBody.partner_id === 'partner-10'
+        && browserRequestContext.requestBody.ads_url === 'https://ads.example.test'
+        && browserRequestContext.requestBody.sections.join(',') === 'traffic,ads'
+        && browserRequestContext.requestBody.login_only === true
+        && browserRequestContext.requestBody.bind_data_source === false,
+      detail: 'buildMeituanBrowserCaptureRequestContext sample',
+    });
+
+    const browserEvents = [];
+    const browserStates = [];
+    let browserCapturePayload = null;
+    let browserOnlinePayload = null;
+    let browserRequestedBody = null;
+    const browserFlowResult = await runMeituanBrowserCaptureFlow({
+      getForm: () => ({
+        storeId: ' store-20 ',
+        poiId: 'poi-20',
+        poiName: 'POI 20',
+        adsUrl: 'https://ads.example.test/20',
+        captureSections: ['traffic', 'ads'],
+      }),
+      getSystemHotelId: () => '20',
+      getFallbackPoiId: () => 'poi-fallback',
+      getPartnerId: () => 'partner-20',
+      getHotelNameById: id => `Hotel ${id}`,
+      notify: (message, level) => browserEvents.push(`notify:${level || 'info'}:${message}`),
+      setRunning: value => browserStates.push(`running:${value}`),
+      setFetching: value => browserStates.push(`fetching:${value}`),
+      setCaptureResult: value => { browserCapturePayload = value; },
+      setOnlineDataResult: value => { browserOnlinePayload = value; },
+      requestCapture: async body => {
+        browserRequestedBody = body;
+        return { code: 200, message: 'capture ok', data: { saved_count: 9, rows: [{ id: 1 }] } };
+      },
+      refreshOnlineHistory: async () => browserEvents.push('history'),
+      refreshPlatformProfileStatus: async params => browserEvents.push(`profile-status:${params.silent}`),
+      refreshPlatformDataSources: async () => browserEvents.push('data-sources'),
+    });
+    const browserLoginEvents = [];
+    const browserLoginResult = await runMeituanBrowserCaptureFlow({
+      getForm: () => ({ storeId: 'store-login', captureSections: ['traffic'] }),
+      getSystemHotelId: () => '30',
+      getFallbackPoiId: () => '',
+      getPartnerId: () => '',
+      getHotelNameById: id => `Hotel ${id}`,
+      options: { loginOnly: true, bindDataSource: false },
+      notify: (message, level) => browserLoginEvents.push(`notify:${level || 'info'}:${message}`),
+      requestCapture: async () => ({ code: 200, data: { profile_saved: true } }),
+      refreshOnlineHistory: async () => browserLoginEvents.push('history'),
+      refreshPlatformProfileStatus: async params => browserLoginEvents.push(`profile-status:${params.silent}`),
+      refreshPlatformDataSources: async () => browserLoginEvents.push('data-sources'),
+    });
+    const browserFailedEvents = [];
+    const browserFailedStates = [];
+    const browserFailedResult = await runMeituanBrowserCaptureFlow({
+      getForm: () => ({ storeId: 'store-failed', captureSections: ['traffic'] }),
+      getSystemHotelId: () => '40',
+      notify: (message, level) => browserFailedEvents.push(`notify:${level}:${message}`),
+      setRunning: value => browserFailedStates.push(`running:${value}`),
+      setFetching: value => browserFailedStates.push(`fetching:${value}`),
+      requestCapture: async () => ({ code: 500, message: 'browser backend failed' }),
+    });
+    const browserExceptionEvents = [];
+    const browserExceptionStates = [];
+    let browserExceptionPayload = null;
+    const browserExceptionResult = await runMeituanBrowserCaptureFlow({
+      getForm: () => ({ storeId: 'store-exception', captureSections: ['traffic'] }),
+      getSystemHotelId: () => '50',
+      notify: (message, level) => browserExceptionEvents.push(`notify:${level}:${message}`),
+      setRunning: value => browserExceptionStates.push(`running:${value}`),
+      setFetching: value => browserExceptionStates.push(`fetching:${value}`),
+      setCaptureResult: value => { browserExceptionPayload = value; },
+      requestCapture: async () => {
+        const error = new Error('network down');
+        error.data = { data: { stderr: 'stderr details', partial_capture: { saved_count: 1 } } };
+        throw error;
+      },
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan browser capture flow preserves success, login, failed and exception states',
+      ok: browserFlowResult.status === 'success'
+        && browserRequestedBody.system_hotel_id === '20'
+        && browserRequestedBody.store_id === 'store-20'
+        && browserRequestedBody.poi_id === 'poi-20'
+        && browserRequestedBody.poi_name === 'POI 20'
+        && browserRequestedBody.partner_id === 'partner-20'
+        && browserRequestedBody.ads_url === 'https://ads.example.test/20'
+        && browserRequestedBody.sections.join(',') === 'traffic,ads'
+        && browserCapturePayload.saved_count === 9
+        && browserOnlinePayload.saved_count === 9
+        && browserStates.join('|') === 'running:true|fetching:true|running:false|fetching:false'
+        && browserEvents.includes('history')
+        && browserEvents.includes('profile-status:true')
+        && browserEvents.includes('data-sources')
+        && browserEvents.includes('notify:info:capture ok')
+        && browserLoginResult.status === 'success'
+        && browserLoginEvents.includes('profile-status:true')
+        && !browserLoginEvents.includes('history')
+        && !browserLoginEvents.includes('data-sources')
+        && browserLoginEvents.some(event => event.includes('美团 Profile 登录状态已保存'))
+        && browserFailedResult.status === 'failed'
+        && browserFailedEvents[0] === 'notify:error:browser backend failed'
+        && browserFailedStates.join('|') === 'running:true|fetching:true|running:false|fetching:false'
+        && browserExceptionResult.status === 'exception'
+        && browserExceptionEvents[0] === 'notify:error:抓取失败: network down，请查看结果详情'
+        && browserExceptionPayload.stderr === 'stderr details'
+        && browserExceptionStates.join('|') === 'running:true|fetching:true|running:false|fetching:false',
+      detail: 'runMeituanBrowserCaptureFlow state samples',
     });
 
     const trafficForm = {

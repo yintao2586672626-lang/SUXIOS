@@ -1211,6 +1211,18 @@ Updated: 2026-06-11 Asia/Shanghai
 - Verified during the split: `node --check public\ctrip-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
 - Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
 
+## 2026-06-11 Progress: Frontend Meituan Browser Capture Flow Split
+
+- Ninety-third frontend split target chosen from Meituan browser capture orchestration inside `runMeituanBrowserCapture()` in `public/index.html`.
+- Extended `public/meituan-static.js` with `runMeituanBrowserCaptureFlow` and `buildMeituanBrowserCaptureRequestContext` for target validation, section normalization, request body construction, success result writes, failed response handling, exception handling, and busy-state cleanup.
+- `public/index.html` now keeps only Vue callback wiring for refs, `/online-data/capture-meituan-browser`, result setters, toast dispatch, online history refresh, platform Profile status refresh, and platform data-source refresh.
+- This split did not change `/online-data/capture-meituan-browser`, storage behavior, browser capture result display, Profile login save behavior, data-source binding, history refresh, platform status refresh, missing/failed-state visibility, or Meituan OTA channel scope. Missing target hotel, missing store id, missing ads entry URL, backend failure, and request exception states remain explicit.
+- Updated `scripts/verify_e2e_contracts.mjs` so E2E contracts require the extracted browser capture runner, prevent browser capture target context, request flow, login-only payload, and exception result handling from being re-inlined, and validate success, login-only, backend failure, exception, and missing-state samples in a VM context.
+- Current split-map: `public/index.html` decreased from `36927` lines to `36889` lines; frontend function-level blocks remain `1395`; `meituan` domain span decreased from `997` to `958`; `runMeituanBrowserCapture` is no longer in the largest-block list, and the current largest frontend blocks are `importKnowledgeUnits` and `openSystemConfigModal` at `68` lines each.
+- Current self-audit: full directory about `289.74 MB`, without `.git` about `92.54 MB`, without `.git` and dependencies about `63.35 MB`, tracked files about `18.43 MB` / `613` files; code scope `370` files, `193054` total lines, and `177211` nonblank lines; cleanup candidates `0`.
+- Verified during the split: `node --check public\meituan-static.js`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run verify:public-entry`; `npm.cmd run self:split-map`; `npm.cmd run self:audit`; `npm.cmd run self:check`; `git diff --check`.
+- Strict gate remains intentionally incomplete until the remaining split candidates, especially `public/index.html` and `app/controller/OnlineData.php`, are further reduced or explicitly dispositioned.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
