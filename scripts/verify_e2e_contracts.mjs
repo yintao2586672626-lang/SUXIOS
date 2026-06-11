@@ -154,7 +154,12 @@ requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defe
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformDataSourcesRefresh', 'entry defers platform data-source refresh after manual collection');
-requireText('app/controller/OnlineData.php', 'createManualCtripFetchBackgroundTask', 'backend can run Ctrip manual fetch as a background task');
+requireText('app/service/ManualOnlineFetchTaskService.php', 'final class ManualOnlineFetchTaskService', 'manual OTA background task creation and launch lives in a focused service');
+requireText('app/service/ManualOnlineFetchTaskService.php', 'online-data:manual-fetch-once', 'manual OTA background task service launches the shared one-shot worker');
+requireText('app/controller/OnlineData.php', "createTask('ctrip'", 'backend can run Ctrip manual fetch as a background task through the manual OTA task service');
+requireText('app/controller/OnlineData.php', 'launchTask($task)', 'backend launches manual OTA fetch tasks through the manual OTA task service');
+requireNoText('app/controller/OnlineData.php', 'private function createManualCtripFetchBackgroundTask', 'OnlineData does not re-inline Ctrip manual background task creation');
+requireNoText('app/controller/OnlineData.php', 'private function launchManualCtripFetchBackgroundTask', 'OnlineData does not re-inline manual background task launching');
 requireText('app/command/ManualFetchOnlineDataOnce.php', 'online-data:manual-fetch-once', 'manual Ctrip fetch has a one-shot background worker command');
 requireText('config/console.php', "'online-data:manual-fetch-once'", 'console exposes one-shot manual Ctrip fetch worker command');
 requireText('app/service/OnlineTrafficDataExtractionService.php', 'extractCtripTrafficRows', 'traffic response extraction lives in a focused service');
@@ -188,8 +193,12 @@ requireText('public/auto-fetch-static.js', 'const runDataConfigTestFlow', 'auto-
 requireText('public/index.html', "requireAutoFetchStatic('runDataConfigTestFlow')", 'entry uses extracted data-source config test flow runner');
 requireText('public/auto-fetch-static.js', 'async: true', 'auto-fetch trigger submits quickly and lets backend continue collection');
 requireText('public/auto-fetch-static.js', "return { status: 'accepted'", 'auto-fetch trigger keeps backend queued state non-blocking');
+requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: true }', 'Meituan manual batch fetch submits quickly and lets backend continue collection');
+requireText('public/meituan-static.js', "return { status: 'accepted'", 'Meituan manual batch fetch keeps backend queued state non-blocking');
 requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
 requireText('app/controller/OnlineData.php', 'createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
+requireText('app/controller/OnlineData.php', "createTask('meituan'", 'backend creates one-shot Meituan manual fetch background tasks through the manual OTA task service');
+requireNoText('app/controller/OnlineData.php', 'private function createManualMeituanFetchBackgroundTask', 'OnlineData does not re-inline Meituan manual background task creation');
 requireText('app/command/AutoFetchOnlineDataOnce.php', 'online-data:auto-fetch-once', 'backend registers a one-shot auto-fetch worker command');
 requireText('config/console.php', "'online-data:auto-fetch-once'", 'console exposes one-shot auto-fetch worker command');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
@@ -1124,6 +1133,52 @@ try {
       getOnlineDataTab: () => 'data',
       refreshOnlineData: () => flowEvents.push('refresh-data'),
     });
+    const acceptedMeituanEvents = [];
+    const acceptedMeituanStates = [];
+    const acceptedMeituanBodies = [];
+    let acceptedMeituanOnlineResult = null;
+    let acceptedMeituanSavedCount = -1;
+    const acceptedMeituanResult = await runMeituanBatchFetchFlow({
+      getForm: () => ({
+        url: 'https://example.test/rank',
+        hotelId: '10',
+        partnerId: 'partner-1',
+        poiId: 'poi-1',
+        cookies: ' mt-cookie ',
+        dateRanges: ['1'],
+      }),
+      getSelectedConfig: () => ({ hotel_id: '10', cookies: 'mt-cookie' }),
+      ensureMeituanConfigSecret: async config => config,
+      applyMeituanHotelConfig: async showMessage => acceptedMeituanEvents.push(`apply:${showMessage}`),
+      notify: (message, level) => acceptedMeituanEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => acceptedMeituanStates.push(`fetching:${value}`),
+      setOnlineDataResult: value => { acceptedMeituanOnlineResult = value; },
+      setFetchSuccess: value => acceptedMeituanStates.push(`success:${value}`),
+      setHotelsList: value => acceptedMeituanStates.push(`hotels:${value.length}`),
+      getEmptyBusinessSummary: () => ({ status: 'empty', metrics: {}, cards: [] }),
+      setBusinessSummary: () => {},
+      requestFetch: async body => {
+        acceptedMeituanBodies.push(body);
+        return {
+          code: 200,
+          message: 'queued',
+          data: {
+            status: 'running',
+            task_id: 'mt-task-1',
+            platform: 'meituan',
+            async: true,
+            saved_count: 0,
+          },
+        };
+      },
+      requestDisplayModel: async () => {
+        throw new Error('display model should not run for accepted background fetch');
+      },
+      setSavedCount: value => { acceptedMeituanSavedCount = value; },
+      refreshOnlineHistory: async () => acceptedMeituanEvents.push('history'),
+      getOnlineDataTab: () => 'data',
+      refreshOnlineData: () => acceptedMeituanEvents.push('refresh-data'),
+    });
     const guardEvents = [];
     const guardResult = await runMeituanBatchFetchFlow({
       getForm: () => ({ hotelId: '', dateRanges: ['1'] }),
@@ -1141,7 +1196,7 @@ try {
         && modelPayload.competitor_room_count === '20'
         && flowResult.status === 'success'
         && requestedBodies.length === 4
-        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie')
+        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie' && body.async === true)
         && flowOnlineResult.length === 4
         && flowDisplayPayload.display_hotels.length === 4
         && flowDisplayPayload.target_poi_id === 'poi-1'
@@ -1155,6 +1210,19 @@ try {
         && flowEvents.includes('history')
         && flowEvents.includes('refresh-data')
         && flowEvents.some(event => event.includes('批量获取完成！共保存 8 条数据'))
+        && acceptedMeituanResult.status === 'accepted'
+        && acceptedMeituanResult.acceptedCount === 4
+        && acceptedMeituanBodies.length === 4
+        && acceptedMeituanBodies.every(body => body.async === true)
+        && Array.isArray(acceptedMeituanOnlineResult)
+        && acceptedMeituanOnlineResult.length === 4
+        && acceptedMeituanOnlineResult[0].status === 'running'
+        && acceptedMeituanOnlineResult[0].taskId === 'mt-task-1'
+        && acceptedMeituanSavedCount === 0
+        && acceptedMeituanStates.join('|') === 'fetching:true|success:false|hotels:0|fetching:false'
+        && acceptedMeituanEvents.includes('history')
+        && acceptedMeituanEvents.includes('refresh-data')
+        && acceptedMeituanEvents.some(event => event.startsWith('notify:info:'))
         && guardResult.status === 'missing_hotel'
         && guardEvents[0] === 'notify:error:请选择目标酒店',
       detail: 'Meituan batch result sample',

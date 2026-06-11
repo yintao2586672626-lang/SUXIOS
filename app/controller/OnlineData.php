@@ -13,6 +13,7 @@ use app\service\CtripCaptureDiagnosisService;
 use app\service\CtripOverviewSummaryService;
 use app\service\CtripProfileFieldMetaService;
 use app\service\CtripTrafficDisplayService;
+use app\service\ManualOnlineFetchTaskService;
 use app\service\OnlineDataAnalysisReportService;
 use app\service\OnlineTrafficDataExtractionService;
 use app\service\PlatformProfileBindingReadinessService;
@@ -259,8 +260,13 @@ class OnlineData extends Base
             }
 
             if ($backgroundRequested && $systemHotelId) {
-                $task = $this->createManualCtripFetchBackgroundTask((int)$systemHotelId, $startDate, $endDate, is_array($requestData) ? $requestData : []);
-                if (!empty($task) && $this->launchManualCtripFetchBackgroundTask($task)) {
+                $manualFetchTaskService = new ManualOnlineFetchTaskService();
+                $task = $manualFetchTaskService->createTask('ctrip', (int)$systemHotelId, $startDate, $endDate, is_array($requestData) ? $requestData : [], [
+                    'authorization' => trim((string)$this->request->header('Authorization', '')),
+                    'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/fetch-ctrip',
+                    'user_id' => (int)($this->currentUser->id ?? 0),
+                ]);
+                if (!empty($task) && $manualFetchTaskService->launchTask($task)) {
                     return json([
                         'code' => 200,
                         'message' => '携程手动获取已提交后台执行，完成后会更新数据列表和通知',
@@ -410,6 +416,8 @@ class OnlineData extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        $requestData = $this->request->post();
+
         // 默认使用竞对排名数据接口
         $url = $this->request->post('url', 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail');
         $partnerId = $this->request->post('partner_id', '');
@@ -423,6 +431,8 @@ class OnlineData extends Base
         $endDate = $this->request->post('end_date', '');
         $autoSave = $this->request->post('auto_save', true);
         $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
+        $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
+            && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
 
         if (empty($cookies)) {
             return $this->error('请提供登录Cookies');
@@ -516,6 +526,36 @@ class OnlineData extends Base
             }
 
             // 发送GET请求
+            if ($endDate === '' && !empty($params['endDate']) && preg_match('/^\d{8}$/', (string)$params['endDate'])) {
+                $endDate = substr((string)$params['endDate'], 0, 4)
+                    . '-' . substr((string)$params['endDate'], 4, 2)
+                    . '-' . substr((string)$params['endDate'], 6, 2);
+            }
+
+            if ($backgroundRequested && $systemHotelId) {
+                $taskRequestData = is_array($requestData) ? $requestData : [];
+                $taskRequestData['start_date'] = $startDate;
+                $taskRequestData['end_date'] = $endDate;
+                $taskRequestData['date_range'] = (string)($params['dateRange'] ?? $dateRange);
+                $manualFetchTaskService = new ManualOnlineFetchTaskService();
+                $task = $manualFetchTaskService->createTask('meituan', (int)$systemHotelId, $startDate, $endDate, $taskRequestData, [
+                    'authorization' => trim((string)$this->request->header('Authorization', '')),
+                    'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/fetch-meituan',
+                    'user_id' => (int)($this->currentUser->id ?? 0),
+                ]);
+                if (!empty($task) && $manualFetchTaskService->launchTask($task)) {
+                    return $this->success([
+                        'status' => 'running',
+                        'task_id' => $task['task_id'] ?? '',
+                        'platform' => 'meituan',
+                        'async' => true,
+                        'saved_count' => 0,
+                        'request_start_date' => $startDate,
+                        'request_end_date' => $endDate,
+                    ], '美团手动获取已提交后台执行，完成后会更新数据列表和通知');
+                }
+            }
+
             $result = $this->sendMeituanRequest($url, $params, $cookies, $authData);
 
             if (!$result['success']) {
@@ -544,6 +584,15 @@ class OnlineData extends Base
             $displayHotels = $this->buildMeituanBusinessDisplayHotels($responseData, $displayContext);
             $displaySummary = $this->buildMeituanBusinessDisplaySummary($displayHotels, $displayContext);
             $rawResponse = substr($this->ensureUtf8String($result['raw'] ?? ''), 0, 1000);
+            if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
+                $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
+                $this->recordAutoFetchNotification((int)$systemHotelId, true, '美团手动获取完成', $displayDataDate, [
+                    'saved_count' => $savedCount,
+                    'platform_results' => [
+                        ['platform' => 'meituan', 'success' => true, 'saved_count' => $savedCount],
+                    ],
+                ], 'manual_fetch');
+            }
 
             // 直接构建响应数据并使用JSON_INVALID_UTF8_SUBSTITUTE处理无效字符
             $responseArray = [
@@ -17081,122 +17130,6 @@ JAVASCRIPT;
             . ' && ' . escapeshellarg($phpBinary)
             . ' ' . escapeshellarg($thinkPath)
             . ' online-data:auto-fetch-once'
-            . ' --task-id=' . escapeshellarg($taskId)
-            . ' --input=' . escapeshellarg($inputPath)
-            . ' >> ' . escapeshellarg((string)$task['log']) . ' 2>&1';
-        if (file_put_contents($shellPath, "#!/bin/sh\n" . $command . "\n") === false) {
-            return false;
-        }
-        @chmod($shellPath, 0755);
-        $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
-        if (!is_resource($handle)) {
-            return false;
-        }
-        pclose($handle);
-        return true;
-    }
-
-    private function createManualCtripFetchBackgroundTask(int $hotelId, string $startDate, string $endDate, array $requestData): array
-    {
-        $authorization = trim((string)$this->request->header('Authorization', ''));
-        if ($hotelId <= 0 || $authorization === '') {
-            return [];
-        }
-
-        $projectRoot = dirname(__DIR__, 2);
-        $phpBinary = $this->resolvePhpCliBinary();
-        $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
-        if ($phpBinary === '' || !is_file($thinkPath)) {
-            return [];
-        }
-
-        $taskId = 'manual_ctrip_fetch_' . $hotelId . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4));
-        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'manual_fetch_tasks' . DIRECTORY_SEPARATOR . $taskId;
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return [];
-        }
-
-        $body = $requestData;
-        $body['system_hotel_id'] = $hotelId;
-        $body['start_date'] = $startDate;
-        $body['end_date'] = $endDate;
-        $body['async'] = false;
-        $body['background_task'] = true;
-        $inputPath = $dir . DIRECTORY_SEPARATOR . 'input.json';
-        $task = [
-            'task_id' => $taskId,
-            'hotel_id' => $hotelId,
-            'user_id' => (int)($this->currentUser->id ?? 0),
-            'platform' => 'ctrip',
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/fetch-ctrip',
-            'authorization' => $authorization,
-            'body' => $body,
-            'input' => $inputPath,
-            'log' => $dir . DIRECTORY_SEPARATOR . 'launcher.log',
-            'created_at' => date('Y-m-d H:i:s'),
-        ];
-        if (file_put_contents($inputPath, json_encode($task, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) === false) {
-            return [];
-        }
-
-        return $task;
-    }
-
-    private function launchManualCtripFetchBackgroundTask(array $task): bool
-    {
-        $projectRoot = dirname(__DIR__, 2);
-        $phpBinary = $this->resolvePhpCliBinary();
-        $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
-        $inputPath = (string)($task['input'] ?? '');
-        if ($phpBinary === '' || !is_file($thinkPath) || !is_file($inputPath)) {
-            return false;
-        }
-
-        $dir = dirname($inputPath);
-        $taskId = (string)$task['task_id'];
-
-        if (DIRECTORY_SEPARATOR === '\\') {
-            $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
-            $inputFile = basename($inputPath);
-            $lines = [
-                '@echo off',
-                'setlocal',
-                'set "TASK_DIR=%~dp0"',
-                'pushd "%TASK_DIR%..\..\.." || exit /b 1',
-                $this->quoteWindowsBatchArg($phpBinary)
-                    . ' "%CD%\think"'
-                    . ' "online-data:manual-fetch-once"'
-                    . ' "--task-id=' . $taskId . '"'
-                    . ' "--input=%TASK_DIR%' . $inputFile . '"'
-                    . ' >> "%TASK_DIR%launcher.log" 2>&1',
-                'set "EXIT_CODE=%ERRORLEVEL%"',
-                'popd',
-                'exit /b %EXIT_CODE%',
-            ];
-            if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
-                return false;
-            }
-            $launchCommand = '$bat=' . $this->quotePowerShellSingleQuotedString($batPath)
-                . '; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList @("/d","/c","call",$bat)';
-            $handle = @popen(
-                'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand '
-                    . $this->encodeWindowsPowerShellCommand($launchCommand),
-                'r'
-            );
-            if (!is_resource($handle)) {
-                return false;
-            }
-            pclose($handle);
-            return true;
-        }
-
-        $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
-        $command = 'cd ' . escapeshellarg($projectRoot)
-            . ' && ' . escapeshellarg($phpBinary)
-            . ' ' . escapeshellarg($thinkPath)
-            . ' online-data:manual-fetch-once'
             . ' --task-id=' . escapeshellarg($taskId)
             . ' --input=' . escapeshellarg($inputPath)
             . ' >> ' . escapeshellarg((string)$task['log']) . ' 2>&1';

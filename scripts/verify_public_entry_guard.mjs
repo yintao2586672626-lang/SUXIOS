@@ -286,6 +286,8 @@ if (!fs.existsSync(indexPath)) {
   const autoFetchStaticContent = fs.existsSync(autoFetchStaticPath) ? fs.readFileSync(autoFetchStaticPath, 'utf8') : '';
   const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
   const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
+  const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
+  const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
   if (!/const\s+buildAutoFetchTriggerRequestBody[\s\S]*async:\s*true/.test(autoFetchStaticContent)) {
     failures.push('public/auto-fetch-static.js must submit platform auto-fetch triggers with async: true so the UI is not blocked by OTA collection.');
   }
@@ -297,13 +299,28 @@ if (!fs.existsSync(indexPath)) {
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody/.test(ctripStaticContent)) {
     failures.push('public/ctrip-static.js must submit Ctrip manual fetch in background mode and treat running responses as accepted.');
   }
+  if (!/\{\s*\.\.\.task\.body,\s*async:\s*true\s*\}/.test(meituanStaticContent)
+    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*acceptedCount/.test(meituanStaticContent)) {
+    failures.push('public/meituan-static.js must submit Meituan manual batch fetch in background mode and treat running responses as accepted.');
+  }
   const controllerPath = path.join(repoRoot, 'app/controller/OnlineData.php');
   const controllerContent = fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '';
+  const manualTaskServicePath = path.join(repoRoot, 'app/service/ManualOnlineFetchTaskService.php');
+  const manualTaskServiceContent = fs.existsSync(manualTaskServicePath) ? fs.readFileSync(manualTaskServicePath, 'utf8') : '';
   if (!controllerContent.includes("get('include_detail'") || !controllerContent.includes("'detail_loaded' => false")) {
     failures.push('app/controller/OnlineData.php must support light auto-fetch status with explicit detail_loaded=false.');
   }
-  if (!controllerContent.includes('createManualCtripFetchBackgroundTask') || !controllerContent.includes('launchManualCtripFetchBackgroundTask')) {
-    failures.push('app/controller/OnlineData.php must keep Ctrip manual fetch background task support.');
+  if (!manualTaskServiceContent.includes('final class ManualOnlineFetchTaskService')
+    || !manualTaskServiceContent.includes('online-data:manual-fetch-once')
+    || !controllerContent.includes("createTask('ctrip'")
+    || !controllerContent.includes('launchTask($task)')
+    || controllerContent.includes('private function createManualCtripFetchBackgroundTask')
+    || controllerContent.includes('private function launchManualCtripFetchBackgroundTask')) {
+    failures.push('app/controller/OnlineData.php must use ManualOnlineFetchTaskService for Ctrip manual fetch background task support.');
+  }
+  if (!controllerContent.includes("createTask('meituan'")
+    || controllerContent.includes('private function createManualMeituanFetchBackgroundTask')) {
+    failures.push('app/controller/OnlineData.php must use ManualOnlineFetchTaskService for Meituan manual fetch background task support.');
   }
   const strategyDetailLoader = content.slice(
     content.indexOf('const loadStrategyDetail = async'),

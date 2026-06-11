@@ -1412,6 +1412,16 @@ Updated: 2026-06-11 Asia/Shanghai
 - Current self-audit: full directory `201.34 MB`, without `.git` `94.41 MB`, without `.git` and dependencies `65.22 MB`, tracked `18.69 MB` / `615` files; code scope `370` files, `195926` total lines, and `180036` nonblank lines. Runtime cleanup is about `1.59 MB` and left for later small cleanup.
 - Verified in this save point: PHP lint for `OnlineData.php`, `ManualFetchOnlineDataOnce.php`, and `OnlineTrafficDataExtractionService.php`; `php think list` shows `online-data:manual-fetch-once`; `tests/OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip"` passed with `101` tests and `1309` assertions; `verify:public-entry`; `verify:e2e-contracts` with `567` checks; `verify:p0-guards`; `self:audit`; `self:split-map`.
 
+## 2026-06-11 Progress: Manual OTA Background Task Service
+
+- `app/service/ManualOnlineFetchTaskService.php` now owns manual OTA task creation and launch for Ctrip and Meituan. It writes task input under `runtime/manual_fetch_tasks`, starts `online-data:manual-fetch-once`, and keeps `OnlineData.php` from re-inlining manual task launcher code.
+- Ctrip manual fetch still submits through the existing async frontend path and worker callback to `/api/online-data/fetch-ctrip`; save/display/failure state and Ctrip OTA channel scope remain unchanged.
+- Meituan batch manual fetch now submits each rank task with `async=true`; accepted/running/queued responses keep task ids and `saved_count=0` visible, then defer history/data refresh instead of waiting for collection completion or pretending data was already saved.
+- Guards now require `ManualOnlineFetchTaskService`, controller calls to `createTask('ctrip'/'meituan')` and `launchTask($task)`, and reject old `createManual*FetchBackgroundTask` / `launchManualCtripFetchBackgroundTask` methods in `OnlineData.php`.
+- Current split-map: `public/index.html` has `37282` lines, `1547` frontend function-level blocks, and `44` `currentPage` refs. `app/controller/OnlineData.php` has `26780` lines and `867` methods; it remains a P2 split candidate alongside `public/index.html`.
+- Current self-audit: full directory `201.83 MB`, without `.git` `94.43 MB`, without `.git` and dependencies `65.24 MB`, tracked `18.72 MB` / `617` files; code scope `372` files, `196473` total lines, and `180529` nonblank lines. Runtime cleanup is about `1.59 MB` / `87` files and left for later small cleanup.
+- Verified in this save point: PHP lint for `OnlineData.php`, `ManualOnlineFetchTaskService.php`, and `ManualFetchOnlineDataOnce.php`; `node --check` for `verify_e2e_contracts.mjs` and `verify_public_entry_guard.mjs`; `php think list` shows `online-data:manual-fetch-once` and `online-data:auto-fetch-once`; `tests/OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip|Meituan|meituan"` passed with `118` tests and `1445` assertions; `verify:public-entry`; `verify:e2e-contracts` with `576` checks; `verify:p0-guards`; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

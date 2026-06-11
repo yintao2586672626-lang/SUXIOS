@@ -1381,6 +1381,16 @@
 - 当前自审计：完整目录约 `201.34 MB`；不含 `.git` 约 `94.41 MB`；不含 `.git` 和依赖约 `65.22 MB`；Git 跟踪文件约 `18.69 MB` / `615` 个；代码范围 `370` 个文件、`195,926` 行、非空 `180,036` 行；默认可清理目标为 `runtime` 约 `1.59 MB`，仍按本轮 P0/P1/P2 范围留到后续小优化。
 - 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\command\ManualFetchOnlineDataOnce.php`、`C:\xampp\php\php.exe -l app\service\OnlineTrafficDataExtractionService.php`、`C:\xampp\php\php.exe think list` 可见 `online-data:manual-fetch-once`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip"`（`101` tests / `1309` assertions）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`567` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 
+## 2026-06-11 保存点：手动 OTA 后台任务服务化与美团 accepted 路径
+
+- 新增 `app/service/ManualOnlineFetchTaskService.php`，统一承载手动 OTA 后台任务创建、`runtime/manual_fetch_tasks/<task_id>/input.json` 写入、bat/sh launcher 生成和 `online-data:manual-fetch-once` 启动；`OnlineData.php` 不再内联携程手动任务创建/启动方法。
+- 携程手动获取保持原链路：前端继续 `async=true` 提交，后端通过 service 创建 `ctrip` 任务，worker 回调 `/api/online-data/fetch-ctrip`，原保存、通知、失败状态和 OTA 渠道口径不变。
+- 美团批量手动获取补齐 accepted 路径：`public/meituan-static.js` 对每个榜单任务提交 `async=true`，后端创建 `meituan` 手动任务并立即返回运行态；前端收到 `running/queued/accepted` 后写入 task id、保持 `saved_count=0`，并延后刷新历史和数据列表，不把后台未完成状态伪装为已入库数据。
+- 更新守卫：`verify_public_entry_guard.mjs` 和 `verify_e2e_contracts.mjs` 要求 `ManualOnlineFetchTaskService` 存在、控制器通过 `createTask('ctrip'/'meituan')` 与 `launchTask()` 调用 service，并拒绝旧 `createManual*FetchBackgroundTask` / `launchManualCtripFetchBackgroundTask` 回到控制器；E2E 合同检查数增至 `576`。
+- 当前 split-map：`public/index.html` 仍为 `37,282` 行、`1,547` 个前端函数级块、`44` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,780` 行、`867` 个方法，`fetchMeituan` 仍是最大块之一，`public/index.html` 与 `OnlineData.php` 仍是 P2 拆分候选。
+- 当前自审计：完整目录约 `201.83 MB`；不含 `.git` 约 `94.43 MB`；不含 `.git` 和依赖约 `65.24 MB`；Git 跟踪文件约 `18.72 MB` / `617` 个；代码范围 `372` 个文件、`196,473` 行、非空 `180,529` 行；默认可清理目标仍为 `runtime` 约 `1.59 MB` / `87` 个文件，按本轮 P0/P1/P2 范围留到后续小优化。
+- 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\service\ManualOnlineFetchTaskService.php`、`C:\xampp\php\php.exe -l app\command\ManualFetchOnlineDataOnce.php`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`C:\xampp\php\php.exe think list` 可见 `online-data:manual-fetch-once` 与 `online-data:auto-fetch-once`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip|Meituan|meituan"`（`118` tests / `1445` assertions）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`576` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

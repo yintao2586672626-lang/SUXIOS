@@ -426,19 +426,29 @@ window.SUXI_MEITUAN_STATIC = (() => {
             dateRangeName: task.dateRangeName,
         };
         if (response.code === 200) {
+            const responseData = response.data || {};
             return {
                 ...base,
-                data: response.data.data,
-                savedCount: response.data.saved_count || 0,
-                displayHotels: response.data.display_hotels || [],
-                displaySummary: response.data.display_summary || null,
-                displayCount: response.data.display_hotel_count || (response.data.display_hotels || []).length,
+                status: responseData.status || 'success',
+                taskId: responseData.task_id || '',
+                data: responseData.data,
+                savedCount: responseData.saved_count || 0,
+                displayHotels: responseData.display_hotels || [],
+                displaySummary: responseData.display_summary || null,
+                displayCount: responseData.display_hotel_count || (responseData.display_hotels || []).length,
             };
         }
         return {
             ...base,
             error: response.message || '获取失败',
         };
+    };
+    const isMeituanBackgroundAcceptedResponse = (response = {}) => {
+        if (response.code !== 200) {
+            return false;
+        }
+        const status = String(response.data?.status || '').toLowerCase();
+        return ['accepted', 'running', 'queued'].includes(status);
     };
     const buildMeituanDisplayModelPayload = ({ results = [], form = {} } = {}) => ({
         display_hotels: (Array.isArray(results) ? results : []).flatMap(result => Array.isArray(result.displayHotels) ? result.displayHotels : []),
@@ -801,6 +811,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         setBusinessSummary(getEmptyBusinessSummary());
         const results = [];
         let totalSavedCount = 0;
+        let acceptedCount = 0;
         const fetchTasks = buildMeituanBatchFetchTasks({
             form,
             partnerId,
@@ -811,15 +822,33 @@ window.SUXI_MEITUAN_STATIC = (() => {
         try {
             for (const task of fetchTasks) {
                 notify(task.toastText);
-                const res = await requestFetch(task.body);
+                const requestBody = { ...task.body, async: true };
+                const res = await requestFetch(requestBody);
+                const accepted = isMeituanBackgroundAcceptedResponse(res);
+                if (accepted) {
+                    acceptedCount += 1;
+                }
                 results.push(buildMeituanBatchFetchResultEntry(task, res));
-                if (res.code === 200) {
+                if (res.code === 200 && !accepted) {
                     totalSavedCount += res.data.saved_count || 0;
                 }
             }
 
             setOnlineDataResult(results);
             setSavedCount(totalSavedCount);
+            if (acceptedCount > 0) {
+                notify(
+                    acceptedCount === fetchTasks.length
+                        ? `美团手动获取已提交后台执行（${acceptedCount} 个任务），完成后会更新数据列表和通知`
+                        : `美团手动获取已提交 ${acceptedCount} 个后台任务，其余任务已返回结果`,
+                    'info'
+                );
+                runPostFetchRefresh(refreshOnlineHistory);
+                if (getOnlineDataTab() === 'data') {
+                    refreshOnlineData();
+                }
+                return { status: 'accepted', results, acceptedCount, totalSavedCount };
+            }
             const modelRes = await requestDisplayModel(buildMeituanDisplayModelPayload({ results, form }));
             if (modelRes.code !== 200) {
                 throw new Error(modelRes.message || '构建美团展示模型失败');
