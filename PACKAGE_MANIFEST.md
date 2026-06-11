@@ -45,7 +45,6 @@
 | `public/index.html` | **核心**：前端 SPA（17,000 行单文件 Vue 3） |
 | `public/.htaccess` | Apache URL 重写规则 |
 | `public/vue.global.prod.js` | Vue 3 CDN 备份 |
-| `public/vue-router.global.prod.js` | Vue Router CDN 备份 |
 | `public/tailwind.min.css` | Tailwind CSS |
 | `public/font-awesome.min.css` | FontAwesome |
 | `public/style.css` | 自定义样式 |

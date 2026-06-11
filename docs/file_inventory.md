@@ -253,7 +253,6 @@
 | `public/images/logo.svg` | Logo 资源 | 保留 |
 | `public/static/.gitignore` | static 目录占位 | 保留 |
 | `public/vue.global.prod.js` | Vue 3 CDN 本地副本 | 保留 |
-| `public/vue-router.global.prod.js` | Vue Router 本地副本 | 保留 |
 | `public/tailwind.min.css` | Tailwind 本地 CSS | 保留 |
 | `public/font-awesome.min.css` | FontAwesome CSS | 保留 |
 | `public/webfonts/fa-solid-900.woff2` | FontAwesome 字体 | 保留 |

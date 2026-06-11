@@ -85,8 +85,17 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html references Vite hashed assets; do not build Vite into HOTEL/public.');
   }
 
+  const tailwindOffset = content.indexOf('href="tailwind.min.css"');
+  const vueScriptOffset = content.indexOf('src="vue.global.prod.js"');
+  if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
+    failures.push('public/index.html must discover core stylesheets before synchronous Vue/static scripts.');
+  }
+
   if (/vue-router\.global\.prod\.js/.test(content)) {
     failures.push('public/index.html must not eagerly load vue-router.global.prod.js; the current shell uses currentPage state navigation.');
+  }
+  if (fs.existsSync(path.join(repoRoot, 'public/vue-router.global.prod.js'))) {
+    failures.push('public/vue-router.global.prod.js is unused by the current shell and must not remain as a dead public asset.');
   }
 
   if (!/<script\s+src=["']form-operation-support\.js["']\s+defer\s*><\/script>/.test(content)) {
