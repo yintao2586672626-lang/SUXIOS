@@ -23118,6 +23118,9 @@
             const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus(), 180);
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
             const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
+            const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);
+            const schedulePlatformProfileStatusRefresh = (params = {}) => schedulePostFetchRefresh('platform-profile-status', () => loadPlatformProfileStatus(params), 480);
+            const schedulePlatformDataSourcesRefresh = () => schedulePostFetchRefresh('platform-data-sources', () => loadPlatformDataSources(), 620);
 
             // 切换分页
             const changeOnlineDataPage = async (page) => {
@@ -32317,7 +32320,7 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 }),
-                refreshLatestCtripData: loadLatestCtripData,
+                refreshLatestCtripData: scheduleLatestCtripRefresh,
                 refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 defaultMethod: 'POST',
                 messages: {
@@ -32349,7 +32352,7 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 }),
-                refreshLatestCtripData: loadLatestCtripData,
+                refreshLatestCtripData: scheduleLatestCtripRefresh,
                 refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 defaultMethod: 'GET',
                 messages: {
@@ -32390,14 +32393,14 @@
                 setCookieApiProfileId: value => { ctripCookieApiForm.value.profileId = value; },
                 setProfileStatus: value => { ctripProfileStatus.value = value; },
                 notify: showToast,
-                refreshLatestCtripData: params => loadLatestCtripData(params),
-                refreshOnlineHistory,
+                refreshLatestCtripData: scheduleLatestCtripRefresh,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 shouldRefreshDataHealthPanel: () => onlineDataTab.value === 'data-health'
                     && !ctripOverviewFetchActionLoading.value
                     && !ctripOverviewCoreFetchRunning.value,
-                refreshDataHealthPanel: (mode, params) => loadDataHealthPanel(mode, params),
-                refreshPlatformProfileStatus: params => loadPlatformProfileStatus(params),
-                refreshPlatformDataSources: () => loadPlatformDataSources(),
+                refreshDataHealthPanel: scheduleDataHealthPanelRefresh,
+                refreshPlatformProfileStatus: schedulePlatformProfileStatusRefresh,
+                refreshPlatformDataSources: schedulePlatformDataSourcesRefresh,
             });
 
             const loadCtripDiagnosisSnapshot = async () => {
@@ -32573,10 +32576,10 @@
                 setOnlineDataResult: value => { onlineDataResult.value = value; },
                 setShowRawData: value => { showRawData.value = value; },
                 notify: showToast,
-                refreshLatestCtripData: loadLatestCtripData,
-                refreshOnlineHistory,
+                refreshLatestCtripData: scheduleLatestCtripRefresh,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 shouldRefreshDataHealthPanel: () => onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value,
-                refreshDataHealthPanel: loadDataHealthPanel,
+                refreshDataHealthPanel: scheduleDataHealthPanelRefresh,
             });
 
             const validateCtripEndpointEvidence = async () => {
@@ -32698,8 +32701,8 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 }),
-                refreshLatestCtripData: loadLatestCtripData,
-                refreshOnlineHistory,
+                refreshLatestCtripData: scheduleLatestCtripRefresh,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
             });
 
             // 美团流量数据获取
@@ -33423,9 +33426,9 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 }),
-                refreshOnlineHistory,
-                refreshPlatformProfileStatus: loadPlatformProfileStatus,
-                refreshPlatformDataSources: loadPlatformDataSources,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
+                refreshPlatformProfileStatus: schedulePlatformProfileStatusRefresh,
+                refreshPlatformDataSources: schedulePlatformDataSourcesRefresh,
             });
 
             const saveMeituanCapturedPayload = async () => runMeituanCapturedPayloadSaveFlow({
@@ -33440,7 +33443,7 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 }),
-                refreshOnlineHistory,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
             });
 
             const goConfigureMeituanForSelectedHotel = async () => {

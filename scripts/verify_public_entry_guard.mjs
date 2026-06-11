@@ -224,6 +224,30 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('scheduleOnlineHistoryRefresh')) {
     failures.push('public/index.html must keep post-fetch refreshes deferred so manual and auto collection do not block the UI.');
   }
+  for (const requiredScheduler of [
+    'scheduleLatestCtripRefresh',
+    'scheduleDataHealthPanelRefresh',
+    'schedulePlatformProfileStatusRefresh',
+    'schedulePlatformDataSourcesRefresh',
+  ]) {
+    if (!content.includes(`const ${requiredScheduler}`)) {
+      failures.push(`public/index.html must keep ${requiredScheduler} for deferred post-fetch refresh work.`);
+    }
+  }
+  for (const directRefreshBinding of [
+    'refreshLatestCtripData: loadLatestCtripData',
+    'refreshLatestCtripData: params => loadLatestCtripData(params)',
+    'refreshDataHealthPanel: loadDataHealthPanel',
+    'refreshDataHealthPanel: (mode, params) => loadDataHealthPanel(mode, params)',
+    'refreshPlatformProfileStatus: loadPlatformProfileStatus',
+    'refreshPlatformProfileStatus: params => loadPlatformProfileStatus(params)',
+    'refreshPlatformDataSources: loadPlatformDataSources',
+    'refreshPlatformDataSources: () => loadPlatformDataSources()',
+  ]) {
+    if (content.includes(directRefreshBinding)) {
+      failures.push(`public/index.html must pass scheduled post-fetch refresh callbacks instead of direct binding: ${directRefreshBinding.trim()}`);
+    }
+  }
   const autoFetchStaticPath = path.join(repoRoot, 'public/auto-fetch-static.js');
   const autoFetchStaticContent = fs.existsSync(autoFetchStaticPath) ? fs.readFileSync(autoFetchStaticPath, 'utf8') : '';
   if (!/const\s+buildAutoFetchTriggerRequestBody[\s\S]*async:\s*true/.test(autoFetchStaticContent)) {

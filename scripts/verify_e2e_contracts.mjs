@@ -143,6 +143,22 @@ requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', '
 requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
 requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
+requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
+requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
+requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');
+requireText('public/index.html', 'const schedulePlatformDataSourcesRefresh', 'entry defers platform data-source refresh after manual collection');
+for (const directRefreshBinding of [
+  'refreshLatestCtripData: loadLatestCtripData',
+  'refreshLatestCtripData: params => loadLatestCtripData(params)',
+  'refreshDataHealthPanel: loadDataHealthPanel',
+  'refreshDataHealthPanel: (mode, params) => loadDataHealthPanel(mode, params)',
+  'refreshPlatformProfileStatus: loadPlatformProfileStatus',
+  'refreshPlatformProfileStatus: params => loadPlatformProfileStatus(params)',
+  'refreshPlatformDataSources: loadPlatformDataSources',
+  'refreshPlatformDataSources: () => loadPlatformDataSources()',
+]) {
+  requireNoText('public/index.html', directRefreshBinding, `entry avoids direct post-fetch refresh binding: ${directRefreshBinding}`);
+}
 requireNoText('public/ctrip-static.js', 'await refreshOnlineHistory();\n                await refreshLatestCtripData({ silent: true });', 'Ctrip manual fetch success does not block on history/latest snapshot refresh');
 for (const flowFile of ['public/auto-fetch-static.js', 'public/ctrip-static.js', 'public/meituan-static.js']) {
   requireText(flowFile, 'const runPostFetchRefresh', `${flowFile} uses non-blocking post-fetch refresh helper`);
