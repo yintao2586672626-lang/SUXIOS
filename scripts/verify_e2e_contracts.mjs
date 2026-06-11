@@ -198,8 +198,14 @@ requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlat
 requireNoText('public/index.html', 'await loadAutoFetchPanel();\n                    return;\n                }\n                downloadCenterTab.value = tab;', 'download tab switch does not load full platform auto-fetch panel for Ctrip settings');
 requireText('public/index.html', 'const scheduleDownloadCenterTabLoad = (tab, context = {}) => {', 'download center tab data loads are scheduled after the tab switches');
 requireText('public/index.html', "const switchDownloadTab = (tab) => {", 'download center tab switch is non-blocking');
+requireText('public/index.html', "const switchToDownloadCenter = () => {", 'Ctrip download center entry is non-blocking');
+requireText('public/index.html', "const switchToMeituanDownloadCenter = () => {", 'Meituan download center entry is non-blocking');
 requireNoText('public/index.html', 'const switchDownloadTab = async (tab) => {', 'download center tab switch must not serially await tab data loads');
+requireNoText('public/index.html', 'const switchToDownloadCenter = async () => {', 'Ctrip download center entry must not wait on history refresh before returning');
+requireNoText('public/index.html', 'const switchToMeituanDownloadCenter = async () => {', 'Meituan download center entry must not wait on list refresh before returning');
 requireNoText('public/index.html', "onlineDataTab.value = 'ctrip-fetch-settings';\n                    await loadCtripConfigList();", 'Ctrip download traffic switch must not wait on config-list loading before returning');
+requireNoText('public/index.html', "downloadCenterTab.value = 'overview';\n                await refreshOnlineHistory();", 'Ctrip download center entry must schedule history refresh after switching tabs');
+requireNoText('public/index.html', 'await loadOnlineDataList();\n                await loadOnlineDataHotelList();', 'Meituan download center entry must schedule list refresh after switching tabs');
 requireNoText('public/index.html', 'await loadOnlineDataList();\n                    await loadOnlineDataHotelList();', 'download center history and AI tab switches must not serially await list and hotel refreshes');
 requireText('public/index.html', 'await loadAutoFetchStatus({ detail: false });\n                    scheduleAutoFetchStatusDetailRefresh();\n                    schedulePlatformProfileStatusRefresh({ silent: true });', 'platform auto-fetch first paint uses light status and defers detail/profile refresh');
 requireText('public/index.html', 'const scheduleAutoFetchConfigListPrewarm = () => {', 'platform auto-fetch prewarms saved platform configs after first paint');

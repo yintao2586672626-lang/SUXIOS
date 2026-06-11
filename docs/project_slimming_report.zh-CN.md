@@ -1574,6 +1574,17 @@
 - 当前自审计：完整目录约 `231.09 MB`；不含 `.git` 约 `110.08 MB`；不含 `.git` 和依赖约 `80.89 MB`；Git 跟踪文件约 `18.91 MB` / `618` 个；代码范围 `373` 个文件、`198,568` 行、非空 `182,579` 行；默认可清理目标为 `runtime` 约 `17.04 MB` / `382` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`750` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 
+## 2026-06-12 保存点：下载中心入口后置加载
+
+- `public/index.html` 的 `switchToDownloadCenter()` 和 `switchToMeituanDownloadCenter()` 改为非阻塞入口：先切换到对应下载中心和默认 Tab，再通过 `scheduleDownloadCenterTabLoad()` 后置刷新历史、列表和酒店数据。
+- 携程下载中心入口不再在导航返回前等待 `refreshOnlineHistory()`；美团下载中心入口不再在导航返回前串行等待 `loadOnlineDataList()` 和 `loadOnlineDataHotelList()`。
+- 入口调度复用上一保存点的序号和当前 Tab 校验，快速切换页面/Tab 时过期加载不会继续更新当前视图。
+- 本保存点不改变下载中心接口、线上数据列表接口、酒店列表接口、AI 分析接口、OTA 采集、入库、字段口径、权限或数据库结构；缺失、失败和未配置状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求携程/美团下载中心入口为非阻塞函数，并禁止入口同步等待历史、列表和酒店刷新；`verify_e2e_contracts.mjs` 同步将 E2E 合同检查数提升到 `756`。
+- 当前 split-map：`public/index.html` 为 `37,504` 行、`1,571` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `231.8 MB`；不含 `.git` 约 `110.08 MB`；不含 `.git` 和依赖约 `80.89 MB`；Git 跟踪文件约 `18.92 MB` / `618` 个；代码范围 `373` 个文件、`198,587` 行、非空 `182,598` 行；默认可清理目标为 `runtime` 约 `17.05 MB` / `387` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`756` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

@@ -1605,6 +1605,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `231.09 MB`, without `.git` about `110.08 MB`, without `.git` and dependencies about `80.89 MB`, tracked files about `18.91 MB` / `618` files; code scope `373` files, `198568` total lines, and `182579` nonblank lines. Runtime cleanup is about `17.04 MB` / `382` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `750` checks; `self:audit`; `self:split-map`.
 
+## 2026-06-12 Progress: Download Center Entry Deferred Loads
+
+- `public/index.html` now makes `switchToDownloadCenter()` and `switchToMeituanDownloadCenter()` non-blocking entrypoints: they switch to the download center and default tab first, then call `scheduleDownloadCenterTabLoad()` for history, list, and hotel refreshes.
+- The Ctrip download-center entry no longer waits for `refreshOnlineHistory()` before navigation returns. The Meituan download-center entry no longer serially waits for `loadOnlineDataList()` and `loadOnlineDataHotelList()` before navigation returns.
+- The entrypoint scheduling reuses the sequence and active-tab checks from the prior save point, so stale loads are ignored after quick page or tab switches.
+- This does not change download-center APIs, online data list APIs, hotel list APIs, AI analysis APIs, OTA collection, persistence, field semantics, permissions, or database schema. Missing, failed, and unconfigured states remain explicit.
+- Guards now require the Ctrip/Meituan download-center entries to be non-blocking and reject synchronous history, list, or hotel refresh waits from those entries; `verify:e2e-contracts` covers `756` checks.
+- Current split-map: `public/index.html` has `37504` lines, `1571` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `231.8 MB`, without `.git` about `110.08 MB`, without `.git` and dependencies about `80.89 MB`, tracked files about `18.92 MB` / `618` files; code scope `373` files, `198587` total lines, and `182598` nonblank lines. Runtime cleanup is about `17.05 MB` / `387` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `756` checks; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -22740,15 +22740,19 @@
             };
 
             // 切换到下载中心（自动加载数据）
-            const switchToDownloadCenter = async () => {
+            const switchToDownloadCenter = () => {
                 onlineDataTab.value = 'ctrip-download';
                 onlineDataFilter.value.source = 'ctrip';
                 downloadCenterTab.value = 'overview';
-                await refreshOnlineHistory();
+                scheduleDownloadCenterTabLoad('overview', {
+                    onlineDataTab: 'ctrip-download',
+                    isCtripDownload: true,
+                    source: 'ctrip',
+                });
             };
 
             // 切换到美团下载中心（自动加载数据）
-            const switchToMeituanDownloadCenter = async () => {
+            const switchToMeituanDownloadCenter = () => {
                 onlineDataTab.value = 'meituan-download';
                 if (!['overview', 'traffic', 'orders', 'ads'].includes(downloadCenterTab.value)) {
                     downloadCenterTab.value = 'overview';
@@ -22756,8 +22760,11 @@
                 // 设置数据来源为美团
                 onlineDataFilter.value.source = 'meituan';
                 // 自动加载数据
-                await loadOnlineDataList();
-                await loadOnlineDataHotelList();
+                scheduleDownloadCenterTabLoad(downloadCenterTab.value, {
+                    onlineDataTab: 'meituan-download',
+                    isCtripDownload: false,
+                    source: 'meituan',
+                });
             };
 
             const getOnlineDataMetricNumber = (item, keys) => {

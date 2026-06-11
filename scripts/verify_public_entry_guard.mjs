@@ -401,13 +401,19 @@ if (!fs.existsSync(indexPath)) {
   }
   const downloadCenterTabSource = content.slice(
     content.indexOf('const scheduleDownloadCenterTabLoad = (tab, context = {}) => {'),
-    content.indexOf('const switchToDownloadCenter = async')
+    content.indexOf('const getOnlineDataMetricNumber')
   );
   if (!content.includes('const scheduleDownloadCenterTabLoad = (tab, context = {}) => {')
     || !content.includes('const switchDownloadTab = (tab) => {')
+    || !content.includes('const switchToDownloadCenter = () => {')
+    || !content.includes('const switchToMeituanDownloadCenter = () => {')
     || !/deferUiTask\(async \(\) =>[\s\S]*downloadCenterTab\.value === tab[\s\S]*Promise\.allSettled\(\[[\s\S]*loadOnlineDataList\(\),[\s\S]*loadOnlineDataHotelList\(\)/.test(downloadCenterTabSource)
     || downloadCenterTabSource.includes('const switchDownloadTab = async')
+    || downloadCenterTabSource.includes('const switchToDownloadCenter = async')
+    || downloadCenterTabSource.includes('const switchToMeituanDownloadCenter = async')
     || downloadCenterTabSource.includes("onlineDataTab.value = 'ctrip-fetch-settings';\n                    await loadCtripConfigList();")
+    || downloadCenterTabSource.includes("downloadCenterTab.value = 'overview';\n                await refreshOnlineHistory();")
+    || downloadCenterTabSource.includes('await loadOnlineDataList();\n                await loadOnlineDataHotelList();')
     || downloadCenterTabSource.includes('await loadOnlineDataList();\n                    await loadOnlineDataHotelList();')) {
     failures.push('public/index.html download center tab switches must schedule list/config/AI loads after the tab changes.');
   }
