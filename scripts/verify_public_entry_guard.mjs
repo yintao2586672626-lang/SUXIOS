@@ -740,11 +740,20 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const loadOnlineHistory = async'),
     content.indexOf('const refreshOnlineHistory = async')
   );
+  const hotelDashboardSource = content.slice(
+    content.indexOf('const loadHotelDataDashboard = async'),
+    content.indexOf('const DATA_HEALTH_LIGHT_CACHE_TTL_MS')
+  );
   if (!dataHealthStaticContent.includes('const buildOnlineHistoryQueryParams = ({ page = 1, pageSize = 20, filter = {} } = {}) => {')
     || !dataHealthStaticContent.includes('buildOnlineHistoryQueryParams,')
+    || !dataHealthStaticContent.includes('const buildHotelDataDashboardRequests = ({ selectedHotelId = \'\', days = 30 } = {}) => {')
+    || !dataHealthStaticContent.includes('buildHotelDataDashboardRequests,')
     || !content.includes("const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');")
-    || !content.includes('data-health-static.js?v=20260612-history-query')
+    || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
+    || !content.includes('data-health-static.js?v=20260612-dashboard-requests')
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
+    || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
+    || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')
     || !content.includes('let onlineHistoryHotelListLoadingPromise = null;')
     || !content.includes('const onlineHistoryHotelListLoaded = ref(false);')
     || !content.includes('const refreshOnlineHistory = async (options = {}) => {')
@@ -753,7 +762,7 @@ if (!fs.existsSync(indexPath)) {
     || content.includes("schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340)")
     || onlineHistorySource.includes('const params = new URLSearchParams({')
     || onlineHistorySource.includes("params.append('hotel_id', filter.hotel_scope);")) {
-    failures.push('public/index.html must delegate online history query construction and avoid reloading hotel filters on post-fetch history refresh.');
+    failures.push('public/index.html must delegate online history and hotel dashboard request construction and avoid reloading hotel filters on post-fetch history refresh.');
   }
   if (/ctrip_auto_fetch_mode:\s*['"]profile_browser['"]/.test(autoFetchModePayloadSource)) {
     failures.push('public/index.html must not force platform auto-fetch Ctrip runs through browser Profile by default.');

@@ -1694,6 +1694,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `244.22 MB`, without `.git` about `115.68 MB`, without `.git` and dependencies about `86.49 MB`, tracked files about `18.99 MB` / `618` files; code scope `373` files, `199009` total lines, and `183013` nonblank lines. Runtime cleanup is about `22.57 MB` / `631` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: PHP syntax checks for `app/service/MeituanRankDataExtractionService.php` and `app/controller/OnlineData.php`; `node --check scripts\verify_e2e_contracts.mjs`; `tests\MeituanRankDataExtractionServiceTest.php` with `4` tests and `12` assertions; `tests\OnlineDataTest.php --filter MeituanBusiness` with `3` tests and `35` assertions; `verify:e2e-contracts` with `836` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Hotel Data Dashboard Request Builder Split
+
+- `public/data-health-static.js` now owns `buildHotelDataDashboardRequests()` for hotel data dashboard account overview, hotel portrait, and data-source status request URLs.
+- `public/index.html` keeps `loadHotelDataDashboard()` responsible for loading state, parallel requests, response state writes, visible errors, and full-diagnostic loaded markers. It no longer inlines the dashboard `URLSearchParams` request construction.
+- This does not change dashboard APIs, UI rendering, OTA collection, persistence, field semantics, permissions, or database schema. Missing and failed states remain explicit in the existing loader.
+- The data-health static script version is bumped to `20260612-dashboard-requests`; guards now require the new helper export and entry usage, and reject re-inlined dashboard request parameter construction.
+- Current split-map: `public/index.html` decreased from `37544` to `37539` lines, and `loadHotelDataDashboard` decreased from `56` to `50` lines. `public/index.html` still has `1579` frontend function-level blocks and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26903` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `244.72 MB`, without `.git` about `115.69 MB`, without `.git` and dependencies about `86.5 MB`, tracked files about `19 MB` / `620` files; code scope `375` files, `199275` total lines, and `183249` nonblank lines. Runtime cleanup is about `22.57 MB` / `647` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\data-health-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `841` checks; `self:split-map`; `self:audit`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

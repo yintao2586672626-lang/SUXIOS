@@ -470,9 +470,13 @@ requireText('public/index.html', "requireDataHealthStatic('buildOnlineAnalysisCh
 requireText('public/data-health-static.js', 'const buildOnlineAnalysisChartConfig', 'data-health static builds online analysis chart config');
 requireText('public/index.html', 'new ChartLib(ctx, buildOnlineAnalysisChartConfig(analysisData.value.chart_data))', 'analysis chart rendering keeps only lifecycle wiring in the SPA entry');
 requireText('public/index.html', "requireDataHealthStatic('buildOnlineHistoryQueryParams')", 'entry uses extracted online history query parameter builder');
-requireText('public/index.html', 'data-health-static.js?v=20260612-history-query', 'entry bumps data-health static helper version for online history query exports');
+requireText('public/index.html', "requireDataHealthStatic('buildHotelDataDashboardRequests')", 'entry uses extracted hotel data dashboard request builder');
+requireText('public/index.html', 'data-health-static.js?v=20260612-dashboard-requests', 'entry bumps data-health static helper version for dashboard request exports');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
+requireText('public/data-health-static.js', 'const buildHotelDataDashboardRequests', 'data-health static builds hotel data dashboard request URLs');
 requireText('public/index.html', 'const params = buildOnlineHistoryQueryParams({', 'online history loader delegates query parameter construction');
+requireText('public/index.html', 'const requests = buildHotelDataDashboardRequests({ selectedHotelId });', 'hotel data dashboard loader delegates request URL construction');
+requireNoText('public/index.html', "const accountParams = new URLSearchParams();\n                    accountParams.append('days', '30');", 'hotel data dashboard request parameters are not re-inlined');
 requireText('public/index.html', 'let onlineHistoryHotelListLoadingPromise = null;', 'online history hotel filter options deduplicate in-flight hotel list loads');
 requireText('public/index.html', 'const onlineHistoryHotelListLoaded = ref(false);', 'online history hotel filter options track loaded state');
 requireText('public/index.html', 'const refreshOnlineHistory = async (options = {}) => {', 'online history refresh supports skipping hotel filter reloads');
@@ -503,6 +507,9 @@ requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis
   const competitorParams = context.window.SUXI_DATA_HEALTH_STATIC.buildOnlineHistoryQueryParams({
     filter: { platform: 'all', data_type: 'all', hotel_scope: 'competitor_avg' },
   });
+  const dashboardRequests = context.window.SUXI_DATA_HEALTH_STATIC.buildHotelDataDashboardRequests({
+    selectedHotelId: '58',
+  });
   checks.push({
     file: 'public/data-health-static.js',
     label: 'online analysis chart config preserves chart data and axis semantics',
@@ -530,6 +537,14 @@ requireNoText('public/index.html', "text: '销售额(¥)'", 'analysis chart axis
       && competitorParams.get('hotel_scope') === 'competitor_avg'
       && !competitorParams.has('hotel_id'),
     detail: 'buildOnlineHistoryQueryParams samples',
+  });
+  checks.push({
+    file: 'public/data-health-static.js',
+    label: 'hotel data dashboard request builder preserves endpoint and hotel filter semantics',
+    ok: dashboardRequests.accountOverviewUrl === '/dashboard/account-overview?days=30'
+      && dashboardRequests.hotelPortraitUrl === '/dashboard/hotel-portrait?days=30&hotel_id=58'
+      && dashboardRequests.dataSourcesUrl === '/dashboard/data-sources?days=30',
+    detail: 'buildHotelDataDashboardRequests sample',
   });
 }
 requireText('public/index.html', ':data-testid="pageTestId(currentPage)"', 'active page container exposes current page test id');

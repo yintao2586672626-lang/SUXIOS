@@ -71,6 +71,22 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return params;
     };
 
+    const buildHotelDataDashboardRequests = ({ selectedHotelId = '', days = 30 } = {}) => {
+        const accountParams = new URLSearchParams();
+        accountParams.append('days', String(days || 30));
+        const portraitParams = new URLSearchParams(accountParams);
+        const sourceParams = new URLSearchParams(accountParams);
+        if (selectedHotelId) {
+            portraitParams.append('hotel_id', selectedHotelId);
+        }
+
+        return {
+            accountOverviewUrl: `/dashboard/account-overview?${accountParams.toString()}`,
+            hotelPortraitUrl: `/dashboard/hotel-portrait?${portraitParams.toString()}`,
+            dataSourcesUrl: `/dashboard/data-sources?${sourceParams.toString()}`,
+        };
+    };
+
     const collectionHealthCookieLightClass = (row) => ({
         green: 'bg-green-500',
         red: 'bg-red-500',
@@ -690,6 +706,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineDataQualityScopeText,
         autoFetchRecordStatusClass,
         buildOnlineHistoryQueryParams,
+        buildHotelDataDashboardRequests,
         collectionHealthCookieLightClass,
         collectionHealthCookieLightText,
         dataHealthNormalizeStatus,

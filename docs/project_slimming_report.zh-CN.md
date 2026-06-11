@@ -1661,6 +1661,16 @@
 - 当前 self-audit：完整目录约 `244.22 MB`，不含 `.git` 约 `115.68 MB`，不含 `.git` 和依赖约 `86.49 MB`，Git 跟踪文件约 `18.99 MB / 618` 个；代码范围 `373` 个文件、`199,009` 行、非空 `183,013` 行。默认可清理目标为 `runtime` 约 `22.57 MB / 631` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`C:\xampp\php\php.exe -l app\service\MeituanRankDataExtractionService.php`、`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`node --check scripts\verify_e2e_contracts.mjs`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\MeituanRankDataExtractionServiceTest.php`（`4` tests / `12` assertions）、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter MeituanBusiness`（`3` tests / `35` assertions）、`npm.cmd run verify:e2e-contracts`（`836` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-12 保存点：酒店数据驾驶舱请求构造拆分
+
+- `public/data-health-static.js` 新增 `buildHotelDataDashboardRequests()`，集中生成酒店数据驾驶舱的账号概览、单店画像和数据源状态三个请求 URL。
+- `public/index.html` 的 `loadHotelDataDashboard()` 继续负责加载状态、并发请求、响应写回、错误提示和完整诊断加载标记，不再内联 `URLSearchParams` 请求参数分支。
+- 本轮不改 `/dashboard/account-overview`、`/dashboard/hotel-portrait`、`/dashboard/data-sources` 接口，不改 UI、OTA 采集、持久化、字段口径、权限或数据库结构；缺失和失败状态仍在原入口显式展示。
+- `data-health-static.js` 版本从 `20260612-history-query` bump 到 `20260612-dashboard-requests`，避免浏览器缓存旧 helper；`verify_e2e_contracts.mjs` 和 `verify_public_entry_guard.mjs` 同步要求入口调用新 helper，并禁止 dashboard 请求参数重新内联。
+- 当前 split-map：`public/index.html` 从 `37,544` 行降至 `37,539` 行，`loadHotelDataDashboard` 从 `56` 行降至 `50` 行；`public/index.html` 仍为 `1,579` 个前端函数级块、`43` 个 `currentPage` 引用。`app/controller/OnlineData.php` 为 `26,903` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `244.72 MB`，不含 `.git` 约 `115.69 MB`，不含 `.git` 和依赖约 `86.5 MB`，Git 跟踪文件约 `19 MB / 620` 个；代码范围 `375` 个文件、`199,275` 行、非空 `183,249` 行。默认可清理目标为 `runtime` 约 `22.57 MB / 647` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\data-health-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`841` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

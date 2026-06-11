@@ -14,7 +14,7 @@
     <script src="form-operation-support.js" defer></script>
     <script src="ctrip-static.js?v=20260612-manual-tab-perf"></script>
     <script src="meituan-static.js?v=20260612-manual-fetch-perf"></script>
-    <script src="data-health-static.js?v=20260612-history-query"></script>
+    <script src="data-health-static.js?v=20260612-dashboard-requests"></script>
     <script src="ota-diagnosis-static.js?v=20260611-core-fetch"></script>
     <script src="system-static.js?v=20260612-platform-binding"></script>
     <script src="compass-static.js?v=20260611-open-fix"></script>
@@ -19427,6 +19427,7 @@
             const onlineDataQualityScopeText = requireDataHealthStatic('onlineDataQualityScopeText');
             const autoFetchRecordStatusClass = requireDataHealthStatic('autoFetchRecordStatusClass');
             const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');
+            const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');
             const collectionHealthCookieLightClass = requireDataHealthStatic('collectionHealthCookieLightClass');
             const collectionHealthCookieLightText = requireDataHealthStatic('collectionHealthCookieLightText');
             const dataHealthNormalizeStatus = requireDataHealthStatic('dataHealthNormalizeStatus');
@@ -23841,18 +23842,12 @@
                 hotelDashboardError.value = '';
                 const selectedHotelId = dashboardHotelId.value || getAutoFetchHotelId();
                 try {
-                    const accountParams = new URLSearchParams();
-                    accountParams.append('days', '30');
-                    const portraitParams = new URLSearchParams(accountParams);
-                    const sourceParams = new URLSearchParams(accountParams);
-                    if (selectedHotelId) {
-                        portraitParams.append('hotel_id', selectedHotelId);
-                    }
+                    const requests = buildHotelDataDashboardRequests({ selectedHotelId });
 
                     const [accountResult, portraitResult, sourceResult] = await Promise.all([
-                        request(`/dashboard/account-overview?${accountParams.toString()}`),
-                        request(`/dashboard/hotel-portrait?${portraitParams.toString()}`),
-                        request(`/dashboard/data-sources?${sourceParams.toString()}`),
+                        request(requests.accountOverviewUrl),
+                        request(requests.hotelPortraitUrl),
+                        request(requests.dataSourcesUrl),
                     ]);
 
                     if (accountResult.code === 200) {
