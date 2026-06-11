@@ -170,6 +170,9 @@ for (const flowFile of ['public/auto-fetch-static.js', 'public/ctrip-static.js',
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBody', 'auto-fetch static builds trigger request bodies');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
 requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'auto-fetch static runs manual trigger flow');
+requireText('public/auto-fetch-static.js', 'const resolveDataConfigTestEndpoint', 'auto-fetch static resolves data-source test endpoints');
+requireText('public/auto-fetch-static.js', 'const runDataConfigTestFlow', 'auto-fetch static runs data-source config test flow');
+requireText('public/index.html', "requireAutoFetchStatic('runDataConfigTestFlow')", 'entry uses extracted data-source config test flow runner');
 requireText('public/auto-fetch-static.js', 'async: true', 'auto-fetch trigger submits quickly and lets backend continue collection');
 requireText('public/auto-fetch-static.js', "return { status: 'accepted'", 'auto-fetch trigger keeps backend queued state non-blocking');
 requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
@@ -603,14 +606,20 @@ try {
   const buildAutoFetchTriggerRequestBody = autoFetchStatic.buildAutoFetchTriggerRequestBody;
   const buildAutoFetchRunStartState = autoFetchStatic.buildAutoFetchRunStartState;
   const runAutoFetchTriggerFlow = autoFetchStatic.runAutoFetchTriggerFlow;
+  const resolveDataConfigTestEndpoint = autoFetchStatic.resolveDataConfigTestEndpoint;
+  const buildDataConfigTestRequest = autoFetchStatic.buildDataConfigTestRequest;
+  const runDataConfigTestFlow = autoFetchStatic.runDataConfigTestFlow;
   if (typeof buildAutoFetchTriggerRequestBody !== 'function'
     || typeof buildAutoFetchRunStartState !== 'function'
-    || typeof runAutoFetchTriggerFlow !== 'function') {
+    || typeof runAutoFetchTriggerFlow !== 'function'
+    || typeof resolveDataConfigTestEndpoint !== 'function'
+    || typeof buildDataConfigTestRequest !== 'function'
+    || typeof runDataConfigTestFlow !== 'function') {
     checks.push({
       file: 'public/auto-fetch-static.js',
       label: 'auto-fetch static exports trigger flow helpers',
       ok: false,
-      detail: 'trigger request, start state, flow runner',
+      detail: 'trigger request, start state, flow runner, data-config test runner',
     });
   } else {
     const triggerBody = buildAutoFetchTriggerRequestBody({
@@ -682,6 +691,63 @@ try {
     const exceptionRun = await runTriggerSample({ throwRequest: true });
     const missingHotelRun = await runTriggerSample({ hotelId: '' });
     const missingConfigRun = await runTriggerSample({ hasConfig: false });
+    const ctripAdsEndpoint = resolveDataConfigTestEndpoint('ctrip-ads');
+    const unsupportedEndpoint = resolveDataConfigTestEndpoint('booking-ota');
+    const invalidEndpoint = resolveDataConfigTestEndpoint('unknown-platform');
+    const ctripAdsTestRequest = buildDataConfigTestRequest({
+      type: 'ctrip-ads',
+      form: {
+        url: 'https://m.ctrip.com/restapi/soa2/18320/json/queryCampaignReportList',
+        cookies: 'sid=secret',
+        payload_json: '{"page":1}',
+        start_date: '2026-06-10',
+        end_date: '2026-06-11',
+        system_hotel_id: 'hotel-58',
+      },
+      validateCtripAdsApiUrl: url => url.includes('queryCampaignReportList'),
+      ctripAdsApiUrlHint: 'ads url hint',
+    });
+    const invalidCtripAdsTestRequest = buildDataConfigTestRequest({
+      type: 'ctrip-ads',
+      form: { url: 'https://ebooking.ctrip.com/page' },
+      validateCtripAdsApiUrl: url => url.includes('queryCampaignReportList'),
+      ctripAdsApiUrlHint: 'ads url hint',
+    });
+    const runDataConfigTestSample = async (overrides = {}) => {
+      const events = [];
+      let capturedApiUrl = '';
+      let capturedBody = null;
+      const result = await runDataConfigTestFlow({
+        getType: () => (overrides.type === undefined ? 'ctrip-ads' : overrides.type),
+        getForm: () => overrides.form || {
+          url: 'https://m.ctrip.com/restapi/soa2/18320/json/queryCampaignReportList',
+          cookies: 'sid=secret',
+          payload_json: '{"page":1}',
+          start_date: '2026-06-10',
+          end_date: '2026-06-11',
+          system_hotel_id: 'hotel-58',
+        },
+        setTesting: value => events.push(['testing', value]),
+        notify: (message, level = 'success') => events.push(['notify', level, message]),
+        validateCtripAdsApiUrl: url => url.includes('queryCampaignReportList'),
+        ctripAdsApiUrlHint: 'ads url hint',
+        requestTest: async (apiUrl, body) => {
+          capturedApiUrl = apiUrl;
+          capturedBody = body;
+          events.push(['request', apiUrl, body]);
+          if (overrides.throwRequest) {
+            throw new Error('network failed');
+          }
+          return overrides.response || { code: 200, message: 'ok', data: { saved_count: 2 } };
+        },
+      });
+      return { result, events, capturedApiUrl, capturedBody };
+    };
+    const configSuccessRun = await runDataConfigTestSample();
+    const configFailedRun = await runDataConfigTestSample({ response: { code: 500, message: 'connection failed' } });
+    const configUnsupportedRun = await runDataConfigTestSample({ type: 'booking-ota' });
+    const configInvalidUrlRun = await runDataConfigTestSample({ form: { url: 'https://ebooking.ctrip.com/page' } });
+    const configExceptionRun = await runDataConfigTestSample({ throwRequest: true });
 
     checks.push({
       file: 'public/auto-fetch-static.js',
@@ -784,6 +850,51 @@ try {
         && !missingConfigRun.events.some(event => event[0] === 'fetching')
         && !missingConfigRun.events.some(event => event[0] === 'timer'),
       detail: 'missing config guard',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'data-source config test endpoint mapping keeps explicit unsupported states',
+      ok: ctripAdsEndpoint.status === 'ready'
+        && ctripAdsEndpoint.apiUrl === '/online-data/fetch-ctrip-ads'
+        && unsupportedEndpoint.status === 'unsupported'
+        && unsupportedEndpoint.level === 'info'
+        && invalidEndpoint.status === 'unknown_type'
+        && invalidEndpoint.level === 'error',
+      detail: 'resolveDataConfigTestEndpoint samples',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'data-source config test request preserves OTA scope and URL validation',
+      ok: ctripAdsTestRequest.status === 'ready'
+        && ctripAdsTestRequest.apiUrl === '/online-data/fetch-ctrip-ads'
+        && ctripAdsTestRequest.body?.api_type === 'effect_report'
+        && ctripAdsTestRequest.body?.cookies === 'sid=secret'
+        && ctripAdsTestRequest.body?.payload_json === '{"page":1}'
+        && ctripAdsTestRequest.body?.system_hotel_id === 'hotel-58'
+        && invalidCtripAdsTestRequest.status === 'invalid_url'
+        && invalidCtripAdsTestRequest.message === 'ads url hint',
+      detail: 'buildDataConfigTestRequest samples',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
+      label: 'data-source config test flow keeps success, failed and skipped states visible',
+      ok: configSuccessRun.result.status === 'success'
+        && configSuccessRun.capturedApiUrl === '/online-data/fetch-ctrip-ads'
+        && configSuccessRun.capturedBody?.cookies === 'sid=secret'
+        && configSuccessRun.events.some(event => event[0] === 'notify' && event[2] === '连接测试成功！数据获取正常')
+        && configFailedRun.result.status === 'failed'
+        && configFailedRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2] === 'connection failed')
+        && configUnsupportedRun.result.status === 'unsupported'
+        && configUnsupportedRun.events.some(event => event[0] === 'notify' && event[1] === 'info')
+        && !configUnsupportedRun.events.some(event => event[0] === 'request')
+        && configInvalidUrlRun.result.status === 'invalid_url'
+        && configInvalidUrlRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2] === 'ads url hint')
+        && !configInvalidUrlRun.events.some(event => event[0] === 'request')
+        && configExceptionRun.result.status === 'exception'
+        && configExceptionRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('network failed'))
+        && [configSuccessRun, configFailedRun, configUnsupportedRun, configInvalidUrlRun, configExceptionRun].every(run => run.events[0]?.[0] === 'testing' && run.events[0]?.[1] === true)
+        && [configSuccessRun, configFailedRun, configUnsupportedRun, configInvalidUrlRun, configExceptionRun].every(run => run.events[run.events.length - 1]?.[0] === 'testing' && run.events[run.events.length - 1]?.[1] === false),
+      detail: 'runDataConfigTestFlow samples',
     });
   }
 } catch (error) {

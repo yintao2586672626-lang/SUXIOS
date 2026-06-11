@@ -188,8 +188,17 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must load auto-fetch-static.js before opening the platform-auto panel or triggering manual auto-fetch.');
   }
   if (!/const openDataConfigModal = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const loadDataConfig = async/.test(content)
-    || !/const saveDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const testDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);/.test(content)) {
+    || !/const saveDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const testDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runDataConfigTestFlow['"]\)/.test(content)) {
     failures.push('public/index.html must load auto-fetch-static.js before data-source config form parsing, saving, or testing.');
+  }
+  const testDataConfigStart = content.indexOf('const testDataConfig = async');
+  const testDataConfigEnd = content.indexOf('const loadHolidayRevenueCountdown = async', testDataConfigStart);
+  const testDataConfigSource = testDataConfigStart >= 0 && testDataConfigEnd > testDataConfigStart
+    ? content.slice(testDataConfigStart, testDataConfigEnd)
+    : '';
+  if (/switch\s*\(\s*type\s*\)/.test(testDataConfigSource)
+    || /\/online-data\/fetch-ctrip-ads/.test(testDataConfigSource)) {
+    failures.push('public/index.html must not re-inline data-source config test endpoint selection; use auto-fetch-static.js runDataConfigTestFlow.');
   }
   if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*loadCtripConfigList\(\)[\s\S]*loadMeituanConfigList\(\)/.test(content)) {
     failures.push('public/index.html must keep a lightweight manual-fetch config prewarm that loads saved Ctrip/Meituan config lists without opening the full platform-auto panel.');

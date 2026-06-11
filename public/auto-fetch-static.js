@@ -288,6 +288,101 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         return compactDataConfigBody(body);
     };
 
+    const dataConfigTestEndpointMap = {
+        'ctrip-ebooking': '/online-data/fetch-ctrip',
+        'meituan-ebooking': '/online-data/fetch-meituan',
+        'ctrip-traffic': '/online-data/fetch-ctrip-traffic',
+        'ctrip-cookie-api': '/online-data/fetch-ctrip-cookie-api',
+        'meituan-traffic': '/online-data/fetch-meituan-traffic',
+        'ctrip-ads': '/online-data/fetch-ctrip-ads',
+        'meituan-ads': '/online-data/fetch-meituan-ads',
+    };
+    const unsupportedDataConfigTestTypes = new Set(['booking-ota', 'agoda-ota', 'expedia-ota']);
+    const resolveDataConfigTestEndpoint = (type = '') => {
+        const key = String(type || '');
+        if (unsupportedDataConfigTestTypes.has(key)) {
+            return {
+                status: 'unsupported',
+                type: key,
+                message: '该平台当前支持配置保存，自动连接测试需后续接入平台接口',
+                level: 'info',
+            };
+        }
+        const apiUrl = dataConfigTestEndpointMap[key] || '';
+        if (!apiUrl) {
+            return {
+                status: 'unknown_type',
+                type: key,
+                message: '未知配置类型',
+                level: 'error',
+            };
+        }
+        return { status: 'ready', type: key, apiUrl };
+    };
+    const buildDataConfigTestRequest = ({
+        type = '',
+        form = {},
+        validateCtripAdsApiUrl = () => true,
+        ctripAdsApiUrlHint = '',
+    } = {}) => {
+        const endpoint = resolveDataConfigTestEndpoint(type);
+        if (endpoint.status !== 'ready') return endpoint;
+        if (endpoint.type === 'ctrip-ads') {
+            const url = String(firstDataConfigValue(form.url, form.request_url, form.requestUrl)).trim();
+            if (url && !validateCtripAdsApiUrl(url)) {
+                return {
+                    status: 'invalid_url',
+                    type: endpoint.type,
+                    message: ctripAdsApiUrlHint || '接口 URL 不符合携程广告接口要求',
+                    level: 'error',
+                };
+            }
+        }
+        return {
+            status: 'ready',
+            type: endpoint.type,
+            apiUrl: endpoint.apiUrl,
+            body: buildDataConfigRequestBody(endpoint.type, form),
+        };
+    };
+    const runDataConfigTestFlow = async ({
+        getType = () => '',
+        getForm = () => ({}),
+        setTesting = () => {},
+        notify = () => {},
+        requestTest = async () => ({}),
+        validateCtripAdsApiUrl = () => true,
+        ctripAdsApiUrlHint = '',
+    } = {}) => {
+        setTesting(true);
+        try {
+            const requestContext = buildDataConfigTestRequest({
+                type: getType(),
+                form: getForm() || {},
+                validateCtripAdsApiUrl,
+                ctripAdsApiUrlHint,
+            });
+            if (requestContext.status !== 'ready') {
+                notify(requestContext.message, requestContext.level);
+                return requestContext;
+            }
+
+            const res = await requestTest(requestContext.apiUrl, requestContext.body);
+            if (res.code === 200) {
+                notify('连接测试成功！数据获取正常');
+                return { ...requestContext, status: 'success', response: res };
+            }
+
+            notify(res.message || '连接测试失败', 'error');
+            return { ...requestContext, status: 'failed', response: res };
+        } catch (error) {
+            notify('测试失败: ' + error.message, 'error');
+            return { status: 'exception', error };
+        } finally {
+            setTesting(false);
+        }
+    };
+
     const buildAutoFetchTriggerRequestBody = ({
         hotelId = '',
         browserHeadless = false,
@@ -450,6 +545,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         normalizeDataConfigForForm,
         compactDataConfigBody,
         buildDataConfigRequestBody,
+        resolveDataConfigTestEndpoint,
+        buildDataConfigTestRequest,
+        runDataConfigTestFlow,
         buildAutoFetchTriggerRequestBody,
         buildAutoFetchRunStartState,
         runAutoFetchTriggerFlow,

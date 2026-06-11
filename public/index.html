@@ -31751,69 +31751,24 @@
             };
 
             const testDataConfig = async () => {
-                testingConfig.value = true;
                 try {
                     await ensureAutoFetchStaticReady();
-                    let apiUrl = '';
-                    const type = currentDataConfigType.value;
-
-                    if (['booking-ota', 'agoda-ota', 'expedia-ota'].includes(type)) {
-                        showToast('该平台当前支持配置保存，自动连接测试需后续接入平台接口', 'info');
-                        return;
-                    }
-
-                    // 根据类型选择API
-                    switch(type) {
-                        case 'ctrip-ebooking':
-                            apiUrl = '/online-data/fetch-ctrip';
-                            break;
-                        case 'meituan-ebooking':
-                            apiUrl = '/online-data/fetch-meituan';
-                            break;
-                        case 'ctrip-traffic':
-                            apiUrl = '/online-data/fetch-ctrip-traffic';
-                            break;
-                        case 'ctrip-cookie-api':
-                            apiUrl = '/online-data/fetch-ctrip-cookie-api';
-                            break;
-                        case 'meituan-traffic':
-                            apiUrl = '/online-data/fetch-meituan-traffic';
-                            break;
-                        case 'ctrip-ads':
-                            apiUrl = '/online-data/fetch-ctrip-ads';
-                            break;
-                        case 'meituan-ads':
-                            apiUrl = '/online-data/fetch-meituan-ads';
-                            break;
-                        default:
-                            showToast('未知配置类型', 'error');
-                            return;
-                    }
-
-                    if (type === 'ctrip-ads') {
-                        const url = String(firstDataConfigValue(dataConfigForm.value.url, dataConfigForm.value.request_url, dataConfigForm.value.requestUrl)).trim();
-                        if (url && !isCtripAdsApiUrl(url)) {
-                            showToast(ctripAdsApiUrlHint, 'error');
-                            return;
-                        }
-                    }
-
-                    const body = buildDataConfigRequestBody(type);
-
-                    const res = await request(apiUrl, {
-                        method: 'POST',
-                        body: JSON.stringify(body),
+                    return await requireAutoFetchStatic('runDataConfigTestFlow')({
+                        getType: () => currentDataConfigType.value,
+                        getForm: () => dataConfigForm.value || {},
+                        setTesting: value => { testingConfig.value = value; },
+                        notify: showToast,
+                        validateCtripAdsApiUrl: isCtripAdsApiUrl,
+                        ctripAdsApiUrlHint,
+                        requestTest: (apiUrl, body) => request(apiUrl, {
+                            method: 'POST',
+                            body: JSON.stringify(body),
+                        }),
                     });
-
-                    if (res.code === 200) {
-                        showToast('连接测试成功！数据获取正常');
-                    } else {
-                        showToast(res.message || '连接测试失败', 'error');
-                    }
                 } catch (e) {
-                    showToast('测试失败: ' + e.message, 'error');
-                } finally {
                     testingConfig.value = false;
+                    showToast('测试失败: ' + e.message, 'error');
+                    return { status: 'exception', error: e };
                 }
             };
 
