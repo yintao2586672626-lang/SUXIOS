@@ -1536,6 +1536,18 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `222.6 MB`, without `.git` about `106.51 MB`, without `.git` and dependencies about `77.32 MB`, tracked files about `18.86 MB` / `618` files; code scope `373` files, `198144` total lines, and `182165` nonblank lines. Runtime cleanup is about `13.53 MB` / `296` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `694` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Meituan eBooking Config-State Closure
+
+- `public/index.html` now enters Meituan eBooking through `scheduleMeituanEbookingDeferredStartupRefresh()`, deferring Meituan config-list, platform config, and hotel-list refreshes instead of starting config-list loading directly from the page-switch block.
+- Meituan hotel-config matching now reuses `loadMeituanConfigList()` instead of issuing an inline `/online-data/get-meituan-config-list` request, preserving config-list loaded/failed flags and request de-dupe behavior.
+- Manual online-data config prewarm now checks Ctrip/Meituan `ConfigListLoaded` flags, so a known-empty config list is not refetched on each manual data-tab entry.
+- Meituan eBooking selected-hotel UI now distinguishes pending config read, config read failure, and confirmed unconfigured states. It only shows the hotel as unconfigured after the config list has loaded successfully.
+- This does not change Meituan fetch APIs, config APIs, OTA persistence, field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and running states remain explicit.
+- Guards now require the Meituan eBooking deferred helper, explicit config states, and shared config-list loader; `verify:e2e-contracts` covers `706` checks.
+- Current split-map: `public/index.html` has `37438` lines, `1566` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `224.99 MB`, without `.git` about `107.51 MB`, without `.git` and dependencies about `78.32 MB`, tracked files about `18.87 MB` / `618` files; code scope `373` files, `198200` total lines, and `182221` nonblank lines. Runtime cleanup is about `14.53 MB` / `309` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `706` checks; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -283,6 +283,33 @@ if (!fs.existsSync(indexPath)) {
   if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*Promise\.allSettled\(\[[\s\S]*loadCtripConfigList\(\)[\s\S]*loadCookiesList\(\)[\s\S]*loadBookmarklet\(\)[\s\S]*\]\)/.test(ctripEbookingDefaultLoader)) {
     failures.push('public/index.html Ctrip eBooking default loader must not start config/latest/cookie/bookmarklet refreshes in the first-paint request group.');
   }
+  const meituanEbookingDefaultLoader = content.slice(
+    content.indexOf("if (newPage === 'meituan-ebooking'"),
+    content.indexOf("if (newPage === 'hotels'")
+  );
+  if (!content.includes('const scheduleMeituanEbookingDeferredStartupRefresh = () => {')
+    || !meituanEbookingDefaultLoader.includes('scheduleMeituanEbookingDeferredStartupRefresh();')) {
+    failures.push('public/index.html must defer Meituan eBooking config matching and secondary startup refreshes until after route entry.');
+  }
+  if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*loadMeituanConfigList\(\)/.test(meituanEbookingDefaultLoader)) {
+    failures.push('public/index.html Meituan eBooking default loader must not synchronously request saved configs in the first-paint group.');
+  }
+  if (!content.includes('配置待读取，正在准备美团数据源匹配...')
+    || !content.includes('配置读取失败，请刷新后重试；未读取成功前不会判断为未配置。')
+    || !/meituanConfigListLoaded && !selectedMeituanHotelConfig/.test(content)) {
+    failures.push('public/index.html Meituan manual fetch must distinguish pending, failed, and confirmed-missing config states.');
+  }
+  const applyMeituanHotelConfigSource = content.slice(
+    content.indexOf('const applyMeituanHotelConfig = async'),
+    content.indexOf('const syncMeituanTrafficConfigFromSelectedConfig')
+  );
+  if (!/await loadMeituanConfigList\(\);\s*if \(requestedHotelId !== String\(meituanForm\.value\.hotelId \|\| ['"]['"]\)\) return;/.test(applyMeituanHotelConfigSource)
+    || applyMeituanHotelConfigSource.includes("request('/online-data/get-meituan-config-list')")) {
+    failures.push('public/index.html Meituan hotel selection must reuse the deduplicated config-list loader instead of issuing a direct list request.');
+  }
+  if (!/const ensureManualOnlineFetchConfigReady = async[\s\S]*!ctripConfigListLoaded\.value && !ctripConfigList\.value\.length[\s\S]*!meituanConfigListLoaded\.value && !meituanConfigList\.value\.length/.test(content)) {
+    failures.push('public/index.html manual online-data config prewarm must not refetch known-empty Ctrip or Meituan config lists.');
+  }
   const onlineDataDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'online-data' && token.value)"),
     content.indexOf("if (newPage === 'operation-logs'")

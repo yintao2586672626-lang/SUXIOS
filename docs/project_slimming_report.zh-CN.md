@@ -1505,6 +1505,18 @@
 - 当前自审计：完整目录约 `222.6 MB`；不含 `.git` 约 `106.51 MB`；不含 `.git` 和依赖约 `77.32 MB`；Git 跟踪文件约 `18.86 MB` / `618` 个；代码范围 `373` 个文件、`198,144` 行、非空 `182,165` 行；默认可清理目标为 `runtime` 约 `13.53 MB` / `296` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`694` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-12 保存点：美团 eBooking 配置状态显式化
+
+- `public/index.html` 的美团 eBooking 首次进入改为 `scheduleMeituanEbookingDeferredStartupRefresh()` 后置读取美团配置、平台配置和酒店列表，不再在页面切换块里直接启动配置列表加载。
+- 美团酒店配置匹配复用 `loadMeituanConfigList()`，不再绕过配置列表加载标记、失败状态和并发去重逻辑直接请求 `/online-data/get-meituan-config-list`。
+- 手工数据页的携程/美团配置预热也改为读取 `ConfigListLoaded` 状态；已成功读取为空列表时不重复请求配置列表。
+- 美团 eBooking 的已选酒店状态新增 `配置待读取`、`配置读取失败`、`已确认未配置` 三段显示；只有配置列表成功读取后才展示“当前酒店未配置美团数据源”，避免把未加载或读取失败误判为未配置。
+- 本保存点不改变美团采集接口、配置接口、OTA 入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置和后台运行状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求美团 eBooking deferred helper、显式配置状态和共享配置列表加载器；`verify_e2e_contracts.mjs` 同步禁止回退到直接请求配置列表，并将 E2E 合同检查数提升到 `706`。
+- 当前 split-map：`public/index.html` 为 `37,438` 行、`1,566` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `224.99 MB`；不含 `.git` 约 `107.51 MB`；不含 `.git` 和依赖约 `78.32 MB`；Git 跟踪文件约 `18.87 MB` / `618` 个；代码范围 `373` 个文件、`198,200` 行、非空 `182,221` 行；默认可清理目标为 `runtime` 约 `14.53 MB` / `309` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`706` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
