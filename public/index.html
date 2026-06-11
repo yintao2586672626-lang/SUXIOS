@@ -16,7 +16,6 @@
     <script src="meituan-static.js"></script>
     <script src="data-health-static.js"></script>
     <script src="ota-diagnosis-static.js"></script>
-    <script src="ai-analysis-static.js"></script>
     <script src="system-static.js?v=20260611-platform-guide"></script>
     <script src="auto-fetch-static.js"></script>
     <script src="compass-static.js"></script>
@@ -18391,6 +18390,20 @@
                 }
                 deferUiTask(callback, delay);
             };
+            const postFetchRefreshTimers = new Map();
+            const schedulePostFetchRefresh = (key, callback, delay = 240) => {
+                const timerKey = String(key || 'default');
+                const existingTimer = postFetchRefreshTimers.get(timerKey);
+                if (existingTimer) {
+                    clearTimeout(existingTimer);
+                }
+                const timer = setTimeout(() => {
+                    postFetchRefreshTimers.delete(timerKey);
+                    deferUiTask(callback, 0);
+                }, Math.max(0, Number(delay) || 0));
+                postFetchRefreshTimers.set(timerKey, timer);
+                return Promise.resolve();
+            };
             const buildClientPagination = (rows, page, pageSize) => {
                 const list = Array.isArray(rows) ? rows : [];
                 const size = Math.max(1, Number(pageSize) || 50);
@@ -22645,6 +22658,7 @@
 
                     // AI分析Tab需要更新酒店列表
                     if (tab === 'ai') {
+                        await ensureAiAnalysisStaticReady();
                         if (onlineDataTab.value === 'ctrip-download' || onlineDataTab.value.startsWith('ctrip')) {
                             updateAiAnalysisHotelList();
                         } else if (onlineDataTab.value === 'meituan-download' || onlineDataTab.value.startsWith('meituan')) {
@@ -23045,13 +23059,21 @@
             // 刷新数据（查询按钮）
             const refreshOnlineData = async () => {
                 try {
-                    await loadOnlineDataList();
-                    await loadOnlineDataSummary();
+                    await Promise.all([
+                        loadOnlineDataList(),
+                        loadOnlineDataSummary(),
+                    ]);
                     analysisData.value = { summary: null, chart_data: null, hotel_ranking: [] };
                 } catch (error) {
                     console.error('刷新数据失败:', error);
                 }
             };
+            const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh('online-data-list', () => refreshOnlineData(), 260);
+            const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340);
+            const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
+            const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus(), 180);
+            const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
+            const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
 
             // 切换分页
             const changeOnlineDataPage = async (page) => {
@@ -23135,23 +23157,52 @@
                 return onlineDataFilter.value.hotel_id || user.value?.hotel_id || hotels.value?.[0]?.id || '';
             };
 
-            const loadAutoFetchPanel = async () => {
-                if (!hotels.value || hotels.value.length === 0) {
-                    await loadHotels();
+            const AUTO_FETCH_PANEL_CACHE_TTL_MS = 12000;
+            let autoFetchPanelCache = { key: '', expiresAt: 0, promise: null };
+            const autoFetchPanelCacheKey = () => [
+                String(getAutoFetchHotelId() || ''),
+                String(hotels.value?.length || 0),
+                String(ctripConfigList.value?.length || 0),
+                String(meituanConfigList.value?.length || 0),
+            ].join('|');
+            const resetAutoFetchPanelCache = () => {
+                autoFetchPanelCache = { key: '', expiresAt: 0, promise: null };
+            };
+            const loadAutoFetchPanel = async (options = {}) => {
+                const force = options && options.force === true;
+                const keyBeforeLoad = autoFetchPanelCacheKey();
+                const now = Date.now();
+                if (!force && autoFetchPanelCache.key === keyBeforeLoad) {
+                    if (autoFetchPanelCache.promise) {
+                        return autoFetchPanelCache.promise;
+                    }
+                    if (autoFetchPanelCache.expiresAt > now) {
+                        return;
+                    }
                 }
-                if (!ctripConfigList.value || ctripConfigList.value.length === 0) {
-                    await loadCtripConfigList();
-                }
-                if (!meituanConfigList.value || meituanConfigList.value.length === 0) {
-                    await loadMeituanConfigList();
-                }
-                if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {
-                    autoFetchHotelId.value = hotels.value[0].id;
-                }
-                await Promise.all([
-                    loadAutoFetchStatus(),
-                    loadPlatformProfileStatus({ silent: true }),
-                ]);
+
+                const run = (async () => {
+                    await Promise.all([
+                        (!hotels.value || hotels.value.length === 0) ? loadHotels() : Promise.resolve(),
+                        (!ctripConfigList.value || ctripConfigList.value.length === 0) ? loadCtripConfigList() : Promise.resolve(),
+                        (!meituanConfigList.value || meituanConfigList.value.length === 0) ? loadMeituanConfigList() : Promise.resolve(),
+                    ]);
+                    if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {
+                        autoFetchHotelId.value = hotels.value[0].id;
+                    }
+                    await Promise.all([
+                        loadAutoFetchStatus(),
+                        loadPlatformProfileStatus({ silent: true }),
+                    ]);
+                })().finally(() => {
+                    autoFetchPanelCache = {
+                        key: autoFetchPanelCacheKey(),
+                        expiresAt: Date.now() + AUTO_FETCH_PANEL_CACHE_TTL_MS,
+                        promise: null,
+                    };
+                });
+                autoFetchPanelCache = { key: keyBeforeLoad, expiresAt: 0, promise: run };
+                return run;
             };
 
             const loadAutoFetchStatus = async () => {
@@ -23796,12 +23847,12 @@
                 }),
                 getDurationText: () => formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value),
                 updateLastResult: updateAutoFetchLastResultFromResponse,
-                refreshOnlineData,
-                refreshOnlineHistory,
-                refreshLatestCtripData: loadLatestCtripData,
-                openCtripProfileFieldsForReview,
-                loadAutoFetchStatus,
-                loadBackendGlobalNotifications,
+                refreshOnlineData: scheduleOnlineDataRefresh,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
+                refreshLatestCtripData: scheduleLatestCtripRefresh,
+                openCtripProfileFieldsForReview: scheduleCtripProfileFieldReview,
+                loadAutoFetchStatus: scheduleAutoFetchStatusRefresh,
+                loadBackendGlobalNotifications: scheduleBackendNotificationRefresh,
             });
 
             const retryAutoFetchDate = async (date) => {
@@ -23831,20 +23882,20 @@
                     });
                     if (res.code === 200) {
                         showToast(`补抓成功，保存了 ${res.data?.saved_count || 0} 条数据`);
-                        await refreshOnlineData();
-                        await refreshOnlineHistory();
-                        await loadLatestCtripData({ silent: true });
-                        await loadAutoFetchStatus();
-                        await loadBackendGlobalNotifications().catch(() => null);
+                        scheduleOnlineDataRefresh();
+                        scheduleOnlineHistoryRefresh();
+                        scheduleLatestCtripRefresh({ silent: true });
+                        scheduleAutoFetchStatusRefresh();
+                        scheduleBackendNotificationRefresh();
                     } else {
                         showToast(res.message || '补抓失败', 'error');
-                        await loadAutoFetchStatus();
-                        await loadBackendGlobalNotifications().catch(() => null);
+                        scheduleAutoFetchStatusRefresh();
+                        scheduleBackendNotificationRefresh();
                     }
                 } catch (error) {
                     showToast('补抓失败: ' + error.message, 'error');
-                    await loadAutoFetchStatus();
-                    await loadBackendGlobalNotifications().catch(() => null);
+                    scheduleAutoFetchStatusRefresh();
+                    scheduleBackendNotificationRefresh();
                 } finally {
                     fetchingData.value = false;
                     autoFetchBackfillingDate.value = '';
@@ -23989,7 +24040,6 @@
                     setTimeout(() => {
                         runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
                             loadOnlineDataHotelList(),
-                            loadAutoFetchPanel(),
                             loadDataHealthPanel('light'),
                         ]));
                     }, 100);
@@ -24122,11 +24172,18 @@
                     }, 100);
                 }
                 if (newTab === 'analysis') {
+                    runPageLoadOnce(currentPage.value || 'online-data', 'ai-analysis-static', async () => {
+                        await ensureAiAnalysisStaticReady();
+                        updateAiAnalysisHotelList();
+                    });
                     applyOnlineAnalysisDefaultDateRange();
                     refreshOnlineAnalysis();
                 }
                 if (newTab === 'platform-sources') {
                     loadPlatformDataSourcePanel();
+                }
+                if (newTab === 'platform-auto') {
+                    runPageLoadOnce(currentPage.value || 'online-data', 'platform-auto-panel', () => loadAutoFetchPanel());
                 }
                 if (newTab === 'profile-fields') {
                     loadCtripProfileFields();
@@ -32035,10 +32092,10 @@
                     setLatestMeta: value => { ctripLatestMeta.value = value; },
                     setTableTab: value => { ctripTableTab.value = value; },
                     updateAiAnalysisHotelList,
-                    refreshOnlineHistory,
-                    refreshLatestCtripData: params => loadLatestCtripData(params),
+                    refreshOnlineHistory: scheduleOnlineHistoryRefresh,
+                    refreshLatestCtripData: scheduleLatestCtripRefresh,
                     getOnlineDataTab: () => onlineDataTab.value,
-                    refreshOnlineData,
+                    refreshOnlineData: scheduleOnlineDataRefresh,
                     handleFetchFailure: message => handleCtripFetchFailure(message),
                     hasVisibleSnapshot: hasVisibleCtripSnapshot,
                     logError: (...args) => console.error(...args),
@@ -32071,9 +32128,9 @@
                     setSavedCount: value => { meituanSavedCount.value = value; },
                     setDataFetchTime: value => { meituanDataFetchTime.value = value; },
                     updateAiAnalysisHotelList: updateMeituanAiAnalysisHotelList,
-                    refreshOnlineHistory,
+                    refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                     getOnlineDataTab: () => onlineDataTab.value,
-                    refreshOnlineData,
+                    refreshOnlineData: scheduleOnlineDataRefresh,
                 });
             };
 
@@ -32255,9 +32312,9 @@
                 }),
                 useCtripTrafficDisplayRows,
                 setOnlineDataResult: value => { onlineDataResult.value = value; },
-                refreshOnlineHistory,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 getOnlineDataTab: () => onlineDataTab.value,
-                refreshOnlineData,
+                refreshOnlineData: scheduleOnlineDataRefresh,
                 handleFetchFailure: handleCtripFetchFailure,
             });
             const fetchCtripComments = async () => {
@@ -32287,7 +32344,7 @@
                     body: JSON.stringify(body),
                 }),
                 refreshLatestCtripData: loadLatestCtripData,
-                refreshOnlineHistory,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 defaultMethod: 'POST',
                 messages: {
                     missingRequestUrls: '请填写今日概况接口 Request URL',
@@ -32319,7 +32376,7 @@
                     body: JSON.stringify(body),
                 }),
                 refreshLatestCtripData: loadLatestCtripData,
-                refreshOnlineHistory,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 defaultMethod: 'GET',
                 messages: {
                     missingRequestUrls: '未配置可用的流量概要直连接口',
@@ -32683,9 +32740,9 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 }),
-                refreshOnlineHistory,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 getOnlineDataTab: () => onlineDataTab.value,
-                refreshOnlineData,
+                refreshOnlineData: scheduleOnlineDataRefresh,
             });
 
             const fetchMeituanOrdersData = async () => runMeituanOrderFetchFlow({
@@ -32700,7 +32757,7 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 }),
-                refreshOnlineHistory,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
             });
 
             const fetchMeituanAdsData = async () => runMeituanAdsFetchFlow({
@@ -32715,7 +32772,7 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 }),
-                refreshOnlineHistory,
+                refreshOnlineHistory: scheduleOnlineHistoryRefresh,
             });
 
             const fetchMeituanComments = async () => {
@@ -34092,42 +34149,101 @@
             };
 
             // AI智能分析相关函数
-            const aiAnalysisStatic = window.SUXI_AI_ANALYSIS_STATIC;
+            const aiAnalysisStaticScript = 'ai-analysis-static.js';
+            const aiAnalysisStatic = ref(window.SUXI_AI_ANALYSIS_STATIC && typeof window.SUXI_AI_ANALYSIS_STATIC === 'object' ? window.SUXI_AI_ANALYSIS_STATIC : null);
+            const aiAnalysisStaticLoadError = ref('');
+            let aiAnalysisStaticLoadPromise = null;
+            const setAiAnalysisStatic = (staticOptions) => {
+                if (!staticOptions || typeof staticOptions !== 'object') {
+                    throw new Error('Missing AI analysis static helper: ai-analysis-static.js not loaded.');
+                }
+                aiAnalysisStatic.value = staticOptions;
+                aiAnalysisStaticLoadError.value = '';
+                return staticOptions;
+            };
+            const loadAiAnalysisStatic = () => {
+                if (window.SUXI_AI_ANALYSIS_STATIC && typeof window.SUXI_AI_ANALYSIS_STATIC === 'object') {
+                    return Promise.resolve(setAiAnalysisStatic(window.SUXI_AI_ANALYSIS_STATIC));
+                }
+                if (!aiAnalysisStaticLoadPromise) {
+                    aiAnalysisStaticLoadPromise = new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = aiAnalysisStaticScript;
+                        script.async = true;
+                        script.onload = () => {
+                            if (window.SUXI_AI_ANALYSIS_STATIC && typeof window.SUXI_AI_ANALYSIS_STATIC === 'object') {
+                                resolve(setAiAnalysisStatic(window.SUXI_AI_ANALYSIS_STATIC));
+                                return;
+                            }
+                            reject(new Error('Missing AI analysis static helper: ai-analysis-static.js not loaded.'));
+                        };
+                        script.onerror = () => reject(new Error('Missing AI analysis static helper: ai-analysis-static.js not loaded.'));
+                        document.head.appendChild(script);
+                    });
+                }
+                return aiAnalysisStaticLoadPromise;
+            };
+            const ensureAiAnalysisStaticReady = async () => {
+                try {
+                    const staticOptions = await loadAiAnalysisStatic();
+                    hydrateAiAnalysisStaticState();
+                    return staticOptions;
+                } catch (error) {
+                    aiAnalysisStaticLoadError.value = error.message || 'AI analysis static helper failed to load.';
+                    console.error('[ai-analysis-static] load failed:', error);
+                    showToast(aiAnalysisStaticLoadError.value, 'error');
+                    throw error;
+                }
+            };
+            const hasAiAnalysisStatic = computed(() => !!aiAnalysisStatic.value);
             const requireAiAnalysisStatic = (key) => {
-                const value = aiAnalysisStatic?.[key];
+                const value = aiAnalysisStatic.value?.[key];
                 if (value === undefined) {
                     throw new Error(`SUXI_AI_ANALYSIS_STATIC.${key} is required`);
                 }
                 return value;
             };
 
-            const getAiAnalysisHotelKey = requireAiAnalysisStatic('getAiAnalysisHotelKey');
-            const aiAnalysisStatusText = requireAiAnalysisStatic('aiAnalysisStatusText');
-            const aiAnalysisStatusClass = requireAiAnalysisStatic('aiAnalysisStatusClass');
-            const aiAnalysisPriorityClass = requireAiAnalysisStatic('aiAnalysisPriorityClass');
-            const aiAnalysisPriorityText = requireAiAnalysisStatic('aiAnalysisPriorityText');
-            const normalizeAiAnalysisList = requireAiAnalysisStatic('normalizeAiAnalysisList');
-            const normalizeAiProblemHotels = requireAiAnalysisStatic('normalizeAiProblemHotels');
-            const problemHotelKey = requireAiAnalysisStatic('problemHotelKey');
-            const aiAnalysisDataNoticeTitle = requireAiAnalysisStatic('aiAnalysisDataNoticeTitle');
-            const aiAnalysisDataNoticeList = requireAiAnalysisStatic('aiAnalysisDataNoticeList');
-            const maskAiAnalysisError = requireAiAnalysisStatic('maskAiAnalysisError');
-            const formatAiAnalysisError = requireAiAnalysisStatic('formatAiAnalysisError');
-            const chunkArray = requireAiAnalysisStatic('chunkArray');
-            const buildCtripAiAnalysisHotelSelection = requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection');
-            const mergeCapturedGroupReports = requireAiAnalysisStatic('mergeCapturedGroupReports');
-            const buildCapturedOtaAnalysisStartContext = requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext');
-            const buildCapturedOtaAnalysisRunContext = requireAiAnalysisStatic('buildCapturedOtaAnalysisRunContext');
-            const buildCapturedOtaSummaryRequestBody = requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody');
-            const buildCapturedOtaSummaryResponseResult = requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult');
-            const runCapturedOtaAnalysisExecution = requireAiAnalysisStatic('runCapturedOtaAnalysisExecution');
-            const sanitizeAiReportHtml = requireAiAnalysisStatic('sanitizeAiReportHtml');
-            const aiReportHtmlToText = requireAiAnalysisStatic('aiReportHtmlToText');
-            const buildMeituanAiAnalysisHotelList = requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList');
-            const resolveMeituanAiSelectedData = requireAiAnalysisStatic('resolveMeituanAiSelectedData');
-            const buildMeituanAiAnalysisRequestBody = requireAiAnalysisStatic('buildMeituanAiAnalysisRequestBody');
-            const buildMeituanAiAnalysisHistoryRecord = requireAiAnalysisStatic('buildMeituanAiAnalysisHistoryRecord');
-            const runMeituanAiAnalysisFlow = requireAiAnalysisStatic('runMeituanAiAnalysisFlow');
+            const getAiAnalysisHotelKey = (hotel) => hasAiAnalysisStatic.value
+                ? requireAiAnalysisStatic('getAiAnalysisHotelKey')(hotel)
+                : String(hotel?.hotel_id ?? hotel?.id ?? hotel?.poiId ?? hotel?.hotel_name ?? hotel?.hotelName ?? '');
+            const aiAnalysisStatusText = (...args) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('aiAnalysisStatusText')(...args) : String(args[0] || '--');
+            const aiAnalysisStatusClass = (...args) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('aiAnalysisStatusClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
+            const aiAnalysisPriorityClass = (...args) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('aiAnalysisPriorityClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
+            const aiAnalysisPriorityText = (...args) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('aiAnalysisPriorityText')(...args) : String(args[0] || '--');
+            const normalizeAiAnalysisList = (items) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('normalizeAiAnalysisList')(items) : (Array.isArray(items) ? items.map(item => String(item || '').trim()).filter(Boolean) : []);
+            const normalizeAiProblemHotels = (items) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('normalizeAiProblemHotels')(items) : [];
+            const problemHotelKey = (hotel, index) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('problemHotelKey')(hotel, index) : `problem-${index}`;
+            const aiAnalysisDataNoticeTitle = (...args) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('aiAnalysisDataNoticeTitle')(...args) : '数据说明';
+            const aiAnalysisDataNoticeList = (...args) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('aiAnalysisDataNoticeList')(...args) : [];
+            const maskAiAnalysisError = (value) => hasAiAnalysisStatic.value
+                ? requireAiAnalysisStatic('maskAiAnalysisError')(value)
+                : String(value || '').replace(/(api[_-]?key\\s*[=:]\\s*)[^\\s,;]+/gi, '$1****').replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-****');
+            const formatAiAnalysisError = (...args) => requireAiAnalysisStatic('formatAiAnalysisError')(...args);
+            const chunkArray = (...args) => requireAiAnalysisStatic('chunkArray')(...args);
+            const buildCtripAiAnalysisHotelSelection = (...args) => requireAiAnalysisStatic('buildCtripAiAnalysisHotelSelection')(...args);
+            const mergeCapturedGroupReports = (...args) => requireAiAnalysisStatic('mergeCapturedGroupReports')(...args);
+            const buildCapturedOtaAnalysisStartContext = (...args) => requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext')(...args);
+            const buildCapturedOtaAnalysisRunContext = (...args) => requireAiAnalysisStatic('buildCapturedOtaAnalysisRunContext')(...args);
+            const buildCapturedOtaSummaryRequestBody = (...args) => requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')(...args);
+            const buildCapturedOtaSummaryResponseResult = (...args) => requireAiAnalysisStatic('buildCapturedOtaSummaryResponseResult')(...args);
+            const runCapturedOtaAnalysisExecution = (...args) => requireAiAnalysisStatic('runCapturedOtaAnalysisExecution')(...args);
+            const sanitizeAiReportHtml = (value) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('sanitizeAiReportHtml')(value) : '';
+            const aiReportHtmlToText = (value) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('aiReportHtmlToText')(value) : String(value || '').replace(/<[^>]*>/g, '');
+            const buildMeituanAiAnalysisHotelList = (rows) => hasAiAnalysisStatic.value ? requireAiAnalysisStatic('buildMeituanAiAnalysisHotelList')(rows) : [];
+            const resolveMeituanAiSelectedData = (...args) => requireAiAnalysisStatic('resolveMeituanAiSelectedData')(...args);
+            const buildMeituanAiAnalysisRequestBody = (...args) => requireAiAnalysisStatic('buildMeituanAiAnalysisRequestBody')(...args);
+            const buildMeituanAiAnalysisHistoryRecord = (...args) => requireAiAnalysisStatic('buildMeituanAiAnalysisHistoryRecord')(...args);
+            const runMeituanAiAnalysisFlow = (...args) => requireAiAnalysisStatic('runMeituanAiAnalysisFlow')(...args);
+            const hydrateAiAnalysisStaticState = () => {
+                if (!hasAiAnalysisStatic.value) return;
+                if (Array.isArray(ctripHotelsList.value) && ctripHotelsList.value.length) {
+                    void updateAiAnalysisHotelList();
+                }
+                if (Array.isArray(meituanHotelsList.value) && meituanHotelsList.value.length) {
+                    void updateMeituanAiAnalysisHotelList();
+                }
+            };
 
             const extractAiAnalysisErrorDetails = (source, fallback = '分析失败') => {
                 const data = source?.data?.data || source?.data || {};
@@ -34241,6 +34357,7 @@
 
             // 更新AI分析酒店列表（只从携程数据中提取，并合并同一酒店的不同榜单数据）
             const updateAiAnalysisHotelList = () => {
+                if (!hasAiAnalysisStatic.value) return;
                 const selection = buildCtripAiAnalysisHotelSelection({
                     ctripHotels: ctripHotelsList.value || [],
                     selectedKeys: aiSelectedHotels.value,
@@ -34250,7 +34367,9 @@
             };
 
             // 全选AI分析酒店
-            const selectAllAiHotels = () => {
+            const selectAllAiHotels = async () => {
+                await ensureAiAnalysisStaticReady();
+                updateAiAnalysisHotelList();
                 aiSelectedHotels.value = aiAnalysisHotelList.value.map(getAiAnalysisHotelKey);
                 showToast('已全选 ' + aiSelectedHotels.value.length + ' 家酒店');
             };
@@ -34263,6 +34382,12 @@
 
             // 开始AI分析
             const startAiAnalysis = async () => {
+                try {
+                    await ensureAiAnalysisStaticReady();
+                } catch (error) {
+                    return;
+                }
+                updateAiAnalysisHotelList();
                 const startContext = buildCapturedOtaAnalysisStartContext({
                     selectedKeys: aiSelectedHotels.value,
                     hotels: aiAnalysisHotelList.value,
@@ -34350,12 +34475,15 @@
             // ==================== 美团AI智能分析相关函数 ====================
             // 更新美团AI分析酒店列表（只从美团数据中提取）
             const updateMeituanAiAnalysisHotelList = () => {
+                if (!hasAiAnalysisStatic.value) return;
                 meituanAiAnalysisHotelList.value = buildMeituanAiAnalysisHotelList(meituanHotelsList.value);
                 debugLog('美团AI分析酒店列表更新:', meituanAiAnalysisHotelList.value.length, '家酒店');
             };
 
             // 全选美团AI分析酒店
-            const selectAllMeituanAiHotels = () => {
+            const selectAllMeituanAiHotels = async () => {
+                await ensureAiAnalysisStaticReady();
+                updateMeituanAiAnalysisHotelList();
                 meituanAiSelectedHotels.value = meituanAiAnalysisHotelList.value.map(h => h.poiId + '_' + h.hotelName);
                 showToast('已全选 ' + meituanAiSelectedHotels.value.length + ' 家酒店');
             };
@@ -34367,20 +34495,28 @@
             };
 
             // 开始美团AI分析
-            const startMeituanAiAnalysis = async () => runMeituanAiAnalysisFlow({
-                selectedKeys: meituanAiSelectedHotels.value,
-                hotels: meituanAiAnalysisHotelList.value,
-                requestAnalysis: analysisData => request('/online-data/ai-analysis', {
-                    method: 'POST',
-                    body: JSON.stringify(analysisData),
-                }),
-                notify: showToast,
-                setAnalyzing: value => { meituanAiAnalyzing.value = value; },
-                setResult: value => { meituanAiAnalysisResult.value = value; },
-                getHistory: () => meituanAiAnalysisHistory.value,
-                setHistory: value => { meituanAiAnalysisHistory.value = value; },
-                logError: (...args) => console.error(...args),
-            });
+            const startMeituanAiAnalysis = async () => {
+                try {
+                    await ensureAiAnalysisStaticReady();
+                } catch (error) {
+                    return null;
+                }
+                updateMeituanAiAnalysisHotelList();
+                return runMeituanAiAnalysisFlow({
+                    selectedKeys: meituanAiSelectedHotels.value,
+                    hotels: meituanAiAnalysisHotelList.value,
+                    requestAnalysis: analysisData => request('/online-data/ai-analysis', {
+                        method: 'POST',
+                        body: JSON.stringify(analysisData),
+                    }),
+                    notify: showToast,
+                    setAnalyzing: value => { meituanAiAnalyzing.value = value; },
+                    setResult: value => { meituanAiAnalysisResult.value = value; },
+                    getHistory: () => meituanAiAnalysisHistory.value,
+                    setHistory: value => { meituanAiAnalysisHistory.value = value; },
+                    logError: (...args) => console.error(...args),
+                });
+            };
 
             // 美团本地 AI 分析已关闭：前端仅保留展示入口，经营分析由后端接口生成。
             const generateMeituanLocalAnalysis = () => {
@@ -34388,17 +34524,19 @@
             };
 
             // 复制美团AI分析结果
-            const copyMeituanAiAnalysisResult = () => {
+            const copyMeituanAiAnalysisResult = async () => {
                 if (!meituanAiAnalysisResult.value) {
                     showToast('暂不生成经营判断，暂无分析结果可复制', 'warning');
                     return;
                 }
 
+                await ensureAiAnalysisStaticReady();
                 copyToClipboard(aiReportHtmlToText(meituanAiAnalysisResult.value));
             };
 
             // 查看美团AI分析历史记录
-            const viewMeituanAiAnalysisRecord = (record) => {
+            const viewMeituanAiAnalysisRecord = async (record) => {
+                await ensureAiAnalysisStaticReady();
                 meituanAiAnalysisResult.value = sanitizeAiReportHtml(record.report);
             };
 

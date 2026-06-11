@@ -159,6 +159,31 @@ if (!fs.existsSync(indexPath)) {
   if (!transferDetailLoader.includes('await ensureSimulationStaticReady();')) {
     failures.push('public/index.html must load simulation static data before reusing transfer history input.');
   }
+  if (/<script\s+src=["']ai-analysis-static\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load ai-analysis-static.js; the login and compass shell do not need OTA AI analysis helpers.');
+  }
+  if (!/const\s+aiAnalysisStaticScript\s*=\s*["']ai-analysis-static\.js["']/.test(content) || !/const\s+loadAiAnalysisStatic\s*=\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader for ai-analysis-static.js.');
+  }
+  if (!/if \(tab === ['"]ai['"]\)[\s\S]*await ensureAiAnalysisStaticReady\(\);/.test(content)
+    || !/runPageLoadOnce\(currentPage\.value \|\| ['"]online-data['"], ['"]ai-analysis-static['"][\s\S]*await ensureAiAnalysisStaticReady\(\);/.test(content)) {
+    failures.push('public/index.html must load AI analysis static data only from the OTA AI tab or online analysis tab.');
+  }
+  const onlineDataDefaultLoader = content.slice(
+    content.indexOf("if (newPage === 'online-data' && token.value)"),
+    content.indexOf("if (newPage === 'operation-logs'")
+  );
+  if (onlineDataDefaultLoader.includes('loadAutoFetchPanel()')) {
+    failures.push('public/index.html must not preload the full platform-auto panel from the default online-data page load.');
+  }
+  if (!/newTab === ['"]platform-auto['"][\s\S]*loadAutoFetchPanel\(\)/.test(content)) {
+    failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
+  }
+  if (!content.includes('schedulePostFetchRefresh')
+    || !content.includes('scheduleOnlineDataRefresh')
+    || !content.includes('scheduleOnlineHistoryRefresh')) {
+    failures.push('public/index.html must keep post-fetch refreshes deferred so manual and auto collection do not block the UI.');
+  }
   const strategyDetailLoader = content.slice(
     content.indexOf('const loadStrategyDetail = async'),
     content.indexOf('const reuseStrategyRecord = async')

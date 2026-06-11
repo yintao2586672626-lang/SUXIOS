@@ -131,6 +131,9 @@ requireText('public/meituan-static.js', 'const runMeituanOrderFetchFlow', 'Meitu
 requireText('public/meituan-static.js', 'const buildMeituanAdsFetchRequestBody', 'Meituan static builds ads fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanAdsFetchFlow', 'Meituan static runs ads fetch flow');
 requireText('public/index.html', "requireAutoFetchStatic('runAutoFetchTriggerFlow')", 'entry uses extracted auto-fetch trigger flow runner');
+requireText('public/index.html', 'const schedulePostFetchRefresh =', 'entry defers post-fetch refresh work');
+requireText('public/index.html', 'const AUTO_FETCH_PANEL_CACHE_TTL_MS', 'entry deduplicates platform auto-fetch panel loading');
+requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads platform auto-fetch panel only on tab entry');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBody', 'auto-fetch static builds trigger request bodies');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
 requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'auto-fetch static runs manual trigger flow');
@@ -292,7 +295,12 @@ requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisFetchTasks
 requireText('public/ota-diagnosis-static.js', 'const runOtaDiagnosisHotelFetchFlow', 'OTA diagnosis static runs fetch flow');
 requireText('public/ota-diagnosis-static.js', 'const buildOtaDiagnosisGenerateRequestBody', 'OTA diagnosis static builds generate request bodies');
 requireText('public/ota-diagnosis-static.js', 'const runOtaDiagnosisGenerateFlow', 'OTA diagnosis static runs generate flow');
-requireText('public/index.html', '<script src="ai-analysis-static.js"></script>', 'frontend loads extracted AI analysis static helper');
+requireNoText('public/index.html', '<script src="ai-analysis-static.js"></script>', 'frontend lazy-loads extracted AI analysis static helper');
+requireText('public/index.html', "const aiAnalysisStaticScript = 'ai-analysis-static.js'", 'entry keeps AI analysis static lazy script path');
+requireText('public/index.html', 'const ensureAiAnalysisStaticReady = async () =>', 'entry keeps AI analysis static ready guard');
+requireText('public/index.html', "if (tab === 'ai')", 'download center AI tab is the OTA AI static loading boundary');
+requireText('public/index.html', "runPageLoadOnce(currentPage.value || 'online-data', 'ai-analysis-static'", 'online analysis tab lazy-loads AI analysis static helper');
+requireText('public/index.html', 'await ensureAiAnalysisStaticReady();', 'entry gates AI analysis actions on static helper readiness');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaSummaryRequestBody')", 'entry uses extracted AI analysis summary request builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisStartContext')", 'entry uses extracted AI analysis start context builder');
 requireText('public/index.html', "requireAiAnalysisStatic('buildCapturedOtaAnalysisRunContext')", 'entry uses extracted AI analysis run context builder');
