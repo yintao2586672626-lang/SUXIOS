@@ -1681,6 +1681,17 @@
 - 当前 self-audit：完整目录约 `245.98 MB`，不含 `.git` 约 `116.22 MB`，不含 `.git` 和依赖约 `87.03 MB`，Git 跟踪文件约 `19 MB / 620` 个；代码范围 `375` 个文件、`199,333` 行、非空 `183,307` 行。默认可清理目标为 `runtime` 约 `23.1 MB / 682` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\operation-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`848` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：开业展示模型与线上数据菜单直达调度收口
+
+- `public/operation-static.js` 新增 `buildOpeningCategoryProgressCards()`、`buildOpeningPositioningImpact()`、`buildOpeningStatusFilterChips()`、`buildOpeningAttentionFilterChips()`，继续把开业页分类进度、定位影响说明和筛选 chip 展示模型从 `public/index.html` 中抽离。
+- `public/index.html` 保留 `openingOverview`、`openingProjectForm`、`openingTaskStats` 和实际筛选执行逻辑；分类进度、定位影响、状态筛选和关注筛选只委托静态 helper 生成展示数据。
+- 线上数据菜单直达指定 Tab 时新增 `pendingOnlineDataEntryTab` 与同页导航判定：从菜单进入 `online-data` 的非 `data-health` Tab 时跳过默认 `data-health` 首屏加载；同页点击线上数据主菜单时仍回到 `data-health`。
+- 本轮不改开业项目接口、检查项接口、线上数据接口、OTA 采集、持久化、字段口径、权限或数据库结构；缺失、待生成、逾期、临期、未分配和未配置状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求开业展示模型来自 `operation-static.js`，并要求线上数据菜单直达 Tab 不再被默认 `data-health` 加载覆盖；`verify_e2e_contracts.mjs` 在 VM 中验证分类状态、定位分支、筛选 chip 顺序和菜单调度不变量。
+- 当前 split-map：`public/index.html` 从 `37,485` 行降至 `37,400` 行，前端函数级块从 `1,579` 降至 `1,576`，`currentPage` 引用仍为 `43`；`app/controller/OnlineData.php` 为 `26,903` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `247.24 MB`，不含 `.git` 约 `116.75 MB`，不含 `.git` 和依赖约 `87.56 MB`，Git 跟踪文件约 `19.01 MB / 620` 个；代码范围 `375` 个文件、`199,420` 行、非空 `183,394` 行。默认可清理目标为 `runtime` 约 `23.62 MB / 725` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\operation-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`866` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

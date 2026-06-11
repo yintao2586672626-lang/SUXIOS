@@ -336,7 +336,12 @@ requireText('public/index.html', '@click="openOnlineDataTab(\'data-health\')"', 
 requireText('public/index.html', '@click="openOnlineDataTab(\'data\')"', 'manual data tab button switches immediately through the shared entrypoint');
 requireNoText('public/index.html', '@click="onlineDataTab = \'data-health\'; loadDataHealthPanel(\'light\')"', 'data-health tab button must not synchronously load the panel during click');
 requireNoText('public/index.html', '@click="onlineDataTab = \'data\'; refreshOnlineData()"', 'manual data tab button must not synchronously refresh during click');
-requireText('public/index.html', 'openOnlineDataTab(item.tab);', 'menu online-data tab navigation uses the shared tab-load scheduler');
+requireText('public/index.html', 'openOnlineDataTab(targetTab);', 'menu online-data tab navigation uses the shared tab-load scheduler');
+requireText('public/index.html', "let pendingOnlineDataEntryTab = '';", 'online-data menu navigation tracks direct target tabs');
+requireText('public/index.html', "pendingOnlineDataEntryTab = String(item.tab || '');", 'online-data menu target tab is recorded before currentPage watcher runs');
+requireText('public/index.html', "if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }", 'online-data direct tab navigation skips default data-health first-paint loading');
+requireText('public/index.html', "const wasOnlineDataPage = currentPage.value === 'online-data';", 'online-data menu clicks can detect same-page navigation');
+requireText('public/index.html', "if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    nextTick(() => openOnlineDataTab('data-health'));\n                }", 'same-page online-data menu click returns to the default data-health tab');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');
@@ -817,13 +822,25 @@ requireNoText('app/service/RevenueResearchService.php', "'review-topic' =>", 're
 requireTextInFiles(['public/index.html', 'public/operation-static.js'], 'service_quality', 'operation dashboard renders service quality data');
 requireText('public/operation-static.js', 'buildOperationSourceBrief', 'operation source brief builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOperationDecisionCards', 'operation decision card builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningCategoryProgressCards', 'opening category progress cards builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningPositioningImpact', 'opening positioning impact builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningTaskProgressCards', 'opening task progress cards builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOpeningTaskProgressStages', 'opening task progress stages builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningStatusFilterChips', 'opening status filter chips builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningAttentionFilterChips', 'opening attention filter chips builder lives in operation static module');
 requireText('public/index.html', 'buildOperationDecisionCards(operationFullData.value || {}, operationDisplayFormatters)', 'operation dashboard uses extracted decision card builder');
+requireText('public/index.html', 'buildOpeningCategoryProgressCards(openingOverview.value?.category_progress || [])', 'opening category progress cards use extracted builder');
+requireText('public/index.html', 'buildOpeningPositioningImpact(openingProjectForm.value.positioning)', 'opening positioning impact uses extracted builder');
 requireText('public/index.html', 'buildOpeningTaskProgressCards(openingTaskStats.value)', 'opening progress cards use extracted builder');
 requireText('public/index.html', 'buildOpeningTaskProgressStages(openingTaskStats.value)', 'opening progress stages use extracted builder');
+requireText('public/index.html', 'buildOpeningStatusFilterChips(openingTaskStats.value)', 'opening status filter chips use extracted builder');
+requireText('public/index.html', 'buildOpeningAttentionFilterChips(openingTaskStats.value)', 'opening attention filter chips use extracted builder');
+requireNoText('public/index.html', "status: '待生成'", 'opening category progress display model is not re-inlined in the SPA entry');
+requireNoText('public/index.html', "items: ['房价体系', 'OTA卖点', '物资标准', '培训话术']", 'opening positioning impact display model is not re-inlined in the SPA entry');
 requireNoText('public/index.html', "label: '任务进度均值'", 'opening progress cards are not re-inlined in the SPA entry');
 requireNoText('public/index.html', "label: '1%-49%'", 'opening progress stages are not re-inlined in the SPA entry');
+requireNoText('public/index.html', "activeClass: 'bg-gray-900 text-white border-gray-900'", 'opening status filter chips are not re-inlined in the SPA entry');
+requireNoText('public/index.html', "value: 'dueSoon', label: '7天内到期'", 'opening attention filter chips are not re-inlined in the SPA entry');
 {
   const context = { window: {} };
   vm.runInNewContext(read('public/operation-static.js'), context, {
@@ -846,6 +863,15 @@ requireNoText('public/index.html', "label: '1%-49%'", 'opening progress stages a
   };
   const cards = helpers.buildOpeningTaskProgressCards(stats);
   const stages = helpers.buildOpeningTaskProgressStages(stats);
+  const categoryCards = helpers.buildOpeningCategoryProgressCards([
+    { category: '证照合规', total: 0, done: 0, completion_rate: 0 },
+    { category: 'OTA上线配置', total: 3, done: 3, completion_rate: 100 },
+    { category: '员工培训演练', total: 4, done: 1, completion_rate: 25 },
+    { category: '开业营销推广', total: 2, done: 0, completion_rate: 0 },
+  ]);
+  const positioningImpact = helpers.buildOpeningPositioningImpact('高端商务');
+  const statusChips = helpers.buildOpeningStatusFilterChips(stats);
+  const attentionChips = helpers.buildOpeningAttentionFilterChips(stats);
   checks.push({
     file: 'public/operation-static.js',
     label: 'opening progress helper preserves card and stage semantics',
@@ -858,6 +884,20 @@ requireNoText('public/index.html', "label: '1%-49%'", 'opening progress stages a
       && stages.map(stage => stage.label).join('|') === '未开始|1%-49%|50%-99%|100%'
       && stages.every(stage => stage.percent === 25),
     detail: 'opening progress helper must keep the original labels, values, warning classes, and percentages',
+  });
+  checks.push({
+    file: 'public/operation-static.js',
+    label: 'opening display helpers preserve category, positioning, and filter semantics',
+    ok: categoryCards.length === 4
+      && categoryCards[0]?.status === '待生成'
+      && categoryCards[1]?.progressClass === 'bg-green-600'
+      && categoryCards[2]?.status === '推进中'
+      && categoryCards[3]?.statusClass === 'bg-yellow-50 text-yellow-700'
+      && positioningImpact.summary.includes('高端商务定位会提高品质体验')
+      && positioningImpact.items.includes('品质验收')
+      && statusChips.map(item => item.value).join('|') === '|todo|doing|done|blocked'
+      && attentionChips.map(item => item.value).join('|') === 'overdue|dueSoon|high|blocked|noOwner|core',
+    detail: 'opening display helper extraction must keep labels, classes, positioning branches, and chip order',
   });
 }
 requireNoText('public/index.html', 'operationFullData.reviews', 'operation dashboard does not render disabled review data');

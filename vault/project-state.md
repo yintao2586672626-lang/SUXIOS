@@ -1714,6 +1714,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `245.98 MB`, without `.git` about `116.22 MB`, without `.git` and dependencies about `87.03 MB`, tracked files about `19 MB` / `620` files; code scope `375` files, `199333` total lines, and `183307` nonblank lines. Runtime cleanup is about `23.1 MB` / `682` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\operation-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:p0-guards`; `verify:e2e-contracts` with `848` checks; `self:split-map`; `self:audit`.
 
+## 2026-06-12 Progress: Opening Display Helpers and Online Data Menu Tab Scheduling
+
+- `public/operation-static.js` now owns `buildOpeningCategoryProgressCards()`, `buildOpeningPositioningImpact()`, `buildOpeningStatusFilterChips()`, and `buildOpeningAttentionFilterChips()` for opening-page category progress, positioning impact copy, and filter chip display models.
+- `public/index.html` keeps `openingOverview`, `openingProjectForm`, `openingTaskStats`, and the actual `matchesOpeningAttention()` / `filteredOpeningTasks` filtering logic in the SPA entry, while delegating display data generation to the extracted static helpers.
+- Online-data menu navigation now tracks `pendingOnlineDataEntryTab`; direct menu navigation to a non-`data-health` tab skips default data-health first-paint loading, while same-page clicks on the online-data parent menu return to `data-health`.
+- This does not change opening project APIs, opening task APIs, online-data APIs, OTA collection, persistence, field semantics, permissions, or database schema. Missing, generated-pending, overdue, due-soon, unassigned, and unconfigured states remain explicit under existing semantics.
+- Guards now require these opening display helpers from `operation-static.js`, require SPA entry delegation, reject re-inlined category/positioning/filter display config, and require online-data direct-tab menu scheduling invariants. `verify:e2e-contracts` VM-checks category statuses, positioning branches, filter chip order, and menu scheduling guard strings.
+- Current split-map: `public/index.html` decreased from `37485` to `37400` lines, frontend function-level blocks decreased from `1579` to `1576`, and `currentPage` refs remain `43`. `app/controller/OnlineData.php` has `26903` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `247.24 MB`, without `.git` about `116.75 MB`, without `.git` and dependencies about `87.56 MB`, tracked files about `19.01 MB` / `620` files; code scope `375` files, `199420` total lines, and `183394` nonblank lines. Runtime cleanup is about `23.62 MB` / `725` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\operation-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `866` checks; `verify:p0-guards`; `self:split-map`; `self:audit`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

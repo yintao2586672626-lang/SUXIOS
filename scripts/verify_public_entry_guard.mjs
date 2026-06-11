@@ -315,8 +315,17 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('watch(() => meituanForm.value.hotelId')
   );
   if (!/newTab === ['"]data['"][\s\S]*ensureManualOnlineFetchConfigReady\(\)/.test(onlineDataTabSchedulerSource)
-    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataTab\(item\.tab\)/.test(content)) {
+    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataTab\(targetTab\)/.test(content)) {
     failures.push('public/index.html must prewarm saved platform configs when the online-data manual data tab is opened.');
+  }
+  if (!content.includes("let pendingOnlineDataEntryTab = '';")
+    || !content.includes("pendingOnlineDataEntryTab = String(item.tab || '');")
+    || !content.includes("if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }")) {
+    failures.push('public/index.html must skip default data-health first-paint loading when menu navigation targets another online-data tab.');
+  }
+  if (!content.includes("const wasOnlineDataPage = currentPage.value === 'online-data';")
+    || !content.includes("if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    nextTick(() => openOnlineDataTab('data-health'));\n                }")) {
+    failures.push('public/index.html same-page online-data menu clicks must return to the default data-health tab.');
   }
   if (!content.includes("@click=\"openOnlineDataTab('data-health')\"")
     || !content.includes("@click=\"openOnlineDataTab('data')\"")
@@ -921,13 +930,29 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!operationStaticContent.includes('buildOpeningTaskProgressCards')
     || !operationStaticContent.includes('buildOpeningTaskProgressStages')
+    || !operationStaticContent.includes('buildOpeningCategoryProgressCards')
+    || !operationStaticContent.includes('buildOpeningPositioningImpact')
+    || !operationStaticContent.includes('buildOpeningStatusFilterChips')
+    || !operationStaticContent.includes('buildOpeningAttentionFilterChips')
+    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningCategoryProgressCards')")
+    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningPositioningImpact')")
     || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningTaskProgressCards')")
     || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningTaskProgressStages')")
+    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningStatusFilterChips')")
+    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningAttentionFilterChips')")
+    || !content.includes('buildOpeningCategoryProgressCards(openingOverview.value?.category_progress || [])')
+    || !content.includes('buildOpeningPositioningImpact(openingProjectForm.value.positioning)')
     || !content.includes('buildOpeningTaskProgressCards(openingTaskStats.value)')
     || !content.includes('buildOpeningTaskProgressStages(openingTaskStats.value)')
+    || !content.includes('buildOpeningStatusFilterChips(openingTaskStats.value)')
+    || !content.includes('buildOpeningAttentionFilterChips(openingTaskStats.value)')
+    || content.includes("status: '待生成'")
+    || content.includes("items: ['房价体系', 'OTA卖点', '物资标准', '培训话术']")
     || content.includes("label: '任务进度均值'")
-    || content.includes("label: '1%-49%'")) {
-    failures.push('public/index.html must delegate opening progress cards and stages to public/operation-static.js.');
+    || content.includes("label: '1%-49%'")
+    || content.includes("activeClass: 'bg-gray-900 text-white border-gray-900'")
+    || content.includes("value: 'dueSoon', label: '7天内到期'")) {
+    failures.push('public/index.html must delegate opening display models to public/operation-static.js.');
   }
   if (!content.includes('await ensureOperationStaticReady();')
     || !/newPage === ['"]lifecycle['"]/.test(content)

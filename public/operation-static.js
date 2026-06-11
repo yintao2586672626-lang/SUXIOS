@@ -268,6 +268,94 @@ window.SUXI_OPERATION_STATIC = (() => {
             },
         ];
     };
+    const buildOpeningCategoryProgressCards = (categoryProgress = []) => {
+        const list = Array.isArray(categoryProgress) ? categoryProgress : [];
+        return list.map((item) => {
+            const total = safeOpeningOverviewNumber(item.total);
+            const done = safeOpeningOverviewNumber(item.done);
+            const progress = clampOpeningOverviewPercent(item.completion_rate);
+            if (total <= 0) {
+                return {
+                    category: item.category || '未分类',
+                    progress,
+                    countLabel: '暂无检查项',
+                    progressHint: '待生成',
+                    status: '待生成',
+                    statusClass: 'bg-gray-100 text-gray-600',
+                    progressClass: 'bg-gray-300',
+                };
+            }
+            if (progress >= 100) {
+                return {
+                    category: item.category || '未分类',
+                    progress,
+                    countLabel: `${done}/${total} 项完成`,
+                    progressHint: '已完成',
+                    status: '已完成',
+                    statusClass: 'bg-green-50 text-green-700',
+                    progressClass: 'bg-green-600',
+                };
+            }
+            if (done > 0) {
+                return {
+                    category: item.category || '未分类',
+                    progress,
+                    countLabel: `${done}/${total} 项完成`,
+                    progressHint: '推进中',
+                    status: '推进中',
+                    statusClass: 'bg-blue-50 text-blue-700',
+                    progressClass: 'bg-blue-600',
+                };
+            }
+            return {
+                category: item.category || '未分类',
+                progress,
+                countLabel: `${done}/${total} 项完成`,
+                progressHint: '未开始',
+                status: '未开始',
+                statusClass: 'bg-yellow-50 text-yellow-700',
+                progressClass: 'bg-yellow-500',
+            };
+        });
+    };
+    const buildOpeningPositioningImpact = (value = '') => {
+        const positioning = String(value || '').trim();
+        const includesAny = (keywords) => keywords.some(keyword => positioning.includes(keyword));
+        if (!positioning) {
+            return {
+                summary: '用于确定房型房价、OTA卖点、物资标准、培训话术和开业营销口径；保存后会进入AI建议和新生成清单。',
+                items: ['房价体系', 'OTA卖点', '物资标准', '培训话术'],
+            };
+        }
+        if (includesAny(['高端', '高档', '豪华', '精品', '奢', '高奢'])) {
+            return {
+                summary: `${positioning}定位会提高品质体验、服务SOP、布草客用品和OTA图片卖点的准备优先级。`,
+                items: ['品质验收', '服务SOP', '高质感物资', '溢价卖点'],
+            };
+        }
+        if (includesAny(['商务', '商旅', '中端', '中档', '精选'])) {
+            return {
+                summary: `${positioning}定位会重点影响商务设施、发票支付、早餐效率、WiFi和前台高频流程演练。`,
+                items: ['商务设施', '支付发票', '早餐效率', '前台演练'],
+            };
+        }
+        if (includesAny(['亲子', '家庭', '度假'])) {
+            return {
+                summary: `${positioning}定位会强化安全巡检、亲子设施、房型组合、场景素材和本地渠道营销准备。`,
+                items: ['安全巡检', '亲子设施', '场景素材', '本地营销'],
+            };
+        }
+        if (includesAny(['经济', '快捷', '轻居', '性价比'])) {
+            return {
+                summary: `${positioning}定位会更关注成本控制、清洁效率、基础物资、价格带和渠道转化效率。`,
+                items: ['成本控制', '清洁效率', '基础物资', '渠道转化'],
+            };
+        }
+        return {
+            summary: `${positioning}定位会同步影响产品卖点、房价库存、物资配置、员工培训和开业营销口径。`,
+            items: ['产品卖点', '房价库存', '物资配置', '营销口径'],
+        };
+    };
     const buildOpeningTaskProgressCards = (stats = {}) => [
         {
             label: '任务进度均值',
@@ -324,6 +412,21 @@ window.SUXI_OPERATION_STATIC = (() => {
             { label: '100%', count: stats.progressDone, percent: Math.round(stats.progressDone / total * 100), className: 'text-green-700', barClass: 'bg-green-600' },
         ];
     };
+    const buildOpeningStatusFilterChips = (stats = {}) => [
+        { value: '', label: '全部', count: stats.total, activeClass: 'bg-gray-900 text-white border-gray-900' },
+        { value: 'todo', label: '未开始', count: stats.todo, activeClass: 'bg-gray-600 text-white border-gray-600' },
+        { value: 'doing', label: '进行中', count: stats.doing, activeClass: 'bg-blue-600 text-white border-blue-600' },
+        { value: 'done', label: '已完成', count: stats.done, activeClass: 'bg-green-600 text-white border-green-600' },
+        { value: 'blocked', label: '受阻', count: stats.blocked, activeClass: 'bg-yellow-500 text-white border-yellow-500' },
+    ];
+    const buildOpeningAttentionFilterChips = (stats = {}) => [
+        { value: 'overdue', label: '逾期', count: stats.overdue, activeClass: 'bg-red-600 text-white border-red-600' },
+        { value: 'dueSoon', label: '7天内到期', count: stats.dueSoon, activeClass: 'bg-yellow-500 text-white border-yellow-500' },
+        { value: 'high', label: '高风险', count: stats.highRisk, activeClass: 'bg-red-600 text-white border-red-600' },
+        { value: 'blocked', label: '受阻', count: stats.blocked, activeClass: 'bg-yellow-500 text-white border-yellow-500' },
+        { value: 'noOwner', label: '未分配', count: stats.noOwner, activeClass: 'bg-gray-700 text-white border-gray-700' },
+        { value: 'core', label: '核心项', count: stats.core, activeClass: 'bg-blue-600 text-white border-blue-600' },
+    ];
     const openingAiTaskProgressPercent = (task, helpers = {}) => {
         if (typeof helpers.taskProgressPercent === 'function') {
             return helpers.taskProgressPercent(task);
@@ -447,8 +550,12 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOperationSourceBrief,
         buildOperationDecisionCards,
         buildOpeningOverviewCards,
+        buildOpeningCategoryProgressCards,
+        buildOpeningPositioningImpact,
         buildOpeningTaskProgressCards,
         buildOpeningTaskProgressStages,
+        buildOpeningStatusFilterChips,
+        buildOpeningAttentionFilterChips,
         buildOpeningAiOutputResult,
         openingCategories,
         openingStatusOptions,
