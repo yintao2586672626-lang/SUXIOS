@@ -8,6 +8,7 @@ const publicRouterPath = path.join(repoRoot, 'public/router.php');
 const stylePath = path.join(repoRoot, 'public/style.css');
 const loginBgPngPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.png');
 const loginBgWebpPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.webp');
+const loginBgAvifPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.avif');
 const failures = [];
 
 const lineNumberForOffset = (content, offset) => content.slice(0, offset).split(/\r?\n/).length;
@@ -192,23 +193,31 @@ if (!fs.existsSync(stylePath)) {
   if (!fs.existsSync(loginBgWebpPath)) {
     failures.push('public/images/login-hotel-lobby-bg.webp optimized login background is missing.');
   }
-  if (fs.existsSync(loginBgPngPath) && fs.existsSync(loginBgWebpPath)) {
+  if (!fs.existsSync(loginBgAvifPath)) {
+    failures.push('public/images/login-hotel-lobby-bg.avif optimized login background is missing.');
+  }
+  if (fs.existsSync(loginBgPngPath) && fs.existsSync(loginBgWebpPath) && fs.existsSync(loginBgAvifPath)) {
     const pngSize = fs.statSync(loginBgPngPath).size;
     const webpSize = fs.statSync(loginBgWebpPath).size;
+    const avifSize = fs.statSync(loginBgAvifPath).size;
     if (webpSize >= pngSize * 0.25) {
       failures.push('public/images/login-hotel-lobby-bg.webp must remain a substantially smaller first-choice login background.');
+    }
+    if (avifSize >= webpSize * 0.75) {
+      failures.push('public/images/login-hotel-lobby-bg.avif must remain smaller than the WebP login background.');
     }
   }
   const loginPngOffset = styleSource.indexOf('images/login-hotel-lobby-bg.png');
   const loginWebpOffset = styleSource.indexOf('images/login-hotel-lobby-bg.webp');
-  if (loginPngOffset === -1 || loginWebpOffset === -1) {
-    failures.push('public/style.css must keep both the original PNG declaration and the optimized WebP login background declaration.');
+  const loginAvifOffset = styleSource.indexOf('images/login-hotel-lobby-bg.avif');
+  if (loginPngOffset === -1 || loginWebpOffset === -1 || loginAvifOffset === -1) {
+    failures.push('public/style.css must keep the original PNG declaration plus optimized AVIF and WebP login background declarations.');
   }
-  if (loginPngOffset !== -1 && loginWebpOffset !== -1 && loginWebpOffset < loginPngOffset) {
-    failures.push('public/style.css must declare the optimized WebP login background after the original PNG declaration.');
+  if (loginPngOffset !== -1 && loginWebpOffset !== -1 && loginAvifOffset !== -1 && (loginAvifOffset < loginPngOffset || loginWebpOffset < loginAvifOffset)) {
+    failures.push('public/style.css must declare login backgrounds in PNG legacy, AVIF first-choice, then WebP fallback order.');
   }
-  if (!styleSource.includes('-webkit-image-set(') || !styleSource.includes('image-set(')) {
-    failures.push('public/style.css must use image-set declarations for the optimized login background with PNG fallback.');
+  if (!styleSource.includes('-webkit-image-set(') || !styleSource.includes('image-set(') || !styleSource.includes('type("image/avif")') || !styleSource.includes('type("image/webp")')) {
+    failures.push('public/style.css must use image-set declarations for the optimized AVIF/WebP login background with PNG fallback.');
   }
 }
 
