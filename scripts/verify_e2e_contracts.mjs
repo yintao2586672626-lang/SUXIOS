@@ -139,6 +139,9 @@ requireText('public/index.html', 'await ensureAutoFetchStaticReady();', 'entry g
 requireText('public/index.html', 'const schedulePostFetchRefresh =', 'entry defers post-fetch refresh work');
 requireText('public/index.html', 'const AUTO_FETCH_PANEL_CACHE_TTL_MS', 'entry deduplicates platform auto-fetch panel loading');
 requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads platform auto-fetch panel only on tab entry');
+requireNoText('public/index.html', 'await loadAutoFetchPanel()', 'platform-auto navigation and profile follow-up refreshes do not block on the full panel reload');
+requireText('public/index.html', "runPageLoadOnce('online-data', 'platform-auto-panel', () => loadAutoFetchPanel({ force: true }), { force: true })", 'platform-auto navigation schedules full panel refresh without blocking first interaction');
+requireText('public/index.html', 'deferUiTask(() => Promise.allSettled([\n                            loadPlatformProfileStatus({ silent: true }),\n                            loadAutoFetchPanel({ force: true }),', 'profile unbind refreshes platform profile and auto-fetch state in deferred work');
 requireNoText('public/index.html', "onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList(); loadAutoFetchPanel()", 'Ctrip fetch settings does not load full platform auto-fetch panel');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel(); loadPlatformProfileStatus({ silent: true })", 'platform sources tab does not duplicate profile status loading');
 requireNoText('public/index.html', 'await loadAutoFetchPanel();\n                    return;\n                }\n                downloadCenterTab.value = tab;', 'download tab switch does not load full platform auto-fetch panel for Ctrip settings');
@@ -157,6 +160,8 @@ requireText('public/index.html', 'const schedulePlatformDataSourcesRefresh', 'en
 requireText('app/service/ManualOnlineFetchTaskService.php', 'final class ManualOnlineFetchTaskService', 'manual OTA background task creation and launch lives in a focused service');
 requireText('app/service/ManualOnlineFetchTaskService.php', 'online-data:manual-fetch-once', 'manual OTA background task service launches the shared one-shot worker');
 requireText('app/controller/OnlineData.php', "createTask('ctrip'", 'backend can run Ctrip manual fetch as a background task through the manual OTA task service');
+requireText('app/controller/OnlineData.php', "createTask(strtolower($platform) . '_traffic'", 'backend can run Ctrip traffic manual fetch as a background task through the manual OTA task service');
+requireText('app/controller/OnlineData.php', "createTask('ctrip_ads'", 'backend can run Ctrip ads manual fetch as a background task through the manual OTA task service');
 requireText('app/controller/OnlineData.php', 'launchTask($task)', 'backend launches manual OTA fetch tasks through the manual OTA task service');
 requireNoText('app/controller/OnlineData.php', 'private function createManualCtripFetchBackgroundTask', 'OnlineData does not re-inline Ctrip manual background task creation');
 requireNoText('app/controller/OnlineData.php', 'private function launchManualCtripFetchBackgroundTask', 'OnlineData does not re-inline manual background task launching');
@@ -193,11 +198,16 @@ requireText('public/auto-fetch-static.js', 'const runDataConfigTestFlow', 'auto-
 requireText('public/index.html', "requireAutoFetchStatic('runDataConfigTestFlow')", 'entry uses extracted data-source config test flow runner');
 requireText('public/auto-fetch-static.js', 'async: true', 'auto-fetch trigger submits quickly and lets backend continue collection');
 requireText('public/auto-fetch-static.js', "return { status: 'accepted'", 'auto-fetch trigger keeps backend queued state non-blocking');
+requireText('public/ctrip-static.js', 'const isCtripBackgroundAcceptedResponse', 'Ctrip static shares accepted/running/queued background response detection');
+requireText('public/ctrip-static.js', 'const queuedRequestBody = { ...requestBody, async: true };', 'Ctrip manual fetch flows submit quickly and let backend continue collection');
+requireText('public/ctrip-static.js', "return { status: 'accepted'", 'Ctrip manual fetch flows keep backend queued state non-blocking');
 requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: true }', 'Meituan manual batch fetch submits quickly and lets backend continue collection');
 requireText('public/meituan-static.js', "return { status: 'accepted'", 'Meituan manual batch fetch keeps backend queued state non-blocking');
 requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
 requireText('app/controller/OnlineData.php', 'createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
 requireText('app/controller/OnlineData.php', "createTask('meituan'", 'backend creates one-shot Meituan manual fetch background tasks through the manual OTA task service');
+requireText('app/controller/OnlineData.php', "createTask('meituan_traffic'", 'backend creates one-shot Meituan traffic manual fetch background tasks through the manual OTA task service');
+requireText('app/controller/OnlineData.php', "createTask('meituan_' . $section", 'backend creates one-shot Meituan order/ads manual fetch background tasks through the manual OTA task service');
 requireNoText('app/controller/OnlineData.php', 'private function createManualMeituanFetchBackgroundTask', 'OnlineData does not re-inline Meituan manual background task creation');
 requireText('app/command/AutoFetchOnlineDataOnce.php', 'online-data:auto-fetch-once', 'backend registers a one-shot auto-fetch worker command');
 requireText('config/console.php', "'online-data:auto-fetch-once'", 'console exposes one-shot auto-fetch worker command');
@@ -1569,6 +1579,45 @@ try {
       getOnlineDataTab: () => 'data',
       refreshOnlineData: () => trafficEvents.push('refresh-data'),
     });
+    const acceptedTrafficEvents = [];
+    const acceptedTrafficStates = [];
+    let acceptedTrafficOnlinePayload = null;
+    let acceptedTrafficLatestPayload = null;
+    let acceptedTrafficRequestedBody = null;
+    const acceptedTrafficResult = await runMeituanTrafficFetchFlow({
+      getForm: () => ({
+        url: 'https://example.test/traffic',
+        partnerId: 'partner-flow',
+        poiId: 'poi-flow',
+        cookies: 'mt-traffic-flow-cookie',
+        startDate: '2026-06-02',
+        endDate: '2026-06-03',
+      }),
+      getSystemHotelId: () => '20',
+      notify: (message, level) => acceptedTrafficEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => acceptedTrafficStates.push(`fetching:${value}`),
+      setOnlineDataResult: value => { acceptedTrafficOnlinePayload = value; },
+      setLatestTrafficData: value => { acceptedTrafficLatestPayload = value; },
+      requestFetch: async body => {
+        acceptedTrafficRequestedBody = body;
+        return {
+          code: 200,
+          message: 'traffic queued',
+          data: {
+            status: 'running',
+            task_id: 'mt-traffic-task-1',
+            platform: 'meituan',
+            async: true,
+            saved_count: 0,
+            request_start_date: '2026-06-02',
+            request_end_date: '2026-06-03',
+          },
+        };
+      },
+      refreshOnlineHistory: async () => acceptedTrafficEvents.push('history'),
+      getOnlineDataTab: () => 'data',
+      refreshOnlineData: () => acceptedTrafficEvents.push('refresh-data'),
+    });
     const delayedTrafficFlowResult = await runMeituanTrafficFetchFlow({
       getForm: () => ({
         url: 'https://example.test/traffic',
@@ -1620,6 +1669,7 @@ try {
       label: 'Meituan traffic fetch flow preserves success, failed and exception states',
       ok: trafficFlowResult.status === 'success'
         && trafficRequestedBody.partner_id === 'partner-flow'
+        && trafficRequestedBody.async === true
         && trafficRequestedBody.poi_id === 'poi-flow'
         && trafficRequestedBody.cookies === 'mt-traffic-flow-cookie'
         && trafficRequestedBody.system_hotel_id === '20'
@@ -1631,6 +1681,15 @@ try {
         && delayedTrafficFlowResult.status === 'success'
         && delayedTrafficReturnedBeforeHistory === true
         && trafficEvents.some(event => event === 'notify:info:获取成功！已保存 6 条流量数据')
+        && acceptedTrafficResult.status === 'accepted'
+        && acceptedTrafficRequestedBody.async === true
+        && acceptedTrafficOnlinePayload.status === 'running'
+        && acceptedTrafficOnlinePayload.task_id === 'mt-traffic-task-1'
+        && acceptedTrafficLatestPayload.status === 'running'
+        && acceptedTrafficEvents.includes('history')
+        && acceptedTrafficEvents.includes('refresh-data')
+        && acceptedTrafficEvents.includes('notify:info:traffic queued')
+        && acceptedTrafficStates.join('|') === 'fetching:true|fetching:false'
         && missingTrafficResult.status === 'missing_url'
         && missingTrafficEvents[0] === 'notify:error:需 Network 请求信息：请输入接口地址'
         && !missingTrafficEvents.some(event => event.startsWith('fetching:'))
@@ -1713,6 +1772,45 @@ try {
       },
       refreshOnlineHistory: async () => orderEvents.push('history'),
     });
+    const acceptedOrderEvents = [];
+    const acceptedOrderStates = [];
+    let acceptedOrderResultPayload = null;
+    let acceptedOrderOnlinePayload = null;
+    let acceptedOrderRequestedBody = null;
+    const acceptedOrderResult = await runMeituanOrderFetchFlow({
+      getForm: () => ({
+        url: 'https://example.test/orders/list',
+        method: 'get',
+        partnerId: 'partner-20',
+        poiId: 'poi-20',
+        cookies: 'mt-cookie-20',
+        startDate: '2026-06-02',
+        endDate: '2026-06-03',
+      }),
+      getSystemHotelId: () => '20',
+      getHotelNameById: id => `Hotel ${id}`,
+      notify: (message, level) => acceptedOrderEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => acceptedOrderStates.push(`fetching:${value}`),
+      setOrderResult: value => { acceptedOrderResultPayload = value; },
+      setOnlineDataResult: value => { acceptedOrderOnlinePayload = value; },
+      requestFetch: async body => {
+        acceptedOrderRequestedBody = body;
+        return {
+          code: 200,
+          message: 'order queued',
+          data: {
+            status: 'running',
+            task_id: 'mt-order-task-1',
+            platform: 'meituan',
+            async: true,
+            saved_count: 0,
+            request_start_date: '2026-06-02',
+            request_end_date: '2026-06-03',
+          },
+        };
+      },
+      refreshOnlineHistory: async () => acceptedOrderEvents.push('history'),
+    });
     const missingOrderEvents = [];
     const missingOrderResult = await runMeituanOrderFetchFlow({
       getForm: () => ({ url: '', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
@@ -1742,6 +1840,7 @@ try {
       label: 'Meituan order fetch flow preserves success, failed and exception states',
       ok: orderFlowResult.status === 'success'
         && orderRequestedBody.partner_id === 'partner-20'
+        && orderRequestedBody.async === true
         && orderRequestedBody.method === 'GET'
         && orderRequestedBody.hotel_name === 'Hotel 20'
         && orderResultPayload.saved_count === 4
@@ -1749,6 +1848,14 @@ try {
         && orderStates.join('|') === 'fetching:true|fetching:false'
         && orderEvents.includes('history')
         && orderEvents.some(event => event === 'notify:success:订单数据获取成功，已入库 4 条')
+        && acceptedOrderResult.status === 'accepted'
+        && acceptedOrderRequestedBody.async === true
+        && acceptedOrderResultPayload.status === 'running'
+        && acceptedOrderResultPayload.task_id === 'mt-order-task-1'
+        && acceptedOrderOnlinePayload.status === 'running'
+        && acceptedOrderEvents.includes('history')
+        && acceptedOrderEvents.includes('notify:info:order queued')
+        && acceptedOrderStates.join('|') === 'fetching:true|fetching:false'
         && missingOrderResult.status === 'missing_url'
         && missingOrderEvents[0] === 'notify:error:需 Network 请求信息：请填写订单接口 Request URL'
         && !missingOrderEvents.some(event => event.startsWith('fetching:'))
@@ -1837,6 +1944,45 @@ try {
       },
       refreshOnlineHistory: async () => adsEvents.push('history'),
     });
+    const acceptedAdsEvents = [];
+    const acceptedAdsStates = [];
+    let acceptedAdsResultPayload = null;
+    let acceptedAdsOnlinePayload = null;
+    let acceptedAdsRequestedBody = null;
+    const acceptedAdsResult = await runMeituanAdsFetchFlow({
+      getForm: () => ({
+        url: 'https://example.test/cureShops',
+        method: 'get',
+        partnerId: 'partner-40',
+        shopId: 'shop-40',
+        cookies: 'mt-ads-cookie-40',
+        startDate: '2026-06-06',
+        endDate: '2026-06-07',
+      }),
+      getSystemHotelId: () => '40',
+      getHotelNameById: id => `Ads Hotel ${id}`,
+      notify: (message, level) => acceptedAdsEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => acceptedAdsStates.push(`fetching:${value}`),
+      setAdsResult: value => { acceptedAdsResultPayload = value; },
+      setOnlineDataResult: value => { acceptedAdsOnlinePayload = value; },
+      requestFetch: async body => {
+        acceptedAdsRequestedBody = body;
+        return {
+          code: 200,
+          message: 'ads queued',
+          data: {
+            status: 'running',
+            task_id: 'mt-ads-task-1',
+            platform: 'meituan',
+            async: true,
+            saved_count: 0,
+            request_start_date: '2026-06-06',
+            request_end_date: '2026-06-07',
+          },
+        };
+      },
+      refreshOnlineHistory: async () => acceptedAdsEvents.push('history'),
+    });
     const missingAdsEvents = [];
     const missingAdsResult = await runMeituanAdsFetchFlow({
       getForm: () => ({ url: '', shopId: 'shop', cookies: 'cookie' }),
@@ -1866,6 +2012,7 @@ try {
       label: 'Meituan ads fetch flow preserves success, failed and exception states',
       ok: adsFlowResult.status === 'success'
         && adsRequestedBody.partner_id === 'partner-40'
+        && adsRequestedBody.async === true
         && adsRequestedBody.method === 'GET'
         && adsRequestedBody.poi_id === 'shop-40'
         && adsRequestedBody.shop_id === 'shop-40'
@@ -1875,6 +2022,14 @@ try {
         && adsStates.join('|') === 'fetching:true|fetching:false'
         && adsEvents.includes('history')
         && adsEvents.some(event => event === 'notify:success:广告数据获取成功，已入库 5 条')
+        && acceptedAdsResult.status === 'accepted'
+        && acceptedAdsRequestedBody.async === true
+        && acceptedAdsResultPayload.status === 'running'
+        && acceptedAdsResultPayload.task_id === 'mt-ads-task-1'
+        && acceptedAdsOnlinePayload.status === 'running'
+        && acceptedAdsEvents.includes('history')
+        && acceptedAdsEvents.includes('notify:info:ads queued')
+        && acceptedAdsStates.join('|') === 'fetching:true|fetching:false'
         && missingAdsResult.status === 'missing_url'
         && missingAdsEvents[0] === 'notify:error:需 Network 请求信息：请填写广告接口 Request URL'
         && !missingAdsEvents.some(event => event.startsWith('fetching:'))
@@ -3775,6 +3930,21 @@ try {
       return { result, events, states, form, adsResultPayload, adsOnlinePayload, adsShowRawData, adsRequestBody };
     };
     const adsFlowSuccess = await runAdsSample();
+    const adsFlowAccepted = await runAdsSample({
+      response: {
+        code: 200,
+        message: 'ads queued',
+        data: {
+          status: 'running',
+          task_id: 'ads-task-1',
+          platform: 'ctrip',
+          async: true,
+          saved_count: 0,
+          request_start_date: '2026-06-01',
+          request_end_date: '2026-06-10',
+        },
+      },
+    });
     const adsFlowFailure = await runAdsSample({
       response: { code: 500, message: 'upstream failed', data: { saved_count: 0 } },
     });
@@ -4005,6 +4175,21 @@ try {
       return { result, events, states, form, trafficOnlinePayload, trafficRequestBody, trafficDisplayArgs };
     };
     const trafficFlowSuccess = await runTrafficSample();
+    const trafficFlowAccepted = await runTrafficSample({
+      response: {
+        code: 200,
+        message: 'traffic queued',
+        data: {
+          status: 'running',
+          task_id: 'traffic-task-1',
+          platform: 'ctrip',
+          async: true,
+          saved_count: 0,
+          request_start_date: '2026-06-01',
+          request_end_date: '2026-06-10',
+        },
+      },
+    });
     const trafficFlowEmpty = await runTrafficSample({
       response: { code: 200, data: { saved_count: 0, data: [], display_traffic_rows: [] } },
       displayRowsReturn: [],
@@ -4145,6 +4330,7 @@ try {
       label: 'Ctrip traffic fetch flow preserves success, empty, failed and exception states',
       ok: trafficFlowSuccess.result.status === 'success'
         && trafficFlowSuccess.trafficRequestBody.url === 'https://ebooking.ctrip.test/traffic'
+        && trafficFlowSuccess.trafficRequestBody.async === true
         && trafficFlowSuccess.trafficRequestBody.cookies === 'sid=traffic-flow'
         && trafficFlowSuccess.trafficRequestBody.system_hotel_id === '58'
         && trafficFlowSuccess.trafficRequestBody.extra_params === '{"scope":"self"}'
@@ -4156,6 +4342,16 @@ try {
         && trafficFlowSuccess.events.some(event => event[0] === 'history')
         && trafficFlowSuccess.events.some(event => event[0] === 'refresh-data')
         && trafficFlowSuccess.events.some(event => event[0] === 'notify' && event[1] === 'success' && event[2].includes('获取成功，已保存 3 条流量数据'))
+        && trafficFlowAccepted.result.status === 'accepted'
+        && trafficFlowAccepted.trafficRequestBody.async === true
+        && trafficFlowAccepted.trafficOnlinePayload.status === 'running'
+        && trafficFlowAccepted.trafficOnlinePayload.task_id === 'traffic-task-1'
+        && trafficFlowAccepted.trafficOnlinePayload.saved_count === 0
+        && trafficFlowAccepted.trafficDisplayArgs === null
+        && trafficFlowAccepted.events.some(event => event[0] === 'notify' && event[1] === 'info' && event[2].includes('traffic queued'))
+        && trafficFlowAccepted.events.some(event => event[0] === 'history')
+        && trafficFlowAccepted.events.some(event => event[0] === 'refresh-data')
+        && trafficFlowAccepted.states.join('|') === 'fetching,true|fetching,false'
         && trafficFlowEmpty.result.status === 'empty'
         && trafficFlowEmpty.events.some(event => event[0] === 'notify' && event[1] === 'warning' && event[2].includes('当前日期范围暂无流量数据'))
         && !trafficFlowEmpty.events.some(event => event[0] === 'history')
@@ -4271,6 +4467,7 @@ try {
       label: 'Ctrip ads fetch flow refreshes persisted and UI data on success',
       ok: adsFlowSuccess.result.status === 'success'
         && adsFlowSuccess.adsRequestBody.system_hotel_id === '58'
+        && adsFlowSuccess.adsRequestBody.async === true
         && adsFlowSuccess.adsRequestBody.hotel_id === 'ctrip-hotel-1'
         && adsFlowSuccess.adsRequestBody.hotel_name === 'hotel-58'
         && adsFlowSuccess.adsRequestBody.url.includes('queryCampaignReportList')
@@ -4288,6 +4485,23 @@ try {
         && adsFlowSuccess.states.some(event => event[0] === 'running' && event[1] === false)
         && adsFlowSuccess.states.some(event => event[0] === 'global-fetching' && event[1] === false),
       detail: 'runCtripAdsFetchFlow success sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip ads fetch flow treats background accepted state as explicit running task',
+      ok: adsFlowAccepted.result.status === 'accepted'
+        && adsFlowAccepted.adsRequestBody.async === true
+        && adsFlowAccepted.adsResultPayload?.status === 'running'
+        && adsFlowAccepted.adsResultPayload?.task_id === 'ads-task-1'
+        && adsFlowAccepted.adsOnlinePayload?.status === 'running'
+        && adsFlowAccepted.adsOnlinePayload?.saved_count === 0
+        && adsFlowAccepted.adsShowRawData === false
+        && adsFlowAccepted.events.some(event => event[0] === 'notify' && event[1] === 'info' && event[2].includes('ads queued'))
+        && adsFlowAccepted.events.some(event => event[0] === 'latest' && event[1]?.silent === true)
+        && adsFlowAccepted.events.some(event => event[0] === 'history')
+        && adsFlowAccepted.states.some(event => event[0] === 'running' && event[1] === false)
+        && adsFlowAccepted.states.some(event => event[0] === 'global-fetching' && event[1] === false),
+      detail: 'runCtripAdsFetchFlow accepted sample',
     });
     checks.push({
       file: 'public/ctrip-static.js',

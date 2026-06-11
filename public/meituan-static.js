@@ -526,7 +526,28 @@ window.SUXI_MEITUAN_STATIC = (() => {
             systemHotelId: getSystemHotelId(),
         });
         try {
-            const res = await requestFetch(requestBody);
+            const queuedRequestBody = { ...requestBody, async: true };
+            const res = await requestFetch(queuedRequestBody);
+            if (isMeituanBackgroundAcceptedResponse(res)) {
+                const data = res.data || {};
+                const runningPayload = {
+                    status: data.status || 'running',
+                    task_id: data.task_id || '',
+                    platform: data.platform || 'meituan',
+                    async: true,
+                    saved_count: data.saved_count || 0,
+                    request_start_date: data.request_start_date || requestBody.start_date || '',
+                    request_end_date: data.request_end_date || requestBody.end_date || '',
+                };
+                setOnlineDataResult(runningPayload);
+                setLatestTrafficData(runningPayload);
+                notify(res.message || '美团流量手动获取已提交后台执行，完成后会更新数据列表和通知', 'info');
+                runPostFetchRefresh(refreshOnlineHistory);
+                if (getOnlineDataTab() === 'data') {
+                    refreshOnlineData();
+                }
+                return { status: 'accepted', response: res, requestBody: queuedRequestBody, data: runningPayload, savedCount: 0 };
+            }
             if (res.code === 200) {
                 const data = res.data || {};
                 const trafficData = data.data;
@@ -632,7 +653,25 @@ window.SUXI_MEITUAN_STATIC = (() => {
             hotelName: getHotelNameById(systemHotelId),
         });
         try {
-            const res = await requestFetch(requestBody);
+            const queuedRequestBody = { ...requestBody, async: true };
+            const res = await requestFetch(queuedRequestBody);
+            if (isMeituanBackgroundAcceptedResponse(res)) {
+                const data = res.data || {};
+                const runningPayload = {
+                    status: data.status || 'running',
+                    task_id: data.task_id || '',
+                    platform: data.platform || 'meituan',
+                    async: true,
+                    saved_count: data.saved_count || 0,
+                    request_start_date: data.request_start_date || requestBody.start_date || '',
+                    request_end_date: data.request_end_date || requestBody.end_date || '',
+                };
+                setOrderResult(runningPayload);
+                setOnlineDataResult(runningPayload);
+                notify(res.message || '美团订单手动获取已提交后台执行，完成后会更新数据列表和通知', 'info');
+                runPostFetchRefresh(refreshOnlineHistory);
+                return { status: 'accepted', response: res, requestBody: queuedRequestBody, data: runningPayload, savedCount: 0 };
+            }
             if (res.code === 200) {
                 const data = res.data || {};
                 setOrderResult(data);
@@ -732,7 +771,25 @@ window.SUXI_MEITUAN_STATIC = (() => {
             hotelName: getHotelNameById(systemHotelId),
         });
         try {
-            const res = await requestFetch(requestBody);
+            const queuedRequestBody = { ...requestBody, async: true };
+            const res = await requestFetch(queuedRequestBody);
+            if (isMeituanBackgroundAcceptedResponse(res)) {
+                const data = res.data || {};
+                const runningPayload = {
+                    status: data.status || 'running',
+                    task_id: data.task_id || '',
+                    platform: data.platform || 'meituan',
+                    async: true,
+                    saved_count: data.saved_count || 0,
+                    request_start_date: data.request_start_date || requestBody.start_date || '',
+                    request_end_date: data.request_end_date || requestBody.end_date || '',
+                };
+                setAdsResult(runningPayload);
+                setOnlineDataResult(runningPayload);
+                notify(res.message || '美团广告手动获取已提交后台执行，完成后会更新数据列表和通知', 'info');
+                runPostFetchRefresh(refreshOnlineHistory);
+                return { status: 'accepted', response: res, requestBody: queuedRequestBody, data: runningPayload, savedCount: 0 };
+            }
             if (res.code === 200) {
                 const data = res.data || {};
                 setAdsResult(data);

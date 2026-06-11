@@ -682,6 +682,7 @@ class OnlineData extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        $requestData = $this->request->post();
         $url = (string)$this->request->post('url', '');
         $platform = (string)$this->request->post('platform', 'Ctrip');
         $dateRange = (string)$this->request->post('date_range', 'yesterday');
@@ -692,6 +693,8 @@ class OnlineData extends Base
         $autoSave = $this->request->post('auto_save', true);
         $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
         $extraParamsStr = (string)$this->request->post('extra_params', '');
+        $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
+            && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
 
         if ($cookies === '') {
             return $this->error('请提供携程 Cookie');
@@ -710,6 +713,31 @@ class OnlineData extends Base
 
             [$startDate, $endDate] = $this->buildCtripTrafficDateRange($dateRange, $startDate, $endDate);
             $requestUrl = $this->normalizeCtripTrafficUrl($url);
+
+            if ($backgroundRequested && $systemHotelId) {
+                $taskRequestData = is_array($requestData) ? $requestData : [];
+                $taskRequestData['url'] = $requestUrl;
+                $taskRequestData['platform'] = $platform;
+                $taskRequestData['start_date'] = $startDate;
+                $taskRequestData['end_date'] = $endDate;
+                $manualFetchTaskService = new ManualOnlineFetchTaskService();
+                $task = $manualFetchTaskService->createTask(strtolower($platform) . '_traffic', (int)$systemHotelId, $startDate, $endDate, $taskRequestData, [
+                    'authorization' => trim((string)$this->request->header('Authorization', '')),
+                    'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/fetch-ctrip-traffic',
+                    'user_id' => (int)($this->currentUser->id ?? 0),
+                ]);
+                if (!empty($task) && $manualFetchTaskService->launchTask($task)) {
+                    return $this->success([
+                        'status' => 'running',
+                        'task_id' => $task['task_id'] ?? '',
+                        'platform' => strtolower($platform),
+                        'async' => true,
+                        'saved_count' => 0,
+                        'request_start_date' => $startDate,
+                        'request_end_date' => $endDate,
+                    ], '携程流量手动获取已提交后台执行，完成后会更新数据列表和通知');
+                }
+            }
 
             $postData = $extraParams;
             $postData['platform'] = $platform;
@@ -754,6 +782,15 @@ class OnlineData extends Base
                     $platform
                 );
             }
+            if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
+                $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
+                $this->recordAutoFetchNotification((int)$systemHotelId, true, '携程流量手动获取完成', $displayDataDate, [
+                    'saved_count' => $savedCount,
+                    'platform_results' => [
+                        ['platform' => strtolower($platform), 'success' => true, 'saved_count' => $savedCount],
+                    ],
+                ], 'manual_fetch');
+            }
             $derivedAnalysis = $this->buildAppTrafficDerivedAnalysis($responseData);
 
             OperationLog::record('online_data', 'fetch_ctrip_traffic', '获取携程流量数据', $this->currentUser->id, $systemHotelId);
@@ -788,6 +825,7 @@ class OnlineData extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        $requestData = $this->request->post();
         $url = trim((string)$this->request->post('url', ''));
         $cookies = trim((string)$this->request->post('cookies', ''));
         $payloadJson = (string)$this->request->post('payload_json', (string)$this->request->post('extra_params', ''));
@@ -800,6 +838,8 @@ class OnlineData extends Base
         $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
         $hotelId = trim((string)$this->request->post('hotel_id', ''));
         $hotelName = trim((string)$this->request->post('hotel_name', ''));
+        $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
+            && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
 
         if ($cookies === '') {
             return $this->error('请提供携程 Cookie');
@@ -825,6 +865,30 @@ class OnlineData extends Base
             if ($campaignId !== '') {
                 $payload['campaignId'] = $payload['campaignId'] ?? $campaignId;
                 $payload['campaign_id'] = $payload['campaign_id'] ?? $campaignId;
+            }
+
+            if ($backgroundRequested && $systemHotelId) {
+                $taskRequestData = is_array($requestData) ? $requestData : [];
+                $taskRequestData['url'] = $url;
+                $taskRequestData['start_date'] = $startDate;
+                $taskRequestData['end_date'] = $endDate;
+                $manualFetchTaskService = new ManualOnlineFetchTaskService();
+                $task = $manualFetchTaskService->createTask('ctrip_ads', (int)$systemHotelId, $startDate, $endDate, $taskRequestData, [
+                    'authorization' => trim((string)$this->request->header('Authorization', '')),
+                    'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/fetch-ctrip-ads',
+                    'user_id' => (int)($this->currentUser->id ?? 0),
+                ]);
+                if (!empty($task) && $manualFetchTaskService->launchTask($task)) {
+                    return $this->success([
+                        'status' => 'running',
+                        'task_id' => $task['task_id'] ?? '',
+                        'platform' => 'ctrip',
+                        'async' => true,
+                        'saved_count' => 0,
+                        'request_start_date' => $startDate,
+                        'request_end_date' => $endDate,
+                    ], '携程广告手动获取已提交后台执行，完成后会更新数据列表和通知');
+                }
             }
 
             $result = $this->sendCtripAdsRequest($url, $payload, $cookies, $method);
@@ -857,6 +921,15 @@ class OnlineData extends Base
             $savedCount = 0;
             if ($autoSave) {
                 $savedCount = $this->saveCtripCapturedAdRows($rows);
+            }
+            if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
+                $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
+                $this->recordAutoFetchNotification((int)$systemHotelId, true, '携程广告手动获取完成', $displayDataDate, [
+                    'saved_count' => $savedCount,
+                    'platform_results' => [
+                        ['platform' => 'ctrip', 'success' => true, 'saved_count' => $savedCount],
+                    ],
+                ], 'manual_fetch');
             }
 
             if ($this->currentUser && isset($this->currentUser->id)) {
@@ -984,6 +1057,7 @@ class OnlineData extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        $requestData = $this->request->post();
         $url = trim((string)$this->request->post('url', ''));
         $cookies = trim((string)$this->request->post('cookies', ''));
         $partnerId = trim((string)$this->request->post('partner_id', ''));
@@ -993,6 +1067,8 @@ class OnlineData extends Base
         $autoSave = $this->request->post('auto_save', true);
         $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
         $extraParamsStr = $this->request->post('extra_params', '');
+        $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
+            && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
 
         if (empty($url)) {
             return $this->error('请提供接口地址');
@@ -1033,6 +1109,35 @@ class OnlineData extends Base
                 $startDate = date('Y-m-d', strtotime('-1 day'));
             }
 
+            if ($endDate === '' && !empty($params['endDate']) && preg_match('/^\d{8}$/', (string)$params['endDate'])) {
+                $endDate = substr((string)$params['endDate'], 0, 4)
+                    . '-' . substr((string)$params['endDate'], 4, 2)
+                    . '-' . substr((string)$params['endDate'], 6, 2);
+            }
+
+            if ($backgroundRequested && $systemHotelId) {
+                $taskRequestData = is_array($requestData) ? $requestData : [];
+                $taskRequestData['start_date'] = $startDate;
+                $taskRequestData['end_date'] = $endDate;
+                $manualFetchTaskService = new ManualOnlineFetchTaskService();
+                $task = $manualFetchTaskService->createTask('meituan_traffic', (int)$systemHotelId, $startDate, $endDate, $taskRequestData, [
+                    'authorization' => trim((string)$this->request->header('Authorization', '')),
+                    'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/fetch-meituan-traffic',
+                    'user_id' => (int)($this->currentUser->id ?? 0),
+                ]);
+                if (!empty($task) && $manualFetchTaskService->launchTask($task)) {
+                    return $this->success([
+                        'status' => 'running',
+                        'task_id' => $task['task_id'] ?? '',
+                        'platform' => 'meituan',
+                        'async' => true,
+                        'saved_count' => 0,
+                        'request_start_date' => $startDate,
+                        'request_end_date' => $endDate,
+                    ], '美团流量手动获取已提交后台执行，完成后会更新数据列表和通知');
+                }
+            }
+
             $result = $this->sendMeituanRequest($url, $params, $cookies);
             if (!$result['success']) {
                 $this->recordCookieAlert('meituan', 'fetch-meituan-traffic', (string)($result['error'] ?? ''), $systemHotelId ? (int)$systemHotelId : null);
@@ -1052,6 +1157,16 @@ class OnlineData extends Base
             }
 
             OperationLog::record('online_data', 'fetch_meituan_traffic', '获取美团流量数据', $this->currentUser->id, $systemHotelId ? (int)$systemHotelId : null);
+
+            if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
+                $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
+                $this->recordAutoFetchNotification((int)$systemHotelId, true, '美团流量手动获取完成', $displayDataDate, [
+                    'saved_count' => $savedCount,
+                    'platform_results' => [
+                        ['platform' => 'meituan', 'success' => true, 'saved_count' => $savedCount],
+                    ],
+                ], 'manual_fetch');
+            }
 
             return $this->success([
                 'data' => $responseData,
@@ -1084,6 +1199,7 @@ class OnlineData extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        $requestData = $this->request->post();
         $url = trim((string)$this->request->post('url', ''));
         $cookies = trim((string)$this->request->post('cookies', ''));
         $partnerId = trim((string)$this->request->post('partner_id', ''));
@@ -1097,6 +1213,8 @@ class OnlineData extends Base
         $extraParamsStr = (string)$this->request->post('extra_params', '');
         $hotelName = trim((string)$this->request->post('hotel_name', ''));
         $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
+        $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
+            && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
 
         if ($url === '') {
             return $this->error('请提供 Network 中的接口 Request URL');
@@ -1143,6 +1261,29 @@ class OnlineData extends Base
             $params['dateRange'] = $params['dateRange'] ?? 1;
 
             $allowedHosts = $section === 'ads' ? ['dianping.com', 'meituan.com'] : ['meituan.com'];
+            if ($backgroundRequested && $systemHotelId) {
+                $taskRequestData = is_array($requestData) ? $requestData : [];
+                $taskRequestData['start_date'] = $startDate;
+                $taskRequestData['end_date'] = $endDate;
+                $apiPath = $section === 'orders' ? '/api/online-data/fetch-meituan-orders' : '/api/online-data/fetch-meituan-ads';
+                $manualFetchTaskService = new ManualOnlineFetchTaskService();
+                $task = $manualFetchTaskService->createTask('meituan_' . $section, (int)$systemHotelId, $startDate, $endDate, $taskRequestData, [
+                    'authorization' => trim((string)$this->request->header('Authorization', '')),
+                    'api_url' => rtrim($this->request->domain(), '/') . $apiPath,
+                    'user_id' => (int)($this->currentUser->id ?? 0),
+                ]);
+                if (!empty($task) && $manualFetchTaskService->launchTask($task)) {
+                    return $this->success([
+                        'status' => 'running',
+                        'task_id' => $task['task_id'] ?? '',
+                        'platform' => 'meituan',
+                        'async' => true,
+                        'saved_count' => 0,
+                        'request_start_date' => $startDate,
+                        'request_end_date' => $endDate,
+                    ], $section === 'orders' ? '美团订单手动获取已提交后台执行，完成后会更新数据列表和通知' : '美团广告手动获取已提交后台执行，完成后会更新数据列表和通知');
+                }
+            }
             $result = $this->sendMeituanManualRequest($url, $params, $cookies, $method, $allowedHosts, $section);
             if (!empty($result['error'])) {
                 $this->recordCookieAlert('meituan', 'fetch-meituan-' . $section, (string)$result['error'], $systemHotelId ? (int)$systemHotelId : null);
@@ -1167,6 +1308,16 @@ class OnlineData extends Base
             ];
             $rows = $this->buildMeituanCapturedDailyRows($capturedPayload, $systemHotelId ? (int)$systemHotelId : null);
             $savedCount = ($autoSave && !empty($rows)) ? $this->saveMeituanCapturedDailyRows($rows) : 0;
+            if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
+                $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
+                $sectionLabel = $section === 'orders' ? '订单' : '广告';
+                $this->recordAutoFetchNotification((int)$systemHotelId, true, '美团' . $sectionLabel . '手动获取完成', $displayDataDate, [
+                    'saved_count' => $savedCount,
+                    'platform_results' => [
+                        ['platform' => 'meituan', 'success' => true, 'saved_count' => $savedCount],
+                    ],
+                ], 'manual_fetch');
+            }
 
             if ($this->currentUser && isset($this->currentUser->id)) {
                 OperationLog::record(

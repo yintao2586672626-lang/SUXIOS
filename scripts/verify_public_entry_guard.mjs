@@ -230,6 +230,16 @@ if (!fs.existsSync(indexPath)) {
   if (!/newTab === ['"]platform-auto['"][\s\S]*loadAutoFetchPanel\(\)/.test(content)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
   }
+  if (content.includes('await loadAutoFetchPanel()')) {
+    failures.push('public/index.html must not block platform-auto navigation or profile follow-up refreshes on the full auto-fetch panel reload.');
+  }
+  const platformAutoNavigationRefreshCount = (content.match(/runPageLoadOnce\(['"]online-data['"],\s*['"]platform-auto-panel['"],\s*\(\)\s*=>\s*loadAutoFetchPanel\(\{\s*force:\s*true\s*\}\),\s*\{\s*force:\s*true\s*\}\)/g) || []).length;
+  if (platformAutoNavigationRefreshCount < 2) {
+    failures.push('public/index.html must schedule platform-auto panel refreshes from notification and hotel console navigation without awaiting them.');
+  }
+  if (!/deferUiTask\(\(\)\s*=>\s*Promise\.allSettled\(\[\s*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\),\s*loadAutoFetchPanel\(\{\s*force:\s*true\s*\}\),\s*\]\)\)/.test(content)) {
+    failures.push('public/index.html must defer profile unbind follow-up refreshes instead of serially awaiting platform-auto reload.');
+  }
   if (/onlineDataTab\s*=\s*['"]platform-sources['"][^@]*loadPlatformDataSourcePanel\(\);\s*loadPlatformProfileStatus/.test(content)) {
     failures.push('public/index.html must not duplicate platform profile status loading when opening platform-sources.');
   }
@@ -299,9 +309,61 @@ if (!fs.existsSync(indexPath)) {
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody/.test(ctripStaticContent)) {
     failures.push('public/ctrip-static.js must submit Ctrip manual fetch in background mode and treat running responses as accepted.');
   }
+  const ctripAcceptedHelperMatches = ctripStaticContent.match(/const\s+isCtripBackgroundAcceptedResponse\s*=/g) || [];
+  if (ctripAcceptedHelperMatches.length !== 1) {
+    failures.push('public/ctrip-static.js must define one shared Ctrip accepted/running/queued response helper.');
+  }
+  const trafficFlowStart = ctripStaticContent.indexOf('const runCtripTrafficFetchFlow = async');
+  const adsFlowStart = ctripStaticContent.indexOf('const runCtripAdsFetchFlow = async');
+  const ctripTrafficFlowSource = trafficFlowStart >= 0 && adsFlowStart > trafficFlowStart
+    ? ctripStaticContent.slice(trafficFlowStart, adsFlowStart)
+    : '';
+  const ctripAdsFlowSource = adsFlowStart >= 0
+    ? ctripStaticContent.slice(adsFlowStart, ctripStaticContent.indexOf('const createCtripAdsState', adsFlowStart) > adsFlowStart
+      ? ctripStaticContent.indexOf('const createCtripAdsState', adsFlowStart)
+      : ctripStaticContent.length)
+    : '';
+  if (!/const\s+queuedRequestBody\s*=\s*\{\s*\.\.\.requestBody,\s*async:\s*true\s*\};/.test(ctripTrafficFlowSource)
+    || !/isCtripBackgroundAcceptedResponse\(res\)/.test(ctripTrafficFlowSource)
+    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody:\s*queuedRequestBody/.test(ctripTrafficFlowSource)) {
+    failures.push('public/ctrip-static.js must submit Ctrip traffic manual fetch in background mode and keep running responses visible.');
+  }
+  if (!/const\s+queuedRequestBody\s*=\s*\{\s*\.\.\.requestBody,\s*async:\s*true\s*\};/.test(ctripAdsFlowSource)
+    || !/isCtripBackgroundAcceptedResponse\(res\)/.test(ctripAdsFlowSource)
+    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody:\s*queuedRequestBody/.test(ctripAdsFlowSource)) {
+    failures.push('public/ctrip-static.js must submit Ctrip ads manual fetch in background mode and keep running responses visible.');
+  }
   if (!/\{\s*\.\.\.task\.body,\s*async:\s*true\s*\}/.test(meituanStaticContent)
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*acceptedCount/.test(meituanStaticContent)) {
     failures.push('public/meituan-static.js must submit Meituan manual batch fetch in background mode and treat running responses as accepted.');
+  }
+  const meituanAcceptedHelperMatches = meituanStaticContent.match(/const\s+isMeituanBackgroundAcceptedResponse\s*=/g) || [];
+  if (meituanAcceptedHelperMatches.length !== 1) {
+    failures.push('public/meituan-static.js must define one shared Meituan accepted/running/queued response helper.');
+  }
+  const meituanTrafficFlowStart = meituanStaticContent.indexOf('const runMeituanTrafficFetchFlow = async');
+  const meituanOrderFlowStart = meituanStaticContent.indexOf('const runMeituanOrderFetchFlow = async');
+  const meituanAdsFlowStart = meituanStaticContent.indexOf('const runMeituanAdsFetchFlow = async');
+  const meituanBatchFlowStart = meituanStaticContent.indexOf('const runMeituanBatchFetchFlow = async');
+  const meituanTrafficFlowSource = meituanTrafficFlowStart >= 0 && meituanOrderFlowStart > meituanTrafficFlowStart
+    ? meituanStaticContent.slice(meituanTrafficFlowStart, meituanOrderFlowStart)
+    : '';
+  const meituanOrderFlowSource = meituanOrderFlowStart >= 0 && meituanAdsFlowStart > meituanOrderFlowStart
+    ? meituanStaticContent.slice(meituanOrderFlowStart, meituanAdsFlowStart)
+    : '';
+  const meituanAdsFlowSource = meituanAdsFlowStart >= 0 && meituanBatchFlowStart > meituanAdsFlowStart
+    ? meituanStaticContent.slice(meituanAdsFlowStart, meituanBatchFlowStart)
+    : '';
+  for (const [source, label] of [
+    [meituanTrafficFlowSource, 'traffic'],
+    [meituanOrderFlowSource, 'order'],
+    [meituanAdsFlowSource, 'ads'],
+  ]) {
+    if (!/const\s+queuedRequestBody\s*=\s*\{\s*\.\.\.requestBody,\s*async:\s*true\s*\};/.test(source)
+      || !/isMeituanBackgroundAcceptedResponse\(res\)/.test(source)
+      || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody:\s*queuedRequestBody/.test(source)) {
+      failures.push(`public/meituan-static.js must submit Meituan ${label} manual fetch in background mode and keep running responses visible.`);
+    }
   }
   const controllerPath = path.join(repoRoot, 'app/controller/OnlineData.php');
   const controllerContent = fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '';
@@ -313,12 +375,16 @@ if (!fs.existsSync(indexPath)) {
   if (!manualTaskServiceContent.includes('final class ManualOnlineFetchTaskService')
     || !manualTaskServiceContent.includes('online-data:manual-fetch-once')
     || !controllerContent.includes("createTask('ctrip'")
+    || !controllerContent.includes("createTask(strtolower($platform) . '_traffic'")
+    || !controllerContent.includes("createTask('ctrip_ads'")
     || !controllerContent.includes('launchTask($task)')
     || controllerContent.includes('private function createManualCtripFetchBackgroundTask')
     || controllerContent.includes('private function launchManualCtripFetchBackgroundTask')) {
     failures.push('app/controller/OnlineData.php must use ManualOnlineFetchTaskService for Ctrip manual fetch background task support.');
   }
   if (!controllerContent.includes("createTask('meituan'")
+    || !controllerContent.includes("createTask('meituan_traffic'")
+    || !controllerContent.includes("createTask('meituan_' . $section")
     || controllerContent.includes('private function createManualMeituanFetchBackgroundTask')) {
     failures.push('app/controller/OnlineData.php must use ManualOnlineFetchTaskService for Meituan manual fetch background task support.');
   }

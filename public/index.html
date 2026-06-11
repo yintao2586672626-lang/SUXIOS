@@ -23616,7 +23616,7 @@
                     currentPage.value = 'online-data';
                     onlineDataTab.value = 'platform-auto';
                     await nextTick();
-                    await loadAutoFetchPanel();
+                    runPageLoadOnce('online-data', 'platform-auto-panel', () => loadAutoFetchPanel({ force: true }), { force: true });
                     return;
                 }
 
@@ -25255,8 +25255,10 @@
                     });
                     if (res.code === 200) {
                         showToast(res.message || `已解除${platformName} Profile绑定，请选择正确酒店后重新登录绑定`);
-                        await loadPlatformProfileStatus();
-                        await loadAutoFetchPanel();
+                        deferUiTask(() => Promise.allSettled([
+                            loadPlatformProfileStatus({ silent: true }),
+                            loadAutoFetchPanel({ force: true }),
+                        ]));
                     } else {
                         showToast(res.message || '解除绑定失败', 'error');
                     }
@@ -29120,12 +29122,12 @@
                 onlineDataTab.value = 'platform-auto';
                 currentPage.value = 'online-data';
                 await nextTick();
-                await loadAutoFetchPanel();
+                runPageLoadOnce('online-data', 'platform-auto-panel', () => loadAutoFetchPanel({ force: true }), { force: true });
                 if (platform === 'meituan') {
-                    await loadMeituanConfigList();
+                    deferUiTask(() => loadMeituanConfigList());
                 }
                 if (platform === 'ctrip') {
-                    await loadCtripConfigList();
+                    deferUiTask(() => loadCtripConfigList());
                 }
             };
 

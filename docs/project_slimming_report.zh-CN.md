@@ -1391,6 +1391,17 @@
 - 当前自审计：完整目录约 `201.83 MB`；不含 `.git` 约 `94.43 MB`；不含 `.git` 和依赖约 `65.24 MB`；Git 跟踪文件约 `18.72 MB` / `617` 个；代码范围 `372` 个文件、`196,473` 行、非空 `180,529` 行；默认可清理目标仍为 `runtime` 约 `1.59 MB` / `87` 个文件，按本轮 P0/P1/P2 范围留到后续小优化。
 - 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\service\ManualOnlineFetchTaskService.php`、`C:\xampp\php\php.exe -l app\command\ManualFetchOnlineDataOnce.php`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`C:\xampp\php\php.exe think list` 可见 `online-data:manual-fetch-once` 与 `online-data:auto-fetch-once`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip|Meituan|meituan"`（`118` tests / `1445` assertions）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`576` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 
+## 2026-06-11 保存点：手动 OTA 单项后台 accepted 闭环
+
+- `app/controller/OnlineData.php` 将携程流量、携程广告、美团流量、美团订单、美团广告的单项手动获取纳入 `ManualOnlineFetchTaskService`：请求带 `async=true` 且非 `background_task` 时创建 `runtime/manual_fetch_tasks/<task_id>/input.json`，通过 `online-data:manual-fetch-once` 后台回调原接口；同步路径、入库逻辑、失败状态和 OTA 渠道口径不变。
+- `public/ctrip-static.js` 为携程流量和携程广告请求补齐 `async: true`，收到 `accepted/running/queued` 后写入显式运行态、`task_id`、日期范围和 `saved_count=0`，并后置刷新历史/最新快照/数据列表，不把后台未完成状态伪装成已入库数据。
+- `public/meituan-static.js` 为美团流量、订单和广告单项请求补齐 `async: true` accepted 路径；批量美团 accepted 路径保留。各单项 flow 继续保留缺 URL、缺平台标识、缺门店标识、缺 Cookie、后端失败和请求异常的显式返回。
+- `public/index.html` 保留平台自动获取面板的去重/后置加载：切到 `platform-auto` 和解绑 Profile 后通过 `runPageLoadOnce()`、`deferUiTask()` 刷新面板和配置列表，不改变自动获取接口、Profile 状态接口或 OTA 入库链路。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求携程/美团 accepted helper 只定义一次，并要求携程流量/广告、美团流量/订单/广告单项 flow 均后台提交且保留 running 响应；`verify_e2e_contracts.mjs` 增加运行态样例，验证 `async=true`、accepted task payload、通知、历史/数据刷新和失败/缺失状态边界。
+- 当前 split-map：`public/index.html` 仍为 `37,284` 行、`1,547` 个前端函数级块、`44` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,931` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `202.32 MB`；不含 `.git` 约 `94.47 MB`；不含 `.git` 和依赖约 `65.28 MB`；Git 跟踪文件约 `18.76 MB` / `618` 个；代码范围 `373` 个文件、`197,195` 行、非空 `181,224` 行；默认可清理目标为 `runtime` 约 `1.59 MB` / `100` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\ctrip-static.js`、`node --check public\meituan-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip|Meituan|meituan"`（`118` tests / `1445` assertions）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`584` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
