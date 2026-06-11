@@ -104,12 +104,15 @@ requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckRunContext'
 requireText('public/ctrip-static.js', 'const buildCtripProfileRecheckSuccessResult', 'Ctrip static builds Profile recheck success result');
 requireText('public/ctrip-static.js', 'const runCtripProfileRecheckFlow', 'Ctrip static runs Profile recheck flow');
 requireText('public/index.html', "requireMeituanStatic('runMeituanBatchFetchFlow')", 'entry uses extracted Meituan batch fetch flow runner');
+requireText('public/index.html', "requireMeituanStatic('runMeituanTrafficFetchFlow')", 'entry uses extracted Meituan traffic fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanOrderFetchFlow')", 'entry uses extracted Meituan order fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanAdsFetchFlow')", 'entry uses extracted Meituan ads fetch flow runner');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
 requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
+requireText('public/meituan-static.js', 'const buildMeituanTrafficFetchRequestBody', 'Meituan static builds traffic fetch request bodies');
+requireText('public/meituan-static.js', 'const runMeituanTrafficFetchFlow', 'Meituan static runs traffic fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanOrderFetchRequestBody', 'Meituan static builds order fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanOrderFetchFlow', 'Meituan static runs order fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanAdsFetchRequestBody', 'Meituan static builds ads fetch request bodies');
@@ -187,6 +190,10 @@ requireNoText('public/index.html', 'const batchInput = validateMeituanBatchFetch
 requireNoText('public/index.html', 'const fetchTasks = buildMeituanBatchFetchTasks({', 'Meituan batch fetch task flow is not re-inlined');
 requireNoText('public/index.html', 'results.push(buildMeituanBatchFetchResultEntry(task, res));', 'Meituan batch fetch result flow is not re-inlined');
 requireNoText('public/index.html', 'body: JSON.stringify(buildMeituanDisplayModelPayload({ results, form: meituanForm.value }))', 'Meituan display model payload flow is not re-inlined');
+requireNoText('public/index.html', "meituanTrafficForm.value.url = (meituanTrafficForm.value.url || '').trim();", 'Meituan traffic URL trim is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/fetch-meituan-traffic', {", 'Meituan traffic request flow is not re-inlined');
+requireNoText('public/index.html', 'latestTrafficData.value = res.data.data;', 'Meituan traffic success result write is not re-inlined');
+requireNoText('public/index.html', '获取成功！已保存 ${savedCount} 条流量数据', 'Meituan traffic success toast is not re-inlined');
 requireNoText('public/index.html', "const res = await request('/online-data/fetch-meituan-orders', {", 'Meituan order request flow is not re-inlined');
 requireNoText('public/index.html', "form.url.includes('/order-eb/index.html')", 'Meituan order page URL guard is not re-inlined');
 requireNoText('public/index.html', 'meituanOrderResult.value = res.data || {};', 'Meituan order success result write is not re-inlined');
@@ -587,6 +594,10 @@ try {
   const buildMeituanDisplayModelPayload = meituanStatic.buildMeituanDisplayModelPayload;
   const validateMeituanBatchFetchInput = meituanStatic.validateMeituanBatchFetchInput;
   const runMeituanBatchFetchFlow = meituanStatic.runMeituanBatchFetchFlow;
+  const normalizeMeituanTrafficFetchForm = meituanStatic.normalizeMeituanTrafficFetchForm;
+  const validateMeituanTrafficFetchInput = meituanStatic.validateMeituanTrafficFetchInput;
+  const buildMeituanTrafficFetchRequestBody = meituanStatic.buildMeituanTrafficFetchRequestBody;
+  const runMeituanTrafficFetchFlow = meituanStatic.runMeituanTrafficFetchFlow;
   const normalizeMeituanOrderFetchForm = meituanStatic.normalizeMeituanOrderFetchForm;
   const validateMeituanOrderFetchInput = meituanStatic.validateMeituanOrderFetchInput;
   const buildMeituanOrderFetchRequestBody = meituanStatic.buildMeituanOrderFetchRequestBody;
@@ -600,6 +611,10 @@ try {
     || typeof buildMeituanDisplayModelPayload !== 'function'
     || typeof validateMeituanBatchFetchInput !== 'function'
     || typeof runMeituanBatchFetchFlow !== 'function'
+    || typeof normalizeMeituanTrafficFetchForm !== 'function'
+    || typeof validateMeituanTrafficFetchInput !== 'function'
+    || typeof buildMeituanTrafficFetchRequestBody !== 'function'
+    || typeof runMeituanTrafficFetchFlow !== 'function'
     || typeof normalizeMeituanOrderFetchForm !== 'function'
     || typeof validateMeituanOrderFetchInput !== 'function'
     || typeof buildMeituanOrderFetchRequestBody !== 'function'
@@ -610,9 +625,9 @@ try {
     || typeof runMeituanAdsFetchFlow !== 'function') {
     checks.push({
       file: 'public/meituan-static.js',
-      label: 'Meituan static exports batch/order/ads fetch builders',
+      label: 'Meituan static exports batch/traffic/order/ads fetch builders',
       ok: false,
-      detail: 'batch/order/ads fetch builders and flow runners',
+      detail: 'batch/traffic/order/ads fetch builders and flow runners',
     });
   } else {
     const tasks = buildMeituanBatchFetchTasks({
@@ -797,6 +812,122 @@ try {
         && guardResult.status === 'missing_hotel'
         && guardEvents[0] === 'notify:error:请选择目标酒店',
       detail: 'Meituan batch result sample',
+    });
+
+    const trafficForm = {
+      url: ' https://example.test/traffic ',
+      partnerId: ' partner-traffic ',
+      poiId: ' poi-traffic ',
+      startDate: '2026-06-01',
+      endDate: '2026-06-10',
+      cookies: '\nmt-traffic-cookie\n',
+      extraParams: 'scope=traffic',
+    };
+    const normalizedTrafficForm = normalizeMeituanTrafficFetchForm(trafficForm);
+    const missingTrafficUrl = validateMeituanTrafficFetchInput({ url: '', partnerId: 'p', poiId: 'poi', cookies: 'cookie' });
+    const missingTrafficPartner = validateMeituanTrafficFetchInput({ url: 'https://example.test/traffic', partnerId: '', poiId: 'poi', cookies: 'cookie' });
+    const missingTrafficPoi = validateMeituanTrafficFetchInput({ url: 'https://example.test/traffic', partnerId: 'p', poiId: '', cookies: 'cookie' });
+    const missingTrafficCookie = validateMeituanTrafficFetchInput({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi', cookies: '' });
+    const trafficRequestBody = buildMeituanTrafficFetchRequestBody({
+      form: normalizedTrafficForm,
+      systemHotelId: '10',
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan traffic fetch input and request builder keep missing states explicit',
+      ok: normalizedTrafficForm.url === 'https://example.test/traffic'
+        && normalizedTrafficForm.partnerId === 'partner-traffic'
+        && normalizedTrafficForm.poiId === 'poi-traffic'
+        && normalizedTrafficForm.cookies === 'mt-traffic-cookie'
+        && normalizedTrafficForm.extraParams === 'scope=traffic'
+        && missingTrafficUrl.status === 'missing_url'
+        && missingTrafficPartner.status === 'missing_partner_id'
+        && missingTrafficPoi.status === 'missing_poi_id'
+        && missingTrafficCookie.status === 'missing_cookies'
+        && trafficRequestBody.partner_id === 'partner-traffic'
+        && trafficRequestBody.poi_id === 'poi-traffic'
+        && trafficRequestBody.auto_save === true
+        && trafficRequestBody.system_hotel_id === '10'
+        && trafficRequestBody.extra_params === 'scope=traffic',
+      detail: 'buildMeituanTrafficFetchRequestBody sample',
+    });
+
+    const trafficEvents = [];
+    const trafficStates = [];
+    let trafficOnlinePayload = null;
+    let trafficLatestPayload = null;
+    let trafficRequestedBody = null;
+    const trafficFlowResult = await runMeituanTrafficFetchFlow({
+      getForm: () => ({
+        url: ' https://example.test/traffic ',
+        partnerId: ' partner-flow ',
+        poiId: ' poi-flow ',
+        cookies: ' mt-traffic-flow-cookie ',
+        startDate: '2026-06-02',
+        endDate: '2026-06-03',
+        extraParams: '{"scope":"flow"}',
+      }),
+      getSystemHotelId: () => '20',
+      notify: (message, level) => trafficEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => trafficStates.push(`fetching:${value}`),
+      setOnlineDataResult: value => { trafficOnlinePayload = value; },
+      setLatestTrafficData: value => { trafficLatestPayload = value; },
+      requestFetch: async body => {
+        trafficRequestedBody = body;
+        return { code: 200, data: { data: [{ exposure: 10 }], saved_count: 6 } };
+      },
+      refreshOnlineHistory: async () => trafficEvents.push('history'),
+      getOnlineDataTab: () => 'data',
+      refreshOnlineData: () => trafficEvents.push('refresh-data'),
+    });
+    const missingTrafficEvents = [];
+    const missingTrafficResult = await runMeituanTrafficFetchFlow({
+      getForm: () => ({ url: '', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      notify: (message, level) => missingTrafficEvents.push(`notify:${level}:${message}`),
+      setFetching: value => missingTrafficEvents.push(`fetching:${value}`),
+    });
+    const failedTrafficEvents = [];
+    const failedTrafficStates = [];
+    const failedTrafficResult = await runMeituanTrafficFetchFlow({
+      getForm: () => ({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      notify: (message, level) => failedTrafficEvents.push(`notify:${level}:${message}`),
+      setFetching: value => failedTrafficStates.push(`fetching:${value}`),
+      requestFetch: async () => ({ code: 500, message: 'traffic backend failed' }),
+    });
+    const exceptionTrafficEvents = [];
+    const exceptionTrafficStates = [];
+    const exceptionTrafficResult = await runMeituanTrafficFetchFlow({
+      getForm: () => ({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      notify: (message, level) => exceptionTrafficEvents.push(`notify:${level}:${message}`),
+      setFetching: value => exceptionTrafficStates.push(`fetching:${value}`),
+      requestFetch: async () => {
+        throw new Error('network down');
+      },
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan traffic fetch flow preserves success, failed and exception states',
+      ok: trafficFlowResult.status === 'success'
+        && trafficRequestedBody.partner_id === 'partner-flow'
+        && trafficRequestedBody.poi_id === 'poi-flow'
+        && trafficRequestedBody.cookies === 'mt-traffic-flow-cookie'
+        && trafficRequestedBody.system_hotel_id === '20'
+        && trafficOnlinePayload[0].exposure === 10
+        && trafficLatestPayload[0].exposure === 10
+        && trafficStates.join('|') === 'fetching:true|fetching:false'
+        && trafficEvents.includes('history')
+        && trafficEvents.includes('refresh-data')
+        && trafficEvents.some(event => event === 'notify:info:获取成功！已保存 6 条流量数据')
+        && missingTrafficResult.status === 'missing_url'
+        && missingTrafficEvents[0] === 'notify:error:需 Network 请求信息：请输入接口地址'
+        && !missingTrafficEvents.some(event => event.startsWith('fetching:'))
+        && failedTrafficResult.status === 'failed'
+        && failedTrafficEvents[0] === 'notify:error:traffic backend failed'
+        && failedTrafficStates.join('|') === 'fetching:true|fetching:false'
+        && exceptionTrafficResult.status === 'exception'
+        && exceptionTrafficEvents[0] === 'notify:error:请求失败: network down'
+        && exceptionTrafficStates.join('|') === 'fetching:true|fetching:false',
+      detail: 'runMeituanTrafficFetchFlow state samples',
     });
 
     const orderForm = {

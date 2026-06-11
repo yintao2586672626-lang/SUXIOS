@@ -242,6 +242,100 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
 
+    const normalizeMeituanTrafficFetchForm = (form = {}) => {
+        form.url = String(form.url || '').trim();
+        form.partnerId = String(form.partnerId || '').trim();
+        form.poiId = String(form.poiId || '').trim();
+        form.cookies = normalizeMeituanCookieText(form.cookies);
+        return form;
+    };
+
+    const validateMeituanTrafficFetchInput = (form = {}) => {
+        if (!form.url) {
+            return { ok: false, status: 'missing_url', level: 'error', message: '需 Network 请求信息：请输入接口地址' };
+        }
+        if (!form.partnerId) {
+            return { ok: false, status: 'missing_partner_id', level: 'error', message: '需一次性平台接口标识：请输入平台接口标识' };
+        }
+        if (!form.poiId) {
+            return { ok: false, status: 'missing_poi_id', level: 'error', message: '需一次性平台门店标识：请输入平台门店标识' };
+        }
+        if (!form.cookies) {
+            return { ok: false, status: 'missing_cookies', level: 'error', message: '平台授权缺失：请输入平台授权内容' };
+        }
+        return { ok: true, status: 'ok' };
+    };
+
+    const buildMeituanTrafficFetchRequestBody = ({
+        form = {},
+        systemHotelId = null,
+    } = {}) => ({
+        url: form.url,
+        partner_id: form.partnerId,
+        poi_id: form.poiId,
+        cookies: form.cookies,
+        start_date: form.startDate,
+        end_date: form.endDate,
+        auto_save: true,
+        extra_params: form.extraParams,
+        system_hotel_id: systemHotelId,
+    });
+
+    const runMeituanTrafficFetchFlow = async ({
+        getForm = () => ({}),
+        getSystemHotelId = () => null,
+        notify = () => {},
+        setFetching = () => {},
+        setOnlineDataResult = () => {},
+        setLatestTrafficData = () => {},
+        requestFetch = async () => ({}),
+        refreshOnlineHistory = async () => {},
+        getOnlineDataTab = () => '',
+        refreshOnlineData = () => {},
+    } = {}) => {
+        const form = normalizeMeituanTrafficFetchForm(getForm() || {});
+        const validation = validateMeituanTrafficFetchInput(form);
+        if (!validation.ok) {
+            notify(validation.message, validation.level);
+            return { status: validation.status, validation, form };
+        }
+
+        setFetching(true);
+        setOnlineDataResult(null);
+        const requestBody = buildMeituanTrafficFetchRequestBody({
+            form,
+            systemHotelId: getSystemHotelId(),
+        });
+        try {
+            const res = await requestFetch(requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                const trafficData = data.data;
+                setOnlineDataResult(trafficData);
+                setLatestTrafficData(trafficData);
+                const savedCount = data.saved_count || 0;
+                if (savedCount > 0) {
+                    notify(`获取成功！已保存 ${savedCount} 条流量数据`);
+                    await refreshOnlineHistory();
+                    if (getOnlineDataTab() === 'data') {
+                        refreshOnlineData();
+                    }
+                } else {
+                    notify('获取成功，但未解析到有效流量数据');
+                }
+                return { status: 'success', response: res, requestBody, data: trafficData, savedCount };
+            }
+
+            notify(res.message || '获取失败', 'error');
+            return { status: 'failed', response: res, requestBody };
+        } catch (error) {
+            notify('请求失败: ' + error.message, 'error');
+            return { status: 'exception', error, requestBody };
+        } finally {
+            setFetching(false);
+        }
+    };
+
     const normalizeMeituanOrderFetchForm = (form = {}) => {
         form.url = String(form.url || '').trim();
         form.method = String(form.method || 'GET').toUpperCase();
@@ -706,6 +800,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanBatchFetchResultEntry,
         buildMeituanDisplayModelPayload,
         normalizeMeituanCookieText,
+        normalizeMeituanTrafficFetchForm,
+        validateMeituanTrafficFetchInput,
+        buildMeituanTrafficFetchRequestBody,
+        runMeituanTrafficFetchFlow,
         normalizeMeituanOrderFetchForm,
         validateMeituanOrderFetchInput,
         buildMeituanOrderFetchRequestBody,

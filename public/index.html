@@ -19323,6 +19323,7 @@
             const buildCompetitorSummaryCoreCards = requireMeituanStatic('buildCompetitorSummaryCoreCards');
             const buildHomeCompetitorSummaryCards = requireMeituanStatic('buildHomeCompetitorSummaryCards');
             const runMeituanBatchFetchFlow = requireMeituanStatic('runMeituanBatchFetchFlow');
+            const runMeituanTrafficFetchFlow = requireMeituanStatic('runMeituanTrafficFetchFlow');
             const runMeituanOrderFetchFlow = requireMeituanStatic('runMeituanOrderFetchFlow');
             const runMeituanAdsFetchFlow = requireMeituanStatic('runMeituanAdsFetchFlow');
             const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
@@ -32418,66 +32419,21 @@
             });
 
             // 美团流量数据获取
-            const fetchMeituanTrafficData = async () => {
-                meituanTrafficForm.value.url = (meituanTrafficForm.value.url || '').trim();
-                meituanTrafficForm.value.partnerId = (meituanTrafficForm.value.partnerId || '').trim();
-                meituanTrafficForm.value.poiId = (meituanTrafficForm.value.poiId || '').trim();
-                meituanTrafficForm.value.cookies = (meituanTrafficForm.value.cookies || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
-                if (!meituanTrafficForm.value.url) {
-                    showToast('需 Network 请求信息：请输入接口地址', 'error');
-                    return;
-                }
-                if (!meituanTrafficForm.value.partnerId) {
-                    showToast('需一次性平台接口标识：请输入平台接口标识', 'error');
-                    return;
-                }
-                if (!meituanTrafficForm.value.poiId) {
-                    showToast('需一次性平台门店标识：请输入平台门店标识', 'error');
-                    return;
-                }
-                if (!meituanTrafficForm.value.cookies) {
-                    showToast('平台授权缺失：请输入平台授权内容', 'error');
-                    return;
-                }
-                fetchingData.value = true;
-                onlineDataResult.value = null;
-                try {
-                    const res = await request('/online-data/fetch-meituan-traffic', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            url: meituanTrafficForm.value.url,
-                            partner_id: meituanTrafficForm.value.partnerId,
-                            poi_id: meituanTrafficForm.value.poiId,
-                            cookies: meituanTrafficForm.value.cookies,
-                            start_date: meituanTrafficForm.value.startDate,
-                            end_date: meituanTrafficForm.value.endDate,
-                            auto_save: true,
-                            extra_params: meituanTrafficForm.value.extraParams,
-                            system_hotel_id: meituanForm.value.hotelId || user.value?.hotel_id || null,
-                        }),
-                    });
-                    if (res.code === 200) {
-                        onlineDataResult.value = res.data.data;
-                        latestTrafficData.value = res.data.data; // 保存本次获取的流量数据
-                        const savedCount = res.data.saved_count || 0;
-                        if (savedCount > 0) {
-                            showToast(`获取成功！已保存 ${savedCount} 条流量数据`);
-                            await refreshOnlineHistory();
-                            if (onlineDataTab.value === 'data') {
-                                refreshOnlineData();
-                            }
-                        } else {
-                            showToast('获取成功，但未解析到有效流量数据');
-                        }
-                    } else {
-                        showToast(res.message || '获取失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('请求失败: ' + e.message, 'error');
-                } finally {
-                    fetchingData.value = false;
-                }
-            };
+            const fetchMeituanTrafficData = async () => runMeituanTrafficFetchFlow({
+                getForm: () => meituanTrafficForm.value,
+                getSystemHotelId: () => meituanForm.value.hotelId || user.value?.hotel_id || null,
+                notify: showToast,
+                setFetching: value => { fetchingData.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                setLatestTrafficData: value => { latestTrafficData.value = value; },
+                requestFetch: body => request('/online-data/fetch-meituan-traffic', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                refreshOnlineHistory,
+                getOnlineDataTab: () => onlineDataTab.value,
+                refreshOnlineData,
+            });
 
             const fetchMeituanOrdersData = async () => runMeituanOrderFetchFlow({
                 getForm: () => meituanOrderForm.value,
