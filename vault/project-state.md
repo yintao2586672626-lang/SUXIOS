@@ -1629,6 +1629,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `233.51 MB`, without `.git` about `111.08 MB`, without `.git` and dependencies about `81.89 MB`, tracked files about `18.93 MB` / `618` files; code scope `373` files, `198619` total lines, and `182630` nonblank lines. Runtime cleanup is about `18.04 MB` / `401` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\ctrip_store_data_overview.test.mjs`; `node --test tests\automation\ctrip_store_data_overview.test.mjs` with `20/20` tests; `verify:public-entry`; `verify:e2e-contracts` with `770` checks; `self:audit`; `self:split-map`.
 
+## 2026-06-12 Progress: Platform Auto-Fetch Hotel Switch Scheduling
+
+- `public/index.html` now routes the platform auto-fetch target-hotel dropdown through `schedulePlatformAutoFetchPanelLoad({ force: true })` instead of directly calling `loadAutoFetchStatus`.
+- The dropdown now reuses the existing panel scheduler, cache boundary, and light status refresh path when the selected hotel changes.
+- This does not change platform auto-fetch APIs, status APIs, Profile status APIs, Ctrip/Meituan config APIs, OTA persistence, metric/field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and running states remain explicit.
+- Guards now reject `@change="loadAutoFetchStatus"` on platform-auto hotel switching and require the shared non-blocking scheduler; `verify:e2e-contracts` covers `772` checks.
+- Current split-map: `public/index.html` has `37517` lines, `1572` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `234.74 MB`, without `.git` about `111.59 MB`, without `.git` and dependencies about `82.4 MB`, tracked files about `18.93 MB` / `618` files; code scope `373` files, `198655` total lines, and `182666` nonblank lines. Runtime cleanup is about `18.54 MB` / `412` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `verify:e2e-contracts` with `772` checks; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

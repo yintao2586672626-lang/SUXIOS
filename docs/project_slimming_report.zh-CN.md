@@ -1598,6 +1598,15 @@
 - 当前自审计：完整目录约 `233.51 MB`；不含 `.git` 约 `111.08 MB`；不含 `.git` 和依赖约 `81.89 MB`；Git 跟踪文件约 `18.93 MB` / `618` 个；代码范围 `373` 个文件、`198,619` 行、非空 `182,630` 行；默认可清理目标为 `runtime` 约 `18.04 MB` / `401` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check tests\automation\ctrip_store_data_overview.test.mjs`、`node --test tests\automation\ctrip_store_data_overview.test.mjs`（`20/20`）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`770` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：平台自动采集酒店切换调度收口
+
+- `public/index.html` 的平台自动采集目标酒店下拉框改为调用 `schedulePlatformAutoFetchPanelLoad({ force: true })`，不再直接触发 `loadAutoFetchStatus`，避免酒店切换时绕过已有面板调度、缓存键和轻量状态刷新边界。
+- 本保存点不改变平台自动采集接口、状态接口、Profile 状态接口、携程/美团配置接口、OTA 入库、字段口径、AI 分析、权限或数据库结构；未配置、缺失、失败和运行中状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 禁止平台自动采集酒店切换回退到直接 `@change="loadAutoFetchStatus"`；`verify_e2e_contracts.mjs` 同步要求使用共享非阻塞面板调度器，并将 E2E 合同检查数提升到 `772`。
+- 当前 split-map：`public/index.html` 为 `37,517` 行、`1,572` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `234.74 MB`；不含 `.git` 约 `111.59 MB`；不含 `.git` 和依赖约 `82.4 MB`；Git 跟踪文件约 `18.93 MB` / `618` 个；代码范围 `373` 个文件、`198,655` 行、非空 `182,666` 行；默认可清理目标为 `runtime` 约 `18.54 MB` / `412` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`npm.cmd run verify:e2e-contracts`（`772` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。
