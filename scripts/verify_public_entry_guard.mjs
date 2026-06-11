@@ -710,9 +710,11 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const loadAutoFetchPanel = async'),
     content.indexOf('const loadAutoFetchStatus = async')
   );
-  if (!/await loadAutoFetchStatus\(\{\s*detail:\s*false\s*\}\);[\s\S]*scheduleAutoFetchStatusDetailRefresh\(\);[\s\S]*schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
+  if (!/await loadAutoFetchStatus\(\{\s*detail:\s*false\s*\}\);/.test(autoFetchPanelLoader)
+    || /scheduleAutoFetchStatusDetailRefresh\(\);/.test(autoFetchPanelLoader)
+    || /schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
     || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {
-    failures.push('public/index.html must let platform-auto first paint wait only for light auto-fetch status and defer detail/profile refresh.');
+    failures.push('public/index.html must let platform-auto first paint wait only for light auto-fetch status; full detail/profile refreshes must not auto-start on panel entry.');
   }
   if (!content.includes('const scheduleAutoFetchConfigListPrewarm = () => {')
     || !content.includes('!ctripConfigListLoaded.value && (!ctripConfigList.value || ctripConfigList.value.length === 0)')

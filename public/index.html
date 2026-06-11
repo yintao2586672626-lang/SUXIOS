@@ -23301,8 +23301,6 @@
                         autoFetchHotelId.value = hotels.value[0].id;
                     }
                     await loadAutoFetchStatus({ detail: false });
-                    scheduleAutoFetchStatusDetailRefresh();
-                    schedulePlatformProfileStatusRefresh({ silent: true });
                     scheduleAutoFetchConfigListPrewarm();
                 })().finally(() => {
                     autoFetchPanelCache = {

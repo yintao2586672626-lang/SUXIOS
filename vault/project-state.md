@@ -1797,6 +1797,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `257.45 MB`, without `.git` about `121.53 MB`, without `.git` and dependencies about `92.34 MB`, tracked files about `19.05 MB` / `621` files; code scope `376` files, `199604` total lines, and `183579` nonblank lines. Runtime/output cleanup is about `28.35 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: PHP syntax checks for `app/controller/OnlineData.php` and `app/service/MeituanOnlineDataPersistenceService.php`; `tests\OnlineDataTest.php --filter Meituan` with `21` tests and `198` assertions; `verify:public-entry`; `verify:e2e-contracts` with `915` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Platform Auto First-Paint Refresh Boundary
+
+- `public/index.html` now lets the platform-auto panel first paint wait only for light auto-fetch status before config-list prewarm.
+- The panel entry no longer auto-starts full auto-fetch detail refresh or platform profile status refresh. Full/detail/profile refreshes remain available through guarded schedulers and explicit panel actions, so leaving the target tab does not trigger hidden heavy reloads.
+- This does not change platform auto-fetch APIs, status APIs, Profile status APIs, Ctrip/Meituan config APIs, OTA persistence, field semantics, permissions, or database schema.
+- Guards now require light-status-only first paint and reject restoring automatic full-status/profile refreshes during panel entry. `verify:e2e-contracts` covers `916` checks.
+- Current split-map: `public/index.html` has `37483` lines, `1585` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` remains `26376` lines and `865` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `259.37 MB`, without `.git` about `122.52 MB`, without `.git` and dependencies about `93.33 MB`, tracked files about `19.07 MB` / `622` files; code scope `377` files, `199963` total lines, and `183901` nonblank lines. Runtime/output cleanup is about `29.34 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `916` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
