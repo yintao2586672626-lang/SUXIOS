@@ -836,8 +836,30 @@ window.SUXI_CTRIP_STATIC = (() => {
 
         try {
             debugLog('发送携程数据请求...', requestContext.debugMeta);
-            const res = await requestFetch(requestContext.requestBody);
+            const requestBody = { ...requestContext.requestBody, async: true };
+            const res = await requestFetch(requestBody);
             debugLog('携程数据响应:', res);
+
+            const responseStatus = String(res.data?.status || '').toLowerCase();
+            if (res.code === 200 && ['accepted', 'running', 'queued'].includes(responseStatus)) {
+                const message = res.message || '携程手动获取已提交后台执行，完成后会更新数据列表';
+                notify(message, 'info');
+                setOnlineDataResult({
+                    status: responseStatus,
+                    message,
+                    task_id: res.data?.task_id || '',
+                    request_start_date: startDate,
+                    request_end_date: endDate,
+                });
+                setSavedCount(0);
+                setFetchSuccess(false);
+                runPostFetchRefresh(refreshOnlineHistory);
+                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
+                if (getOnlineDataTab() === 'data') {
+                    runPostFetchRefresh(refreshOnlineData);
+                }
+                return { status: 'accepted', response: res, requestBody };
+            }
 
             if (res.code === 200) {
                 const data = res.data || {};

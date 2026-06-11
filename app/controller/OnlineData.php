@@ -14,6 +14,7 @@ use app\service\CtripOverviewSummaryService;
 use app\service\CtripProfileFieldMetaService;
 use app\service\CtripTrafficDisplayService;
 use app\service\OnlineDataAnalysisReportService;
+use app\service\OnlineTrafficDataExtractionService;
 use app\service\PlatformProfileBindingReadinessService;
 use app\service\PlatformDataSyncService;
 use think\Response;
@@ -212,6 +213,7 @@ class OnlineData extends Base
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
+        $requestData = $this->request->post();
         $url = trim((string)$this->request->post('url', ''));
         if ($url === '') {
             $url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport';
@@ -226,6 +228,8 @@ class OnlineData extends Base
         $endDate = $this->request->post('end_date', '');
         $autoSave = $this->request->post('auto_save', true);
         $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
+        $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
+            && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
 
         if (empty($cookies)) {
             return json(['code' => 400, 'message' => '请提供登录Cookies', 'data' => null]);
@@ -252,6 +256,25 @@ class OnlineData extends Base
             $endTimestamp = strtotime($endDate);
             if ($startTimestamp === false || $endTimestamp === false || $startTimestamp > $endTimestamp) {
                 return json(['code' => 400, 'message' => '日期范围无效', 'data' => null]);
+            }
+
+            if ($backgroundRequested && $systemHotelId) {
+                $task = $this->createManualCtripFetchBackgroundTask((int)$systemHotelId, $startDate, $endDate, is_array($requestData) ? $requestData : []);
+                if (!empty($task) && $this->launchManualCtripFetchBackgroundTask($task)) {
+                    return json([
+                        'code' => 200,
+                        'message' => '携程手动获取已提交后台执行，完成后会更新数据列表和通知',
+                        'data' => [
+                            'status' => 'running',
+                            'task_id' => $task['task_id'] ?? '',
+                            'platform' => 'ctrip',
+                            'async' => true,
+                            'saved_count' => 0,
+                            'request_start_date' => $startDate,
+                            'request_end_date' => $endDate,
+                        ],
+                    ]);
+                }
             }
 
             $dateResults = [];
@@ -342,6 +365,14 @@ class OnlineData extends Base
 
             $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
             $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
+            if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
+                $this->recordAutoFetchNotification((int)$systemHotelId, true, '携程手动获取完成', $displayDataDate, [
+                    'saved_count' => $savedCount,
+                    'platform_results' => [
+                        ['platform' => 'ctrip', 'success' => true, 'saved_count' => $savedCount],
+                    ],
+                ], 'manual_fetch');
+            }
             if ($this->currentUser && isset($this->currentUser->id)) {
                 OperationLog::record('online_data', 'fetch_ctrip', "获取携程线上数据: {$savedCount}条", $this->currentUser->id, $systemHotelId);
             }
@@ -4053,20 +4084,7 @@ class OnlineData extends Base
 
     private function ctripTrafficRowKeys(): array
     {
-        return [
-            'listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount',
-            'PV', 'pv', 'pageView', 'pageViews', 'page_view',
-            'detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount',
-            'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views',
-            'orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'clickNum', 'clicks',
-            'orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'orderNum',
-            'bookOrderNum', 'dealNum', 'orders',
-            'flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate',
-            'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr',
-            'rank', 'ranking', 'rankNo', 'rankIndex', 'competitionRank', 'competitorRank',
-            'competeRank', 'categoryRank', 'cateRank', 'categoryRanking', 'rankJson',
-            'rawRankJson', 'rankingJson',
-        ];
+        return OnlineTrafficDataExtractionService::ctripTrafficRowKeys();
     }
 
     private function ctripCaptureResponseMatchesSection(array $response, string $section): bool
@@ -14451,223 +14469,7 @@ JAVASCRIPT;
 
     private function extractCtripTrafficRows($responseData): array
     {
-        if (!is_array($responseData)) {
-            return [];
-        }
-        return $this->extractCtripTrafficRowsRecursive($responseData);
-    }
-
-    private function extractCtripTrafficRowsRecursive(array $value, int $depth = 0): array
-    {
-        if ($depth > 8) {
-            return [];
-        }
-
-        if ($this->isSequentialArray($value)) {
-            $rows = [];
-            foreach ($value as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
-                if ($this->looksLikeCtripTrafficDataRow($item)) {
-                    $rows[] = $item;
-                } else {
-                    $rows = array_merge($rows, $this->extractCtripTrafficRowsRecursive($item, $depth + 1));
-                }
-            }
-            return $rows;
-        }
-
-        $expandedRows = $this->expandCtripTrafficDailySeries($value);
-        if (!empty($expandedRows)) {
-            return $expandedRows;
-        }
-
-        if ($this->looksLikeCtripTrafficDataRow($value)) {
-            return [$value];
-        }
-
-        foreach ($this->ctripCapturedListPaths('traffic') as $path) {
-            $nested = $this->readNestedMeituanValue($value, $path);
-            if (is_array($nested)) {
-                $rows = $this->extractCtripTrafficRowsRecursive($nested, $depth + 1);
-                if (!empty($rows)) {
-                    return $rows;
-                }
-            }
-        }
-
-        $rows = [];
-        foreach ($value as $nested) {
-            if (is_array($nested)) {
-                $rows = array_merge($rows, $this->extractCtripTrafficRowsRecursive($nested, $depth + 1));
-            }
-        }
-        return $rows;
-    }
-
-    private function expandCtripTrafficDailySeries(array $value): array
-    {
-        $dates = $this->readCtripTrafficDateSeries($value);
-        if (empty($dates)) {
-            return [];
-        }
-
-        $groups = $this->collectCtripTrafficSeriesGroups($value);
-        if (empty($groups)) {
-            $groups = [[
-                'data' => $value,
-                'compare_type' => $this->resolveCtripTrafficCompareType($value),
-            ]];
-        }
-
-        $rows = [];
-        foreach ($groups as $group) {
-            $groupData = is_array($group['data'] ?? null) ? $group['data'] : [];
-            $compareType = (string)($group['compare_type'] ?? $this->resolveCtripTrafficCompareType($groupData));
-            $hotelId = $groupData['hotelId'] ?? $groupData['hotel_id'] ?? $groupData['nodeId'] ?? $groupData['node_id'] ?? null;
-
-            foreach ($dates as $index => $date) {
-                if (strtotime((string)$date) === false) {
-                    continue;
-                }
-
-                $row = [
-                    'date' => date('Y-m-d', strtotime((string)$date)),
-                    'compareType' => $compareType,
-                    'listExposure' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
-                        ['listExposure'], ['list_exposure'], ['totalListExposure'], ['exposure'], ['exposureCount'], ['impressions'], ['showCount'], ['PV'], ['pv'], ['pageView'], ['pageViews'], ['page_view'],
-                    ]),
-                    'detailExposure' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
-                        ['detailExposure'], ['detail_exposure'], ['totalDetailExposure'], ['detailVisitors'], ['detailUv'], ['visitorCount'], ['UV'], ['uv'], ['uniqueVisitors'], ['unique_visitors'], ['views'],
-                    ]),
-                    'flowRate' => round($this->normalizeTrafficPercent($this->readCtripTrafficSeriesMetric($groupData, $index, [
-                        ['flowRate'], ['flow_rate'], ['listTransforDetailRate'], ['conversionRate'], ['conversion_rate'], ['convertionRate'], ['convertRate'], ['transforRate'], ['transferRate'], ['transRate'], ['cvr'],
-                    ], null)), 2),
-                    'orderFillingNum' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
-                        ['orderFillingNum'], ['order_filling_num'], ['orderVisitors'], ['clickCount'], ['click_count'], ['clickNum'], ['clicks'],
-                    ]),
-                    'orderSubmitNum' => (int)$this->readCtripTrafficSeriesMetric($groupData, $index, [
-                        ['orderSubmitNum'], ['order_submit_num'], ['submitUsers'], ['submitNum'], ['orderCount'], ['order_count'], ['orderNum'], ['bookOrderNum'], ['dealNum'], ['orders'],
-                    ]),
-                ];
-
-                if ($hotelId !== null && $hotelId !== '') {
-                    $row['hotelId'] = $hotelId;
-                } elseif ($compareType !== 'self') {
-                    $row['hotelId'] = -1;
-                }
-
-                if ($row['listExposure'] <= 0 && $row['detailExposure'] <= 0 && $row['orderFillingNum'] <= 0 && $row['orderSubmitNum'] <= 0) {
-                    continue;
-                }
-
-                $rows[] = $row;
-            }
-        }
-
-        return $rows;
-    }
-
-    private function readCtripTrafficDateSeries(array $value): array
-    {
-        return $this->readCtripTrafficSeries($value, [
-            ['dateList'], ['date_list'], ['dates'], ['dataDates'], ['data_dates'], ['statDates'], ['stat_dates'],
-            ['xAxis', 'data'], ['xaxis', 'data'], ['xAxisData'], ['x_axis_data'], ['categories'], ['labels'],
-        ]);
-    }
-
-    private function collectCtripTrafficSeriesGroups(array $value): array
-    {
-        $groups = [];
-        foreach ([
-            'myHotel' => 'self',
-            'self' => 'self',
-            'currentHotel' => 'self',
-            'hotel' => 'self',
-            'mine' => 'self',
-            'competeHotelAvg' => 'competitor',
-            'competitorAvg' => 'competitor',
-            'competitorAverage' => 'competitor',
-            'competitor' => 'competitor',
-            'peerAvg' => 'competitor',
-            'competeAvg' => 'competitor',
-            'avg' => 'competitor',
-            'average' => 'competitor',
-        ] as $key => $compareType) {
-            if (isset($value[$key]) && is_array($value[$key])) {
-                $groups[] = ['data' => $value[$key], 'compare_type' => $compareType];
-            }
-        }
-        return $groups;
-    }
-
-    private function resolveCtripTrafficCompareType(array $value): string
-    {
-        $compareText = strtolower((string)($value['compareType'] ?? $value['compare_type'] ?? $value['type'] ?? $value['rankType'] ?? $value['name'] ?? $value['hotelName'] ?? ''));
-        $hotelId = $value['hotelId'] ?? $value['hotel_id'] ?? $value['nodeId'] ?? $value['node_id'] ?? null;
-        if (str_contains($compareText, 'self') || str_contains($compareText, 'my')) {
-            return 'self';
-        }
-        if (str_contains($compareText, 'competitor') || str_contains($compareText, 'peer') || str_contains($compareText, 'avg') || str_contains($compareText, 'average') || str_contains($compareText, 'compete')) {
-            return 'competitor';
-        }
-        return is_numeric($hotelId) && (int)$hotelId > 0 ? 'self' : 'competitor';
-    }
-
-    private function readCtripTrafficSeriesMetric(array $value, int $index, array $paths, ?float $default = 0.0): ?float
-    {
-        $series = $this->readCtripTrafficSeries($value, $paths);
-        if (isset($series[$index])) {
-            $number = $this->coerceTrafficNumber($series[$index]);
-            if ($number !== null) {
-                return $number;
-            }
-        }
-
-        return $default;
-    }
-
-    private function readCtripTrafficSeries(array $value, array $paths): array
-    {
-        foreach ($paths as $path) {
-            $series = $this->readNestedMeituanValue($value, $path);
-            if (is_array($series)) {
-                if ($this->isSequentialArray($series)) {
-                    return $series;
-                }
-                if (isset($series['data']) && is_array($series['data']) && $this->isSequentialArray($series['data'])) {
-                    return $series['data'];
-                }
-                if (isset($series['value']) && is_array($series['value']) && $this->isSequentialArray($series['value'])) {
-                    return $series['value'];
-                }
-            }
-        }
-        return [];
-    }
-
-    private function looksLikeCtripTrafficDataRow(array $value): bool
-    {
-        $hasIdentity = array_key_exists('hotelId', $value)
-            || array_key_exists('hotel_id', $value)
-            || array_key_exists('nodeId', $value)
-            || array_key_exists('node_id', $value);
-        $hasDate = array_key_exists('date', $value)
-            || array_key_exists('dataDate', $value)
-            || array_key_exists('statDate', $value)
-            || array_key_exists('data_date', $value)
-            || array_key_exists('stat_date', $value);
-        if ($hasIdentity && $hasDate) {
-            return true;
-        }
-
-        foreach ($this->ctripTrafficRowKeys() as $key) {
-            if (array_key_exists($key, $value)) {
-                return true;
-            }
-        }
-        return false;
+        return OnlineTrafficDataExtractionService::extractCtripTrafficRows($responseData);
     }
 
     private function getOnlineDailyDataColumns(): array
@@ -17294,6 +17096,122 @@ JAVASCRIPT;
         return true;
     }
 
+    private function createManualCtripFetchBackgroundTask(int $hotelId, string $startDate, string $endDate, array $requestData): array
+    {
+        $authorization = trim((string)$this->request->header('Authorization', ''));
+        if ($hotelId <= 0 || $authorization === '') {
+            return [];
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $phpBinary = $this->resolvePhpCliBinary();
+        $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
+        if ($phpBinary === '' || !is_file($thinkPath)) {
+            return [];
+        }
+
+        $taskId = 'manual_ctrip_fetch_' . $hotelId . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4));
+        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'manual_fetch_tasks' . DIRECTORY_SEPARATOR . $taskId;
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return [];
+        }
+
+        $body = $requestData;
+        $body['system_hotel_id'] = $hotelId;
+        $body['start_date'] = $startDate;
+        $body['end_date'] = $endDate;
+        $body['async'] = false;
+        $body['background_task'] = true;
+        $inputPath = $dir . DIRECTORY_SEPARATOR . 'input.json';
+        $task = [
+            'task_id' => $taskId,
+            'hotel_id' => $hotelId,
+            'user_id' => (int)($this->currentUser->id ?? 0),
+            'platform' => 'ctrip',
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/fetch-ctrip',
+            'authorization' => $authorization,
+            'body' => $body,
+            'input' => $inputPath,
+            'log' => $dir . DIRECTORY_SEPARATOR . 'launcher.log',
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        if (file_put_contents($inputPath, json_encode($task, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) === false) {
+            return [];
+        }
+
+        return $task;
+    }
+
+    private function launchManualCtripFetchBackgroundTask(array $task): bool
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $phpBinary = $this->resolvePhpCliBinary();
+        $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
+        $inputPath = (string)($task['input'] ?? '');
+        if ($phpBinary === '' || !is_file($thinkPath) || !is_file($inputPath)) {
+            return false;
+        }
+
+        $dir = dirname($inputPath);
+        $taskId = (string)$task['task_id'];
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
+            $inputFile = basename($inputPath);
+            $lines = [
+                '@echo off',
+                'setlocal',
+                'set "TASK_DIR=%~dp0"',
+                'pushd "%TASK_DIR%..\..\.." || exit /b 1',
+                $this->quoteWindowsBatchArg($phpBinary)
+                    . ' "%CD%\think"'
+                    . ' "online-data:manual-fetch-once"'
+                    . ' "--task-id=' . $taskId . '"'
+                    . ' "--input=%TASK_DIR%' . $inputFile . '"'
+                    . ' >> "%TASK_DIR%launcher.log" 2>&1',
+                'set "EXIT_CODE=%ERRORLEVEL%"',
+                'popd',
+                'exit /b %EXIT_CODE%',
+            ];
+            if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
+                return false;
+            }
+            $launchCommand = '$bat=' . $this->quotePowerShellSingleQuotedString($batPath)
+                . '; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList @("/d","/c","call",$bat)';
+            $handle = @popen(
+                'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand '
+                    . $this->encodeWindowsPowerShellCommand($launchCommand),
+                'r'
+            );
+            if (!is_resource($handle)) {
+                return false;
+            }
+            pclose($handle);
+            return true;
+        }
+
+        $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
+        $command = 'cd ' . escapeshellarg($projectRoot)
+            . ' && ' . escapeshellarg($phpBinary)
+            . ' ' . escapeshellarg($thinkPath)
+            . ' online-data:manual-fetch-once'
+            . ' --task-id=' . escapeshellarg($taskId)
+            . ' --input=' . escapeshellarg($inputPath)
+            . ' >> ' . escapeshellarg((string)$task['log']) . ' 2>&1';
+        if (file_put_contents($shellPath, "#!/bin/sh\n" . $command . "\n") === false) {
+            return false;
+        }
+        @chmod($shellPath, 0755);
+        $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
+        if (!is_resource($handle)) {
+            return false;
+        }
+        pclose($handle);
+        return true;
+    }
+
     private function markAutoFetchRunningStatus(int $hotelId, string $dataDate, string $dataPeriod, array $task, array $fetchOptions): void
     {
         $statusKey = $this->autoFetchStatusKey($hotelId);
@@ -17429,9 +17347,10 @@ JAVASCRIPT;
         $dataDate = $dataDate ?: date('Y-m-d');
         $savedCount = (int)($details['saved_count'] ?? 0);
         $isRetry = $action === 'retry_auto_fetch';
+        $isManualFetch = $action === 'manual_fetch';
         $title = $success
-            ? ($isRetry ? 'OTA 补抓完成' : 'OTA 自动采集完成')
-            : ($isRetry ? 'OTA 补抓失败' : 'OTA 自动采集失败');
+            ? ($isManualFetch ? 'OTA 手动获取完成' : ($isRetry ? 'OTA 补抓完成' : 'OTA 自动采集完成'))
+            : ($isManualFetch ? 'OTA 手动获取失败' : ($isRetry ? 'OTA 补抓失败' : 'OTA 自动采集失败'));
         $displayMessage = $success
             ? "数据日期 {$dataDate}，已保存 {$savedCount} 条 OTA 指标行。"
             : "数据日期 {$dataDate}，" . $message;
@@ -17448,7 +17367,7 @@ JAVASCRIPT;
                 'action_type' => $success ? 'view' : 'fetch',
                 'action_payload' => [
                     'target_page' => 'online-data',
-                    'target_tab' => 'data-health',
+                    'target_tab' => $isManualFetch ? 'data' : 'data-health',
                     'action_label' => $success ? '查看数据' : '查看原因',
                     'data_date' => $dataDate,
                     'data_period' => $details['data_period'] ?? '',
@@ -20291,20 +20210,7 @@ JAVASCRIPT;
      */
     private function extractTrafficValue(array $item): ?float
     {
-        $keys = [
-            'traffic', 'trafficValue', 'traffic_value', 'pv', 'uv', 'pageView', 'page_view',
-            'visit', 'visits', 'exposure', 'exposureNum', 'impression', 'impressions',
-            'click', 'clickNum', 'detailView', 'detail_view', 'view', 'views', 'session', 'sessions'
-        ];
-        foreach ($keys as $key) {
-            if (isset($item[$key]) && is_numeric($item[$key])) {
-                return (float)$item[$key];
-            }
-        }
-        if (isset($item['value']) && is_numeric($item['value'])) {
-            return (float)$item['value'];
-        }
-        return null;
+        return OnlineTrafficDataExtractionService::extractTrafficValue($item);
     }
 
     /**
@@ -20327,20 +20233,7 @@ JAVASCRIPT;
      */
     private function extractTrafficData($data): array
     {
-        $result = [];
-        if (!is_array($data)) {
-            return $result;
-        }
-        foreach ($data as $value) {
-            if (is_array($value)) {
-                if (isset($value['hotelId']) || isset($value['hotel_id']) || isset($value['hotelName']) || isset($value['hotel_name']) || isset($value['poiId']) || isset($value['poiName'])) {
-                    $result[] = $value;
-                } elseif (isset($value[0]) && is_array($value[0])) {
-                    $result = array_merge($result, $this->extractTrafficData($value));
-                }
-            }
-        }
-        return $result;
+        return OnlineTrafficDataExtractionService::extractGenericTrafficRows($data);
     }
 
     /**

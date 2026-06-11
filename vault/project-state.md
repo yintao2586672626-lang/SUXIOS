@@ -1401,6 +1401,17 @@ Updated: 2026-06-11 Asia/Shanghai
 - Current split-map: `public/index.html` has `37282` lines, `1547` frontend function-level blocks, and `44` `currentPage` refs; `startAiAnalysis` is no longer among the largest blocks. `app/controller/OnlineData.php` has `26954` lines and `875` methods and remains a P2 split candidate.
 - Current self-audit: full directory `200.6 MB`, without `.git` `94.37 MB`, without `.git` and dependencies `65.18 MB`, tracked `18.68 MB` / `615` files; code scope `370` files, `195950` total lines, and `180048` nonblank lines. Runtime cleanup is about `1.57 MB` and left for later small cleanup.
 
+## 2026-06-11 Progress: Manual Ctrip Fetch Background Task and Traffic Extraction Split
+
+- `public/ctrip-static.js` now sends Ctrip manual fetch requests with `async: true`; accepted/running/queued backend responses update UI running state and schedule history/latest/data refreshes without waiting for full OTA collection to finish.
+- `app/controller/OnlineData.php` can create and launch manual Ctrip fetch background tasks under `runtime/manual_fetch_tasks`. The worker callback still uses `/online-data/fetch-ctrip` with `background_task=true`, so the existing save/display/failure path remains the authority.
+- `app/command/ManualFetchOnlineDataOnce.php` is registered as `online-data:manual-fetch-once` in `config/console.php`; it posts the prepared payload back to the manual fetch endpoint and records a failure notification if the worker cannot complete.
+- `app/service/OnlineTrafficDataExtractionService.php` now owns Ctrip traffic response recursion, daily-series expansion, traffic row keys, generic traffic row extraction, and traffic-value extraction. `OnlineData.php` keeps thin wrappers and still owns persistence, column filtering, validation fields, period fields, and OTA channel scope.
+- Guards now require the manual-fetch worker/console registration, accepted frontend path, traffic extraction service, and thin controller wrapper, and reject re-inlining `extractCtripTrafficRowsRecursive()` into `OnlineData.php`.
+- Current split-map: `public/index.html` has `37282` lines and `1547` frontend function-level blocks. `app/controller/OnlineData.php` has `26847` lines and `869` methods; traffic domain span is `309` lines. Both files remain P2 split candidates.
+- Current self-audit: full directory `201.34 MB`, without `.git` `94.41 MB`, without `.git` and dependencies `65.22 MB`, tracked `18.69 MB` / `615` files; code scope `370` files, `195926` total lines, and `180036` nonblank lines. Runtime cleanup is about `1.59 MB` and left for later small cleanup.
+- Verified in this save point: PHP lint for `OnlineData.php`, `ManualFetchOnlineDataOnce.php`, and `OnlineTrafficDataExtractionService.php`; `php think list` shows `online-data:manual-fetch-once`; `tests/OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip"` passed with `101` tests and `1309` assertions; `verify:public-entry`; `verify:e2e-contracts` with `567` checks; `verify:p0-guards`; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

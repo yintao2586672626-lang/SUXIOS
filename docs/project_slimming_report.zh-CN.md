@@ -1370,6 +1370,17 @@
 - 当前 split-map：`public/index.html` 为 `37,282` 行、`1,547` 个前端函数级块、`44` 个 `currentPage` 引用；`startAiAnalysis` 已退出最大函数块列表，`ai` 域 span 为 `1,201` 行；`app/controller/OnlineData.php` 为 `26,954` 行、`875` 个方法，仍是 P2 拆分候选。
 - 当前自审计：完整目录约 `200.6 MB`；不含 `.git` 约 `94.37 MB`；不含 `.git` 和依赖约 `65.18 MB`；Git 跟踪文件约 `18.68 MB` / `615` 个；代码范围 `370` 个文件、`195,950` 行、非空 `180,048` 行；默认可清理目标为 `runtime` 约 `1.57 MB`，按本轮 P0/P1/P2 范围留到后续小优化。
 
+## 2026-06-11 保存点：携程手动获取后台化与流量解析抽离
+
+- `public/ctrip-static.js` 的携程手动获取请求体新增 `async: true`；后端返回 `accepted/running/queued` 时，前端写入运行态、task id 和日期范围，并用后置刷新更新历史、最新快照和数据列表，不再等待完整 OTA 采集完成才恢复主流程。
+- `app/controller/OnlineData.php` 新增携程手动获取后台任务创建和启动：`async=true` 且非 `background_task` 时生成 `runtime/manual_fetch_tasks/<task_id>/input.json`，通过 PHP CLI 启动 `online-data:manual-fetch-once`，立即返回运行态。后台任务回调仍走原 `/online-data/fetch-ctrip` 入库链路。
+- 新增 `app/command/ManualFetchOnlineDataOnce.php` 并在 `config/console.php` 注册 `online-data:manual-fetch-once`；worker 删除输入文件，带 `background_task=true` 回调手动获取接口，失败时写系统通知，不吞掉原始失败。
+- 新增 `app/service/OnlineTrafficDataExtractionService.php`，承载携程流量响应递归解析、日序列展开、流量行 key 清单、通用流量行提取和流量数值读取；`OnlineData.php` 只保留 `extractCtripTrafficRows()`、`extractTrafficValue()` 和 `extractTrafficData()` 薄 wrapper，不改变流量入库、字段过滤、期间字段或 OTA 渠道口径。
+- 更新守卫：`verify_e2e_contracts.mjs` 要求手动获取后台 worker、console 注册、accepted 前端路径、流量解析 service 和薄 wrapper 存在，并禁止 `extractCtripTrafficRowsRecursive()` 重新内联回 controller；`verify_public_entry_guard.mjs` 要求携程手动获取继续后台提交。
+- 当前 split-map：`public/index.html` 仍为 `37,282` 行、`1,547` 个前端函数级块；`app/controller/OnlineData.php` 降至 `26,847` 行、`869` 个方法，`traffic` 域 span 降至 `309` 行。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `201.34 MB`；不含 `.git` 约 `94.41 MB`；不含 `.git` 和依赖约 `65.22 MB`；Git 跟踪文件约 `18.69 MB` / `615` 个；代码范围 `370` 个文件、`195,926` 行、非空 `180,036` 行；默认可清理目标为 `runtime` 约 `1.59 MB`，仍按本轮 P0/P1/P2 范围留到后续小优化。
+- 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\command\ManualFetchOnlineDataOnce.php`、`C:\xampp\php\php.exe -l app\service\OnlineTrafficDataExtractionService.php`、`C:\xampp\php\php.exe think list` 可见 `online-data:manual-fetch-once`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip"`（`101` tests / `1309` assertions）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`567` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

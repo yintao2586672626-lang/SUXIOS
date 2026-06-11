@@ -154,6 +154,12 @@ requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defe
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformDataSourcesRefresh', 'entry defers platform data-source refresh after manual collection');
+requireText('app/controller/OnlineData.php', 'createManualCtripFetchBackgroundTask', 'backend can run Ctrip manual fetch as a background task');
+requireText('app/command/ManualFetchOnlineDataOnce.php', 'online-data:manual-fetch-once', 'manual Ctrip fetch has a one-shot background worker command');
+requireText('config/console.php', "'online-data:manual-fetch-once'", 'console exposes one-shot manual Ctrip fetch worker command');
+requireText('app/service/OnlineTrafficDataExtractionService.php', 'extractCtripTrafficRows', 'traffic response extraction lives in a focused service');
+requireText('app/controller/OnlineData.php', 'OnlineTrafficDataExtractionService::extractCtripTrafficRows', 'OnlineData keeps a thin Ctrip traffic extraction wrapper');
+requireNoText('app/controller/OnlineData.php', 'private function extractCtripTrafficRowsRecursive', 'OnlineData does not re-inline recursive Ctrip traffic extraction');
 for (const directRefreshBinding of [
   'refreshLatestCtripData: loadLatestCtripData',
   'refreshLatestCtripData: params => loadLatestCtripData(params)',
@@ -3424,6 +3430,41 @@ try {
       logError: (message) => fetchFlowEvents.push(`log-error:${message}`),
     });
     const fetchFlowReturnedBeforePostRefresh = !fetchFlowHistorySettled && !fetchFlowLatestSettled;
+    let acceptedFetchFlowRequestedBody = null;
+    let acceptedFetchFlowResultPayload = null;
+    const acceptedFetchFlowEvents = [];
+    const acceptedFetchFlowStates = [];
+    const acceptedFetchFlowResult = await runCtripFetchDataFlow({
+      isLoggedIn: () => true,
+      getSelectedCtripHotelId: () => '58',
+      notify: (message, level) => acceptedFetchFlowEvents.push(`notify:${level || 'info'}:${message}`),
+      getActiveCtripConfig: () => ({ id: 1, hotel_id: '58', cookies: 'sid=config' }),
+      ensureCtripConfigSecret: async config => config,
+      applyCtripConfigObject: config => acceptedFetchFlowEvents.push(`apply:${config.hotel_id}`),
+      getForm: () => ({
+        cookies: ' sid=fetch ',
+        nodeId: '24588',
+        startDate: '2026-06-10',
+        endDate: '2026-06-10',
+      }),
+      setFetching: value => acceptedFetchFlowStates.push(`fetching:${value}`),
+      setShowRawData: value => acceptedFetchFlowStates.push(`raw:${value}`),
+      setFetchSuccess: value => acceptedFetchFlowStates.push(`success:${value}`),
+      setSavedCount: value => acceptedFetchFlowStates.push(`saved:${value}`),
+      requestFetch: async requestBody => {
+        acceptedFetchFlowRequestedBody = requestBody;
+        return {
+          code: 200,
+          message: 'queued',
+          data: { status: 'running', task_id: 'manual-task-1', saved_count: 0 },
+        };
+      },
+      setOnlineDataResult: value => { acceptedFetchFlowResultPayload = value; },
+      refreshOnlineHistory: () => acceptedFetchFlowEvents.push('history'),
+      refreshLatestCtripData: params => acceptedFetchFlowEvents.push(`latest:${params.silent}`),
+      getOnlineDataTab: () => 'data',
+      refreshOnlineData: () => acceptedFetchFlowEvents.push('refresh-data'),
+    });
     let failedFlowResultPayload = null;
     let failedFlowShowRawData = false;
     const failedFlowEvents = [];
@@ -3951,6 +3992,7 @@ try {
         && rawFailure.raw.length === 1000
         && rawFailure.hint.includes('Cookie是否过期')
         && fetchFlowResult.status === 'success'
+        && fetchFlowRequestedBody.async === true
         && fetchFlowRequestedBody.cookies === 'sid=fetch'
         && fetchFlowRequestedBody.node_id === '24588'
         && fetchFlowRequestedBody.system_hotel_id === '58'
@@ -3967,6 +4009,15 @@ try {
         && fetchFlowEvents.includes('display-hotels:1')
         && fetchFlowReturnedBeforePostRefresh
         && fetchFlowEvents.includes('refresh-data')
+        && acceptedFetchFlowResult.status === 'accepted'
+        && acceptedFetchFlowRequestedBody.async === true
+        && acceptedFetchFlowResultPayload.status === 'running'
+        && acceptedFetchFlowResultPayload.task_id === 'manual-task-1'
+        && acceptedFetchFlowEvents.includes('notify:info:queued')
+        && acceptedFetchFlowEvents.includes('history')
+        && acceptedFetchFlowEvents.includes('latest:true')
+        && acceptedFetchFlowEvents.includes('refresh-data')
+        && acceptedFetchFlowStates.join('|') === 'fetching:true|raw:false|success:false|saved:0|saved:0|success:false|fetching:false'
         && failedFlowResult.status === 'failed'
         && failedFlowResultPayload.error === '授权过期'
         && failedFlowResultPayload.raw === 'raw-body'

@@ -284,6 +284,8 @@ if (!fs.existsSync(indexPath)) {
   }
   const autoFetchStaticPath = path.join(repoRoot, 'public/auto-fetch-static.js');
   const autoFetchStaticContent = fs.existsSync(autoFetchStaticPath) ? fs.readFileSync(autoFetchStaticPath, 'utf8') : '';
+  const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
+  const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
   if (!/const\s+buildAutoFetchTriggerRequestBody[\s\S]*async:\s*true/.test(autoFetchStaticContent)) {
     failures.push('public/auto-fetch-static.js must submit platform auto-fetch triggers with async: true so the UI is not blocked by OTA collection.');
   }
@@ -291,10 +293,17 @@ if (!fs.existsSync(indexPath)) {
     || !/runPostFetchRefresh\(loadAutoFetchStatus\)/.test(autoFetchStaticContent)) {
     failures.push('public/auto-fetch-static.js must treat backend running/queued auto-fetch responses as accepted and refresh status without blocking.');
   }
+  if (!/\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*true\s*\}/.test(ctripStaticContent)
+    || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody/.test(ctripStaticContent)) {
+    failures.push('public/ctrip-static.js must submit Ctrip manual fetch in background mode and treat running responses as accepted.');
+  }
   const controllerPath = path.join(repoRoot, 'app/controller/OnlineData.php');
   const controllerContent = fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '';
   if (!controllerContent.includes("get('include_detail'") || !controllerContent.includes("'detail_loaded' => false")) {
     failures.push('app/controller/OnlineData.php must support light auto-fetch status with explicit detail_loaded=false.');
+  }
+  if (!controllerContent.includes('createManualCtripFetchBackgroundTask') || !controllerContent.includes('launchManualCtripFetchBackgroundTask')) {
+    failures.push('app/controller/OnlineData.php must keep Ctrip manual fetch background task support.');
   }
   const strategyDetailLoader = content.slice(
     content.indexOf('const loadStrategyDetail = async'),
