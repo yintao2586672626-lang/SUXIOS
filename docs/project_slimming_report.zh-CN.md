@@ -1619,6 +1619,14 @@
 - 当前自审计：完整目录约 `236.97 MB`；不含 `.git` 约 `113.11 MB`；不含 `.git` 和依赖约 `83.92 MB`；Git 跟踪文件约 `18.95 MB` / `618` 个；代码范围 `373` 个文件、`198,806` 行、非空 `182,814` 行；默认可清理目标为 `runtime` 约 `20.04 MB` / `444` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`795` checks）、`node --test tests\automation\ctrip_store_data_overview.test.mjs`（`20/20`）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：自动抓取状态刷新后置收口
+
+- `public/index.html` 新增 `scheduleAutoFetchStatusPanelRefresh()`，组合轻量 `loadAutoFetchStatus({ detail: false })` 与后置详情刷新，复用既有 `schedulePostFetchRefresh()` 调度边界。
+- 自动抓取设置保存、历史清空、启停操作成功后不再直接调用或等待 `loadAutoFetchStatus()`，避免操作成功反馈被完整状态读取阻塞。
+- 本保存点不改变自动抓取设置接口、历史清空接口、启停接口、OTA 采集、持久化、字段口径、AI 分析、权限或数据库结构；失败、未配置、运行中状态仍显式暴露。
+- 更新守卫：`verify_e2e_contracts.mjs` 与 `verify_public_entry_guard.mjs` 要求平台自动抓取操作使用 `scheduleAutoFetchStatusPanelRefresh()`，并拒绝重新引入无参 `loadAutoFetchStatus()` / `await loadAutoFetchStatus()`。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`800` checks）、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

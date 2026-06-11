@@ -1651,6 +1651,14 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `236.97 MB`, without `.git` about `113.11 MB`, without `.git` and dependencies about `83.92 MB`, tracked files about `18.95 MB` / `618` files; code scope `373` files, `198806` total lines, and `182814` nonblank lines. Runtime cleanup is about `20.04 MB` / `444` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:p0-guards`; `verify:e2e-contracts` with `795` checks; `node --test tests\automation\ctrip_store_data_overview.test.mjs` with `20/20` tests; `self:audit`; `self:split-map`.
 
+## 2026-06-12 Progress: Platform Auto-Fetch Action Status Refresh Scheduling
+
+- `public/index.html` now uses `scheduleAutoFetchStatusPanelRefresh()` after successful platform auto-fetch settings save, history clear, and enable/disable actions.
+- The helper combines the existing light status refresh and deferred detail refresh through `schedulePostFetchRefresh()`, so action feedback is no longer blocked by a full default `loadAutoFetchStatus()` call.
+- This does not change auto-fetch settings APIs, history APIs, enable/disable APIs, OTA collection, persistence, metric/field semantics, AI analysis, permissions, or database schema. Failed, unconfigured, and running states remain explicit.
+- Guards now require platform auto-fetch actions to schedule the panel refresh helper and reject direct no-argument `loadAutoFetchStatus()` / `await loadAutoFetchStatus()` from those action paths; `verify:e2e-contracts` covers `800` checks.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:p0-guards`; `verify:e2e-contracts` with `800` checks; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

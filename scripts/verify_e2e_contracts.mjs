@@ -225,6 +225,11 @@ requireText('public/index.html', 'const ctripConfigListLoaded = ref(false);', 'C
 requireText('public/index.html', 'const meituanConfigListLoaded = ref(false);', 'Meituan config-list loader tracks loaded state for platform-auto display');
 requireText('public/index.html', "params.append('include_detail', '0');", 'platform auto-fetch status can request light backend status');
 requireText('public/index.html', "const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);", 'post-fetch status refresh uses light auto-fetch status');
+requireText('public/index.html', 'const scheduleAutoFetchStatusPanelRefresh = () => {', 'platform auto-fetch operation refreshes use a light status refresh plus deferred detail refresh');
+requireText('public/index.html', 'scheduleAutoFetchStatusRefresh();\n                scheduleAutoFetchStatusDetailRefresh();', 'platform auto-fetch panel refresh helper keeps detail refresh deferred');
+requireText('public/index.html', 'scheduleAutoFetchStatusPanelRefresh();', 'platform auto-fetch settings and history actions schedule status refreshes instead of loading full status inline');
+requireNoText('public/index.html', 'loadAutoFetchStatus();', 'platform auto-fetch actions must not request full status with default detail inline');
+requireNoText('public/index.html', 'await loadAutoFetchStatus();', 'platform auto-fetch actions must not block on full status refresh');
 requireText('public/index.html', 'const autoFetchStatusRequestPromises = new Map();', 'entry deduplicates concurrent auto-fetch status requests');
 requireText('public/index.html', "const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;", 'auto-fetch status request dedupe is scoped by hotel and detail level');
 requireText('public/index.html', '@change="schedulePlatformAutoFetchPanelLoad({ force: true })"', 'platform auto-fetch hotel switches use the shared non-blocking panel scheduler');

@@ -22163,7 +22163,7 @@
                     });
                     if (res.code === 200) {
                         showToast(`已保存：历史 ${schedulePayload.historical_schedule_time}；实时每 ${schedulePayload.realtime_schedule_interval_hours} 小时第 ${schedulePayload.realtime_schedule_minute} 分钟；携程 ${schedulePayload.ctrip_section_concurrency} 页并发；${schedulePayload.browser_headless ? '无头运行' : '可视浏览器'}`);
-                        loadAutoFetchStatus();
+                        scheduleAutoFetchStatusPanelRefresh();
                     } else {
                         showToast(res.message || '设置失败', 'error');
                     }
@@ -22209,7 +22209,7 @@
                         showToast(`已清空 ${res.data?.cleared_count || 0} 条历史记录`);
                         selectedOnlineDataIds.value = [];
                         await loadOnlineDataList();
-                        await loadAutoFetchStatus();
+                        scheduleAutoFetchStatusPanelRefresh();
                     } else {
                         showToast(res.message || '清空失败', 'error');
                     }
@@ -23151,6 +23151,10 @@
             const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
             const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);
             const scheduleAutoFetchStatusDetailRefresh = () => schedulePostFetchRefresh('auto-fetch-status-detail', () => loadAutoFetchStatus({ detail: true }), 520);
+            const scheduleAutoFetchStatusPanelRefresh = () => {
+                scheduleAutoFetchStatusRefresh();
+                scheduleAutoFetchStatusDetailRefresh();
+            };
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
             const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
             const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);
@@ -23222,7 +23226,7 @@
                     });
                     if (res.code === 200) {
                         showToast(autoFetchEnabled.value ? '自动获取已开启' : '自动获取已关闭');
-                        loadAutoFetchStatus();
+                        scheduleAutoFetchStatusPanelRefresh();
                     } else {
                         autoFetchEnabled.value = !autoFetchEnabled.value;
                         showToast(res.message || '操作失败', 'error');

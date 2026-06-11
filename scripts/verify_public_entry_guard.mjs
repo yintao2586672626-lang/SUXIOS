@@ -653,6 +653,13 @@ if (!fs.existsSync(indexPath)) {
   if (!content.includes("const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);")) {
     failures.push('public/index.html must use light auto-fetch status for post-fetch status refreshes.');
   }
+  if (!content.includes('const scheduleAutoFetchStatusPanelRefresh = () => {')
+    || !content.includes('scheduleAutoFetchStatusRefresh();\n                scheduleAutoFetchStatusDetailRefresh();')
+    || !content.includes('scheduleAutoFetchStatusPanelRefresh();')
+    || content.includes('loadAutoFetchStatus();')
+    || content.includes('await loadAutoFetchStatus();')) {
+    failures.push('public/index.html platform-auto settings/history actions must schedule light status plus deferred detail refresh instead of loading full status inline.');
+  }
   if (content.includes('@change="loadAutoFetchStatus"')
     || !content.includes('@change="schedulePlatformAutoFetchPanelLoad({ force: true })"')) {
     failures.push('public/index.html platform-auto hotel switching must use the shared scheduler instead of directly loading full auto-fetch status.');
