@@ -268,6 +268,62 @@ window.SUXI_OPERATION_STATIC = (() => {
             },
         ];
     };
+    const buildOpeningTaskProgressCards = (stats = {}) => [
+        {
+            label: '任务进度均值',
+            value: `${stats.averageProgress}%`,
+            hint: stats.total > 0 ? `${stats.total} 项检查项已纳入进度` : '暂无检查项',
+            icon: 'fas fa-clipboard-check',
+            iconClass: 'bg-blue-50 text-blue-600',
+            progress: stats.averageProgress,
+            progressClass: 'bg-blue-600',
+        },
+        {
+            label: '整体完成率',
+            value: `${stats.completionRate}%`,
+            hint: `${stats.done}/${stats.total} 项已完成，推进中 ${stats.doing} 项`,
+            icon: 'fas fa-check-circle',
+            iconClass: 'bg-green-50 text-green-600',
+            progress: stats.completionRate,
+            progressClass: 'bg-green-600',
+        },
+        {
+            label: '逾期未完成',
+            value: stats.overdue,
+            hint: stats.overdue > 0 ? '需要今日复盘截止时间' : '暂无逾期事项',
+            icon: 'fas fa-clock',
+            iconClass: 'bg-red-50 text-red-600',
+            valueClass: stats.overdue > 0 ? 'text-red-600' : 'text-gray-900',
+            progress: null,
+        },
+        {
+            label: '7天内到期',
+            value: stats.dueSoon,
+            hint: '临近开业节点优先推进',
+            icon: 'fas fa-hourglass-half',
+            iconClass: 'bg-yellow-50 text-yellow-700',
+            valueClass: stats.dueSoon > 0 ? 'text-yellow-700' : 'text-gray-900',
+            progress: null,
+        },
+        {
+            label: '未分配负责人',
+            value: stats.noOwner,
+            hint: stats.noOwner > 0 ? '建议补齐责任人' : '责任人已覆盖',
+            icon: 'fas fa-user-check',
+            iconClass: 'bg-gray-100 text-gray-600',
+            valueClass: stats.noOwner > 0 ? 'text-yellow-700' : 'text-gray-900',
+            progress: null,
+        },
+    ];
+    const buildOpeningTaskProgressStages = (stats = {}) => {
+        const total = Math.max(1, stats.total);
+        return [
+            { label: '未开始', count: stats.progressEmpty, percent: Math.round(stats.progressEmpty / total * 100), className: 'text-gray-700', barClass: 'bg-gray-400' },
+            { label: '1%-49%', count: stats.progressLow, percent: Math.round(stats.progressLow / total * 100), className: 'text-yellow-700', barClass: 'bg-yellow-500' },
+            { label: '50%-99%', count: stats.progressHigh, percent: Math.round(stats.progressHigh / total * 100), className: 'text-blue-700', barClass: 'bg-blue-600' },
+            { label: '100%', count: stats.progressDone, percent: Math.round(stats.progressDone / total * 100), className: 'text-green-700', barClass: 'bg-green-600' },
+        ];
+    };
     const openingAiTaskProgressPercent = (task, helpers = {}) => {
         if (typeof helpers.taskProgressPercent === 'function') {
             return helpers.taskProgressPercent(task);
@@ -391,6 +447,8 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOperationSourceBrief,
         buildOperationDecisionCards,
         buildOpeningOverviewCards,
+        buildOpeningTaskProgressCards,
+        buildOpeningTaskProgressStages,
         buildOpeningAiOutputResult,
         openingCategories,
         openingStatusOptions,

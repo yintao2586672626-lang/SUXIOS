@@ -1671,6 +1671,16 @@
 - 当前 self-audit：完整目录约 `244.72 MB`，不含 `.git` 约 `115.69 MB`，不含 `.git` 和依赖约 `86.5 MB`，Git 跟踪文件约 `19 MB / 620` 个；代码范围 `375` 个文件、`199,275` 行、非空 `183,249` 行。默认可清理目标为 `runtime` 约 `22.57 MB / 647` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\data-health-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`841` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：开业进度展示模型拆分
+
+- `public/operation-static.js` 新增 `buildOpeningTaskProgressCards()` 与 `buildOpeningTaskProgressStages()`，集中承载开业检查项进度卡片和阶段分布的展示模型。
+- `public/index.html` 的 `openingTaskProgressCards` / `openingTaskProgressStages` 继续从 `openingTaskStats` 读取同一批统计字段，但不再内联卡片、文案、颜色和阶段百分比配置。
+- 本轮不改开业项目接口、检查项接口、UI 结构、OTA 采集、持久化、字段口径、权限或数据库结构；无检查项、逾期、临期、未分配负责人等状态继续按原口径显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求入口通过 `operation-static.js` 获取开业进度展示模型，并禁止把 `任务进度均值` / `1%-49%` 配置重新内联；`verify_e2e_contracts.mjs` 在 VM 中验证卡片值、风险颜色和阶段百分比。
+- 当前 split-map：`public/index.html` 从 `37,539` 行降至 `37,485` 行，仍为 `1,579` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,903` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `245.98 MB`，不含 `.git` 约 `116.22 MB`，不含 `.git` 和依赖约 `87.03 MB`，Git 跟踪文件约 `19 MB / 620` 个；代码范围 `375` 个文件、`199,333` 行、非空 `183,307` 行。默认可清理目标为 `runtime` 约 `23.1 MB / 682` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\operation-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`848` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

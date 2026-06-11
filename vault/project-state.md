@@ -1704,6 +1704,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `244.72 MB`, without `.git` about `115.69 MB`, without `.git` and dependencies about `86.5 MB`, tracked files about `19 MB` / `620` files; code scope `375` files, `199275` total lines, and `183249` nonblank lines. Runtime cleanup is about `22.57 MB` / `647` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\data-health-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `841` checks; `self:split-map`; `self:audit`.
 
+## 2026-06-12 Progress: Opening Progress Display Model Split
+
+- `public/operation-static.js` now owns `buildOpeningTaskProgressCards()` and `buildOpeningTaskProgressStages()` for opening-checklist progress cards and stage distribution display models.
+- `public/index.html` keeps `openingTaskStats` as the data source and delegates `openingTaskProgressCards` / `openingTaskProgressStages` to the extracted helpers. It no longer inlines the card labels, warning classes, or stage percentage rows.
+- This does not change opening project APIs, opening task APIs, UI structure, OTA collection, persistence, field semantics, permissions, or database schema. Empty checklist, overdue, due-soon, and unassigned-owner states remain explicit under the existing semantics.
+- Guards now require the opening progress helpers from `operation-static.js`, require the SPA entry delegation, and reject re-inlined `任务进度均值` / `1%-49%` display config. `verify:e2e-contracts` also VM-checks card values, warning class, labels, and stage percentages.
+- Current split-map: `public/index.html` decreased from `37539` to `37485` lines and still has `1579` frontend function-level blocks plus `43` `currentPage` refs. `app/controller/OnlineData.php` has `26903` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `245.98 MB`, without `.git` about `116.22 MB`, without `.git` and dependencies about `87.03 MB`, tracked files about `19 MB` / `620` files; code scope `375` files, `199333` total lines, and `183307` nonblank lines. Runtime cleanup is about `23.1 MB` / `682` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\operation-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:p0-guards`; `verify:e2e-contracts` with `848` checks; `self:split-map`; `self:audit`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

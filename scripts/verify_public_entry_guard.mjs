@@ -6,6 +6,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const indexPath = path.join(repoRoot, 'public/index.html');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
+const operationStaticPath = path.join(repoRoot, 'public/operation-static.js');
 const stylePath = path.join(repoRoot, 'public/style.css');
 const loginBgPngPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.png');
 const loginBgWebpPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.webp');
@@ -74,6 +75,7 @@ if (!fs.existsSync(indexPath)) {
   const stat = fs.statSync(indexPath);
   const content = fs.readFileSync(indexPath, 'utf8');
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
+  const operationStaticContent = fs.existsSync(operationStaticPath) ? fs.readFileSync(operationStaticPath, 'utf8') : '';
   const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
   const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
   const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
@@ -916,6 +918,16 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!/const\s+operationStaticScript\s*=\s*["']operation-static\.js["']/.test(content) || !/const\s+loadOperationStatic\s*=\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader for operation-static.js.');
+  }
+  if (!operationStaticContent.includes('buildOpeningTaskProgressCards')
+    || !operationStaticContent.includes('buildOpeningTaskProgressStages')
+    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningTaskProgressCards')")
+    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningTaskProgressStages')")
+    || !content.includes('buildOpeningTaskProgressCards(openingTaskStats.value)')
+    || !content.includes('buildOpeningTaskProgressStages(openingTaskStats.value)')
+    || content.includes("label: '任务进度均值'")
+    || content.includes("label: '1%-49%'")) {
+    failures.push('public/index.html must delegate opening progress cards and stages to public/operation-static.js.');
   }
   if (!content.includes('await ensureOperationStaticReady();')
     || !/newPage === ['"]lifecycle['"]/.test(content)

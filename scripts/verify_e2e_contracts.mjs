@@ -817,7 +817,49 @@ requireNoText('app/service/RevenueResearchService.php', "'review-topic' =>", 're
 requireTextInFiles(['public/index.html', 'public/operation-static.js'], 'service_quality', 'operation dashboard renders service quality data');
 requireText('public/operation-static.js', 'buildOperationSourceBrief', 'operation source brief builder lives in operation static module');
 requireText('public/operation-static.js', 'buildOperationDecisionCards', 'operation decision card builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningTaskProgressCards', 'opening task progress cards builder lives in operation static module');
+requireText('public/operation-static.js', 'buildOpeningTaskProgressStages', 'opening task progress stages builder lives in operation static module');
 requireText('public/index.html', 'buildOperationDecisionCards(operationFullData.value || {}, operationDisplayFormatters)', 'operation dashboard uses extracted decision card builder');
+requireText('public/index.html', 'buildOpeningTaskProgressCards(openingTaskStats.value)', 'opening progress cards use extracted builder');
+requireText('public/index.html', 'buildOpeningTaskProgressStages(openingTaskStats.value)', 'opening progress stages use extracted builder');
+requireNoText('public/index.html', "label: '任务进度均值'", 'opening progress cards are not re-inlined in the SPA entry');
+requireNoText('public/index.html', "label: '1%-49%'", 'opening progress stages are not re-inlined in the SPA entry');
+{
+  const context = { window: {} };
+  vm.runInNewContext(read('public/operation-static.js'), context, {
+    filename: 'public/operation-static.js',
+  });
+  const helpers = context.window.SUXI_OPERATION_STATIC;
+  const stats = {
+    total: 4,
+    done: 2,
+    doing: 1,
+    averageProgress: 63,
+    completionRate: 50,
+    overdue: 1,
+    dueSoon: 2,
+    noOwner: 1,
+    progressEmpty: 1,
+    progressLow: 1,
+    progressHigh: 1,
+    progressDone: 1,
+  };
+  const cards = helpers.buildOpeningTaskProgressCards(stats);
+  const stages = helpers.buildOpeningTaskProgressStages(stats);
+  checks.push({
+    file: 'public/operation-static.js',
+    label: 'opening progress helper preserves card and stage semantics',
+    ok: cards.length === 5
+      && cards[0]?.value === '63%'
+      && cards[1]?.hint === '2/4 项已完成，推进中 1 项'
+      && cards[2]?.value === 1
+      && cards[2]?.valueClass === 'text-red-600'
+      && stages.length === 4
+      && stages.map(stage => stage.label).join('|') === '未开始|1%-49%|50%-99%|100%'
+      && stages.every(stage => stage.percent === 25),
+    detail: 'opening progress helper must keep the original labels, values, warning classes, and percentages',
+  });
+}
 requireNoText('public/index.html', 'operationFullData.reviews', 'operation dashboard does not render disabled review data');
 requireText('app/service/OperationManagementService.php', "'service_quality' => $serviceQuality", 'operation full data returns service quality summary');
 requireNoText('app/service/OperationManagementService.php', "'reviews' => $reviews", 'operation full data does not depend on review summary');
