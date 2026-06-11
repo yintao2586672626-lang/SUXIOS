@@ -19758,16 +19758,20 @@
                 if (!item) return;
                 markGlobalNotificationRead(item);
                 globalNotificationOpen.value = false;
-                if (item.target_page) {
-                    currentPage.value = item.target_page;
+                const targetPage = String(item.target_page || '');
+                const targetTab = String(item.target_tab || '');
+                if (targetPage === 'online-data') {
+                    openOnlineDataEntryTab(targetTab || 'data-health');
+                } else if (targetPage) {
+                    currentPage.value = targetPage;
                 }
-                if (item.target_tab) {
+                if (targetTab && targetPage !== 'online-data') {
                     onlineDataTab.value = item.target_tab;
                 }
                 nextTick(() => {
-                    if (item.target_page === 'operation-logs' && typeof reloadOperationLogs === 'function') {
+                    if (targetPage === 'operation-logs' && typeof reloadOperationLogs === 'function') {
                         reloadOperationLogs();
-                    } else if (item.target_page === 'online-data' || item.target_page === 'ctrip-ebooking') {
+                    } else if (targetPage === 'ctrip-ebooking') {
                         loadDataHealthPanel('light');
                     }
                 });
@@ -20533,10 +20537,7 @@
             });
             const openDataHealthDrilldown = (row) => {
                 if (!row?.tab) return;
-                onlineDataTab.value = row.tab;
-                if (row.tab === 'platform-auto') schedulePlatformAutoFetchPanelLoad();
-                if (row.tab === 'profile-fields') loadCtripProfileFields();
-                if (row.tab === 'data') refreshOnlineData();
+                openOnlineDataTab(row.tab);
             };
             const dashboardStateText = (state) => ({
                 ok: '已采集',
@@ -21884,6 +21885,10 @@
 
             const openHomeQuickEntry = (entry) => {
                 if (!entry?.page) return;
+                if (entry.page === 'online-data') {
+                    openOnlineDataEntryTab(entry.tab || 'data-health');
+                    return;
+                }
                 if (entry.tab) {
                     onlineDataTab.value = entry.tab;
                 }
@@ -24618,9 +24623,21 @@
                     expandedMenus.value.push(menuName);
                 }
             };
-            const openOnlineDataManualEntry = () => {
+            const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {
+                const targetTab = String(tab || 'data-health');
+                if (targetTab !== 'data-health') {
+                    pendingOnlineDataEntryTab = targetTab;
+                }
                 currentPage.value = 'online-data';
-                return nextTick(() => openOnlineDataTab('data-health'));
+                return nextTick(() => {
+                    if (pendingOnlineDataEntryTab === targetTab) {
+                        pendingOnlineDataEntryTab = '';
+                    }
+                    return openOnlineDataTab(targetTab, options);
+                });
+            };
+            const openOnlineDataManualEntry = () => {
+                return openOnlineDataEntryTab('data-health');
             };
             const handleParentMenuClick = (item) => {
                 const menuName = item?.name || getMenuItemName(item);

@@ -1703,6 +1703,17 @@
 - 当前 self-audit：完整目录约 `248.48 MB`，不含 `.git` 约 `117.26 MB`，不含 `.git` 和依赖约 `88.07 MB`，Git 跟踪文件约 `19.02 MB / 620` 个；代码范围 `375` 个文件、`199,442` 行、非空 `183,416` 行。默认可清理目标为 `runtime` 约 `24.12 MB / 757` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`870` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：线上数据外部入口 Tab 调度收口
+
+- `public/index.html` 的 `openDataHealthDrilldown(row)` 改为统一调用 `openOnlineDataTab(row.tab)`，不再直接写 `onlineDataTab.value` 后按 `platform-auto` / `profile-fields` / `data` 分支手动加载。
+- 新增共享外部入口 `openOnlineDataEntryTab(tab, options)`：全局通知和首页快捷入口进入 `online-data` 时也通过同一入口设置目标 Tab，非默认 Tab 会设置 `pendingOnlineDataEntryTab`，避免先跑默认 `data-health` 首屏加载。
+- 该改动避免数据健康下钻、全局通知和首页快捷入口与 `watch(onlineDataTab)` / `scheduleOnlineDataTabLoad()` 双重触发重型加载，保持线上数据 Tab 切换全部走共享非阻塞入口。
+- 本轮不改数据健康接口、线上数据接口、OTA 采集、持久化、字段口径、AI 分析、权限或数据库结构；只收口前端 Tab 调度路径。
+- 更新守卫：`verify_public_entry_guard.mjs` 和 `verify_e2e_contracts.mjs` 要求 data-health drilldown 使用 `openOnlineDataTab(row.tab)`，要求全局通知和首页快捷入口使用 `openOnlineDataEntryTab()`，并禁止重新内联 `onlineDataTab.value = row.tab`、`item.target_tab` 直写与各 Tab 显式加载分支。
+- 当前 split-map：`public/index.html` 为 `37,408` 行、`1,578` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,903` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `249.21 MB`，不含 `.git` 约 `117.27 MB`，不含 `.git` 和依赖约 `88.08 MB`，Git 跟踪文件约 `19.03 MB / 620` 个；代码范围 `375` 个文件、`199,451` 行、非空 `183,425` 行。默认可清理目标为 `runtime` 约 `24.12 MB / 766` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`880` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

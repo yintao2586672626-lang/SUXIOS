@@ -1736,6 +1736,18 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `248.48 MB`, without `.git` about `117.26 MB`, without `.git` and dependencies about `88.07 MB`, tracked files about `19.02 MB` / `620` files; code scope `375` files, `199442` total lines, and `183416` nonblank lines. Runtime cleanup is about `24.12 MB` / `757` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `870` checks; `verify:p0-guards`; `self:split-map`; `self:audit`.
 
+## 2026-06-12 Progress: Online Data External Entry Tab Scheduling
+
+- `public/index.html` now routes `openDataHealthDrilldown(row)` through `openOnlineDataTab(row.tab)`.
+- The drilldown no longer directly writes `onlineDataTab.value` or manually calls `schedulePlatformAutoFetchPanelLoad()`, `loadCtripProfileFields()`, or `refreshOnlineData()` after tab changes.
+- `openOnlineDataEntryTab(tab, options)` now centralizes external entries into `online-data`; global notifications and home quick entries use it so non-default target tabs can set `pendingOnlineDataEntryTab` and skip default data-health first-paint work.
+- This keeps data-health drilldowns, global notifications, and home quick entries on the same shared non-blocking tab scheduler as buttons and menu navigation, avoiding duplicate heavy loads from both direct calls and the `watch(onlineDataTab)` path.
+- This does not change data-health APIs, online-data APIs, OTA collection, persistence, field semantics, AI analysis, permissions, or database schema. It only tightens frontend tab scheduling.
+- Guards now require `openDataHealthDrilldown(row)` to use `openOnlineDataTab(row.tab)`, require global notifications and home quick entries to use `openOnlineDataEntryTab()`, and reject direct tab writes plus explicit per-tab load branches. `verify:e2e-contracts` covers `880` checks.
+- Current split-map: `public/index.html` has `37408` lines, `1578` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26903` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `249.21 MB`, without `.git` about `117.27 MB`, without `.git` and dependencies about `88.08 MB`, tracked files about `19.03 MB` / `620` files; code scope `375` files, `199451` total lines, and `183425` nonblank lines. Runtime cleanup is about `24.12 MB` / `766` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `880` checks; `verify:p0-guards`; `self:split-map`; `self:audit`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

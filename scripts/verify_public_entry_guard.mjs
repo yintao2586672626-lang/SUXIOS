@@ -324,7 +324,9 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must skip default data-health first-paint loading when menu navigation targets another online-data tab.');
   }
   if (!content.includes("const wasOnlineDataPage = currentPage.value === 'online-data';")
-    || !content.includes("const openOnlineDataManualEntry = () => {\n                currentPage.value = 'online-data';\n                return nextTick(() => openOnlineDataTab('data-health'));\n            };")
+    || !content.includes("const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');")
+    || !content.includes("if (targetTab !== 'data-health') {\n                    pendingOnlineDataEntryTab = targetTab;\n                }")
+    || !content.includes("const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };")
     || !content.includes("if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    openOnlineDataManualEntry();\n                }")) {
     failures.push('public/index.html same-page online-data menu clicks must return to the default data-health tab.');
   }
@@ -334,11 +336,27 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('expandedMenus, toggleSubmenu, handleParentMenuClick,')) {
     failures.push('public/index.html parent online-data menu clicks must switch content to the default data-health tab, not only expand the submenu.');
   }
+  if (!content.includes("if (targetPage === 'online-data') {\n                    openOnlineDataEntryTab(targetTab || 'data-health');")
+    || !content.includes("} else if (targetPage === 'ctrip-ebooking') {\n                        loadDataHealthPanel('light');")
+    || content.includes("item.target_page === 'online-data' || item.target_page === 'ctrip-ebooking'")
+    || content.includes("if (item.target_tab) {\n                    onlineDataTab.value = item.target_tab;\n                }")) {
+    failures.push('public/index.html global notifications targeting online-data must use openOnlineDataEntryTab and avoid loading data-health for other target tabs.');
+  }
+  if (!content.includes("if (entry.page === 'online-data') {\n                    openOnlineDataEntryTab(entry.tab || 'data-health');\n                    return;\n                }")) {
+    failures.push('public/index.html home quick entries targeting online-data must use openOnlineDataEntryTab.');
+  }
   if (!content.includes("@click=\"openOnlineDataTab('data-health')\"")
     || !content.includes("@click=\"openOnlineDataTab('data')\"")
     || content.includes("@click=\"onlineDataTab = 'data-health'; loadDataHealthPanel('light')\"")
     || content.includes("@click=\"onlineDataTab = 'data'; refreshOnlineData()\"")) {
     failures.push('public/index.html online-data tab buttons must switch immediately through openOnlineDataTab instead of loading data inline.');
+  }
+  if (!content.includes('const openDataHealthDrilldown = (row) => {\n                if (!row?.tab) return;\n                openOnlineDataTab(row.tab);\n            };')
+    || content.includes('onlineDataTab.value = row.tab;')
+    || content.includes("if (row.tab === 'platform-auto') schedulePlatformAutoFetchPanelLoad();")
+    || content.includes("if (row.tab === 'profile-fields') loadCtripProfileFields();")
+    || content.includes("if (row.tab === 'data') refreshOnlineData();")) {
+    failures.push('public/index.html data-health drilldown must use openOnlineDataTab so tab switches do not double-trigger heavy loaders.');
   }
   if (!onlineDataTabWatchSource.includes('scheduleOnlineDataTabLoad(newTab)')
     || onlineDataTabWatchSource.includes("loadDataHealthPanel('light')")
