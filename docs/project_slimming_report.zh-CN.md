@@ -1585,6 +1585,19 @@
 - 当前自审计：完整目录约 `231.8 MB`；不含 `.git` 约 `110.08 MB`；不含 `.git` 和依赖约 `80.89 MB`；Git 跟踪文件约 `18.92 MB` / `618` 个；代码范围 `373` 个文件、`198,587` 行、非空 `182,598` 行；默认可清理目标为 `runtime` 约 `17.05 MB` / `387` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`756` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 
+## 2026-06-12 保存点：数据配置与携程配置入口后置加载
+
+- `public/index.html` 的 `openDataConfigModal()` 改为非阻塞入口：先设置当前配置类型并打开弹窗，再通过 `deferUiTask()` 后置读取 `auto-fetch-static.js` 和已保存的 `system-config` 数据，避免配置读取阻塞弹窗打开。
+- `loadDataConfig()` 新增 `shouldApply` 检查，配合 `dataConfigModalLoadSeq` 丢弃过期的后置读取结果，防止快速切换配置类型时旧配置写回当前弹窗。
+- `public/index.html` 的 `refreshCtripHotelConfigOptions()` 改为非阻塞入口：先记录当前 `selectedCtripHotelId`，再通过 `deferUiTask()` 后置执行 `loadHotels()` 与 `loadCtripConfigList()`；读取完成后再次校验目标酒店未变化，才调用 `applyCtripHotelConfig(false)`。
+- 携程数据健康面板的 Cookie 创建入口 `openCtripCookieCreateFromHealth()` 改为先切换到 `ctrip-ebooking` / `ctrip-fetch-settings` 并打开创建表单，再后置读取携程配置列表，避免配置读取阻塞表单打开。
+- `tests/automation/ctrip_store_data_overview.test.mjs` 同步修正携程配置刷新、Profile 捕获和 Cookie API 捕获的测试锚点，防止测试切片误命中旧函数名或过宽代码块；当前断言对齐非阻塞刷新调度契约。
+- 本保存点不改变系统配置读取/保存/测试接口、携程配置接口、Cookie API 采集接口、Profile 浏览器采集接口、OTA 入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置和过期异步状态继续显式暴露。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求数据源配置弹窗、携程酒店配置刷新和 Cookie 创建入口走后置加载，禁止回退为阻塞式 `async` 入口；`verify_e2e_contracts.mjs` 同步将 E2E 合同检查数提升到 `770`。
+- 当前 split-map：`public/index.html` 为 `37,509` 行、`1,571` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `233.51 MB`；不含 `.git` 约 `111.08 MB`；不含 `.git` 和依赖约 `81.89 MB`；Git 跟踪文件约 `18.93 MB` / `618` 个；代码范围 `373` 个文件、`198,619` 行、非空 `182,630` 行；默认可清理目标为 `runtime` 约 `18.04 MB` / `401` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check tests\automation\ctrip_store_data_overview.test.mjs`、`node --test tests\automation\ctrip_store_data_overview.test.mjs`（`20/20`）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`770` checks）、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

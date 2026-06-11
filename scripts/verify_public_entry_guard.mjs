@@ -241,7 +241,21 @@ if (!fs.existsSync(indexPath)) {
     || !/const triggerAutoFetch = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runAutoFetchTriggerFlow['"]\)/.test(content)) {
     failures.push('public/index.html must load auto-fetch-static.js before opening the platform-auto panel or triggering manual auto-fetch.');
   }
-  if (!/const openDataConfigModal = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const loadDataConfig = async/.test(content)
+  const openDataConfigModalStart = content.indexOf('const openDataConfigModal =');
+  const openDataConfigModalEnd = content.indexOf('const firstDataConfigValue =', openDataConfigModalStart);
+  const openDataConfigModalSource = openDataConfigModalStart >= 0 && openDataConfigModalEnd > openDataConfigModalStart
+    ? content.slice(openDataConfigModalStart, openDataConfigModalEnd)
+    : '';
+  if (!/let dataConfigModalLoadSeq = 0;[\s\S]*const openDataConfigModal = \(type\) => \{/.test(content)
+    || !openDataConfigModalSource.includes('showDataConfigModal.value = true;')
+    || !openDataConfigModalSource.includes('deferUiTask(async () => {')
+    || !openDataConfigModalSource.includes('const isCurrentConfigModal = () =>')
+    || openDataConfigModalSource.includes('const openDataConfigModal = async')
+    || /await loadDataConfig\(type\);[\s\S]*showDataConfigModal\.value = true;/.test(openDataConfigModalSource)
+    || /await ensureAutoFetchStaticReady\(\);[\s\S]*currentDataConfigType\.value = type;/.test(openDataConfigModalSource)) {
+    failures.push('public/index.html data-source config modal must open before loading auto-fetch-static.js or saved system-config data.');
+  }
+  if (!/const loadDataConfig = async \(type, options = \{\}\) => \{[\s\S]*const shouldApply = typeof options\.shouldApply === 'function' \? options\.shouldApply : \(\) => true;[\s\S]*if \(!shouldApply\(\)\) return;/.test(content)
     || !/const saveDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const testDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runDataConfigTestFlow['"]\)/.test(content)) {
     failures.push('public/index.html must load auto-fetch-static.js before data-source config form parsing, saving, or testing.');
   }
@@ -311,6 +325,16 @@ if (!fs.existsSync(indexPath)) {
     || !ctripStaticContent.includes('const runCtripManualTabSwitch = async')) {
     failures.push('public/index.html must keep Ctrip manual tab async branching in public/ctrip-static.js.');
   }
+  const refreshCtripHotelConfigOptionsSource = content.slice(
+    content.indexOf('const refreshCtripHotelConfigOptions ='),
+    content.indexOf('const applyMeituanHotelConfig = async')
+  );
+  if (!content.includes('const refreshCtripHotelConfigOptions = () => {')
+    || !/deferUiTask\(async \(\) =>[\s\S]*Promise\.allSettled\(\[loadHotels\(\), loadCtripConfigList\(\)\]\)[\s\S]*applyCtripHotelConfig\(false\)/.test(refreshCtripHotelConfigOptionsSource)
+    || refreshCtripHotelConfigOptionsSource.includes('const refreshCtripHotelConfigOptions = async')
+    || refreshCtripHotelConfigOptionsSource.includes('await Promise.all([loadHotels(), loadCtripConfigList()]);')) {
+    failures.push('public/index.html Ctrip hotel config refresh must not block manual fetch controls on config-list loading.');
+  }
   const openCtripOverviewFetchTabSource = content.slice(
     content.indexOf('const openCtripOverviewFetchTab = async'),
     content.indexOf('const ctripOverviewCookieApiSections')
@@ -318,6 +342,16 @@ if (!fs.existsSync(indexPath)) {
   if (!/onlineDataTab\.value = tabName;\s*deferUiTask\(async \(\) =>/.test(openCtripOverviewFetchTabSource)
     || /await loadCtripConfigList\(\);[\s\S]*onlineDataTab\.value = tabName/.test(openCtripOverviewFetchTabSource)) {
     failures.push('public/index.html Ctrip overview external tab entry must switch tabs before deferred config loading.');
+  }
+  const openCtripCookieCreateFromHealthSource = content.slice(
+    content.indexOf('const openCtripCookieCreateFromHealth ='),
+    content.indexOf('const closeCtripCookieEditor =')
+  );
+  if (!content.includes('const openCtripCookieCreateFromHealth = () => {')
+    || !openCtripCookieCreateFromHealthSource.includes('deferUiTask(() => loadCtripConfigList(), 80);')
+    || openCtripCookieCreateFromHealthSource.includes('const openCtripCookieCreateFromHealth = async')
+    || openCtripCookieCreateFromHealthSource.includes('await loadCtripConfigList();')) {
+    failures.push('public/index.html Ctrip health Cookie create action must open the config form before config-list loading.');
   }
   const meituanEbookingDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'meituan-ebooking'"),

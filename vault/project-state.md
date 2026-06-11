@@ -1616,6 +1616,19 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `231.8 MB`, without `.git` about `110.08 MB`, without `.git` and dependencies about `80.89 MB`, tracked files about `18.92 MB` / `618` files; code scope `373` files, `198587` total lines, and `182598` nonblank lines. Runtime cleanup is about `17.05 MB` / `387` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `756` checks; `self:audit`; `self:split-map`.
 
+## 2026-06-12 Progress: Data Config and Ctrip Config Deferred Loads
+
+- `public/index.html` now makes `openDataConfigModal()` non-blocking: it sets the active config type and opens the modal before deferred `auto-fetch-static.js` and saved `system-config` loading starts.
+- `loadDataConfig()` now accepts a `shouldApply` guard, and `dataConfigModalLoadSeq` prevents stale deferred config reads from writing into a newer modal state after fast config-type switching.
+- `public/index.html` now makes `refreshCtripHotelConfigOptions()` non-blocking: it records the selected Ctrip hotel, schedules hotel/config-list reads through `deferUiTask()`, and rechecks the selected hotel before applying the config.
+- `openCtripCookieCreateFromHealth()` now switches to the Ctrip fetch-settings form first and defers Ctrip config-list loading, so the health-panel Cookie create action is not blocked by saved-config reads.
+- `tests/automation/ctrip_store_data_overview.test.mjs` now uses the current non-async config-refresh marker and validates scheduled data-health refresh bindings for Profile/Cookie API capture instead of the old direct `await loadDataHealthPanel(...)` contract.
+- This does not change system-config read/save/test APIs, Ctrip config APIs, Cookie API capture, browser Profile capture, OTA persistence, metric/field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and stale async states remain explicit.
+- Guards now require deferred data-config modal loading, deferred Ctrip hotel-config refresh, and deferred Cookie create config loading; `verify:e2e-contracts` covers `770` checks.
+- Current split-map: `public/index.html` has `37509` lines, `1571` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `233.51 MB`, without `.git` about `111.08 MB`, without `.git` and dependencies about `81.89 MB`, tracked files about `18.93 MB` / `618` files; code scope `373` files, `198619` total lines, and `182630` nonblank lines. Runtime cleanup is about `18.04 MB` / `401` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `node --check tests\automation\ctrip_store_data_overview.test.mjs`; `node --test tests\automation\ctrip_store_data_overview.test.mjs` with `20/20` tests; `verify:public-entry`; `verify:e2e-contracts` with `770` checks; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -31711,7 +31711,8 @@
             };
 
             // 数据配置操作
-            const openDataConfigModal = async (type) => {
+            let dataConfigModalLoadSeq = 0;
+            const openDataConfigModal = (type) => {
                 debugLog('openDataConfigModal called:', type);
                 debugLog('user:', user.value);
                 debugLog('is_super_admin:', user.value?.is_super_admin);
@@ -31723,12 +31724,8 @@
                     showToast('只有超级管理员才能配置数据', 'error');
                     return;
                 }
-                try {
-                    await ensureAutoFetchStaticReady();
-                } catch (e) {
-                    return;
-                }
                 currentDataConfigType.value = type;
+                const loadSeq = ++dataConfigModalLoadSeq;
                 const titles = {
                     'ctrip-ebooking': '携程ebooking配置',
                     'meituan-ebooking': '美团ebooking配置',
@@ -31749,17 +31746,26 @@
                 showDataConfigSpidertoken.value = false;
                 showDataConfigCookie.value = false;
                 showDataConfigPayload.value = false;
-                // 加载已保存的配置
-                try {
-                    await loadDataConfig(type);
-                } catch (e) {
-                    console.error('加载配置失败:', e);
-                }
                 if (type === 'ctrip-ads') {
                     dataConfigForm.value.api_type = normalizeCtripAdsApiType(dataConfigForm.value.api_type);
                 }
                 showDataConfigModal.value = true;
                 debugLog('showDataConfigModal set to:', showDataConfigModal.value);
+                deferUiTask(async () => {
+                    const isCurrentConfigModal = () => loadSeq === dataConfigModalLoadSeq
+                        && showDataConfigModal.value
+                        && currentDataConfigType.value === type;
+                    if (!isCurrentConfigModal()) return null;
+                    try {
+                        await loadDataConfig(type, { shouldApply: isCurrentConfigModal });
+                        if (isCurrentConfigModal() && type === 'ctrip-ads') {
+                            dataConfigForm.value.api_type = normalizeCtripAdsApiType(dataConfigForm.value.api_type);
+                        }
+                    } catch (e) {
+                        console.error('加载配置失败:', e);
+                    }
+                    return null;
+                }, 80);
             };
 
             const firstDataConfigValue = (...values) => {
@@ -31773,9 +31779,10 @@
             const buildDataConfigForSave = () => normalizeDataConfigForForm(dataConfigForm.value || {});
             const buildDataConfigRequestBody = (type) => buildDataConfigRequestBodyFromForm(type, dataConfigForm.value || {});
 
-            const loadDataConfig = async (type) => {
+            const loadDataConfig = async (type, options = {}) => {
                 await ensureAutoFetchStaticReady();
                 try {
+                    const shouldApply = typeof options.shouldApply === 'function' ? options.shouldApply : () => true;
                     const configKey = `data_config_${type.replace('-', '_')}`;
                     const res = await request(`/system-config?key=${configKey}`);
                     if (res.code === 200 && res.data) {
@@ -31783,6 +31790,7 @@
                             ? res.data[configKey]
                             : res.data;
                         const savedConfig = normalizeDataConfigForForm(parseDataConfigValue(candidate));
+                        if (!shouldApply()) return;
                         Object.keys(savedConfig).forEach(key => {
                             if (dataConfigForm.value.hasOwnProperty(key)) {
                                 dataConfigForm.value[key] = savedConfig[key];
@@ -33364,9 +33372,14 @@
                 }
             };
 
-            const refreshCtripHotelConfigOptions = async () => {
-                await Promise.all([loadHotels(), loadCtripConfigList()]);
-                await applyCtripHotelConfig(false);
+            const refreshCtripHotelConfigOptions = () => {
+                const requestedHotelId = String(selectedCtripHotelId.value || '');
+                deferUiTask(async () => {
+                    await Promise.allSettled([loadHotels(), loadCtripConfigList()]);
+                    if (requestedHotelId !== String(selectedCtripHotelId.value || '')) return null;
+                    await applyCtripHotelConfig(false);
+                    return null;
+                }, 80);
             };
 
             const applyMeituanHotelConfig = async (showMessage = true, options = {}) => {
@@ -33843,7 +33856,7 @@
                 }
             };
 
-            const openCtripCookieCreateFromHealth = async () => {
+            const openCtripCookieCreateFromHealth = () => {
                 currentPage.value = 'ctrip-ebooking';
                 onlineDataTab.value = 'ctrip-fetch-settings';
                 ctripConfigForm.value = {
@@ -33856,7 +33869,7 @@
                     approved_mappings_path: '',
                     cookies: '',
                 };
-                await loadCtripConfigList();
+                deferUiTask(() => loadCtripConfigList(), 80);
             };
 
             const closeCtripCookieEditor = () => {
