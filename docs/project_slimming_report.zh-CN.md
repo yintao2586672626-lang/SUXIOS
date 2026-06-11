@@ -1529,6 +1529,18 @@
 - 当前自审计：完整目录约 `226.23 MB`；不含 `.git` 约 `108.06 MB`；不含 `.git` 和依赖约 `78.87 MB`；Git 跟踪文件约 `18.88 MB` / `618` 个；代码范围 `373` 个文件、`198,259` 行、非空 `182,280` 行；默认可清理目标为 `runtime` 约 `15.06 MB` / `329` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`717` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-12 保存点：携程/美团手工 Tab 调度收口
+
+- `public/index.html` 的携程 eBooking 手工 Tab 改为统一调用 `openCtripManualTab()`，不再在按钮内联 `loadCtripConfigList()`、`loadDataHealthPanel('light')` 或广告配置同步；外部入口 `openCtripOverviewFetchTab()` 也先切换页面/Tab，再后置读取配置并按当前 Tab 同步。
+- `public/meituan-static.js` 新增 `runMeituanManualTabSwitch()`，承载美团 eBooking 手工 Tab 的配置列表读取、页面/Tab 过期校验和榜单/流量/订单/广告表单同步分支。
+- `public/index.html` 的 `openMeituanManualTab()` 只保留 Tab 切换、`deferUiTask()` 调用和 Vue 状态/回调注入，不再内联 `await loadMeituanConfigList()`、Tab 分支判断或同步分支。
+- 新 helper 在配置列表读取前后都校验仍停留在 `meituan-ebooking` 和目标 Tab；过期异步结果返回 `stale_*` 状态，不写回旧 Tab。
+- 本保存点不改变携程/美团采集接口、配置接口、OTA 入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置和后台运行状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求携程手工 Tab 统一走非阻塞 helper，并要求入口使用 `requireMeituanStatic('runMeituanManualTabSwitch')`，禁止把美团手工 Tab 异步分支重新内联回入口页；`verify_e2e_contracts.mjs` 在 VM 中验证 active/stale 两类样例，并将 E2E 合同检查数提升到 `734`。
+- 当前 split-map：`public/index.html` 为 `37,472` 行、`1,568` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `226.91 MB`；不含 `.git` 约 `108.03 MB`；不含 `.git` 和依赖约 `78.84 MB`；Git 跟踪文件约 `18.89 MB` / `618` 个；代码范围 `373` 个文件、`198,393` 行、非空 `182,410` 行；默认可清理目标为 `runtime` 约 `15.03 MB` / `342` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\meituan-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`734` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

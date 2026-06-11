@@ -1560,6 +1560,18 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `226.23 MB`, without `.git` about `108.06 MB`, without `.git` and dependencies about `78.87 MB`, tracked files about `18.88 MB` / `618` files; code scope `373` files, `198259` total lines, and `182280` nonblank lines. Runtime cleanup is about `15.06 MB` / `329` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `717` checks; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Ctrip/Meituan Manual Tab Scheduling
+
+- `public/index.html` now routes Ctrip eBooking manual tabs through `openCtripManualTab()` instead of inlining `loadCtripConfigList()`, `loadDataHealthPanel('light')`, or ad-config sync in button handlers. `openCtripOverviewFetchTab()` now switches page/tab first, then defers config loading and current-tab sync.
+- `public/meituan-static.js` now exports `runMeituanManualTabSwitch()` for Meituan eBooking manual-tab config-list loading, active page/tab rechecks, and ranking/traffic/order/ads form sync branching.
+- `public/index.html` keeps `openMeituanManualTab()` as a thin Vue wrapper that switches the tab, schedules `deferUiTask()`, and injects refs/callbacks into the static helper. It no longer inlines `await loadMeituanConfigList()`, tab branching, or form-sync branching.
+- The helper checks that the active page is still `meituan-ebooking` and the active tab still matches before and after config-list loading. Stale async results return `stale_*` statuses and do not write into the old tab.
+- This does not change Ctrip/Meituan fetch APIs, config APIs, OTA persistence, field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and running states remain explicit.
+- Guards now require the Ctrip manual tab helper, require `requireMeituanStatic('runMeituanManualTabSwitch')`, reject re-inlined Meituan manual-tab async branching in `public/index.html`, and validate active/stale helper samples in VM; `verify:e2e-contracts` covers `734` checks.
+- Current split-map: `public/index.html` has `37472` lines, `1568` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `226.91 MB`, without `.git` about `108.03 MB`, without `.git` and dependencies about `78.84 MB`, tracked files about `18.89 MB` / `618` files; code scope `373` files, `198393` total lines, and `182410` nonblank lines. Runtime cleanup is about `15.03 MB` / `342` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\meituan-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `734` checks; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

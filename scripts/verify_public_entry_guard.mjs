@@ -74,6 +74,8 @@ if (!fs.existsSync(indexPath)) {
   const stat = fs.statSync(indexPath);
   const content = fs.readFileSync(indexPath, 'utf8');
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
+  const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
+  const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
 
   if (stat.size < 500_000) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
@@ -283,6 +285,26 @@ if (!fs.existsSync(indexPath)) {
   if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*Promise\.allSettled\(\[[\s\S]*loadCtripConfigList\(\)[\s\S]*loadCookiesList\(\)[\s\S]*loadBookmarklet\(\)[\s\S]*\]\)/.test(ctripEbookingDefaultLoader)) {
     failures.push('public/index.html Ctrip eBooking default loader must not start config/latest/cookie/bookmarklet refreshes in the first-paint request group.');
   }
+  const ctripManualTabTemplate = content.slice(
+    content.indexOf("currentPage === 'ctrip-ebooking'"),
+    content.indexOf("onlineDataTab !== 'data-health'")
+  );
+  if (!content.includes('const openCtripManualTab = (tab) => {')
+    || !content.includes("if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;")
+    || !ctripManualTabTemplate.includes("@click=\"openCtripManualTab('ctrip-flow-overview')\"")
+    || ctripManualTabTemplate.includes("onlineDataTab = 'ctrip-flow-overview'; loadCtripConfigList()")
+    || ctripManualTabTemplate.includes("onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList()")
+    || ctripManualTabTemplate.includes("onlineDataTab = 'ctrip-ads'; syncCtripAdsDirectConfig(false)")) {
+    failures.push('public/index.html Ctrip manual tab buttons must use the non-blocking tab switch helper.');
+  }
+  const openCtripOverviewFetchTabSource = content.slice(
+    content.indexOf('const openCtripOverviewFetchTab = async'),
+    content.indexOf('const ctripOverviewCookieApiSections')
+  );
+  if (!/onlineDataTab\.value = tabName;\s*deferUiTask\(async \(\) =>/.test(openCtripOverviewFetchTabSource)
+    || /await loadCtripConfigList\(\);[\s\S]*onlineDataTab\.value = tabName/.test(openCtripOverviewFetchTabSource)) {
+    failures.push('public/index.html Ctrip overview external tab entry must switch tabs before deferred config loading.');
+  }
   const meituanEbookingDefaultLoader = content.slice(
     content.indexOf("if (newPage === 'meituan-ebooking'"),
     content.indexOf("if (newPage === 'hotels'")
@@ -299,7 +321,10 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf("onlineDataTab === 'meituan-traffic'")
   );
   if (!content.includes('const openMeituanManualTab = (tab) => {')
-    || !content.includes("if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;")
+    || !content.includes("const runMeituanManualTabSwitch = requireMeituanStatic('runMeituanManualTabSwitch');")
+    || !content.includes('deferUiTask(() => runMeituanManualTabSwitch({')
+    || !content.includes('getCurrentPage: () => currentPage.value')
+    || !content.includes('getCurrentTab: () => onlineDataTab.value')
     || !meituanManualTabTemplate.includes("@click=\"openMeituanManualTab('meituan-ranking')\"")
     || meituanManualTabTemplate.includes("onlineDataTab = 'meituan-ranking'; loadMeituanConfigList()")) {
     failures.push('public/index.html Meituan manual tab buttons must use the non-blocking tab switch helper.');
@@ -312,6 +337,15 @@ if (!fs.existsSync(indexPath)) {
     || meituanManualTabsFullTemplate.includes("loadMeituanConfigList(); syncMeituanOrderConfigFromSelectedConfig()")
     || meituanManualTabsFullTemplate.includes("loadMeituanConfigList(); syncMeituanAdsConfigFromSelectedConfig()")) {
     failures.push('public/index.html Meituan manual tab switches must not sync forms before deferred config-list loading settles.');
+  }
+  const openMeituanManualTabSource = content.slice(
+    content.indexOf('const openMeituanManualTab = (tab) => {'),
+    content.indexOf('const openPlatformAutoTab = (options = {}) =>')
+  );
+  if (openMeituanManualTabSource.includes('await loadMeituanConfigList();')
+    || openMeituanManualTabSource.includes("if (tab === 'meituan-traffic')")
+    || !meituanStaticContent.includes('const runMeituanManualTabSwitch = async')) {
+    failures.push('public/index.html must keep Meituan manual tab async branching in public/meituan-static.js.');
   }
   const platformProfileActionSource = content.slice(
     content.indexOf('const openPlatformProfileAction = async'),
@@ -572,8 +606,6 @@ if (!fs.existsSync(indexPath)) {
   const autoFetchStaticContent = fs.existsSync(autoFetchStaticPath) ? fs.readFileSync(autoFetchStaticPath, 'utf8') : '';
   const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
   const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
-  const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
-  const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
   if (!/const\s+buildAutoFetchTriggerRequestBody[\s\S]*async:\s*true/.test(autoFetchStaticContent)) {
     failures.push('public/auto-fetch-static.js must submit platform auto-fetch triggers with async: true so the UI is not blocked by OTA collection.');
   }

@@ -143,6 +143,7 @@ requireText('public/index.html', "requireMeituanStatic('runMeituanOrderFetchFlow
 requireText('public/index.html', "requireMeituanStatic('runMeituanAdsFetchFlow')", 'entry uses extracted Meituan ads fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanBrowserCaptureFlow')", 'entry uses extracted Meituan browser capture flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanCapturedPayloadSaveFlow')", 'entry uses extracted Meituan captured payload save flow runner');
+requireText('public/index.html', "requireMeituanStatic('runMeituanManualTabSwitch')", 'entry uses extracted Meituan manual tab switch helper');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
@@ -157,6 +158,7 @@ requireText('public/meituan-static.js', 'const buildMeituanOrderFetchRequestBody
 requireText('public/meituan-static.js', 'const runMeituanOrderFetchFlow', 'Meituan static runs order fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanAdsFetchRequestBody', 'Meituan static builds ads fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanAdsFetchFlow', 'Meituan static runs ads fetch flow');
+requireText('public/meituan-static.js', 'const runMeituanManualTabSwitch = async', 'Meituan static runs manual tab switch orchestration');
 requireNoText('public/index.html', '<script src="auto-fetch-static.js"></script>', 'frontend lazy-loads extracted auto-fetch static helper');
 requireText('public/index.html', "const autoFetchStaticScript = 'auto-fetch-static.js'", 'entry keeps auto-fetch static lazy script path');
 requireText('public/index.html', 'const ensureAutoFetchStaticReady = async () =>', 'entry keeps auto-fetch static ready guard');
@@ -224,18 +226,32 @@ requireText('public/index.html', 'const scheduleCtripEbookingDeferredStartupRefr
 requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking') return null;", 'deferred Ctrip manual startup refresh is scoped to the active page');
 requireText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await Promise.allSettled([\n                            loadOnlineDataHotelList(),\n                            loadDataHealthPanel('light'),", 'Ctrip manual page first paint keeps only hotel list and light health status in the initial load');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => Promise.allSettled([\n                        loadOnlineDataHotelList(),\n                        loadCtripConfigList().then(() => loadLatestCtripData({ silent: true })),\n                        loadDataHealthPanel('light'),\n                        loadCookiesList(),\n                        loadBookmarklet(),\n                    ]));", 'Ctrip manual page must not start config/latest/cookie/bookmarklet work in the first-paint loader');
+requireText('public/index.html', 'const openCtripManualTab = (tab) => {', 'Ctrip manual tabs use a non-blocking tab switch helper');
+requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;", 'deferred Ctrip manual tab sync is scoped to the active tab');
+requireText('public/index.html', '@click="openCtripManualTab(\'data-health\')"', 'Ctrip data-health tab uses the non-blocking tab helper');
+requireText('public/index.html', '@click="openCtripManualTab(\'ctrip-flow-overview\')"', 'Ctrip flow overview tab does not inline config-list loading');
+requireText('public/index.html', '@click="openCtripManualTab(\'ctrip-fetch-settings\')"', 'Ctrip fetch settings tab does not inline config-list loading');
+requireText('public/index.html', '@click="openCtripManualTab(\'ctrip-ads\')"', 'Ctrip ads tab does not inline ad-config sync');
+requireNoText('public/index.html', "onlineDataTab = 'ctrip-flow-overview'; loadCtripConfigList()", 'Ctrip manual tabs must not synchronously request saved configs from inline click handlers');
+requireNoText('public/index.html', "onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList()", 'Ctrip fetch settings tab must not synchronously request saved configs from inline click handlers');
+requireNoText('public/index.html', "onlineDataTab = 'ctrip-ads'; syncCtripAdsDirectConfig(false)", 'Ctrip ads tab must not synchronously sync ad config from inline click handlers');
+requireText('public/index.html', 'const openCtripOverviewFetchTab = async (tabName) => {\n                currentPage.value = \'ctrip-ebooking\';', 'Ctrip overview external entry keeps the route switch first');
+requireText('public/index.html', 'onlineDataTab.value = tabName;\n                deferUiTask(async () => {', 'Ctrip overview external entry defers config loading after switching tabs');
 requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {', 'Meituan manual page defers config matching and secondary startup refreshes');
 requireText('public/index.html', "if (currentPage.value !== 'meituan-ebooking') return null;", 'deferred Meituan manual startup refresh is scoped to the active page');
 requireText('public/index.html', 'scheduleMeituanEbookingDeferredStartupRefresh();', 'Meituan manual page schedules deferred startup refresh after route entry');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', () => loadMeituanConfigList());", 'Meituan manual page must not synchronously request saved configs from the first-paint loader');
 requireText('public/index.html', 'const openMeituanManualTab = (tab) => {', 'Meituan manual tabs use a non-blocking tab switch helper');
-requireText('public/index.html', "if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;", 'deferred Meituan manual tab sync is scoped to the active tab');
+requireText('public/index.html', 'deferUiTask(() => runMeituanManualTabSwitch({', 'Meituan manual tab switch delegates async branching to static helper');
+requireText('public/index.html', 'getCurrentPage: () => currentPage.value', 'Meituan manual tab static helper receives active page reader');
+requireText('public/index.html', 'getCurrentTab: () => onlineDataTab.value', 'Meituan manual tab static helper receives active tab reader');
 requireText('public/index.html', '@click="openMeituanManualTab(\'meituan-ranking\')"', 'Meituan ranking tab does not inline config-list loading');
 requireText('public/index.html', '@click="openMeituanManualTab(\'meituan-traffic\')"', 'Meituan traffic tab does not inline config-list loading');
 requireText('public/index.html', '@click="openMeituanManualTab(\'meituan-orders\')"', 'Meituan orders tab does not inline config-list loading');
 requireText('public/index.html', '@click="openMeituanManualTab(\'meituan-ads\')"', 'Meituan ads tab does not inline config-list loading');
 requireNoText('public/index.html', "onlineDataTab = 'meituan-ranking'; loadMeituanConfigList()", 'Meituan manual tabs must not synchronously request saved configs from inline click handlers');
 requireNoText('public/index.html', "onlineDataTab = 'meituan-traffic'; loadMeituanConfigList(); syncMeituanTrafficConfigFromSelectedConfig()", 'Meituan traffic tab must not sync before config-list loading settles');
+requireNoText('public/index.html', "await loadMeituanConfigList();\n                    if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;", 'Meituan manual tab switch must not re-inline config loading and stale-tab checks');
 requireText('public/index.html', "scheduleMeituanEbookingDeferredStartupRefresh();\n                    return;\n                }\n\n                if (target === 'analysis')", 'platform profile Meituan ranking action does not await config-list loading before navigation returns');
 requireText('public/index.html', '配置待读取，正在准备美团数据源匹配...', 'Meituan manual page does not present unloaded configs as missing');
 requireText('public/index.html', '配置读取失败，请刷新后重试；未读取成功前不会判断为未配置。', 'Meituan manual page exposes config-list load failures explicitly');
@@ -1135,6 +1151,7 @@ try {
   const validateMeituanAdsFetchInput = meituanStatic.validateMeituanAdsFetchInput;
   const buildMeituanAdsFetchRequestBody = meituanStatic.buildMeituanAdsFetchRequestBody;
   const runMeituanAdsFetchFlow = meituanStatic.runMeituanAdsFetchFlow;
+  const runMeituanManualTabSwitch = meituanStatic.runMeituanManualTabSwitch;
   if (typeof buildMeituanBatchFetchTasks !== 'function'
     || typeof buildMeituanBatchFetchResultEntry !== 'function'
     || typeof buildMeituanDisplayModelPayload !== 'function'
@@ -1155,14 +1172,50 @@ try {
     || typeof normalizeMeituanAdsFetchForm !== 'function'
     || typeof validateMeituanAdsFetchInput !== 'function'
     || typeof buildMeituanAdsFetchRequestBody !== 'function'
-    || typeof runMeituanAdsFetchFlow !== 'function') {
+    || typeof runMeituanAdsFetchFlow !== 'function'
+    || typeof runMeituanManualTabSwitch !== 'function') {
     checks.push({
       file: 'public/meituan-static.js',
-      label: 'Meituan static exports batch/browser/payload/traffic/order/ads fetch builders',
+      label: 'Meituan static exports batch/browser/payload/traffic/order/ads/manual-tab builders',
       ok: false,
-      detail: 'batch/browser/payload/traffic/order/ads fetch builders and flow runners',
+      detail: 'batch/browser/payload/traffic/order/ads/manual-tab builders and flow runners',
     });
   } else {
+    const manualTabEvents = [];
+    let activeManualTab = 'meituan-traffic';
+    const manualTrafficResult = await runMeituanManualTabSwitch({
+      tab: 'meituan-traffic',
+      getCurrentPage: () => 'meituan-ebooking',
+      getCurrentTab: () => activeManualTab,
+      loadConfigList: async () => { manualTabEvents.push('load'); },
+      syncTrafficConfig: async () => { manualTabEvents.push('traffic'); },
+      syncOrderConfig: async () => { manualTabEvents.push('order'); },
+      syncAdsConfig: async () => { manualTabEvents.push('ads'); },
+      applyRankingConfig: async () => { manualTabEvents.push('ranking'); },
+    });
+    const staleManualEvents = [];
+    let staleManualTab = 'meituan-orders';
+    const staleManualResult = await runMeituanManualTabSwitch({
+      tab: 'meituan-orders',
+      getCurrentPage: () => 'meituan-ebooking',
+      getCurrentTab: () => staleManualTab,
+      loadConfigList: async () => {
+        staleManualEvents.push('load');
+        staleManualTab = 'meituan-ads';
+      },
+      syncOrderConfig: async () => { staleManualEvents.push('order'); },
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan manual tab switch helper keeps async config loading scoped to the active tab',
+      ok: manualTrafficResult.status === 'synced'
+        && manualTrafficResult.target === 'traffic'
+        && manualTabEvents.join('|') === 'load|traffic'
+        && staleManualResult.status === 'stale_after_load'
+        && staleManualEvents.join('|') === 'load',
+      detail: 'runMeituanManualTabSwitch active/stale samples',
+    });
+
     const tasks = buildMeituanBatchFetchTasks({
       form: {
         url: 'https://example.test/rank',

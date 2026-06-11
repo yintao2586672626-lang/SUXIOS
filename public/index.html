@@ -5402,23 +5402,23 @@
                             <div class="p-6">
                                 <!-- Tabs -->
                                 <div class="flex flex-wrap border-b mb-6">
-                                    <button @click="onlineDataTab = 'data-health'; loadDataHealthPanel('light')"
+                                    <button @click="openCtripManualTab('data-health')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'data-health' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         门店数据总览
                                     </button>
-                                    <button @click="onlineDataTab = 'ctrip-ranking'"
+                                    <button @click="openCtripManualTab('ctrip-ranking')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         竞争圈数据
                                     </button>
-                                    <button @click="onlineDataTab = 'ctrip-flow-overview'; loadCtripConfigList()"
+                                    <button @click="openCtripManualTab('ctrip-flow-overview')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-flow-overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         经营日报/周报
                                     </button>
-                                    <button @click="onlineDataTab = 'ctrip-traffic'"
+                                    <button @click="openCtripManualTab('ctrip-traffic')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         流量数据
                                     </button>
-                                    <button @click="onlineDataTab = 'ctrip-ads'; syncCtripAdsDirectConfig(false)"
+                                    <button @click="openCtripManualTab('ctrip-ads')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         广告数据
                                     </button>
@@ -5430,7 +5430,7 @@
                                         class="px-6 py-3 font-medium text-gray-500 hover:text-blue-600">
                                         酒店管理
                                     </button>
-                                    <button @click="onlineDataTab = 'ctrip-fetch-settings'; loadCtripConfigList()"
+                                    <button @click="openCtripManualTab('ctrip-fetch-settings')"
                                         :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-fetch-settings' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         数据抓取设置
                                     </button>
@@ -19307,6 +19307,7 @@
             const runMeituanAdsFetchFlow = requireMeituanStatic('runMeituanAdsFetchFlow');
             const runMeituanBrowserCaptureFlow = requireMeituanStatic('runMeituanBrowserCaptureFlow');
             const runMeituanCapturedPayloadSaveFlow = requireMeituanStatic('runMeituanCapturedPayloadSaveFlow');
+            const runMeituanManualTabSwitch = requireMeituanStatic('runMeituanManualTabSwitch');
             const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
             const meituanDynamicSelfRankRow = computed(() => meituanRankedHotelsList.value.find(row => row?.isSelf) || null);
             const meituanDisplayedHotelsList = computed(() => [...meituanRankedHotelsList.value].sort((a, b) => {
@@ -24135,23 +24136,38 @@
                     ]);
                 }, 240);
             };
-            const openMeituanManualTab = (tab) => {
+            const openCtripManualTab = (tab) => {
                 onlineDataTab.value = tab;
                 deferUiTask(async () => {
-                    if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;
-                    await loadMeituanConfigList();
-                    if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== tab) return null;
-                    if (tab === 'meituan-traffic') {
-                        return syncMeituanTrafficConfigFromSelectedConfig();
+                    if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;
+                    if (tab === 'data-health') {
+                        return loadDataHealthPanel('light');
                     }
-                    if (tab === 'meituan-orders') {
-                        return syncMeituanOrderConfigFromSelectedConfig();
+                    if (['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads'].includes(tab)) {
+                        await loadCtripConfigList();
+                        if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tab) return null;
+                        if (selectedCtripHotelId.value) {
+                            await applyCtripHotelConfig(false);
+                        }
+                        if (tab === 'ctrip-ads') {
+                            return syncCtripAdsDirectConfig(false);
+                        }
                     }
-                    if (tab === 'meituan-ads') {
-                        return syncMeituanAdsConfigFromSelectedConfig();
-                    }
-                    return applyMeituanHotelConfig(false, { refreshList: false });
+                    return null;
                 }, 80);
+            };
+            const openMeituanManualTab = (tab) => {
+                onlineDataTab.value = tab;
+                deferUiTask(() => runMeituanManualTabSwitch({
+                    tab,
+                    getCurrentPage: () => currentPage.value,
+                    getCurrentTab: () => onlineDataTab.value,
+                    loadConfigList: loadMeituanConfigList,
+                    syncTrafficConfig: syncMeituanTrafficConfigFromSelectedConfig,
+                    syncOrderConfig: syncMeituanOrderConfigFromSelectedConfig,
+                    syncAdsConfig: syncMeituanAdsConfigFromSelectedConfig,
+                    applyRankingConfig: () => applyMeituanHotelConfig(false, { refreshList: false }),
+                }), 80);
             };
             const openPlatformAutoTab = (options = {}) => {
                 onlineDataTab.value = 'platform-auto';
@@ -33190,19 +33206,19 @@
                 if (autoFetchHotelId.value) {
                     selectedCtripHotelId.value = autoFetchHotelId.value;
                 }
-                if (!ctripConfigList.value.length) {
-                    await loadCtripConfigList();
-                }
-                if (selectedCtripHotelId.value) {
-                    await applyCtripHotelConfig(false);
-                }
                 onlineDataTab.value = tabName;
-                if (tabName === 'ctrip-flow-overview') {
+                deferUiTask(async () => {
+                    if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tabName) return null;
                     await loadCtripConfigList();
-                }
-                if (tabName === 'ctrip-ads') {
-                    await syncCtripAdsDirectConfig(false);
-                }
+                    if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tabName) return null;
+                    if (selectedCtripHotelId.value) {
+                        await applyCtripHotelConfig(false);
+                    }
+                    if (tabName === 'ctrip-ads') {
+                        return syncCtripAdsDirectConfig(false);
+                    }
+                    return null;
+                }, 80);
             };
 
             const ctripOverviewCookieApiSections = (sections = []) => {
@@ -37343,7 +37359,7 @@
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning,
                 showCtripCookieEditorModal, ctripCookieEditorLoading, ctripCookieEditorSaving, ctripCookieEditorForm,
                 ctripFetchSuccess, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass,
-                loadCtripConfigList, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
+                loadCtripConfigList, openCtripManualTab, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigList, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig,
                 meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanSavedCount, meituanDataFetchTime,

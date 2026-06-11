@@ -461,6 +461,38 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const normalizeMeituanCookieText = (value) => String(value || '').replace(/^[\s\n]+|[\s\n]+$/g, '').replace(/\n/g, '');
 
+    const runMeituanManualTabSwitch = async ({
+        tab = '',
+        getCurrentPage = () => '',
+        getCurrentTab = () => '',
+        loadConfigList = async () => {},
+        syncTrafficConfig = async () => {},
+        syncOrderConfig = async () => {},
+        syncAdsConfig = async () => {},
+        applyRankingConfig = async () => {},
+    } = {}) => {
+        const isActive = () => getCurrentPage() === 'meituan-ebooking' && getCurrentTab() === tab;
+        if (!isActive()) return { status: 'stale_before_load', tab };
+
+        await loadConfigList();
+        if (!isActive()) return { status: 'stale_after_load', tab };
+
+        if (tab === 'meituan-traffic') {
+            await syncTrafficConfig();
+            return { status: 'synced', tab, target: 'traffic' };
+        }
+        if (tab === 'meituan-orders') {
+            await syncOrderConfig();
+            return { status: 'synced', tab, target: 'orders' };
+        }
+        if (tab === 'meituan-ads') {
+            await syncAdsConfig();
+            return { status: 'synced', tab, target: 'ads' };
+        }
+        await applyRankingConfig();
+        return { status: 'synced', tab, target: 'ranking' };
+    };
+
     const normalizeMeituanTrafficFetchForm = (form = {}) => {
         form.url = String(form.url || '').trim();
         form.partnerId = String(form.partnerId || '').trim();
@@ -1099,6 +1131,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanBatchFetchResultEntry,
         buildMeituanDisplayModelPayload,
         normalizeMeituanCookieText,
+        runMeituanManualTabSwitch,
         normalizeMeituanTrafficFetchForm,
         validateMeituanTrafficFetchInput,
         buildMeituanTrafficFetchRequestBody,
