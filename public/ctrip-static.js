@@ -77,6 +77,19 @@ window.SUXI_CTRIP_STATIC = (() => {
             || text.includes('querycampaignreportlist');
     };
     const normalizeCtripAdsApiType = (value = '') => 'effect_report';
+    const runPostFetchRefresh = (callback, ...args) => {
+        try {
+            Promise.resolve(callback(...args)).catch(error => {
+                if (typeof console !== 'undefined' && console.error) {
+                    console.error('[ctrip-static] post-fetch refresh failed:', error);
+                }
+            });
+        } catch (error) {
+            if (typeof console !== 'undefined' && console.error) {
+                console.error('[ctrip-static] post-fetch refresh failed:', error);
+            }
+        }
+    };
 
     const createCtripFetchForm = () => ({
         url: defaultCtripConfigUrl,
@@ -623,15 +636,15 @@ window.SUXI_CTRIP_STATIC = (() => {
                     notify(profileCaptureMessage);
                 }
                 if (!loginOnly) {
-                    await refreshLatestCtripData({ silent: true });
-                    await refreshOnlineHistory();
+                    runPostFetchRefresh(refreshLatestCtripData, { silent: true });
+                    runPostFetchRefresh(refreshOnlineHistory);
                     if (shouldRefreshDataHealthPanel()) {
-                        await refreshDataHealthPanel('light', { force: true });
+                        runPostFetchRefresh(refreshDataHealthPanel, 'light', { force: true });
                     }
                 }
                 if (loginOnly || options.bindDataSource !== false) {
-                    await refreshPlatformProfileStatus({ silent: true });
-                    if (options.bindDataSource !== false) await refreshPlatformDataSources();
+                    runPostFetchRefresh(refreshPlatformProfileStatus, { silent: true });
+                    if (options.bindDataSource !== false) runPostFetchRefresh(refreshPlatformDataSources);
                 }
                 return res;
             }
@@ -1039,7 +1052,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 }
 
                 notify(`获取成功，已保存 ${savedCount} 条流量数据`);
-                await refreshOnlineHistory();
+                runPostFetchRefresh(refreshOnlineHistory);
                 if (getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
@@ -1151,8 +1164,8 @@ window.SUXI_CTRIP_STATIC = (() => {
                 setOnlineDataResult(data);
                 setShowRawData(false);
                 notify(res.message || `${messages.successPrefix || '携程概览获取完成'}，已入库 ${data.saved_count || 0} 条`);
-                await refreshLatestCtripData({ silent: true });
-                await refreshOnlineHistory();
+                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
+                runPostFetchRefresh(refreshOnlineHistory);
                 return { status: 'success', response: res, requestBody };
             }
 
@@ -1264,8 +1277,8 @@ window.SUXI_CTRIP_STATIC = (() => {
                 setOnlineDataResult(data);
                 setShowRawData(false);
                 notify(res.message || `广告数据获取完成，已入库 ${data.saved_count || 0} 条`);
-                await refreshLatestCtripData({ silent: true });
-                await refreshOnlineHistory();
+                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
+                runPostFetchRefresh(refreshOnlineHistory);
                 return { status: 'success', response: res, requestBody };
             }
 
@@ -1403,10 +1416,10 @@ window.SUXI_CTRIP_STATIC = (() => {
                 } else {
                     notify(res.message || `携程 Cookie API 采集完成，已入库 ${data.saved_count || 0} 条`);
                 }
-                await refreshLatestCtripData({ silent: true });
-                await refreshOnlineHistory();
+                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
+                runPostFetchRefresh(refreshOnlineHistory);
                 if (shouldRefreshDataHealthPanel()) {
-                    await refreshDataHealthPanel('light', { force: true });
+                    runPostFetchRefresh(refreshDataHealthPanel, 'light', { force: true });
                 }
                 return { status: 'success', response: res, requestBody };
             }

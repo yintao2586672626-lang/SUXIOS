@@ -77,6 +77,19 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         }
         return typeof value === 'object' ? value : {};
     };
+    const runPostFetchRefresh = (callback, ...args) => {
+        try {
+            Promise.resolve(callback(...args)).catch(error => {
+                if (typeof console !== 'undefined' && console.error) {
+                    console.error('[auto-fetch-static] post-fetch refresh failed:', error);
+                }
+            });
+        } catch (error) {
+            if (typeof console !== 'undefined' && console.error) {
+                console.error('[auto-fetch-static] post-fetch refresh failed:', error);
+            }
+        }
+    };
     const normalizeDataConfigForForm = (config = {}) => {
         const normalized = { ...config };
         normalized.node_id = firstDataConfigValue(normalized.node_id, normalized.nodeId);
@@ -369,12 +382,12 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                     finished_at: finishedAt,
                 });
                 notify(message);
-                await refreshOnlineData();
-                await refreshOnlineHistory();
-                await refreshLatestCtripData({ silent: true });
-                await openCtripProfileFieldsForReview();
-                await loadAutoFetchStatus();
-                await loadBackendGlobalNotifications().catch(() => null);
+                runPostFetchRefresh(refreshOnlineData);
+                runPostFetchRefresh(refreshOnlineHistory);
+                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
+                runPostFetchRefresh(openCtripProfileFieldsForReview);
+                runPostFetchRefresh(loadAutoFetchStatus);
+                runPostFetchRefresh(loadBackendGlobalNotifications);
                 return { status: 'success', response: res, requestBody };
             }
 
@@ -388,8 +401,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 finished_at: finishedAt,
             });
             notify(message, 'error');
-            await loadAutoFetchStatus();
-            await loadBackendGlobalNotifications().catch(() => null);
+            runPostFetchRefresh(loadAutoFetchStatus);
+            runPostFetchRefresh(loadBackendGlobalNotifications);
             return { status: 'error_response', response: res, requestBody };
         } catch (error) {
             const finishedAt = getTimestamp();
@@ -403,8 +416,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 finished_at: finishedAt,
             });
             notify(message, 'error');
-            await loadAutoFetchStatus().catch(() => null);
-            await loadBackendGlobalNotifications().catch(() => null);
+            runPostFetchRefresh(loadAutoFetchStatus);
+            runPostFetchRefresh(loadBackendGlobalNotifications);
             return { status: 'exception', error, requestBody };
         } finally {
             stopTimer();

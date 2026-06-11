@@ -142,6 +142,13 @@ requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
 requireText('public/index.html', "item.path === 'online-data' && item.tab === 'data'", 'manual online-data tab prewarms saved platform configs without loading platform-auto panel');
 requireNoText('public/ctrip-static.js', 'await refreshOnlineHistory();\n                await refreshLatestCtripData({ silent: true });', 'Ctrip manual fetch success does not block on history/latest snapshot refresh');
+for (const flowFile of ['public/auto-fetch-static.js', 'public/ctrip-static.js', 'public/meituan-static.js']) {
+  requireText(flowFile, 'const runPostFetchRefresh', `${flowFile} uses non-blocking post-fetch refresh helper`);
+  requireNoText(flowFile, 'await refreshOnlineHistory(', `${flowFile} does not block collection completion on history refresh`);
+  requireNoText(flowFile, 'await refreshLatestCtripData(', `${flowFile} does not block collection completion on latest Ctrip refresh`);
+  requireNoText(flowFile, 'await refreshOnlineData(', `${flowFile} does not block collection completion on online data refresh`);
+  requireNoText(flowFile, 'await loadAutoFetchStatus(', `${flowFile} does not block auto-fetch completion on status refresh`);
+}
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBody', 'auto-fetch static builds trigger request bodies');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
 requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'auto-fetch static runs manual trigger flow');
@@ -592,6 +599,14 @@ try {
       const events = [];
       const timestamps = [...(overrides.timestamps || ['2026-06-11 10:00:00', '2026-06-11 10:00:09'])];
       let capturedRequestBody = null;
+      let delayedRefreshSettled = false;
+      const delayedRefresh = label => new Promise(resolve => {
+        setTimeout(() => {
+          delayedRefreshSettled = true;
+          events.push(['refresh', label]);
+          resolve();
+        }, 25);
+      });
       const result = await runAutoFetchTriggerFlow({
         getHotelId: () => (overrides.hotelId === undefined ? 58 : overrides.hotelId),
         hasPlatformFetchConfig: hotelId => (overrides.hasConfig === undefined ? Boolean(hotelId) : overrides.hasConfig),
@@ -616,17 +631,18 @@ try {
         },
         getDurationText: () => '9秒',
         updateLastResult: (response, success, message) => events.push(['lastResult', success, message, response]),
-        refreshOnlineData: async () => events.push(['refresh', 'online']),
-        refreshOnlineHistory: async () => events.push(['refresh', 'history']),
-        refreshLatestCtripData: async options => events.push(['refresh', 'latest', options]),
-        openCtripProfileFieldsForReview: async () => events.push(['refresh', 'profile-review']),
-        loadAutoFetchStatus: async () => events.push(['refresh', 'status']),
-        loadBackendGlobalNotifications: async () => events.push(['refresh', 'notifications']),
+        refreshOnlineData: overrides.delayedRefresh ? () => delayedRefresh('online') : async () => events.push(['refresh', 'online']),
+        refreshOnlineHistory: overrides.delayedRefresh ? () => delayedRefresh('history') : async () => events.push(['refresh', 'history']),
+        refreshLatestCtripData: overrides.delayedRefresh ? () => delayedRefresh('latest') : async options => events.push(['refresh', 'latest', options]),
+        openCtripProfileFieldsForReview: overrides.delayedRefresh ? () => delayedRefresh('profile-review') : async () => events.push(['refresh', 'profile-review']),
+        loadAutoFetchStatus: overrides.delayedRefresh ? () => delayedRefresh('status') : async () => events.push(['refresh', 'status']),
+        loadBackendGlobalNotifications: overrides.delayedRefresh ? () => delayedRefresh('notifications') : async () => events.push(['refresh', 'notifications']),
       });
-      return { result, events, capturedRequestBody };
+      return { result, events, capturedRequestBody, returnedBeforeDelayedRefresh: !delayedRefreshSettled };
     };
 
     const successRun = await runTriggerSample();
+    const delayedRefreshRun = await runTriggerSample({ delayedRefresh: true });
     const errorRun = await runTriggerSample({
       response: { code: 500, message: 'upstream failed', data: { saved_count: 0 } },
     });
@@ -671,7 +687,9 @@ try {
         && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'notifications')
         && successRun.events.some(event => event[0] === 'timer' && event[1] === 'start')
         && successRun.events.some(event => event[0] === 'timer' && event[1] === 'stop')
-        && successRun.events.some(event => event[0] === 'fetching' && event[1] === false),
+        && successRun.events.some(event => event[0] === 'fetching' && event[1] === false)
+        && delayedRefreshRun.result.status === 'success'
+        && delayedRefreshRun.returnedBeforeDelayedRefresh === true,
       detail: 'runAutoFetchTriggerFlow success sample',
     });
     checks.push({
@@ -1282,6 +1300,7 @@ try {
     let trafficOnlinePayload = null;
     let trafficLatestPayload = null;
     let trafficRequestedBody = null;
+    let delayedTrafficHistorySettled = false;
     const trafficFlowResult = await runMeituanTrafficFetchFlow({
       getForm: () => ({
         url: ' https://example.test/traffic ',
@@ -1305,6 +1324,28 @@ try {
       getOnlineDataTab: () => 'data',
       refreshOnlineData: () => trafficEvents.push('refresh-data'),
     });
+    const delayedTrafficFlowResult = await runMeituanTrafficFetchFlow({
+      getForm: () => ({
+        url: 'https://example.test/traffic',
+        partnerId: 'partner-flow',
+        poiId: 'poi-flow',
+        cookies: 'mt-traffic-flow-cookie',
+      }),
+      setFetching: value => trafficEvents.push(`delayed-fetching:${value}`),
+      setOnlineDataResult: () => {},
+      setLatestTrafficData: () => {},
+      requestFetch: async () => ({ code: 200, data: { data: [{ exposure: 1 }], saved_count: 1 } }),
+      refreshOnlineHistory: () => new Promise(resolve => {
+        setTimeout(() => {
+          delayedTrafficHistorySettled = true;
+          trafficEvents.push('delayed-history');
+          resolve();
+        }, 25);
+      }),
+      getOnlineDataTab: () => 'data',
+      refreshOnlineData: () => trafficEvents.push('delayed-refresh-data'),
+    });
+    const delayedTrafficReturnedBeforeHistory = !delayedTrafficHistorySettled;
     const missingTrafficEvents = [];
     const missingTrafficResult = await runMeituanTrafficFetchFlow({
       getForm: () => ({ url: '', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),

@@ -33,6 +33,19 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const meituanDisplayRowKey = (row, index) => String(row?.poiId || row?.hotelName || index);
 
     const defaultMeituanAdsUrl = () => 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
+    const runPostFetchRefresh = (callback, ...args) => {
+        try {
+            Promise.resolve(callback(...args)).catch(error => {
+                if (typeof console !== 'undefined' && console.error) {
+                    console.error('[meituan-static] post-fetch refresh failed:', error);
+                }
+            });
+        } catch (error) {
+            if (typeof console !== 'undefined' && console.error) {
+                console.error('[meituan-static] post-fetch refresh failed:', error);
+            }
+        }
+    };
 
     const createMeituanRankingForm = () => ({
         url: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
@@ -197,12 +210,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 setOnlineDataResult(data);
                 notify(res.message || (requestContext.loginOnly ? '美团 Profile 登录状态已保存' : `抓取完成，已入库 ${data?.saved_count || 0} 条`));
                 if (!requestContext.loginOnly) {
-                    await refreshOnlineHistory();
+                    runPostFetchRefresh(refreshOnlineHistory);
                 }
                 if (requestContext.loginOnly || requestContext.bindDataSource) {
-                    await refreshPlatformProfileStatus({ silent: true });
+                    runPostFetchRefresh(refreshPlatformProfileStatus, { silent: true });
                     if (requestContext.bindDataSource) {
-                        await refreshPlatformDataSources();
+                        runPostFetchRefresh(refreshPlatformDataSources);
                     }
                 }
                 return { status: 'success', response: res, requestContext, data };
@@ -296,7 +309,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 setCaptureResult(data);
                 setOnlineDataResult(data);
                 notify(`保存成功，已入库 ${data?.saved_count || 0} 条`);
-                await refreshOnlineHistory();
+                runPostFetchRefresh(refreshOnlineHistory);
                 return { status: 'success', response: res, saveContext, data };
             }
 
@@ -512,7 +525,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const savedCount = data.saved_count || 0;
                 if (savedCount > 0) {
                     notify(`获取成功！已保存 ${savedCount} 条流量数据`);
-                    await refreshOnlineHistory();
+                    runPostFetchRefresh(refreshOnlineHistory);
                     if (getOnlineDataTab() === 'data') {
                         refreshOnlineData();
                     }
@@ -619,7 +632,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     savedCount > 0 ? `订单数据获取成功，已入库 ${savedCount} 条` : '订单接口请求成功，但未解析到可入库数据',
                     savedCount > 0 ? 'success' : 'warning'
                 );
-                await refreshOnlineHistory();
+                runPostFetchRefresh(refreshOnlineHistory);
                 return { status: 'success', response: res, requestBody, data, savedCount };
             }
 
@@ -719,7 +732,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     savedCount > 0 ? `广告数据获取成功，已入库 ${savedCount} 条` : '广告接口请求成功，但未解析到可入库数据',
                     savedCount > 0 ? 'success' : 'warning'
                 );
-                await refreshOnlineHistory();
+                runPostFetchRefresh(refreshOnlineHistory);
                 return { status: 'success', response: res, requestBody, data, savedCount };
             }
 
@@ -817,7 +830,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
             if (totalSavedCount > 0) {
                 notify(`批量获取完成！共保存 ${totalSavedCount} 条数据`);
-                await refreshOnlineHistory();
+                runPostFetchRefresh(refreshOnlineHistory);
                 if (getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }

@@ -1331,6 +1331,12 @@ Updated: 2026-06-11 Asia/Shanghai
 - Current priority state now keeps release evidence and GitHub save-point hygiene as P0 boundaries, Ctrip/Meituan field-to-UI closure and AI governance as P1 development targets, and `public/index.html` plus `app/controller/OnlineData.php` complexity reduction as P2.
 - Cookie warning, `.example.env`, and README are treated as current-state items rather than repeated implementation targets: CookieHealth PHPUnit coverage passes, `.example.env` covers current `.env` keys with safe placeholders, and README uses `database/init_full.sql` plus `127.0.0.1:8080` startup guidance.
 
+## 2026-06-11 Progress: Non-Blocking OTA Post-Fetch Refreshes
+
+- `public/auto-fetch-static.js`, `public/ctrip-static.js`, and `public/meituan-static.js` now use a local `runPostFetchRefresh()` helper for post-fetch UI refreshes that should not block the main collection result from returning.
+- Ctrip, Meituan, Cookie API, and auto-fetch flows keep immediate result/state/toast updates in the main path, while history, latest snapshot, profile/data-source status, data-health, auto-fetch status, and global notification refreshes continue asynchronously with visible console errors if a refresh fails.
+- `scripts/verify_e2e_contracts.mjs` now guards the non-blocking refresh boundary across those static helpers and validates delayed-refresh samples for auto-fetch and Meituan traffic. Verification passed with `514` E2E contract checks.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
