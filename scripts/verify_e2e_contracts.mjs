@@ -341,7 +341,11 @@ requireText('public/index.html', "let pendingOnlineDataEntryTab = '';", 'online-
 requireText('public/index.html', "pendingOnlineDataEntryTab = String(item.tab || '');", 'online-data menu target tab is recorded before currentPage watcher runs');
 requireText('public/index.html', "if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }", 'online-data direct tab navigation skips default data-health first-paint loading');
 requireText('public/index.html', "const wasOnlineDataPage = currentPage.value === 'online-data';", 'online-data menu clicks can detect same-page navigation');
-requireText('public/index.html', "if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    nextTick(() => openOnlineDataTab('data-health'));\n                }", 'same-page online-data menu click returns to the default data-health tab');
+requireText('public/index.html', "const openOnlineDataManualEntry = () => {\n                currentPage.value = 'online-data';\n                return nextTick(() => openOnlineDataTab('data-health'));\n            };", 'manual online-data parent entry switches to the default data-health tab');
+requireText('public/index.html', "if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    openOnlineDataManualEntry();\n                }", 'same-page online-data menu click returns to the default data-health tab');
+requireText('public/index.html', '@click="handleParentMenuClick(item)"', 'parent menu clicks use the shared parent menu handler');
+requireText('public/index.html', "const handleParentMenuClick = (item) => {", 'parent menu handler can switch content as well as expand submenu');
+requireText('public/index.html', "if (menuName === '线上数据手动获取') {\n                    openOnlineDataManualEntry();\n                }", 'online-data parent menu click opens the default data-health tab');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');

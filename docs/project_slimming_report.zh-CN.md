@@ -1692,6 +1692,17 @@
 - 当前 self-audit：完整目录约 `247.24 MB`，不含 `.git` 约 `116.75 MB`，不含 `.git` 和依赖约 `87.56 MB`，Git 跟踪文件约 `19.01 MB / 620` 个；代码范围 `375` 个文件、`199,420` 行、非空 `183,394` 行。默认可清理目标为 `runtime` 约 `23.62 MB / 725` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\operation-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`866` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
 
+## 2026-06-12 保存点：线上数据父菜单默认入口收口
+
+- `public/index.html` 将一级父菜单点击从直接 `toggleSubmenu(item.name)` 改为 `handleParentMenuClick(item)`，父菜单仍负责展开/收起子菜单，同时可承载必要的默认入口切换。
+- 新增 `openOnlineDataManualEntry()`：点击“线上数据手动获取”父菜单时进入 `online-data` 并切换到默认 `data-health`，避免用户点击一级菜单时只展开菜单、不切换内容区。
+- 同页点击线上数据父菜单也复用 `openOnlineDataManualEntry()`，与上轮菜单直达指定 Tab 的 `pendingOnlineDataEntryTab` 逻辑保持一致：父菜单回到默认健康页，子菜单直达目标 Tab。
+- 本轮不改线上数据接口、OTA 采集、持久化、字段口径、AI 分析、权限或数据库结构；只收口菜单导航状态。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求一级父菜单走 `handleParentMenuClick()`，并要求“线上数据手动获取”父菜单能切换内容区；`verify_e2e_contracts.mjs` 同步覆盖父菜单默认入口和同页回到 `data-health`。
+- 当前 split-map：`public/index.html` 为 `37,411` 行、`1,578` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,903` 行、`867` 个方法。两者仍是 P2 拆分候选，严格门禁未声明完成。
+- 当前 self-audit：完整目录约 `248.48 MB`，不含 `.git` 约 `117.26 MB`，不含 `.git` 和依赖约 `88.07 MB`，Git 跟踪文件约 `19.02 MB / 620` 个；代码范围 `375` 个文件、`199,442` 行、非空 `183,416` 行。默认可清理目标为 `runtime` 约 `24.12 MB / 757` 个文件，按当前只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`870` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`npm.cmd run self:audit`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

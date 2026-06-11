@@ -1725,6 +1725,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `247.24 MB`, without `.git` about `116.75 MB`, without `.git` and dependencies about `87.56 MB`, tracked files about `19.01 MB` / `620` files; code scope `375` files, `199420` total lines, and `183394` nonblank lines. Runtime cleanup is about `23.62 MB` / `725` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\operation-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `866` checks; `verify:p0-guards`; `self:split-map`; `self:audit`.
 
+## 2026-06-12 Progress: Online Data Parent Menu Default Entry
+
+- `public/index.html` now routes first-level parent menu clicks through `handleParentMenuClick(item)` instead of only calling `toggleSubmenu(item.name)`.
+- `openOnlineDataManualEntry()` sets `currentPage` to `online-data` and then opens the default `data-health` tab, so clicking the “线上数据手动获取” parent menu changes the content area instead of only expanding the submenu.
+- Same-page clicks on the online-data parent menu also reuse `openOnlineDataManualEntry()`, while child-menu clicks still use `pendingOnlineDataEntryTab` and `openOnlineDataTab(targetTab)` to direct-load the intended tab without default data-health first-paint work.
+- This does not change online-data APIs, OTA collection, persistence, field semantics, AI analysis, permissions, or database schema. It only fixes visible menu navigation state.
+- Guards now require `handleParentMenuClick(item)` for parent menu clicks, require the online-data parent default entry helper, and require same-page parent clicks to return to `data-health`. `verify:e2e-contracts` covers `870` checks.
+- Current split-map: `public/index.html` has `37411` lines, `1578` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26903` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `248.48 MB`, without `.git` about `117.26 MB`, without `.git` and dependencies about `88.07 MB`, tracked files about `19.02 MB` / `620` files; code scope `375` files, `199442` total lines, and `183416` nonblank lines. Runtime cleanup is about `24.12 MB` / `757` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `870` checks; `verify:p0-guards`; `self:split-map`; `self:audit`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

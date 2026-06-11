@@ -298,7 +298,7 @@
                     <template v-for="item in visibleMenuItems" :key="item.path || item.name">
                         <!-- 第一层: 有子菜单 -->
                         <div v-if="item.children" class="mb-1">
-                            <a @click="toggleSubmenu(item.name)"
+                            <a @click="handleParentMenuClick(item)"
                                 :data-testid="menuTestId(item)"
                                 class="sidebar-item flex items-center justify-between px-3 py-3 cursor-pointer mx-2 transition-all"
                                 :class="{ 'active': item.children.some(c => currentPage === c.path || (c.children && c.children.some(cc => currentPage === cc.path))), 'justify-center': sidebarCollapsed }">
@@ -24618,6 +24618,17 @@
                     expandedMenus.value.push(menuName);
                 }
             };
+            const openOnlineDataManualEntry = () => {
+                currentPage.value = 'online-data';
+                return nextTick(() => openOnlineDataTab('data-health'));
+            };
+            const handleParentMenuClick = (item) => {
+                const menuName = item?.name || getMenuItemName(item);
+                toggleSubmenu(menuName);
+                if (menuName === '线上数据手动获取') {
+                    openOnlineDataManualEntry();
+                }
+            };
 
             // 页面标题
             const findMenuItemByPath = (items, path) => {
@@ -24673,7 +24684,7 @@
                     });
                 }
                 if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {
-                    nextTick(() => openOnlineDataTab('data-health'));
+                    openOnlineDataManualEntry();
                 }
             };
 
@@ -37195,7 +37206,7 @@
                 revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass,
                 revenueResearchForecastCards, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
-                expandedMenus, toggleSubmenu,
+                expandedMenus, toggleSubmenu, handleParentMenuClick,
                 hotels, permittedHotels, hotelColumns, userColumns, users, roles, getHotelNameById, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanel, applyHotelQuickFilter, openHotelPlatformConsole, openHotelPlatformAccountAction, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, meituanConfigMissingTextByHotelId, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId,
                 filterReportHotel,

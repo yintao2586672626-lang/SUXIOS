@@ -324,8 +324,15 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must skip default data-health first-paint loading when menu navigation targets another online-data tab.');
   }
   if (!content.includes("const wasOnlineDataPage = currentPage.value === 'online-data';")
-    || !content.includes("if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    nextTick(() => openOnlineDataTab('data-health'));\n                }")) {
+    || !content.includes("const openOnlineDataManualEntry = () => {\n                currentPage.value = 'online-data';\n                return nextTick(() => openOnlineDataTab('data-health'));\n            };")
+    || !content.includes("if (item.path === 'online-data' && !item.tab && wasOnlineDataPage) {\n                    openOnlineDataManualEntry();\n                }")) {
     failures.push('public/index.html same-page online-data menu clicks must return to the default data-health tab.');
+  }
+  if (!content.includes('@click="handleParentMenuClick(item)"')
+    || !content.includes("const handleParentMenuClick = (item) => {")
+    || !content.includes("if (menuName === '线上数据手动获取') {\n                    openOnlineDataManualEntry();\n                }")
+    || !content.includes('expandedMenus, toggleSubmenu, handleParentMenuClick,')) {
+    failures.push('public/index.html parent online-data menu clicks must switch content to the default data-health tab, not only expand the submenu.');
   }
   if (!content.includes("@click=\"openOnlineDataTab('data-health')\"")
     || !content.includes("@click=\"openOnlineDataTab('data')\"")
