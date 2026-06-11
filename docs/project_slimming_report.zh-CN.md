@@ -1292,6 +1292,12 @@
 - 更新守卫：`verify_public_entry_guard.mjs` 禁止首屏同步加载 `auto-fetch-static.js`，要求保留 lazy loader/ready guard，并要求平台自动获取和数据源配置入口先加载静态工具；`verify_e2e_contracts.mjs` 同步要求自动获取静态 helper、手动采集配置预热和携程采集后刷新不阻塞，E2E 合同检查数增至 `499`。
 - 已验证：`npm.cmd run verify:public-entry`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run self:clean`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 
+## 2026-06-11 保存点：核心获取链路顺滑性
+
+- `online-data` 手动数据标签新增轻量配置预热 `ensureManualOnlineFetchConfigReady()`：只在携程/美团配置列表为空时读取已保存配置，避免手动获取页依赖完整 `platform-auto` 面板预加载；不加载自动获取状态、Profile 状态、采集资源或历史记录。
+- 携程普通手动获取 `runCtripFetchDataFlow()` 成功后，先写入结果、指标卡、表格、成功状态和最新 meta；历史记录、最新快照和数据列表刷新改为调用已有延后调度函数，不再阻塞“获取数据”按钮恢复。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求手动数据标签保留轻量配置预热；`verify_e2e_contracts.mjs` 增加运行态样例，验证携程手动获取主流程在历史/快照刷新完成前已经返回，E2E 合同检查数增至 `499`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

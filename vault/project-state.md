@@ -1319,6 +1319,12 @@ Updated: 2026-06-11 Asia/Shanghai
 - Guards updated: `verify_public_entry_guard.mjs` prevents eager `auto-fetch-static.js`, requires the lazy loader/ready guard, and requires platform auto-fetch/data-source config entry points to load the helper first. `verify_e2e_contracts.mjs` now checks the auto-fetch static lazy-load boundary, manual fetch config prewarm, and non-blocking Ctrip post-fetch refresh; E2E contract coverage increased to `499`.
 - Verified in this save point: `npm.cmd run verify:public-entry`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `npm.cmd run verify:p0-guards`; `npm.cmd run verify:e2e-contracts`; `npm.cmd run self:clean`; `npm.cmd run self:audit`; `npm.cmd run self:split-map`.
 
+## 2026-06-11 Progress: Core Fetch Interaction Responsiveness
+
+- The `online-data` manual data tab now prewarms saved Ctrip/Meituan config lists through `ensureManualOnlineFetchConfigReady()` without loading the full `platform-auto` panel. It does not load auto-fetch status, Profile status, collection resources, or history records.
+- Ctrip manual fetch success in `runCtripFetchDataFlow()` now writes the response, cards/table data, success state, and latest meta before post-fetch refreshes. History, latest-snapshot, and data-list refreshes use the existing deferred refresh callbacks and no longer block the fetch button from recovering after `/online-data/fetch-ctrip` returns.
+- Guards updated: `verify_public_entry_guard.mjs` requires the manual-fetch config prewarm, and `verify_e2e_contracts.mjs` validates that the Ctrip manual fetch flow returns before delayed history/latest refresh promises settle. E2E contract coverage increased to `499`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
