@@ -15,6 +15,21 @@ const sampleTrendChartConfig = typeof buildHomeTrendChartConfig === 'function'
     metricKey: 'revenue',
   })
   : null;
+const buildHomeDataSources = homeStaticContext.window.SUXI_HOME_STATIC?.buildHomeDataSources;
+const sampleHomeDataSources = typeof buildHomeDataSources === 'function'
+  ? buildHomeDataSources({
+    sampleDays: 7,
+    trendReady: true,
+    trendUpdatedAt: '2026-06-10',
+    channelSignal: { status: 'ok', updated_at: '2026-06-09' },
+    priceSignal: { status: 'pending', updated_at: '2026-06-08' },
+    weatherSignal: { status: 'ok', updated_at: '2026-06-07' },
+    weatherCount: 2,
+    nearestHoliday: { name: 'Dragon Boat' },
+    holidayUpdatedAt: '2026-06-06',
+    compassLastSyncedAt: '2026-06-05',
+  })
+  : [];
 
 const checks = [
   {
@@ -37,11 +52,31 @@ const checks = [
     pass: publicSource.includes('const homeDecisionSummaryRows = computed')
       && publicSource.includes("requireHomeStatic('buildHomeDecisionSummaryRows')")
       && publicSource.includes("requireHomeStatic('buildHomeBoardActionRows')")
+      && publicSource.includes("requireHomeStatic('buildHomeDataSources')")
       && publicSource.includes("requireHomeStatic('buildCompassDataReadiness')")
+      && publicSource.includes('buildHomeDataSources({')
       && publicSource.includes('buildHomeDecisionSummaryRows({')
       && publicSource.includes('trendReady: homeTrendHasSamples.value')
       && publicSource.includes('const competitorReadiness = homeCompetitorReadiness.value || {}')
       && publicSource.includes('const action = homeBoardActionRows.value[0] || {}'),
+  },
+  {
+    name: 'home data-source readiness cards live in explicit static helper',
+    pass: publicSource.includes("requireHomeStatic('buildHomeDataSources')")
+      && publicSource.includes('const homeDataSources = computed(() => {')
+      && publicSource.includes('return buildHomeDataSources({')
+      && homeStaticSource.includes('buildHomeDataSources')
+      && homeStaticSource.includes('isHomeSignalReady')
+      && !publicSource.includes("name: '经营趋势样本'")
+      && !publicSource.includes("name: 'OTA 渠道数据'")
+      && Array.isArray(sampleHomeDataSources)
+      && sampleHomeDataSources.length === 5
+      && sampleHomeDataSources[0]?.ready === true
+      && sampleHomeDataSources[0]?.updatedAt === '2026-06-10'
+      && sampleHomeDataSources[1]?.ready === true
+      && sampleHomeDataSources[2]?.ready === false
+      && sampleHomeDataSources[3]?.updatedAt === '2026-06-07'
+      && sampleHomeDataSources[4]?.updatedAt === '2026-06-06',
   },
   {
     name: 'decision strip covers data readiness, trend samples, competitor trust and next action',
@@ -76,6 +111,7 @@ const checks = [
       && publicSource.includes("requireHomeStatic('buildHomeOperatingResultCards')")
       && publicSource.includes("requireHomeStatic('buildHomeCausalChainNodes')")
       && publicSource.includes("requireHomeStatic('buildHomeBoardActionRows')")
+      && publicSource.includes("requireHomeStatic('buildHomeDataSources')")
       && publicSource.includes("requireHomeStatic('buildCompassDataReadiness')")
       && publicSource.includes("requireHomeStatic('buildHomeDecisionSummaryRows')")
       && homeStaticSource.includes('window.SUXI_HOME_STATIC')
@@ -85,6 +121,7 @@ const checks = [
       && homeStaticSource.includes('运营执行')
       && homeStaticSource.includes('投资决策')
       && homeStaticSource.includes('buildHomeBoardActionRows')
+      && homeStaticSource.includes('buildHomeDataSources')
       && homeStaticSource.includes('buildCompassDataReadiness')
       && homeStaticSource.includes('buildHomeDecisionSummaryRows')
       && homeStaticSource.includes('不把模型输出当作事实')

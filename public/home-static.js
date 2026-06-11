@@ -353,6 +353,74 @@ window.SUXI_HOME_STATIC = (() => {
         ];
     };
 
+    const isHomeSignalReady = (signal) => !!signal && !['pending', 'unknown'].includes(String(signal.status || 'pending'));
+
+    const buildHomeDataSources = ({
+        sampleDays = 0,
+        trendReady = false,
+        trendUpdatedAt = '',
+        channelSignal = null,
+        priceSignal = null,
+        weatherSignal = null,
+        weatherCount = 0,
+        nearestHoliday = null,
+        holidayUpdatedAt = '',
+        compassLastSyncedAt = '',
+    } = {}) => {
+        const normalizedSampleDays = Number(sampleDays || 0);
+        const channelReady = isHomeSignalReady(channelSignal);
+        const priceReady = isHomeSignalReady(priceSignal);
+        const weatherReady = Number(weatherCount || 0) > 0;
+        const holidayReady = !!nearestHoliday;
+        return [
+            {
+                name: '经营趋势样本',
+                status: trendReady ? `可用 ${normalizedSampleDays}天` : '样本不足',
+                updatedAt: trendUpdatedAt || '--',
+                impact: '会影响收益、入住、ADR、RevPAR 等趋势判断',
+                role: 'core',
+                ready: !!trendReady,
+                className: trendReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200',
+            },
+            {
+                name: 'OTA 渠道数据',
+                status: channelReady ? '已同步' : '未同步',
+                updatedAt: channelSignal?.updated_at || '--',
+                impact: '会影响曝光、访客、转化和订单质量判断',
+                role: 'core',
+                ready: channelReady,
+                className: channelReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200',
+            },
+            {
+                name: '竞对价格',
+                status: priceReady ? '已同步' : '未同步',
+                updatedAt: priceSignal?.updated_at || '--',
+                impact: '会影响价格竞争、价差和调价建议判断',
+                role: 'core',
+                ready: priceReady,
+                className: priceReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200',
+            },
+            {
+                name: '天气/日期因子',
+                status: weatherReady ? '已获取' : '未获取',
+                updatedAt: weatherSignal?.updated_at || '--',
+                impact: '作为辅助信号，用于修正需求变化、取消率与节假日策略判断',
+                role: 'support',
+                ready: weatherReady,
+                className: weatherReady ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200',
+            },
+            {
+                name: '节假期窗口',
+                status: holidayReady ? '已生成' : '未生成',
+                updatedAt: holidayUpdatedAt || compassLastSyncedAt || '--',
+                impact: '作为辅助信号，用于修正预售节奏、库存控制和连住策略',
+                role: 'support',
+                ready: holidayReady,
+                className: holidayReady ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200',
+            },
+        ];
+    };
+
     const buildCompassDataReadiness = (sources = []) => {
         const safeSources = Array.isArray(sources) ? sources : [];
         const coreSources = safeSources.filter(source => source?.role === 'core');
@@ -445,6 +513,7 @@ window.SUXI_HOME_STATIC = (() => {
         buildHomeCausalChainNodes,
         buildHomeTrendChartConfig,
         buildHomeBoardActionRows,
+        buildHomeDataSources,
         buildCompassDataReadiness,
         buildHomeDecisionSummaryRows,
     };

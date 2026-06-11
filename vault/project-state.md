@@ -1433,6 +1433,17 @@ Updated: 2026-06-11 Asia/Shanghai
 - Current self-audit: full directory about `202.32 MB`, without `.git` about `94.47 MB`, without `.git` and dependencies about `65.28 MB`, tracked files about `18.76 MB` / `618` files; code scope `373` files, `197195` total lines, and `181224` nonblank lines. Runtime cleanup is about `1.59 MB` / `100` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: Node syntax checks for `public/ctrip-static.js`, `public/meituan-static.js`, `scripts/verify_e2e_contracts.mjs`, and `scripts/verify_public_entry_guard.mjs`; PHP lint for `app/controller/OnlineData.php`; `tests/OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip|Meituan|meituan"` passed with `118` tests and `1445` assertions; `verify:public-entry`; `verify:e2e-contracts` with `584` checks; `verify:p0-guards`; `self:audit`; `self:split-map`.
 
+## 2026-06-11 Progress: Home Data-Source Card Split and Platform Sources Deduping
+
+- `public/home-static.js` now owns `buildHomeDataSources()` and `isHomeSignalReady()` for the home data-source readiness rows: trend samples, OTA channel data, competitor prices, weather/date factors, and holiday window.
+- `public/index.html` keeps `homeDataSources` as a thin computed adapter that injects current Vue refs and values into the static helper. It no longer inlines row status, role, impact, or CSS class mapping.
+- `public/index.html` also routes `platform-sources` opens through `openPlatformSourcesTab()` and `schedulePlatformDataSourcePanelLoad()`, avoiding duplicate heavy data-source panel loads from buttons, tab switches, and quick-entry paths.
+- This does not change home metric definitions, OTA collection, persistence, AI analysis, platform account binding APIs, data-source status APIs, or OTA channel scope. Missing, unready, and unsynced states remain explicit.
+- Guards now require `requireHomeStatic('buildHomeDataSources')`, reject re-inlining the trend and OTA data-source rows into `public/index.html`, and require platform source tab opens to use the deduplicated page-load scheduler. `verify:home-visual-hierarchy` covers `13` checks and `verify:e2e-contracts` covers `590` checks.
+- Current split-map: `public/index.html` has `37254` lines, `1549` frontend function-level blocks, and `44` `currentPage` refs; the general domain span is `7374` lines. `app/controller/OnlineData.php` has `26931` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `204.86 MB`, without `.git` about `96.03 MB`, without `.git` and dependencies about `66.84 MB`, tracked files about `18.77 MB` / `618` files; code scope `373` files, `197282` total lines, and `181309` nonblank lines. Runtime cleanup is about `3.15 MB` / `157` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check public\home-static.js`; `node --check scripts\verify_home_visual_hierarchy_contract.mjs`; `verify:home-visual-hierarchy` with `13` checks; `verify:public-entry`; `verify:e2e-contracts` with `590` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

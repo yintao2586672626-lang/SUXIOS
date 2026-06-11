@@ -1402,6 +1402,17 @@
 - 当前自审计：完整目录约 `202.32 MB`；不含 `.git` 约 `94.47 MB`；不含 `.git` 和依赖约 `65.28 MB`；Git 跟踪文件约 `18.76 MB` / `618` 个；代码范围 `373` 个文件、`197,195` 行、非空 `181,224` 行；默认可清理目标为 `runtime` 约 `1.59 MB` / `100` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\ctrip-static.js`、`node --check public\meituan-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "Traffic|traffic|AutoFetch|autoFetch|Ctrip|Meituan|meituan"`（`118` tests / `1445` assertions）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`584` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 
+## 2026-06-11 保存点：首页数据源卡片抽离与平台来源入口去重
+
+- `public/home-static.js` 新增 `buildHomeDataSources()` 与 `isHomeSignalReady()`，统一承载首页数据源就绪卡片的五项展示行构造：经营趋势样本、OTA 渠道数据、竞对价格、天气/日期因子、节假期窗口。
+- `public/index.html` 的 `homeDataSources` 只保留 Vue computed 入口和当前 ref/value 注入，不再内联数据源卡片状态、角色、影响说明和样式类名映射。
+- `public/index.html` 同时将 `platform-sources` 入口收束到 `openPlatformSourcesTab()` 与 `schedulePlatformDataSourcePanelLoad()`，避免按钮、路由切换和快捷入口重复触发重型数据源面板加载。
+- 本保存点不改变首页指标口径、OTA 采集、入库、AI 分析、平台账号绑定接口、数据源状态接口或 OTA 渠道范围；缺失、未就绪和未同步状态仍按原展示显式暴露。
+- 更新守卫：`verify_home_visual_hierarchy_contract.mjs` 要求入口显式读取 `buildHomeDataSources()`，禁止把经营趋势样本和 OTA 渠道数据行重新内联回 `public/index.html`；`verify_public_entry_guard.mjs` 与 `verify_e2e_contracts.mjs` 要求平台来源入口走去重调度器，禁止重新内联 `loadPlatformDataSourcePanel()` 双触发。首页视觉层级检查数为 `13`，E2E 合同检查数为 `590`。
+- 当前 split-map：`public/index.html` 为 `37,254` 行、`1,549` 个前端函数级块、`44` 个 `currentPage` 引用，general 域 span 为 `7,374` 行；`app/controller/OnlineData.php` 为 `26,931` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `204.86 MB`；不含 `.git` 约 `96.03 MB`；不含 `.git` 和依赖约 `66.84 MB`；Git 跟踪文件约 `18.77 MB` / `618` 个；代码范围 `373` 个文件、`197,282` 行、非空 `181,309` 行；默认可清理目标为 `runtime` 约 `3.15 MB` / `157` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check public\home-static.js`、`node --check scripts\verify_home_visual_hierarchy_contract.mjs`、`npm.cmd run verify:home-visual-hierarchy`（`13` checks）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`590` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

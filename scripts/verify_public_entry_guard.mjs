@@ -240,6 +240,14 @@ if (!fs.existsSync(indexPath)) {
   if (!/deferUiTask\(\(\)\s*=>\s*Promise\.allSettled\(\[\s*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\),\s*loadAutoFetchPanel\(\{\s*force:\s*true\s*\}\),\s*\]\)\)/.test(content)) {
     failures.push('public/index.html must defer profile unbind follow-up refreshes instead of serially awaiting platform-auto reload.');
   }
+  if (!/const\s+schedulePlatformDataSourcePanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-source-panel['"],\s*\(\)\s*=>\s*loadPlatformDataSourcePanel\(options\)/.test(content)
+    || !/const\s+openPlatformSourcesTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
+    failures.push('public/index.html must route platform source tab opens through one deduplicated page-load scheduler.');
+  }
+  if (content.includes("onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()")
+    || content.includes('onlineDataTab = "platform-sources"; loadPlatformDataSourcePanel()')) {
+    failures.push('public/index.html must not double-trigger the heavy platform source panel from inline tab switches.');
+  }
   if (/onlineDataTab\s*=\s*['"]platform-sources['"][^@]*loadPlatformDataSourcePanel\(\);\s*loadPlatformProfileStatus/.test(content)) {
     failures.push('public/index.html must not duplicate platform profile status loading when opening platform-sources.');
   }

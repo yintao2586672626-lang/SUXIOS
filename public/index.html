@@ -12507,7 +12507,7 @@
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-auto' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         平台自动获取
                                     </button>
-                                    <button @click="onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()"
+                                    <button @click="openPlatformSourcesTab()"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-sources' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         平台账号绑定
                                     </button>
@@ -14765,7 +14765,7 @@
                                                                     <div class="truncate" :title="row.missing_reason || '-'">{{ row.missing_reason || '-' }}</div>
                                                                 </td>
                                                                 <td class="px-4 py-3 text-right whitespace-nowrap">
-                                                                    <button type="button" @click="onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()" class="px-2 py-1 text-blue-600 hover:text-blue-700">配置</button>
+                                                                    <button type="button" @click="openPlatformSourcesTab()" class="px-2 py-1 text-blue-600 hover:text-blue-700">配置</button>
                                                                     <button type="button" @click="loadPlatformSyncTasks(); loadPlatformSyncLogs()" class="px-2 py-1 text-gray-600 hover:text-gray-800">日志</button>
                                                                 </td>
                                                             </tr>
@@ -20746,6 +20746,7 @@
             const buildHomeCausalChainNodes = requireHomeStatic('buildHomeCausalChainNodes');
             const buildHomeTrendChartConfig = requireHomeStatic('buildHomeTrendChartConfig');
             const buildHomeBoardActionRows = requireHomeStatic('buildHomeBoardActionRows');
+            const buildHomeDataSources = requireHomeStatic('buildHomeDataSources');
             const buildCompassDataReadiness = requireHomeStatic('buildCompassDataReadiness');
             const buildHomeDecisionSummaryRows = requireHomeStatic('buildHomeDecisionSummaryRows');
             const defaultHomeQuickEntryOrder = requireCompassStatic('defaultHomeQuickEntryOrder');
@@ -21063,59 +21064,18 @@
             const isSignalReady = (signal) => !!signal && !['pending', 'unknown'].includes(String(signal.status || 'pending'));
             const findMacroSignal = (key) => macroSignalCards.value.find(signal => signal.key === key) || null;
             const homeDataSources = computed(() => {
-                const sampleDays = Number(homeTrendData.value?.sample_days || 0);
-                const trendReady = homeTrendHasSamples.value;
-                const channelReady = isSignalReady(findMacroSignal('channel'));
-                const priceReady = isSignalReady(findMacroSignal('price'));
-                const weatherReady = displayWeather.value.length > 0;
-                const holidayReady = !!holidayOperationCountdown.value.nearest;
-                return [
-                    {
-                        name: '经营趋势样本',
-                        status: trendReady ? `可用 ${sampleDays}天` : '样本不足',
-                        updatedAt: homeTrendData.value?.updated_at || '--',
-                        impact: '会影响收益、入住、ADR、RevPAR 等趋势判断',
-                        role: 'core',
-                        ready: trendReady,
-                        className: trendReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                    },
-                    {
-                        name: 'OTA 渠道数据',
-                        status: channelReady ? '已同步' : '未同步',
-                        updatedAt: findMacroSignal('channel')?.updated_at || '--',
-                        impact: '会影响曝光、访客、转化和订单质量判断',
-                        role: 'core',
-                        ready: channelReady,
-                        className: channelReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                    },
-                    {
-                        name: '竞对价格',
-                        status: priceReady ? '已同步' : '未同步',
-                        updatedAt: findMacroSignal('price')?.updated_at || '--',
-                        impact: '会影响价格竞争、价差和调价建议判断',
-                        role: 'core',
-                        ready: priceReady,
-                        className: priceReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                    },
-                    {
-                        name: '天气/日期因子',
-                        status: weatherReady ? '已获取' : '未获取',
-                        updatedAt: findMacroSignal('weather')?.updated_at || '--',
-                        impact: '作为辅助信号，用于修正需求变化、取消率与节假日策略判断',
-                        role: 'support',
-                        ready: weatherReady,
-                        className: weatherReady ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                    },
-                    {
-                        name: '节假期窗口',
-                        status: holidayReady ? '已生成' : '未生成',
-                        updatedAt: holidayRevenue.value?.updated_at || compassLastSyncedAt.value,
-                        impact: '作为辅助信号，用于修正预售节奏、库存控制和连住策略',
-                        role: 'support',
-                        ready: holidayReady,
-                        className: holidayReady ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                    }
-                ];
+                return buildHomeDataSources({
+                    sampleDays: Number(homeTrendData.value?.sample_days || 0),
+                    trendReady: homeTrendHasSamples.value,
+                    trendUpdatedAt: homeTrendData.value?.updated_at || '',
+                    channelSignal: findMacroSignal('channel'),
+                    priceSignal: findMacroSignal('price'),
+                    weatherSignal: findMacroSignal('weather'),
+                    weatherCount: displayWeather.value.length,
+                    nearestHoliday: holidayOperationCountdown.value.nearest,
+                    holidayUpdatedAt: holidayRevenue.value?.updated_at || '',
+                    compassLastSyncedAt: compassLastSyncedAt.value,
+                });
             });
             const homeMarketForecastItems = computed(() => {
                 const findTrendCard = (key) => homeTrendCards.value.find(card => card.key === key) || null;
@@ -24048,6 +24008,16 @@
                 pageLoadRequests.set(key, { loadedAt: current?.loadedAt || 0, promise });
                 return promise;
             };
+            const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(
+                currentPage.value || 'online-data',
+                'platform-source-panel',
+                () => loadPlatformDataSourcePanel(options),
+                options.force ? { force: true } : {}
+            );
+            const openPlatformSourcesTab = (options = {}) => {
+                onlineDataTab.value = 'platform-sources';
+                return schedulePlatformDataSourcePanelLoad(options);
+            };
 
             const setOnlineDataTabFromPage = (tab) => {
                 if (onlineDataTab.value === tab) return false;
@@ -24260,7 +24230,7 @@
                     refreshOnlineAnalysis();
                 }
                 if (newTab === 'platform-sources') {
-                    loadPlatformDataSourcePanel();
+                    schedulePlatformDataSourcePanelLoad();
                 }
                 if (newTab === 'platform-auto') {
                     runPageLoadOnce(currentPage.value || 'online-data', 'platform-auto-panel', () => loadAutoFetchPanel());
@@ -24485,7 +24455,7 @@
                             refreshOnlineAnalysis();
                         }
                         if (item.path === 'online-data' && item.tab === 'platform-sources') {
-                            loadPlatformDataSourcePanel();
+                            openPlatformSourcesTab();
                         }
                     });
                 }
@@ -37152,7 +37122,7 @@
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileStrategyText, platformProfilePrimaryActionText, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileStrategyText, platformProfilePrimaryActionText, platformImportForm, platformDataSourceHotelOptions, loadPlatformDataSourcePanel, openPlatformSourcesTab, loadPlatformCollectionResources, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCaptureCommand, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
