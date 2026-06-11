@@ -151,7 +151,10 @@ requireText('public/index.html', "requireMeituanStatic('runMeituanBrowserCapture
 requireText('public/index.html', "requireMeituanStatic('runMeituanCapturedPayloadSaveFlow')", 'entry uses extracted Meituan captured payload save flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanManualTabSwitch')", 'entry uses extracted Meituan manual tab switch helper');
 requireText('app/service/MeituanRankDataExtractionService.php', 'final class MeituanRankDataExtractionService', 'Meituan rank response extraction lives in a focused service');
-requireText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence rank rows use extracted service');
+requireText('app/service/MeituanOnlineDataPersistenceService.php', 'final class MeituanOnlineDataPersistenceService', 'Meituan persistence lives in a focused service');
+requireText('app/service/MeituanOnlineDataPersistenceService.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence rank rows use extracted service');
+requireText('app/controller/OnlineData.php', 'return (new MeituanOnlineDataPersistenceService())->parseAndSaveMeituanData(', 'OnlineData keeps only a compatibility wrapper for Meituan persistence');
+requireNoText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData)', 'Meituan persistence is not re-inlined in OnlineData');
 requireText('app/controller/OnlineData.php', 'MeituanRankDataExtractionService::extractForDisplay($responseData)', 'Meituan display rank rows use extracted service');
 requireNoText('app/controller/OnlineData.php', "isset($responseData['data']['peerRankData']) && is_array($responseData['data']['peerRankData'])", 'OnlineData no longer inlines Meituan peerRankData extraction');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
@@ -180,8 +183,8 @@ requireText('public/index.html', 'const AUTO_FETCH_PANEL_CACHE_TTL_MS', 'entry d
 requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads platform auto-fetch panel only on tab entry');
 requireNoText('public/index.html', 'await loadAutoFetchPanel()', 'platform-auto navigation and profile follow-up refreshes do not block on the full panel reload');
 requireText('public/index.html', 'openPlatformAutoTab({ force: true, delayMs: 0 });', 'platform-auto navigation schedules full panel refresh through the shared tab scheduler');
-requireText('public/index.html', 'deferUiTask(() => Promise.allSettled([\n                            loadPlatformProfileStatus({ silent: true }),\n                            loadAutoFetchPanel({ force: true }),', 'profile unbind refreshes platform profile and auto-fetch state in deferred work');
-requireText('public/index.html', "const isVisibleOnlineDataTab = (tab) => currentPage.value === 'online-data' && onlineDataTab.value === tab;", 'online-data deferred loaders only start when the requested tab is still visible');
+requireText('public/index.html', 'deferUiTask(() => {\n                            schedulePlatformProfileStatusRefresh({ silent: true });\n                            schedulePlatformAutoFetchPanelLoad({ force: true });', 'profile unbind refreshes platform profile and auto-fetch state through guarded schedulers');
+requireText('public/index.html', 'const isVisibleOnlineDataTab = isOnlineDataTabVisible;', 'online-data deferred loaders only start when the requested tab is still visible');
 requireText('public/index.html', "const schedulePlatformAutoFetchPanelLoad = (options = {}) => runPageLoadOnce(", 'platform auto-fetch panel opens through the shared page-load scheduler');
 requireText('public/index.html', "if (!isVisibleOnlineDataTab('platform-auto')) return null;", 'platform auto-fetch panel load is skipped after the user leaves the visible tab');
 requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>', 'platform auto tab opens through one deduplicated entrypoint');
@@ -233,7 +236,11 @@ requireText('public/index.html', 'const buildMeituanAutoFetchPlatformCard = (sta
 requireText('public/index.html', 'const ctripConfigListLoaded = ref(false);', 'Ctrip config-list loader tracks loaded state for platform-auto display');
 requireText('public/index.html', 'const meituanConfigListLoaded = ref(false);', 'Meituan config-list loader tracks loaded state for platform-auto display');
 requireText('public/index.html', "params.append('include_detail', '0');", 'platform auto-fetch status can request light backend status');
-requireText('public/index.html', "const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);", 'post-fetch status refresh uses light auto-fetch status');
+requireText('public/index.html', "const shouldRefreshAutoFetchStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isDataHealthPanelVisible();", 'post-fetch auto-fetch status refresh is scoped to visible panels');
+requireText('public/index.html', "const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => {", 'post-fetch status refresh uses light auto-fetch status');
+requireText('public/index.html', 'if (!shouldRefreshAutoFetchStatusPanel()) return null;', 'post-fetch status refresh skips when the target panel is no longer visible');
+requireText('public/index.html', 'return loadAutoFetchStatus({ detail: false });', 'post-fetch status refresh keeps the light auto-fetch status request');
+requireText('public/index.html', 'if (!isOnlineDataTabVisible(\'platform-auto\')) return null;', 'post-fetch full auto-fetch status refresh skips after leaving platform-auto');
 requireText('public/index.html', 'const scheduleAutoFetchStatusPanelRefresh = () => {', 'platform auto-fetch operation refreshes use a light status refresh plus deferred detail refresh');
 requireText('public/index.html', 'scheduleAutoFetchStatusRefresh();\n                scheduleAutoFetchStatusDetailRefresh();', 'platform auto-fetch panel refresh helper keeps detail refresh deferred');
 requireText('public/index.html', 'scheduleAutoFetchStatusPanelRefresh();', 'platform auto-fetch settings and history actions schedule status refreshes instead of loading full status inline');
@@ -244,6 +251,9 @@ requireText('public/index.html', "const requestKey = `${String(hotelId || '')}|$
 requireText('public/index.html', '@change="schedulePlatformAutoFetchPanelLoad({ force: true })"', 'platform auto-fetch hotel switches use the shared non-blocking panel scheduler');
 requireNoText('public/index.html', '@change="loadAutoFetchStatus"', 'platform auto-fetch hotel switches must not directly trigger full status loading');
 requireText('public/index.html', "loadAutoFetchStatus({ detail: normalizedMode === 'full' })", 'data-health light refresh uses light auto-fetch status');
+requireText('public/index.html', "loadCollectionReliability('full')", 'data-health collection-reliability diagnostics run only in full mode');
+requireNoText('public/index.html', 'loadCollectionReliability(normalizedMode)', 'data-health light first paint must not run collection-reliability');
+requireText('public/index.html', 'const platformProfileStatusRequestPromises = new Map();', 'platform profile status requests are deduplicated by hotel');
 requireText('public/index.html', 'ctrip_auto_fetch_mode: autoFetchMode.value', 'platform auto-fetch keeps Ctrip on the selected fast mode by default');
 requireText('app/controller/OnlineData.php', "?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireText('app/controller/OnlineData.php', "get('include_detail'", 'backend auto-fetch status supports light detail requests');
@@ -372,7 +382,8 @@ requireNoText('public/index.html', '<template v-else>\n                         
 requireNoText('public/index.html', '<div v-if="hotelDashboardLoading || collectionReliabilityLoading" class="rounded-xl border border-gray-200 bg-white p-5">', 'data-health loading must not block the whole cockpit body');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
-requireText('public/index.html', "if (!['online-data', 'ctrip-ebooking'].includes(currentPage.value) || onlineDataTab.value !== 'data-health') return null;", 'post-fetch data-health refresh does not run after the visible data-health tab is left');
+requireText('public/index.html', "const isDataHealthPanelVisible = () => ['online-data', 'ctrip-ebooking'].includes(currentPage.value) && onlineDataTab.value === 'data-health';", 'entry defines the visible data-health scope');
+requireText('public/index.html', 'if (!isDataHealthPanelVisible()) return null;', 'post-fetch data-health refresh does not run after the visible data-health tab is left');
 requireNoText('public/index.html', "const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);", 'post-fetch data-health refresh must include a page and tab guard');
 requireText('public/index.html', 'const schedulePlatformProfileStatusRefresh', 'entry defers platform profile refresh after manual collection');
 requireText('public/index.html', 'const schedulePlatformDataSourcesRefresh', 'entry defers platform data-source refresh after manual collection');

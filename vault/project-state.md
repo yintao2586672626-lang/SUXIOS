@@ -1786,6 +1786,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Guards now require the bounded key read method, request-local cache, column-scoped `getValue()` query, and missing-row vs null-value cache shape.
 - Verified in this save point: PHP syntax check for `app/model/SystemConfig.php`; `verify:e2e-contracts` with `904` checks; `verify:p0-guards`; `tests\AuthRegistrationTest.php` plus `tests\DatabaseBuildScriptTest.php` with `4` tests and `98` assertions; `git diff --check`.
 
+## 2026-06-12 Progress: Meituan Persistence Split and Visible Refresh Guards
+
+- Added `app/service/MeituanOnlineDataPersistenceService.php` for Meituan business-rank persistence into `online_daily_data`, including rank row extraction, metric status calculation, platform tag handling, period scoping, and validation-field application.
+- `app/controller/OnlineData.php` keeps `parseAndSaveMeituanData()` as a compatibility wrapper and delegates persistence to the new service. Routes, request/response payloads, OTA collection, permissions, and database schema are unchanged.
+- `public/index.html` now guards post-fetch refresh schedulers by visible page/tab scope: auto-fetch light status, auto-fetch detail status, data-health panel refresh, platform profile status, and platform data-source refresh return `null` when their target panel is no longer visible.
+- Profile unbind follow-up now schedules guarded platform-profile and platform-auto refreshes instead of directly reloading the full panel. Data-health light first paint keeps collection reliability out of the light path and runs reliability only in full diagnostics.
+- Guards now require the focused Meituan persistence service, the thin controller wrapper, guarded post-fetch status refreshes, guarded data-health refreshes, and guarded profile/data-source refresh callbacks. `verify:e2e-contracts` covers `915` checks.
+- Current split-map: `public/index.html` has `37485` lines, `1585` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26376` lines and `865` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `257.45 MB`, without `.git` about `121.53 MB`, without `.git` and dependencies about `92.34 MB`, tracked files about `19.05 MB` / `621` files; code scope `376` files, `199604` total lines, and `183579` nonblank lines. Runtime/output cleanup is about `28.35 MB` and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: PHP syntax checks for `app/controller/OnlineData.php` and `app/service/MeituanOnlineDataPersistenceService.php`; `tests\OnlineDataTest.php --filter Meituan` with `21` tests and `198` assertions; `verify:public-entry`; `verify:e2e-contracts` with `915` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

@@ -359,7 +359,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html data-health drilldown must use openOnlineDataTab so tab switches do not double-trigger heavy loaders.');
   }
   if (!onlineDataTabWatchSource.includes('scheduleOnlineDataTabLoad(newTab)')
-    || !content.includes("const isVisibleOnlineDataTab = (tab) => currentPage.value === 'online-data' && onlineDataTab.value === tab;")
+    || !content.includes("const isVisibleOnlineDataTab = isOnlineDataTabVisible;")
     || !onlineDataTabSchedulerSource.includes('if (!isVisibleOnlineDataTab(newTab)) return null;')
     || !onlineDataTabSchedulerSource.includes('if (!isVisibleOnlineDataTab(newTab)) return;')
     || !onlineDataTabWatchSource.includes("if (currentPage.value !== 'online-data') {")
@@ -593,8 +593,8 @@ if (!fs.existsSync(indexPath)) {
     || openHotelPlatformConsoleSource.includes("runPageLoadOnce('online-data', 'platform-auto-panel'")) {
     failures.push('public/index.html must schedule platform-auto panel refreshes from notification and hotel console navigation without awaiting them.');
   }
-  if (!/deferUiTask\(\(\)\s*=>\s*Promise\.allSettled\(\[\s*loadPlatformProfileStatus\(\{\s*silent:\s*true\s*\}\),\s*loadAutoFetchPanel\(\{\s*force:\s*true\s*\}\),\s*\]\)\)/.test(content)) {
-    failures.push('public/index.html must defer profile unbind follow-up refreshes instead of serially awaiting platform-auto reload.');
+  if (!content.includes('deferUiTask(() => {\n                            schedulePlatformProfileStatusRefresh({ silent: true });\n                            schedulePlatformAutoFetchPanelLoad({ force: true });\n                        });')) {
+    failures.push('public/index.html must defer profile unbind follow-up refreshes through visible-tab schedulers instead of serially awaiting platform-auto reload.');
   }
   if (!/const\s+schedulePlatformDataSourcePanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-source-panel['"],\s*\(\)\s*=>\s*\{[\s\S]*if\s*\(!isVisibleOnlineDataTab\(['"]platform-sources['"]\)\)\s*return\s+null;[\s\S]*return\s+loadPlatformDataSourcePanel\(options\);[\s\S]*\}/.test(content)
     || !/const\s+openPlatformSourcesTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
@@ -738,8 +738,12 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('autoFetchStatusRequestPromises.delete(requestKey);')) {
     failures.push('public/index.html must deduplicate concurrent auto-fetch status requests by hotel and detail level.');
   }
-  if (!content.includes("const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);")) {
-    failures.push('public/index.html must use light auto-fetch status for post-fetch status refreshes.');
+  if (!content.includes("const shouldRefreshAutoFetchStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isDataHealthPanelVisible();")
+    || !content.includes("const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => {")
+    || !content.includes('if (!shouldRefreshAutoFetchStatusPanel()) return null;')
+    || !content.includes('return loadAutoFetchStatus({ detail: false });')
+    || !content.includes("if (!isOnlineDataTabVisible('platform-auto')) return null;")) {
+    failures.push('public/index.html must use guarded light auto-fetch status for post-fetch status refreshes.');
   }
   if (!content.includes('const scheduleAutoFetchStatusPanelRefresh = () => {')
     || !content.includes('scheduleAutoFetchStatusRefresh();\n                scheduleAutoFetchStatusDetailRefresh();')
@@ -758,7 +762,8 @@ if (!fs.existsSync(indexPath)) {
   );
   if (!dataHealthPanelSource.includes('const buildDataHealthPanelJobs = (normalizedMode) => {')
     || !dataHealthPanelSource.includes("loadAutoFetchStatus({ detail: normalizedMode === 'full' })")
-    || !dataHealthPanelSource.includes('loadCollectionReliability(normalizedMode)')
+    || !dataHealthPanelSource.includes("if (normalizedMode === 'full') {")
+    || !dataHealthPanelSource.includes("loadCollectionReliability('full')")
     || !dataHealthPanelSource.includes('loadDataHealthOperationLogs()')
     || !dataHealthPanelSource.includes('loadPublicEndpointSecurity()')
     || !dataHealthPanelSource.includes('loadHotelDataDashboard()')
@@ -777,6 +782,9 @@ if (!fs.existsSync(indexPath)) {
   }
   if (dataHealthPanelSource.includes('loadCookieStatus()')) {
     failures.push('public/index.html data-health panel must not duplicate collection-reliability authorization work by also calling cookie-status.');
+  }
+  if (dataHealthPanelSource.includes('loadCollectionReliability(normalizedMode)')) {
+    failures.push('public/index.html data-health light first paint must not run collection-reliability; keep reliability diagnostics in full mode.');
   }
   if (!content.includes('data-testid="data-health-loading-banner"')
     || content.includes('<template v-else>\n                                        <div data-testid="data-health-command-center"')
@@ -838,8 +846,9 @@ if (!fs.existsSync(indexPath)) {
       failures.push(`public/index.html must keep ${requiredScheduler} for deferred post-fetch refresh work.`);
     }
   }
-  if (!content.includes("const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => {")
-    || !content.includes("if (!['online-data', 'ctrip-ebooking'].includes(currentPage.value) || onlineDataTab.value !== 'data-health') return null;")
+  if (!content.includes("const isDataHealthPanelVisible = () => ['online-data', 'ctrip-ebooking'].includes(currentPage.value) && onlineDataTab.value === 'data-health';")
+    || !content.includes("const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => {")
+    || !content.includes('if (!isDataHealthPanelVisible()) return null;')
     || content.includes("const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);")) {
     failures.push('public/index.html post-fetch data-health refreshes must not run after the user leaves the visible data-health tab.');
   }

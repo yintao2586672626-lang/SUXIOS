@@ -23140,11 +23140,22 @@
                     console.error('刷新数据失败:', error);
                 }
             };
+            const isOnlineDataTabVisible = (tab) => currentPage.value === 'online-data' && onlineDataTab.value === tab;
+            const isDataHealthPanelVisible = () => ['online-data', 'ctrip-ebooking'].includes(currentPage.value) && onlineDataTab.value === 'data-health';
+            const shouldRefreshAutoFetchStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isDataHealthPanelVisible();
+            const shouldRefreshPlatformProfileStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isOnlineDataTabVisible('platform-sources');
+            const shouldRefreshPlatformDataSourcesPanel = () => isOnlineDataTabVisible('platform-sources');
             const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh('online-data-list', () => refreshOnlineData(), 260);
             const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory({ refreshHotels: false }), 340);
             const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
-            const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => loadAutoFetchStatus({ detail: false }), 180);
-            const scheduleAutoFetchStatusDetailRefresh = () => schedulePostFetchRefresh('auto-fetch-status-detail', () => loadAutoFetchStatus({ detail: true }), 520);
+            const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => {
+                if (!shouldRefreshAutoFetchStatusPanel()) return null;
+                return loadAutoFetchStatus({ detail: false });
+            }, 180);
+            const scheduleAutoFetchStatusDetailRefresh = () => schedulePostFetchRefresh('auto-fetch-status-detail', () => {
+                if (!isOnlineDataTabVisible('platform-auto')) return null;
+                return loadAutoFetchStatus({ detail: true });
+            }, 520);
             const scheduleAutoFetchStatusPanelRefresh = () => {
                 scheduleAutoFetchStatusRefresh();
                 scheduleAutoFetchStatusDetailRefresh();
@@ -23152,11 +23163,17 @@
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
             const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
             const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => {
-                if (!['online-data', 'ctrip-ebooking'].includes(currentPage.value) || onlineDataTab.value !== 'data-health') return null;
+                if (!isDataHealthPanelVisible()) return null;
                 return loadDataHealthPanel(mode, params);
             }, 560);
-            const schedulePlatformProfileStatusRefresh = (params = {}) => schedulePostFetchRefresh('platform-profile-status', () => loadPlatformProfileStatus(params), 480);
-            const schedulePlatformDataSourcesRefresh = () => schedulePostFetchRefresh('platform-data-sources', () => loadPlatformDataSources(), 620);
+            const schedulePlatformProfileStatusRefresh = (params = {}) => schedulePostFetchRefresh('platform-profile-status', () => {
+                if (!shouldRefreshPlatformProfileStatusPanel()) return null;
+                return loadPlatformProfileStatus(params);
+            }, 480);
+            const schedulePlatformDataSourcesRefresh = () => schedulePostFetchRefresh('platform-data-sources', () => {
+                if (!shouldRefreshPlatformDataSourcesPanel()) return null;
+                return loadPlatformDataSources();
+            }, 620);
 
             // 切换分页
             const changeOnlineDataPage = async (page) => {
@@ -23365,28 +23382,38 @@
                 return run;
             };
 
+            const platformProfileStatusRequestPromises = new Map();
             const loadPlatformProfileStatus = async (options = {}) => {
                 const hotelId = getAutoFetchHotelId();
                 if (!hotelId) {
                     platformProfileStatus.value = { items: [], summary: {} };
                     return;
                 }
-                platformProfileStatusLoading.value = true;
-                try {
-                    const params = new URLSearchParams({ system_hotel_id: String(hotelId) });
-                    const res = await request(`/online-data/platform-profile-status?${params.toString()}`);
-                    if (res.code === 200) {
-                        platformProfileStatus.value = res.data || { items: [], summary: {} };
-                    } else {
-                        platformProfileStatus.value = { items: [], summary: {} };
-                        if (!options.silent) showToast(res.message || '平台账号状态加载失败', 'error');
-                    }
-                } catch (error) {
-                    platformProfileStatus.value = { items: [], summary: {} };
-                    if (!options.silent) showToast('平台账号状态加载失败: ' + error.message, 'error');
-                } finally {
-                    platformProfileStatusLoading.value = false;
+                const requestKey = String(hotelId || '');
+                if (platformProfileStatusRequestPromises.has(requestKey)) {
+                    return platformProfileStatusRequestPromises.get(requestKey);
                 }
+                platformProfileStatusLoading.value = true;
+                const run = (async () => {
+                    try {
+                        const params = new URLSearchParams({ system_hotel_id: String(hotelId) });
+                        const res = await request(`/online-data/platform-profile-status?${params.toString()}`);
+                        if (res.code === 200) {
+                            platformProfileStatus.value = res.data || { items: [], summary: {} };
+                        } else {
+                            platformProfileStatus.value = { items: [], summary: {} };
+                            if (!options.silent) showToast(res.message || '平台账号状态加载失败', 'error');
+                        }
+                    } catch (error) {
+                        platformProfileStatus.value = { items: [], summary: {} };
+                        if (!options.silent) showToast('平台账号状态加载失败: ' + error.message, 'error');
+                    } finally {
+                        platformProfileStatusRequestPromises.delete(requestKey);
+                        platformProfileStatusLoading.value = false;
+                    }
+                })();
+                platformProfileStatusRequestPromises.set(requestKey, run);
+                return run;
             };
 
             const rawPlatformProfileLoginTask = (platform) => platformProfileLoginTasks.value?.[platform] || null;
@@ -23528,11 +23555,12 @@
                         platformProfileLoginPollTimers[platform] = setTimeout(() => pollPlatformProfileLoginStatus(platform, taskId), 3000);
                         return;
                     }
-                    deferUiTask(() => Promise.allSettled([
-                        loadPlatformProfileStatus({ silent: true }),
-                        loadPlatformDataSources(),
-                        loadPlatformCollectionResources(),
-                    ]));
+                    deferUiTask(() => {
+                        schedulePlatformProfileStatusRefresh({ silent: true });
+                        schedulePlatformDataSourcesRefresh();
+                        if (!shouldRefreshPlatformDataSourcesPanel()) return null;
+                        return loadPlatformCollectionResources();
+                    });
                     if (taskForView.status === 'logged_in') {
                         const warning = taskForView.data_source_error ? `，但数据源绑定失败：${taskForView.data_source_error}` : '';
                         showToast((taskForView.message || '平台账号已登录') + warning, taskForView.data_source_error ? 'warning' : 'success');
@@ -23902,10 +23930,10 @@
             const buildDataHealthPanelJobs = (normalizedMode) => {
                 const jobs = [
                     loadAutoFetchStatus({ detail: normalizedMode === 'full' }),
-                    loadCollectionReliability(normalizedMode),
                 ];
                 if (normalizedMode === 'full') {
                     jobs.push(
+                        loadCollectionReliability('full'),
                         loadDataHealthOperationLogs(),
                         loadPublicEndpointSecurity(),
                         loadHotelDataDashboard(),
@@ -24139,7 +24167,7 @@
                 pageLoadRequests.set(key, { loadedAt: current?.loadedAt || 0, promise });
                 return promise;
             };
-            const isVisibleOnlineDataTab = (tab) => currentPage.value === 'online-data' && onlineDataTab.value === tab;
+            const isVisibleOnlineDataTab = isOnlineDataTabVisible;
             const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(
                 currentPage.value || 'online-data',
                 'platform-source-panel',
@@ -25383,14 +25411,19 @@
                 if (!hotels.value.length && typeof loadHotels === 'function') {
                     await loadHotels();
                 }
-                await Promise.all([
+                await Promise.allSettled([
                     loadPlatformDataSources(),
-                    loadPlatformSyncTasks(),
-                    loadPlatformSyncLogs(),
                     loadPlatformProfileStatus({ silent: true }),
-                    loadPlatformCollectionResources(),
-                    loadCompetitorSummary({ includeByHotel: true }),
                 ]);
+                deferUiTask(() => {
+                    if (!shouldRefreshPlatformDataSourcesPanel()) return null;
+                    return Promise.allSettled([
+                        loadPlatformSyncTasks(),
+                        loadPlatformSyncLogs(),
+                        loadPlatformCollectionResources(),
+                        loadCompetitorSummary({ includeByHotel: true }),
+                    ]);
+                }, 260);
             };
 
             const savePlatformDataSource = async () => {
@@ -25503,10 +25536,10 @@
                     });
                     if (res.code === 200) {
                         showToast(res.message || `已解除${platformName} Profile绑定，请选择正确酒店后重新登录绑定`);
-                        deferUiTask(() => Promise.allSettled([
-                            loadPlatformProfileStatus({ silent: true }),
-                            loadAutoFetchPanel({ force: true }),
-                        ]));
+                        deferUiTask(() => {
+                            schedulePlatformProfileStatusRefresh({ silent: true });
+                            schedulePlatformAutoFetchPanelLoad({ force: true });
+                        });
                     } else {
                         showToast(res.message || '解除绑定失败', 'error');
                     }
@@ -32412,7 +32445,7 @@
                 notify: showToast,
                 refreshLatestCtripData: scheduleLatestCtripRefresh,
                 refreshOnlineHistory: scheduleOnlineHistoryRefresh,
-                shouldRefreshDataHealthPanel: () => onlineDataTab.value === 'data-health'
+                shouldRefreshDataHealthPanel: () => isDataHealthPanelVisible()
                     && !ctripOverviewFetchActionLoading.value
                     && !ctripOverviewCoreFetchRunning.value,
                 refreshDataHealthPanel: scheduleDataHealthPanelRefresh,
@@ -32595,7 +32628,7 @@
                 notify: showToast,
                 refreshLatestCtripData: scheduleLatestCtripRefresh,
                 refreshOnlineHistory: scheduleOnlineHistoryRefresh,
-                shouldRefreshDataHealthPanel: () => onlineDataTab.value === 'data-health' && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value,
+                shouldRefreshDataHealthPanel: () => isDataHealthPanelVisible() && !ctripOverviewFetchActionLoading.value && !ctripOverviewCoreFetchRunning.value,
                 refreshDataHealthPanel: scheduleDataHealthPanelRefresh,
             });
 
