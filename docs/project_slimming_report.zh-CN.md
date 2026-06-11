@@ -1482,6 +1482,16 @@
 - 当前自审计：完整目录约 `218.09 MB`；不含 `.git` 约 `104.01 MB`；不含 `.git` 和依赖约 `74.82 MB`；Git 跟踪文件约 `18.84 MB` / `618` 个；代码范围 `373` 个文件、`197,979` 行、非空 `182,000` 行；默认可清理目标为 `runtime` 约 `11.05 MB` / `273` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`668` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-12 保存点：平台自动获取入口调度收口
+
+- `public/index.html` 新增 `schedulePlatformAutoFetchPanelLoad()`、`openPlatformAutoTab()` 和 `openOnlinePlatformAutoTab()`，将平台自动获取标签、数据健康钻取、菜单快捷入口和跨页跳转统一到同一个 `runPageLoadOnce()` 调度入口。
+- 原来多个按钮和钻取路径中的 `onlineDataTab = 'platform-auto'; loadAutoFetchPanel()` 已改为共享入口，避免同一面板在切换标签、查看配置或菜单点击时重复触发完整平台自动获取面板加载。
+- 本保存点不改变平台自动获取接口、Profile 状态接口、OTA 采集、入库、字段口径、AI 分析、权限或数据库结构；缺失、失败、未配置和后台运行状态仍按原路径显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求平台自动获取入口必须经过共享调度器，并禁止按钮、钻取和菜单点击绕过调度器；`verify_e2e_contracts.mjs` 同步要求三个共享入口存在并禁止回退到直接加载面板。
+- 当前 split-map：`public/index.html` 为 `37,351` 行、`1,559` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `219.29 MB`；不含 `.git` 约 `104.5 MB`；不含 `.git` 和依赖约 `75.31 MB`；Git 跟踪文件约 `18.84 MB` / `618` 个；代码范围 `373` 个文件、`198,009` 行、非空 `182,030` 行；默认可清理目标为 `runtime` 约 `11.54 MB` / `279` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`673` checks）、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`npm.cmd run self:split-map`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

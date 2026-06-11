@@ -6888,7 +6888,7 @@
                                                 只登录并保存会话
                                             </button>
                                             <button type="button"
-                                                @click="currentPage = 'online-data'; onlineDataTab = 'platform-auto'; loadAutoFetchPanel()"
+                                                @click="openOnlinePlatformAutoTab()"
                                                 class="px-4 py-2 bg-white border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-50">
                                                 <i class="fas fa-vial mr-2"></i>转到接口证据校验
                                             </button>
@@ -12503,7 +12503,7 @@
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data-health' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         酒店数据驾驶舱
                                     </button>
-                                    <button @click="onlineDataTab = 'platform-auto'; loadAutoFetchPanel()"
+                                    <button @click="openPlatformAutoTab()"
                                         :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-auto' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         平台自动获取
                                     </button>
@@ -12603,7 +12603,7 @@
                                                             <button v-if="String(row.platform || '').toLowerCase() === 'ctrip' && row.editable" type="button" @click="editCtripCookieFromHealth(row)" class="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-50">
                                                                 查看/更新
                                                             </button>
-                                                            <button v-else type="button" @click="onlineDataTab = 'platform-auto'; loadAutoFetchPanel()" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
+                                                            <button v-else type="button" @click="openPlatformAutoTab()" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
                                                                 查看配置
                                                             </button>
                                                         </div>
@@ -13163,7 +13163,7 @@
                                             <p class="text-sm text-gray-500">展示平台自动获取后的 OTA 渠道数值，不等同于全酒店经营口径。</p>
                                         </div>
                                         <div class="flex gap-2">
-                                            <button @click="onlineDataTab = 'platform-auto'; loadAutoFetchPanel()" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
+                                            <button @click="openPlatformAutoTab()" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
                                                 <i class="fas fa-cloud-download-alt mr-1"></i>平台自动获取
                                             </button>
                                             <button @click="onlineDataTab = 'data'; refreshOnlineData()" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
@@ -20524,7 +20524,7 @@
             const openDataHealthDrilldown = (row) => {
                 if (!row?.tab) return;
                 onlineDataTab.value = row.tab;
-                if (row.tab === 'platform-auto') loadAutoFetchPanel();
+                if (row.tab === 'platform-auto') schedulePlatformAutoFetchPanelLoad();
                 if (row.tab === 'profile-fields') loadCtripProfileFields();
                 if (row.tab === 'data') refreshOnlineData();
             };
@@ -24040,6 +24040,20 @@
                 () => loadPlatformDataSourcePanel(options),
                 options.force ? { force: true } : {}
             );
+            const schedulePlatformAutoFetchPanelLoad = (options = {}) => runPageLoadOnce(
+                currentPage.value || 'online-data',
+                'platform-auto-panel',
+                () => loadAutoFetchPanel(options),
+                options.force ? { force: true } : {}
+            );
+            const openPlatformAutoTab = (options = {}) => {
+                onlineDataTab.value = 'platform-auto';
+                return schedulePlatformAutoFetchPanelLoad(options);
+            };
+            const openOnlinePlatformAutoTab = (options = {}) => {
+                currentPage.value = 'online-data';
+                return nextTick(() => openPlatformAutoTab(options));
+            };
             const openPlatformSourcesTab = (options = {}) => {
                 onlineDataTab.value = 'platform-sources';
                 return schedulePlatformDataSourcePanelLoad(options);
@@ -24259,7 +24273,7 @@
                     schedulePlatformDataSourcePanelLoad();
                 }
                 if (newTab === 'platform-auto') {
-                    runPageLoadOnce(currentPage.value || 'online-data', 'platform-auto-panel', () => loadAutoFetchPanel());
+                    schedulePlatformAutoFetchPanelLoad();
                 }
                 if (newTab === 'profile-fields') {
                     loadCtripProfileFields();
@@ -24471,7 +24485,7 @@
                     nextTick(() => {
                         onlineDataTab.value = item.tab;
                         if (item.path === 'online-data' && item.tab === 'platform-auto') {
-                            loadAutoFetchPanel();
+                            schedulePlatformAutoFetchPanelLoad();
                         }
                         if (item.path === 'online-data' && item.tab === 'data') {
                             ensureManualOnlineFetchConfigReady();
@@ -37211,7 +37225,7 @@
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
                 selectedOnlineDataIds, isAutoFetchRecordDeletable, autoFetchRecordDeletableRows, toggleSelectAllOnlineData, isAllOnlineDataSelected, batchDeleteOnlineData, clearAutoFetchRecordHistory,
-                autoFetchScheduleTime, autoFetchScheduleMinute, autoFetchRealtimeIntervalHours, autoFetchBrowserHeadless, autoFetchCtripSectionConcurrency, saveFetchSchedule, autoFetchHotelId, autoFetchMode, autoFetchModeOptions, autoFetchModeLabel, autoFetchRunState, autoFetchRunElapsedSeconds, formatAutoFetchElapsed, autoFetchRunningHint, loadAutoFetchPanel,
+                autoFetchScheduleTime, autoFetchScheduleMinute, autoFetchRealtimeIntervalHours, autoFetchBrowserHeadless, autoFetchCtripSectionConcurrency, saveFetchSchedule, autoFetchHotelId, autoFetchMode, autoFetchModeOptions, autoFetchModeLabel, autoFetchRunState, autoFetchRunElapsedSeconds, formatAutoFetchElapsed, autoFetchRunningHint, loadAutoFetchPanel, schedulePlatformAutoFetchPanelLoad, openPlatformAutoTab, openOnlinePlatformAutoTab,
                 autoFetchCollectionBlueprintRows, autoFetchPlatformCards, autoFetchPlatformResultRows, autoFetchTimingRows, autoFetchCtripExecutionText, autoFetchResultStatusText, autoFetchResultStatusClass, autoFetchModuleLabel, formatAutoFetchMs,
                 autoFetchBackfillDate, autoFetchBackfillingDate, autoFetchMaxBackfillDate, autoFetchLegacyItems, autoFetchRecentRuns, retryAutoFetchDate,
                 loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, openAutoFetchRecordAnalysis, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter,

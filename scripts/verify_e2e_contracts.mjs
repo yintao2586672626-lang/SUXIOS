@@ -169,6 +169,11 @@ requireText('public/index.html', "newTab === 'platform-auto'", 'entry lazy-loads
 requireNoText('public/index.html', 'await loadAutoFetchPanel()', 'platform-auto navigation and profile follow-up refreshes do not block on the full panel reload');
 requireText('public/index.html', "runPageLoadOnce('online-data', 'platform-auto-panel', () => loadAutoFetchPanel({ force: true }), { force: true })", 'platform-auto navigation schedules full panel refresh without blocking first interaction');
 requireText('public/index.html', 'deferUiTask(() => Promise.allSettled([\n                            loadPlatformProfileStatus({ silent: true }),\n                            loadAutoFetchPanel({ force: true }),', 'profile unbind refreshes platform profile and auto-fetch state in deferred work');
+requireText('public/index.html', "const schedulePlatformAutoFetchPanelLoad = (options = {}) => runPageLoadOnce(", 'platform auto-fetch panel opens through the shared page-load scheduler');
+requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>', 'platform auto tab opens through one deduplicated entrypoint');
+requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
+requireNoText('public/index.html', "onlineDataTab = 'platform-auto'; loadAutoFetchPanel()", 'platform auto tab buttons do not bypass the shared scheduler');
+requireNoText('public/index.html', "if (row.tab === 'platform-auto') loadAutoFetchPanel();", 'data-health drilldown does not bypass the shared platform-auto scheduler');
 requireText('public/index.html', "const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(", 'platform source panel loads through the shared page-load scheduler');
 requireText('public/index.html', "const openPlatformSourcesTab = (options = {}) =>", 'platform source tab opens through a single deduplicated entrypoint');
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()", 'platform source tab switches do not double-trigger the heavy data-source panel load');

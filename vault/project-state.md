@@ -1513,6 +1513,16 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `218.09 MB`, without `.git` about `104.01 MB`, without `.git` and dependencies about `74.82 MB`, tracked files about `18.84 MB` / `618` files; code scope `373` files, `197979` total lines, and `182000` nonblank lines. Runtime cleanup is about `11.05 MB` / `273` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check public\system-static.js`; `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `668` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
 
+## 2026-06-12 Progress: Platform Auto-Fetch Entry Deduping
+
+- `public/index.html` now routes platform-auto tab buttons, data-health drilldowns, quick menu entry, and cross-page navigation through `schedulePlatformAutoFetchPanelLoad()`, `openPlatformAutoTab()`, and `openOnlinePlatformAutoTab()`.
+- The shared entrypoint keeps platform-auto panel loading behind `runPageLoadOnce()`, avoiding duplicate full-panel refreshes from inline `onlineDataTab = 'platform-auto'; loadAutoFetchPanel()` paths.
+- This does not change platform auto-fetch APIs, Profile status APIs, OTA collection, persistence, field semantics, AI analysis, permissions, or database schema. Missing, failed, unconfigured, and running states remain explicit.
+- Guards now require the shared platform-auto scheduler and reject button, drilldown, or menu-click paths that directly call `loadAutoFetchPanel()`.
+- Current split-map: `public/index.html` has `37351` lines, `1559` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `219.29 MB`, without `.git` about `104.5 MB`, without `.git` and dependencies about `75.31 MB`, tracked files about `18.84 MB` / `618` files; code scope `373` files, `198009` total lines, and `182030` nonblank lines. Runtime cleanup is about `11.54 MB` / `279` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `673` checks; `verify:p0-guards`; `self:audit`; `self:split-map`; `git diff --check`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

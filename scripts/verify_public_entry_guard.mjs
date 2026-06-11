@@ -280,8 +280,19 @@ if (!fs.existsSync(indexPath)) {
     || /tab\s*===\s*['"]traffic['"][\s\S]{0,220}loadAutoFetchPanel\(\)/.test(content)) {
     failures.push('public/index.html must not load the full platform-auto panel from Ctrip fetch settings or download tab switches.');
   }
-  if (!/newTab === ['"]platform-auto['"][\s\S]*loadAutoFetchPanel\(\)/.test(content)) {
+  if (!/newTab === ['"]platform-auto['"][\s\S]*schedulePlatformAutoFetchPanelLoad\(\)/.test(content)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
+  }
+  if (!/const\s+schedulePlatformAutoFetchPanelLoad\s*=\s*\(options\s*=\s*\{\}\)\s*=>\s*runPageLoadOnce\(\s*currentPage\.value\s*\|\|\s*['"]online-data['"],\s*['"]platform-auto-panel['"],\s*\(\)\s*=>\s*loadAutoFetchPanel\(options\)/.test(content)
+    || !/const\s+openPlatformAutoTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)
+    || !/const\s+openOnlinePlatformAutoTab\s*=\s*\(options\s*=\s*\{\}\)\s*=>/.test(content)) {
+    failures.push('public/index.html must route platform-auto tab opens through one deduplicated page-load scheduler.');
+  }
+  if (content.includes("onlineDataTab = 'platform-auto'; loadAutoFetchPanel()")
+    || content.includes('onlineDataTab = "platform-auto"; loadAutoFetchPanel()')
+    || content.includes("if (row.tab === 'platform-auto') loadAutoFetchPanel();")
+    || content.includes("if (item.path === 'online-data' && item.tab === 'platform-auto') {\n                            loadAutoFetchPanel();")) {
+    failures.push('public/index.html must not bypass the platform-auto scheduler from buttons, drilldowns, or menu clicks.');
   }
   if (content.includes('await loadAutoFetchPanel()')) {
     failures.push('public/index.html must not block platform-auto navigation or profile follow-up refreshes on the full auto-fetch panel reload.');
