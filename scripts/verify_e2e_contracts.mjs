@@ -109,12 +109,15 @@ requireText('public/index.html', "requireMeituanStatic('runMeituanTrafficFetchFl
 requireText('public/index.html', "requireMeituanStatic('runMeituanOrderFetchFlow')", 'entry uses extracted Meituan order fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanAdsFetchFlow')", 'entry uses extracted Meituan ads fetch flow runner');
 requireText('public/index.html', "requireMeituanStatic('runMeituanBrowserCaptureFlow')", 'entry uses extracted Meituan browser capture flow runner');
+requireText('public/index.html', "requireMeituanStatic('runMeituanCapturedPayloadSaveFlow')", 'entry uses extracted Meituan captured payload save flow runner');
 requireText('public/meituan-static.js', 'const buildMeituanBatchFetchTasks', 'Meituan static builds batch fetch tasks');
 requireText('public/meituan-static.js', 'const buildMeituanDisplayModelPayload', 'Meituan static builds display model payloads');
 requireText('public/meituan-static.js', 'const validateMeituanBatchFetchInput', 'Meituan static validates batch fetch inputs');
 requireText('public/meituan-static.js', 'const runMeituanBatchFetchFlow', 'Meituan static runs batch fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureRequestContext', 'Meituan static builds browser capture request context');
 requireText('public/meituan-static.js', 'const runMeituanBrowserCaptureFlow', 'Meituan static runs browser capture flow');
+requireText('public/meituan-static.js', 'const buildMeituanCapturedPayloadSaveContext', 'Meituan static builds captured payload save context');
+requireText('public/meituan-static.js', 'const runMeituanCapturedPayloadSaveFlow', 'Meituan static runs captured payload save flow');
 requireText('public/meituan-static.js', 'const buildMeituanTrafficFetchRequestBody', 'Meituan static builds traffic fetch request bodies');
 requireText('public/meituan-static.js', 'const runMeituanTrafficFetchFlow', 'Meituan static runs traffic fetch flow');
 requireText('public/meituan-static.js', 'const buildMeituanOrderFetchRequestBody', 'Meituan static builds order fetch request bodies');
@@ -220,6 +223,10 @@ requireNoText('public/index.html', 'const systemHotelId = meituanForm.value.hote
 requireNoText('public/index.html', "const res = await request('/online-data/capture-meituan-browser', {", 'Meituan browser capture request flow is not re-inlined');
 requireNoText('public/index.html', 'login_only: loginOnly,', 'Meituan browser capture login-only payload is not re-inlined');
 requireNoText('public/index.html', 'meituanBrowserCaptureResult.value = e?.data?.data || { error: e.message };', 'Meituan browser capture exception result is not re-inlined');
+requireNoText('public/index.html', 'const rawJson = String(meituanBrowserCaptureForm.value.payloadJson || \'\').trim();', 'Meituan captured payload JSON trimming is not re-inlined');
+requireNoText('public/index.html', 'payload = JSON.parse(rawJson);', 'Meituan captured payload JSON parsing is not re-inlined');
+requireNoText('public/index.html', 'payload.store_id = payload.store_id || storeId || poiId;', 'Meituan captured payload enrichment is not re-inlined');
+requireNoText('public/index.html', "const res = await request('/online-data/save-meituan-captured-data', {", 'Meituan captured payload save request flow is not re-inlined');
 requireNoText('public/index.html', "const body = { system_hotel_id: hotelId, data_period: 'realtime_snapshot'", 'auto-fetch trigger request body is not re-inlined');
 requireNoText('public/index.html', '已提交后端执行。${autoFetchCtripExecutionText.value}', 'auto-fetch trigger start state is not re-inlined');
 requireNoText('public/index.html', 'await openCtripProfileFieldsForReview();', 'auto-fetch trigger success refresh flow is not re-inlined');
@@ -607,6 +614,8 @@ try {
   const runMeituanBatchFetchFlow = meituanStatic.runMeituanBatchFetchFlow;
   const buildMeituanBrowserCaptureRequestContext = meituanStatic.buildMeituanBrowserCaptureRequestContext;
   const runMeituanBrowserCaptureFlow = meituanStatic.runMeituanBrowserCaptureFlow;
+  const buildMeituanCapturedPayloadSaveContext = meituanStatic.buildMeituanCapturedPayloadSaveContext;
+  const runMeituanCapturedPayloadSaveFlow = meituanStatic.runMeituanCapturedPayloadSaveFlow;
   const normalizeMeituanTrafficFetchForm = meituanStatic.normalizeMeituanTrafficFetchForm;
   const validateMeituanTrafficFetchInput = meituanStatic.validateMeituanTrafficFetchInput;
   const buildMeituanTrafficFetchRequestBody = meituanStatic.buildMeituanTrafficFetchRequestBody;
@@ -626,6 +635,8 @@ try {
     || typeof runMeituanBatchFetchFlow !== 'function'
     || typeof buildMeituanBrowserCaptureRequestContext !== 'function'
     || typeof runMeituanBrowserCaptureFlow !== 'function'
+    || typeof buildMeituanCapturedPayloadSaveContext !== 'function'
+    || typeof runMeituanCapturedPayloadSaveFlow !== 'function'
     || typeof normalizeMeituanTrafficFetchForm !== 'function'
     || typeof validateMeituanTrafficFetchInput !== 'function'
     || typeof buildMeituanTrafficFetchRequestBody !== 'function'
@@ -640,9 +651,9 @@ try {
     || typeof runMeituanAdsFetchFlow !== 'function') {
     checks.push({
       file: 'public/meituan-static.js',
-      label: 'Meituan static exports batch/browser/traffic/order/ads fetch builders',
+      label: 'Meituan static exports batch/browser/payload/traffic/order/ads fetch builders',
       ok: false,
-      detail: 'batch/browser/traffic/order/ads fetch builders and flow runners',
+      detail: 'batch/browser/payload/traffic/order/ads fetch builders and flow runners',
     });
   } else {
     const tasks = buildMeituanBatchFetchTasks({
@@ -978,6 +989,129 @@ try {
         && browserExceptionPayload.stderr === 'stderr details'
         && browserExceptionStates.join('|') === 'running:true|fetching:true|running:false|fetching:false',
       detail: 'runMeituanBrowserCaptureFlow state samples',
+    });
+
+    const payloadMissingHotel = buildMeituanCapturedPayloadSaveContext({
+      form: { payloadJson: '{}' },
+      systemHotelId: null,
+    });
+    const payloadMissingJson = buildMeituanCapturedPayloadSaveContext({
+      form: { payloadJson: '' },
+      systemHotelId: '10',
+    });
+    const payloadInvalidJson = buildMeituanCapturedPayloadSaveContext({
+      form: { payloadJson: '{bad json' },
+      systemHotelId: '10',
+    });
+    const payloadInvalidObject = buildMeituanCapturedPayloadSaveContext({
+      form: { payloadJson: '[]' },
+      systemHotelId: '10',
+    });
+    const payloadSaveContext = buildMeituanCapturedPayloadSaveContext({
+      form: {
+        payloadJson: '{"source":"browser","saved_count":2}',
+        storeId: ' store-60 ',
+        poiId: 'poi-60',
+        poiName: 'POI 60',
+      },
+      systemHotelId: '60',
+      hotelName: 'Hotel 60',
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan captured payload save context keeps JSON and target gaps explicit',
+      ok: payloadMissingHotel.status === 'missing_hotel'
+        && payloadMissingHotel.message === '请选择目标酒店'
+        && payloadMissingJson.status === 'missing_payload_json'
+        && payloadMissingJson.message === '请粘贴抓取结果 JSON'
+        && payloadInvalidJson.status === 'invalid_json'
+        && payloadInvalidJson.message.includes('抓取结果 JSON 格式不正确')
+        && payloadInvalidObject.status === 'invalid_payload_object'
+        && payloadInvalidObject.message === '抓取结果必须是 JSON 对象'
+        && payloadSaveContext.ok === true
+        && payloadSaveContext.requestBody.system_hotel_id === '60'
+        && payloadSaveContext.requestBody.payload.store_id === 'store-60'
+        && payloadSaveContext.requestBody.payload.poi_id === 'poi-60'
+        && payloadSaveContext.requestBody.payload.poi_name === 'POI 60'
+        && payloadSaveContext.requestBody.payload.system_hotel_id === 60
+        && payloadSaveContext.requestBody.payload.source === 'browser',
+      detail: 'buildMeituanCapturedPayloadSaveContext sample',
+    });
+
+    const payloadEvents = [];
+    const payloadStates = [];
+    let payloadRequestedBody = null;
+    let payloadCaptureResult = null;
+    let payloadOnlineResult = null;
+    const payloadFlowResult = await runMeituanCapturedPayloadSaveFlow({
+      getForm: () => ({
+        payloadJson: '{"rooms":[{"id":1}]}',
+        storeId: ' store-70 ',
+        poiId: 'poi-70',
+        poiName: '',
+      }),
+      getSystemHotelId: () => '70',
+      getHotelNameById: id => `Hotel ${id}`,
+      notify: (message, level) => payloadEvents.push(`notify:${level || 'info'}:${message}`),
+      setFetching: value => payloadStates.push(`fetching:${value}`),
+      setCaptureResult: value => { payloadCaptureResult = value; },
+      setOnlineDataResult: value => { payloadOnlineResult = value; },
+      requestSave: async body => {
+        payloadRequestedBody = body;
+        return { code: 200, data: { saved_count: 4, rows: [{ id: 1 }] } };
+      },
+      refreshOnlineHistory: async () => payloadEvents.push('history'),
+    });
+    const payloadFailedEvents = [];
+    const payloadFailedStates = [];
+    const payloadFailedResult = await runMeituanCapturedPayloadSaveFlow({
+      getForm: () => ({ payloadJson: '{}', storeId: 'store-failed' }),
+      getSystemHotelId: () => '80',
+      notify: (message, level) => payloadFailedEvents.push(`notify:${level}:${message}`),
+      setFetching: value => payloadFailedStates.push(`fetching:${value}`),
+      requestSave: async () => ({ code: 500, message: 'save backend failed' }),
+    });
+    const payloadExceptionEvents = [];
+    const payloadExceptionStates = [];
+    const payloadExceptionResult = await runMeituanCapturedPayloadSaveFlow({
+      getForm: () => ({ payloadJson: '{}', storeId: 'store-exception' }),
+      getSystemHotelId: () => '90',
+      notify: (message, level) => payloadExceptionEvents.push(`notify:${level}:${message}`),
+      setFetching: value => payloadExceptionStates.push(`fetching:${value}`),
+      requestSave: async () => {
+        throw new Error('save network down');
+      },
+    });
+    const payloadGuardEvents = [];
+    const payloadGuardResult = await runMeituanCapturedPayloadSaveFlow({
+      getForm: () => ({ payloadJson: '' }),
+      getSystemHotelId: () => '100',
+      notify: (message, level) => payloadGuardEvents.push(`notify:${level}:${message}`),
+      setFetching: value => payloadGuardEvents.push(`fetching:${value}`),
+    });
+    checks.push({
+      file: 'public/meituan-static.js',
+      label: 'Meituan captured payload save flow preserves success, failed and exception states',
+      ok: payloadFlowResult.status === 'success'
+        && payloadRequestedBody.system_hotel_id === '70'
+        && payloadRequestedBody.payload.store_id === 'store-70'
+        && payloadRequestedBody.payload.poi_id === 'poi-70'
+        && payloadRequestedBody.payload.poi_name === 'Hotel 70'
+        && payloadRequestedBody.payload.system_hotel_id === 70
+        && payloadCaptureResult.saved_count === 4
+        && payloadOnlineResult.saved_count === 4
+        && payloadEvents.includes('notify:info:保存成功，已入库 4 条')
+        && payloadEvents.includes('history')
+        && payloadStates.join('|') === 'fetching:true|fetching:false'
+        && payloadFailedResult.status === 'failed'
+        && payloadFailedEvents[0] === 'notify:error:save backend failed'
+        && payloadFailedStates.join('|') === 'fetching:true|fetching:false'
+        && payloadExceptionResult.status === 'exception'
+        && payloadExceptionEvents[0] === 'notify:error:保存失败: save network down'
+        && payloadExceptionStates.join('|') === 'fetching:true|fetching:false'
+        && payloadGuardResult.status === 'missing_payload_json'
+        && payloadGuardEvents.join('|') === 'notify:error:请粘贴抓取结果 JSON',
+      detail: 'runMeituanCapturedPayloadSaveFlow state samples',
     });
 
     const trafficForm = {

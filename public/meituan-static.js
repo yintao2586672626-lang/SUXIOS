@@ -222,6 +222,94 @@ window.SUXI_MEITUAN_STATIC = (() => {
         }
     };
 
+    const buildMeituanCapturedPayloadSaveContext = ({
+        form = {},
+        systemHotelId = null,
+        hotelName = '',
+    } = {}) => {
+        if (!systemHotelId) {
+            return { ok: false, status: 'missing_hotel', level: 'error', message: '请选择目标酒店' };
+        }
+        const rawJson = String(form.payloadJson || '').trim();
+        if (!rawJson) {
+            return { ok: false, status: 'missing_payload_json', level: 'error', message: '请粘贴抓取结果 JSON' };
+        }
+
+        let payload;
+        try {
+            payload = JSON.parse(rawJson);
+        } catch (error) {
+            return { ok: false, status: 'invalid_json', level: 'error', message: '抓取结果 JSON 格式不正确: ' + error.message };
+        }
+        if (!payload || Array.isArray(payload) || typeof payload !== 'object') {
+            return { ok: false, status: 'invalid_payload_object', level: 'error', message: '抓取结果必须是 JSON 对象' };
+        }
+
+        const storeId = String(form.storeId || '').trim();
+        const poiId = String(form.poiId || storeId || '').trim();
+        const poiName = String(form.poiName || hotelName || '').trim();
+        const enrichedPayload = { ...payload };
+        enrichedPayload.store_id = enrichedPayload.store_id || storeId || poiId;
+        enrichedPayload.poi_id = enrichedPayload.poi_id || poiId || storeId;
+        enrichedPayload.poi_name = enrichedPayload.poi_name || poiName;
+        enrichedPayload.system_hotel_id = enrichedPayload.system_hotel_id || Number(systemHotelId);
+
+        return {
+            ok: true,
+            status: 'ok',
+            payload: enrichedPayload,
+            requestBody: {
+                system_hotel_id: systemHotelId,
+                payload: enrichedPayload,
+            },
+        };
+    };
+
+    const runMeituanCapturedPayloadSaveFlow = async ({
+        getForm = () => ({}),
+        getSystemHotelId = () => null,
+        getHotelNameById = () => '',
+        notify = () => {},
+        setFetching = () => {},
+        setCaptureResult = () => {},
+        setOnlineDataResult = () => {},
+        requestSave = async () => ({}),
+        refreshOnlineHistory = async () => {},
+    } = {}) => {
+        const systemHotelId = getSystemHotelId();
+        const saveContext = buildMeituanCapturedPayloadSaveContext({
+            form: getForm() || {},
+            systemHotelId,
+            hotelName: getHotelNameById(systemHotelId),
+        });
+        if (!saveContext.ok) {
+            notify(saveContext.message, saveContext.level);
+            return { status: saveContext.status, saveContext };
+        }
+
+        setFetching(true);
+        setCaptureResult(null);
+        try {
+            const res = await requestSave(saveContext.requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                setCaptureResult(data);
+                setOnlineDataResult(data);
+                notify(`保存成功，已入库 ${data?.saved_count || 0} 条`);
+                await refreshOnlineHistory();
+                return { status: 'success', response: res, saveContext, data };
+            }
+
+            notify(res.message || '保存失败', 'error');
+            return { status: 'failed', response: res, saveContext };
+        } catch (error) {
+            notify('保存失败: ' + error.message, 'error');
+            return { status: 'exception', error, saveContext };
+        } finally {
+            setFetching(false);
+        }
+    };
+
     const meituanBatchRankTypes = ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'];
     const meituanBatchRankTypeNames = {
         P_RZ: '入住榜（入住间夜+房费收入）',
@@ -905,6 +993,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         normalizeMeituanCaptureSections,
         buildMeituanBrowserCaptureRequestContext,
         runMeituanBrowserCaptureFlow,
+        buildMeituanCapturedPayloadSaveContext,
+        runMeituanCapturedPayloadSaveFlow,
         validateMeituanBatchFetchInput,
         buildMeituanBatchFetchTasks,
         buildMeituanBatchFetchResultEntry,

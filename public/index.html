@@ -19326,6 +19326,7 @@
             const runMeituanOrderFetchFlow = requireMeituanStatic('runMeituanOrderFetchFlow');
             const runMeituanAdsFetchFlow = requireMeituanStatic('runMeituanAdsFetchFlow');
             const runMeituanBrowserCaptureFlow = requireMeituanStatic('runMeituanBrowserCaptureFlow');
+            const runMeituanCapturedPayloadSaveFlow = requireMeituanStatic('runMeituanCapturedPayloadSaveFlow');
             const meituanRankedHotelsList = computed(() => buildMeituanRankDisplayRows(meituanHotelsList.value, meituanSortField.value));
             const meituanDynamicSelfRankRow = computed(() => meituanRankedHotelsList.value.find(row => row?.isSelf) || null);
             const meituanDisplayedHotelsList = computed(() => [...meituanRankedHotelsList.value].sort((a, b) => {
@@ -33102,62 +33103,20 @@
                 refreshPlatformDataSources: loadPlatformDataSources,
             });
 
-            const saveMeituanCapturedPayload = async () => {
-                const systemHotelId = meituanForm.value.hotelId || user.value?.hotel_id || null;
-                if (!systemHotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-                const rawJson = String(meituanBrowserCaptureForm.value.payloadJson || '').trim();
-                if (!rawJson) {
-                    showToast('请粘贴抓取结果 JSON', 'error');
-                    return;
-                }
-
-                let payload;
-                try {
-                    payload = JSON.parse(rawJson);
-                } catch (e) {
-                    showToast('抓取结果 JSON 格式不正确: ' + e.message, 'error');
-                    return;
-                }
-                if (!payload || Array.isArray(payload) || typeof payload !== 'object') {
-                    showToast('抓取结果必须是 JSON 对象', 'error');
-                    return;
-                }
-
-                const storeId = String(meituanBrowserCaptureForm.value.storeId || '').trim();
-                const poiId = String(meituanBrowserCaptureForm.value.poiId || storeId || '').trim();
-                const poiName = String(meituanBrowserCaptureForm.value.poiName || getHotelNameById(systemHotelId) || '').trim();
-                payload.store_id = payload.store_id || storeId || poiId;
-                payload.poi_id = payload.poi_id || poiId || storeId;
-                payload.poi_name = payload.poi_name || poiName;
-                payload.system_hotel_id = payload.system_hotel_id || Number(systemHotelId);
-
-                fetchingData.value = true;
-                meituanBrowserCaptureResult.value = null;
-                try {
-                    const res = await request('/online-data/save-meituan-captured-data', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            system_hotel_id: systemHotelId,
-                            payload,
-                        }),
-                    });
-                    if (res.code === 200) {
-                        meituanBrowserCaptureResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        showToast(`保存成功，已入库 ${res.data?.saved_count || 0} 条`);
-                        await refreshOnlineHistory();
-                    } else {
-                        showToast(res.message || '保存失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('保存失败: ' + e.message, 'error');
-                } finally {
-                    fetchingData.value = false;
-                }
-            };
+            const saveMeituanCapturedPayload = async () => runMeituanCapturedPayloadSaveFlow({
+                getForm: () => meituanBrowserCaptureForm.value,
+                getSystemHotelId: () => meituanForm.value.hotelId || user.value?.hotel_id || null,
+                getHotelNameById,
+                notify: showToast,
+                setFetching: value => { fetchingData.value = value; },
+                setCaptureResult: value => { meituanBrowserCaptureResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                requestSave: body => request('/online-data/save-meituan-captured-data', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                refreshOnlineHistory,
+            });
 
             const goConfigureMeituanForSelectedHotel = async () => {
                 const hotel = hotels.value.find(item => String(item.id) === String(meituanForm.value.hotelId));
