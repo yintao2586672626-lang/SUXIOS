@@ -924,6 +924,99 @@ window.SUXI_CTRIP_STATIC = (() => {
         data_date: form.dataDate,
     });
 
+    const runCtripOverviewFetchFlow = async ({
+        getSystemHotelId = () => null,
+        notify = () => {},
+        getActiveCtripConfig = () => null,
+        ensureCtripConfigSecret = async config => config,
+        applyCtripConfigObject = () => {},
+        getForm = () => ({}),
+        getCtripCookies = () => '',
+        getFallbackRequestUrls = () => '',
+        getHotelNameById = () => '',
+        setFetching = () => {},
+        setGlobalFetching = () => {},
+        setResult = () => {},
+        setOnlineDataResult = () => {},
+        setShowRawData = () => {},
+        requestFetch = async () => ({}),
+        refreshLatestCtripData = async () => {},
+        refreshOnlineHistory = async () => {},
+        defaultMethod = 'POST',
+        messages = {},
+    } = {}) => {
+        const systemHotelId = getSystemHotelId();
+        if (!systemHotelId) {
+            notify(messages.missingHotel || '请选择目标酒店', 'error');
+            return { status: 'missing_hotel' };
+        }
+
+        const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
+        if (!activeConfig) {
+            notify(messages.missingConfig || '当前酒店未配置携程数据源', 'warning');
+            return { status: 'missing_config' };
+        }
+        applyCtripConfigObject(activeConfig);
+
+        const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.ctripHotelId || '').trim();
+        const form = getForm() || {};
+        form.hotelId = String(form.hotelId || hotelId || '').trim();
+        form.cookies = String(form.cookies || getCtripCookies() || activeConfig.cookies || '').trim();
+        form.requestUrls = String(form.requestUrls || '').trim();
+        form.payloadJson = String(form.payloadJson || '').trim();
+        form.spidertoken = String(form.spidertoken || '').trim();
+        const requestUrls = form.requestUrls || String(getFallbackRequestUrls() || '');
+        if (!requestUrls) {
+            notify(messages.missingRequestUrls || '请填写接口 Request URL', 'error');
+            return { status: 'missing_request_urls', form };
+        }
+        if (requestUrls.includes('/datacenter/inland/businessreport/outline')) {
+            notify(messages.invalidPageUrl || '请填写 Network 中的 JSON 接口 URL，不是页面地址', 'error');
+            return { status: 'invalid_page_url', form, requestUrls };
+        }
+        if (!form.cookies) {
+            notify(messages.missingCookies || '请提供携程 Cookie', 'error');
+            return { status: 'missing_cookies', form, requestUrls };
+        }
+
+        setFetching(true);
+        setGlobalFetching(true);
+        setResult(null);
+        try {
+            const requestBody = buildCtripOverviewFetchRequestBody({
+                systemHotelId,
+                hotelId: form.hotelId,
+                hotelName: getHotelNameById(systemHotelId),
+                cookies: form.cookies,
+                requestUrls,
+                form,
+                defaultMethod,
+            });
+            const res = await requestFetch(requestBody);
+            if (res.code === 200) {
+                const data = res.data || {};
+                setResult(data);
+                setOnlineDataResult(data);
+                setShowRawData(false);
+                notify(res.message || `${messages.successPrefix || '携程概览获取完成'}，已入库 ${data.saved_count || 0} 条`);
+                await refreshLatestCtripData({ silent: true });
+                await refreshOnlineHistory();
+                return { status: 'success', response: res, requestBody };
+            }
+
+            notify(res.message || messages.failure || '携程概览抓取失败', 'error');
+            return { status: 'failed', response: res };
+        } catch (error) {
+            const detail = error?.data?.data?.stderr || error?.data?.data?.stdout || '';
+            notify(`${messages.exceptionPrefix || '携程概览获取失败'}: ${error.message}${detail ? '，请查看结果详情' : ''}`, 'error');
+            setResult(error?.data?.data || { error: error.message });
+            return { status: 'exception', error };
+        } finally {
+            setFetching(false);
+            setGlobalFetching(false);
+        }
+    };
+
     const buildCtripAdsFetchRequestBody = ({
         systemHotelId = null,
         hotelId = '',
@@ -1740,6 +1833,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripTrafficFetchRequestBody,
         buildCtripTrafficResponseModel,
         buildCtripOverviewFetchRequestBody,
+        runCtripOverviewFetchFlow,
         buildCtripAdsFetchRequestBody,
         buildCtripCookieApiFetchRequestBody,
         runCtripCookieApiCaptureFlow,

@@ -81,8 +81,9 @@ requireText('public/index.html', "requireCtripStatic('buildLatestCtripSnapshotMo
 requireText('public/ctrip-static.js', 'const buildLatestCtripSnapshotModel', 'Ctrip static builds latest snapshot models');
 requireText('public/index.html', "requireCtripStatic('buildCtripTrafficFetchRequestBody')", 'entry uses extracted Ctrip traffic fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripTrafficFetchRequestBody', 'Ctrip static builds traffic fetch request bodies');
-requireText('public/index.html', "requireCtripStatic('buildCtripOverviewFetchRequestBody')", 'entry uses extracted Ctrip overview fetch request builder');
+requireText('public/index.html', "requireCtripStatic('runCtripOverviewFetchFlow')", 'entry uses extracted Ctrip overview fetch flow runner');
 requireText('public/ctrip-static.js', 'const buildCtripOverviewFetchRequestBody', 'Ctrip static builds overview fetch request bodies');
+requireText('public/ctrip-static.js', 'const runCtripOverviewFetchFlow', 'Ctrip static runs overview fetch flow');
 requireText('public/index.html', "requireCtripStatic('buildCtripAdsFetchRequestBody')", 'entry uses extracted Ctrip ads fetch request builder');
 requireText('public/ctrip-static.js', 'const buildCtripAdsFetchRequestBody', 'Ctrip static builds ads fetch request bodies');
 requireText('public/ctrip-static.js', 'const buildCtripCookieApiFetchRequestBody', 'Ctrip static builds Cookie API fetch request bodies');
@@ -152,6 +153,7 @@ requireNoText('public/index.html', 'const buildCtripProfileFieldSavePayload = ()
 requireNoText('public/index.html', 'decoded_data: decoded,', 'Ctrip traffic response model is not re-inlined');
 requireNoText('public/index.html', 'request_urls: form.requestUrls,', 'Ctrip overview request body is not re-inlined');
 requireNoText('public/index.html', 'request_urls: requestUrls,', 'Ctrip flow overview request body is not re-inlined');
+requireNoText('public/index.html', "const requestUrls = form.requestUrls || ctripFlowOverviewDefaultRequestUrls.join('\\n');", 'Ctrip flow overview default URL selection is not re-inlined');
 requireNoText('public/index.html', "method: form.method || 'POST',", 'Ctrip overview request method fallback is not re-inlined');
 requireNoText('public/index.html', "method: form.method || 'GET',", 'Ctrip flow overview request method fallback is not re-inlined');
 requireNoText('public/index.html', "const defaultCtripAdsEffectReportUrl = 'https://", 'Ctrip ads default URL is not re-inlined');
@@ -1466,6 +1468,7 @@ try {
   const buildCtripTrafficFetchRequestBody = ctripStatic.buildCtripTrafficFetchRequestBody;
   const buildCtripTrafficResponseModel = ctripStatic.buildCtripTrafficResponseModel;
   const buildCtripOverviewFetchRequestBody = ctripStatic.buildCtripOverviewFetchRequestBody;
+  const runCtripOverviewFetchFlow = ctripStatic.runCtripOverviewFetchFlow;
   const buildCtripAdsFetchRequestBody = ctripStatic.buildCtripAdsFetchRequestBody;
   const buildCtripCookieApiFetchRequestBody = ctripStatic.buildCtripCookieApiFetchRequestBody;
   const runCtripCookieApiCaptureFlow = ctripStatic.runCtripCookieApiCaptureFlow;
@@ -1775,6 +1778,7 @@ try {
     || typeof buildLatestCtripSnapshotModel !== 'function'
     || typeof buildCtripTrafficFetchRequestBody !== 'function'
     || typeof buildCtripOverviewFetchRequestBody !== 'function'
+    || typeof runCtripOverviewFetchFlow !== 'function'
     || typeof buildCtripAdsFetchRequestBody !== 'function'
     || typeof buildCtripCookieApiFetchRequestBody !== 'function'
     || typeof runCtripCookieApiCaptureFlow !== 'function'
@@ -1992,6 +1996,88 @@ try {
         dataDate: '2026-06-10',
       },
       defaultMethod: 'GET',
+    });
+    const runOverviewSample = async (overrides = {}) => {
+      const events = [];
+      const states = [];
+      const form = {
+        requestUrls: '',
+        cookies: '',
+        payloadJson: '',
+        spidertoken: '',
+        hotelId: '',
+        method: '',
+        dataDate: '2026-06-10',
+        ...(overrides.form || {}),
+      };
+      let overviewResultPayload = null;
+      let overviewOnlinePayload = null;
+      let overviewShowRawData = true;
+      let overviewRequestBody = null;
+      const result = await runCtripOverviewFetchFlow({
+        getSystemHotelId: () => (overrides.systemHotelId === undefined ? '58' : overrides.systemHotelId),
+        notify: (message, level = 'success') => events.push(['notify', level, message]),
+        getActiveCtripConfig: () => (overrides.activeConfig === undefined
+          ? { ota_hotel_id: 'ctrip-hotel-1', cookies: 'sid=config' }
+          : overrides.activeConfig),
+        ensureCtripConfigSecret: async config => {
+          events.push(['ensure-config', Boolean(config)]);
+          return config;
+        },
+        applyCtripConfigObject: config => events.push(['apply-config', config?.ota_hotel_id || '']),
+        getForm: () => form,
+        getCtripCookies: () => (overrides.ctripCookies === undefined ? 'sid=form' : overrides.ctripCookies),
+        getFallbackRequestUrls: () => overrides.fallbackRequestUrls || '',
+        getHotelNameById: hotelId => `hotel-${hotelId}`,
+        setFetching: value => states.push(['fetching', value]),
+        setGlobalFetching: value => states.push(['global-fetching', value]),
+        setResult: value => { overviewResultPayload = value; },
+        setOnlineDataResult: value => { overviewOnlinePayload = value; },
+        setShowRawData: value => { overviewShowRawData = value; },
+        requestFetch: async requestBody => {
+          overviewRequestBody = requestBody;
+          events.push(['request-fetch', requestBody]);
+          if (overrides.throwRequest) {
+            const error = new Error('network failed');
+            error.data = { data: { stderr: 'stderr details', error: 'network failed' } };
+            throw error;
+          }
+          return overrides.response || { code: 200, message: '', data: { saved_count: 6, rows: [{ id: 1 }] } };
+        },
+        refreshLatestCtripData: async options => events.push(['latest', options]),
+        refreshOnlineHistory: async () => events.push(['history']),
+        defaultMethod: overrides.defaultMethod || 'GET',
+        messages: {
+          missingRequestUrls: '未配置可用的流量概要直连接口',
+          invalidPageUrl: '请填写 Network 中的 JSON 接口 URL，不是携程概况页面地址',
+          missingCookies: '请提供携程 Cookie',
+          successPrefix: '流量概要直连获取完成',
+          failure: '流量概要抓取失败',
+          exceptionPrefix: '流量概要获取失败',
+        },
+      });
+      return { result, events, states, form, overviewResultPayload, overviewOnlinePayload, overviewShowRawData, overviewRequestBody };
+    };
+    const overviewFlowSuccess = await runOverviewSample({
+      fallbackRequestUrls: 'https://ebooking.ctrip.test/flow',
+    });
+    const overviewFlowFailure = await runOverviewSample({
+      form: { requestUrls: 'https://ebooking.ctrip.test/flow', cookies: 'sid=flow' },
+      response: { code: 500, message: 'upstream failed', data: { saved_count: 0 } },
+    });
+    const overviewFlowException = await runOverviewSample({
+      form: { requestUrls: 'https://ebooking.ctrip.test/flow', cookies: 'sid=flow' },
+      throwRequest: true,
+    });
+    const overviewMissingHotel = await runOverviewSample({ systemHotelId: '' });
+    const overviewMissingConfig = await runOverviewSample({ activeConfig: null });
+    const overviewInvalidUrl = await runOverviewSample({
+      form: { requestUrls: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true' },
+    });
+    const overviewMissingCookie = await runOverviewSample({
+      form: { requestUrls: 'https://ebooking.ctrip.test/flow', cookies: '' },
+      ctripCookies: '',
+      activeConfig: { ota_hotel_id: 'ctrip-hotel-1', cookies: '' },
     });
     const adsBody = buildCtripAdsFetchRequestBody({
       systemHotelId: '58',
@@ -2284,6 +2370,53 @@ try {
         && flowOverviewBody.method === 'GET'
         && flowOverviewBody.data_date === '2026-06-10',
       detail: 'Ctrip overview request sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip overview fetch flow refreshes persisted and UI data on success',
+      ok: overviewFlowSuccess.result.status === 'success'
+        && overviewFlowSuccess.overviewRequestBody.system_hotel_id === '58'
+        && overviewFlowSuccess.overviewRequestBody.hotel_id === 'ctrip-hotel-1'
+        && overviewFlowSuccess.overviewRequestBody.hotel_name === 'hotel-58'
+        && overviewFlowSuccess.overviewRequestBody.cookies === 'sid=form'
+        && overviewFlowSuccess.overviewRequestBody.request_urls === 'https://ebooking.ctrip.test/flow'
+        && overviewFlowSuccess.overviewRequestBody.method === 'GET'
+        && overviewFlowSuccess.overviewResultPayload?.saved_count === 6
+        && overviewFlowSuccess.overviewOnlinePayload?.saved_count === 6
+        && overviewFlowSuccess.overviewShowRawData === false
+        && overviewFlowSuccess.events.some(event => event[0] === 'latest' && event[1]?.silent === true)
+        && overviewFlowSuccess.events.some(event => event[0] === 'history')
+        && overviewFlowSuccess.states.some(event => event[0] === 'fetching' && event[1] === false)
+        && overviewFlowSuccess.states.some(event => event[0] === 'global-fetching' && event[1] === false),
+      detail: 'runCtripOverviewFetchFlow success sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip overview fetch flow keeps failed response visible',
+      ok: overviewFlowFailure.result.status === 'failed'
+        && overviewFlowFailure.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('upstream failed'))
+        && overviewFlowFailure.states.some(event => event[0] === 'fetching' && event[1] === false),
+      detail: 'runCtripOverviewFetchFlow failed response sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip overview fetch flow preserves exception evidence',
+      ok: overviewFlowException.result.status === 'exception'
+        && overviewFlowException.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('流量概要获取失败: network failed'))
+        && overviewFlowException.overviewResultPayload?.stderr === 'stderr details'
+        && overviewFlowException.states.some(event => event[0] === 'global-fetching' && event[1] === false),
+      detail: 'runCtripOverviewFetchFlow exception sample',
+    });
+    checks.push({
+      file: 'public/ctrip-static.js',
+      label: 'Ctrip overview fetch flow keeps missing states explicit',
+      ok: overviewMissingHotel.result.status === 'missing_hotel'
+        && overviewMissingConfig.result.status === 'missing_config'
+        && overviewInvalidUrl.result.status === 'invalid_page_url'
+        && overviewMissingCookie.result.status === 'missing_cookies'
+        && overviewInvalidUrl.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('不是携程概况页面地址'))
+        && overviewMissingCookie.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请提供携程 Cookie')),
+      detail: 'runCtripOverviewFetchFlow missing-state samples',
     });
     checks.push({
       file: 'public/ctrip-static.js',

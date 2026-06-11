@@ -19054,7 +19054,7 @@
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
             const buildCtripTrafficFetchRequestBody = requireCtripStatic('buildCtripTrafficFetchRequestBody');
             const buildCtripTrafficResponseModel = requireCtripStatic('buildCtripTrafficResponseModel');
-            const buildCtripOverviewFetchRequestBody = requireCtripStatic('buildCtripOverviewFetchRequestBody');
+            const runCtripOverviewFetchFlow = requireCtripStatic('runCtripOverviewFetchFlow');
             const buildCtripProfileRecheckRunContext = requireCtripStatic('buildCtripProfileRecheckRunContext');
             const runCtripProfileRecheckFlow = requireCtripStatic('runCtripProfileRecheckFlow');
             const ctripForm = ref(createCtripFetchForm());
@@ -32065,148 +32065,68 @@
                 showToast('点评浏览器采集已禁用。请使用业务、流量、订单、广告和服务质量采集入口。', 'warning');
             };
 
-            const fetchCtripOverviewData = async () => {
-                const systemHotelId = selectedCtripHotelId.value || user.value?.hotel_id || null;
-                if (!systemHotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
+            const fetchCtripOverviewData = async () => runCtripOverviewFetchFlow({
+                getSystemHotelId: () => selectedCtripHotelId.value || user.value?.hotel_id || null,
+                notify: showToast,
+                getActiveCtripConfig,
+                ensureCtripConfigSecret,
+                applyCtripConfigObject: config => applyCtripConfigObject(config, false),
+                getForm: () => ctripOverviewForm.value,
+                getCtripCookies: () => ctripForm.value.cookies,
+                getHotelNameById,
+                setFetching: value => { ctripOverviewFetching.value = value; },
+                setGlobalFetching: value => { fetchingData.value = value; },
+                setResult: value => { ctripOverviewResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                setShowRawData: value => { showRawData.value = value; },
+                requestFetch: body => request('/online-data/fetch-ctrip-overview', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                refreshLatestCtripData: loadLatestCtripData,
+                refreshOnlineHistory,
+                defaultMethod: 'POST',
+                messages: {
+                    missingRequestUrls: '请填写今日概况接口 Request URL',
+                    invalidPageUrl: '请填写 Network 中的 JSON 接口 URL，不是今日概况页面地址',
+                    missingCookies: '请提供携程 Cookie',
+                    successPrefix: '今日概况获取完成',
+                    failure: '今日概况抓取失败',
+                    exceptionPrefix: '今日概况获取失败',
+                },
+            });
 
-                const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-                if (!activeConfig) {
-                    showToast('当前酒店未配置携程数据源', 'warning');
-                    return;
-                }
-                applyCtripConfigObject(activeConfig, false);
-
-                const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.ctripHotelId || '').trim();
-                const form = ctripOverviewForm.value;
-                form.hotelId = String(form.hotelId || hotelId || '').trim();
-                form.cookies = String(form.cookies || ctripForm.value.cookies || activeConfig.cookies || '').trim();
-                form.requestUrls = String(form.requestUrls || '').trim();
-                form.payloadJson = String(form.payloadJson || '').trim();
-                form.spidertoken = String(form.spidertoken || '').trim();
-                if (!form.requestUrls) {
-                    showToast('请填写今日概况接口 Request URL', 'error');
-                    return;
-                }
-                if (form.requestUrls.includes('/datacenter/inland/businessreport/outline')) {
-                    showToast('请填写 Network 中的 JSON 接口 URL，不是今日概况页面地址', 'error');
-                    return;
-                }
-                if (!form.cookies) {
-                    showToast('请提供携程 Cookie', 'error');
-                    return;
-                }
-
-                ctripOverviewFetching.value = true;
-                fetchingData.value = true;
-                ctripOverviewResult.value = null;
-                try {
-                    const ctripOverviewFetchBody = buildCtripOverviewFetchRequestBody({
-                        systemHotelId,
-                        hotelId: form.hotelId,
-                        hotelName: getHotelNameById(systemHotelId),
-                        cookies: form.cookies,
-                        requestUrls: form.requestUrls,
-                        form,
-                        defaultMethod: 'POST',
-                    });
-                    const res = await request('/online-data/fetch-ctrip-overview', {
-                        method: 'POST',
-                        body: JSON.stringify(ctripOverviewFetchBody),
-                    });
-                    if (res.code === 200) {
-                        ctripOverviewResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        showRawData.value = false;
-                        showToast(res.message || `今日概况获取完成，已入库 ${res.data?.saved_count || 0} 条`);
-                        await loadLatestCtripData({ silent: true });
-                        await refreshOnlineHistory();
-                    } else {
-                        showToast(res.message || '今日概况抓取失败', 'error');
-                    }
-                } catch (e) {
-                    const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
-                    showToast('今日概况获取失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
-                    ctripOverviewResult.value = e?.data?.data || { error: e.message };
-                } finally {
-                    ctripOverviewFetching.value = false;
-                    fetchingData.value = false;
-                }
-            };
-
-            const fetchCtripFlowOverviewData = async () => {
-                const systemHotelId = selectedCtripHotelId.value || user.value?.hotel_id || null;
-                if (!systemHotelId) {
-                    showToast('请选择目标酒店', 'error');
-                    return;
-                }
-
-                const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-                if (!activeConfig) {
-                    showToast('当前酒店未配置携程数据源', 'warning');
-                    return;
-                }
-                applyCtripConfigObject(activeConfig, false);
-
-                const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.ctripHotelId || '').trim();
-                const form = ctripFlowOverviewForm.value;
-                form.hotelId = String(form.hotelId || hotelId || '').trim();
-                form.cookies = String(form.cookies || ctripForm.value.cookies || activeConfig.cookies || '').trim();
-                form.requestUrls = String(form.requestUrls || '').trim();
-                form.payloadJson = String(form.payloadJson || '').trim();
-                form.spidertoken = String(form.spidertoken || '').trim();
-                const requestUrls = form.requestUrls || ctripFlowOverviewDefaultRequestUrls.join('\n');
-                if (!requestUrls) {
-                    showToast('未配置可用的流量概要直连接口', 'error');
-                    return;
-                }
-                if (requestUrls.includes('/datacenter/inland/businessreport/outline')) {
-                    showToast('请填写 Network 中的 JSON 接口 URL，不是携程概况页面地址', 'error');
-                    return;
-                }
-                if (!form.cookies) {
-                    showToast('请提供携程 Cookie', 'error');
-                    return;
-                }
-
-                ctripFlowOverviewFetching.value = true;
-                fetchingData.value = true;
-                ctripFlowOverviewResult.value = null;
-                try {
-                    const ctripFlowOverviewFetchBody = buildCtripOverviewFetchRequestBody({
-                        systemHotelId,
-                        hotelId: form.hotelId,
-                        hotelName: getHotelNameById(systemHotelId),
-                        cookies: form.cookies,
-                        requestUrls,
-                        form,
-                        defaultMethod: 'GET',
-                    });
-                    const res = await request('/online-data/fetch-ctrip-overview', {
-                        method: 'POST',
-                        body: JSON.stringify(ctripFlowOverviewFetchBody),
-                    });
-                    if (res.code === 200) {
-                        ctripFlowOverviewResult.value = res.data || {};
-                        onlineDataResult.value = res.data || {};
-                        showRawData.value = false;
-                        showToast(res.message || `流量概要直连获取完成，已入库 ${res.data?.saved_count || 0} 条`);
-                        await loadLatestCtripData({ silent: true });
-                        await refreshOnlineHistory();
-                    } else {
-                        showToast(res.message || '流量概要抓取失败', 'error');
-                    }
-                } catch (e) {
-                    const detail = e?.data?.data?.stderr || e?.data?.data?.stdout || '';
-                    showToast('流量概要获取失败: ' + e.message + (detail ? '，请查看结果详情' : ''), 'error');
-                    ctripFlowOverviewResult.value = e?.data?.data || { error: e.message };
-                } finally {
-                    ctripFlowOverviewFetching.value = false;
-                    fetchingData.value = false;
-                }
-            };
+            const fetchCtripFlowOverviewData = async () => runCtripOverviewFetchFlow({
+                getSystemHotelId: () => selectedCtripHotelId.value || user.value?.hotel_id || null,
+                notify: showToast,
+                getActiveCtripConfig,
+                ensureCtripConfigSecret,
+                applyCtripConfigObject: config => applyCtripConfigObject(config, false),
+                getForm: () => ctripFlowOverviewForm.value,
+                getCtripCookies: () => ctripForm.value.cookies,
+                getFallbackRequestUrls: () => ctripFlowOverviewDefaultRequestUrls.join('\n'),
+                getHotelNameById,
+                setFetching: value => { ctripFlowOverviewFetching.value = value; },
+                setGlobalFetching: value => { fetchingData.value = value; },
+                setResult: value => { ctripFlowOverviewResult.value = value; },
+                setOnlineDataResult: value => { onlineDataResult.value = value; },
+                setShowRawData: value => { showRawData.value = value; },
+                requestFetch: body => request('/online-data/fetch-ctrip-overview', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                }),
+                refreshLatestCtripData: loadLatestCtripData,
+                refreshOnlineHistory,
+                defaultMethod: 'GET',
+                messages: {
+                    missingRequestUrls: '未配置可用的流量概要直连接口',
+                    invalidPageUrl: '请填写 Network 中的 JSON 接口 URL，不是携程概况页面地址',
+                    missingCookies: '请提供携程 Cookie',
+                    successPrefix: '流量概要直连获取完成',
+                    failure: '流量概要抓取失败',
+                    exceptionPrefix: '流量概要获取失败',
+                },
+            });
 
             const runCtripBrowserCapture = async (options = {}) => runCtripBrowserCaptureFlow({
                 options,
