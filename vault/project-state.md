@@ -1325,6 +1325,12 @@ Updated: 2026-06-11 Asia/Shanghai
 - Ctrip manual fetch success in `runCtripFetchDataFlow()` now writes the response, cards/table data, success state, and latest meta before post-fetch refreshes. History, latest-snapshot, and data-list refreshes use the existing deferred refresh callbacks and no longer block the fetch button from recovering after `/online-data/fetch-ctrip` returns.
 - Guards updated: `verify_public_entry_guard.mjs` requires the manual-fetch config prewarm, and `verify_e2e_contracts.mjs` validates that the Ctrip manual fetch flow returns before delayed history/latest refresh promises settle. E2E contract coverage increased to `499`.
 
+## 2026-06-11 Progress: P0-P2 Priority State Refresh
+
+- `AGENTS.md` was updated to remove stale P0/P2 instructions that referenced a missing `hotel-frontend/` directory and missing `public/assets/` Vite build output. Current verification found neither path in the worktree or tracked file list.
+- Current priority state now keeps release evidence and GitHub save-point hygiene as P0 boundaries, Ctrip/Meituan field-to-UI closure and AI governance as P1 development targets, and `public/index.html` plus `app/controller/OnlineData.php` complexity reduction as P2.
+- Cookie warning, `.example.env`, and README are treated as current-state items rather than repeated implementation targets: CookieHealth PHPUnit coverage passes, `.example.env` covers current `.env` keys with safe placeholders, and README uses `database/init_full.sql` plus `127.0.0.1:8080` startup guidance.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
