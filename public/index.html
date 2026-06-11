@@ -19,7 +19,6 @@
     <script src="ai-analysis-static.js"></script>
     <script src="system-static.js"></script>
     <script src="testid-static.js"></script>
-    <script src="notification-static.js"></script>
     <script src="auto-fetch-static.js"></script>
     <script src="compass-static.js"></script>
     <script src="simulation-static.js"></script>
@@ -19581,18 +19580,69 @@
                     console.warn('保存通知状态失败:', error);
                 }
             };
-            const notificationStatic = window.SUXI_NOTIFICATION_STATIC;
-            if (!notificationStatic || typeof notificationStatic !== 'object') {
-                throw new Error('缺少全局通知静态工具：notification-static.js 未加载');
-            }
-            const {
-                sanitizeGlobalNotificationText,
-                globalNotificationSeverityDotClass,
-                globalNotificationBadgeClass,
-                normalizeBackendGlobalNotification,
-                buildGlobalNotifications,
-            } = notificationStatic;
+            const notificationStaticScript = 'notification-static.js';
+            let notificationStaticLoadPromise = null;
+            const notificationStaticReady = ref(false);
+            let sanitizeGlobalNotificationText = (text, fallback = '-') => String(text || fallback || '').trim().slice(0, 180);
+            let normalizeBackendGlobalNotification = (row = {}) => row;
+            let buildGlobalNotifications = () => [];
+            let globalNotificationSeverityDotClassFromStatic = null;
+            let globalNotificationBadgeClassFromStatic = null;
+            const globalNotificationSeverityDotClass = (severity = 'info') => (
+                typeof globalNotificationSeverityDotClassFromStatic === 'function'
+                    ? globalNotificationSeverityDotClassFromStatic(severity)
+                    : 'bg-gray-400'
+            );
+            const globalNotificationBadgeClass = (severity = 'info') => (
+                typeof globalNotificationBadgeClassFromStatic === 'function'
+                    ? globalNotificationBadgeClassFromStatic(severity)
+                    : 'border-gray-200 bg-gray-50 text-gray-600'
+            );
+            const loadNotificationStatic = () => {
+                const currentStatic = window.SUXI_NOTIFICATION_STATIC;
+                if (currentStatic && typeof currentStatic === 'object') {
+                    return Promise.resolve(currentStatic);
+                }
+                if (notificationStaticLoadPromise) {
+                    return notificationStaticLoadPromise;
+                }
+                notificationStaticLoadPromise = new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = notificationStaticScript;
+                    script.onload = () => {
+                        const loadedStatic = window.SUXI_NOTIFICATION_STATIC;
+                        if (loadedStatic && typeof loadedStatic === 'object') {
+                            resolve(loadedStatic);
+                            return;
+                        }
+                        reject(new Error('缺少全局通知静态工具：notification-static.js 未加载'));
+                    };
+                    script.onerror = () => reject(new Error('缺少全局通知静态工具：notification-static.js 未加载'));
+                    document.head.appendChild(script);
+                }).catch((error) => {
+                    notificationStaticLoadPromise = null;
+                    throw error;
+                });
+                return notificationStaticLoadPromise;
+            };
+            const ensureNotificationStaticReady = async () => {
+                if (notificationStaticReady.value) return window.SUXI_NOTIFICATION_STATIC;
+                try {
+                    const notificationStatic = await loadNotificationStatic();
+                    sanitizeGlobalNotificationText = notificationStatic.sanitizeGlobalNotificationText;
+                    normalizeBackendGlobalNotification = notificationStatic.normalizeBackendGlobalNotification;
+                    buildGlobalNotifications = notificationStatic.buildGlobalNotifications;
+                    globalNotificationSeverityDotClassFromStatic = notificationStatic.globalNotificationSeverityDotClass;
+                    globalNotificationBadgeClassFromStatic = notificationStatic.globalNotificationBadgeClass;
+                    notificationStaticReady.value = true;
+                    return notificationStatic;
+                } catch (error) {
+                    console.error('[notification-static] load failed:', error);
+                    throw error;
+                }
+            };
             const loadBackendGlobalNotifications = async () => {
+                await ensureNotificationStaticReady();
                 const res = await request('/notifications?page=1&page_size=20');
                 if (res.code !== 200) {
                     throw new Error(res.message || '通知列表加载失败');
@@ -19625,6 +19675,7 @@
                 }
             };
             const globalNotifications = computed(() => {
+                if (!notificationStaticReady.value) return [];
                 return buildGlobalNotifications({
                     backendItems: globalNotificationBackendItems.value,
                     autoFetchRunState: autoFetchRunState.value,
@@ -19713,6 +19764,7 @@
                 if (!token.value || globalNotificationLoading.value) return;
                 globalNotificationLoading.value = true;
                 try {
+                    await ensureNotificationStaticReady();
                     const jobs = [loadBackendGlobalNotifications()];
                     if (!options.backendOnly) {
                         jobs.push(loadDataHealthPanel('light'));
@@ -19734,6 +19786,7 @@
             const toggleGlobalNotifications = async () => {
                 globalNotificationOpen.value = !globalNotificationOpen.value;
                 if (globalNotificationOpen.value && (!globalNotificationVisibleItems.value.length || !globalNotificationLastLoadedAt.value)) {
+                    await ensureNotificationStaticReady();
                     await refreshGlobalNotifications({ silent: true });
                 }
             };

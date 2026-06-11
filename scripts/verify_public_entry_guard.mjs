@@ -131,6 +131,15 @@ if (!fs.existsSync(indexPath)) {
     || !/newPage === ['"]ops-track['"]/.test(content)) {
     failures.push('public/index.html must load operation static data before operation, opening, and lifecycle page work.');
   }
+  if (/<script\s+src=["']notification-static\.js["']/.test(content)) {
+    failures.push('public/index.html must lazy-load notification-static.js; the login shell does not need notification rendering helpers.');
+  }
+  if (!/const\s+notificationStaticScript\s*=\s*["']notification-static\.js["']/.test(content) || !/const\s+loadNotificationStatic\s*=\s*\(\)\s*=>/.test(content)) {
+    failures.push('public/index.html must keep an explicit lazy loader for notification-static.js.');
+  }
+  if (!/await ensureNotificationStaticReady\(\);/.test(content) || !/const\s+globalNotifications\s*=\s*computed\(\(\)\s*=>\s*\{[\s\S]*notificationStaticReady\.value/.test(content)) {
+    failures.push('public/index.html must load notification static data before notification refresh and avoid building notifications before the helper is ready.');
+  }
 
   if (!/<script\s+src=["']form-operation-support\.js["']\s+defer\s*><\/script>/.test(content)) {
     failures.push('public/index.html must defer form-operation-support.js because it self-initializes and is not a Vue setup dependency.');
