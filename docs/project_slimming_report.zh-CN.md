@@ -1322,6 +1322,14 @@
 - 当前 public split-map：`public/index.html` 为 `37,323` 行、`1,542` 个前端函数级块；config 域跨度降至 `469` 行。`app/controller/OnlineData.php` 仍是独立 P2 拆分候选，不属于本保存点。
 - 已验证：`node --check public\system-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:e2e-contracts`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:split-map`、`git diff --check`。
 
+## 2026-06-11 保存点：平台自动获取后台任务
+
+- `public/auto-fetch-static.js` 的手动平台自动获取触发体新增 `async: true`；后端返回 `running` / `queued` / `accepted` 时，前端进入持续运行态，只刷新状态和通知，不再等待完整 OTA 采集完成后才恢复 UI。
+- `app/controller/OnlineData.php` 新增后台任务创建、启动和运行态记录：请求带 `async=true` 且不是 `background_task` 时，创建 `runtime/auto_fetch_tasks/<task_id>/input.json`，记录 `running_task`，通过 PHP CLI 启动一次性 worker，并立即返回 `自动获取已提交后台执行`。
+- 新增 `app/command/AutoFetchOnlineDataOnce.php` 并在 `config/console.php` 注册 `online-data:auto-fetch-once`；worker 读取一次性任务、删除输入文件、以 `background_task=true` 回调 `/api/online-data/auto-fetch`，失败时写回对应酒店的自动获取状态。
+- 更新守卫：`verify_e2e_contracts.mjs` 要求前端 async 触发、accepted 返回路径、后端任务创建/运行态方法、命令文件和 console 注册；`verify_public_entry_guard.mjs` 禁止平台自动获取重新阻塞 UI。
+- 已验证：`C:\xampp\php\php.exe -l app\controller\OnlineData.php`、`C:\xampp\php\php.exe -l app\command\AutoFetchOnlineDataOnce.php`、`node --check public\auto-fetch-static.js`、`node --check scripts\verify_e2e_contracts.mjs`、`node --check scripts\verify_public_entry_guard.mjs`、`C:\xampp\php\php.exe think list` 可见 `online-data:auto-fetch-once`、`C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\OnlineDataTest.php --filter "AutoFetch|autoFetch|Ctrip"`（`97` tests / `1246` assertions）、`npm.cmd run verify:e2e-contracts`（`533` checks）、`npm.cmd run verify:public-entry`、`npm.cmd run verify:p0-guards`、`npm.cmd run self:audit`、`git diff --check`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

@@ -154,6 +154,12 @@ for (const flowFile of ['public/auto-fetch-static.js', 'public/ctrip-static.js',
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchTriggerRequestBody', 'auto-fetch static builds trigger request bodies');
 requireText('public/auto-fetch-static.js', 'const buildAutoFetchRunStartState', 'auto-fetch static builds trigger run start state');
 requireText('public/auto-fetch-static.js', 'const runAutoFetchTriggerFlow', 'auto-fetch static runs manual trigger flow');
+requireText('public/auto-fetch-static.js', 'async: true', 'auto-fetch trigger submits quickly and lets backend continue collection');
+requireText('public/auto-fetch-static.js', "return { status: 'accepted'", 'auto-fetch trigger keeps backend queued state non-blocking');
+requireText('app/controller/OnlineData.php', 'markAutoFetchRunningStatus', 'backend records running auto-fetch task status');
+requireText('app/controller/OnlineData.php', 'createAutoFetchBackgroundTask', 'backend creates one-shot auto-fetch background tasks');
+requireText('app/command/AutoFetchOnlineDataOnce.php', 'online-data:auto-fetch-once', 'backend registers a one-shot auto-fetch worker command');
+requireText('config/console.php', "'online-data:auto-fetch-once'", 'console exposes one-shot auto-fetch worker command');
 requireText('public/index.html', "requireSystemStatic('getDefaultDataConfigForm')", 'entry uses extracted data config default form');
 requireText('public/index.html', "requireSystemStatic('getDataConfigTypeDefaults')", 'entry uses extracted data config type defaults');
 requireText('public/index.html', "requireSystemStatic('getSystemConfigDefaults')", 'entry uses extracted system config defaults');
@@ -650,6 +656,9 @@ try {
     };
 
     const successRun = await runTriggerSample();
+    const acceptedRun = await runTriggerSample({
+      response: { code: 200, message: 'queued', data: { status: 'running', task_id: 'task-1', saved_count: 0 } },
+    });
     const delayedRefreshRun = await runTriggerSample({ delayedRefresh: true });
     const errorRun = await runTriggerSample({
       response: { code: 500, message: 'upstream failed', data: { saved_count: 0 } },
@@ -665,6 +674,7 @@ try {
         && triggerBody.data_period === 'realtime_snapshot'
         && triggerBody.interactive_browser === false
         && triggerBody.browser_headless === true
+        && triggerBody.async === true
         && triggerBody.meituan_auto_fetch_mode === 'hybrid_auto'
         && triggerBody.ctrip_section_concurrency === 3,
       detail: 'buildAutoFetchTriggerRequestBody sample',
@@ -681,9 +691,26 @@ try {
     });
     checks.push({
       file: 'public/auto-fetch-static.js',
+      label: 'auto-fetch trigger accepted path returns before OTA collection finishes',
+      ok: acceptedRun.result.status === 'accepted'
+        && acceptedRun.capturedRequestBody.async === true
+        && acceptedRun.events.some(event => event[0] === 'state' && event[1] === 'running' && event[2].active === true)
+        && acceptedRun.events.some(event => event[0] === 'lastResult' && event[1] === null && event[2] === 'queued')
+        && acceptedRun.events.some(event => event[0] === 'notify' && event[1] === 'info' && event[2] === 'queued')
+        && acceptedRun.events.some(event => event[0] === 'refresh' && event[1] === 'status')
+        && acceptedRun.events.some(event => event[0] === 'refresh' && event[1] === 'notifications')
+        && !acceptedRun.events.some(event => event[0] === 'refresh' && ['online', 'history', 'latest'].includes(event[1]))
+        && acceptedRun.events.some(event => event[0] === 'timer' && event[1] === 'start')
+        && acceptedRun.events.some(event => event[0] === 'timer' && event[1] === 'stop')
+        && acceptedRun.events.some(event => event[0] === 'fetching' && event[1] === false),
+      detail: 'runAutoFetchTriggerFlow accepted sample',
+    });
+    checks.push({
+      file: 'public/auto-fetch-static.js',
       label: 'auto-fetch trigger success path refreshes persisted and UI data',
       ok: successRun.result.status === 'success'
         && successRun.capturedRequestBody.system_hotel_id === 58
+        && successRun.capturedRequestBody.async === true
         && successRun.events.some(event => event[0] === 'state' && event[1] === 'running')
         && successRun.events.some(event => event[0] === 'state' && event[1] === 'success')
         && successRun.events.some(event => event[0] === 'lastResult' && event[1] === true && event[2] === 'ok')

@@ -1357,6 +1357,13 @@ Updated: 2026-06-11 Asia/Shanghai
 - `scripts/verify_e2e_contracts.mjs` now requires the extracted helper, prevents re-inlining the OTA-oriented system description, and validates product, complaint, security, notification, and fresh-object defaults in VM.
 - Current public split-map for this save point: `public/index.html` has `37323` lines and `1542` frontend function-level blocks; config domain span reduced to `469` lines. E2E contract verification passed with `526` checks.
 
+## 2026-06-11 Progress: Background Platform Auto-Fetch Task
+
+- Manual platform auto-fetch now submits `async: true` from `public/auto-fetch-static.js`, so the UI gets a running/accepted state without waiting for the full OTA collection to finish. Accepted backend responses update the in-panel running state and refresh backend status/notifications asynchronously.
+- `app/controller/OnlineData.php` creates one-shot background task files under `runtime/auto_fetch_tasks`, records `running_task` status, launches the task through the PHP CLI, and clears running state when the task updates the final fetch status.
+- `app/command/AutoFetchOnlineDataOnce.php` is registered as `online-data:auto-fetch-once` in `config/console.php`; it posts the prepared payload back to `/api/online-data/auto-fetch` with `background_task=true`, deletes its input file, and marks the hotel status failed if the worker cannot complete.
+- Guards now require the accepted frontend path, backend running-task methods, command registration, and non-blocking status refresh behavior. Verified with PHP lint, `php think list`, OnlineData AutoFetch/Ctrip PHPUnit filter (`97` tests, `1246` assertions), `verify:e2e-contracts` (`533` checks), `verify:public-entry`, `verify:p0-guards`, and `self:audit`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

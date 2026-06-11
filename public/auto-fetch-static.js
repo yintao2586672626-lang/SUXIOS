@@ -297,6 +297,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         data_period: 'realtime_snapshot',
         interactive_browser: !browserHeadless,
         browser_headless: browserHeadless,
+        async: true,
         ...(modePayload || {}),
     });
 
@@ -372,6 +373,22 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             const finishedAt = getTimestamp();
             const durationText = getDurationText();
             if (res.code === 200) {
+                const responseStatus = String(res.data?.status || '').toLowerCase();
+                if (['running', 'queued', 'accepted'].includes(responseStatus)) {
+                    const message = res.message || `自动获取已提交后台执行（启动耗时 ${durationText}）`;
+                    updateLastResult(res, null, message);
+                    setRunState({
+                        active: true,
+                        type: 'running',
+                        message,
+                        started_at: startedAt,
+                        finished_at: '',
+                    });
+                    notify(message, 'info');
+                    runPostFetchRefresh(loadAutoFetchStatus);
+                    runPostFetchRefresh(loadBackendGlobalNotifications);
+                    return { status: 'accepted', response: res, requestBody };
+                }
                 const message = `采集完成并入库 ${res.data?.saved_count || 0} 条 OTA 指标行（耗时 ${durationText}）`;
                 updateLastResult(res, true, res.message || message);
                 setRunState({

@@ -224,6 +224,15 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('scheduleOnlineHistoryRefresh')) {
     failures.push('public/index.html must keep post-fetch refreshes deferred so manual and auto collection do not block the UI.');
   }
+  const autoFetchStaticPath = path.join(repoRoot, 'public/auto-fetch-static.js');
+  const autoFetchStaticContent = fs.existsSync(autoFetchStaticPath) ? fs.readFileSync(autoFetchStaticPath, 'utf8') : '';
+  if (!/const\s+buildAutoFetchTriggerRequestBody[\s\S]*async:\s*true/.test(autoFetchStaticContent)) {
+    failures.push('public/auto-fetch-static.js must submit platform auto-fetch triggers with async: true so the UI is not blocked by OTA collection.');
+  }
+  if (!/return\s+\{\s*status:\s*['"]accepted['"]/.test(autoFetchStaticContent)
+    || !/runPostFetchRefresh\(loadAutoFetchStatus\)/.test(autoFetchStaticContent)) {
+    failures.push('public/auto-fetch-static.js must treat backend running/queued auto-fetch responses as accepted and refresh status without blocking.');
+  }
   const strategyDetailLoader = content.slice(
     content.indexOf('const loadStrategyDetail = async'),
     content.indexOf('const reuseStrategyRecord = async')

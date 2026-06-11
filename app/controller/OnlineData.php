@@ -17057,6 +17057,39 @@ JAVASCRIPT;
             $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
         }
         $fetchOptions = array_merge($fetchOptions, $this->platformAutoFetchModeOptionsFromRequest($requestData));
+        $backgroundRequested = $this->isTruthyRequestValue($requestData['async'] ?? $requestData['background'] ?? false)
+            && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
+        if ($backgroundRequested) {
+            $task = $this->createAutoFetchBackgroundTask((int)$systemHotelId, $targetDataDate, $dataPeriod, $requestData, $fetchOptions);
+            if (empty($task)) {
+                return $this->error('后台自动获取任务创建失败，请检查 PHP CLI 或登录状态');
+            }
+            $this->markAutoFetchRunningStatus((int)$systemHotelId, $targetDataDate, $dataPeriod, $task, $fetchOptions);
+            if (!$this->launchAutoFetchBackgroundTask($task)) {
+                $inputPath = (string)($task['input'] ?? '');
+                if ($inputPath !== '' && is_file($inputPath)) {
+                    @unlink($inputPath);
+                }
+                $this->updateFetchStatus((int)$systemHotelId, false, '后台自动获取任务启动失败', $targetDataDate, [
+                    'data_period' => $dataPeriod,
+                    'auto_fetch_mode' => $fetchOptions['auto_fetch_mode'] ?? null,
+                    'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
+                ]);
+                return $this->error('后台自动获取任务启动失败');
+            }
+
+            OperationLog::record('online_data', 'auto_fetch_queued', "平台数据自动获取已提交后台执行 (门店ID: {$systemHotelId})", $this->currentUser->id);
+            return $this->success([
+                'status' => 'running',
+                'task_id' => (string)$task['task_id'],
+                'data_date' => $targetDataDate,
+                'data_period' => $dataPeriod,
+                'saved_count' => 0,
+                'auto_fetch_mode' => $fetchOptions['auto_fetch_mode'] ?? 'hybrid_auto',
+                'auto_fetch_mode_label' => $this->autoFetchModeLabel((string)($fetchOptions['auto_fetch_mode'] ?? 'hybrid_auto')),
+                'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
+            ], '自动获取已提交后台执行');
+        }
 
         try {
             $result = $this->executeAutoFetch((int)$systemHotelId, $targetDataDate, $fetchOptions);
@@ -17125,6 +17158,160 @@ JAVASCRIPT;
     /**
      * 更新获取状态
      */
+    private function createAutoFetchBackgroundTask(int $hotelId, string $dataDate, string $dataPeriod, array $requestData, array $fetchOptions): array
+    {
+        $authorization = trim((string)$this->request->header('Authorization', ''));
+        if ($hotelId <= 0 || $authorization === '') {
+            return [];
+        }
+
+        $projectRoot = dirname(__DIR__, 2);
+        $phpBinary = $this->resolvePhpCliBinary();
+        $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
+        if ($phpBinary === '' || !is_file($thinkPath)) {
+            return [];
+        }
+
+        $taskId = 'auto_fetch_' . $hotelId . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4));
+        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'auto_fetch_tasks' . DIRECTORY_SEPARATOR . $taskId;
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return [];
+        }
+
+        $mode = $fetchOptions['auto_fetch_mode'] ?? ($requestData['auto_fetch_mode'] ?? $requestData['autoMode'] ?? 'hybrid_auto');
+        $body = [
+            'system_hotel_id' => $hotelId,
+            'data_period' => $dataPeriod,
+            'interactive_browser' => !empty($fetchOptions['interactive_browser']),
+            'browser_headless' => !empty($fetchOptions['browser_headless']),
+            'async' => false,
+            'background_task' => true,
+            'auto_fetch_mode' => $mode,
+            'ctrip_auto_fetch_mode' => $fetchOptions['ctrip_auto_fetch_mode'] ?? $mode,
+            'meituan_auto_fetch_mode' => $fetchOptions['meituan_auto_fetch_mode'] ?? $mode,
+            'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
+        ];
+        $inputPath = $dir . DIRECTORY_SEPARATOR . 'input.json';
+        $task = [
+            'task_id' => $taskId,
+            'hotel_id' => $hotelId,
+            'data_date' => $dataDate,
+            'data_period' => $dataPeriod,
+            'api_url' => rtrim($this->request->domain(), '/') . '/api/online-data/auto-fetch',
+            'authorization' => $authorization,
+            'body' => $body,
+            'input' => $inputPath,
+            'log' => $dir . DIRECTORY_SEPARATOR . 'launcher.log',
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        if (file_put_contents($inputPath, json_encode($task, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) === false) {
+            return [];
+        }
+
+        return $task;
+    }
+
+    private function launchAutoFetchBackgroundTask(array $task): bool
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $phpBinary = $this->resolvePhpCliBinary();
+        $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
+        $inputPath = (string)($task['input'] ?? '');
+        if ($phpBinary === '' || !is_file($thinkPath) || !is_file($inputPath)) {
+            return false;
+        }
+
+        $dir = dirname($inputPath);
+        $taskId = (string)$task['task_id'];
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
+            $inputFile = basename($inputPath);
+            $lines = [
+                '@echo off',
+                'setlocal',
+                'set "TASK_DIR=%~dp0"',
+                'pushd "%TASK_DIR%..\..\.." || exit /b 1',
+                $this->quoteWindowsBatchArg($phpBinary)
+                    . ' "%CD%\think"'
+                    . ' "online-data:auto-fetch-once"'
+                    . ' "--task-id=' . $taskId . '"'
+                    . ' "--input=%TASK_DIR%' . $inputFile . '"'
+                    . ' >> "%TASK_DIR%launcher.log" 2>&1',
+                'set "EXIT_CODE=%ERRORLEVEL%"',
+                'popd',
+                'exit /b %EXIT_CODE%',
+            ];
+            if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
+                return false;
+            }
+            $launchCommand = '$bat=' . $this->quotePowerShellSingleQuotedString($batPath)
+                . '; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList @("/d","/c","call",$bat)';
+            $handle = @popen(
+                'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand '
+                    . $this->encodeWindowsPowerShellCommand($launchCommand),
+                'r'
+            );
+            if (!is_resource($handle)) {
+                return false;
+            }
+            pclose($handle);
+            return true;
+        }
+
+        $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
+        $command = 'cd ' . escapeshellarg($projectRoot)
+            . ' && ' . escapeshellarg($phpBinary)
+            . ' ' . escapeshellarg($thinkPath)
+            . ' online-data:auto-fetch-once'
+            . ' --task-id=' . escapeshellarg($taskId)
+            . ' --input=' . escapeshellarg($inputPath)
+            . ' >> ' . escapeshellarg((string)$task['log']) . ' 2>&1';
+        if (file_put_contents($shellPath, "#!/bin/sh\n" . $command . "\n") === false) {
+            return false;
+        }
+        @chmod($shellPath, 0755);
+        $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
+        if (!is_resource($handle)) {
+            return false;
+        }
+        pclose($handle);
+        return true;
+    }
+
+    private function markAutoFetchRunningStatus(int $hotelId, string $dataDate, string $dataPeriod, array $task, array $fetchOptions): void
+    {
+        $statusKey = $this->autoFetchStatusKey($hotelId);
+        $status = cache($statusKey) ?: [];
+        $status = is_array($status) ? $status : [];
+        $runAt = date('Y-m-d H:i:s');
+        $mode = $this->normalizeAutoFetchMode($fetchOptions['auto_fetch_mode'] ?? 'hybrid_auto');
+        $status['last_run_time'] = $runAt;
+        $status['last_data_date'] = $dataDate;
+        $status['auto_fetch_mode'] = $mode;
+        $status['ctrip_auto_fetch_mode'] = $this->normalizeAutoFetchMode($fetchOptions['ctrip_auto_fetch_mode'] ?? $mode);
+        $status['meituan_auto_fetch_mode'] = $this->normalizeAutoFetchMode($fetchOptions['meituan_auto_fetch_mode'] ?? $mode);
+        $status['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($fetchOptions['ctrip_section_concurrency'] ?? 3);
+        $status['running_task'] = [
+            'task_id' => (string)$task['task_id'],
+            'started_at' => $runAt,
+            'data_date' => $dataDate,
+            'data_period' => $dataPeriod,
+        ];
+        $status['last_result'] = [
+            'success' => null,
+            'status' => 'running',
+            'message' => '自动获取已提交后台执行，采集完成后会更新结果',
+            'data_period' => $dataPeriod,
+            'saved_count' => 0,
+            'auto_fetch_mode' => $mode,
+            'auto_fetch_mode_label' => $this->autoFetchModeLabel($mode),
+            'ctrip_section_concurrency' => $status['ctrip_section_concurrency'],
+            'task_id' => (string)$task['task_id'],
+        ];
+        cache($statusKey, $status, 86400 * 30);
+    }
+
     private function updateFetchStatus(?int $hotelId, bool $success, string $message, ?string $dataDate = null, array $details = []): void
     {
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
@@ -17142,6 +17329,10 @@ JAVASCRIPT;
             'message' => $message,
         ];
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($details['data_period'] ?? $details['dataPeriod'] ?? '');
+        $statusCode = trim((string)($details['status'] ?? ($success ? 'success' : 'failed')));
+        if ($statusCode !== '') {
+            $runRecord['status'] = $statusCode;
+        }
         if ($dataPeriod !== '') {
             $runRecord['data_period'] = $dataPeriod;
         }
@@ -17165,9 +17356,11 @@ JAVASCRIPT;
 
         $status['last_run_time'] = $runAt;
         $status['last_data_date'] = $dataDate;
+        unset($status['running_task']);
         $status['last_result'] = [
             'success' => $success,
-            'message' => $message
+            'message' => $message,
+            'status' => $statusCode,
         ];
         if ($dataPeriod !== '') {
             $status['last_result']['data_period'] = $dataPeriod;
@@ -17200,7 +17393,7 @@ JAVASCRIPT;
         $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate) {
             return (string)($item['data_date'] ?? '') !== $dataDate;
         }));
-        if (!$success) {
+        if (!$success && !in_array($statusCode, ['running', 'queued'], true)) {
             array_unshift($failedRecords, [
                 'data_date' => $dataDate,
                 'last_failed_at' => $runAt,
