@@ -399,6 +399,18 @@ if (!fs.existsSync(indexPath)) {
     || /tab\s*===\s*['"]traffic['"][\s\S]{0,220}loadAutoFetchPanel\(\)/.test(content)) {
     failures.push('public/index.html must not load the full platform-auto panel from Ctrip fetch settings or download tab switches.');
   }
+  const downloadCenterTabSource = content.slice(
+    content.indexOf('const scheduleDownloadCenterTabLoad = (tab, context = {}) => {'),
+    content.indexOf('const switchToDownloadCenter = async')
+  );
+  if (!content.includes('const scheduleDownloadCenterTabLoad = (tab, context = {}) => {')
+    || !content.includes('const switchDownloadTab = (tab) => {')
+    || !/deferUiTask\(async \(\) =>[\s\S]*downloadCenterTab\.value === tab[\s\S]*Promise\.allSettled\(\[[\s\S]*loadOnlineDataList\(\),[\s\S]*loadOnlineDataHotelList\(\)/.test(downloadCenterTabSource)
+    || downloadCenterTabSource.includes('const switchDownloadTab = async')
+    || downloadCenterTabSource.includes("onlineDataTab.value = 'ctrip-fetch-settings';\n                    await loadCtripConfigList();")
+    || downloadCenterTabSource.includes('await loadOnlineDataList();\n                    await loadOnlineDataHotelList();')) {
+    failures.push('public/index.html download center tab switches must schedule list/config/AI loads after the tab changes.');
+  }
   if (!/newTab === ['"]platform-auto['"][\s\S]*schedulePlatformAutoFetchPanelLoad\(\)/.test(content)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
   }

@@ -1563,6 +1563,17 @@
 - 当前自审计：完整目录约 `229.39 MB`；不含 `.git` 约 `109.08 MB`；不含 `.git` 和依赖约 `79.89 MB`；Git 跟踪文件约 `18.91 MB` / `618` 个；代码范围 `373` 个文件、`198,530` 行、非空 `182,541` 行；默认可清理目标为 `runtime` 约 `16.05 MB` / `373` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
 - 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:p0-guards`、`npm.cmd run verify:e2e-contracts`（`745` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
 
+## 2026-06-12 保存点：下载中心 Tab 切换后置加载
+
+- `public/index.html` 新增 `scheduleDownloadCenterTabLoad()`，将下载中心历史、概览和 AI Tab 的数据列表、酒店列表和 AI 静态 helper 加载后置到 Tab 已切换之后执行。
+- `switchDownloadTab()` 改为非阻塞函数：先更新当前 Tab 和数据来源，再通过 `deferUiTask()` 调度列表/酒店刷新；携程流量入口切到 `ctrip-fetch-settings` 后再后置读取携程配置列表。
+- 调度器通过序号和当前 `onlineDataTab`/`downloadCenterTab` 校验丢弃过期异步结果，避免快速切换 Tab 时旧加载写回当前视图。
+- 本保存点不改变下载中心接口、线上数据列表接口、酒店列表接口、AI 分析接口、OTA 采集、入库、字段口径、权限或数据库结构；缺失、失败和未配置状态继续显式展示。
+- 更新守卫：`verify_public_entry_guard.mjs` 要求下载中心 Tab 切换走后置调度，并禁止回退到 `async switchDownloadTab()`、携程流量入口同步等待配置列表、历史/AI Tab 串行等待列表和酒店刷新；`verify_e2e_contracts.mjs` 同步将 E2E 合同检查数提升到 `750`。
+- 当前 split-map：`public/index.html` 为 `37,497` 行、`1,571` 个前端函数级块、`43` 个 `currentPage` 引用；`app/controller/OnlineData.php` 为 `26,991` 行、`867` 个方法。两者仍是 P2 拆分候选，未声明严格门禁完成。
+- 当前自审计：完整目录约 `231.09 MB`；不含 `.git` 约 `110.08 MB`；不含 `.git` 和依赖约 `80.89 MB`；Git 跟踪文件约 `18.91 MB` / `618` 个；代码范围 `373` 个文件、`198,568` 行、非空 `182,579` 行；默认可清理目标为 `runtime` 约 `17.04 MB` / `382` 个文件，按本轮只处理 P0/P1/P2 的边界留到后续小优化。
+- 已验证：`node --check scripts\verify_public_entry_guard.mjs`、`node --check scripts\verify_e2e_contracts.mjs`、`npm.cmd run verify:public-entry`、`npm.cmd run verify:e2e-contracts`（`750` checks）、`npm.cmd run self:audit`、`npm.cmd run self:split-map`。
+
 ## 后续处理建议
 
 1. 日常开发结束后先运行 `npm run self:audit`。

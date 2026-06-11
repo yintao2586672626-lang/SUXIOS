@@ -22682,40 +22682,61 @@
                 }
             };
 
-            // 切换下载中心Tab（自动加载数据）
-            const switchDownloadTab = async (tab) => {
-                const isCtripDownload = onlineDataTab.value === 'ctrip-download' || onlineDataTab.value.startsWith('ctrip');
-                if (isCtripDownload && tab === 'traffic') {
-                    onlineDataTab.value = 'ctrip-fetch-settings';
-                    await loadCtripConfigList();
-                    return;
-                }
-                downloadCenterTab.value = tab;
-                if (tab !== 'fetched') {
-                    // 根据当前页面设置数据来源
-                    if (isCtripDownload) {
-                        onlineDataFilter.value.source = 'ctrip';
-                    } else if (onlineDataTab.value === 'meituan-download' || onlineDataTab.value.startsWith('meituan')) {
-                        onlineDataFilter.value.source = 'meituan';
-                    }
-                    if (tab === 'overview' && isCtripDownload) {
+            let downloadCenterTabLoadSeq = 0;
+            const scheduleDownloadCenterTabLoad = (tab, context = {}) => {
+                const seq = ++downloadCenterTabLoadSeq;
+                deferUiTask(async () => {
+                    const isCurrentTab = () => downloadCenterTab.value === tab
+                        && (!context.onlineDataTab || onlineDataTab.value === context.onlineDataTab);
+                    if (!isCurrentTab()) return null;
+                    if (tab === 'overview' && context.isCtripDownload) {
                         await refreshOnlineHistory();
-                        return;
+                        return null;
                     }
-                    // 切换到历史记录、AI分析时自动加载数据
-                    await loadOnlineDataList();
-                    await loadOnlineDataHotelList();
-
-                    // AI分析Tab需要更新酒店列表
+                    await Promise.allSettled([
+                        loadOnlineDataList(),
+                        loadOnlineDataHotelList(),
+                    ]);
+                    if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
                     if (tab === 'ai') {
                         await ensureAiAnalysisStaticReady();
-                        if (onlineDataTab.value === 'ctrip-download' || onlineDataTab.value.startsWith('ctrip')) {
+                        if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
+                        if (context.source === 'ctrip') {
                             updateAiAnalysisHotelList();
-                        } else if (onlineDataTab.value === 'meituan-download' || onlineDataTab.value.startsWith('meituan')) {
+                        } else if (context.source === 'meituan') {
                             updateMeituanAiAnalysisHotelList();
                         }
                     }
+                    return null;
+                }, 60);
+            };
+
+            // 切换下载中心Tab（自动加载数据）
+            const switchDownloadTab = (tab) => {
+                const sourceTab = onlineDataTab.value;
+                const isCtripDownload = sourceTab === 'ctrip-download' || sourceTab.startsWith('ctrip');
+                if (isCtripDownload && tab === 'traffic') {
+                    onlineDataTab.value = 'ctrip-fetch-settings';
+                    deferUiTask(async () => {
+                        if (onlineDataTab.value !== 'ctrip-fetch-settings') return null;
+                        await loadCtripConfigList();
+                        return null;
+                    }, 80);
+                    return;
                 }
+                downloadCenterTab.value = tab;
+                if (tab === 'fetched') return;
+                // 根据当前页面设置数据来源
+                if (isCtripDownload) {
+                    onlineDataFilter.value.source = 'ctrip';
+                } else if (sourceTab === 'meituan-download' || sourceTab.startsWith('meituan')) {
+                    onlineDataFilter.value.source = 'meituan';
+                }
+                scheduleDownloadCenterTabLoad(tab, {
+                    onlineDataTab: sourceTab,
+                    isCtripDownload,
+                    source: onlineDataFilter.value.source,
+                });
             };
 
             // 切换到下载中心（自动加载数据）

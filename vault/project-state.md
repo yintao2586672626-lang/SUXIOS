@@ -1594,6 +1594,17 @@ Updated: 2026-06-12 Asia/Shanghai
 - Current self-audit: full directory about `229.39 MB`, without `.git` about `109.08 MB`, without `.git` and dependencies about `79.89 MB`, tracked files about `18.91 MB` / `618` files; code scope `373` files, `198530` total lines, and `182541` nonblank lines. Runtime cleanup is about `16.05 MB` / `373` files and is left for later small optimization by the current P0/P1/P2 boundary.
 - Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:p0-guards`; `verify:e2e-contracts` with `745` checks; `self:audit`; `self:split-map`.
 
+## 2026-06-12 Progress: Download Center Deferred Tab Loads
+
+- `public/index.html` now adds `scheduleDownloadCenterTabLoad()` so download-center history, overview, and AI tab data-list, hotel-list, and AI static-helper work runs after the visible tab switches.
+- `switchDownloadTab()` is now non-blocking: it updates the active tab and data source first, then schedules list/hotel refreshes through `deferUiTask()`. The Ctrip traffic shortcut switches to `ctrip-fetch-settings` first, then defers Ctrip config-list loading.
+- The scheduler uses a sequence number plus current `onlineDataTab` / `downloadCenterTab` checks to ignore stale async results when the user switches tabs quickly.
+- This does not change download-center APIs, online data list APIs, hotel list APIs, AI analysis APIs, OTA collection, persistence, field semantics, permissions, or database schema. Missing, failed, and unconfigured states remain explicit.
+- Guards now require deferred download-center tab loading and reject `async switchDownloadTab()`, synchronous Ctrip config-list loading from the traffic shortcut, and serial list/hotel refresh waits from history or AI tabs; `verify:e2e-contracts` covers `750` checks.
+- Current split-map: `public/index.html` has `37497` lines, `1571` frontend function-level blocks, and `43` `currentPage` refs. `app/controller/OnlineData.php` has `26991` lines and `867` methods. Both remain P2 split candidates; strict gate is not complete.
+- Current self-audit: full directory about `231.09 MB`, without `.git` about `110.08 MB`, without `.git` and dependencies about `80.89 MB`, tracked files about `18.91 MB` / `618` files; code scope `373` files, `198568` total lines, and `182579` nonblank lines. Runtime cleanup is about `17.04 MB` / `382` files and is left for later small optimization by the current P0/P1/P2 boundary.
+- Verified in this save point: `node --check scripts\verify_public_entry_guard.mjs`; `node --check scripts\verify_e2e_contracts.mjs`; `verify:public-entry`; `verify:e2e-contracts` with `750` checks; `self:audit`; `self:split-map`.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.
